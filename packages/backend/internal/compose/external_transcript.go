@@ -67,10 +67,11 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 		return ack, err
 	}
 	var drafts []chat.ExternalDraft
+	stopped := false
 	if s.Normalize != nil {
 		drafts, err = s.Normalize(ctx, tx, branch, binding, record)
 	} else {
-		drafts, err = s.normalizeHost(ctx, tx, branch, binding, record, event.EventID)
+		drafts, stopped, err = s.normalizeHost(ctx, tx, branch, binding, record, event.EventID)
 	}
 	if err != nil {
 		return ack, err
@@ -85,5 +86,11 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 		return ack, err
 	}
 	ack.Outcome = machined.AckApplied
+	if stopped {
+		// The record is settled, not applied: the receipt and the entry that
+		// says the import stopped commit together, and the guest reads the
+		// rejection as the instruction to stop that source.
+		ack.Outcome = machined.AckRejected
+	}
 	return ack, nil
 }

@@ -10,7 +10,7 @@ import { createServer } from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { parseArgs } from "node:util"
 import { docs } from "smithers:docs"
-import { normalizeTranscript } from "./transcript.ts"
+import { normalizeTranscript, TranscriptRefused } from "./transcript.ts"
 
 const parsed = parseArgs({
   args: process.argv.slice(2),
@@ -92,8 +92,12 @@ const normalize = async (request: Request): Promise<Response> => {
   if (!authorized(request)) return Response.json({ code: "unauthorized" }, { status: 401 })
   try {
     return Response.json(normalizeTranscript(await request.json()))
-  } catch {
-    return Response.json({ code: "transcript_invalid" }, { status: 422 })
+  } catch (error) {
+    // A refusal is the decoder's answer about the agent's transcript; anything else is a request this host
+    // cannot trust. The backend stops the source for the first and commits nothing for the second.
+    return error instanceof TranscriptRefused
+      ? Response.json({ code: "transcript_refused", reason: error.reason, line: error.line }, { status: 422 })
+      : Response.json({ code: "transcript_invalid" }, { status: 422 })
   }
 }
 const MAX_BODY_BYTES = 2 * 1024 * 1024

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"strings"
 )
 
 // ExternalDraft is the inert output of the install-shipped T-AGT-01 adapter.
@@ -37,9 +38,11 @@ func (d ExternalDraft) valid() bool {
 	if d.ID == "" || d.SourceID == "" || d.Origin != "external" || !d.ReadOnly || d.Session == "" || d.Participant == "" || d.Owner == "" || !json.Valid(d.Body) {
 		return false
 	}
-	// The release-valued aliases remain readable for already persisted rows.
-	// New host drafts use the adapter's canonical minor-version profile.
-	if !((d.Agent == "claude-code" && oneOf(d.Profile, "claude-code/2.1", "claude-code/2.1.0")) || (d.Agent == "codex" && oneOf(d.Profile, "codex-rollout/0.160", "codex/0.160.0"))) {
+	// The profile names its agent. Which release lines decode is the adapter's
+	// answer alone: a second list here refused Codex 0.159 sessions the adapter
+	// reads, and would refuse the entry that says a version is unsupported.
+	// The codex/ spelling remains readable for already persisted rows.
+	if !((d.Agent == "claude-code" && externalProfile(d.Profile, "claude-code/")) || (d.Agent == "codex" && (externalProfile(d.Profile, "codex-rollout/") || externalProfile(d.Profile, "codex/")))) {
 		return false
 	}
 	if !oneOf(d.Kind, "prompt", "assistant", "thinking", "attachment", "tool_request", "tool_result", "edit", "error") {
@@ -49,6 +52,21 @@ func (d ExternalDraft) valid() bool {
 		return d.Author == d.Owner
 	}
 	return d.Author == d.Participant
+}
+
+// externalProfile reports whether profile is family followed by a dotted
+// release: digits and dots only, so a profile can never smuggle a path or text.
+func externalProfile(profile, family string) bool {
+	release, found := strings.CutPrefix(profile, family)
+	if !found || release == "" || len(release) > 32 || release[0] == '.' || release[len(release)-1] == '.' {
+		return false
+	}
+	for _, c := range release {
+		if c != '.' && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return !strings.Contains(release, "..")
 }
 
 func externalTurn(turn turnRecord) bool {

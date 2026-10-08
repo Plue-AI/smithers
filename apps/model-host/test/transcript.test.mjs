@@ -104,17 +104,46 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
       const record = profile.startsWith("codex") ? '{"type":"turn_context","payload":{}}' : '{"type":"mode","mode":"default"}'
       const next = { profile, context, record, start: offset, end: offset + Buffer.byteLength(record) + 1, state }
       assert.equal((await post(next)).status, 200)
-      // A complete record of a kind the decoder does not name refuses the request; nothing is guessed.
-      const future = '{"type":"future_semantic_record","payload":{}}'
-      assert.equal((await post({ ...next, record: future, end: offset + Buffer.byteLength(future) + 1 })).status, 422)
+      // A complete record of a kind the decoder does not name is the decoder's refusal: the answer names the
+      // reason and the source line, so the backend can stop that source and show where it stopped.
+      const future = profile.startsWith("codex") ? '{"type":"future_semantic_record","payload":{}}' : '{"type":"future-semantic-record"}'
+      const lines = bytes.trimEnd().split("\n").length
+      const refused = await post({ ...next, record: future, end: offset + Buffer.byteLength(future) + 1 })
+      assert.equal(refused.status, 422)
+      assert.deepEqual(await refused.json(), { code: "transcript_refused", reason: "unsupported_record", line: lines + 1 })
+      const broken = await post({ ...next, record: "{not json", end: offset + 10 })
+      assert.deepEqual([broken.status, await broken.json()], [422, { code: "transcript_refused", reason: "malformed_record", line: lines + 1 }])
+      // A forged envelope or checkpoint is not the decoder's answer: it names no reason and stops no source.
       for (const forged of [
         { ...next, start: offset + 1 }, { ...next, end: Number.MAX_SAFE_INTEGER + 1 },
         { ...next, context: { ...context, owner_id: "../../other-home" } },
         { ...next, context: { ...context, source_generation: "02000000-0000-0000-0000-000000000000:2" } },
         { ...next, state: { ...state, decoder: { ...state.decoder, pending: "unfinished" } } },
         { ...next, state: { ...state, decoder: { ...state.decoder, seq: -1 } } },
-        { ...next, profile: "codex/unsupported" }, { ...next, record: "{}\n{}" }
-      ]) assert.equal((await post(forged)).status, 422)
+        { ...next, profile: "codex/unsupported" }, { ...next, profile: "../claude-code/2.1" }, { ...next, record: "{}\n{}" }
+      ]) {
+        const response = await post(forged)
+        assert.deepEqual([response.status, await response.json()], [422, { code: "transcript_invalid" }])
+      }
+    }
+    // A source registered under a release line no decoder reads is refused as an unsupported version before any
+    // record is read, at its first record and at a later one alike.
+    for (const profile of ["claude-code/2.2", "codex-rollout/0.161"]) {
+      const record = '{"type":"anything"}'
+      const first = await post({ profile, context, record, start: 0, end: Buffer.byteLength(record) + 1 })
+      assert.deepEqual([first.status, await first.json()], [422, { code: "transcript_refused", reason: "unsupported_version", line: 1 }])
+    }
+    // The transcript itself names a release the decoder does not read, or a supported line other than the one
+    // the source was registered with.
+    for (const [profile, record, line] of [
+      ["codex-rollout/0.160", '{"type":"session_meta","payload":{"id":"other","cli_version":"99.0.0"}}', 1],
+      ["codex-rollout/0.160", '{"type":"session_meta","payload":{"id":"older","cli_version":"0.159.2","cwd":"/work"}}', 1],
+      ["claude-code/2.1", '{"type":"user","uuid":"u","sessionId":"s","version":"2.2.0","message":{"role":"user","content":"hi"}}', 1],
+      ["claude-code/2.1", '{"type":"user","uuid":"u","sessionId":"s","message":{"role":"user","content":"hi"}}', 1]
+    ]) {
+      const response = await post({ profile, context, record, start: 0, end: Buffer.byteLength(record) + 1 })
+      const reason = record.includes('"version"') || profile.startsWith("codex") ? "unsupported_version" : "missing_version"
+      assert.deepEqual([response.status, await response.json()], [422, { code: "transcript_refused", reason, line }])
     }
     // The adapter supports both releases. A registered profile must match the
     // source metadata on first import and every recovered decoder checkpoint.
@@ -128,8 +157,8 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     const context159 = '{"type":"turn_context","payload":{}}'
     const next159 = { profile: older.profile, context, record: context159, start: older.end, end: older.end + Buffer.byteLength(context159) + 1, state: recovered159.state }
     assert.equal((await post(next159)).status, 200)
-    assert.equal((await post({ ...older, profile: "codex-rollout/0.160" })).status, 422)
-    assert.equal((await post({ ...next159, profile: "codex-rollout/0.160" })).status, 422)
+    assert.deepEqual(await (await post({ ...older, profile: "codex-rollout/0.160" })).json(), { code: "transcript_refused", reason: "unsupported_version", line: 1 })
+    assert.deepEqual(await (await post({ ...next159, profile: "codex-rollout/0.160" })).json(), { code: "transcript_invalid" })
     assert.equal((await post({ ...next159, state: { ...recovered159.state, decoder: { ...recovered159.state.decoder, session: { ...recovered159.state.decoder.session, format_version: "codex-rollout/0.160" } } } })).status, 422)
     // Constructed maximum-sized metadata record. Its escaped HTTP envelope
     // exceeds the model-turn body limit; normalization keeps its own bound.
@@ -145,8 +174,7 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
     assert.equal(maximumOutput.state.decoder.session.cwd.length, 524248)
     assert.equal((await post({ ...large, record: maximum + "x", end: 1048578 })).status, 422)
     assert.equal((await post({ blob: "x".repeat(8388608) })).status, 413)
-    const unsupported = '{"type":"session_meta","payload":{"id":"other","cli_version":"99.0.0"}}'
-    assert.equal((await post({ profile: "codex-rollout/0.160", context, record: unsupported, start: 0, end: Buffer.byteLength(unsupported) + 1 })).status, 422)
+
   } finally {
     child.kill("SIGTERM")
     await exited

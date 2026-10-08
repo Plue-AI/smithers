@@ -7,8 +7,27 @@ const Context = Schema.Struct({
   session_id: Schema.String,
   source_generation: Schema.String
 })
+/**
+ * The decoder refused this record: a release line or a kind of record it does not read. The backend stops the
+ * source and shows the import as stopped; it never retries under another profile.
+ */
+export class TranscriptRefused extends Error {
+  readonly reason: Transcript.ExternalTranscriptErrorCode
+  readonly line: number
+  constructor(reason: Transcript.ExternalTranscriptErrorCode, line: number) {
+    super(reason)
+    this.reason = reason
+    this.line = line
+  }
+}
+
+// The decoders' own release lists name the profiles: one list, read in one place.
+const profiles = [
+  ...Transcript.codexReleases.map(release => `codex-rollout/${release}`),
+  ...Transcript.claudeReleases.map(release => `claude-code/${release}`)
+]
 const Input = Schema.Struct({
-  profile: Schema.Literals(["codex-rollout/0.159", "codex-rollout/0.160", "claude-code/2.1"]),
+  profile: Schema.String,
   context: Context,
   record: Schema.String,
   start: Schema.Number,
@@ -51,12 +70,17 @@ export const normalizeTranscript = (value: unknown) => {
     Buffer.byteLength(input.record, "utf8") > 1024 * 1024 || /[\n\0]/.test(input.record)) {
     throw new Error("invalid transcript envelope")
   }
+  if (!/^(?:codex-rollout|claude-code)\/\d+\.\d+$/.test(input.profile)) throw new Error("invalid transcript envelope")
   const previous = input.state === undefined ? undefined : Schema.decodeUnknownSync(Checkpoint)(input.state)
   if (previous === undefined ? input.start !== 0 : previous.offset !== input.start ||
     previous.profile !== input.profile || previous.source_generation !== context.source_generation) {
     throw new Error("invalid transcript checkpoint")
   }
   const codex = input.profile.startsWith("codex-rollout/")
+  // The line a refusal names: the source line this record is, counted by the decoder's own checkpoint.
+  const line = (previous === undefined ? 0 : Schema.decodeUnknownSync(Schema.Struct({ line: Schema.Number }))(previous.decoder).line) + 1
+  // An agent of a release line no decoder reads: the registered profile itself is the unsupported version.
+  if (!profiles.includes(input.profile)) throw new TranscriptRefused("unsupported_version", line)
   const decode = (): Result.Result<Transcript.Decoded<Transcript.CodexState | Transcript.ClaudeState>, Transcript.ExternalTranscriptError> => {
     if (codex) {
       const state = previous === undefined ? Transcript.codexStart : Schema.decodeUnknownSync(Codex)(previous.decoder)
@@ -69,12 +93,13 @@ export const normalizeTranscript = (value: unknown) => {
     return Transcript.decodeClaude(state, input.record + "\n")
   }
   const result = decode()
-  if (Result.isFailure(result)) throw new Error(result.failure.code)
+  if (Result.isFailure(result)) throw new TranscriptRefused(result.failure.code, result.failure.line)
   const decoded = result.success
   validateState(decoded.state)
   const expected = input.profile
-  if (codex && typeof decoded.state.session === "object" && decoded.state.session.format_version !== expected) throw new Error("profile changed")
-  if (decoded.entries.some(entry => entry.format_version !== expected)) throw new Error("profile changed")
+  // The transcript names another supported release line than the one this source was registered with.
+  if ((codex && typeof decoded.state.session === "object" && decoded.state.session.format_version !== expected) ||
+    decoded.entries.some(entry => entry.format_version !== expected)) throw new TranscriptRefused("unsupported_version", line)
   return {
     entries: decoded.entries.map(entry => {
       const part = entry.part

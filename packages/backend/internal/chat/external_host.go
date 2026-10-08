@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -25,6 +26,31 @@ type ExternalNormalized struct {
 	Entries   []ExternalDraft `json:"entries"`
 	State     json.RawMessage `json:"state"`
 	NeedsMore bool            `json:"needs_more"`
+}
+
+// ExternalRefusal is the adapter's answer that it does not read this record:
+// a release line or a kind of record outside the ones it names. It is a fact
+// about the agent's transcript, never a transport failure, so the caller stops
+// that source and shows the import as stopped instead of retrying.
+type ExternalRefusal struct {
+	// Reason is the decoder's code: unsupported_version, missing_version,
+	// unsupported_record or malformed_record.
+	Reason string
+	// Line is the 1-based source line the decoder stopped at.
+	Line uint64
+}
+
+func (r *ExternalRefusal) Error() string {
+	return "external transcript refused: " + r.Reason
+}
+
+// Sentence is what the conversation shows for a stopped import. The words
+// match the app's own reading of the same refusal.
+func (r *ExternalRefusal) Sentence() string {
+	if r.Reason == "unsupported_version" || r.Reason == "missing_version" {
+		return "This session transcript version is not supported."
+	}
+	return fmt.Sprintf("Session transcript line %d could not be read.", r.Line)
 }
 
 // NormalizeExternalTranscript calls the same packaged host as app-agent turns,
@@ -50,6 +76,20 @@ func (h *HTTPChatHost) NormalizeExternalTranscript(ctx context.Context, input Ex
 		return ExternalNormalized{}, err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusUnprocessableEntity {
+		var refusal struct {
+			Code   string `json:"code"`
+			Reason string `json:"reason"`
+			Line   uint64 `json:"line"`
+		}
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		// Only the four decoder codes with a source line are a refusal. Any
+		// other answer is a request the host could not trust, not a verdict.
+		if json.Unmarshal(body, &refusal) == nil && refusal.Code == "transcript_refused" && refusal.Line > 0 &&
+			oneOf(refusal.Reason, "unsupported_version", "missing_version", "unsupported_record", "malformed_record") {
+			return ExternalNormalized{}, &ExternalRefusal{Reason: refusal.Reason, Line: refusal.Line}
+		}
+	}
 	if res.StatusCode != http.StatusOK {
 		return ExternalNormalized{}, errors.New("external transcript normalization refused")
 	}
