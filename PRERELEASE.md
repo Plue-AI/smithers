@@ -1,32 +1,38 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 16:38 PDT
-main          4b3eb8782e when written
+Updated       2026-10-08 16:58 PDT
+main          3a7f3b31fe when written
 
-Publish       CANNOT PUBLISH YET. Dry run #5 decides. It is in pack and smoke-test.
+Publish       CANNOT PUBLISH YET. Dry run #6 decides. It reaches the smoke test
+              about 17:10 PDT.
 Real install  RUNNING on this MacBook since 16:18 PDT: production launcher, bundle
               built here from 3fc44ee1e8. Done: start, address, GitHub App, owner
-              sign-in (16:34 PDT). Next: connect the test repository, model
-              access, then a TODO to a merged PR.
+              sign-in, repository connected (16:49 PDT). Model access reached
+              with no key entered. Pending: models, source, machine.
+              Next: the same bundle and state restart under the test launcher
+              with the scripted model, for a TODO to a merged PR.
               TODO to merged PR: NOT YET PROVEN.
-Broken        Found by that run. Lanes are fixing 1 to 3.
-              1. A fresh install's setup link shows no setup card. The steps
-                 above were sent as the card's requests from the browser.
-              2. The app's sign-in path answers 404 on an install.
-              3. A session cookie left by an earlier install on the same
-                 address blocks the setup link with 401.
-              4. The bundle README promises one JSON line of setup links;
-                 start prints two bare lines.
+Broken        On the install, each with a lane:
+              1. The setup card's Model access line reads "Not signed incoding
+                 model".
+              2. `GET /setup` shows raw JSON to a signed-in owner.
+              3. The bundle README's setup-link format does not match what
+                 `host start` prints.
+Fixed on main Not yet proven on a real install. Needs a bundle built after
+              9a218b7f68: the missing setup card (c5120a5856), the sign-in path
+              404 and the stale-cookie 401 (9a218b7f68).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
-Journeys      10 of 11 have no failed row on main 70d75088ef, on Linux fixtures.
-              Red: J10 row 6, sync still stale 10 s after Retry.
+Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
+              Linux fixtures. Red: J10 row 6, sync still stale 10 s after Retry.
+              Pass running on c5120a5856: J1 to J4 so far, no failed row.
 Doneish       No. It needs the install run to take a TODO to a merged PR, and
               all 11 journeys passing on one commit.
 Dry runs      Version 1.0.0-rc.1. None is green.
-              #5 37858229125 running on a3e6ac767e since 16:13 PDT.
-              #3 and #4 failed the installed-package smoke on stale fixtures,
-              both fixed. They delivered the first Mac bundle artifacts.
+              #6 37860903519 running on 06209aa7b1 since 16:42 PDT.
+              #5 failed the installed-package smoke at 16:39 PDT on a stale
+              fixture. Fixed in 06209aa7b1, with a real bug the smoke found:
+              `smithers-build` could not start in any installed project.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
