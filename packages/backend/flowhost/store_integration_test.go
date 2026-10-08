@@ -63,7 +63,11 @@ func TestPostgresCaptureStopsOnlySettledPinnedHosts(t *testing.T) {
 	require.Equal(t, 1, stops)
 	retained, err := store.AcquireExisting(ctx, authority, catalog)
 	require.NoError(t, err)
-	require.Equal(t, binding, retained.Binding(), "capture preparation retains the pinned host identity")
+	stopped := binding
+	stopped.State, stopped.ServiceIdentity = "pending", ""
+	require.Equal(t, stopped, retained.Binding(), "capture preparation retains the pinned host identity")
+	_, err = store.ExistingCodingTarget(ctx, authority.RepositoryID, authority.WorkspaceID, "owner/app")
+	require.ErrorIs(t, err, ErrHostNotRunning)
 	require.NoError(t, retained.Close())
 	require.Error(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, stop, nil))
 	cancelled, cancel := context.WithCancel(ctx)

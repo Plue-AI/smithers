@@ -75,7 +75,19 @@ func (store *Store) prepareHostCapture(ctx context.Context, workspace, id, catal
 	if busy {
 		return errors.New("active flow run blocks final capture")
 	}
-	return stopper.StopFlowHost(ctx, binding)
+	if err := stopper.StopFlowHost(ctx, binding); err != nil {
+		return err
+	}
+	// Retain the pinned identity, but stop advertising an already stopped
+	// process as running. Sleeping-branch presence must not route to its host.
+	tag, err := connection.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='pending',service_identity='',last_error_code='',updated_at=clock_timestamp() WHERE id=$1 AND owner_generation=$2 AND state<>'retired'`, binding.ID, binding.OwnerGeneration)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("flow host stop checkpoint lost its owner fence")
+	}
+	return nil
 }
 
 // ReconcileRetired is a bounded reconciliation pass for the application's
