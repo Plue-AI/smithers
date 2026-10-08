@@ -46,8 +46,12 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{}
 	var wikiService routes.WikiService
+	var secretHandler *routes.SecretHandler
 	var metrics *routes.SmithersMetrics
 	for _, extra := range extras {
+		if secrets, ok := extra.(*routes.SecretHandler); ok {
+			secretHandler = secrets
+		}
 		if auth, ok := extra.(*routes.AuthHandler); ok {
 			authHandler = auth
 		}
@@ -69,7 +73,7 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 		&routes.RepoHandler{}, authHandler, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		wikiService, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, secretHandler, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
 		workspaceHandler, nil, nil, nil, nil, nil, metrics,
 		options...,

@@ -58,7 +58,11 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	cfg.Auth.SessionCookieName = "smithers_session"
 	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
+	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil,
+		&routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))},
+		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals,
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Roster: q, Setup: &services.InstallSetupService{Pool: pool}},
+			Members:        &routes.MembersHandler{Service: &services.Members{Pool: pool}}})
 	phase := os.Getenv("SMITHERS_TERMINAL_CONFIRM_PHASE_DIR")
 	if phase != "" {
 		t.Setenv("SMITHERS_PUBLIC_URL", cfg.Server.PublicURL)

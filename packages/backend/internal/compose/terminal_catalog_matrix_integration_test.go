@@ -182,6 +182,35 @@ func exerciseTerminalRealServiceMatrix(t *testing.T, ctx context.Context, pool *
 				require.Equal(t, "permission", result["code"])
 			}
 			require.Equal(t, beforeJobs, count("product_job_requests"))
+			// The installed consumer must not widen any other terminal door.
+			// These requests carry forged person/profile headers through call;
+			// literal refusal policy is independent of the runtime catalog.
+			beforeTodos, beforeConfirm = count("mythical_items"), count("approvals")
+			for i, fixture := range []struct{ method, path, body string }{
+				{"GET", "/api/install", ""},
+				{"GET", "/api/members", ""},
+				{"GET", "/api/secrets", ""},
+				{"POST", "/api/members", `{"login":"carol"}`},
+				{"POST", "/api/todos", fmt.Sprintf(`{"prompt":"Forbidden before","place":{"mode":"before","n":%d}}`, own)},
+				{"POST", "/api/todos", fmt.Sprintf(`{"prompt":"Forbidden after","place":{"mode":"after","n":%d}}`, own)},
+				{"POST", "/api/todos", fmt.Sprintf(`{"prompt":"Forbidden amend","place":{"mode":"amend","n":%d}}`, own)},
+				{"POST", fmt.Sprintf("/api/todos/%d", own), `{"op":"move","direction":"up"}`},
+				{"POST", fmt.Sprintf("/api/todos/%d", own), `{"op":"stop"}`},
+				{"POST", fmt.Sprintf("/api/todos/%d", own), `{"op":"resume"}`},
+				{"POST", fmt.Sprintf("/api/todos/%d", own), `{"op":"retry","steer":"Forbidden"}`},
+			} {
+				status, raw = call(fixture.method, fixture.path, fixture.body, "", token, fmt.Sprintf("matrix-scope-%s-%d", via, i))
+				require.Equal(t, 403, status, string(raw))
+				var denied map[string]any
+				require.NoError(t, json.Unmarshal(raw, &denied))
+				require.Equal(t, "permission", denied["class"], fixture.path)
+				require.Equal(t, "permission", denied["code"], fixture.path)
+				require.NotContains(t, denied, "confirmation")
+				require.NotContains(t, denied, "state")
+				require.Equal(t, beforeTodos, count("mythical_items"))
+				require.Equal(t, beforeConfirm, count("approvals"))
+				require.Equal(t, beforeJobs, count("product_job_requests"))
+			}
 			// Forged headers and payload assertions never rewrite issuer authority.
 			require.NoError(t, pool.QueryRow(ctx, `SELECT scopes,system_issued FROM access_tokens WHERE token_hash=$1`, hash).Scan(&stored, &system))
 			require.Equal(t, scopes, stored)
