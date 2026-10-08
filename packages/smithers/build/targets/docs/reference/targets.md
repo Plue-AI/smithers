@@ -178,6 +178,8 @@ The cargo surface: `Cargo.Fetch`, `Cargo.Build`, `Cargo.Test`, `Cargo.Nextest`, 
 
 The shell target flavors: `Shell.Build`, `Shell.Test`, `Shell.Run`, `Shell.Serve`, and `Shell.Diff`. Each requires exactly one of `bin`, `bun`, `shell`, or `script`, and `Shell.Build` also requires at least one `outDirs` or `outFiles` entry. `Shell.Run`, `Shell.Test`, `Shell.Build`, and `Shell.Diff` plan an exec through the shared `Exec` action; `Shell.Serve` runs under the package executor.
 
+`Shell.Run` accepts optional `manual: true`: bare wildcards omit it, while an explicit label selects it.
+
 `hosts` restricts a shell target to the listed hosts (`"linux"`,
 `"darwin"`, `"win32"`). The declaration and the target index are the same on
 every host; wildcard selections omit the target on other hosts, and naming it
