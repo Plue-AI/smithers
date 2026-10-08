@@ -26,13 +26,23 @@ func (store *Store) RequestCancellationForWorker(ctx context.Context, scope Scop
 // product transaction, so the product's own cancel and the job's cancellation
 // intent commit together or not at all. The caller commits.
 func (store *Store) RequestCancellationForWorkerInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID string) (Operation, error) {
+	return store.cancellationInTx(ctx, tx, scope, operationID, true)
+}
+
+// RequestCancellationInTx shares the caller's authority transaction. Ready
+// work is cancelled immediately; running work retains its worker acknowledgment.
+func (store *Store) RequestCancellationInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID string) (Operation, error) {
+	return store.cancellationInTx(ctx, tx, scope, operationID, false)
+}
+
+func (store *Store) cancellationInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID string, requireWorker bool) (Operation, error) {
 	if tx == nil {
 		return Operation{}, errors.New("jobs: transaction is required")
 	}
 	if err := scope.validate(); err != nil {
 		return Operation{}, err
 	}
-	if err := requestCancellationInTx(ctx, tx, scope, operationID, true); err != nil {
+	if err := requestCancellationInTx(ctx, tx, scope, operationID, requireWorker); err != nil {
 		return Operation{}, err
 	}
 	return queryOperation(ctx, tx, scope, operationID, false)

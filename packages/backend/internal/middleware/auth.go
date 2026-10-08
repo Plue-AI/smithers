@@ -630,6 +630,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
+	{http.MethodPost, "runs.cancel", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/command-runs/[^/]+/cancel$`)},
 	{http.MethodGet, "workspace.command.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/command-runs/[^/]+$`)},
 	{http.MethodPut, "workspace.preview.update", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/services/[0-9]+/visibility$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/services/[0-9]+/visibility$`)},

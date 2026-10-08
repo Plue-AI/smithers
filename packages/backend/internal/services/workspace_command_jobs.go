@@ -262,6 +262,9 @@ func (s *WorkspaceService) GetWorkspaceCommandRun(ctx context.Context, workspace
 }
 
 func (s *WorkspaceService) CancelWorkspaceCommandRun(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceCommandRun, error) {
+	if s.installQueries != nil {
+		return s.cancelInstallWorkspaceCommandRun(ctx, workspaceID, repositoryID, userID, operationID)
+	}
 	operation, err := s.workspaceCommandRun(ctx, workspaceID, repositoryID, userID, operationID, WorkspaceAccessWrite)
 	if err != nil {
 		return WorkspaceCommandRun{}, err

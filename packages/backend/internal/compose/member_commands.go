@@ -268,10 +268,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
-			if command == "workspace.command.read" {
+			if command == "workspace.command.read" || command == "runs.cancel" && strings.Contains(r.URL.Path, "/workspaces/") {
 				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 				subject := services.InstallSubject{}
-				if len(parts) == 8 {
+				if len(parts) == 8 || len(parts) == 9 && parts[8] == "cancel" {
 					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
 					if err == nil {
 						subject = services.InstallWorkspaceCommandReadSubject(repository.ID, parts[5], parts[7])
