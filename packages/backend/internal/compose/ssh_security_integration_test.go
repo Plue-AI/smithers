@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	internalssh "github.com/smithersai/smithers/packages/backend/internal/ssh"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -335,6 +336,166 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		require.NoError(t, err, string(output))
 		require.Equal(t, "24 80\r\n", string(output))
 		command(`rm -rf /workspace/trm03-poison`)
-		t.Log("C-J3-06 native startup-input subset; raw broker envelopes, retained-machine races and C-COL-04 receipts remain required")
+		exerciseSSHBrokerSemanticInputs(t, h, client, login, member, uid)
+		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; private socketpair malformed frames, retained wake races and C-COL-04 receipts remain required")
 	})
+}
+
+// Bypass Sessions' semantic validators, while retaining the install's actual
+// authenticated transport and canonical framing. Refusal must come back from
+// the production guest, rather than a host helper or a recording broker.
+func exerciseSSHBrokerSemanticInputs(t *testing.T, h *rootLayerHarness, client *gossh.Client, branchLogin string, member int64, uid uint32) {
+	var branch, login string
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT w.id,c.unix_login FROM workspaces w JOIN collaborators c ON c.repository_id=w.repository_id WHERE c.user_id=$1 AND w.status='running' AND (w.target_bookmark=$2 OR w.target_bookmark='smithers/' || $2)`, member, branchLogin).Scan(&branch, &login))
+	registry := h.runtime.MachinedRegistry()
+	link, err := registry.Current(branch)
+	require.NoError(t, err)
+	fixtures, open := sshBrokerEnvelopeFixtures(login, uid)
+	for _, f := range fixtures {
+		t.Run("guest-envelope/"+f.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			response, e := link.Request(ctx, branch, f.method, f.fields...)
+			if f.name == "NUL argv" || f.name == "NUL run" {
+				require.ErrorIs(t, e, wire.BadUTF8, "noncanonical strings must never reach root")
+				return
+			}
+			require.NoError(t, e, "canonical input must reach the guest")
+			fields, e := wire.Fields("response", response.Payload[1:])
+			require.NoError(t, e)
+			require.Equal(t, byte(255), fields[2][0], "guest must refuse")
+			refusal, e := wire.Fields("error", fields[2][1:])
+			require.NoError(t, e)
+			require.Equal(t, []byte{f.code}, refusal[1])
+		})
+	}
+	// Exercise bounded stream controls against a real admitted member session.
+	// These malformed controls must be rejected before any broker send, while
+	// leaving its authenticated transport available for the roster race below.
+	rpc := registry.Sessions(branch)
+	control, err := rpc.CallSession(t.Context(), machined.SessionCall{Method: "open_session", Actor: bytes.Repeat([]byte{7}, 16), User: &machined.SessionUser{Login: login, UID: uid}, Kind: machined.SessionExec, Argv: []string{"/bin/cat"}})
+	require.NoError(t, err)
+	stream, err := rpc.(machined.SessionTransport).Stream(t.Context(), control.Session)
+	require.NoError(t, err)
+	for _, payload := range [][]byte{{4, 0}, {4, 255}, {3, 0, 0, 0, 80}, {3, 0, 24, 0, 0}, {6, 255, 255, 255, 255}} {
+		t.Run(fmt.Sprintf("stream-control/%x", payload), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			require.ErrorIs(t, stream.Send(ctx, payload), wire.BadValue)
+		})
+	}
+	_, err = rpc.CallSession(t.Context(), machined.SessionCall{Method: "kill_sessions", Session: control.Session})
+	require.NoError(t, err)
+	// Withdraw the roster on the same live boot. A caller retaining the resolved
+	// identity and authenticated Link must not launch after the roster receipt.
+	var roster []machined.SessionUser
+	rows, err := h.pool.Query(t.Context(), `SELECT unix_login,unix_uid FROM collaborators WHERE repository_id=(SELECT repository_id FROM workspaces WHERE id=$1) AND user_id IS NOT NULL AND suspended_at IS NULL AND unix_login IS NOT NULL ORDER BY unix_uid`, branch)
+	require.NoError(t, err)
+	for rows.Next() {
+		var u machined.SessionUser
+		require.NoError(t, rows.Scan(&u.Login, &u.UID))
+		roster = append(roster, u)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	retained := make([]machined.SessionUser, 0, len(roster))
+	for _, u := range roster {
+		if u.UID != uid {
+			retained = append(retained, u)
+		}
+	}
+	require.NoError(t, registry.SetRoster(t.Context(), branch, retained))
+	defer func() { require.NoError(t, registry.SetRoster(t.Context(), branch, roster)) }()
+	// All callers cached the member identity before withdrawal. Correlated
+	// concurrent requests on the retained boot must observe the committed fence.
+	t.Run("retained-roster-fence", func(t *testing.T) {
+		for n := 0; n < 8; n++ {
+			t.Run(fmt.Sprintf("stale-open-%d", n), func(t *testing.T) {
+				t.Parallel()
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				response, err := link.Request(ctx, branch, wire.OpenSession, open(login, uid, 2, "/bin/sh", "-c", "touch /workspace/trm03-root-canary")...)
+				require.NoError(t, err)
+				fields, err := wire.Fields("response", response.Payload[1:])
+				require.NoError(t, err)
+				require.Equal(t, byte(255), fields[2][0])
+				refusal, err := wire.Fields("error", fields[2][1:])
+				require.NoError(t, err)
+				require.Equal(t, []byte{1}, refusal[1], "retained authority cannot bypass roster withdrawal")
+			})
+		}
+	})
+	require.NoError(t, registry.SetRoster(t.Context(), branch, roster))
+	// Same transport remains usable; a rejected request cannot poison another
+	// member's session or leave a canary. Expectations are literal policy fixtures.
+	session, err := client.NewSession()
+	require.NoError(t, err)
+	defer session.Close()
+	output, err := session.CombinedOutput("id -u; id -g; test ! -e /workspace/trm03-root-canary")
+	require.NoError(t, err, string(output))
+	require.Equal(t, "20000\n20000\n", string(output))
+}
+
+type sshBrokerEnvelopeFixture struct {
+	name   string
+	method wire.Method
+	fields [][]byte
+	code   byte
+}
+
+func sshBrokerEnvelopeFixtures(login string, uid uint32) ([]sshBrokerEnvelopeFixture, func(string, uint32, byte, ...string) [][]byte) {
+	actor := bytes.Repeat([]byte{7}, 16)
+	user := func(name string, id uint32) []byte {
+		return wire.Struct(wire.Field(1, wire.String(name)), wire.Field(2, wire.U32(id)))
+	}
+	argv := func(values ...string) []byte {
+		result := wire.U16(uint16(len(values)))
+		for _, value := range values {
+			result = append(result, wire.String(value)...)
+		}
+		return result
+	}
+	open := func(name string, id uint32, kind byte, values ...string) [][]byte {
+		return [][]byte{wire.Field(1, user(name, id)), wire.Field(2, []byte{kind}), wire.Field(3, argv(values...)), wire.Field(5, actor)}
+	}
+	withSize := func(fields [][]byte, cols, rows uint16) [][]byte {
+		return append(append(append([][]byte{}, fields[:3]...), wire.Field(4, wire.Struct(wire.Field(1, wire.U16(cols)), wire.Field(2, wire.U16(rows))))), fields[3:]...)
+	}
+	fixtures := []sshBrokerEnvelopeFixture{
+		{"root uid", wire.OpenSession, open("root", 0, 2, "/bin/sh", "-c", "touch /workspace/trm03-root-canary"), 1},
+		{"uid login mismatch", wire.OpenSession, open(login, 20001, 2, "/bin/sh"), 1},
+		{"foreign login", wire.OpenSession, open("not-a-member", uid, 2, "/bin/sh"), 1},
+		{"empty exec", wire.OpenSession, open(login, uid, 2), 1},
+		{"empty executable", wire.OpenSession, open(login, uid, 2, ""), 1},
+		{"NUL argv", wire.OpenSession, open(login, uid, 2, "/bin/sh\x00"), 1},
+		{"sftp executable selection", wire.OpenSession, open(login, uid, 3, "/workspace/trm03-poison/sh"), 1},
+		{"PTY zero columns", wire.OpenSession, withSize(open(login, uid, 1), 0, 24), 1},
+		{"exec PTY dimensions", wire.OpenSession, withSize(open(login, uid, 2, "/bin/sh"), 80, 24), 1},
+		{"zero loopback port", wire.TCPConnect, [][]byte{wire.Field(1, wire.U16(0)), wire.Field(2, actor)}, 1},
+		{"zero close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0))}, 1},
+		{"out of range close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0xffffffff))}, 1},
+		{"foreign close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(2147483647))}, 1},
+		{"foreign attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(2147483647)), wire.Field(2, wire.U64(0))}, 1},
+		{"zero attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(0)), wire.Field(2, wire.U64(0))}, 1},
+		{"NUL run", wire.RegisterRun, [][]byte{wire.Field(1, wire.String("run\x00foreign")), wire.Field(2, wire.U32(1))}, 1},
+	}
+
+	return fixtures, open
+}
+
+// Supplemental framing check: canonical cases must reach the guest; NUL
+// strings must be refused on the host before sending any privileged envelope. This is not a
+// substitute for executing TestSSHRootInputsValidatedBeforeUse on a microVM.
+func TestSSHBrokerEnvelopeFramingBoundary(t *testing.T) {
+	fixtures, _ := sshBrokerEnvelopeFixtures("rehearsal-owner", 20000)
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			_, err := wire.RequestFrame(1, f.method, f.fields...)
+			if f.name == "NUL argv" || f.name == "NUL run" {
+				require.ErrorIs(t, err, wire.BadUTF8)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
