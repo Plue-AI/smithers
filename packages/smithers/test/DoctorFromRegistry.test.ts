@@ -158,10 +158,9 @@ describe("local diagnostics off the registry snapshot", () => {
   // flows says nothing about the filesystem helper a flow's first module load
   // needs. The doctor asks the helper itself.
   describe("the filesystem helper", () => {
-    const withHelper = async <A>(binary: string | undefined, body: () => Promise<A>): Promise<A> => {
+    const withHelper = async <A>(binary: string, body: () => Promise<A>): Promise<A> => {
       const saved = process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
-      if (binary === undefined) delete process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"]
-      else process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = binary
+      process.env["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = binary
       try {
         return await body()
       } finally {
@@ -188,10 +187,7 @@ describe("local diagnostics off the registry snapshot", () => {
 
     it("passes the registry check when the helper answers", async () => {
       const root = project()
-      const report = await withHelper(
-        undefined,
-        () => run(root, [descriptor("review", "Review the working copy")], [])
-      )
+      const report = await run(root, [descriptor("review", "Review the working copy")], [])
       expect(check(report, "registry")).toMatchObject({ level: "ok", detail: "1 flows discovered" })
     })
   })
