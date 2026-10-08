@@ -274,7 +274,7 @@ func fenceTodoInputs(pool *pgxpool.Pool) func(context.Context, modelproxy.Caller
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		var bound bool
-		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mythical_items WHERE repository_id=$1 AND workspace_id=$2 AND request_run_id=$3 AND source='todo' AND state NOT IN ('landed','cancelled','rejected','declined'))`, caller.RepositoryID, caller.WorkspaceID, run).Scan(&bound); err != nil {
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mythical_items WHERE repository_id=$1 AND workspace_id=$2 AND request_run_id=$3 AND number IS NOT NULL AND (source='todo' OR (source='issue' AND jsonb_array_length(revisions)>0)) AND state NOT IN ('landed','cancelled','rejected','declined'))`, caller.RepositoryID, caller.WorkspaceID, run).Scan(&bound); err != nil {
 			return err
 		}
 		if !bound || run == "" {
