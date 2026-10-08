@@ -104,6 +104,18 @@ type parallelCard struct {
 // observation providers; TestParallelRetainedMachineRelease covers that
 // engine rule with an injected ownership observation.
 func TestParallelAdmissionInstallBoundary(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, false)
+}
+
+// C-J7-01: a Before request made with no free capacity must win the next
+// slot, even though its TODO number is newer than every queued successor.
+// This runs the install HTTP dispatcher, engine and real runtime admission
+// scheduler; only free-disk measurements and guest boot responses are injected.
+func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, true)
+}
+
+func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery bool) {
 	scratch, err := os.MkdirTemp("/tmp", "stk03")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
@@ -152,6 +164,9 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 	// moves capacity. 136 GiB free is capacity 3.
 	var freeDisk atomic.Int64
 	freeDisk.Store(136 << 30)
+	if beforeCapacityRecovery {
+		freeDisk.Store(104 << 30) // capacity 2; both slots will be held
+	}
 	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
 	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 136 << 30, MacOSVersion: "15.6", Hypervisor: true}
 	sizing := microsandbox.ComputeSizing(profile)
@@ -314,7 +329,11 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 	}
 
 	// Step 1: five TODOs in stack order with parallel 2.
-	code, body := call("PUT", "/api/install", `{"parallel":2}`, mayaCookie)
+	requestedParallel := `{"parallel":2}`
+	if beforeCapacityRecovery {
+		requestedParallel = `{"parallel":8}` // unchanged throughout recovery
+	}
+	code, body := call("PUT", "/api/install", requestedParallel, mayaCookie)
 	require.Equal(t, 200, code, string(body))
 	for _, title := range []string{"T1", "T2", "T3", "T4", "T5"} {
 		code, body := call("POST", "/api/todos", fmt.Sprintf(`{"title":%q,"prompt":"Add a line","place":{"mode":"append"}}`, title), mayaCookie)
@@ -441,13 +460,51 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 	// Step 2, placement only: T6 is filed after T5 but placed Before T2. It
 	// waits ahead of T3 without taking a slot from the two holders. (Its
 	// admission after T1's safe-idle release is pending T-MCH-06.)
-	code, body = call("POST", "/api/todos", `{"title":"T6","prompt":"Add a line","place":{"mode":"before","n":2}}`, mayaCookie)
+	beforeTarget := 2
+	beforeOrder := []int{1, 6, 2, 3, 4, 5}
+	if beforeCapacityRecovery {
+		beforeTarget = 3
+		beforeOrder = []int{1, 2, 6, 3, 4, 5}
+	}
+	code, body = call("POST", "/api/todos", fmt.Sprintf(`{"title":"T6","prompt":"Add a line","place":{"mode":"before","n":%d}}`, beforeTarget), mayaCookie)
 	require.Equal(t, 202, code, string(body))
 	settle("step 2", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "queued"}, map[int]int{6: 1, 3: 2, 4: 3, 5: 4})
-	homeSnapshot("step 2", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{6: 1, 3: 2, 4: 3, 5: 4}, Parallel: 2})
+	homeSnapshot("step 2", homeView{Order: beforeOrder, Positions: map[int]int{6: 1, 3: 2, 4: 3, 5: 4}, Parallel: 2})
 	todoSnapshot("step 2", 3, 2)
 	todoSnapshot("step 2", 6, 1)
 	held("step 2", 2)
+
+	if beforeCapacityRecovery {
+		// Capacity alone changes. No command changes order or parallel, and
+		// no fixture grants a holder: the production scheduler must re-read
+		// demand and give the newly available third slot to T6.
+		freeDisk.Store(136 << 30)
+		var last map[int]parallelCard
+		require.True(t, assertEventually(30*time.Second, func() bool {
+			last = cards()
+			for _, n := range []int{3, 4, 5} {
+				require.Equal(t, "queued", last[n].State, "successor T%d admitted before inserted T6: %+v", n, last)
+			}
+			return last[6].State == "working"
+		}), "inserted TODO did not take freed capacity: %+v; admission %+v", last, runtime.AdmissionSnapshot())
+		settle("Before capacity recovery", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
+		homeSnapshot("Before capacity recovery", homeView{Order: []int{1, 2, 6, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 3})
+		inserted, err := q.GetMythicalItemByNumber(ctx, repo.ID, 6)
+		require.NoError(t, err)
+		require.NotEmpty(t, inserted.WorkspaceID)
+		require.NotEmpty(t, inserted.RequestRunID)
+		require.True(t, runtime.AdmissionHeld("workspace:"+inserted.WorkspaceID))
+		for _, n := range []int64{3, 4, 5} {
+			successor, err := q.GetMythicalItemByNumber(ctx, repo.ID, n)
+			require.NoError(t, err)
+			require.Empty(t, successor.RequestRunID, "queued successor must have no launch")
+		}
+		var facts int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.created' AND (data->>'n')::bigint=6 AND (data->>'before')::bigint=3`).Scan(&facts))
+		require.Equal(t, 1, facts)
+		held("Before capacity recovery", 3)
+		return
+	}
 
 	// Step 3: the owner raises the request to 8. Capacity 3 clamps it, and
 	// the third machine goes to the next TODO in stack order: T6, not T3.
