@@ -321,8 +321,15 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		registry := new(machined.Registry)
 		t.Cleanup(func() { require.NoError(t, registry.Close()) })
 		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, t.TempDir(), binary, &machined.ItemBinding{}))
-		previous := provider.writer
-		t.Cleanup(func() { provider.writer = previous })
+		previous, previousReader := provider.writer, provider.reader
+		t.Cleanup(func() { provider.writer, provider.reader = previous, previousReader })
+		provider.reader = func(ctx context.Context, branch, path string) ([]byte, error) {
+			file, err := registry.ReadFile(ctx, branch, path, "")
+			if err != nil {
+				return nil, workspaceapi.ErrReadFileUnavailable
+			}
+			return file.Content, nil
+		}
 		provider.writer = machined.WorkspaceWriter{Client: registry, EnsureReady: func(ctx context.Context, branch string) error {
 			link, err := registry.Current(branch)
 			if err != nil {
@@ -356,6 +363,47 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "hello", string(disk))
 		}
+		// A host edit is deliberately outside Smithers. The served File door
+		// must observe it through the real daemon, with its new digest.
+		require.NoError(t, os.WriteFile(filepath.Join(root, "real.txt"), []byte("outside"), 0600))
+		read := func(status int, content, digest string) {
+			t.Helper()
+			request, err := http.NewRequest("GET", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(request)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, status, response.StatusCode, string(body))
+			if status == 200 {
+				require.Contains(t, string(body), `"content":"`+content+`"`)
+				require.Contains(t, string(body), `"digest":"`+digest+`"`)
+			}
+		}
+		outsideDigest := fmt.Sprintf("%x", sha256.Sum256([]byte("outside")))
+		read(200, "outside", outsideDigest)
+		// Loss of the authenticated daemon must not expose a process-runtime
+		// fallback for either reads or writes, even while the checkout exists.
+		require.NoError(t, registry.Close())
+		read(503, "", "")
+		request, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(`{"content":"offline write","base_digest":"`+outsideDigest+`"}`))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+		request.Header.Set("X-CSRF-Token", "digest-csrf")
+		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+		response, err := server.Client().Do(request)
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 503, response.StatusCode, string(body))
+		disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
+		require.NoError(t, err)
+		require.Equal(t, "outside", string(disk))
 	})
 
 }

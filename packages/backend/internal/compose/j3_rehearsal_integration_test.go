@@ -160,9 +160,9 @@ func settled(s *liveSocket, topic string, within time.Duration, ok func(liveFram
 // [HOLD t2]). Ben sees T2 in Needs you and opens its branch over /api/live;
 // Alice's File card location reaches his Branch card; Ben steers, then
 // answers, and the coding agent continues on the same run and working copy.
-// Maya's SSH session, the member's own terminal, outside-change activity and
-// live co-editing need the machine daemon (smithers-machined), which only a
-// microVM runs, so those rows stay pending on lane machined. Ben's
+// The trusted-process fixture runs the installed daemon, but its empty broker
+// cannot admit SSH or owner-uid terminal sessions. Those attribution rows need
+// the real guest broker. Live co-editing also waits for owner qualification. Ben's
 // branch:<id>:activity reads the agent's step and question, his steer and his
 // answer.
 func TestJ3Rehearsal(t *testing.T) {
@@ -341,11 +341,11 @@ func TestJ3Rehearsal(t *testing.T) {
 		r.actual = "one Alice row at retry.ts:40 with 2 sessions; back to retry.ts:12 with 1 session after the tab closed"
 		return nil
 	})
-	r.pending("2 Maya via SSH at retry.ts", "ssh -p 2222 <branch>@<host>; edit and save retry.ts", "Ben's card shows \"Maya via SSH\" at retry.ts (needs smithers-machined; not provable on trusted-process)", "T-TRM-03, T-COL-06", "machined")
-	r.pending("2 Maya's saves in open cards", "Maya saves retry.ts over SSH → branch:<id>:files", "the File card shows the new text with last writer \"Maya via SSH\" (needs smithers-machined)", "T-COL-04, T-COL-12", "machined")
-	r.pending("3 Ben's own terminal; Alice watches", "POST /api/terminals {branch}; terminal WebSocket as Ben, then Alice", "Ben's terminal runs as ben on the branch; Alice sees it on the card and watches; her keys are dropped (owner PTYs need smithers-machined)", "T-TRM-01, T-APP-12", "machined")
-	r.pending("4 Maya via SSH changed 12 files", "pnpm format over SSH → branch:<id>:activity", "one entry \"Maya via SSH changed 12 files\" with its diff; open cards update in place (needs smithers-machined)", "T-COL-04, T-TRM-03", "machined")
-	r.pending("5 Ben and Alice co-edit retry.ts", "doc:code topic from both browsers", "each sees the other's characters live with a name flag; the file is saved to the machine continuously (needs smithers-machined)", "T-COL-08, T-APP-14", "machined")
+	r.pending("2 Maya via SSH at retry.ts", "ssh -p 2222 <branch>@<host>; edit and save retry.ts", "Ben's card shows \"Maya via SSH\" at retry.ts (needs real guest broker session admission)", "T-TRM-03, T-COL-06", "machined")
+	r.pending("2 Maya's saves in open cards", "Maya saves retry.ts over SSH → branch:<id>:files", "the File card shows the new text with last writer \"Maya via SSH\" (needs real guest broker session admission)", "T-COL-04, T-COL-12", "machined")
+	r.pending("3 Ben's own terminal; Alice watches", "POST /api/terminals {branch}; terminal WebSocket as Ben, then Alice", "Ben's terminal runs as ben on the branch; Alice sees it on the card and watches; her keys are dropped (owner PTYs need real guest broker session admission)", "T-TRM-01, T-APP-12", "machined")
+	r.pending("4 Maya via SSH changed 12 files", "pnpm format over SSH → branch:<id>:activity", "one entry \"Maya via SSH changed 12 files\" with its diff; open cards update in place (needs real guest broker session admission)", "T-COL-04, T-TRM-03", "machined")
+	r.pending("5 Ben and Alice co-edit retry.ts", "doc:code topic from both browsers", "each sees the other's characters live with a name flag; the file is saved to the machine continuously (LiveCodeDocuments waits for owner qualification)", "T-COL-08, T-APP-14", "live-documents")
 	r.step("2 Alice leaves", "close Alice's last tab", "her row leaves Ben's card within 1 s", "T-COL-06", func() error {
 		if aliceTab == nil {
 			return fmt.Errorf("blocked by Alice in the File card")

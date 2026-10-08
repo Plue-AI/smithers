@@ -9,11 +9,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// j6Machined is why a terminal or guest row is pending on the
-// trusted-process runtime: a member's terminal is an owner-uid PTY that only
-// smithers-machined opens, inside a microVM (#3574 retired the shared-user
-// terminal session on installs).
-const j6Machined = "needs smithers-machined (microVM): runs on the Mac mini"
+// The trusted-process runtime runs the installed daemon with an empty broker.
+// Owner-uid PTYs and delegated guest credentials still require real session
+// admission, distinct user identities and delegated cgroups on the guest.
+const j6Machined = "needs real guest broker session admission: runs on the Mac mini"
 
 // TestJ6Rehearsal walks journey J6 (mvp.md §5, bring your own agent;
 // C-J6-01) on the install J1 sets up, as the owner on the trusted-process
@@ -96,7 +95,7 @@ func runJ6Rehearsal(t *testing.T, enable string, microVM bool) {
 		return nil
 	})
 	if !microVM {
-		r.step("2b The terminal door refuses without a machine daemon", "POST /api/terminals {branch: T1's branch}", "503 terminal_unavailable before any request, session or credential", "T-TRM-01", func() error {
+		r.step("2b The terminal door refuses without a session broker", "POST /api/terminals {branch: T1's branch}", "503 terminal_unavailable before any request, session or credential", "T-TRM-01", func() error {
 			var before int
 			if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type LIKE 'terminal.%'`).Scan(&before); err != nil {
 				return err

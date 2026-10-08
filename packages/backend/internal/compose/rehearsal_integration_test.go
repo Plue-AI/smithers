@@ -1624,13 +1624,13 @@ func (r *rehearsal) besideChat() <-chan error {
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
 
-// buildRehearsalCodingHost pins the shared coding host with an explicit
-// controlled-process mutation adapter. It does not qualify the installed daemon
-// or microVM isolation; the production entry cannot select this adapter.
+// buildRehearsalCodingHost pins the installed coding entry unchanged. Coding
+// writes require its real local daemon client and broker-registered agent;
+// trusted-process execution does not qualify those guest session boundaries.
 func buildRehearsalCodingHost(t *testing.T, node, root string) flowmanifest.Registry {
 	t.Helper()
 	coding := filepath.Join(t.TempDir(), "smithers-coding-host")
-	build := exec.Command(node, filepath.Join(root, "flows/test/rehearsal-coding-host-build.mjs"), coding)
+	build := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
 	build.Dir = root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
