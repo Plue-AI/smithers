@@ -6,6 +6,7 @@ import { installCloudFixture } from "./cloudFixture"
 test("T-APP-10: /branch opens one Branch card and keeps Chat usable", async ({ page }) => {
   await owner(page)
   await page.goto("/")
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await say(page, "/branch T9")
   const card = page.locator('.smithers-card[data-kind="branch"][data-testid]').last()
   await expect(card).toBeVisible()
@@ -17,6 +18,7 @@ test("T-APP-10: /branch opens one Branch card and keeps Chat usable", async ({ p
   await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
   await expect(card).toHaveAttribute("data-maximized", "false")
   await page.reload()
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await expect(page.locator('.smithers-card[data-kind="branch"][data-testid]').last()).toBeVisible()
   await expect(page.locator('.smithers-card[data-kind="workspace"]')).toHaveCount(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
@@ -26,6 +28,7 @@ test("T-APP-10: /branch opens one Branch card and keeps Chat usable", async ({ p
 // Machine ownership and frozen live metadata remain T-APP-12/T-TRM-01 receipts.
 test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palette while watching", async ({ page }) => {
   await page.goto("/")
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   const command = async (line: string) => {
     await fillComposer(page, line)
     await page.getByTestId("composer-send").press("Enter")
@@ -89,6 +92,7 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
       socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
     }))
     await page.goto("/")
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
     await say(page, `/branch ${branch}`)
     const card = page.getByTestId("card-branch:b-conflict")
     await expect(card).toContainText("Rebase conflict onto main")
@@ -106,6 +110,7 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
     await expect(card).toContainText("Scratch")
     await expect(page.getByTestId("composer-input")).toBeEditable()
     await page.reload()
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
     await expect(page.getByTestId("card-branch:b-conflict")).toContainText("Rebase conflict onto main")
     expect(writes).toHaveLength(1)
     await expect(page.locator('.smithers-card[data-kind="todo"]')).toHaveCount(0)
@@ -114,15 +119,20 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
 
 // Mounted card → typed action → production dispatcher → durable seam. HTTP
 // contracts are controlled here; the native composed test proves the receipts.
-for (const outcome of ["completed", "failed"] as const) test(`T-APP-10: Rebase background request survives reload and settles on ${outcome}`, async ({ page }) => {
+for (const scenario of ["completed", "failed", "unacknowledged reload", "launch failure retry"] as const) test(`T-APP-10: Rebase background request survives ${scenario}`, async ({ page }) => {
+  const outcome = scenario === "failed" ? "failed" : "completed"
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  let release!: () => void, state = "running", admitted = false
+  let release!: () => void, state = "running", admitted = false, rejectLaunch = scenario === "launch failure retry"
   const writes: string[] = [], receiptKeys: string[] = []
   await page.route("**/api/branches/smithers%2Fretry", async route => {
     if (route.request().method() === "GET") return route.fulfill({ json: { name: "smithers/retry", machine: { id: "b-rebase" } } })
     writes.push(route.request().headers()["idempotency-key"]!)
+    const attempt = writes.length
     expect(route.request().postDataJSON()).toEqual({ rebase: true })
     if (!admitted) await new Promise<void>(resolve => { release = resolve })
+    if (rejectLaunch) return route.fulfill({ status: 503, json: { code: "rebase_execution_unavailable", class: "infra", message: "Rebase execution unavailable" } })
+    // The first POST is intentionally abandoned by the unacknowledged reload.
+    if (scenario === "unacknowledged reload" && attempt === 1) return route.abort().catch(() => {})
     await route.fulfill({ status: 202, json: { state: "accepted", n: 2, onto: "new-main" } })
   })
   await page.route("**/api/todos/2?rebase_request=*", route => {
@@ -141,6 +151,7 @@ for (const outcome of ["completed", "failed"] as const) test(`T-APP-10: Rebase b
     socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
   }))
   await page.goto("/")
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await say(page, "/branch smithers/retry")
   const card = page.getByTestId("card-branch:b-rebase")
   await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
@@ -150,13 +161,38 @@ for (const outcome of ["completed", "failed"] as const) test(`T-APP-10: Rebase b
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes).toHaveLength(1)
   expect(receiptKeys).toEqual([])
-  admitted = true; release()
+  const key = writes[0]!
+  admitted = true
+  if (scenario === "unacknowledged reload") {
+    const abandon = release
+    await page.reload()
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+    abandon()
+    await expect.poll(() => writes.length).toBe(2)
+    expect(writes).toEqual([key, key])
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+  } else {
+    release()
+  }
+  if (scenario === "launch failure retry") {
+    await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: "Rebase" })).toBeVisible()
+    expect(receiptKeys).toEqual([])
+    await page.reload()
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+    await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toBeVisible()
+    expect(writes).toEqual([key])
+    rejectLaunch = false
+    await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
+    await expect.poll(() => writes.length).toBe(2)
+    expect(writes).toEqual([key, key])
+  }
   await expect.poll(() => receiptKeys.length).toBeGreaterThan(0)
   await expect(running).toBeVisible()
   await page.reload()
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await expect(running).toBeVisible()
-  expect(writes).toHaveLength(1)
-  expect(receiptKeys.every(key => key === writes[0])).toBe(true)
+  expect(writes).toHaveLength(scenario === "unacknowledged reload" || scenario === "launch failure retry" ? 2 : 1)
+  expect(receiptKeys.every(receiptKey => receiptKey === key)).toBe(true)
   await expect(page.getByTestId("composer-input")).toBeEditable()
   state = outcome
   await expect(page.locator(`.notice[data-tone="${outcome === "completed" ? "done" : "failed"}"]`).filter({ hasText: "Rebase" })).toBeVisible()
