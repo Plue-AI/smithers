@@ -668,10 +668,38 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.Len(t, observed, 1)
 		require.Equal(t, counted.idleHolder, observed[0].Holder)
 		before := counted.stops.Load()
-		safety.BurstsKnown = false
-		require.ErrorContains(t, counted.idleProviders.Prepare(ctx, counted.idleHolder), "no longer safe-idle")
-		require.Equal(t, before, counted.stops.Load())
-		safety.BurstsKnown = true
+		knownSafe := safety
+		for _, unsafe := range []struct {
+			name string
+			set  func(*microsandbox.AdmissionSafety)
+		}{
+			{"unknown_presence", func(s *microsandbox.AdmissionSafety) { s.PresenceKnown = false }},
+			{"presence", func(s *microsandbox.AdmissionSafety) { s.Presence = true }},
+			{"unknown_sessions", func(s *microsandbox.AdmissionSafety) { s.SessionsKnown = false }},
+			{"terminal", func(s *microsandbox.AdmissionSafety) { s.Terminal = true }},
+			{"ssh", func(s *microsandbox.AdmissionSafety) { s.SSH = true }},
+			{"unknown_run", func(s *microsandbox.AdmissionSafety) { s.RunKnown = false }},
+			{"running_step", func(s *microsandbox.AdmissionSafety) { s.RunningStep = true }},
+			{"unknown_bursts", func(s *microsandbox.AdmissionSafety) { s.BurstsKnown = false }},
+			{"open_burst", func(s *microsandbox.AdmissionSafety) { s.BurstOpen = true }},
+			{"unknown_documents", func(s *microsandbox.AdmissionSafety) { s.DocumentsEnabled = true; s.DocumentsKnown = false }},
+			{"unflushed_document", func(s *microsandbox.AdmissionSafety) {
+				s.DocumentsEnabled = true
+				s.DocumentsKnown = true
+				s.Unflushed = true
+			}},
+		} {
+			t.Run(unsafe.name, func(t *testing.T) {
+				safety = knownSafe
+				unsafe.set(&safety)
+				require.ErrorContains(t, counted.idleProviders.Prepare(ctx, counted.idleHolder), "no longer safe-idle")
+				require.Equal(t, before, counted.stops.Load(), "unsafe observations retain the machine")
+				var projected services.BranchMachineResponse
+				require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projected))
+				require.Equal(t, "awake", projected.State)
+			})
+		}
+		safety = knownSafe
 
 		var arriving string
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions(workspace_id,repository_id,user_id,kind,status) VALUES($1,$2,$3,'terminal','pending') RETURNING id`, id, repo.ID, owner.ID).Scan(&arriving))
