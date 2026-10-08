@@ -36,10 +36,6 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("composed-install PostgreSQL campaign runs in the access integration gate")
 	}
-	// Each composed install owns its stack worker scratch repository. Other
-	// campaigns on this host also use repository id 1; sharing /tmp aliases
-	// their independent stacks and makes source/readiness receipts unreliable.
-	t.Setenv("TMPDIR", t.TempDir())
 	var fixture struct{ Commands []retainedHTTPCase }
 	data, err := os.ReadFile("testdata/access/retained-http.json")
 	require.NoError(t, err)
