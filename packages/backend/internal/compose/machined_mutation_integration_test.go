@@ -35,6 +35,10 @@ func TestMachinedMutationQueuedHTTPWrites(t *testing.T) { testMachinedNativeMuta
 // Unlike the scripted capture peer, this executes the native snapshot/outbox.
 func TestMachinedCapturePendingWork(t *testing.T) { testMachinedNativeMutation(t, "pending") }
 
+// Browser saves enforce preconditions through the installed daemon, then the
+// transactional host capture retains exactly the accepted bytes.
+func TestMachinedFilePreconditionsHTTP(t *testing.T) { testMachinedNativeMutation(t, "preconditions") }
+
 func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMutation(t, "ack") }
 
 func TestMachinedMutationOutsideRename(t *testing.T) { testMachinedNativeMutation(t, "race") }
@@ -158,6 +162,34 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 	first, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.Head)
+	if mode == "preconditions" {
+		initial, updated := "created from browser", "updated from browser"
+		res := request("PUT", "preconditions.txt", `{"content":"created from browser","base_digest":"absent"}`)
+		require.NoError(t, res.err)
+		require.Equal(t, http.StatusOK, res.status, "%s", res.body)
+		for _, base := range []string{"absent", strings.Repeat("0", 64)} {
+			body, err := json.Marshal(map[string]string{"content": "lost", "base_digest": base})
+			require.NoError(t, err)
+			res = request("PUT", "preconditions.txt", string(body))
+			require.NoError(t, res.err)
+			require.Equal(t, http.StatusConflict, res.status, "%s", res.body)
+			require.Equal(t, []byte(initial), mustReadMutationFile(t, filepath.Join(root, "preconditions.txt")))
+		}
+		digest := sha256.Sum256([]byte(initial))
+		body, err := json.Marshal(map[string]string{"content": updated, "base_digest": hex.EncodeToString(digest[:])})
+		require.NoError(t, err)
+		res = request("PUT", "preconditions.txt", string(body))
+		require.NoError(t, res.err)
+		require.Equal(t, http.StatusOK, res.status, "%s", res.body)
+		res = request("GET", "preconditions.txt", "")
+		require.NoError(t, res.err)
+		require.Equal(t, http.StatusOK, res.status, "%s", res.body)
+		require.Contains(t, string(res.body), updated)
+		captured, err := registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		require.Equal(t, []byte(updated), git("-C", store, "show", captured.Head+":preconditions.txt"))
+		return
+	}
 	if mode == "race" {
 		awaitIdle := func() {
 			t.Helper()

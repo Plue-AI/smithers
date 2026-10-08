@@ -1150,3 +1150,75 @@ fn namespace_init_exit_ends_the_production_daemon() {
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; production compare-and-write contract"]
+fn production_absent_and_digest_preconditions_preserve_captured_bytes() {
+    use sha2::{Digest, Sha256};
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    let write = |host: &mut Host, path: &str, base: Vec<u8>, bytes: &[u8]| {
+        let mut name = (path.len() as u16).to_be_bytes().to_vec();
+        name.extend_from_slice(path.as_bytes());
+        let mut content = (bytes.len() as u32).to_be_bytes().to_vec();
+        content.extend_from_slice(bytes);
+        call(
+            host,
+            3,
+            &[
+                conn::field(1, name),
+                conn::field(2, base),
+                conn::field(3, content),
+                conn::field(4, conn::tagged(1, &[conn::field(1, [0, 0, 0, 1, b'a'])])),
+            ],
+        )
+    };
+    // These bytes originate in the test, independently of the daemon replies.
+    let initial = b"created through authenticated RPC\n";
+    let updated = b"updated through authenticated RPC\n";
+    assert_eq!(
+        write(&mut host, "created", conn::tagged(2, &[]), initial)[0],
+        3
+    );
+    for base in [
+        conn::tagged(2, &[]),
+        conn::tagged(1, &[conn::field(1, [0; 32])]),
+    ] {
+        let refused = write(&mut host, "created", base, b"lost");
+        assert_eq!(refused[0], 255);
+        let fields = conn::fields("error", &refused[1..]).unwrap();
+        assert_eq!(fields[0].1, &[4]); // literal wire code: stale
+        assert_eq!(
+            fs::read(guest.root.path().join("workspace/created")).unwrap(),
+            initial
+        );
+    }
+    let digest: [u8; 32] = Sha256::digest(initial).into();
+    assert_eq!(
+        write(
+            &mut host,
+            "created",
+            conn::tagged(1, &[conn::field(1, digest)]),
+            updated
+        )[0],
+        3
+    );
+    assert_eq!(
+        fs::read(guest.root.path().join("workspace/created")).unwrap(),
+        updated
+    );
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    let head = host
+        .captured
+        .expect("capture objects verified before acknowledgement");
+    let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
+    let output = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(host.store.path())
+        .args(["show", &format!("{hex}:created")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, updated);
+}

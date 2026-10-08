@@ -350,3 +350,201 @@ fn kernel_freeze_stops_member_process_and_thaw_resumes_it() {
     drop(broker);
     worker.join().unwrap();
 }
+
+/// Approved guest only: the owner mounts a dedicated dm-delay filesystem at
+/// /var/lib/smithers/qualification with >=5 s write latency and creates the
+/// private member-owned freeze-stall file there. Ordinary disks are not valid
+/// substitutes: this test requires an observed uninterruptible kernel writer.
+/// Device setup belongs to the reference image, never this branch's launcher.
+#[test]
+#[ignore = "requires approved guest and dedicated delayed-I/O kernel fixture; no sudo in Linux lane"]
+fn kernel_freeze_timeout_names_stalled_member_and_thaws() {
+    use smithers_machined::{broker::cgroups::Cgroups, hooks::Broker};
+    use std::{
+        io::Read,
+        os::{
+            fd::AsRawFd,
+            unix::{fs::MetadataExt, process::CommandExt},
+        },
+        process::{Command, Stdio},
+        time::Instant,
+    };
+    assert_eq!(
+        unsafe { libc::geteuid() },
+        0,
+        "approved guest launcher only"
+    );
+    let path = "/sys/fs/cgroup/smithers/sessions";
+    assert!(
+        std::fs::read_to_string(format!("{path}/cgroup.events"))
+            .unwrap()
+            .lines()
+            .any(|line| line == "populated 0"),
+        "never freeze other work"
+    );
+    let fixture = "/var/lib/smithers/qualification/freeze-stall";
+    let metadata = std::fs::symlink_metadata(fixture).unwrap();
+    assert!(metadata.is_file());
+    assert_eq!(metadata.uid(), 20000);
+    assert_eq!(metadata.gid(), 20000);
+    assert_eq!(metadata.mode() & 0o777, 0o600);
+    assert_eq!(metadata.nlink(), 1);
+    let device = format!(
+        "/sys/dev/block/{}:{}/dm/name",
+        libc::major(metadata.dev()),
+        libc::minor(metadata.dev())
+    );
+    assert_eq!(
+        std::fs::read_to_string(device).unwrap().trim(),
+        "smithers-freeze-qualification",
+        "dedicated owner-provisioned dm-delay device required"
+    );
+    let mut kernel = Cgroups::open().unwrap();
+    let procs = kernel.create(724).unwrap();
+    let mut command = Command::new("/usr/bin/python3");
+    command.args(["-I", "-u", "-c", "import os\nassert os.getuid()==20000 and os.getgid()==20000 and os.getgroups()==[20000]\nf=os.open('/var/lib/smithers/qualification/freeze-stall',os.O_WRONLY|os.O_NOFOLLOW)\nos.write(f,b'kernel freeze timeout qualification\\n')\nos.fsync(f)\nos.close(f)\nprint('completed',flush=True)"])
+        .env_clear().current_dir("/").stdout(Stdio::piped());
+    // SAFETY: only fixed descriptor IO and identity syscalls before exec. The
+    // system interpreter starts after dropping all root identities.
+    unsafe {
+        command.pre_exec(move || {
+            let mut pid = libc::getpid() as u32;
+            let mut bytes = [0u8; 10];
+            let mut offset = bytes.len();
+            while pid != 0 {
+                offset -= 1;
+                bytes[offset] = b'0' + (pid % 10) as u8;
+                pid /= 10;
+            }
+            if libc::write(
+                procs.as_raw_fd(),
+                bytes[offset..].as_ptr().cast(),
+                bytes.len() - offset,
+            ) != (bytes.len() - offset) as isize
+            {
+                return Err(io::Error::last_os_error());
+            }
+            let gid = 20000;
+            if libc::setgroups(1, &gid) != 0
+                || libc::setresgid(gid, gid, gid) != 0
+                || libc::setresuid(20000, 20000, 20000) != 0
+            {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    struct Member(std::process::Child);
+    impl Drop for Member {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut member = Member(command.spawn().unwrap());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let status = std::fs::read_to_string(format!("/proc/{}/status", member.0.id())).unwrap();
+        if status.lines().any(|line| line.starts_with("State:\tD")) {
+            break;
+        }
+        assert!(
+            member.0.try_wait().unwrap().is_none(),
+            "fixture did not stall kernel IO"
+        );
+        assert!(
+            Instant::now() < deadline,
+            "no uninterruptible writer observed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let (server, client) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker = std::thread::spawn(move || control::serve(&server, &mut kernel).unwrap());
+    let broker = Arc::new(control::SocketpairBroker::new(client).unwrap());
+    struct Thaw<'a>(&'a dyn Broker);
+    impl Drop for Thaw<'_> {
+        fn drop(&mut self) {
+            let _ = self.0.thaw();
+        }
+    }
+    let thaw = Thaw(broker.as_ref());
+    let start = Instant::now();
+    let result = broker.freeze(Duration::from_secs(1));
+    let elapsed = start.elapsed();
+    // Read before any explicit thaw: the production timeout must clear the
+    // kernel freeze request itself, even while the member remains blocked.
+    let requested = std::fs::read_to_string(format!("{path}/cgroup.freeze")).unwrap();
+    broker.thaw().unwrap();
+    assert_eq!(result.unwrap(), Some(724));
+    assert!(elapsed >= Duration::from_secs(1));
+    assert!(
+        elapsed < Duration::from_millis(1100),
+        "freeze exceeded its one-second budget: {elapsed:?}"
+    );
+    assert_eq!(
+        requested.trim(),
+        "0",
+        "timeout left the kernel freeze requested"
+    );
+    // The same real kernel barrier on the production FIFO returns the typed
+    // busy error before touching documents, repository hooks, or the rewrite.
+    let executor = Executor::start(Hooks {
+        broker: broker.clone(),
+        ..Default::default()
+    })
+    .unwrap();
+    let start = Instant::now();
+    let error = executor
+        .lock
+        .enqueue("kernel timeout rewrite", |cx| {
+            freeze::freeze_then(cx, &Actor::Outside, |_| -> Result<()> {
+                panic!("a stalled kernel writer must prevent the rewrite")
+            })
+        })
+        .unwrap()
+        .wait()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.code, 9);
+    assert_eq!(error.session, Some(724));
+    assert!(start.elapsed() < Duration::from_millis(1100));
+    executor.shutdown().unwrap();
+    assert_eq!(
+        std::fs::read_to_string(format!("{path}/cgroup.freeze"))
+            .unwrap()
+            .trim(),
+        "0"
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let status = loop {
+        if let Some(status) = member.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "writer failed to resume after timeout thaw"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success());
+    let mut output = String::new();
+    member
+        .0
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut output)
+        .unwrap();
+    assert_eq!(output, "completed\n");
+    drop(thaw);
+    assert_eq!(broker.kill_sessions(None).unwrap(), 1);
+    assert!(!std::path::Path::new(path).join("s724").exists());
+    drop(broker);
+    worker.join().unwrap();
+}
