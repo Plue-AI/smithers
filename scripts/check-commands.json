@@ -262,7 +262,7 @@
     },
     "C-INS-01": {
       "status": "manual",
-      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: apps/app/e2e/real/install-origins.spec.ts, apps/app/e2e/real/support/listeners.ts"
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network (HTTPS proxy origin, WebKit, the installed process tree). Automation present: apps/app/e2e/real/install-origins.spec.ts and apps/app/e2e/real/support/listeners.ts; the loopback, LAN and owner-set http origins pass on the composed install (packages/backend TestInstallOriginsBrowser with SMITHERS_INSTALL_ORIGINS_BROWSER=1)"
     },
     "C-INS-03": {
       "status": "pending-owner",
