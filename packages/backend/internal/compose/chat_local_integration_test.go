@@ -465,7 +465,7 @@ func (b *lockedBuffer) String() string {
 
 // Reuse the same model HTTP fixture for composed journeys. Offered the app
 // agent's commands tool and asked about one of fileQuestions, it executes
-// files.read on that path; told "Run /name args", it executes that command;
+// /file on that path; told "Run /name args", it executes that command;
 // a prompt with several "Run /" lines executes them in order, one per model
 // leg; a question marked "(forced)" calls the tool even when none is offered.
 // Asked "(instructions)", it answers with the command lines its system
@@ -560,7 +560,7 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 				}
 				for _, path := range fileQuestions {
 					if len(results) == 0 && strings.Contains(text, path) {
-						execute("files.read", path)
+						execute("file", path)
 						return
 					}
 				}
@@ -595,7 +595,7 @@ func TestLocalChatProviderSourceQuestion(t *testing.T) {
 	require.Contains(t, question, `"name":"commands"`)
 	require.Contains(t, question, `"finish_reason":"tool_calls"`)
 	require.Contains(t, question, `\"action\":\"execute\"`)
-	require.Contains(t, question, `\"name\":\"files.read\"`)
+	require.Contains(t, question, `\"name\":\"file\"`)
 	require.Contains(t, question, `\"args\":\"JOURNEY.md\"`)
 	require.NotContains(t, question, `"kind":"file"`)
 	// Without the host's tool on offer the provider cannot call it.

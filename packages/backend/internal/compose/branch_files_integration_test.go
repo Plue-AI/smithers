@@ -62,14 +62,14 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	require.Contains(t, answer, "Add a greeting to JOURNEY.md")
 	fileRead, fileCard := false, false
 	for _, frame := range frames {
-		fileRead = fileRead || frame.Type == "call.settled" && frame.Name == "files.read"
+		fileRead = fileRead || frame.Type == "call.settled" && frame.Name == "file"
 		if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
 			require.Equal(t, "Add a greeting to JOURNEY.md\n", frame.Card.Payload.Content)
 			require.Equal(t, r.mainCommit, frame.Card.Payload.ReadAt.CommitID)
 			fileCard = true
 		}
 	}
-	require.True(t, fileRead, "the registered files.read flow must settle")
+	require.True(t, fileRead, "the registered /file command must settle")
 	require.True(t, fileCard, "the answer must include a mirrored File card")
 	var afterQuestion int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&afterQuestion))

@@ -142,8 +142,8 @@ func TestJ1Rehearsal(t *testing.T) {
 			return false
 		}
 		files := strings.Join([]string{
-			"- /files.list [path] [owner/repo] — List a repository directory",
-			"- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository",
+			"- /files [path] [owner/repo] — Browse a branch's files",
+			"- /file <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Open and co-edit a file",
 		}, "\n")
 		owned := strings.Join([]string{
 			files,
