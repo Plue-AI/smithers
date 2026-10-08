@@ -46,6 +46,15 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 
 // Real composed person HTTP door, installed daemon, native jj and durable
 // outbox. EmptyBroker does not qualify cgroup freezing or the Mac budget.
+// Synthetic deadline at the production freeze unwind; real daemon, native
+// storage, HTTP request, stack scheduler and capture. Kernel thaw stays VM-only.
+func TestMachinedFreezeTimeoutAutomaticRetry(t *testing.T) {
+	if os.Getenv("SMITHERS_MACHINED_MUTATION_DEBUG") != "1" {
+		t.Skip("killpoints daemon required")
+	}
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{FreezeTimeout: true})
+}
+
 func TestPerfGuestRebaseObservations(t *testing.T) {
 	testBranchRebaseNative(t, true, "")
 }
@@ -95,7 +104,7 @@ func TestNativeCleanRebaseFollowsMainAgainBeforeVerification(t *testing.T) {
 	testBranchRebaseNative(t, false, "", rebaseNativeOptions{AdvanceMain: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain bool }
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout bool }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
@@ -278,7 +287,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	for range 2 {
 		go func() {
 			var err error
-			if point == "" && !observe {
+			if point == "" && !observe && !option.FreezeTimeout {
 				err = runtime.ensureDaemon(ctx, f.row.ID, guest)
 			} else {
 				faultBootMu.Lock()
@@ -464,6 +473,56 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	current, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, edited, current.CandidateHead)
+	if option.FreezeTimeout {
+		arm := filepath.Join(state, "qualification-freeze-timeout.arm")
+		require.NoError(t, os.WriteFile(arm, []byte("73"), 0600))
+		beforeParent := git("-C", guest, "rev-parse", "HEAD^")
+		beforeTree := git("-C", store, "rev-parse", branchRef+"^{tree}")
+		// More timeouts than the outage allowance must remain pending. The
+		// scheduler clock advances, but each real daemon freeze waits one second.
+		for attempt := 0; attempt < 8; attempt++ {
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+			pending, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, "rebase_pending", pending.Reason)
+			require.Equal(t, edited, pending.CandidateHead)
+			require.Equal(t, beforeParent, git("-C", guest, "rev-parse", "HEAD^"))
+			// The ordinary capture cadence may publish a new snapshot ID;
+			// its tree must remain unchanged and contain no target bytes.
+			require.Equal(t, beforeTree, git("-C", store, "rev-parse", branchRef+"^{tree}"))
+			// The timeout must release the mutation lock before replying. A
+			// normal read can finish immediately and sees the original bytes.
+			readCtx, cancelRead := context.WithTimeout(ctx, time.Second)
+			file, readErr := registry.ReadFile(readCtx, f.row.ID, "a.txt", "")
+			cancelRead()
+			require.NoError(t, readErr)
+			require.Equal(t, "first\n", string(file.Content))
+			require.True(t, pending.NextAttemptAt.Valid)
+			require.LessOrEqual(t, pending.NextAttemptAt.Time.Sub(time.Now().Add(time.Duration(retryClockOffset.Load()))), time.Second)
+
+			var checks map[string]any
+			require.NoError(t, json.Unmarshal(pending.Checks, &checks))
+			rebase := checks["rebase"].(map[string]any)
+			require.EqualValues(t, 73, rebase["blocking_session"])
+			require.Nil(t, rebase["native"])
+			require.Empty(t, checks["outages"])
+			req, err := http.NewRequest("GET", origin+"/api/todos/1?rebase_request=native-press", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+			response, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			var view map[string]any
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&view))
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, 200, response.StatusCode)
+			require.Equal(t, map[string]any{"onto": onto, "state": "running", "blocking_session": float64(73)}, view["rebase_execution"])
+			retryClockOffset.Add(int64(2 * time.Second))
+		}
+		require.NoError(t, os.Remove(arm))
+		// No second POST: the original authorized request resumes in PollOnce.
+	}
 	if point != "" {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 		require.NoError(t, err)

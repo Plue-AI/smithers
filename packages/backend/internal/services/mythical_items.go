@@ -6143,14 +6143,15 @@ type mythicalChecks struct {
 // earlier TODO T<k>) and Since when the prefix moved under the item. It is
 // pending until Rebased: the candidate was rebased and its checks launched.
 type mythicalRebase struct {
-	ReceiptID   string                  `json:"receipt_id,omitempty"`
-	HeadChanged bool                    `json:"head_changed,omitempty"`
-	Onto        string                  `json:"onto"`
-	Name        string                  `json:"name"`
-	Since       time.Time               `json:"since"`
-	Rebased     bool                    `json:"rebased,omitempty"`
-	Request     *mythicalRebaseRequest  `json:"request,omitempty"`
-	Native      *machined.RewriteResult `json:"native,omitempty"`
+	BlockingSession uint32                  `json:"blocking_session,omitempty"`
+	ReceiptID       string                  `json:"receipt_id,omitempty"`
+	HeadChanged     bool                    `json:"head_changed,omitempty"`
+	Onto            string                  `json:"onto"`
+	Name            string                  `json:"name"`
+	Since           time.Time               `json:"since"`
+	Rebased         bool                    `json:"rebased,omitempty"`
+	Request         *mythicalRebaseRequest  `json:"request,omitempty"`
+	Native          *machined.RewriteResult `json:"native,omitempty"`
 }
 
 // rebuilding reports an item in review whose pull request rebuilds after a

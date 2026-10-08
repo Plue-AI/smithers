@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 )
@@ -127,6 +129,21 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 		if errors.Is(err, db.ErrMythicalItemMoved) {
 			return nil, false, err
 		}
+		var refusal *machined.SessionError
+		if errors.As(err, &refusal) && refusal.Code == "busy" {
+			// A kernel writer can outlive several freeze budgets. Retain the
+			// same authorized request; waiting is not an infrastructure outage.
+			next := item
+			checks := mythicalChecksOf(next)
+			if checks.Rebase == nil {
+				checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
+			}
+			checks.Rebase.BlockingSession = refusal.Session
+			next.Checks = checks.encode()
+			next.Reason = "rebase_pending"
+			next.NextAttemptAt = pgtype.Timestamptz{Time: st.s.now().Add(time.Second), Valid: true}
+			return &next, false, nil
+		}
 		return mythicalInfraOutage(item, "launch", "the branch could not be rebased: "+err.Error(), st.now), false, nil
 	}
 	if !result.Inspected || !codingCommitID.MatchString(result.Head) {
@@ -137,6 +154,7 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 	if checks.Rebase == nil {
 		checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
 	}
+	checks.Rebase.BlockingSession = 0
 	checks.Rebase.Native = &result
 	next.Checks = checks.encode()
 	if tx == nil {

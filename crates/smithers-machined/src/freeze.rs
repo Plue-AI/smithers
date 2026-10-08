@@ -53,7 +53,12 @@ fn freeze_for<T>(
     crate::events::killpoint("freeze-start");
     // Even a partial freeze must be unwound if no rewrite has begun.
     let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if let Some(session) = hooks.broker.freeze(Duration::from_secs(1))? {
+        let blocker = hooks.broker.freeze(Duration::from_secs(1))?;
+        // Fault builds exercise the real timeout unwind, RPC and host retry
+        // without substituting the daemon. This is not kernel-freeze evidence.
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        let blocker = blocker.or_else(qualification_timeout);
+        if let Some(session) = blocker {
             return Err(Error {
                 code: 9,
                 session: Some(session),
@@ -193,4 +198,19 @@ mod hold_tests {
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 1 << 20);
         assert!(append_hold(dir.path(), "directory must not write").is_err());
     }
+}
+
+#[cfg(all(feature = "killpoints", debug_assertions))]
+fn qualification_timeout() -> Option<u32> {
+    let path = "/var/lib/smithers-machined/qualification-freeze-timeout.arm";
+    let session = std::fs::read_to_string(path)
+        .ok()?
+        .trim()
+        .parse::<u32>()
+        .ok()?;
+    if session == 0 {
+        return None;
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    Some(session)
 }

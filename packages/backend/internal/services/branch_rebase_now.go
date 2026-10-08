@@ -268,5 +268,9 @@ func (s *MythicalService) RebaseReceipt(ctx context.Context, repository, number 
 	} else if pending == nil || pending.Onto != onto || pending.Rebased || conflictNeedsPerson || mythicalSettledStates[item.State] || item.CandidateHead != head {
 		state = "failed"
 	}
-	return map[string]any{"onto": onto, "state": state}, nil
+	receipt := map[string]any{"onto": onto, "state": state}
+	if state == "running" && pending != nil && pending.BlockingSession != 0 {
+		receipt["blocking_session"] = pending.BlockingSession
+	}
+	return receipt, nil
 }
