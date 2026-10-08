@@ -279,9 +279,23 @@ func TestTodoCardCommitAndAmendTransactions(t *testing.T) {
 	failure := failedCard["failure"].(map[string]any)
 	require.Equal(t, map[string]any{"name": "figlet", "file": ".smithers/machine.json"}, failure["missing_tool"])
 	require.Equal(t, "user", failure["class"])
+	// A typed stop can leave its composition held on an engine boundary.
+	// Retry cancels that exact attempt before final capture stops its host.
+	heldPayload, err := json.Marshal(map[string]any{"projection": json.RawMessage(projection)})
+	require.NoError(t, err)
+	held, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "held-before-person-retry", Payload: heldPayload, EffectPolicy: jobs.EffectUnsafe})
+	require.NoError(t, err)
+	otherPayload := strings.Replace(string(heldPayload), itemID, "22222222-2222-4222-8222-222222222222", 1)
+	other, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "unrelated-held-run", Payload: json.RawMessage(otherPayload), EffectPolicy: jobs.EffectUnsafe})
+	require.NoError(t, err)
 	retry := call("POST", path, `{"op":"retry","steer":"Use the repaired image"}`, "retry-once", 202)
 	require.EqualValues(t, 2, retry["attempt"])
 	require.Equal(t, retry, call("POST", path, `{"op":"retry","steer":"Use the repaired image"}`, "retry-once", 202))
+	var cancelled, unrelated bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT cancellation_requested_at IS NOT NULL FROM product_job_requests WHERE id=$1`, held.OperationID).Scan(&cancelled))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT cancellation_requested_at IS NOT NULL FROM product_job_requests WHERE id=$1`, other.OperationID).Scan(&unrelated))
+	require.True(t, cancelled, "person Retry settles its old attempt's launch")
+	require.False(t, unrelated, "Retry cannot cancel another TODO")
 	retriedCard := call("GET", path, "", "", 200)
 	require.Equal(t, failedCard["evidence"], retriedCard["evidence"], "Retry retains the ended attempt verbatim")
 	var attempts []byte

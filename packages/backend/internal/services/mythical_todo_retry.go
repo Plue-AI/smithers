@@ -109,6 +109,17 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			if err != nil {
 				return err
 			}
+			stack, err := q.GetMythicalStack(ctx, input.Repository)
+			if err != nil {
+				return err
+			}
+			// A policy stop can park the composition while its last candidate
+			// is waiting on the engine. Retire that attempt's exact launches in
+			// the Retry transaction so final capture can stop its old host before
+			// admission starts a successor. Keep the writer/capture fence intact.
+			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
+				return err
+			}
 			now, attempt := s.now().UTC(), item.Attempt+1
 			retried := mythicalChecksOf(next)
 			var retryPin *flowruntime.Pin
