@@ -308,15 +308,55 @@ class BundleAssembly(unittest.TestCase):
                             target.symlink_to(sentinel)
                         else:
                             target.write_bytes(b"replacement")
-                def replace(root, parts, parent, artifact):
+                def replace(root, parts, parent, artifact, ancestry):
                     schedule.replace()
-                    return original(root, parts, parent, artifact)
+                    return original(root, parts, parent, artifact, ancestry)
                 with RaceSchedule(mutate) as schedule, patch.object(assemble, "same_destination", side_effect=replace):
                     with self.assertRaises((ValueError, OSError)):
                         assemble.add_artifact(base, manifest, "libexec/trm06-supervisor", source, 0o755)
                 self.assertEqual(len(manifest["files"]), 1)
                 self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
                 self.assertEqual((sentinel.stat().st_ino, sentinel.stat().st_uid, sentinel.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
+
+    def test_preserved_subtree_ancestor_replacements_refuse_publication(self):
+        for operation in ("artifact", "manifest"):
+            for ancestor in ("base", "container", "share"):
+                if operation == "manifest" and ancestor == "share":
+                    continue
+                with self.subTest(operation=operation, ancestor=ancestor), tempfile.TemporaryDirectory() as temporary:
+                    container = Path(temporary) / "container"
+                    container.mkdir()
+                    base, manifest = self.base(container)
+                    (base / "share/trm06").mkdir(parents=True)
+                    source = Path(temporary) / "source"
+                    source.write_bytes(b"main-artifact")
+                    sentinel = Path(temporary) / "outside"
+                    sentinel.write_bytes(b"outside-fixture")
+                    before = sentinel.stat()
+                    original = assemble.same_destination
+                    def mutate():
+                        target = {"base": base, "container": container, "share": base / "share"}[ancestor]
+                        saved = target.with_name(target.name + "-held")
+                        target.rename(saved)
+                        target.mkdir()
+                        # Preserve every lower directory and the final artifact inode.
+                        # Comparing only the immediate parent cannot detect this.
+                        for child in list(saved.iterdir()):
+                            child.rename(target / child.name)
+                    def check(root, parts, parent, artifact, ancestry):
+                        schedule.replace()
+                        return original(root, parts, parent, artifact, ancestry)
+                    with RaceSchedule(mutate) as schedule, patch.object(assemble, "same_destination", side_effect=check):
+                        with self.assertRaises(ValueError):
+                            if operation == "artifact":
+                                assemble.add_artifact(base, manifest, "share/trm06/launcher.py", source, 0o644)
+                            else:
+                                assemble.publish_manifest(base, manifest)
+                    self.assertEqual(len(manifest["files"]), 1)
+                    self.assertEqual(json.loads((base / "manifest.json").read_bytes()), manifest)
+                    self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
+                    self.assertEqual((sentinel.stat().st_ino, sentinel.stat().st_uid, sentinel.stat().st_mode),
+                                     (before.st_ino, before.st_uid, before.st_mode))
 
     def test_manifest_publication_replacement_matrix(self):
         for mode in ("positive", "manifest-symlink", "root-directory", "root-symlink"):
@@ -337,9 +377,9 @@ class BundleAssembly(unittest.TestCase):
                         if mode == "root-directory": base.mkdir()
                         else: base.symlink_to(base.with_name("held-base"), target_is_directory=True)
                     changed = True
-                def check(root, parts, parent, artifact):
+                def check(root, parts, parent, artifact, ancestry):
                     if not changed: schedule.replace()
-                    original(root, parts, parent, artifact)
+                    original(root, parts, parent, artifact, ancestry)
                 with RaceSchedule(mutate) as schedule, patch.object(assemble, "same_destination", side_effect=check):
                     if mode.startswith("root"):
                         with self.assertRaises((ValueError, OSError)):

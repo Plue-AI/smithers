@@ -73,30 +73,49 @@ def validate_base(base, revision, *, overlay=False):
     return manifest
 
 
-def same_destination(root, parts, parent, artifact):
-    """Reopen without following a replaced ancestor before publishing identity."""
-    current = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+def destination_chain(root):
+    """Hold all absolute ancestors without following symlinks."""
+    path = Path(os.path.abspath(root))
+    chain = [os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)]
+    try:
+        for part in path.parts[1:]:
+            chain.append(os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                 dir_fd=chain[-1]))
+        return chain
+    except BaseException:
+        for fd in chain:
+            os.close(fd)
+        raise
+
+
+def same_destination(root, parts, parent, artifact, ancestry):
+    """Revalidate every held ancestor, including preserved-subtree moves."""
+    current_chain = destination_chain(root)
     try:
         for part in parts[:-1]:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
-            os.close(current)
-            current = child
-        held = os.fstat(parent)
-        observed = os.fstat(current)
-        if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
-            raise ValueError("overlay destination parent replaced")
-        observed = os.stat(parts[-1], dir_fd=current, follow_symlinks=False)
+            current_chain.append(os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                         dir_fd=current_chain[-1]))
+        if len(current_chain) != len(ancestry):
+            raise ValueError("overlay destination ancestry replaced")
+        for original, current in zip(ancestry, current_chain):
+            held, observed = os.fstat(original), os.fstat(current)
+            if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
+                raise ValueError("overlay destination ancestor replaced")
+        observed = os.stat(parts[-1], dir_fd=current_chain[-1], follow_symlinks=False)
         if not stat.S_ISREG(observed.st_mode) or observed.st_nlink != 1 or (observed.st_dev, observed.st_ino) != (artifact.st_dev, artifact.st_ino):
             raise ValueError("overlay destination artifact replaced")
     finally:
-        os.close(current)
+        for fd in current_chain:
+            os.close(fd)
+
 
 
 def add_artifact(root, manifest, relative, source, mode):
     parts = relative.split("/")
     if relative.startswith("/") or any(part in ("", ".", "..") for part in parts):
         raise ValueError("invalid overlay artifact path")
-    parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    ancestry = destination_chain(root)
+    parent = ancestry[-1]
     try:
         for part in parts[:-1]:
             try:
@@ -104,7 +123,7 @@ def add_artifact(root, manifest, relative, source, mode):
             except FileExistsError:
                 pass
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-            os.close(parent)
+            ancestry.append(child)
             parent = child
         source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         source_info = os.fstat(source_fd)
@@ -125,10 +144,11 @@ def add_artifact(root, manifest, relative, source, mode):
             os.fchmod(output.fileno(), mode)
             os.fsync(output.fileno())
             artifact_info = os.fstat(output.fileno())
-        same_destination(root, parts, parent, artifact_info)
+        same_destination(root, parts, parent, artifact_info, ancestry)
         manifest["files"].append({"path": relative, "sha256": hash_value.hexdigest(), "stage": "host", "mode": mode})
     finally:
-        os.close(parent)
+        for fd in ancestry:
+            os.close(fd)
 
 
 
@@ -138,7 +158,8 @@ def publish_manifest(root, manifest):
     The copied base already contains manifest.json. Atomic descriptor-relative
     replacement avoids truncating a raced symlink's outside target.
     """
-    parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    ancestry = destination_chain(root)
+    parent = ancestry[-1]
     temporary = ".trm06-manifest.json"
     created = False
     try:
@@ -149,15 +170,21 @@ def publish_manifest(root, manifest):
             output.flush()
             os.fsync(output.fileno())
             artifact = os.fstat(output.fileno())
-        same_destination(root, [temporary], parent, artifact)
+        same_destination(root, [temporary], parent, artifact, ancestry)
         os.rename(temporary, "manifest.json", src_dir_fd=parent, dst_dir_fd=parent)
         created = False
-        same_destination(root, ["manifest.json"], parent, artifact)
+        same_destination(root, ["manifest.json"], parent, artifact, ancestry)
         os.fsync(parent)
     finally:
-        if created:
-            os.unlink(temporary, dir_fd=parent)
-        os.close(parent)
+        try:
+            if created:
+                try:
+                    os.unlink(temporary, dir_fd=parent)
+                except FileNotFoundError:
+                    pass  # A replacement may have moved the staging leaf too.
+        finally:
+            for fd in ancestry:
+                os.close(fd)
 
 
 def validate_supervisor(path):
