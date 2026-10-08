@@ -111,13 +111,13 @@ test("on an install, flow doors read GET /api/flows: the built-in TODO flow is e
     expect(await h.controller.runCommandForResult("flow", "todo")).toMatchObject({ status: "executed", value: "Opened TODO flow" })
     expect(h.reads.filter(path => path === "/api/flows").length).toBeGreaterThan(0)
     expect(h.controller.flowCatalog?.get().flows).toEqual([SERVED_TODO])
-    // The card renders the served model: built in, its five steps and the wait, and Edit as its one press.
+    // The card renders the served model: built in, its five steps and the wait, and its Source, Plan, Run and Edit doors.
     const card = cards(h).find(row => row.kind === "flow")!
     const html = renderToStaticMarkup(createElement(ControllerContext.Provider, { value: h.controller },
       flowCardFamily.flow.render(card as Parameters<typeof flowCardFamily.flow.render>[0], { presentation: "embedded" } as CardActions)))
     expect(html).toContain("Built-in")
     for (const label of ["Plan", "Implement", "Verify", "Review", "Propose", "Wait for merge"]) expect(html).toContain(label)
-    expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.source", "flow.edit"])
+    expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.source", "flow.plan", "flow.run", "flow.edit"])
     // 12cf983e41: installed inventory persists admission, then finishes in the background.
     expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "Requested" })
     await inventorySettled(h, "completed")
