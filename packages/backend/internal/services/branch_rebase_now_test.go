@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,7 @@ func TestBranchRebaseNowUsesStackPublication(t *testing.T) {
 	branch := mythicalChecksOf(second).Branch
 	require.NotEmpty(t, branch)
 	oldPR := second.PRHead
+	f.retainedRebaseBranch(second)
 	// The reviewed branch has released its coding and review machines.
 	_, err := f.pool.Exec(t.Context(), `UPDATE mythical_items SET workspace_id='',lane=NULL,lane_started_at=NULL WHERE id=$1`, second.ID)
 	require.NoError(t, err)
@@ -33,6 +35,10 @@ func TestBranchRebaseNowUsesStackPublication(t *testing.T) {
 	held := f.item(second.Number.Int64)
 	require.Equal(t, "rebase_pending", held.Reason)
 	require.Equal(t, second.CandidateHead, held.CandidateHead)
+	// Main's fold receipt can lag its mirrored bookmark while this rebase
+	// is pending. Admission must use the mirror, as the worker does.
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.repoID, first.CandidateHead)
+	require.NoError(t, err)
 	input := BranchRebaseInput{Rebase: true, Request: "press"}
 	receipt, err := f.service.RebaseBranch(session, f.repoID, f.userID, branch, input)
 	require.NoError(t, err)
@@ -43,6 +49,8 @@ func TestBranchRebaseNowUsesStackPublication(t *testing.T) {
 	require.Equal(t, receipt, again)
 	input.Request = "second-press"
 	_, err = f.service.RebaseBranch(session, f.repoID, f.userID, branch, input)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.repoID, f.main)
 	require.NoError(t, err)
 	// Revoking the admitted credential before the worker runs does not grant
 	// a presence override. The durable request remains for an authorized retry.
@@ -117,6 +125,7 @@ func TestBranchRebaseNowHandsConflictToExistingPath(t *testing.T) {
 	checks := mythicalChecksOf(second)
 	checks.Branch = "smithers/second"
 	second.Checks = checks.encode()
+	f.retainedRebaseBranch(second)
 	second.WorkspaceID = ""
 	_, err := db.New(f.pool).SaveMythicalItem(t.Context(), second)
 	require.NoError(t, err)
@@ -139,4 +148,16 @@ func TestBranchRebaseNowHandsConflictToExistingPath(t *testing.T) {
 	}
 	require.Equal(t, conflict.Attempt, f.item(second.Number.Int64).Attempt)
 	require.Zero(t, f.verifies(second))
+}
+
+// A released coding branch is retained install data, not a cleared item lane.
+func (f *rebaseFixture) retainedRebaseBranch(item db.MythicalItem) {
+	q := db.New(f.pool)
+	workspace, err := q.CreateWorkspace(f.t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID,
+		Name: "coding", TargetBookmark: "mythical", Kind: "vm", Status: "stopped"})
+	require.NoError(f.t, err)
+	_, _, err = q.BindMythicalLane(f.t.Context(), db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: f.repoID,
+		ItemID: item.ID, Name: fmt.Sprintf("T%d", item.Number.Int64)})
+	require.NoError(f.t, err)
+	require.NoError(f.t, q.RetireMythicalLane(f.t.Context(), workspace.ID))
 }

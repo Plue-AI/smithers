@@ -87,6 +87,8 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	head := git("commit-tree", tree, "-p", source, "-m", "Candidate")
 	git("update-ref", "refs/smithers/test/candidate", head)
 	git("update-ref", "refs/smithers/test/onto", onto)
+	git("update-ref", "refs/heads/main", onto)
+	require.NoError(t, local.Client().ImportRefs(ctx, owner.Username, "app"))
 	host := &rebaseAdmissionHost{Client: local.Client()}
 	service := services.NewMythicalService(pool, host)
 	service.SetLauncher(&conflictDoorProvider{})
@@ -94,7 +96,7 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	server.Start()
 	t.Cleanup(server.Close)
-	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active',landed_main=$2 WHERE repository_id=$1`, repo.ID, onto)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active',landed_main=$2 WHERE repository_id=$1`, repo.ID, source)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',stack_position=1,candidate_base=$2,candidate_head=$3,checks=checks || jsonb_build_object('branch','smithers/test','rebase',jsonb_build_object('onto',$4::text,'name','main')) WHERE id=$1`, item.ID, source, head, onto)
 	require.NoError(t, err)
@@ -126,6 +128,7 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	require.Nil(t, pendingRequest)
 	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_rebase_fact ON product_job_events; DROP FUNCTION refuse_rebase_fact()`)
 	require.NoError(t, err)
+	// The mirrored main has advanced while the stack fold receipt is old.
 	for range 2 {
 		code, data := call("rebase-press")
 		require.Equal(t, 202, code, data)
@@ -164,6 +167,9 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	retained, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "smithers/test", Status: "stopped"})
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: retained.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "TODO 1 coding"})
+	require.NoError(t, err)
+	// The fold receipt catches up before the independent Bring in scenario.
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, repo.ID, onto)
 	require.NoError(t, err)
 	// The same composed Branch door admits Bring in without waiting for Git.
 	// The worker receives the displayed foreign SHA, not an unbound target.

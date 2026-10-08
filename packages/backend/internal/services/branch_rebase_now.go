@@ -128,7 +128,26 @@ func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, a
 		if !item.StackPosition.Valid || item.State != "integrating" || item.PausedAt.Valid || pending == nil || pending.Rebased || item.CandidateHead == "" {
 			return &BranchError{409, "rebase_not_pending", "conflict", "No rebase pending"}
 		}
-		step := mythicalItemStep{r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: order}
+		// Folding main waits for these items to rebase. Its recorded landed
+		// main therefore remains the old head during admission; bind the same
+		// mirrored bookmark the stack worker actually uses, never that receipt.
+		repo, err := q.GetRepoByID(ctx, repository)
+		if err != nil {
+			return err
+		}
+		owner, err := mythicalRepositoryOwner(ctx, q, repo)
+		if err != nil {
+			return err
+		}
+		bookmark := strings.TrimSpace(repo.DefaultBookmark)
+		if bookmark == "" {
+			bookmark = "main"
+		}
+		main, err := s.MainHead(ctx, owner, repo.Name, bookmark)
+		if err != nil || main == "" {
+			return &BranchError{503, "rebase_unavailable", "infra", "Stack unavailable"}
+		}
+		step := mythicalItemStep{r: &mythicalRun{row: stack, mainTip: main}, items: order}
 		if pending.Onto != step.prefix(item) {
 			return &BranchError{409, "rebase_target_changed", "conflict", "Rebase target changed"}
 		}
