@@ -54,6 +54,25 @@ export function configuration(env) {
   return { origin, repository: repository.map(encodeURIComponent).join('/'), branch: env.SMITHERS_PERF_BRANCH, csrf, sleepSeconds }
 }
 
+// Use the owner's existing terminal control protocol. Owner sessions have no
+// legacy workspace_sessions row for the old HTTP destroy endpoint to read.
+export function closeOwnerTerminal(WebSocket, endpoint, headers) {
+  return new Promise((resolveClose, reject) => {
+    const terminalSocket = new WebSocket(endpoint, 'terminal', { headers })
+    const timer = setTimeout(() => {
+      terminalSocket.terminate()
+      reject(new Error('terminal close timed out'))
+    }, 30000)
+    terminalSocket.on('error', error => { clearTimeout(timer); reject(error) })
+    terminalSocket.on('open', () => terminalSocket.send(JSON.stringify({ type: 'close' })))
+    terminalSocket.on('close', code => {
+      clearTimeout(timer)
+      if (code === 1000) resolveClose()
+      else reject(new Error(`terminal close refused: ${code}`))
+    })
+  })
+}
+
 export async function run(env = process.env, { persist = true } = {}) {
   const result = { timestamp: new Date().toISOString().replace(/[:.]/g, '-'), check: 'C-PERF-05', status: 'failed', samples: [], budgets: [{ check: 'C-PERF-05', name: 'warm-wake', status: 'failed' }] }
   let socket
@@ -72,9 +91,9 @@ export async function run(env = process.env, { persist = true } = {}) {
       if (!response.ok) throw new Error(`${options.method ?? 'GET'} ${path}: ${response.status}`)
       return response
     }
-    closeTerminal = id => request(`/api/repos/${c.repository}/workspace/sessions/${encodeURIComponent(id)}/destroy`, { method: 'POST' })
     const require = createRequire(resolve('packages/smithers/package.json'))
     const WebSocket = require('ws')
+    closeTerminal = id => closeOwnerTerminal(WebSocket, `${c.origin.replace(/^http/, 'ws')}/api/repos/${c.repository}/workspace/sessions/${encodeURIComponent(id)}/terminal`, headers)
     socket = new WebSocket(`${c.origin.replace(/^http/, 'ws')}/api/live`, 'smithers.live.v1', { headers })
     let current, failure, sequence = 0
     const events = []

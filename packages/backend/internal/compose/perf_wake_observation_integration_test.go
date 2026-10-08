@@ -178,10 +178,14 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			})
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = "selfhost"
-			cfg.Server.PublicURL = "http://localhost:4000"
+			terminalServer := httptest.NewUnstartedServer(nil)
+			cfg.Server.PublicURL = "http://" + terminalServer.Listener.Addr().String()
 			cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 			handler.AllowedOrigins = cfg.Server.AllowedOrigins
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: f.pool, terminal: handler})
+			terminalServer.Config.Handler = router
+			terminalServer.Start()
+			defer terminalServer.Close()
 			// Keep an authenticated production subscription open across the actual
 			// terminal request. Its scratch source emits snapshots, not deltas.
 			f.p.branches = service
@@ -293,6 +297,22 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			if mode == "warm" {
 				require.NoError(t, err, string(output))
 				require.Contains(t, string(output), `"hostMs":`)
+				// Exercise the workload's teardown through the same authenticated
+				// owner socket as the app. A legacy destroy sees no owner row.
+				endpoint := "ws" + strings.TrimPrefix(terminalServer.URL, "http") + "/api/repos/presence-owner/app/workspace/sessions/" + accepted.ID + "/terminal"
+				closeInput, err := json.Marshal(map[string]any{"endpoint": endpoint, "headers": map[string]string{"Cookie": "smithers_session=" + f.cookie, "Origin": cfg.Server.PublicURL}})
+				require.NoError(t, err)
+				closeCommand := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", `import { closeOwnerTerminal } from './scripts/perf/warm-wake.mjs'; import {createRequire} from 'node:module'; import {resolve} from 'node:path'; const require=createRequire(resolve('packages/smithers/package.json')); let raw=''; for await (const part of process.stdin) raw+=part; const {endpoint,headers}=JSON.parse(raw); await closeOwnerTerminal(require('ws'),endpoint,headers);`)
+				closeCommand.Dir = "../../../.."
+				closeCommand.Stdin = bytes.NewReader(closeInput)
+				closeOutput, err := closeCommand.CombinedOutput()
+				require.NoError(t, err, string(closeOutput))
+				require.Eventually(t, func() bool {
+					var count int
+					err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='terminal.closed' AND data->>'session'=$1`, accepted.ID).Scan(&count)
+					return err == nil && count == 1
+				}, time.Second, 10*time.Millisecond)
+
 			} else {
 				require.Error(t, err)
 				require.Contains(t, string(output), "cold or failed wake")

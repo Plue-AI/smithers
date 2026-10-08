@@ -188,7 +188,7 @@ keeps the sleeping branch Asleep across reload. Composed HTTP tests cover captur
 | C-MCH-08 | [C-MCH-08.spec.ts](C-MCH-08.spec.ts) | fixme-before-implementation | T-MCH-08 |
 | C-MCH-09 | [C-MCH-09.spec.ts](C-MCH-09.spec.ts) | fixme-before-implementation | T-MCH-11 |
 | C-MCH-10 | [C-MCH-10.spec.ts](C-MCH-10.spec.ts) | fixme-before-implementation | T-MCH-11 |
-| C-MCH-11 | [C-MCH-11.spec.ts](C-MCH-11.spec.ts) | composed PostgreSQL router, concurrent terminal/SSH admission and cancellation, advancing Branch/Home cursors, disk recovery, owner capacity lowering, warm-wake runner against advancing production scratch snapshots and Chromium reload (boot observations injected; full matrix pending) | T-MCH-06 |
+| C-MCH-11 | [C-MCH-11.spec.ts](C-MCH-11.spec.ts) | composed PostgreSQL router, concurrent terminal/SSH admission and cancellation, advancing Branch/Home cursors, disk recovery, owner capacity lowering, HTTP terminal before background review with a ten-second unconfirmed stop, warm-wake runner against advancing production scratch snapshots and Chromium reload (boot observations injected; full matrix pending) | T-MCH-06 |
 | C-MNT-01 | [C-MNT-01.spec.ts](C-MNT-01.spec.ts) | fixme-before-implementation | T-MNT-01 |
 | C-MNT-02 | [C-MNT-02.spec.ts](C-MNT-02.spec.ts) | fixme-before-implementation | T-MNT-02 |
 

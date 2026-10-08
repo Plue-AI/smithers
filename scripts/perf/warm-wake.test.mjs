@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { configuration, verifyWake, summarizeWakes, awakeFrame, run } from './warm-wake.mjs'
+import { configuration, verifyWake, summarizeWakes, awakeFrame, closeOwnerTerminal, run } from './warm-wake.mjs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { once } from 'node:events'
 
 const head = 'a'.repeat(40)
 const sample = { requestId: 'wake-1', branch: 'branch-1', capturedHead: head, clientMs: 20 }
@@ -75,4 +77,26 @@ test('refuses stale replay, missing cursors and non-machine frames', () => {
   for (const patch of [{ cursor: 6 }, { cursor: undefined }, { cursor: '8' }, { t: 'ack' }, { data: { machine: { state: 'waking' } } }]) {
     assert.equal(awakeFrame([{ ...event, ...patch }], 3, 7), undefined)
   }
+})
+
+for (const code of [1000, 1008]) test(`owner terminal control awaits server teardown (${code})`, async () => {
+  const require = createRequire(resolve('packages/smithers/package.json'))
+  const WebSocket = require('ws')
+  const server = new WebSocket.WebSocketServer({ port: 0, host: '127.0.0.1' })
+  await once(server, 'listening')
+  let command
+  server.on('connection', (socket, request) => {
+    assert.equal(request.headers.cookie, 'session=owner')
+    assert.equal(socket.protocol, 'terminal')
+    socket.on('message', raw => {
+      command = JSON.parse(raw.toString())
+      socket.close(code, 'terminal closed')
+    })
+  })
+  try {
+    const result = closeOwnerTerminal(WebSocket, `ws://127.0.0.1:${server.address().port}/terminal`, { Cookie: 'session=owner' })
+    if (code === 1000) await result
+    else await assert.rejects(result, /terminal close refused: 1008/)
+    assert.deepEqual(command, { type: 'close' })
+  } finally { await new Promise(resolveClose => server.close(resolveClose)) }
 })

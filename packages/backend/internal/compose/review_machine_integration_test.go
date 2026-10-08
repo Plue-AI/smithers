@@ -2,9 +2,12 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,10 +17,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -33,8 +43,37 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	root := t.TempDir()
+	q := db.New(pool)
+	machines, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	personBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repository, UserID: machines, Name: "review-waiter", TargetBookmark: "scratch/review-owner/review-waiter", Kind: "container", Status: "suspended"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, personBranch.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET unix_login='review-owner',unix_uid=20000 WHERE repository_id=$1 AND user_id=$2`, repository, user)
+	require.NoError(t, err)
+	runtimeRoot := filepath.Join(root, "runtime")
+	sum := sha256.Sum256([]byte(personBranch.ID))
+	machineName := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
+	directory := filepath.Join(runtimeRoot, "workspaces", hex.EncodeToString(sum[:]))
+	require.NoError(t, os.MkdirAll(directory, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(runtimeRoot, "owner"), []byte("smithers-backend-0123456789abcdef\n"), 0600))
+	metadata, err := json.Marshal(map[string]any{"version": 1, "id": personBranch.ID, "machine": machineName, "state": "stopped"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "metadata.json"), metadata, 0600))
+	releaseBoot := filepath.Join(root, "release-boot")
+	stopPending := filepath.Join(root, "stop-pending")
+	stopAcknowledged := filepath.Join(root, "stop-acknowledged")
 	binary := filepath.Join(root, "msb")
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = list ]; then echo '[]'; else exit 99; fi\n"), 0700))
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
+case "$1" in
+ list) if [ -f %q ]; then printf '[{"name":%q,"status":"running"}]\n'; else printf '[{"name":%q,"status":"stopped"}]\n'; fi ;;
+ stop) touch %q; printf '[]\n' ;;
+ start|run|create) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;
+ *) printf '[]\n' ;;
+esac
+`, stopPending, machineName, machineName, stopAcknowledged, releaseBoot)), 0700))
+	t.Cleanup(func() { _ = os.WriteFile(releaseBoot, nil, 0600) })
 	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 1, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, queue.Close()) })
@@ -83,6 +122,34 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	require.Contains(t, refused.Body.String(), "review_admission_unavailable")
 	require.Zero(t, runtime.creates)
 	machine.workspace = runtime
+	// Person demand enters the install HTTP terminal door and is observed on
+	// an authenticated live subscription; only boot/stop responses are injected.
+	terminalServer := httptest.NewUnstartedServer(nil)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
+	cfg.Server.PublicURL = "http://" + terminalServer.Listener.Addr().String()
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
+	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(queue), services.WithWorkspaceTransactions(pool),
+		services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), queue)),
+		services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"),
+		services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+	workspaces.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
+	terminal := &routes.WorkspaceTerminalHandler{OwnerOnly: true, Service: workspaces, SessionCookieName: "session", AllowedOrigins: cfg.Server.AllowedOrigins}
+	manager := terminal.SharedTerminalSessions()
+	t.Cleanup(manager.Close)
+	provider := &installOwnerTerminals{queries: q, branches: workspaces, registry: new(machined.Registry)}
+	provider.Bind(manager)
+	terminal.OwnerTerminals = provider
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
+	topics := &liveTopics{queries: q, presence: &branchPresence{queries: q, branches: workspaces}}
+	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	terminalServer.Config.Handler = parallelInstallRouter(cfg, q, pool, terminal, routerExtras{Live: liveHandler})
+	terminalServer.Start()
+	t.Cleanup(terminalServer.Close)
 	accepted := call("adapter-review")
 	require.Equal(t, 202, accepted.Code, accepted.Body.String())
 	var admission services.ReviewAdmission
@@ -105,27 +172,86 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	runtime.mu.Lock()
 	require.Zero(t, runtime.creates, "queued reviews never allocate a VM")
 	runtime.mu.Unlock()
-	_, err = queue.Request("person", "next-person", "Ben", "terminal")
+	request, err := http.NewRequestWithContext(ctx, "POST", terminalServer.URL+"/api/terminals", strings.NewReader(fmt.Sprintf(`{"branch":%q}`, personBranch.ID)))
 	require.NoError(t, err)
+	request.Header.Set("Origin", cfg.Server.PublicURL)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", uuid.NewString())
+	request.Header.Set("X-CSRF-Token", "review-csrf")
+	request.AddCookie(&http.Cookie{Name: "session", Value: "review-cookie"})
+	request.AddCookie(&http.Cookie{Name: "__csrf", Value: "review-csrf"})
+	terminalResponse, err := terminalServer.Client().Do(request)
+	require.NoError(t, err)
+	body, err := io.ReadAll(terminalResponse.Body)
+	terminalResponse.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, 202, terminalResponse.StatusCode, string(body))
+	var person services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(body, &person))
+	personHolder := "workspace:" + personBranch.ID
+	require.Eventually(t, func() bool {
+		for _, row := range queue.AdmissionSnapshot() {
+			if row.Holder == personHolder && row.Class == "person" && row.State == "waiting" && row.Position == 1 {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
 	for _, row := range queue.AdmissionSnapshot() {
 		if row.Actor == admission.OperationID {
 			require.Equal(t, 2, row.Position)
 		}
 	}
-	queue.ConfirmAdmissionStop("held", false)
-	personProviders.Ready = func(_ context.Context, row microsandbox.AdmissionRequest) error {
-		if row.Class != "person" {
-			return microsandbox.ErrAdmissionNotReady
-		}
-		return nil
-	}
-	_, err = queue.WaitAdmission(ctx, personProviders, "person", "next-person", "Ben", "terminal")
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(terminalServer.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"session=review-cookie"}}})
 	require.NoError(t, err)
+	defer conn.CloseNow()
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, personBranch.ID))
+	readMachine := func(state string, position int) liveFrame {
+		for {
+			frame := readPresenceFrame(t, conn)
+			require.NotEqual(t, "err", frame.T)
+			if frame.T != "snap" {
+				continue
+			}
+			var card struct {
+				Machine struct {
+					State    string `json:"state"`
+					Position int    `json:"position"`
+				} `json:"machine"`
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			if card.Machine.State == state && card.Machine.Position == position {
+				return frame
+			}
+		}
+	}
+	waiting := readMachine("waiting", 1)
+	queue.ConfirmAdmissionStop("held", false) // initial occupied-slot observation
+	require.Eventually(t, func() bool { return queue.AdmissionHeld(personHolder) }, 5*time.Second, 10*time.Millisecond)
+	granted := readMachine("waking", 0)
+	require.Greater(t, *granted.Cursor, *waiting.Cursor)
 	require.Equal(t, 1, queue.InUse())
 	runtime.mu.Lock()
-	require.Zero(t, runtime.creates, "a review cannot pass a waiting person")
+	require.Zero(t, runtime.creates, "a review cannot pass a terminal admitted through HTTP")
 	runtime.mu.Unlock()
-	queue.ConfirmAdmissionStop("next-person", false)
+	// End the controlled failed boot. Runtime stop observation, rather than
+	// a fabricated scheduler release, makes the slot available to the review.
+	require.NoError(t, os.WriteFile(stopPending, nil, 0600))
+	require.NoError(t, os.WriteFile(releaseBoot, nil, 0600))
+	require.Eventually(t, func() bool { _, err := os.Stat(stopAcknowledged); return err == nil }, 5*time.Second, 10*time.Millisecond)
+	// A successful stop command is only acknowledgment. The failed terminal
+	// wake owns capacity through ten seconds of independently observed running.
+	until := time.Now().Add(10 * time.Second)
+	for time.Now().Before(until) {
+		require.Equal(t, 1, queue.InUse())
+		require.True(t, queue.AdmissionHeld(personHolder))
+		runtime.mu.Lock()
+		require.Zero(t, runtime.creates)
+		runtime.mu.Unlock()
+		time.Sleep(50 * time.Millisecond)
+	}
+	require.NoError(t, os.Remove(stopPending))
+	require.NoError(t, workspaces.WaitForProvisioning(ctx))
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repository), PrincipalID: fmt.Sprintf("user:%d", user)}
 	require.Eventually(t, func() bool {
 		op, e := store.Get(ctx, scope, admission.OperationID)
@@ -155,6 +281,8 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE id=$1`, reviewWorkspaceID(admission.OperationID)).Scan(&count))
 	require.Zero(t, count)
+	_, err = pool.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, personBranch.ID)
+	require.NoError(t, err)
 	for _, table := range []string{"mythical_items", "mythical_stacks"} {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 		require.Zero(t, count)
