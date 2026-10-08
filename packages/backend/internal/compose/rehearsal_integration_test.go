@@ -1085,8 +1085,8 @@ func (r *rehearsal) waitTodo(number int64, state string) (rehearsalTodo, error) 
 }
 
 // waitTodoWithin polls TODO n until it is in one of states. The stack's own
-// record says why it did not move: an attempt that failed or stopped does
-// not reach the state in this run, unless the state waited for is failed.
+// record says why it did not move. Automatic retrying remains live work; only
+// settled failures stop this wait before its deadline.
 func (r *rehearsal) waitTodoWithin(number int64, within time.Duration, states ...string) (rehearsalTodo, error) {
 	if number <= 0 {
 		return rehearsalTodo{}, fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
@@ -1109,7 +1109,7 @@ func (r *rehearsal) waitTodoWithin(number int64, within time.Duration, states ..
 		}
 		var itemState, reason string
 		_ = r.pool.QueryRow(r.ctx, `SELECT state, reason FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &reason)
-		settled := !slices.Contains(states, "failed") && (itemState == "retrying" || itemState == "failed" || itemState == "stopped" || itemState == "blocked")
+		settled := !slices.Contains(states, "failed") && (itemState == "failed" || itemState == "stopped" || itemState == "blocked")
 		if settled || time.Now().After(deadline) {
 			return v, fmt.Errorf("state %q, expected %q (item %s: %q)", v.State, state, itemState, reason)
 		}

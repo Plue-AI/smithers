@@ -383,10 +383,9 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 		if err != nil {
 			return err
 		}
-		broken := strings.Replace(flow, "Request.child(", "Request.child((", 1)
-		if broken == flow {
-			return fmt.Errorf("main's TODO flow has no Request.child call to break")
-		}
+		// A literal syntax error exercises failed loading regardless of which
+		// coding steps the current composition calls.
+		broken := flow + "\n)\n"
 		commit, err := r.pushGitHubMain("Break the TODO flow", map[string]string{"flows/todo/flow.ts": broken})
 		if err != nil {
 			return err
