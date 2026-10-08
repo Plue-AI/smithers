@@ -200,7 +200,13 @@ func todoFailure(item db.MythicalItem) map[string]any {
 	if failure == nil {
 		return map[string]any{"step": mythicalFailStopped, "class": "factory", "message": "Smithers stopped this TODO", "retryable": true}
 	}
-	result := map[string]any{"step": failure.Kind, "class": failure.Fault, "message": sentence, "retryable": true}
+	step := failure.Kind
+	if checks := mythicalChecksOf(item); checks.RunLaunched && !checks.RunAttached {
+		// The host never attached: no coding step started, even when the
+		// underlying interruption is classified as a runtime failure.
+		step = "start"
+	}
+	result := map[string]any{"step": step, "class": failure.Fault, "message": sentence, "retryable": true}
 	if tool := mythicalChecksOf(item).MissingTool; tool != nil {
 		result["missing_tool"] = map[string]string{"name": tool.Name, "file": tool.File}
 	}

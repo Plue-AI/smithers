@@ -2275,12 +2275,21 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 		// never responds. Runtime projection fills in the real run id later.
 		item = retainTodoAttemptEvidence(item)
 	}
+	var admissionFrom string
+	if flowID == flowdispatch.TodoFlow {
+		previous, err := db.New(tx).GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return db.MythicalItem{}, err
+		}
+		admissionFrom = todoState(previous)
+	}
 	saved, err := db.New(tx).SaveMythicalItem(ctx, item)
 	if err != nil {
 		return db.MythicalItem{}, err
 	}
 	if flowID == flowdispatch.TodoFlow && todoState(saved) == "starting" {
-		data, err := json.Marshal(map[string]any{"n": mythicalItemNumber(saved), "to": "starting", "attempt": saved.Attempt, "digest": saved.FlowDigest.String})
+		data, err := json.Marshal(map[string]any{"n": mythicalItemNumber(saved), "from": admissionFrom, "to": "starting", "attempt": saved.Attempt, "digest": saved.FlowDigest.String,
+			"actor": map[string]string{"kind": "system", "id": "stack"}})
 		if err != nil {
 			return db.MythicalItem{}, err
 		}
@@ -2681,6 +2690,12 @@ func todoAdmissionUnavailable(item db.MythicalItem, missing string, now time.Tim
 // The TODO is starting from this launch until its host accepts the run
 // (RunLaunched, then RunAttached in ProjectFlowRuntime).
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	// Admission consumes the queued phase only after its independent holds
+	// settle. Retry can queue a new attempt beneath a retained branch wait;
+	// that does not authorize provisioning or a launch through the wait.
+	if mythicalTodo(item) && (item.PausedAt.Valid || len(todoOpenWaits(item)) > 0) {
+		return nil, false, nil
+	}
 	s, r := st.s, st.r
 	if item.Source != "issue" && item.Source != "todo" {
 		next := item

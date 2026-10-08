@@ -150,3 +150,82 @@ func testTodoRuntimeFailureTransitionLiteralCases(t *testing.T, failure string) 
 	require.Equal(t, 64, refused)
 	t.Logf("literal failure ingestion: %d accepted evidence facts, %d binding refusals", accepted, refused)
 }
+
+// A failed launch with no host/run observation is distinct from an attached
+// run failing. Only Starting can consume this attempt's pre-host failure.
+func TestTodoPreHostFailureTransitionLiteralCases(t *testing.T) {
+	var service *services.MythicalService
+	h := newTodoLiteralInstall(t, func(s *services.MythicalService, _ *pgxpool.Pool) { service = s })
+	ctx := t.Context()
+	const digest = "11d0beb616ada0375414dffa11c9d9f1feb52a4b196f0db64d3d79bf33ed407e"
+	const source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	cases := []struct {
+		engine, from, to   string
+		launched, attached bool
+	}{
+		{"queued", "queued", "queued", false, false},
+		{"running", "starting", "failed", true, false},
+		{"running", "working", "working", true, true},
+		{"running", "needs_you", "needs_you", true, true},
+		{"running", "paused", "paused", true, true},
+		{"blocked", "failed", "failed", true, true},
+		{"proposed", "in_review", "in_review", true, true},
+		{"landed", "merged", "merged", true, true},
+		{"cancelled", "dropped", "dropped", true, true},
+	}
+	count := func() int {
+		var n int
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.run_updated'`).Scan(&n))
+		return n
+	}
+	accepted, refused := 0, 0
+	for _, c := range cases {
+		for _, attempt := range []int{1, 2, 0} {
+			t.Run(fmt.Sprintf("%s/attempt-%d", c.from, attempt), func(t *testing.T) {
+				checks := map[string]any{"todo": true, "run_launched": c.launched, "run_attached": c.attached, "flowSource": source, "attempts": []map[string]any{{"attempt": 1}}}
+				if c.from == "needs_you" {
+					checks["waits"] = []map[string]any{{"id": "foreign", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:00Z"}}
+				}
+				raw, err := json.Marshal(checks)
+				require.NoError(t, err)
+				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='',request_outcome='',flow_digest=$4,paused_at=CASE WHEN $5 THEN now() ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, raw, digest, c.from == "paused")
+				require.NoError(t, err)
+				before, err := h.q.GetMythicalItem(ctx, h.item.ID)
+				require.NoError(t, err)
+				events := count()
+				projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": uuid.UUID(h.item.ID.Bytes).String(), "generation": before.Generation, "attempt": attempt, "phase": "todo", "flowDigest": digest, "flowSource": source})
+				require.NoError(t, err)
+				// No FirstStep, RunID or Run exists: the dispatcher could not start it.
+				update := flowdispatch.ProjectionUpdate{Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", h.item.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", h.owner)}, State: jobs.StateUncertain, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", ExecutionDigest: digest}}
+				require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
+				require.NoError(t, err)
+				if c.from != "starting" || attempt != 1 {
+					refused++
+					require.Equal(t, before, after)
+					require.Equal(t, events, count())
+					return
+				}
+				accepted++
+				require.Equal(t, events+1, count())
+				require.Equal(t, "blocked", after.State)
+				require.Empty(t, after.RequestRunID)
+				status, card := h.call(t, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, c.to, card["state"])
+				require.Equal(t, "start", card["failure"].(map[string]any)["step"])
+				var eventRaw []byte
+				require.NoError(t, h.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.run_updated' ORDER BY sequence DESC LIMIT 1`).Scan(&eventRaw))
+				var fact map[string]any
+				require.NoError(t, json.Unmarshal(eventRaw, &fact))
+				require.Equal(t, "starting", fact["from"])
+				require.Equal(t, "failed", fact["to"])
+				require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+				require.Equal(t, events+1, count())
+			})
+		}
+	}
+	require.Equal(t, 1, accepted)
+	require.Equal(t, 26, refused)
+	t.Logf("literal pre-host failure: %d accepted, %d refused", accepted, refused)
+}

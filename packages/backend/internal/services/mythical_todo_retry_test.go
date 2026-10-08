@@ -120,7 +120,7 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 
 	card = o.todoCard(n)
 	require.Equal(t, "working", card["state"])
-	require.Equal(t, map[string]any{"id": "todo-run-2", "attempt": float64(2), "indicators": []any{}}, card["run"])
+	require.Equal(t, map[string]any{"id": "todo-run-2", "attempt": float64(2), "executing": true, "indicators": []any{}}, card["run"])
 	kept := card["evidence"].([]any)[0].(map[string]any)
 	require.EqualValues(t, 1, kept["attempt"])
 	require.Equal(t, recordedTodoEvidence(attemptOne["items"].([]any)), recordedTodoEvidence(kept["items"].([]any)), "attempt 1 keeps its evidence")
