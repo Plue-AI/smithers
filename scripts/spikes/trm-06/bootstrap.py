@@ -12,6 +12,7 @@ import sys
 def main():
     path = "/usr/local/lib/smithers/current/share/trm06/launcher.py"
     parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    ancestors = [os.dup(parent)]
     try:
         for name in path.split("/")[1:-1]:
             info = os.fstat(parent)
@@ -20,6 +21,7 @@ def main():
             child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
             os.close(parent)
             parent = child
+            ancestors.append(os.dup(parent))
         info = os.fstat(parent)
         if info.st_uid != 0 or info.st_mode & 0o022:
             raise ValueError("untrusted launcher parent")
@@ -39,10 +41,34 @@ def main():
             if (identity(before) != identity(after)
                     or hashlib.sha256(body).hexdigest() != "@TRM06_LAUNCHER_SHA256@"):
                 raise ValueError("replaced launcher")
+            # A retained launcher inode is insufficient when its validated
+            # install ancestry has been detached. Reopen the fixed path without
+            # following links and compare every held ancestor before evaluation.
+            current = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                names = [None] + path.split("/")[1:-1]
+                for name, original in zip(names, ancestors):
+                    if name is not None:
+                        child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
+                        os.close(current)
+                        current = child
+                    held, observed = os.fstat(original), os.fstat(current)
+                    if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
+                        raise ValueError("replaced launcher ancestor")
+                    for info in (held, observed):
+                        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                            raise ValueError("untrusted launcher ancestor")
+                observed = os.stat("launcher.py", dir_fd=current, follow_symlinks=False)
+                if identity(after) != identity(observed):
+                    raise ValueError("replaced launcher")
+            finally:
+                os.close(current)
         finally:
             os.close(fd)
     finally:
         os.close(parent)
+        for descriptor in ancestors:
+            os.close(descriptor)
     # Evaluate only the held, hashed bytes. Reopening the pathname would undo
     # the check when a replacement arrives between validation and evaluation.
     sys.argv = [path] + sys.argv[1:]

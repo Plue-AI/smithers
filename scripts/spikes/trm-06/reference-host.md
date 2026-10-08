@@ -341,3 +341,25 @@ ordering, explicit installer refusal, and outside digest/owner/mode in each
 scenario. The earlier unsynchronized writable-parent loop is removed. This does
 not complete the native host launcher replacement matrix, execute the guest
 controls, grant acceptance, or supply a recording.
+
+Pass-4 startup ordering repair (2026-10-08): the embedded bootstrap retains every
+no-follow install ancestor and rechecks those identities and metadata, plus the
+launcher leaf identity, immediately before evaluating the held launcher bytes.
+The supplemental Linux namespace campaign adds 22 synchronized schedules at
+that boundary, including preserved-child-inode ancestor replacements. A forked
+worker records hold/mutation/resume monotonic timestamps; the real rendered
+bootstrap resumes its normal validation. Positive execution and explicit exit-78
+refusals preserve literal outside bytes/owner/mode. Set `TRM06_LOADER_EVIDENCE`
+to a new file when running `test_bootstrap.py` to retain the raw schedule samples.
+The campaign totals 113 loader controls and uses `/bin/true` as a substitute
+gateway; it is not installed prototype, native cgroup or native startup evidence.
+
+The remaining installed host replacement matrix needs a reviewed disposable
+root-owned native fixture, not the live system installation. This Linux lane has
+neither that fixture nor a same-revision Darwin base/reviewer key. The startup
+repair is part of the assembled embedded launcher used by every root campaign;
+its supplemental schedules do not remove any `pending_controls`, grant authority
+or change acceptance. Native execution, the unsupported-Landlock variant, all
+nine steps, ten VS Code-connected revocations and both owner acceptances remain
+required. Issue #3554 is still closed despite those missing receipts; the lead
+owns its reconciliation.
