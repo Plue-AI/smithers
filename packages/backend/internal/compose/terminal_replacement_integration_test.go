@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -154,7 +156,12 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 }
 func TestBranchTerminalWakeInstallHTTP(t *testing.T) { terminalReplacementInstall(t, true) }
 func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
-	pool, _ := postgresfixture.NewProductDatabase(t)
+	var pool *pgxpool.Pool
+	if os.Getenv("SMITHERS_TERMINAL_CONFIRM_PHASE_DIR") != "" {
+		_, _, pool = splitProcessDatabase(t)
+	} else {
+		pool, _ = postgresfixture.NewProductDatabase(t)
+	}
 	ctx := t.Context()
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben"})
@@ -252,6 +259,9 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	}
 	first := runtime.current(session)
 	require.NotEmpty(t, first)
+	if len(scopeChecks) > 2 && scopeChecks[2] {
+		exerciseTerminalAppendConfirmation(t, ctx, pool, q, owner, repo.ID, first)
+	}
 	checkScope(first, false)
 	// Another host service has no ownership of this retained session file.
 	// Its create-only attempt must fail, revoke its candidate, and leave A usable.

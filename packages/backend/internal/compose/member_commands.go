@@ -494,9 +494,12 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			// Resolve the existing command body once, before its sole authority
 			// decision. Only a configured approval service owns confirmation.
 			delegation, delegated := info.Delegation()
-			// Branch-bound terminal credentials retain their confirmation refusal until
-			// a qualified private card handoff is composed for that session.
-			if len(confirmations) > 0 && confirmations[0] != nil && delegated && delegation.Profile == "" && delegation.Branch == "" && info.CredentialKind() == middleware.CredentialDelegated {
+			// The S1 terminal may request only append confirmation. The existing
+			// consumer validates the stored session and payload before any write;
+			// unavailable consumers retain the exact confirm_in_app refusal.
+			_, terminal := info.TerminalDelegation()
+			confirmationScope := delegated && delegation.Profile == "" && delegation.Branch == "" || terminal && command == "todo.new"
+			if len(confirmations) > 0 && confirmations[0] != nil && confirmationScope && info.CredentialKind() == middleware.CredentialDelegated {
 				if handled := dispatchConfirmation(w, r, command, confirmations[0]); handled {
 					return
 				}

@@ -236,7 +236,7 @@ are engineering-only terminal projections, not passing qualification evidence.
 | C-SEC-02 | [C-SEC-02.spec.ts](C-SEC-02.spec.ts) | fixme-before-implementation | T-FLW-01, T-INS-02, T-INS-08, T-FLW-11, T-STK-12, T-MCH-14 |
 | C-SEC-03 | [C-SEC-03.spec.ts](C-SEC-03.spec.ts) | implemented — Chromium passed 2026-10-07 (outsider refusal before Draft/model; composed role matrix separate) | T-STK-09, T-MNT-01, T-MNT-02, T-MNT-03, T-MNT-04, T-MNT-05 |
 | C-SEC-04 | [C-SEC-04.spec.ts](C-SEC-04.spec.ts) | setup HTTP projection passes; backend and reference-host qualification separate | T-ACC-01, T-INS-06, T-INS-08 |
-| C-SEC-05 | [C-SEC-05.spec.ts](C-SEC-05.spec.ts) | fixme-before-implementation | T-TRM-02 |
+| C-SEC-05 | [C-SEC-05.spec.ts](C-SEC-05.spec.ts) | composed terminal mint → source CLI → private Confirm; guest isolation pending | T-TRM-02 |
 
 Cycle 23: cross-Mac backup and production security fixtures remain pending.
 These UI projections do not qualify root scans, process isolation, admission
