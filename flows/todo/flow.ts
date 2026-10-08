@@ -12,6 +12,7 @@ import {
   StackBase,
   TodoBoundary,
   TodoDelivery,
+  TodoReview,
   Vibe,
   VibeDelivered,
   VibeError
@@ -36,7 +37,10 @@ export default Flow.make("todo", {
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.call(delivery)),
       Node.bindPlanned((delivered) =>
-        TodoBoundary.call({}).pipe(Node.andThen(Node.succeed(delivered)))
+        Node.succeed(delivered).pipe(
+          Node.andThen(TodoBoundary.call({})),
+          Node.andThen(TodoReview.child({ input }))
+        )
       )
     )
 })

@@ -308,8 +308,8 @@ test("the TODO composition reuses request steps and inlines delivery while no ho
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, [...pauseBoundary, "coding/Request", ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "todo"])
-  assert.equal(calls.includes("coding/todo-review"), false, "delivery settles the composition instead of parking for review")
+  assert.deepEqual(calls, [...pauseBoundary, "coding/Request", ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "coding/todo-review", "todo"])
+  assert.equal(calls.includes("coding/todo-review"), true, "review input resumes the original coding attempt")
   assert.equal(calls.includes("coding/Verify"), false, "verification remains an engine launch")
   assert.equal(calls.includes("review/change"), false, "review remains an engine launch")
   const { repositoryPath, stateRoot } = await workspace(t)
@@ -415,7 +415,8 @@ test("a repository copy of the TODO composition loads on the packaged host with 
     "coding/CleanVibeHistory",
     "coding/LandVibe",
     "coding/Vibe",
-    ...pauseBoundary
+    ...pauseBoundary,
+    "coding/todo-review"
   ])
   // Source discovery and the packaged host measure one version, and it is the
   // composition alone: the steps are the host's, so no coding module is in its
