@@ -49,13 +49,28 @@ export interface RunContainerProps {
   readonly view: RunViewProps["view"]
   readonly onView: RunViewProps["onView"]
 }
+// The View separates run and step selections with a colon. Native step
+// instances contain colons too; escape only that component at the View seam,
+// retaining the canonical IDs in the live model and persisted event journal.
+const viewModelOf = (model: MonitorCard): MonitorCard => ({ ...model, attempts: model.attempts.map(attempt => {
+  const keys = new Map(attempt.steps.map(step => [step.key, `${encodeURIComponent(step.id)}#${step.k}`]))
+  return { ...attempt,
+    graph: attempt.graph.map(node => ({ ...node, id: encodeURIComponent(node.id), deps: node.deps.map(encodeURIComponent) })),
+    steps: attempt.steps.map(step => ({ ...step, id: encodeURIComponent(step.id), key: keys.get(step.key)! })),
+    phases: attempt.phases.map(phase => ({ ...phase, step: keys.get(phase.step) ?? phase.step }))
+  }
+}) })
+
 export const RunContainer = ({ model, dispatch, View = RunView, view, onView }: RunContainerProps) => {
   if (model === undefined) return null
   const bindings = cardActions(dispatch, runActionDefinitions(model, view.maximized))
   // The monitor opens on the latest attempt's newest cell, so its detail pane is never blank while the current step has none yet.
   const newest = view.maximized && view.selected === undefined ? model.attempts.at(-1)?.phases.flatMap(phase => phase.cells).at(-1)?.id : undefined
-  return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction}
-    view={newest === undefined ? view : { ...view, selected: newest }} onView={onView} />
+  const selected = model.attempts.flatMap(attempt => attempt.steps.map(step => ({
+    before: `step:${attempt.run_id}:${step.id}`, after: `step:${attempt.run_id}:${encodeURIComponent(step.id)}`
+  }))).find(selection => selection.before === view.selected)?.after ?? view.selected
+  return <View model={viewModelOf(model)} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction}
+    view={{ ...view, selected: selected ?? newest }} onView={onView} />
 }
 
 const noRun: import("../state/seams/RunMonitorSeam").RunMonitorSnapshot = {}

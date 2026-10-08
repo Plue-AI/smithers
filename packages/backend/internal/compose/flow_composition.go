@@ -210,7 +210,9 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	// Each run stays readable after its machine stops: lifecycle pages retain
 	// the live host's own answers for it (T-FLW-07).
 	archive := &runArchive{pool: pool}
-	projectors = append(projectors, archive)
+	// Capture the root before TODO settlement can launch verify/review and
+	// replace its host binding. Retaining it afterwards races host retirement.
+	projectors = append([]flowdispatch.Projector{archive}, projectors...)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)

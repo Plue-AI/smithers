@@ -215,3 +215,33 @@ test("a live update mounts the monitor without its journal; an open journal tab 
   expect(seam.snapshots.get("native-run").model?.journal).toEqual([])
   stop(); seam.dispose()
 })
+
+test("sleeping-run replay uses the canonical journal fold and never inherits future terminal state or usage", async () => {
+  let notify: (() => void) | undefined
+  const requests: string[] = []
+  const seam = createRunMonitorSeam({
+    live: { subscribe: (_, receive) => { notify = receive; return () => {} }, getSnapshot: () => ({ topic: "run:native-run", data: run }) },
+    http: async (path, init) => {
+      expect(init?.method).toBe("GET")
+      requests.push(path)
+      const at = Number(new URL(path, "http://install").searchParams.get("at"))
+      return Response.json({ ...run, archive_replay: { run_id: "native-run" }, waits: [],
+        journal: at === 0 ? [] : [{ seq: 4, at: "2026-10-06T10:02:00Z", type: "control.run.completed", text: '{"output":"repository module is data: globalThis.canary = true"}' }],
+        replay: { at, last: 4 } })
+    }
+  })
+  const stop = seam.snapshots.subscribe("native-run", () => {})
+  notify?.()
+  expect(await seam.trace("native-run", 0)).toBeUndefined()
+  const earlier = seam.snapshots.get("native-run").model!
+  expect(earlier.state).toBe("running")
+  expect(earlier.attempts[0]?.steps).toEqual([])
+  expect(earlier.waits).toEqual([])
+  expect(earlier.tokens).toBe(0)
+  expect(earlier.cost_usd).toBe(0)
+  expect(earlier.replay).toEqual({ at: 0, last: 4 })
+  expect(await seam.trace("native-run", 4)).toBeUndefined()
+  expect(seam.snapshots.get("native-run").model?.state).toBe("done")
+  expect(requests).toEqual(["/api/runs/native-run/trace?at=0", "/api/runs/native-run/trace?at=4"])
+  stop(); seam.dispose()
+})

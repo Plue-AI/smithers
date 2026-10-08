@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -120,6 +121,13 @@ func (r *rehearsal) refusedOnRun(repo, box, procedure, payload string) (string, 
 // monitor's graph, step I/O, transcript, retries, wait, titles and metered
 // cost are read from the install as Inspect reads them.
 func TestJ11Rehearsal(t *testing.T) {
+	if os.Getenv("SMITHERS_J11_BROWSER") == "1" {
+		spa, err := filepath.Abs("../../../../apps/app/dist")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SMITHERS_REHEARSAL_SPA_DIR", spa)
+	}
 	r := newRehearsal(t, "SMITHERS_J11_REHEARSAL", "C-J11", "j11-")
 	if !r.install("0 Install through Machine ready") {
 		return
@@ -488,6 +496,23 @@ func TestJ11Rehearsal(t *testing.T) {
 		r.actual = actual
 		return err
 	})
+	if os.Getenv("SMITHERS_J11_BROWSER") == "1" {
+		r.step("18 Browser Inspect", "Chromium /monitor → Inspect → RunTraceCard", "native graph, retry receipts, I/O, transcript and GET-only journal replay", "T-FLW-07", func() error { return j11Browser(r, branch+":"+run) })
+	}
+}
+
+func j11Browser(r *rehearsal, id string) error {
+	cookies, err := json.Marshal(r.jar.Cookies(mustRehearsalURL(r.origin)))
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(r.ctx, "pnpm", "exec", "playwright", "test", "--config", "e2e/real/j11.config.ts", "C-J11-01.spec.ts")
+	command.Dir = filepath.Join(r.root, "apps/app")
+	command.Env = append(os.Environ(), "SMITHERS_J11_ORIGIN="+r.origin, "SMITHERS_J11_COOKIES="+string(cookies), "SMITHERS_J11_RUN="+id)
+	output, err := command.CombinedOutput()
+	r.t.Log(string(output))
+	_ = os.WriteFile(filepath.Join(r.evidence, "browser.log"), output, 0600)
+	return err
 }
 
 // j11Receipt reads a check receipt's id and status from its leading fields.

@@ -88,3 +88,22 @@ test("presses carry the run id, the TODO number, the wait and what was typed", (
   running.props.onAction("run.inspect")
   expect(running.calls).toEqual([{ tag: "todo.stop", input: { n: 12 } }])
 })
+
+test("native colon-bearing step instances select I/O in the mounted Run View", () => {
+  const model = MonitorCardSchema.parse(fixtures.running.model)
+  const attempt = model.attempts.at(-1)!
+  const step = attempt.steps[0]!
+  const prior = step.id
+  step.id = "engine-node:child:root.action"
+  step.key = `${step.id}#${step.k}`
+  for (const node of attempt.graph) if (node.id === prior) node.id = step.id
+  for (const phase of attempt.phases) if (phase.step === `${prior}#${step.k}`) phase.step = step.key
+  step.input = { nativeInput: "input-receipt" }
+  step.output = { nativeOutput: "output-receipt" }
+  const html = renderToStaticMarkup(<RunContainer model={model} dispatch={() => {}}
+    view={{ maximized: true, selected: `step:${attempt.run_id}:${step.id}` }} onView={() => {}} />)
+  expect(html).toContain('aria-label="Selected step"')
+  expect(html).toContain("input-receipt")
+  expect(html).toContain("output-receipt")
+  expect(model.attempts.at(-1)!.steps[0]!.id).toBe("engine-node:child:root.action")
+})

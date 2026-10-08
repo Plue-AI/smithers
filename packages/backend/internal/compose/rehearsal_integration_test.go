@@ -579,7 +579,17 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// Native journal pages can include retained descriptor/schema events.
+	// Keep the ordinary API bound, but read a complete relay page rather than
+	// silently truncating valid JSON before the journal assertions see it.
+	limit := int64(1 << 20)
+	if path == "/api/workflow/rpc" {
+		limit = 32 << 20
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err == nil && int64(len(data)) > limit {
+		err = fmt.Errorf("response exceeds %d bytes", limit)
+	}
 	r.location = resp.Header.Get("Location")
 	// Evidence never keeps a minted credential.
 	logged := rehearsalTokenField.ReplaceAll(data, []byte(`"token":"<redacted>"`))

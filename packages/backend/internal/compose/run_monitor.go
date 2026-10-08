@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -82,7 +83,7 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 		// A sleeping branch is never woken by a read: its run is served from
 		// the host's own answers retained while it was live (runArchive).
 		found, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
-		if at != nil || archiveErr != nil {
+		if archiveErr != nil {
 			return nil, err
 		}
 		raw, archived = found.Monitor, &found
@@ -107,6 +108,57 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 			value["journal"] = journal
 		}
 	}
+	// A journal opened at the current frame still needs a cursor, so the
+	// shipped scrubber can request its first historical frame.
+	if at == nil && len(withJournal) > 0 && withJournal[0] {
+		var last int64
+		journal, _ := value["journal"].([]any)
+		for _, entry := range journal {
+			row, _ := entry.(map[string]any)
+			sequence, ok := row["seq"].(float64)
+			if !ok || sequence < 0 || sequence != float64(int64(sequence)) {
+				return nil, errors.New("invalid journal sequence")
+			}
+			if int64(sequence) > last {
+				last = int64(sequence)
+			}
+		}
+		value["replay"] = map[string]any{"at": last, "last": last}
+	}
+	// Replaying a sleeping branch reads its retained journal. The browser
+	// uses the same shipped native trace fold; no machine wakes and no
+	// repository module is evaluated to render an archived frame.
+	if archived != nil && at != nil {
+		journal, journalErr := archived.journal(ctx)
+		if journalErr != nil {
+			return nil, journalErr
+		}
+		selected := []any{}
+		var last int64
+		for _, entry := range journal {
+			row, ok := entry.(map[string]any)
+			if !ok {
+				return nil, errors.New("invalid archived journal")
+			}
+			sequence, ok := row["seq"].(float64)
+			if !ok || sequence < 0 || sequence != float64(int64(sequence)) {
+				return nil, errors.New("invalid archived sequence")
+			}
+			if int64(sequence) > last {
+				last = int64(sequence)
+			}
+			if int64(sequence) <= *at {
+				selected = append(selected, entry)
+			}
+		}
+		if *at > last {
+			return nil, errors.New("replay beyond archived journal")
+		}
+		value["journal"] = selected
+		value["waits"] = []any{}
+		value["replay"] = map[string]any{"at": *at, "last": last}
+		value["archive_replay"] = map[string]any{"run_id": cp.RunID}
+	}
 	// Each step's spend is priced from the proxy rows its dispatches name.
 	if err := m.priceRunMonitor(ctx, cp.Target.WorkspaceID, value); err != nil {
 		return nil, err
@@ -115,10 +167,17 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 	// mutable registry's current version.
 	value["version"] = cp.ExecutionDigest
 	value["id"] = id
+	var pinnedAttempt struct {
+		Attempt int `json:"attempt"`
+	}
+	_ = json.Unmarshal(cp.Projection, &pinnedAttempt)
 	if attempts, ok := value["attempts"].([]any); ok {
 		for _, a := range attempts {
 			if row, ok := a.(map[string]any); ok && row["run_id"] == cp.RunID {
 				row["run_id"] = id
+				if pinnedAttempt.Attempt > 0 {
+					row["n"] = pinnedAttempt.Attempt
+				}
 			}
 		}
 	}
@@ -256,7 +315,11 @@ func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *r
 			browserFlowTyped(w, 503, "run_unavailable", "Run unavailable")
 			return
 		}
-		id := chi.URLParam(r, "id")
+		id, decodeErr := url.PathUnescape(chi.URLParam(r, "id"))
+		if decodeErr != nil {
+			browserFlowTyped(w, 400, "invalid_request", "Invalid run")
+			return
+		}
 		var at *int64
 		if r.URL.Query().Has("at") {
 			n, e := strconv.ParseInt(r.URL.Query().Get("at"), 10, 64)

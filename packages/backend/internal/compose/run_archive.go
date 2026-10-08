@@ -280,7 +280,7 @@ func journalEntry(raw json.RawMessage) (map[string]any, error) {
 	if kind == "" {
 		kind = "event"
 	}
-	return map[string]any{"seq": event.Sequence, "at": time.UnixMilli(int64(event.OccurredAt)).UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+	return map[string]any{"seq": float64(event.Sequence), "at": time.UnixMilli(int64(event.OccurredAt)).UTC().Format("2006-01-02T15:04:05.000Z07:00"),
 		"type": kind, "text": text}, nil
 }
 

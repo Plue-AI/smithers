@@ -164,7 +164,7 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.True(t, gap.Gap)
 
 	// The monitor of a stopped host is the archived one, priced and named as
-	// the install names it. Replay needs the live host.
+	// the install names it. Replay uses the retained journal.
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	_, err = store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: "archive-run", Payload: json.RawMessage(`{}`), AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectReconcile})
@@ -190,6 +190,7 @@ func TestRunArchivePostgres(t *testing.T) {
 	traced, err := monitors.read(ctx, repo.ID, "lane-1:run-1", nil, true)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(traced, &monitor))
+	require.Equal(t, map[string]any{"at": 8.0, "last": 8.0}, monitor["replay"])
 	require.Equal(t, []any{
 		map[string]any{"seq": 2.0, "at": "2026-10-07T00:00:02.000Z", "type": "control.engine.event", "text": `{"n": 2}`},
 		map[string]any{"seq": 4.0, "at": "2026-10-07T00:00:04.000Z", "type": "control.engine.event", "text": `{"n": 4}`},
@@ -197,8 +198,12 @@ func TestRunArchivePostgres(t *testing.T) {
 		map[string]any{"seq": 8.0, "at": "2026-10-07T00:00:08.000Z", "type": "control.run.running", "text": `{"n": 8}`},
 	}, monitor["journal"])
 	at := int64(1)
-	_, err = monitors.read(ctx, repo.ID, "lane-1:run-1", &at)
-	require.Error(t, err)
+	replayedArchive, err := monitors.read(ctx, repo.ID, "lane-1:run-1", &at)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(replayedArchive, &monitor))
+	require.Equal(t, []any{}, monitor["journal"])
+	require.Equal(t, map[string]any{"at": 1.0, "last": 8.0}, monitor["replay"])
+	require.Equal(t, map[string]any{"run_id": "run-1"}, monitor["archive_replay"])
 
 	// The browser relay serves a stopped box's run from the archive, for the
 	// box's own repository only.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -19,7 +20,11 @@ func (m *runMonitors) serveExecutionTrace(w http.ResponseWriter, r *http.Request
 		writeConfirmationDispatchError(w, err)
 		return
 	}
-	id := chi.URLParam(r, "id")
+	id, decodeErr := url.PathUnescape(chi.URLParam(r, "id"))
+	if decodeErr != nil {
+		browserFlowTyped(w, 400, "invalid_request", "Invalid run")
+		return
+	}
 	raw, err := services.ReadInstallExecutionMonitor(r.Context(), m.pool, repository, id, func(ctx context.Context, subject services.InstallSubject) (json.RawMessage, error) {
 		var at *int64
 		if r.URL.Query().Has("at") {

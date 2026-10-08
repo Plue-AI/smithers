@@ -1,4 +1,5 @@
 import { MonitorCardSchema, type MonitorCard } from "@smthrs/rpc/RunCard"
+import { monitorFromJournal, type JournalRecord } from "@smthrs/gateway/RunTrace"
 import { z } from "zod"
 import type { LiveChannel } from "../../runtime/LiveChannel"
 
@@ -7,6 +8,38 @@ export interface RunMonitorSnapshots {
   readonly get: (id: string) => RunMonitorSnapshot
   readonly subscribe: (id: string, notify: () => void) => () => void
 }
+const TraceResponseSchema = MonitorCardSchema.extend({ archive_replay: z.object({ run_id: z.string().min(1) }).optional() })
+
+// Replay the archive with the existing gateway fold, using only recorded JSON.
+// The archive carries the host's canonical run ID because URLs qualify it with
+// a workspace ID. Restore the qualified identity after projecting the frame.
+const replayArchive = (model: z.infer<typeof TraceResponseSchema>, at: number): MonitorCard => {
+  const records: JournalRecord[] = (model.journal ?? []).map(row => ({
+    runId: model.archive_replay!.run_id, sequence: row.seq, occurredAt: Date.parse(row.at),
+    kind: row.type, payload: JSON.parse(row.text)
+  }))
+  const frame = monitorFromJournal({ runId: model.archive_replay!.run_id, flowId: model.flow, status: model.state }, records, at)
+  const prices = new Map(model.attempts.flatMap(attempt => attempt.steps.map(step => [step.key, step] as const)))
+  const steps = frame.attempts[0]!.steps.map(step => {
+    const metered = prices.get(step.key)
+    return { ...step, ...((step.state === "completed" || step.state === "failed") && metered?.usage ? { usage: metered.usage } : {}) }
+  })
+  const phases = frame.attempts[0]!.phases
+  const flags = model.attempts.flatMap(attempt => attempt.phases.filter(phase => phase.tone === "thrash"))
+  for (const flag of flags) {
+    const phase = [...phases].reverse().find(phase => phase.title === "Ran checks" || phase.title.startsWith("Ran checks · "))
+    if (phase) Object.assign(phase, { tone: "thrash", indicator: flag.indicator })
+  }
+  const earlier = model.attempts.slice(0, -1)
+  const priced = [...earlier.flatMap(attempt => attempt.steps), ...steps]
+  return MonitorCardSchema.parse({ ...frame, id: model.id, title: model.title, version: model.version,
+    todo: model.todo, branch: model.branch, waits: [...new Map([...frame.waits, ...model.waits].map(wait => [wait.id, wait])).values()], journal: model.journal, replay: model.replay,
+    tokens: priced.reduce((sum, step) => sum + (step.usage?.tokens ?? 0), 0),
+    cost_usd: priced.reduce((sum, step) => sum + (step.usage?.cost_usd ?? 0), 0),
+    attempts: [...earlier, { ...frame.attempts[0], n: model.attempts.at(-1)?.n ?? 1, run_id: model.id, steps, phases }]
+  })
+}
+
 const unavailable = "Run unavailable"
 const empty: RunMonitorSnapshot = {}
 const RunTopicSchema = z.object({
@@ -107,10 +140,10 @@ export function createRunMonitorSeam(options: {
     const promise = (async (): Promise<string | void> => {
       try {
         const response = await options.http(path, { method: "GET", credentials: "same-origin" })
-        const parsed = response.ok ? MonitorCardSchema.safeParse(await response.json()) : undefined
+        const parsed = response.ok ? TraceResponseSchema.safeParse(await response.json()) : undefined
         if (disposed || owner !== options.owner?.() || revisions.get(id) !== revision) return
         if (!parsed?.success || parsed.data.id !== id || (journal && parsed.data.journal === undefined) || (at !== undefined && parsed.data.replay?.at !== at)) return unavailable
-        publish(id, { model: parsed.data })
+        publish(id, { model: at !== undefined && parsed.data.archive_replay ? replayArchive(parsed.data, at) : parsed.data })
       } catch { if (!disposed && owner === options.owner?.() && revisions.get(id) === revision) return unavailable }
     })()
     reads.set(id, { at, journal, owner, revision, promise })
