@@ -35,7 +35,9 @@ const reviewed: ReadonlyArray<readonly [file: string, count: number]> = [
   ["src/DocsCheck.ts", 3],
   ["src/Exec.ts", 1],
   ["src/GeneratedFile.ts", 20],
-  ["src/GithubCiGen.ts", 33],
+  // 34: 44e7e125 adds the trusted-setup declaration invariant (full main SHA,
+  // ubuntu-latest, no matrix), the same generation-time config check as the rest.
+  ["src/GithubCiGen.ts", 34],
   ["src/Input.ts", 15],
   ["src/Install.ts", 1],
   ["src/LlmLint.ts", 34],
