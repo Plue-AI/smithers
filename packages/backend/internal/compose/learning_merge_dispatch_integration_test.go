@@ -124,6 +124,36 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	for _, topic := range []string{"todo:7", "home", "proposals"} {
 		beforeTopics[topic] = readLive(topic)
 	}
+	// Qualify the missing shared execution boundary through the same merge,
+	// poll and admission path before supplying the recorded guest lifecycle.
+	// A trusted Active pin is insufficient authority to execute on the host.
+	refusalCtx, stopRefusal := context.WithCancel(ctx)
+	refusalDone := make(chan error, 1)
+	go func() {
+		refusalDone <- store.RunWorker(refusalCtx, jobs.WorkerConfig{WorkerID: "merged-learning-refusal", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, Operations: []string{services.LearningAdmissionOperation}}, service.HandleLearningAdmission)
+	}()
+	var admissionID, principal string
+	require.Eventually(t, func() bool {
+		var state, reason, pinned string
+		err := pool.QueryRow(ctx, `SELECT r.id,r.principal_id,r.state,coalesce(d.external_receipt->>'reason',''),coalesce(d.external_receipt->'pin'->>'executionDigest','') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation='learning.admission'`).Scan(&admissionID, &principal, &state, &reason, &pinned)
+		return err == nil && state == "waiting" && reason == "learning_execution_unavailable" && pinned == digest
+	}, 5*time.Second, 10*time.Millisecond)
+	stopRefusal()
+	require.NoError(t, <-refusalDone)
+	for _, query := range []string{`SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`, `SELECT count(*) FROM flow_runtime_host_bindings WHERE binding_kind='learning'`, `SELECT count(*) FROM wiki_pages`, `SELECT count(*) FROM memory_notes`, `SELECT count(*) FROM mythical_items WHERE learning_receipt IS NOT NULL`} {
+		require.NoError(t, pool.QueryRow(ctx, query).Scan(&count))
+		require.Zero(t, count, "missing isolation must refuse before execution or receipt")
+	}
+	var refusedHome struct {
+		Runs []struct {
+			Title string `json:"title"`
+			State string `json:"state"`
+		} `json:"background_runs"`
+	}
+	require.NoError(t, json.Unmarshal(readLive("home").Data, &refusedHome))
+	require.Len(t, refusedHome.Runs, 1)
+	require.Equal(t, "Learning · T7", refusedHome.Runs[0].Title)
+	require.Equal(t, "waiting", refusedHome.Runs[0].State)
 	var failedReceipt atomic.Bool
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 		runtime.target = target
@@ -138,6 +168,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.NoError(t, err)
 	service.SetLauncher(dispatcher)
 	service.SetLearningMachines(learningExtractionMachine{pool: pool})
+	require.NoError(t, store.Wake(ctx, jobs.Scope{TenantID: fmt.Sprintf("repository:%d", item.RepositoryID), PrincipalID: principal}, admissionID))
 	// Fail in the production transaction after wiki/note writes. The durable
 	// dispatcher must retry the same completion, without relaunching execution.
 	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_learning_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.lessons IS NOT NULL THEN RAISE EXCEPTION 'recorded receipt failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_learning_commit BEFORE UPDATE ON mythical_items FOR EACH ROW EXECUTE FUNCTION refuse_learning_commit()`)
