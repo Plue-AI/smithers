@@ -17,7 +17,7 @@ func machineItemBinding(ctx context.Context, pool *pgxpool.Pool, branch string) 
 	var change, preMove string
 	var retired bool
 	var bound bool
-	err := pool.QueryRow(ctx, `SELECT COALESCE(i.number,0),COALESCE((SELECT CASE WHEN COUNT(DISTINCT c.change_id)=1 THEN MAX(c.change_id) ELSE '' END FROM mythical_changes c WHERE c.item_id=i.id AND c.repository_id=w.repository_id),''),COALESCE(l.retired_at IS NOT NULL,false),l.item_id IS NOT NULL, COALESCE(w.moved_off->>'pre_move_commit','')
+	err := pool.QueryRow(ctx, `SELECT COALESCE(i.number,0),COALESCE(i.checks->'machineItemChanges'->>w.id::text,(SELECT CASE WHEN COUNT(DISTINCT c.change_id)=1 THEN MAX(c.change_id) ELSE '' END FROM mythical_changes c WHERE c.item_id=i.id AND c.repository_id=w.repository_id),''),COALESCE(l.retired_at IS NOT NULL,false),l.item_id IS NOT NULL, COALESCE(w.moved_off->>'pre_move_commit','')
 	 FROM workspaces w LEFT JOIN mythical_lanes l ON l.workspace_id=w.id::text
 	 LEFT JOIN mythical_items i ON i.id=l.item_id AND i.repository_id=w.repository_id WHERE w.id=$1`, branch).Scan(&number, &change, &retired, &bound, &preMove)
 	if err != nil {

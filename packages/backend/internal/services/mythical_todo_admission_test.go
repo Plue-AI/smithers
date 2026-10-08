@@ -143,10 +143,14 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	})
 	item := o.fileTodo(session, "first")
 	require.Zero(t, item.Attempt)
+	o.lanes.provision = func(workspaceID string) {
+		bound := o.byID(uuidString(item.ID))
+		require.NotEmpty(t, mythicalChecksOf(bound).MachineItemChanges[workspaceID], "native authority exists before provisioning, not only after launch admission")
+	}
 
 	o.wake()
-	// An attempt starts from main's tip (the available prefix), not the
-	// stack bookmark.
+	// The empty item ancestor captures main's available prefix and its
+	// logical identity before the attempt launches.
 	tip := o.hostRef("refs/heads/main")
 	item = o.byID(uuidString(item.ID))
 	require.Equal(t, "running", item.State, item.Reason)
@@ -154,7 +158,10 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.EqualValues(t, 1, item.Attempt)
 	require.EqualValues(t, 1, item.Generation)
 	require.Equal(t, pgtype.Text{String: todoPinOne, Valid: true}, item.FlowDigest)
-	require.Equal(t, tip, item.BaseCommit)
+	base, readErr := (mythicalGit{dir: o.hostDir}).readCommit(t.Context(), item.BaseCommit)
+	require.NoError(t, readErr)
+	require.Equal(t, []string{tip}, base.Parents)
+	require.Equal(t, base.ChangeID, mythicalChecksOf(item).MachineItemChanges[item.WorkspaceID])
 	landed := o.landedMain()
 	require.Equal(t, []string{landed}, sources, "the pin is chosen at main's mirrored commit")
 	checks := mythicalChecksOf(item)
@@ -176,9 +183,9 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	payload := decodeJSON(t, launch.Payload)
 	require.Equal(t, "Add a greeting\n\nAdd a greeting to JOURNEY.md\n\nAcceptance:\n- JOURNEY.md greets the reader\n", payload["prompt"])
 	require.EqualValues(t, 3, payload["maxRounds"])
-	ref := repohost.WorkspaceSourceRef(item.WorkspaceID, tip)
-	require.Equal(t, map[string]any{"commitId": tip, "ref": ref}, payload["base"])
-	require.Equal(t, tip, o.hostRef(ref), "the tip reached the lane before the launch")
+	ref := repohost.WorkspaceSourceRef(item.WorkspaceID, item.BaseCommit)
+	require.Equal(t, map[string]any{"commitId": item.BaseCommit, "ref": ref}, payload["base"])
+	require.Equal(t, item.BaseCommit, o.hostRef(ref), "the owned base reached the lane before the launch")
 	require.Equal(t, map[string]any{"repositoryId": float64(o.repoID), "userId": float64(o.userID), "workspaceId": item.WorkspaceID,
 		"itemId": id, "generation": float64(1), "attempt": float64(1), "flow": "todo", "flowSource": landed, "flowDigest": todoPinOne}, decodeJSON(t, launch.AuthorizationContext))
 	require.Equal(t, map[string]any{"kind": mythicalBindingKind, "itemId": id, "generation": float64(1), "attempt": float64(1),
@@ -678,8 +685,8 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	// result to the stack while the composition runs: the submission names
 	// the composition's run, the one the attempt bound.
 	item = o.byID(id)
-	candidate := o.laneResult(item.WorkspaceID, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
-	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: candidate, RequestRunID: item.RequestRunID, Summary: "✨ feat: greet the reader"}
+	candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
+	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit, Source: candidate, RequestRunID: item.RequestRunID, Summary: "✨ feat: greet the reader"}
 	other := submission
 	other.RequestRunID = "another-run"
 	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, other)

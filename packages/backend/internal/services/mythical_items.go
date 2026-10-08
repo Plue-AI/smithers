@@ -514,6 +514,9 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 			}
 		}
 		next.CandidateBase, next.CandidateHead, next.CandidateVerified = input.Base, input.Source, true
+		if prefix := mythicalChecksOf(item).InitialPrefix; composed && prefix != "" {
+			next.CandidateBase = prefix
+		}
 		// The working change starts on the captured seed, but the TODO owns
 		// that seed too. Integration must transplant the entire scratch diff.
 		if seed := mythicalChecksOf(item).Seed; seed != nil && input.Base == seed.Head {
@@ -2062,13 +2065,19 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 
 func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, before func(pgx.Tx) error, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
 	s, r := st.s, st.r
+	launchWorkspace := item.WorkspaceID
+	if phase == "review" {
+		if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" {
+			launchWorkspace = review.Lane
+		}
+	}
 	// Every fresh machine must import the attempt's immutable flow source,
 	// including review and rebase verification machines. Retaining only the
 	// work base or candidate strands their host before it can accept a run.
 	// Keep this idempotent transport before the admission transaction: a
 	// failed retention must never leave an admitted launch or updated item.
 	if pin, pinned := mythicalPinOf(item); pinned {
-		if _, err := s.retainMainFor(ctx, r, item.WorkspaceID, pin.SourceCommit); err != nil {
+		if _, err := s.retainMainFor(ctx, r, launchWorkspace, pin.SourceCommit); err != nil {
 			return db.MythicalItem{}, fmt.Errorf("retain the pinned flow source: %w", err)
 		}
 	} else if item.FlowDigest.Valid || flowdispatch.IsTodoFlow(flowID) {
@@ -2082,6 +2091,24 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	if before != nil {
 		if err := before(tx); err != nil {
 			return db.MythicalItem{}, err
+		}
+	}
+	if mythicalTodo(item) && launchWorkspace != "" {
+		head := item.BaseCommit
+		if phase != "todo" && item.CandidateHead != "" {
+			head = item.CandidateHead
+		}
+		commit, err := r.g.readCommit(ctx, head)
+		if err != nil {
+			return db.MythicalItem{}, fmt.Errorf("read the machine's item authority: %w", err)
+		}
+		if mythicalChangeID.MatchString(commit.ChangeID) {
+			checks := mythicalChecksOf(item)
+			if checks.MachineItemChanges == nil {
+				checks.MachineItemChanges = map[string]string{}
+			}
+			checks.MachineItemChanges[launchWorkspace] = commit.ChangeID
+			item.Checks = checks.encode()
 		}
 	}
 	// Every admitted run counts toward the item's launch bound; the failure
@@ -2181,12 +2208,6 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	// dispatcher and the host refuse any other code under it.
 	var launchPin *flowruntime.Pin
 	projected := mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase}
-	launchWorkspace := saved.WorkspaceID
-	if phase == "review" {
-		if review := mythicalChecksOf(saved).Review; review != nil && review.Lane != "" {
-			launchWorkspace = review.Lane
-		}
-	}
 	binding := map[string]any{"repositoryId": r.row.RepositoryID, "userId": sponsor,
 		"workspaceId": launchWorkspace, "itemId": id, "generation": saved.Generation}
 	if pin, pinned := mythicalPinOf(saved); pinned {
@@ -2250,6 +2271,26 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 		}
 		bound, err := q.GetMythicalLaneByName(ctx, item.ID, candidate)
 		if err == nil && !bound.RetiredAt.Valid {
+			if head, _ := ctx.Value(mythicalInitialSourceKey{}).(string); head != "" {
+				workspace, readErr := q.GetWorkspace(ctx, bound.WorkspaceID)
+				if readErr == nil && workspace.SourceCommit != head {
+					if workspace.SourceCommit == "" && workspace.Status == "starting" {
+						// Recover a crash after binding but before source retention.
+						if err := s.pinMachineItemSource(ctx, r, item, bound.WorkspaceID, head); err != nil {
+							return "", err
+						}
+					} else {
+						// A failed admission on an older prefix cannot reuse its
+						// already-provisioned checkout under a new item authority.
+						if err := s.retireLane(ctx, r, bound.WorkspaceID); err != nil {
+							return "", err
+						}
+						continue
+					}
+				} else if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+					return "", readErr
+				}
+			}
 			// A lane bound by an attempt whose launch failed is recovered
 			// only while it runs on this placement's machine.
 			matches, placedErr := s.lanes.Placed(ctx, bound.WorkspaceID, placement)
@@ -2305,6 +2346,9 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 				winner = lane
 				return errMythicalLaneTaken
 			}
+			if head, _ := ctx.Value(mythicalInitialSourceKey{}).(string); head != "" {
+				return s.pinMachineItemSource(ctx, r, item, workspaceID, head)
+			}
 			return nil
 		})
 		if errors.Is(err, errMythicalLaneTaken) {
@@ -2317,6 +2361,34 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 	}
 	return "", errors.New("the lane " + name + " was retired too many times")
 }
+
+// Pin both checkout and native authority before Create can start provisioning.
+// The launch admission later retains the same binding with the attempt receipt.
+func (s *MythicalService) pinMachineItemSource(ctx context.Context, r *mythicalRun, item db.MythicalItem, workspaceID, head string) error {
+	if _, err := s.retainFor(ctx, r, workspaceID, head); err != nil {
+		return err
+	}
+	commit, err := r.g.readCommit(ctx, head)
+	if err != nil {
+		return err
+	}
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE workspaces SET source_commit=$1 WHERE id=$2 AND repository_id=$3 AND status='starting'`, head, workspaceID, item.RepositoryID); err != nil {
+		return err
+	}
+	if mythicalChangeID.MatchString(commit.ChangeID) {
+		if _, err := tx.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(COALESCE(checks,'{}'::jsonb),'{machineItemChanges}',COALESCE(checks->'machineItemChanges','{}'::jsonb)||jsonb_build_object($2::text,$3::text),true) WHERE id=$1 AND repository_id=$4`, item.ID, workspaceID, commit.ChangeID, item.RepositoryID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+type mythicalInitialSourceKey struct{}
 
 var errMythicalLaneTaken = errors.New("another claimant bound this lane first")
 
@@ -2782,6 +2854,16 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
 		}
 	}
+	base := st.prefix(item)
+	if seed := mythicalChecksOf(item).Seed; seed != nil {
+		base = seed.Head
+	} else {
+		var err error
+		base, err = r.g.initialItem(ctx, base, uuidString(item.ID), item.Attempt+1)
+		if err != nil {
+			return mythicalInfraOutage(item, "launch", "the item could not be initialized: "+err.Error(), st.now), false, nil
+		}
+	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
 	// Keep the latest plan through recovery and runs that produce none, as
@@ -2793,12 +2875,16 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	workspaceID := item.WorkspaceID
 	var err error
 	if !adopted {
-		workspaceID, err = st.lane(ctx, item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
+		workspaceID, err = st.lane(context.WithValue(ctx, mythicalInitialSourceKey{}, base), item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
 	}
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
 	}
 	checks := mythicalChecksOf(next)
+	checks.InitialPrefix = ""
+	if checks.Seed == nil {
+		checks.InitialPrefix = st.prefix(item)
+	}
 	checks.Placement = &placement
 	if !recovering {
 		checks.Watchdog = nil
@@ -2806,10 +2892,6 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
-	base := st.prefix(item)
-	if seed := mythicalChecksOf(item).Seed; seed != nil {
-		base = seed.Head
-	}
 	next.WorkspaceID, next.BaseCommit = workspaceID, base
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	// The launch below records the lane's start with the item, atomically.
@@ -2844,6 +2926,16 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	st.held[saved.Lane.Int32] = saved.ID
 	return &saved, true, nil
+}
+
+// The service-owned empty initialization commit is an authority anchor, not
+// additional prefix work. Candidate admission still compares the actual prefix
+// captured when this attempt began, including after main moves during coding.
+func mythicalAttemptPrefix(item db.MythicalItem) string {
+	if prefix := mythicalChecksOf(item).InitialPrefix; prefix != "" {
+		return prefix
+	}
+	return item.BaseCommit
 }
 
 // mythicalTodo reports an item that is a TODO with its own prompt: an
@@ -3141,7 +3233,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		if mythicalTodo(item) {
 			name = fmt.Sprintf("TODO %d verify %d", item.Number.Int64, item.Generation+1)
 		}
-		if workspaceID, err = st.lane(ctx, item, name, placement); err != nil {
+		if workspaceID, err = st.lane(context.WithValue(ctx, mythicalInitialSourceKey{}, rebased), item, name, placement); err != nil {
 			return mythicalInfraOutage(item, "launch", "no lane workspace to verify on: "+err.Error(), st.now), false, nil
 		}
 		placed := mythicalChecksOf(next)
@@ -4572,7 +4664,7 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if mythicalTodo(item) {
 		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation)
 	}
-	workspaceID, err := st.lane(ctx, next, name, placement)
+	workspaceID, err := st.lane(context.WithValue(ctx, mythicalInitialSourceKey{}, item.CandidateHead), next, name, placement)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace to review on: "+err.Error(), st.now), false, nil
 	}
@@ -4844,6 +4936,11 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 	if err := bind(workspace.ID); err != nil {
 		// Cleanup requires settled work and verified capture (MVP §6.7).
 		// A failed binding never starts this machine; its record remains for retry.
+		return "", err
+	}
+	// Binding may have pinned an item source before any machine is started.
+	workspace, err = l.workspaces.q.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
 		return "", err
 	}
 	if source, _ := ctx.Value(todoMachineDemandKey{}).(string); source != "" {
@@ -5456,9 +5553,11 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	InitialPrefix         string                             `json:"initialPrefix,omitempty"`
 	Pause                 *todoPause                         `json:"pause,omitempty"`
 	Capture               *MachineCapturePending             `json:"capture,omitempty"`
 	MergedVia             *mythicalMergedVia                 `json:"merged_via,omitempty"`
+	MachineItemChanges    map[string]string                  `json:"machineItemChanges,omitempty"`
 	Seed                  *branchSeed                        `json:"seed,omitempty"`
 	ConflictReservation   *todoConflictReservation           `json:"conflictReservation,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`

@@ -410,6 +410,20 @@ func (g mythicalGit) flatFold(ctx context.Context, parent string, m mythicalComm
 	return mythicalStackCommit{ID: id, ChangeID: commit.ChangeID, Tree: m.Tree, Title: m.Subject(), Kind: kind, FoldedFrom: m.ID}, nil
 }
 
+// initialItem retains an empty, service-owned ancestor for the attempt. It is
+// transported on the lane's reserved source ref; it never moves main or the
+// mythical bookmark. Retrying identical admission reproduces its identity.
+func (g mythicalGit) initialItem(ctx context.Context, parent, item string, attempt int32) (string, error) {
+	base, err := g.readCommit(ctx, parent)
+	if err != nil {
+		return "", err
+	}
+	identity := mythicalCommitter(base.Committer)
+	return g.writeCommit(ctx, mythicalCommit{Tree: base.Tree, Parents: []string{parent}, Author: identity,
+		Committer: identity, ChangeID: mythicalChangeIDFor("item-initial", item, strconv.FormatInt(int64(attempt), 10), parent),
+		Message: "Initialize TODO item\n"})
+}
+
 // snapshotBase writes the parentless change that stands for all history up
 // to and including m.
 func (g mythicalGit) snapshotBase(ctx context.Context, m mythicalCommit) (mythicalStackCommit, error) {

@@ -123,7 +123,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	}
 	step := mythicalItemStep{s: s, q: q, r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: items}
 	prefix := step.prefix(item)
-	if !codingCommitID.MatchString(prefix) || item.CandidateHead == "" && item.BaseCommit != prefix || item.CandidateHead != "" && item.CandidateBase != prefix {
+	if !codingCommitID.MatchString(prefix) || item.CandidateHead == "" && mythicalAttemptPrefix(item) != prefix || item.CandidateHead != "" && item.CandidateBase != prefix {
 		return empty, 0, pkgerrors.Conflict("rebase pending")
 	}
 	lanes, ok := s.lanes.(*workspaceMythicalLanes)
