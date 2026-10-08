@@ -577,7 +577,7 @@ func browserFlowCommand(request browserFlowRequest) (string, error) {
 	case "Run.Fork":
 		return "branch.fork", nil
 	case "Cancel":
-		return "flow.run.stop", nil
+		return "runs.cancel", nil
 	case "Resume":
 		return "runs.resume", nil
 	case "Signal", "Steer":

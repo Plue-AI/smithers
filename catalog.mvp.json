@@ -9099,6 +9099,34 @@
       }
     },
     {
+      "name": "runs.cancel",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Stop run",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/runs/{id}/cancel"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "runs.coding.select",
       "slash": null,
       "cli": null,

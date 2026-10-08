@@ -274,3 +274,8 @@ test("private import progress retains the owner person read door", () => {
   expect(row).toMatchObject({ minimumRole: "owner", agent: "never", credentialScope: "write:repository", actors: ["person"], http: { method: "PATCH", path: "/api/repos/{owner}/{repo}/egress-policy" } })
   expect(Schema.decodeUnknownSync(row.input)({ add: ["registry.example"], remove: null })).toEqual({ add: ["registry.example"], remove: null })
  })
+
+ test("retained run cancellation requires confirmation independently of flow launch", () => {
+  const row = httpProjections.find(row => row.name === "runs.cancel")!
+  expect(row).toMatchObject({ minimumRole: "member", agent: "confirm", credentialScope: "write:repository", actors: ["person", "app_agent"], visibility: "hidden", slash: null, cli: null, http: { method: "POST", path: "/api/repos/{owner}/{repo}/runs/{id}/cancel" } })
+ })

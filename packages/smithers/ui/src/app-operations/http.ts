@@ -35,6 +35,8 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ operation({ name: "runs.cancel", input: NoInput, summary: "Stop run", hidden: true, visibility: "hidden", slash: null, cli: null,
+   http: { method: "POST", path: "/api/repos/{owner}/{repo}/runs/{id}/cancel" }, minimumRole: "member", agent: "confirm", credentialScope: "write:repository", actors: ["person", "app_agent"] }),
  repositoryAdmin("egress.update", "PATCH", "/api/repos/{owner}/{repo}/egress-policy", Schema.Struct({ add: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])), remove: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])) })),
  repositoryAdmin("egress.read", "GET", "/api/repos/{owner}/{repo}/egress-policy", NoInput, "write:repository"),
  operation({ name: "account.oauth.revoke", input: NoInput, summary: "Revoke app access", hidden: true, visibility: "hidden", slash: null, cli: null,

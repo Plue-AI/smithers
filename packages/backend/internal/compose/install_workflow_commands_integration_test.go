@@ -88,7 +88,7 @@ func TestInstallWorkflowCommandsPostgres(t *testing.T) {
 					cancelled := httptest.NewRecorder()
 					router.ServeHTTP(cancelled, cancel)
 					require.Equal(t, 204, cancelled.Code, cancelled.Body.String())
-					require.Equal(t, []string{"flow.run.stop"}, decisions)
+					require.Equal(t, []string{"runs.cancel"}, decisions)
 				} else {
 					require.Equal(t, before, after)
 					require.Contains(t, out.Body.String(), `"code":"permission"`)
@@ -99,7 +99,7 @@ func TestInstallWorkflowCommandsPostgres(t *testing.T) {
 	var runID int64
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT min(id) FROM workflow_runs WHERE repository_id=$1`, f.repoID).Scan(&runID))
 	for _, action := range []struct{ suffix, command string }{
-		{"runs/%d/cancel", "flow.run.stop"}, {"workflows/runs/%d/cancel", "flow.run.stop"}, {"actions/runs/%d/cancel", "flow.run.stop"},
+		{"runs/%d/cancel", "runs.cancel"}, {"workflows/runs/%d/cancel", "runs.cancel"}, {"actions/runs/%d/cancel", "runs.cancel"},
 		{"runs/%d/rerun", "runs.rerun"}, {"workflows/runs/%d/rerun", "runs.rerun"}, {"actions/runs/%d/rerun", "runs.rerun"},
 		{"runs/%d/resume", "runs.resume"}, {"workflows/runs/%d/resume", "runs.resume"},
 	} {

@@ -644,7 +644,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "runs.logs", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/runs/[0-9]+/logs$`)},
 
 	{http.MethodPost, "flow.run", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(invoke|workflows/[^/]+/dispatch(?:es)?)$`)},
-	{http.MethodPost, "flow.run.stop", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/cancel$`)},
+	{http.MethodPost, "runs.cancel", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/cancel$`)},
 	{http.MethodPost, "runs.rerun", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/|actions/)?runs/[0-9]+/rerun$`)},
 	{http.MethodPost, "runs.resume", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(?:workflows/)?runs/[0-9]+/resume$`)},
 	{http.MethodGet, "workspace.provider-pool", regexp.MustCompile(`^/provider-pool/routes$`)},
