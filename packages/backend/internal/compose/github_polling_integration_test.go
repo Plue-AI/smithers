@@ -58,7 +58,7 @@ type installPollingComposition struct {
 	calls       []string
 }
 
-func newInstallPollingComposition(t *testing.T, ready bool) *installPollingComposition {
+func newInstallPollingComposition(t *testing.T, ready bool, gitRoots ...string) *installPollingComposition {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	f := &installPollingComposition{pool: pool, q: db.New(pool)}
@@ -68,7 +68,11 @@ func newInstallPollingComposition(t *testing.T, ready bool) *installPollingCompo
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	app := services.GitHubAppCredentials{ID: 3515, Slug: "polling-fixture", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "polling-hook", InstallationID: installation, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
-	fake, err := githubfake.New(githubfake.Config{Now: now, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind, ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest", Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}, {ID: 101, FullName: "acme/other"}}}, {ID: installation + 1000, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}}}})
+	gitRoot := ""
+	if len(gitRoots) > 0 {
+		gitRoot = gitRoots[0]
+	}
+	fake, err := githubfake.New(githubfake.Config{GitRoot: gitRoot, Now: now, AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind, ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest", Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}, {ID: 101, FullName: "acme/other"}}}, {ID: installation + 1000, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	f.upstream = fake

@@ -61,7 +61,7 @@ func newTodoLiteralInstall(t *testing.T, configure ...func(*services.MythicalSer
 	cfg.Auth.SessionCookieName = "smithers_session"
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-	service := services.NewMythicalService(pool, nil)
+	service := services.NewMythicalService(pool, nil, services.WithMythicalNow(func() time.Time { return time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC) }))
 	for _, apply := range configure {
 		apply(service, pool)
 	}

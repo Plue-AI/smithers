@@ -3783,8 +3783,8 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 			return nil, err
 		}
 		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": waitID, "lease": noPR,
-			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
-			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
+			"sha": head, "by": json.RawMessage(by), "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
+			"from": todoState(item), "to": todoState(saved), "actor": json.RawMessage(by), "ref_claim": fact.RefClaim})
 		if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
 			return nil, err
 		}

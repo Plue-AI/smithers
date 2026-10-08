@@ -172,7 +172,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 						if err != nil {
 							return nil, err
 						}
-						data, _ := json.Marshal(map[string]any{"item": contained.ID, "n": contained.Number, "pr": earlier.PRNumber.Int64, "reason": folded.Reason, "merged_via": foldChecks.MergedVia, "source": "github", "version": fetched.Version})
+						data, _ := json.Marshal(map[string]any{"item": contained.ID, "n": contained.Number, "pr": earlier.PRNumber.Int64, "reason": folded.Reason, "merged_via": foldChecks.MergedVia, "source": "github", "version": fetched.Version, "from": todoState(earlier), "to": todoState(saved), "actor": map[string]string{"kind": "system", "id": "github"}})
 						if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_merged", todoState(saved), data); err != nil {
 							return nil, err
 						}
@@ -297,7 +297,11 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 			}
 			if decision.Event != "" {
-				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation, "actor": payload.ClosedBy})
+				var actor any = map[string]string{"kind": "system", "id": "github"}
+				if payload.ClosedBy != nil && payload.ClosedBy.Login != "" {
+					actor = payload.ClosedBy
+				}
+				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation, "from": todoState(item), "to": todoState(saved), "actor": actor})
 				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
 					return nil, err
 				}
