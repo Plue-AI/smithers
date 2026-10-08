@@ -9,8 +9,8 @@ function transcript(omitted?: number): string {
     { Action: "pass", Test: name },
   ]).map(event => JSON.stringify(event)).join("\n")
 }
-test("requires all 37 C-DUR-03 crossings with their own markers", () => {
-  expect(new Set(githubCrossings).size).toBe(37)
+test("requires all 39 C-DUR-03 crossings with their own markers", () => {
+  expect(new Set(githubCrossings).size).toBe(39)
   expect(() => requireReachedGoFaultMatrix(transcript(), names, [...githubPoints, "github-production-propose"])).not.toThrow()
 })
 test.each(githubCrossings.map((crossing, index) => [crossing, index] as const))("refuses a missing production crossing: %s", (_crossing, index) => {

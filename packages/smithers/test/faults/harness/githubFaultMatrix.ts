@@ -5,7 +5,7 @@ export const githubCrossings = [
   ...["push", "open", "body", "merge", "close"].flatMap(kind => stages.map(stage => `${kind}/${stage}`)),
   "open-drop/remote-success",
   "body-order/remote-success",
-  "push-foreign/potentially-sent",
+  ...stages.map(stage => `push-foreign/${stage}`),
   "close-reopen/remote-success",
   ...["revoked", "stale-head", "missing-approval", "competing-fence"].flatMap(refusal => stages.map(stage => `merge-${refusal}/${stage}`)),
   ...["person", "other-app", "canonical"].flatMap(identity => [

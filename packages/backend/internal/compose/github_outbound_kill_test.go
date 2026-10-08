@@ -58,12 +58,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 	}
 	t.Setenv(enable, "1")
 	proposalStatus := http.StatusAccepted
-	if enable == "SMITHERS_GITHUB_OUTBOUND_LINUX" {
-		// Reserved proposal admission requires sandboxed live observations.
-		// The process diagnostic must prove this refusal, never impersonate
-		// a microVM. Its pending slot is created by the production TODO worker.
-		proposalStatus = http.StatusServiceUnavailable
-	}
+
 	for _, scenario := range []string{"push", "open", "body", "merge", "close", "open-drop", "body-order", "push-foreign", "close-reopen", "close-person-event", "close-other-app-event", "close-canonical-event", "close-person-marker", "close-other-app-marker", "close-canonical-marker", "merge-revoked", "merge-stale-head", "merge-missing-approval", "merge-competing-fence"} {
 		kind := strings.SplitN(scenario, "-", 2)[0]
 		variant := strings.TrimPrefix(scenario, kind+"-")
@@ -71,9 +66,6 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 		dropLate := scenario == "open-drop"
 		for _, point := range []string{"before-send", "potentially-sent", "remote-success"} {
 			if (dropLate || variant == "order" || variant == "reopen") && point != "remote-success" {
-				continue
-			}
-			if variant == "foreign" && point != "potentially-sent" {
 				continue
 			}
 			if (strings.HasSuffix(variant, "event") || strings.HasSuffix(variant, "marker")) && point != "potentially-sent" {
@@ -133,13 +125,26 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 				if enable == "SMITHERS_GITHUB_OUTBOUND_LINUX" {
 					// The replacement owns this retained disk. Retire every original
 					// diagnostic writer and daemon before reopening it in the child.
-					workspace := r.options.Workspace.(bindingProcessRuntime)
-					workspace.daemonStops.Range(func(key, value any) bool {
+					runtimeBinding := r.options.Workspace.(bindingProcessRuntime)
+					runtimeBinding.daemonStops.Range(func(key, value any) bool {
 						value.(func())()
-						workspace.daemonStops.Delete(key)
+						runtimeBinding.daemonStops.Delete(key)
 						return true
 					})
 					require.NoError(t, r.processRuntime.Close())
+					// The HTTP composition needs a live isolated observation port
+					// for reserved proposal replay. Reopen the retained checkout;
+					// do not reuse the retired install's closed runtime/registry.
+					runtime, err := process.New(process.Config{Root: r.workspaceStateRoot, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
+					require.NoError(t, err)
+					t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+					_, err = runtime.StartWorkspace(t.Context(), workspace)
+					require.NoError(t, err)
+					registry := new(machined.Registry)
+					t.Cleanup(func() { require.NoError(t, registry.Close()) })
+					runtimeBinding.rehearsalAdmissionRuntime = &rehearsalAdmissionRuntime{Runtime: runtime, aliases: map[string]string{}}
+					runtimeBinding.daemons, runtimeBinding.daemonStops = registry, new(sync.Map)
+					r.options.Workspace, r.options.Machined, r.options.BranchCapture = runtimeBinding, registry, registry
 				}
 				r.ctx = t.Context()
 				unlockInitial()
@@ -474,6 +479,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=checks-'land' WHERE number=$1`, number)
 						require.NoError(t, err)
 					}
+					writesAtRestart := len(r.fake.Writes())
 					t.Logf("CRASH-POINT github-%s-%s subject todo", scenario, point)
 					t.Log("CRASH-POINT github-production-propose subject todo")
 					assertProxyRefuses(child)
@@ -582,10 +588,21 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 								require.NotEqual(t, "merging", projection.Merge.State)
 							}
 						}
-						for _, write := range r.fake.Writes()[before:] {
+						for _, write := range r.fake.Writes()[writesAtRestart:] {
 							require.False(t, targetWrite(&http.Request{Method: write.Method, URL: &url.URL{Path: write.Path}}), "refused recovery must send nothing: %s %s", write.Method, write.Path)
 						}
 						if variant == "foreign" {
+							pushes := 0
+							for _, write := range r.fake.Writes()[before:] {
+								if targetWrite(&http.Request{Method: write.Method, URL: &url.URL{Path: write.Path}}) {
+									pushes++
+								}
+							}
+							expectedPushes := 0
+							if point == "remote-success" {
+								expectedPushes = 1
+							}
+							require.Equal(t, expectedPushes, pushes, "only the pre-kill successful push may precede the person's foreign head")
 							remote := filepath.Join(r.gitRoot, "rehearsal-owner/app.git")
 							tip, err := exec.Command("/usr/bin/git", "--git-dir", remote, "rev-parse", "refs/heads/"+slot.Target).Output()
 							require.NoError(t, err)
@@ -746,7 +763,11 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					writesBeforeReplay := len(r.fake.Writes())
 					var requestsBeforeReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
-					replayStatus := proposalStatus
+					replayStatus := http.StatusOK
+					acceptedHead := published
+					if acceptedHead == "" {
+						acceptedHead = slot.Desired
+					}
 					if kind == "close" || dropLate {
 						// Current authorization rejects an ended attempt, including
 						// an original accepted request. Replay cannot revive its grant.
@@ -776,12 +797,19 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						} else if replayStatus == http.StatusConflict {
 							require.JSONEq(t, `{"code":"conflict","class":"conflict","fault":"user","message":"TODO is closed"}`, string(raw))
 						} else {
-							require.JSONEq(t, string(proposalReceipt), string(raw))
+							require.JSONEq(t, fmt.Sprintf(`{"generation":%d,"head":%q}`, generation, acceptedHead), string(raw), "settled proposal returns its published head receipt")
 						}
 					}
 					var requestsAfterReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfterReplay))
-					require.Equal(t, requestsBeforeReplay, requestsAfterReplay, "settled replay creates no durable work")
+					expectedRequests := requestsBeforeReplay
+					if replayStatus == http.StatusOK {
+						expectedRequests++ // one completion fact, never new publication work
+						var completionFacts int
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed' AND payload->>'n'=$1`, fmt.Sprint(number)).Scan(&completionFacts))
+						require.Equal(t, 1, completionFacts, "three replays seal exactly one proposal completion")
+					}
+					require.Equal(t, expectedRequests, requestsAfterReplay, "settled replay creates only its completion fact")
 					require.Len(t, r.fake.Writes(), writesBeforeReplay)
 					var settledSlot []byte
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&settledSlot))

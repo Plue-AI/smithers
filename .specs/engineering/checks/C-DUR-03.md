@@ -36,7 +36,7 @@ late-open Drop case. Its additional production-caller cases map to steps 4–6:
 | Step | Cases | Literal assertions |
 | --- | --- | --- |
 | 4 | `body-order` | Retain v1's unknown slot; post `Review: approve`, then `Review: request-changes`; two body writes and two settlement facts. |
-| 4 | `push-foreign` | No recovery push; preserve the person's remote head; served TODO is `needs_you` with `foreign_push`. |
+| 4 | `push-foreign` at all three kill points | No recovery push; preserve the person's remote head; served TODO is `needs_you` with `foreign_push`. |
 | 4 | `close-reopen` | One effective close; the person's reopened remote PR remains open. |
 | 5 | `merge-revoked`, `merge-stale-head`, `merge-missing-approval` | No send without current authority, bound head and approval; preserve unknown uncertainty or clear a definitive refusal. Applied merges settle with one total PUT. |
 | 5 | `merge-competing-fence` | A live competing stack claim preserves the slot and prevents sends; after release, lookup precedes recovery. |
@@ -53,11 +53,11 @@ receipt. Reference qualification requires `SMITHERS_GITHUB_OUTBOUND_KILL=1` and
 `SMITHERS_GITHUB_OUTBOUND_LINUX=1` explicitly selects the existing Linux
 rehearsal's file-writer fixture for supplemental HTTP/worker diagnostics. It
 does not qualify the packaged writer, guest execution or this reference-host
-check. Reserved `stack.propose` replays in this diagnostic must return 503:
-production live candidate observation requires sandboxed execution. The slot
-under test is created by the TODO's production publication worker before the
-restart; the diagnostic asserts replay refusal preserves it and creates no work.
-Reference runs still require 202 admission. Startup failures before a crossing
+check. Reserved `stack.propose` replays require 202 admission through the existing
+Linux user/mount-namespace rehearsal and current native helper. This is
+supplemental isolation, never microVM qualification. The slot under test is
+created by the TODO's production publication worker before restart; replay
+must preserve it and create no work. Reference runs use the same 202 oracle. Startup failures before a crossing
 produce no kill-point receipt.
 
 Restarted workers reopen the retained runtime state and compose its machine
@@ -69,6 +69,6 @@ approved installed bundle and microVM runtime; Linux workers use the explicitly
 selected process diagnostic with native capture, never claim guest isolation.
 
 The nightly fault runner requires a subtest-bound marker for every one of these
-37 crossings, including steps 4–6. Parent or sibling markers cannot qualify an
+39 crossings, including steps 4–6. Parent or sibling markers cannot qualify an
 unreached crossing. Its finite aggregate budget scales with the case count;
 each production recovery still must settle within the same 60-second limit.
