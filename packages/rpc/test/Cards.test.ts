@@ -1898,7 +1898,7 @@ const FIXTURES: Record<
       files: []
     },
     full: {
-      branchDiffSource: "scratch/ben/try-retry", branchDiffRequest: "diff-request-1", branchDiffPending: false,
+      branchDiffSource: "scratch/ben/try-retry", branchDiffEntry: "6ad2b1a9-1869-4d1a-b087-8ba32a09b102", branchDiffRequest: "diff-request-1", branchDiffPending: false,
       branchFiles: [{ path: "retry.ts", branch: "b12", against: { kind: "item_base", rev: "candidate-11" }, change: "modified", hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const n = 1" }, { op: "+", text: "const n = 2" }] }] }],
       repo: "smithersai/smithers",
       changeId: "qupxosqw",

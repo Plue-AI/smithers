@@ -1925,6 +1925,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       files: ChangeDiffSchema.shape.files,
       branchFiles: z.array(DiffCardSchema).optional(),
       branchDiffSource: z.string().optional(),
+      branchDiffEntry: z.string().optional(),
       branchDiffRequest: z.string().optional(),
       branchDiffPending: z.boolean().optional(),
       /** The one file this card was cut at, when the flow named one. */

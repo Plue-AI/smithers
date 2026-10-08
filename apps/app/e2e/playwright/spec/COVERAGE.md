@@ -55,7 +55,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts), [review host-contract UI](../review-background.spec.ts) | partial UI contract; named scenario still fixme pending host execution and agent conversation | T-FLW-13, T-MCH-06, T-REL-02 |
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
-| C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts); [reference outside-change](../../real/branch-outside-change.spec.ts) | reference execution pending; burst Diff/Compare still unavailable | T-COL-04, T-COL-12, T-APP-10 |
+| C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts); [reference outside-change](../../real/branch-outside-change.spec.ts) | reference execution pending; retained burst Diff and Restore mounted through the real seam; Compare read available; Mac/member/run-trace receipts pending | T-COL-04, T-COL-12, T-APP-10 |
 | C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | Browser contract: 1,000 interleaved edits in two member contexts, real boot and /file dispatcher, shared channel, carets, author colours and durable reload/Reapply; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
 | C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | browser-pass real seam HTTP fixture; composed two-worker Answer/Steer ordering and delegated Amend confirmation pass separately; guest model-turn timing pending reference host | T-STK-06 |
 | C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |

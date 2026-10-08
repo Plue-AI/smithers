@@ -1191,6 +1191,10 @@ func buildRouter(
 			routes.RegisterBranchRoutes(r, branches)
 			r.Get("/ssh", branches.SSHLine(queries, config.PublicOrigin(cfg)))
 			files := &routes.BranchFileHandler{Branches: branches.Reads, Authorize: routes.InstallBranchAuthorizer(queries)}
+			diff.Authorize = routes.InstallBranchAuthorizer(queries)
+			if workspaceHandler != nil {
+				diff.Bursts, _ = workspaceHandler.Service.(routes.BurstDiffReader)
+			}
 			files.Actor = func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
 				topics := &liveTopics{presence: &branchPresence{queries: queries}}
 				if extras.Members != nil {
@@ -1198,6 +1202,7 @@ func buildRouter(
 				}
 				return topics.changeActorResolver(ctx)(raw)
 			}
+			diff.Actor = files.Actor
 			if workspaceHandler != nil {
 				files.Live, _ = workspaceHandler.Service.(routes.BranchFileContentService)
 			}

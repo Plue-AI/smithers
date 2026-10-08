@@ -299,6 +299,13 @@ func patchLines(content string) []string {
 	return lines
 }
 
+// UnifiedPatch renders two already verified blob texts with the same newline
+// rules as repository diffs. Callers bound the bytes and line counts first.
+func UnifiedPatch(path, before, after string) (string, error) {
+	patch, _, _, err := buildUnifiedPatch(repohost.FileDiff{Path: path}, before, after)
+	return patch, err
+}
+
 func buildUnifiedPatch(fileDiff repohost.FileDiff, oldContent, newContent string) (string, int, int, error) {
 	oldLabel, newLabel := patchLabels(fileDiff)
 

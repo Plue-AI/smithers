@@ -62,7 +62,7 @@ test("C-J3-03 reference: outside burst updates the open card; Restore refuses a 
   const later = await ssh("cat src/deliver.ts")
   await command(page, `/diff ${JSON.stringify({ branch, entry: burst!.id, path: "src/deliver.ts" })}`)
   await page.locator('[data-kind="diff"][aria-label="src/deliver.ts changes"]').last().getByRole("button", { name: "Restore this file", exact: true }).click()
-  await expect(page.locator('[data-kind="compare"]').last()).toBeVisible()
+  await expect(page.locator('[data-kind="file"][aria-label="src/deliver.ts"] .code-file-outside').last()).toHaveAttribute("data-version", burst!.versions!)
   expect(await ssh("cat src/deliver.ts")).toBe(later)
   // Allow the preceding burst to close before measuring ignored writes.
   await page.waitForTimeout(2000)

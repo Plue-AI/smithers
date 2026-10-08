@@ -974,7 +974,7 @@ export const DiffCardBody = ({
   const { payload } = card
   const controller = useContext(ControllerContext)
   if (payload.branchDiffRequest && payload.error) return <FailureNotice failure={describedFailure("DiffFailed", CHANGE_FAILURES.diff, payload.error)} />
-  if (payload.branchFiles) return <>{payload.branchFiles.map(model => {
+  if (payload.branchFiles) return <>{payload.branchFiles.filter(model => !payload.path || model.path === payload.path).map(model => {
     const bindings = cardActions((tag, input) => {
       if (tag === "file.restore") void controller?.commands.submit({ name: "file.restore", payload: { ...input, branch: model.branch }, actor: "user", originCardId: card.id })
     }, model.against.kind === "burst" && model.version && model.post_digest ? [{ tag: "file.restore", label: "Restore this file", command_input: { path: model.path, revision: model.version, post_digest: model.post_digest } }] : [])

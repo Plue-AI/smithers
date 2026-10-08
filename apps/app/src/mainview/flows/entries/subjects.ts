@@ -130,7 +130,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         if (operation === "pins") return changeId && from && to ? actions.setChangePins(changeId, from, to) : "Choose revision pins"
         if (operation === "checks") return changeId && seq !== undefined ? actions.checksOfChangeAt(changeId, seq) : "Choose a revision"
 
-        if (realFiles()) return entry !== undefined ? "Burst diff unavailable" : actions.branchDiff(branch ?? subject)
+        if (realFiles()) return actions.branchDiff(branch ?? subject, entry, path)
         const world = design.world()
         const wanted = path ?? subject ?? ""
         const file = wanted === "" ? undefined : findFile(world, wanted, branch, design.viewer())

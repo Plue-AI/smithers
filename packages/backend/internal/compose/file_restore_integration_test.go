@@ -45,7 +45,7 @@ func (f *restoreVersionFixture) GetFileAtCommit(_ context.Context, owner, repo, 
 	if f.corrupt {
 		text = "corrupt"
 	}
-	return repohost.FileContent{Path: path, Content: text}, nil
+	return repohost.FileContent{Path: path, Content: text, Encoding: "utf8"}, nil
 }
 
 type restoreRuntimeFixture struct {

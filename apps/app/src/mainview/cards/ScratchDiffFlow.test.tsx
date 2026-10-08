@@ -19,24 +19,38 @@ const wait = async (predicate: () => boolean) => {
   expect(predicate()).toBe(true)
 }
 
-test("install burst Diff refuses at each dispatcher door without reading a branch-base diff", async () => {
+test("install burst Diff uses its retained selector through every dispatcher door and mounts Restore", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const entry = "6ad2b1a9-1869-4d1a-b087-8ba32a09b102"
+  const expected: DiffCard = { ...model, against: { kind: "burst", burst: entry, actor: { kind: "outside", color_index: 7 }, at: "2026-10-08T12:00:00Z" }, version: "a".repeat(40), post_digest: "b".repeat(64) }
   const reads: string[] = []
   const profile = signupProfileFetch(async input => {
-    reads.push(String(input))
-    return Response.json({ files: [model] })
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "https://install.test")
+    reads.push(url.pathname + url.search)
+    return Response.json({ files: [expected] })
   })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
-    const payload = { branch: "scratch/ben/try-retry", entry: "6ad2b1a9-1869-4d1a-b087-8ba32a09b102" }
-    expect(await controller.runCommandForResult("diff", JSON.stringify(payload))).toEqual({ status: "failed", error: "Burst diff unavailable" })
-    expect(await controller.submitCommand({ name: "diff", payload, actor: "user" })).toEqual({ status: "failed", error: "Burst diff unavailable" })
-    const result = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "diff", args: JSON.stringify(payload) }) })
-    expect(result).toBe("failed: this command runs on the conversation host")
-    expect(reads.filter(url => url.includes("/api/branches/"))).toEqual([])
-    expect([...store.collections.cards.values()].filter(card => card.kind === "diff")).toEqual([])
+    const payload = { branch, entry, path: model.path }
+    expect((await controller.runCommandForResult("diff", JSON.stringify(payload))).status).toBe("executed")
+    const cardId = `diff-burst-${branch}-${entry}-${model.path}`
+    const current = () => { const card = store.collections.cards.get(cardId); return card?.kind === "diff" ? card : undefined }
+    await wait(() => current()?.payload.branchDiffPending === false)
+    expect(reads).toContain(`/api/branches/${encodeURIComponent(branch)}/diff?entry=${entry}`)
+    expect(reads.filter(url => url.includes("/diff") && !url.includes("?entry="))).toEqual([])
+    for (const actor of ["user", "agent"] as const) expect((await controller.submitCommand({ name: "diff", payload, actor })).status).toBe("executed")
+    await wait(() => current()?.payload.branchDiffPending === false)
+    const card = store.collections.cards.get(cardId)!
+    expect(card.payload).toMatchObject({ branchDiffEntry: entry, branchFiles: [expected] })
+    await import("./DiffSurface")
+    const host = document.body.appendChild(document.createElement("div")), root = createRoot(host)
+    try {
+      await act(async () => root.render(<ControllerTestProvider controller={controller}>{renderCardBody(card, actions)}</ControllerTestProvider>))
+      expect(host.querySelector('[data-against="burst"]')).not.toBeNull()
+      expect(host.textContent).toContain("Restore this file")
+    } finally { await act(async () => root.unmount()); host.remove() }
   } finally { await controller.dispose() }
 })
 
@@ -148,3 +162,23 @@ test("item Diff reloads file hints and catches a change during an unresolved rea
   } finally { await controller.dispose() }
   expect(listeners.has(topic)).toBe(false)
 }, 20_000)
+
+for (const malformed of ["different burst", "missing file"] as const) test(`selected outside diff refuses ${malformed}`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const entry = "6ad2b1a9-1869-4d1a-b087-8ba32a09b102"
+  const expected: DiffCard = { ...model, against: { kind: "burst", burst: malformed === "different burst" ? "00000000-0000-0000-0000-000000000001" : entry, actor: { kind: "outside", color_index: 7 }, at: "2026-10-08T12:00:00Z" } }
+  const profile = signupProfileFetch(async () => Response.json({ files: [expected] }))
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    const path = malformed === "missing file" ? "src/missing.ts" : model.path
+    expect((await controller.submitCommand({ name: "diff", payload: { branch, entry, path }, actor: "user" })).status).toBe("executed")
+    const id = `diff-burst-${branch}-${entry}-${path}`
+    const card = () => { const value = store.collections.cards.get(id); return value?.kind === "diff" ? value : undefined }
+    await wait(() => card()?.payload.branchDiffPending === false)
+    expect(card()?.status).toBe("error")
+    expect(card()?.payload.branchFiles).toEqual([])
+    expect(card()?.payload.error).toBe("Diff unavailable")
+  } finally { await controller.dispose() }
+})

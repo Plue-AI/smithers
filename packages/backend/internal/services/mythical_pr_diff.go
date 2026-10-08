@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/jackc/pgx/v5"
@@ -24,17 +25,23 @@ type BranchDiff struct {
 	Files []BranchDiffModel `json:"files"`
 }
 type BranchDiffModel struct {
-	Path      string            `json:"path"`
-	Branch    string            `json:"branch"`
-	Against   BranchDiffAgainst `json:"against"`
-	Change    string            `json:"change"`
-	RenamedTo string            `json:"renamed_to,omitempty"`
-	Binary    *BranchDiffBinary `json:"binary,omitempty"`
-	Hunks     []BranchDiffHunk  `json:"hunks"`
+	Path       string            `json:"path"`
+	Branch     string            `json:"branch"`
+	Against    BranchDiffAgainst `json:"against"`
+	Change     string            `json:"change"`
+	RenamedTo  string            `json:"renamed_to,omitempty"`
+	Binary     *BranchDiffBinary `json:"binary,omitempty"`
+	LastWriter json.RawMessage   `json:"last_writer,omitempty"`
+	PostDigest string            `json:"post_digest,omitempty"`
+	Version    string            `json:"version,omitempty"`
+	Hunks      []BranchDiffHunk  `json:"hunks"`
 }
 type BranchDiffAgainst struct {
-	Kind string `json:"kind"`
-	Rev  string `json:"rev"`
+	Kind  string          `json:"kind"`
+	Rev   string          `json:"rev,omitempty"`
+	Burst string          `json:"burst,omitempty"`
+	Actor json.RawMessage `json:"actor,omitempty"`
+	At    string          `json:"at,omitempty"`
 }
 type BranchDiffBinary struct {
 	BeforeBytes int64 `json:"before_bytes"`

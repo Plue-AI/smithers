@@ -107,7 +107,7 @@ func (s *WorkspaceService) readBurstFile(ctx context.Context, repositoryID int64
 			return nil, pkgerrors.RequestEntityTooLarge("file version exceeds 1 MiB")
 		}
 		switch file.Encoding {
-		case "", "utf-8":
+		case "", "utf-8", "utf8":
 			content = []byte(file.Content)
 		case "base64":
 			content, err = base64.StdEncoding.DecodeString(file.Content)
