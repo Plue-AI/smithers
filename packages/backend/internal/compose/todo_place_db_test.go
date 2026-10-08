@@ -344,8 +344,15 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo, member.ID)
 	require.NoError(t, err)
 	bearerToken = delegated
+	// Suspension revokes the credential at authentication (spec §5.2.1),
+	// before the placement dispatcher can authorize or record any effects.
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&beforeEvents))
 	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "suspended-move")
-	require.Equal(t, 403, code, body)
+	require.Equal(t, http.StatusUnauthorized, code, body)
+	require.Equal(t, "unauthenticated", body["code"])
+	require.Equal(t, "permission", body["class"])
 	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, beforeEvents, afterEvents)
 
 }
