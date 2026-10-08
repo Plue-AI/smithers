@@ -57,6 +57,35 @@ fn protected(path: &str, directory: bool) -> io::Result<File> {
     }
     Ok(file)
 }
+// Retained install inputs are checked on every daemon launch, after the
+// session-drain barrier, as well as before the initial broker startup.
+fn trusted_startup() -> io::Result<()> {
+    for path in [
+        "/opt",
+        "/opt/smithers",
+        "/opt/smithers/bin",
+        "/run",
+        "/run/smithers",
+        "/run/smithers/machined",
+    ] {
+        protected(path, true)?;
+    }
+    let executable = protected(EXECUTABLE, false)?;
+    let selected = executable.metadata()?;
+    let running = File::open("/proc/self/exe")?.metadata()?;
+    // The installer pins the running broker's bytes. Linux prevents writes to
+    // that executable inode while it runs; a retained path replacement must
+    // never select different daemon code, even with plausible owner/mode bits.
+    if selected.mode() & 0o6000 != 0
+        || selected.dev() != running.dev()
+        || selected.ino() != running.ino()
+    {
+        return Err(invalid());
+    }
+    super::spawn::daemon_account()?;
+    Boot::open()?;
+    Ok(())
+}
 fn high(fd: &impl std::os::fd::AsFd) -> io::Result<OwnedFd> {
     Ok(rustix::io::fcntl_dupfd_cloexec(fd, 10)?)
 }
@@ -72,16 +101,7 @@ impl Installed {
         if rustix::process::geteuid().as_raw() != 0 {
             return Err(invalid());
         }
-        for path in [
-            "/opt",
-            "/opt/smithers",
-            "/opt/smithers/bin",
-            "/run",
-            "/run/smithers",
-            "/run/smithers/machined",
-        ] {
-            protected(path, true)?;
-        }
+        trusted_startup()?;
         let root = File::open("/")?;
         let fd = rustix::fs::openat2(
             &root,
@@ -99,10 +119,6 @@ impl Installed {
         // One root owner per boot. Never unlink the inode: the installer and
         // broker use the same lock to distinguish retained serving from startup.
         rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)?;
-        let executable = protected(EXECUTABLE, false)?;
-        if executable.metadata()?.mode() & 0o6000 != 0 {
-            return Err(invalid());
-        }
         // Refuse launching a copy from a branch-controlled directory even if a
         // caller ran it with root. Planting provenance belongs to the runtime.
         if fs::read_link("/proc/self/exe")? != std::path::Path::new(EXECUTABLE) {
@@ -166,6 +182,11 @@ impl Process for Installed {
         self.controls.before_restart(Instant::now())
     }
     fn run_daemon(&mut self) -> io::Result<(i32, Duration)> {
+        trusted_startup()?;
+        for name in ["", "/broker", "/daemon", "/sessions"] {
+            protected(&format!("{CGROUP}{name}"), true)?;
+        }
+        Cgroups::open()?;
         let (parent, child_socket) = rustix::net::socketpair(
             AddressFamily::UNIX,
             SocketType::SEQPACKET,

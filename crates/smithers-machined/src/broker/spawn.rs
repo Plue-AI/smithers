@@ -115,8 +115,37 @@ fn fixed_file(path: &str) -> io::Result<File> {
     }
     Ok(file)
 }
+pub(super) fn daemon_account() -> io::Result<()> {
+    // Matches the shipped image's prepare_system_identity contract. No NSS
+    // module, interpreter or account-selected executable is loaded by root.
+    account_records(
+        "machined",
+        19998,
+        20000,
+        "/nonexistent",
+        "/usr/sbin/nologin",
+        false,
+    )
+}
 fn account(user: &User) -> io::Result<()> {
     user.validate()?;
+    account_records(
+        &user.login,
+        user.uid,
+        user.uid,
+        &format!("/home/{}", user.login),
+        "/bin/bash",
+        true,
+    )
+}
+fn account_records(
+    login: &str,
+    uid: u32,
+    gid: u32,
+    home: &str,
+    shell: &str,
+    member: bool,
+) -> io::Result<()> {
     // No NSS module or branch import executes in the privileged broker.
     let etc = OpenOptions::new()
         .read(true)
@@ -133,18 +162,33 @@ fn account(user: &User) -> io::Result<()> {
     if passwd.len() > 1024 * 1024 {
         return Err(invalid());
     }
+    let mut groups = String::new();
+    fixed_file("/etc/group")?
+        .take(1024 * 1024 + 1)
+        .read_to_string(&mut groups)?;
+    if groups.len() > 1024 * 1024 {
+        return Err(invalid());
+    }
+    validate_account_records(&passwd, &groups, (login, uid, gid, home, shell, member))
+}
+fn validate_account_records(
+    passwd: &str,
+    groups: &str,
+    expected: (&str, u32, u32, &str, &str, bool),
+) -> io::Result<()> {
+    let (login, uid, gid, home, shell, member) = expected;
     let mut matching = 0;
     for line in passwd.lines() {
         let f: Vec<_> = line.split(':').collect();
         if f.len() != 7 {
             return Err(invalid());
         }
-        if f[0] == user.login || f[2] == user.uid.to_string() {
-            if f[0] != user.login
-                || f[2] != user.uid.to_string()
-                || f[3] != user.uid.to_string()
-                || f[5] != format!("/home/{}", user.login)
-                || f[6] != "/bin/bash"
+        if f[0] == login || f[2] == uid.to_string() {
+            if f[0] != login
+                || f[2] != uid.to_string()
+                || f[3] != gid.to_string()
+                || f[5] != home
+                || f[6] != shell
             {
                 return Err(invalid());
             }
@@ -154,26 +198,19 @@ fn account(user: &User) -> io::Result<()> {
     if matching != 1 {
         return Err(invalid());
     }
-    let mut groups = String::new();
-    fixed_file("/etc/group")?
-        .take(1024 * 1024 + 1)
-        .read_to_string(&mut groups)?;
-    if groups.len() > 1024 * 1024 {
-        return Err(invalid());
-    }
     let mut team = 0;
     for line in groups.lines() {
         let f: Vec<_> = line.split(':').collect();
         if f.len() != 4 {
             return Err(invalid());
         }
-        let member = f[3].split(',').any(|login| login == user.login);
+        let listed = f[3].split(',').any(|name| name == login);
         if f[0] == "team" || f[2] == "20000" {
-            if f[0] != "team" || f[2] != "20000" || !member {
+            if f[0] != "team" || f[2] != "20000" || (member && !listed) {
                 return Err(invalid());
             }
             team += 1;
-        } else if member {
+        } else if listed {
             return Err(invalid());
         }
     }
@@ -719,6 +756,53 @@ pub fn tcp(port: u16) -> io::Result<()> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+
+    #[test]
+    fn installed_account_records_validate_daemon_and_member_bindings() {
+        let daemon = (
+            "machined",
+            19998,
+            20000,
+            "/nonexistent",
+            "/usr/sbin/nologin",
+            false,
+        );
+        let member = ("ben", 20001, 20001, "/home/ben", "/bin/bash", true);
+        let passwd="machined:x:19998:20000::/nonexistent:/usr/sbin/nologin\nben:x:20001:20001::/home/ben:/bin/bash\n";
+        let groups = "team:x:20000:ben\n";
+        assert!(validate_account_records(passwd, groups, daemon).is_ok());
+        assert!(validate_account_records(passwd, groups, member).is_ok());
+        assert!(validate_account_records(passwd, "team:x:20000:\n", daemon).is_ok());
+        assert!(validate_account_records(passwd, "team:x:20000:\n", member).is_err());
+        for bad in [
+            "",
+            "malformed\n",
+            "machined:x:20003:20000::/nonexistent:/usr/sbin/nologin\n",
+            "machined:x:19998:0::/nonexistent:/usr/sbin/nologin\n",
+            "machined:x:19998:20000::/workspace:/usr/sbin/nologin\n",
+            "machined:x:19998:20000::/nonexistent:/workspace/sh\n",
+            "other:x:19998:20000::/nonexistent:/usr/sbin/nologin\n",
+        ] {
+            assert!(
+                validate_account_records(bad, groups, daemon).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(validate_account_records(&format!("{passwd}{passwd}"), groups, daemon).is_err());
+        for bad in [
+            "",
+            "malformed\n",
+            "team:x:20003:ben\n",
+            "other:x:20000:ben\n",
+            "team:x:20000:ben\nteam:x:20000:ben\n",
+            "team:x:20000:ben\nroot:x:0:machined\n",
+        ] {
+            assert!(
+                validate_account_records(passwd, bad, daemon).is_err(),
+                "{bad}"
+            );
+        }
+    }
 
     fn process(script: &str, cleanup_on_exit: bool) -> Process {
         let child = Command::new("/bin/sh")

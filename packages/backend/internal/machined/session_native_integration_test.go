@@ -30,6 +30,7 @@ type nativeSessionConfig struct {
 	Secret     string
 	Credential string
 	Principal  string
+	Head       string
 }
 type nativeSessionHarness struct {
 	t        *testing.T
@@ -92,11 +93,29 @@ func (h *nativeSessionHarness) connect() {
 	require.NoError(h.t, err)
 	h.link, err = h.registry.Connect(h.ctx, h.config.Branch, socket)
 	require.NoError(h.t, err)
+	// Every authenticated reconnect fences the old roster. Synchronize the
+	// installed fixture accounts through the host-only production RPC before
+	// observing readiness; an old connection's ready state is not admission.
+	if h.config.Head != "" {
+		head, err := hex.DecodeString(h.config.Head)
+		require.NoError(h.t, err)
+		require.Len(h.t, head, 20)
+		_, err = h.link.call(h.ctx, h.config.Branch, wire.WakeReconcile, wire.Field(1, head))
+		require.NoError(h.t, err)
+	}
+	require.NoError(h.t, synchronizeNativeRoster(h.ctx, h.link, h.config.Branch))
 	// This is an observed production Status response, not fixture admission.
 	status, err := h.link.call(h.ctx, h.config.Branch, wire.Status)
 	require.NoError(h.t, err)
 	require.Equal(h.t, []byte{3}, status[1], "guest must have completed real wake reconciliation and roster installation")
 	require.NoError(h.t, h.link.Reconciled())
+}
+
+func synchronizeNativeRoster(ctx context.Context, link *Link, branch string) error {
+	users := append(wire.U16(2), wire.Struct(wire.Field(1, wire.String("ben")), wire.Field(2, wire.U32(20001)))...)
+	users = append(users, wire.Struct(wire.Field(1, wire.String("alice")), wire.Field(2, wire.U32(20002)))...)
+	_, err := link.call(ctx, branch, wire.SetRoster, wire.Field(1, users))
+	return err
 }
 
 var nativeBen = SessionUser{"ben", 20001}
@@ -514,6 +533,7 @@ func TestSessionAdmissionFailsClosedNative(t *testing.T) {
 	var refusal *SessionError
 	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, "not_ready", refusal.Code)
+	require.NoError(t, synchronizeNativeRoster(h.ctx, link, h.config.Branch))
 	status, err := link.call(h.ctx, h.config.Branch, wire.Status)
 	require.NoError(t, err)
 	require.Equal(t, []byte{3}, status[1])

@@ -293,7 +293,9 @@ acceptance receipt.
 On the host, create a private (0600) JSON authority file with `Endpoint`
 (the forwarded production relay TCP address), `Branch`, `Machine`, `BootID`
 (32 hex characters), `Secret` (64 hex characters), `Credential` and `Principal`
-(a host-committed actor reference, 32 hex characters). Copy boot authority from
+(a host-committed actor reference, 32 hex characters). An optional `Head`
+(40 hex characters) runs the real wake reconciliation RPC before the roster
+and Status checks; use it for a fresh standalone acceptance guest. Copy boot authority from
 the install's host runtime, never from the branch. Do not record these secrets
 in acceptance artifacts. The harness refuses unknown configuration fields and
 requires the daemon's actual ready Status before admitting sessions.
@@ -358,13 +360,79 @@ Set `SMITHERS_REQUIRE_SESSION_ACCEPTANCE=1` alongside
 `SMITHERS_SESSION_ACCEPTANCE_CONFIG` when collecting required native receipts.
 The required mode fails if guest authority is absent instead of silently skipping.
 
-Without authority configuration the native tests explicitly skip. Skips are
-not C-COL-04 or C-J3-06 receipts. Retained/restart provenance, missing installed
-provider matrices, unregistered-agent socket admission, direct malformed broker
-socketpair envelopes, passing reference-host
-revocation receipts remain required. The composed chain is authored, not a passing
-native receipt. C-J3-06 additionally needs the second Mac,
-GitHub key/account exercise and owner-recorded VS Code session.
+`TestSessionProductionProviderAdmissionMatrix` retains a real Alice process
+while removing the Go client's session provider, authenticated connection, boot
+authority, registry and branch binding. Every lifecycle door refuses, and an
+independent kernel census and byte-equal echo prove isolation. Each reconnect
+synchronizes the literal installed Ben/Alice roster through `set_roster` before
+requiring the daemon's observed ready Status.
+
+`crates/smithers-machined/tests/session_installed_inputs.rs` adds the installed
+input-validation and restart/drain driver. Install its reviewed, main-built test
+executable under `/opt/smithers/bundle/tests` in an exclusively reserved Linux
+guest. The executable and all its ancestors must be root-owned and protected;
+a checkout-built root test is refused. Use the shipped `/opt/smithers/bin/smithers-machined`,
+real Ben/Alice/agent accounts, cgroup v2, a relay-topology boot, and host-produced
+one-use admission files for Ben, agent and the raw-envelope fixture Maya (20000).
+Install the reviewed lib-test executable as `/opt/smithers/bundle/tests/smithers_machined`
+and the main-built Go machined test executable as `/opt/smithers/bundle/tests/machined.test`.
+For the outside-run worker, set `SMITHERS_SESSION_ACCEPTANCE_CONFIG` to its private
+host-owned authority JSON, pointing at the guest relay and including `Head` for
+its fresh boot. The selected head comes from that authority JSON. No production readiness
+flag, diagnostic listener, extra broker opcode or injected peer is added.
+
+Run the installed test executable with:
+
+```sh
+export LANE=fr16-trm07
+export SMITHERS_SESSION_ACCEPTANCE_CONFIG=/private/session-acceptance.json
+/opt/smithers/bundle/tests/session_installed_inputs \
+  --exact TestSessionInstalledRootInputMatrices --ignored --nocapture --test-threads=1
+```
+
+Each mutation runs in its own subprocess and private mount namespace. Provider
+cases first execute `id -u` through the production RPC dispatcher, socketpair
+client and real broker, observe `20001`, and drain the positive control. They
+then refuse missing/nonregular environment, invalid environment ownership,
+mode or size, missing admission credentials, invalid credential ownership/mode,
+changed account uid/team group and missing roster, without creating a cgroup.
+Installed credential bytes are copied onto private tmpfs; the original one-use
+binding is never consumed by this driver.
+
+Startup cases cover executable replacement bytes/ownership/mode/setuid/symlink,
+writable or symlinked ancestors, boot ownership,
+mode/content, changed daemon uid/team group and a substituted cgroup parent. The installed launcher is also
+observed with fixed uid/gid 19998, supplementary group 20000, cwd and environment.
+On real daemon exit, a retained non-root child must disappear within five
+seconds, its cgroup must be gone, and only then may a replacement daemon appear.
+Executable bytes/ownership/mode, boot, daemon-account/team and cgroup mutations after the first daemon starts must drain the
+child and refuse replacement. The broker revalidates protected startup inputs
+and the real cgroup hierarchy at every launch. The selected executable must
+remain the running, installer-pinned broker inode; a replacement cannot choose
+different daemon bytes through plausible file metadata.
+
+The outside-run case invokes the installed Go test bundle and its production
+session client, completing the real per-boot handshake, wake reconciliation
+and roster RPCs against the installed daemon. The same local PTY request first
+succeeds from a host-admitted, registered agent process. A separate uid-19999
+process, launched outside every session cgroup, reaches the production
+SO_PEERCRED socket and is closed without a new session; its uid and cgroup are
+independently observed. Run this driver only on an isolated guest: it owns its
+broker/daemon processes and changes their test roster.
+
+The existing approved-bundle `TestSSHRawPrivilegedBrokerEnvelopes` in
+`src/broker/ssh_acceptance.rs` is the direct private socketpair matrix. It covers
+malformed and oversized packets, unknown fields, identity and cgroup selectors,
+invalid streams, live-session controls and roster drainage, with a real installed
+execution control. The driver invokes that installed main-built lib-test bundle with
+`--exact broker::ssh_acceptance::TestSSHRawPrivilegedBrokerEnvelopes --ignored --test-threads=1`;
+its fixture is Maya (20000), and it requires her own installed admission.
+
+Without authority configuration the Go native tests explicitly skip. Installed
+Rust matrices are ignored by default. Compilation, skips and Linux transport
+subsets are not C-COL-04 or C-J3-06 receipts. Passing real-user/cgroup and composed
+five-second removal receipts remain required. C-J3-06 additionally needs the
+second Mac, GitHub key/account exercise and owner-recorded VS Code session.
 
 ## Members' own agent sessions (T-AGT-02)
 

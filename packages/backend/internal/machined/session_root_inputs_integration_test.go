@@ -90,6 +90,7 @@ func TestSessionRootInputsValidated(t *testing.T) {
 func TestSessionAdmissionFailsClosed(t *testing.T) {
 	t.Run("installed production broker", TestSessionAdmissionFailsClosedNative)
 	t.Run("installed local socket admission", TestSessionProductionLocalAdmissionMatrix)
+	t.Run("installed provider admission", TestSessionProductionProviderAdmissionMatrix)
 	t.Run("installed authentication isolation", TestSessionProductionAuthenticationIsolation)
 	for _, mode := range []string{"nil sessions", "no provider", "no authenticated connection", "no registry", "no boot", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "short actor", "long actor", "member with run", "invalid via", "cancelled", "unregistered agent"} {
 		t.Run(mode, func(t *testing.T) {
