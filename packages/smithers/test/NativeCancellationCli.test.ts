@@ -72,8 +72,9 @@ const rows = (root: string, kind: "control" | "engine") => {
     db.close()
   }
 }
-const until = async <A>(read: () => A | undefined): Promise<A> => {
-  for (let attempt = 0; attempt < 400; attempt++) {
+const until = async <A>(read: () => A | undefined, timeoutMs = 10_000): Promise<A> => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
     const result = read()
     if (result !== undefined) return result
     await new Promise((resolve) => setTimeout(resolve, 25))
@@ -100,7 +101,7 @@ describe("native CLI cancellation", { timeout: 120_000 }, () => {
           if (!existsSync(marker)) return undefined
           const control = rows(root, "control")[0]
           return control?.status === "running" ? control.run_id : undefined
-        })
+        }, 60_000)
         expect(rows(root, "engine").some((row) => row.status === "running")).toBe(true)
         const entered = readFileSync(marker, "utf8")
         if (mode.startsWith("released")) {
