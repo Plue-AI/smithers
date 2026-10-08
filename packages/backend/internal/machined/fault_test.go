@@ -306,7 +306,7 @@ func TestFaultK7DaemonRecovery(t *testing.T) {
 }
 
 func TestFaultK7NewEpochRecovery(t *testing.T) {
-	runFaultK7ComposedInstall(t, "^TestLiveCodeDocumentNewEpochRecovery$")
+	runFaultK7ComposedInstall(t, "^TestLiveCodeDocument(NewEpochRecovery|CorruptEpochRecovery)$")
 }
 
 func runFaultK7ComposedInstall(t *testing.T, selector string) {

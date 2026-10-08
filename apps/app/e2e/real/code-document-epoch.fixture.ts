@@ -22,14 +22,24 @@ globalThis.AbortSignal = NativeAbortSignal
 Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, value: undefined })
 let partitioned = false
 const member = async (cookie: string, login: string) => {
+  let epoch: unknown, synchronizedEpoch: unknown, subscription: unknown
   const trace: { t: unknown; code?: unknown; id?: unknown; epoch?: unknown }[] = []
   const channel = new LiveChannel({ documentFrames: true, socket: () => {
     const socket = new NativeWebSocket(`${origin.replace(/^http/, "ws")}/api/live`, {
       headers: { Cookie: `smithers_session=${cookie}`, Origin: origin }, protocols: ["smithers.live.v1"]
     } as never)
     socket.addEventListener("message", event => {
-      if (typeof event.data !== "string") return
+      if (typeof event.data !== "string") {
+        // Observe the actual sync-step-2 envelope; assignment alone does
+        // not mean the fresh document is ready for Reapply.
+        if (event.data instanceof ArrayBuffer) {
+          const bytes = new Uint8Array(event.data)
+          if (bytes.length > 5 && bytes[0] === 1 && new DataView(event.data).getUint32(1) === subscription && bytes[5] === 1) synchronizedEpoch = epoch
+        }
+        return
+      }
       const frame = JSON.parse(event.data)
+      if (frame.t === "snap" && frame.data?.epoch) { epoch = frame.data.epoch; subscription = frame.id; synchronizedEpoch = undefined }
       trace.push({ t: frame.t, id: frame.id, ...(frame.code ? { code: frame.code } : {}), ...(frame.data?.epoch ? { epoch: frame.data.epoch } : {}) })
       if (trace.length > 50) trace.shift()
     })
@@ -66,7 +76,7 @@ const member = async (cookie: string, login: string) => {
     id: `epoch-${login}`, kind: "file", title: "retry.ts", status: "active", createdAt: 1, ordinal: 1,
     payload: { repo: "ben/demo", ref: branch, path: "retry.ts", content: "", truncated: false }
   })
-  return { channel, provider, controller, card, trace, text: () => provider.doc.getText("content") }
+  return { channel, provider, controller, card, trace, synced: () => epoch !== undefined && synchronizedEpoch === epoch, text: () => provider.doc.getText("content") }
 }
 const wait = async (name: string, predicate: () => boolean) => {
   const end = performance.now()+10000
@@ -91,7 +101,7 @@ try {
   const reply = await input.next()
   assert.equal(reply.value?.trim(), "RESTARTED")
   partitioned = false
-  await wait("new epoch recovery", () => !!ben.provider.unsaved && !!alice.provider.unsaved && !ben.provider.editable && !alice.provider.editable && ben.text().toString() === "" && alice.text().toString() === "")
+  await wait("new epoch recovery", () => ben.synced() && alice.synced() && !!ben.provider.unsaved && !!alice.provider.unsaved && !ben.provider.editable && !alice.provider.editable && ben.text().toString() === "" && alice.text().toString() === "")
   assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" })
   assert.deepEqual(alice.provider.unsaved, { count: 1, text: "ALICE-COPY" })
   assert.equal(ben.text().toString(), "")

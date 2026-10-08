@@ -576,6 +576,15 @@ func (f *realDocumentInstall) diskBytes(t *testing.T) string {
 }
 
 func TestLiveCodeDocumentNewEpochRecovery(t *testing.T) {
+	liveCodeDocumentEpochRecovery(t, false)
+}
+
+func TestLiveCodeDocumentCorruptEpochRecovery(t *testing.T) {
+	liveCodeDocumentEpochRecovery(t, true)
+}
+
+func liveCodeDocumentEpochRecovery(t *testing.T, corrupt bool) {
+	t.Helper()
 	for run := 1; run <= 10; run++ {
 		t.Run(fmt.Sprint(run), func(t *testing.T) {
 			f := startRealDocumentInstall(t, "")
@@ -606,7 +615,13 @@ func TestLiveCodeDocumentNewEpochRecovery(t *testing.T) {
 					key := sha256.Sum256([]byte("retry.ts"))
 					record := filepath.Join(f.restart.State, "documents", hex.EncodeToString(key[:]))
 					require.FileExists(t, record, "K7e must destroy real previously saved state")
-					require.NoError(t, os.Remove(record))
+					if corrupt {
+						// Corrupt only the state record. Preserve displaced
+						// inode metadata and the acknowledged working file.
+						require.NoError(t, os.WriteFile(record, []byte("K7e unreadable state record\n"), 0600))
+					} else {
+						require.NoError(t, os.Remove(record))
+					}
 					f.resume(t)
 					restarts++
 					_, err = io.WriteString(input, "RESTARTED\n")
@@ -627,6 +642,8 @@ func TestLiveCodeDocumentNewEpochRecovery(t *testing.T) {
 			require.Equal(t, "ALICE-COPY", result.Copied)
 			require.Equal(t, map[string]int{"Ben": 1, "Alice": 1}, result.Retained)
 			require.Equal(t, result.Text, f.disk(t))
+			require.NoError(t, os.WriteFile(filepath.Join(f.evidence, "epoch-recovery.json"), []byte(last+"\n"), 0600))
+			f.documentEvidence(t, "epoch-recovered")
 		})
 	}
 }
