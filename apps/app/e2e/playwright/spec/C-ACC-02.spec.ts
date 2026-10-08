@@ -26,17 +26,35 @@ test("C-ACC-02: a changed generation expires the merge approval and requires a f
     await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return pattern.test(logs) }, { timeout: 120_000 }).toBe(true)
     return logs.match(pattern)!
   }
+  // Keep the displayed revision until its press reaches the server. Live
+  // invalidation can otherwise disable the button before the stale request,
+  // leaving this test waiting for a request the UI correctly never sends.
+  // Delay real frames; neither the projection nor the approval is mocked.
+  let holdLive = false
+  const delayed: (() => void)[] = []
+  await page.routeWebSocket("**/api/live", socket => {
+    const server = socket.connectToServer()
+    server.onMessage(message => {
+      const deliver = () => socket.send(message)
+      if (holdLive) delayed.push(deliver)
+      else deliver()
+    })
+    socket.onMessage(message => server.send(message))
+  })
   try {
     const [, origin, id] = await wait(/ACCESS_MERGE_READY (http:\/\/\S+) (\S+)/)
     await page.context().addCookies([{ name: "smithers_session", value: "owner-browser-session", url: origin }, { name: "__csrf", value: "csrf", url: origin }])
     await page.goto(origin)
     const review = page.getByRole("button", { name: "Review & merge", exact: true })
     await expect(review).toBeEnabled({ timeout: 60_000 })
+    holdLive = true
     await writeFile(join(directory, "shown"), "shown")
     await wait(/ACCESS_MERGE_CHANGED/)
     const stale = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`) && response.request().method() === "POST")
     await review.press("Enter")
     expect((await stale).status()).toBe(409)
+    holdLive = false
+    for (const deliver of delayed.splice(0)) deliver()
     await expect(page.locator('[data-kind="confirm"]').last()).toContainText("Expired")
     await expect(review).toHaveCount(0)
     await expect(page.getByTestId("composer-input")).toBeEnabled()
