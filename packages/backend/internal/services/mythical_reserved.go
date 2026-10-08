@@ -208,16 +208,19 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		// Equal bytes can reuse a verified candidate or its still-running
 		// checks. An observed invalidation requires a fresh generation.
 		reusable := item.CandidateVerified || checking
-		if input.Source.TreeID != tree {
-			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
-		}
 		// A prefix rebase consumed this immutable capture already. Its sealed
 		// invocation cannot put the old-prefix bytes back into pending work.
+		// Bind its original tree before comparing the rebased candidate to
+		// the live machine; these are different trees after a prefix move.
 		var integration struct {
 			Kind string `json:"kind"`
 			Head string `json:"head"`
+			Tree string `json:"tree"`
 		}
 		if json.Unmarshal(item.Integration, &integration) == nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && item.CandidateHead != input.Source.CommitID && mythicalChecksOf(item).Capture == nil {
+			if integration.Tree != input.Source.TreeID {
+				return empty, 0, pkgerrors.Conflict("captured source tree changed")
+			}
 			previous, err := machine.workspaceCommitTree(live, row, item.CandidateHead)
 			if err != nil {
 				return empty, 0, err
@@ -226,6 +229,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 				return empty, 0, pkgerrors.Conflict("candidate prefix changed")
 			}
 			return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
+		}
+		if input.Source.TreeID != tree {
+			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
 		}
 		if _, err := machine.reportRetainedSource(live, row, ReportWorkspaceHeadInput{RetainSource: input.Source}); err != nil {
 			return empty, 0, err

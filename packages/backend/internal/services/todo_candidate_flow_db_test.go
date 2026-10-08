@@ -377,6 +377,41 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 		require.Equal(t, 409, status, "another source cannot consume this pending invocation")
 		_, status = call("stack.propose", ReservedStackInput{RequestID: "22222222-2222-4222-8222-222222222222", Generation: generation})
 		require.Equal(t, 409, status, "old-prefix work cannot publish")
+
+		// Complete the consumed capture with a real JJ rebase. The worker's
+		// persisted receipt binds the original source, while the live machine
+		// now contains both the predecessor and the captured member bytes.
+		guest.run(t, "git", "fetch", "-q", f.hostDir, predecessor.CandidateHead+":refs/remotes/origin/predecessor")
+		guest.run(t, "jj", "git", "import")
+		guest.run(t, "jj", "rebase", "-s", head, "-d", predecessor.CandidateHead)
+		rebased := guest.run(t, "jj", "log", "--no-graph", "-r", "@-", "-T", "commit_id")
+		rebasedTree := guest.run(t, "git", "rev-parse", rebased+"^{tree}")
+		require.NotEqual(t, tree, rebasedTree)
+		pending.CandidateBase, pending.CandidateHead = predecessor.CandidateHead, rebased
+		pending.State, pending.Reason = "verifying", ""
+		pending.Generation++
+		rebasedChecks := mythicalChecksOf(pending)
+		rebasedChecks.Capture, rebasedChecks.Rebase = nil, nil
+		pending.Checks = rebasedChecks.encode()
+		pending.Integration, err = json.Marshal(map[string]string{"kind": "captured", "head": head, "tree": tree})
+		require.NoError(t, err)
+		_, err = q.SaveMythicalItem(ctx, pending)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL,head_commit_id=$2 WHERE id=$1`, item.WorkspaceID, rebased)
+		require.NoError(t, err)
+		wrongTree := source
+		wrongTree.TreeID = rebasedTree
+		_, status = call("stack.candidate", ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &wrongTree})
+		require.Equal(t, 409, status, "the original commit cannot claim the rebased tree")
+		require.NoError(t, os.WriteFile(filepath.Join(guest.dir, "MEMBER.md"), []byte("changed after rebase\n"), 0o600))
+		_, status = call("stack.candidate", capture)
+		require.Equal(t, 409, status, "unacknowledged live edits cannot reuse the consumed capture")
+		guest.run(t, "jj", "restore", "--from", "@-", "MEMBER.md")
+		result, status := call("stack.candidate", capture)
+		require.Equal(t, 200, status, "the sealed capture acknowledges its rebased candidate")
+		require.Equal(t, rebased, result.Head)
+		require.Equal(t, predecessor.CandidateHead, result.Base)
+		require.Equal(t, pending.Generation, result.Generation)
 		return
 	}
 	require.Zero(t, f.verifies(pending))
