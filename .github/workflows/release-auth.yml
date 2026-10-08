@@ -28,3 +28,48 @@ jobs:
           fi
           npm whoami --registry https://registry.npmjs.org --loglevel error
         shell: bash
+      # The login above does not say whether the token may create a package
+      # name that does not exist yet, or when it expires. This step reports
+      # that. The repository and its Action logs are public, so it never prints
+      # registry output: jq selects a fixed set of fields and checks the shape
+      # of every value before printing it. It prints no token key, hash or
+      # prefix, no username, no address list and no other organization member,
+      # and it discards jq's own error text, which can quote a value.
+      # A token that may not read its own record makes the step say so and pass.
+      - name: Report the token's publish rights
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_ORG: smthrs
+        run: |
+          set -euo pipefail
+          npm_json() { npm "$@" --json --registry https://registry.npmjs.org --loglevel silent 2>/dev/null; }
+
+          if tokens="$(npm_json token list)"; then
+            printf '%s' "$tokens" | jq -r '
+              def day: if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}") then .[0:10] else "not reported" end;
+              def word: if type == "string" and test("^[a-z_-]{1,24}$") then . else "unrecognized" end;
+              def names: [.. | strings | select(test("^@[a-z0-9][a-z0-9._-]{0,60}$"))] | unique;
+              (if type == "array" then . else [] end) as $all
+              | [$all[] | select(type == "object") | select((.token | type) == "string" and (.token | length) >= 4 and (.token as $prefix | $ENV.NODE_AUTH_TOKEN | startswith($prefix)))] as $mine
+              | if ($mine | length) != 1 then
+                  "token record: not identified (\($mine | length) of \($all | length) records match); nothing printed about any token"
+                else $mine[0]
+                  | "token type: \((.type // (if .automation == true then "automation" elif (has("scopes") or has("packages") or has("permissions") or has("expires") or has("expiry")) then "granular" else "classic" end)) | word)",
+                    "token read-only: \(if (.readonly | type) == "boolean" then .readonly else "not reported" end)",
+                    "token expires: \((.expires // .expiry // .expires_at // .expiration // null) | day)",
+                    "token limited to scopes: \(((.scopes // []) | names) as $s | if ($s | length) == 0 then "none listed" else ($s | join(" ")) end)",
+                    "token limited to named packages: \(if (.packages | type) == "array" then (.packages | length) else "not reported" end)"
+                end' 2>/dev/null || echo "token record: not in a shape this step reads; nothing printed about any token"
+          else
+            echo "token record: the registry refused this token the read; type, restrictions and expiry are unknown"
+          fi
+
+          if me="$(npm whoami --registry https://registry.npmjs.org --loglevel silent 2>/dev/null)" && members="$(npm_json org ls "$NPM_ORG")"; then
+            ME="$me" jq -r '
+              (if type == "object" then .[$ENV.ME] else null end) as $role
+              | "role of the token user in the \($ENV.NPM_ORG) organization: \(if ($role | type) == "string" and ($role | test("^(owner|admin|developer|member)$")) then $role else "not a member, or not reported" end)"
+            ' <<<"$members" 2>/dev/null || echo "role of the token user in the $NPM_ORG organization: not in a shape this step reads"
+          else
+            echo "role of the token user in the $NPM_ORG organization: the registry refused this token the read"
+          fi
+        shell: bash
