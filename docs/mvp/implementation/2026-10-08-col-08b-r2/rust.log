@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized] target(s) in 0.22s
+     Running tests/golden.rs (target/debug/deps/golden-8c206dd98afcc734)
+
+running 10 tests
+test all_truncations_refuse_without_panicking ... ok
+test header_refusal_order_and_bounded_read ... ok
+test protocol_four_session_cancellation_has_literal_cross_language_fields ... ok
+test protocol_three_admission_has_literal_cross_language_fields ... ok
+test host_proof_matches_committed_hmac_vectors ... ok
+test manifest_protocol_is_the_codec_protocol ... ok
+test sequenced_document_golden_payloads ... ok
+test daemon_handshake_refusals_match_corpus ... ok
+test wire_refusals ... ok
+test wire_golden_frames ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+

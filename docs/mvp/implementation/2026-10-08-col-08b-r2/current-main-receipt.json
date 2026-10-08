@@ -1,0 +1,187 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "lane": "fr14-col08b-r2",
+  "tested_revision": "730bb659096a6cc082c33dafbc7ec17a047b5fcf",
+  "scope": "Current-main revised relay and CodeTopic qualification through authenticated composed /api/live with real PostgreSQL and fake daemon only at branch connection seam; additional full composed-install component suite. No product changes.",
+  "environment": {
+    "preamble": "export LANE=fr14-col08b-r2; source ~/lanes/env.sh; export GOMAXPROCS=8",
+    "database_url": "postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable",
+    "database_namespace": "fr14_col08br2",
+    "ffi_library": "/home/lane/.cache/cargo-target-gate/release/libsmithers_ffi.so"
+  },
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/compose -run '^(TestDocRelay|TestMachinedWireGoldenFrames$|TestWorkingTogetherWireContract$)' -count=1 -json",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 11,
+      "passed_including_subtests": 192,
+      "tests": [
+        "TestMachinedWireGoldenFrames",
+        "TestWorkingTogetherWireContract",
+        "TestDocRelayWireContract",
+        "TestDocRelayAuthorization",
+        "TestDocRelayDarkLanding",
+        "TestDocRelayDataOnly",
+        "TestDocRelayRevocation",
+        "TestDocRelayBackpressure",
+        "TestDocRelayOneStreamPerTopic",
+        "TestDocRelayEpochChange",
+        "TestDocRelayReplacementConnection"
+      ],
+      "log": "compose.jsonl.gz",
+      "log_sha256": "443b92089482e2307cb48bde49c93c804952b87523b06a646eba44bf0299ec21"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/compose -run '^TestLiveCodeDocumentsComposedInstall$' -count=1 -json",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 1,
+      "passed_including_subtests": 4,
+      "tests": [
+        "TestLiveCodeDocumentsComposedInstall"
+      ],
+      "log": "install.jsonl.gz",
+      "log_sha256": "0ead46e1c4b8d0106827a4e00f20657aa90db4b133a8d2ef8d76b159b057b7a0"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/live -run '^(TestCodeTopic|TestDocRelay)' -count=1 -json",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 8,
+      "passed_including_subtests": 8,
+      "tests": [
+        "TestCodeTopicOneStreamFansOut",
+        "TestCodeTopicSyncAnswersRequester",
+        "TestCodeTopicRefusalEndsOnlyThatSubscriber",
+        "TestCodeTopicGapKeepsClientIdentity",
+        "TestCodeTopicRestartKeepsOwnedClient",
+        "TestCodeTopicCloseAndReopen",
+        "TestCodeTopicEpochChangeGapsAll",
+        "TestDocRelayAdmissionCache"
+      ],
+      "log": "live.jsonl.gz",
+      "log_sha256": "b5f2dae6036ab2d1dda618883c16446cb7d5db519831923dbedb84ffa5a3bb54"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/machined/wire -count=1 -json",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 27,
+      "passed_including_subtests": 295,
+      "tests": [
+        "TestBurstGoldenProjection",
+        "TestDocumentGoldenPayloads",
+        "TestDocumentPayloadBoundaries",
+        "TestSequencedDocumentGoldenPayloads",
+        "TestFieldsUsesCanonicalSchema",
+        "TestStdlibOnly",
+        "TestIndependentAck",
+        "TestMAC",
+        "TestRefusalOrder",
+        "TestReadWrite",
+        "TestMessageBuilders",
+        "TestTaggedValueRefusals",
+        "TestFixedStreamRefusals",
+        "TestStreamIOFailures",
+        "TestPrimitiveFailures",
+        "TestStreamTruncationAndDataBoundaries",
+        "TestWireCorpus",
+        "TestMovedOffReturnedLiteralEvent",
+        "TestMovedOffLiteralEvent",
+        "TestMovedOffAttribution",
+        "TestPresenceSnapshotGolden",
+        "TestReconciledEventLiteralAndRefusals",
+        "TestProtocolThreeSessionAdmissionLiteral",
+        "TestProtocolFourSessionCancellationLiteral",
+        "TestTranscriptLiteralAndRefusals",
+        "TestFileWrittenGoldenProjection",
+        "FuzzFrame"
+      ],
+      "log": "wire.jsonl.gz",
+      "log_sha256": "ad8d0737e3e92576c698a699829d0fb640df418d11de28deb14d3c0a36a5abd0"
+    },
+    {
+      "cwd": ".",
+      "command": "cargo test -p smithers-machined --test golden",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 10,
+      "log": "rust.log",
+      "log_sha256": "2706adb65878554155ef1857bc4b87f4ac6d0b0c2dca4019781e9b53397c1adc"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "pnpm exec vitest run test/LiveDoc.test.ts && pnpm typecheck",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 8,
+      "log": "ts.log",
+      "log_sha256": "e3a97aa01bf7cca9c57662d8802dc494f24343757a57ee3b6ea1f6aef64a684c"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go build -p 4 ./...",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": null,
+      "log": "build.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "cwd": ".",
+      "command": "CARGO_TARGET_DIR=/home/lane/.cache/cargo-target-gate ~/lanes/lane-gates.sh",
+      "exit_code": 0,
+      "failed": 0,
+      "skipped": 0,
+      "passed": 1,
+      "log": "gate.log",
+      "log_sha256": "ee393bee7461ed869b7f91b23a087055e43162d9437f3ae3698ef2cf85c2c41f"
+    }
+  ],
+  "activation": {
+    "LiveCodeDocuments": "unchanged; unset in production",
+    "lspConfinementReceipt": "unchanged; empty"
+  },
+  "unlanded_branch": "Absent from fetched refs and git ls-remote; no cherry-pick needed",
+  "issue_audit": "Open issue and comments read via read-only GitHub REST; no writes; lead holds claims",
+  "mirror_recovery": "Not applicable to daemon-only relay; host mirror deleted in b9553a4fca",
+  "blocked_on": [
+    {
+      "item": "ADR 0003 topology/security/TS acceptance, owned by T-COL-11",
+      "source": "docs/architecture/0003-live-code-co-editing.md:3"
+    },
+    {
+      "item": "Real install, second Mac and signed-in members",
+      "source": ".specs/engineering/checks/C-J3-04.md:4"
+    },
+    {
+      "item": "T-COL-08 real daemon/microVM K7 qualification",
+      "source": ".specs/engineering/checks/C-DUR-04.md:25"
+    },
+    {
+      "item": "Reference Mac and second Mac latency qualification",
+      "source": ".specs/engineering/checks/C-PERF-03.md:4"
+    }
+  ],
+  "limitations": [
+    "Fake-daemon component evidence does not establish real durability, latency, owner acceptance or release-check closure.",
+    "The current lane gate is a marker-only fast gate (1 check); backend build and targeted suites ran separately.",
+    "No UI behavior changed or fixme unblocked; no harness changed.",
+    "Initial qualification also passed on 3c8ab05fcdeae7006e0ebb9dc414a39e301d2a90; retained logs are reruns on tested_revision."
+  ],
+  "remaining_lane_implementation": [],
+  "ticket_complete": false
+}
