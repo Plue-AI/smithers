@@ -178,3 +178,42 @@ fn fifo_rewrite_uses_production_socketpair_and_thaws_before_next_job() {
         assert_eq!(*calls.lock().unwrap(), expected, "{fault}");
     }
 }
+
+/// Qualification on the reference guest, never a regular-file cgroup fixture.
+/// The session parent must be empty so the test cannot freeze other work.
+#[test]
+#[ignore = "requires protected writable cgroup-v2 guest hierarchy; no sudo in Linux lane"]
+fn kernel_freeze_thaw_over_production_socketpair() {
+    use smithers_machined::{broker::cgroups::Cgroups, hooks::Broker};
+    let path = "/sys/fs/cgroup/smithers/sessions";
+    let events = std::fs::read_to_string(format!("{path}/cgroup.events")).unwrap();
+    assert!(events.lines().any(|line| line == "populated 0"));
+    let mut kernel = Cgroups::open().unwrap();
+    let (server, client) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker = std::thread::spawn(move || control::serve(&server, &mut kernel).unwrap());
+    let broker = control::SocketpairBroker::new(client).unwrap();
+    let start = std::time::Instant::now();
+    assert_eq!(broker.freeze(Duration::from_secs(1)).unwrap(), None);
+    let elapsed = start.elapsed();
+    let frozen = std::fs::read_to_string(format!("{path}/cgroup.events"));
+    broker.thaw().unwrap();
+    assert!(elapsed < Duration::from_secs(1));
+    assert!(frozen.unwrap().lines().any(|line| line == "frozen 1"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    loop {
+        let events = std::fs::read_to_string(format!("{path}/cgroup.events")).unwrap();
+        if events.lines().any(|line| line == "frozen 0") {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "kernel did not thaw");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    drop(broker);
+    worker.join().unwrap();
+}

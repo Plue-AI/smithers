@@ -75,6 +75,35 @@ fn main() -> std::io::Result<()> {
         let _ = control::serve(&parent, &mut EmptyBroker(0));
     });
     println!("{port}");
+    // Optional boundary mode execs the packaged binary rather than calling its
+    // entrypoint in this fixture process. The namespace supplies this fixed
+    // path; never use this fixture as a privileged guest broker.
+    if std::env::args().nth(1).as_deref() == Some("--installed") {
+        use smithers_machined::broker::lifecycle::{self, Process};
+        struct NamespaceInit;
+        impl Process for NamespaceInit {
+            fn kill_sessions(&mut self) -> io::Result<()> {
+                // This fixture never admits sessions. Real descendant cleanup
+                // is qualified by the protected guest broker, not this census.
+                Ok(())
+            }
+            fn run_daemon(&mut self) -> io::Result<(i32, Duration)> {
+                let start = std::time::Instant::now();
+                let mut child = std::process::Command::new("/opt/smithers/bin/smithers-machined")
+                    .arg("daemon")
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .spawn()?;
+                std::fs::write("/run/smithers/namespace-daemon.pid", child.id().to_string())?;
+                let status = child.wait()?;
+                Ok((status.code().unwrap_or(1), start.elapsed()))
+            }
+            fn delay(&mut self, duration: Duration) {
+                std::thread::sleep(duration);
+            }
+        }
+        return lifecycle::supervise(&mut NamespaceInit);
+    }
     smithers_machined::installed::run()
 }
 #[cfg(not(target_os = "linux"))]

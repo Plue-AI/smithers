@@ -93,3 +93,68 @@ fn size_triggers_early_cleanup_and_small_history_is_preserved() {
     assert!(oplog::run(&mut r, now).unwrap());
     assert_eq!(r.calls, ["gc", "persist"]);
 }
+
+// Run after capture and retention on the installed guest. Root is only the
+// launcher: jj and all repository IO execute after dropping every identity.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "privileged guest qualification: real member uid and retained /workspace"]
+fn retained_operation_log_is_readable_by_member_uid() {
+    use std::{
+        os::unix::{fs::MetadataExt, process::CommandExt},
+        process::Command,
+    };
+    assert_eq!(
+        unsafe { libc::geteuid() },
+        0,
+        "guest qualification launcher only"
+    );
+    let metadata = std::fs::metadata("/workspace/.jj").unwrap();
+    assert_eq!(metadata.uid(), 19998);
+    assert_eq!(metadata.gid(), 20000);
+    assert_eq!(metadata.mode() & 0o070, 0o070);
+    let mut command = Command::new("/usr/bin/jj");
+    command
+        .args([
+            "op",
+            "log",
+            "--no-graph",
+            "--limit",
+            "100",
+            "-T",
+            "id ++ \"\\n\"",
+        ])
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("HOME", "/home/member")
+        .current_dir("/workspace");
+    // SAFETY: only identity syscalls run between fork and exec. No repository
+    // command or branch executable runs in the root launcher.
+    unsafe {
+        command.pre_exec(|| {
+            let gid = 20000;
+            if libc::setgroups(1, &gid) != 0
+                || libc::setresgid(gid, gid, gid) != 0
+                || libc::setresuid(20000, 20000, 20000) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = std::str::from_utf8(&output.stdout).unwrap();
+    assert_eq!(
+        text.lines().count(),
+        100,
+        "run after retention of >100 operations"
+    );
+    assert!(text
+        .lines()
+        .all(|line| line.len() == 128 && line.bytes().all(|b| b.is_ascii_hexdigit())));
+}
