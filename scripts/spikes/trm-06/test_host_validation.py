@@ -35,7 +35,7 @@ class HostValidation(unittest.TestCase):
                           before=outside, after=outside, worker_pid=42, worker_uid=0,
                           held_ns=1, start_ns=2, end_ns=3, resume_ns=4,
                           exit=78, stdout='', stderr='SCHEDULE {}\n' + host.REFUSAL.decode(), process='')
-            if mutation == 'positive':
+            if host.positive_control(phase, mutation):
                 sample.update(exit=0, stdout=json.dumps({'pid': 43, 'revision': 'a' * 40,
                               'environment': ['PATH=/usr/bin:/bin:/usr/sbin:/sbin']}),
                               process='43 501 /dev/fd/8 check-startup')

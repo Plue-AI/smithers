@@ -45,6 +45,12 @@ def schedules():
     return result
 
 
+def positive_control(phase, mutation):
+    # A trusted identical copy installed before validation remains main-pinned.
+    # Copies made after validation must refuse because held ancestry changed.
+    return mutation == 'positive' or (phase == 'shell' and mutation == 'copy')
+
+
 def protected(path):
     # lstat every component, including the final one: no resolved symlink can
     # select either a fixture, baseline or receipt from a member-owned tree.
@@ -178,7 +184,7 @@ os.execve('/bin/sh', ['/bin/sh', ENTRY, 'startup-validation'], {'PATH': '/usr/bi
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                env={'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}, cwd='/')
     observation = ''
-    if mutation == 'positive':
+    if positive_control(phase, mutation):
         output = bytearray()
         deadline = time.monotonic() + 10
         while len(output) <= 4096 and not output.endswith(b'\n'):
@@ -223,7 +229,7 @@ os.execve('/bin/sh', ['/bin/sh', ENTRY, 'startup-validation'], {'PATH': '/usr/bi
     if not (worker['worker_pid'] > 0 and worker['worker_uid'] == 0 and
             0 < timings['held_ns'] <= worker['start_ns'] <= worker['end_ns'] <= timings['resume_ns']):
         raise ValueError('native schedule ordering mismatch')
-    if mutation == 'positive':
+    if positive_control(phase, mutation):
         sample = json.loads(output)
         if process.returncode != 0 or lines or sample != {
                 'pid': process.pid, 'revision': revision,
@@ -251,7 +257,7 @@ def verify_receipt(receipt, expected):
             raise ValueError('native sentinel/worker mismatch')
         if not 0 < sample['held_ns'] <= sample['start_ns'] <= sample['end_ns'] <= sample['resume_ns']:
             raise ValueError('native timing mismatch')
-        if selector[2] == 'positive':
+        if positive_control(selector[0], selector[2]):
             observed = json.loads(sample['stdout'])
             if sample['exit'] != 0 or observed['revision'] != expected['revision'] or observed['environment'] != ['PATH=/usr/bin:/bin:/usr/sbin:/sbin']:
                 raise ValueError('native positive receipt mismatch')
