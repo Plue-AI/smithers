@@ -123,7 +123,11 @@ describe("the generated product API client", () => {
     // and repository access doors (#3492) in the current OpenAPI inventory.
     // Includes confirmed, attributed install issue comments (d5618796c7, #3492).
     // Includes the public install sign-in session probe (48fbb67655, #3492).
-    expect(expected).toHaveLength(565)
+    // Includes ACK-delay read/write (730bb65909) and canonical secrets POST (5a121e6330).
+    expect(expected).toHaveLength(568)
+    expect(spec.paths["/api/install/ack-delay"]).toHaveProperty("get.operationId", "get_api_install_ack_delay")
+    expect(spec.paths["/api/install/ack-delay"]).toHaveProperty("post.operationId", "post_api_install_ack_delay")
+    expect(spec.paths["/api/secrets"]).toHaveProperty("post.operationId", "post_api_secrets")
     expect(spec.paths["/api/auth/session"]).toHaveProperty("get.operationId", "get_api_auth_session")
     expect(spec.paths["/api/auth/session"]).toHaveProperty("get.security", [{}, { sessionCookie: [] }, { bearerAuth: [] }])
     expect(spec.paths["/api/issues/{number}/comments"]).toHaveProperty("post.operationId", "post_api_issues_number_comments")
@@ -156,8 +160,10 @@ describe("the generated product API client", () => {
       // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
       "DELETE /api/install/quiesce",
       "GET /api/install",
+      "GET /api/install/ack-delay",
       "GET /api/install/metrics",
       "GET /api/install/scorecard",
+      "POST /api/install/ack-delay",
       "POST /api/install/quiesce",
       "POST /api/install/setup/address",
       "POST /api/install/setup/app",
