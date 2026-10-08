@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,7 +61,11 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 	inventory := func() []struct {
 		Name string `json:"name"`
 	} {
-		out, err := exec.CommandContext(ctx, os.Getenv("SMITHERS_MICROSANDBOX_BIN"), "list", "--format", "json").Output()
+		cmd := exec.CommandContext(ctx, os.Getenv("SMITHERS_MICROSANDBOX_BIN"), "list", "--format", "json")
+		account, err := user.LookupId(strconv.Itoa(os.Getuid()))
+		require.NoError(t, err)
+		cmd.Env = []string{"HOME=" + account.HomeDir, "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"}
+		out, err := cmd.Output()
 		require.NoError(t, err)
 		var rows []struct {
 			Name string `json:"name"`
@@ -76,6 +82,10 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 		return false
 	}
 	require.True(t, present(), "original native machine must exist")
+	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
+	require.NoError(t, err)
+	originalDisk := filepath.Join(account.HomeDir, ".microsandbox", "sandboxes", machine)
+	require.DirExists(t, originalDisk, "record the actual msb disk directory before removal")
 	hostGit := filepath.Join(h.storage.StoragePath, "rehearsal-owner", "app", ".jj/repo/store/git")
 	canary := filepath.Join(t.TempDir(), "host-execution")
 	hooks := t.TempDir()
@@ -112,6 +122,7 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 		}
 	}
 	assertObjects()
+	retained := cleanupRetainedEvidence(t, h.pool, branch)
 	h.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"drop"}`, 202)
 	require.Eventually(t, func() bool {
 		var done bool
@@ -127,6 +138,8 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 		return h.pool.QueryRow(ctx, `SELECT disk_reclaimed_at IS NOT NULL FROM workspaces WHERE id=$1`, branch).Scan(&done) == nil && done
 	}, 2*time.Minute, 100*time.Millisecond, "production cleaner must remove the native disk: %s", h.logs.String())
 	require.False(t, present(), "msb must confirm original machine removal")
+	require.NoDirExists(t, originalDisk, "cleanup must remove the original backing disk directory")
+	retained()
 	assertObjects()
 	var archivedAttempts []byte
 	require.NoError(t, h.pool.QueryRow(ctx, `SELECT COALESCE(checks->'attempts','[]'::jsonb) FROM mythical_items WHERE number=$1`, number).Scan(&archivedAttempts))
@@ -171,6 +184,7 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 	require.Zero(t, fresh.ExitCode, fresh.Stderr)
 	require.Equal(t, "19999\n", fresh.Stdout)
 	assertObjects()
+	retained()
 
 	t.Logf("C-MCH-05 native cleanup/reopen branch=%s head=%s host_euid=%d guest_euid=19999 paths=5 original_removed=true", branch, head, os.Geteuid())
 }

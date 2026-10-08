@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -45,6 +46,7 @@ type cleanupReopenProof struct {
 	canary         string
 	number         int64
 	files          map[string][]byte
+	retained       func()
 }
 
 func prepareCleanupReopen(t *testing.T, r *rehearsal, n, repository, owner int64, base string) *cleanupReopenProof {
@@ -121,6 +123,7 @@ func prepareCleanupReopen(t *testing.T, r *rehearsal, n, repository, owner int64
 	}
 	r.options.CleanupInterval = 100 * time.Millisecond
 	r.options.CleanupClock = func() time.Time { return time.Now().Add(24*time.Hour + time.Minute) }
+	p.retained = cleanupRetainedEvidence(t, r.pool, p.id)
 	r.restartBackend()
 	return p
 }
@@ -137,6 +140,7 @@ func (p *cleanupReopenProof) remove(t *testing.T, r *rehearsal) {
 		return r.pool.QueryRow(r.ctx, `SELECT disk_reclaimed_at IS NOT NULL FROM workspaces WHERE id=$1`, p.id).Scan(&done) == nil && done
 	}, 15*time.Second, 20*time.Millisecond, "production cleaner must delete the dropped machine")
 	require.NoDirExists(t, p.root)
+	p.retained()
 	require.NoFileExists(t, p.canary, "host cleanup must treat hostile configuration as data")
 	for path, data := range p.files {
 		file, err := r.repoClient.GetFileAtCommit(r.ctx, "rehearsal-owner", "app", p.head, path)
@@ -170,6 +174,7 @@ func (p *cleanupReopenProof) reconstruct(t *testing.T, r *rehearsal) {
 		require.Equal(t, want, got)
 		require.Equal(t, sha256.Sum256(want), sha256.Sum256(got))
 	}
+	p.retained()
 	require.DirExists(t, restored.Root)
 	require.FileExists(t, filepath.Join(restored.Root, ".git/smithers-workspace-initialization.json"), "production reconstruction must leave its completed checkout receipt")
 	row, err := db.New(r.pool).GetWorkspace(r.ctx, p.id)
@@ -180,4 +185,26 @@ func (p *cleanupReopenProof) reconstruct(t *testing.T, r *rehearsal) {
 	require.NoFileExists(t, p.canary, "production PR reopen and reconstruction must not run host hooks or filters")
 	_, err = os.Stat(filepath.Join(restored.Root, "binary.bin"))
 	require.NoError(t, err)
+}
+
+// Snapshot real capture/activity rows before removal. Later events may append,
+// but cleanup and reconstruction must preserve every existing row unchanged.
+func cleanupRetainedEvidence(t *testing.T, pool *pgxpool.Pool, branch string) func() {
+	t.Helper()
+	const query = `SELECT jsonb_build_object(
+ 'receipts', (SELECT COALESCE(jsonb_agg(to_jsonb(r)), '[]'::jsonb) FROM machine_event_receipts r WHERE workspace_id=$1::uuid),
+ 'activity', (SELECT COALESCE(jsonb_agg(to_jsonb(e)), '[]'::jsonb) FROM product_job_events e WHERE principal_id='branch:' || $1::text OR data->>'branch'=$1::text),
+ 'files', (SELECT COALESCE(jsonb_agg(to_jsonb(f)), '[]'::jsonb) FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.principal_id='branch:' || $1::text OR e.data->>'branch'=$1::text))`
+	var before []byte
+	require.NoError(t, pool.QueryRow(t.Context(), query, branch).Scan(&before))
+	var rows map[string][]json.RawMessage
+	require.NoError(t, json.Unmarshal(before, &rows))
+	require.NotEmpty(t, rows["receipts"], "production capture must leave durable receipts")
+	require.NotEmpty(t, rows["activity"], "production capture must leave activity")
+	return func() {
+		t.Helper()
+		var preserved bool
+		require.NoError(t, pool.QueryRow(t.Context(), "SELECT $2::jsonb <@ ("+query+")", branch, string(before)).Scan(&preserved))
+		require.True(t, preserved, "cleanup/reopen must preserve capture receipts, activity and burst files: %s", before)
+	}
 }
