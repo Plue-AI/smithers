@@ -2254,6 +2254,9 @@ func (s *RepoService) settleRepoDeleteIntent(
 
 // ArchiveRepo marks a repository as archived (read-only).
 func (s *RepoService) ArchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error) {
+	if s.install != nil && !s.installAdmitted {
+		return s.withInstallRepoArchive(ctx, actor, owner, repo, true)
+	}
 	if actor == nil {
 		return db.Repository{}, errors.Unauthorized("authentication required")
 	}
@@ -2288,6 +2291,9 @@ func (s *RepoService) ArchiveRepo(ctx context.Context, actor *db.User, owner, re
 
 // UnarchiveRepo removes the archived status from a repository.
 func (s *RepoService) UnarchiveRepo(ctx context.Context, actor *db.User, owner, repo string) (db.Repository, error) {
+	if s.install != nil && !s.installAdmitted {
+		return s.withInstallRepoArchive(ctx, actor, owner, repo, false)
+	}
 	if actor == nil {
 		return db.Repository{}, errors.Unauthorized("authentication required")
 	}

@@ -157,7 +157,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "mirror.read" {
+	if command == "repo.archive" || command == "repo.unarchive" {
+		subject = services.InstallRepoArchiveSubject(repository.ID, command == "repo.archive")
+	} else if command == "mirror.read" {
 		subject = services.InstallMirrorSyncReadSubject(repository.ID, id)
 	} else if command == "egress.update" {
 		value, _ := input.(services.RepositoryEgressPatchInput)

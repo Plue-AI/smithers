@@ -298,3 +298,7 @@ test("saved command output has no external-agent or system door", () => {
 test("native review records retain their private actor and scope boundary", () => {
  expect(httpProjections.find(row => row.name === "landings.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"write:repository",visibility:"hidden",slash:null,cli:null})
 })
+
+test("repository archive and unarchive remain owner person mutations", () => {
+ for (const name of ["repo.archive", "repo.unarchive"]) expect(httpProjections.find(row => row.name === name)).toMatchObject({minimumRole:"owner",agent:"never",actors:["person"],credentialScope:"write:repository",visibility:"hidden",slash:null,cli:null})
+})

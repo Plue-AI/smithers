@@ -56,6 +56,8 @@ export const httpProjections = [
  repositoryAdmin("webhooks.delete", "DELETE", "/api/repos/{owner}/{repo}/hooks/{id}", NoInput, "write:repository"),
  repositoryAdmin("webhooks.deliveries", "GET", "/api/repos/{owner}/{repo}/hooks/{id}/deliveries", NoInput, "write:repository"),
  repositoryAdmin("webhooks.redeliver", "POST", "/api/repos/{owner}/{repo}/hooks/{id}/deliveries/{delivery_id}/redeliver", NoInput, "write:repository"),
+ repositoryAdmin("repo.archive", "POST", "/api/repos/{owner}/{repo}/archive", NoInput),
+ repositoryAdmin("repo.unarchive", "POST", "/api/repos/{owner}/{repo}/unarchive", NoInput),
  repositoryAdmin("repo.topics.update", "PUT", "/api/repos/{owner}/{repo}/topics", Schema.Struct({ topics: Schema.optional(Schema.Union([Schema.Array(Schema.String), Schema.Null])) })),
  repositoryAdmin("deploy-keys.read","GET","/api/repos/{owner}/{repo}/keys",NoInput),
  repositoryAdmin("deploy-keys.create","POST","/api/repos/{owner}/{repo}/keys",Schema.Struct({ title:Schema.String,key:Schema.String,read_only:Schema.optional(Schema.Boolean) })),

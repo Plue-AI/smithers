@@ -8348,6 +8348,33 @@
       }
     },
     {
+      "name": "repo.archive",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "repo.archive",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/archive"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "repo.choose",
       "slash": null,
       "cli": null,
@@ -8538,6 +8565,33 @@
             }
           },
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "repo.unarchive",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "repo.unarchive",
+      "http": {
+        "method": "POST",
+        "path": "/api/repos/{owner}/{repo}/unarchive"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }

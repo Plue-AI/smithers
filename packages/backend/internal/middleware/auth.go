@@ -601,6 +601,8 @@ var installMemberRoutes = []struct {
 	{http.MethodDelete, "webhooks.delete", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/hooks/[^/]+$`)},
 	{http.MethodGet, "webhooks.deliveries", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/hooks/[^/]+/deliveries$`)},
 	{http.MethodPost, "webhooks.redeliver", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/hooks/[^/]+/deliveries/[^/]+/redeliver$`)},
+	{http.MethodPost, "repo.archive", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/archive$`)},
+	{http.MethodPost, "repo.unarchive", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/unarchive$`)},
 	{http.MethodPut, "repo.topics.update", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/topics$`)},
 	{http.MethodGet, "monitor", regexp.MustCompile(`^/api/runs(?:/[^/]+(?:/trace)?)?$`)},
 	{http.MethodPost, "background.retry", regexp.MustCompile(`^/api/runs/[0-9]+$`)},
