@@ -17,7 +17,19 @@ test("the delete question keeps its exact target through cancel and confirm", as
   expect(store.session().pendingWorldDeleteId).toBeNull()
   expect(store.collections.worldDocuments.get(note.id)).toBeDefined()
 
-  await controller.commands.runForAgent("wiki.delete", note.id)
+  // 3a82c7ada7: the agent requests the shared confirmation before the handler runs.
+  expect(await controller.commands.runForAgent("wiki.delete", note.id)).toMatchObject({
+    status: "executed", value: expect.stringContaining(`confirm "/wiki.delete ${note.id}"`)
+  })
+  expect(store.session().pendingWorldDeleteId).toBeNull()
+  expect(store.collections.worldDocuments.get(note.id)).toBeDefined()
+  const ask = [...store.collections.messages.values()].find(message => message.action?.flow === "wiki.delete")!
+  expect(ask.action).toMatchObject({ flow: "wiki.delete", args: note.id })
+  for (const answer of ["wiki.delete.confirm", "wiki.delete.cancel"]) {
+    expect((await controller.commands.runForAgent(answer)).status).toBe("failed")
+  }
+  expect(store.collections.worldDocuments.get(note.id)).toBeDefined()
+  await controller.commands.run(ask.action!.flow, ask.action!.args)
   expect(store.session().pendingWorldDeleteId).toBe(note.id)
   await controller.commands.run("wiki.delete.cancel")
 
