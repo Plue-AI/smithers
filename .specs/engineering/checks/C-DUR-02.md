@@ -31,3 +31,26 @@ Automation: `packages/backend/flowhost/machine_kill_fault_test.go` (new), beside
 
 ## Evidence
 `.artifacts/checks/C-DUR-02/<UTC timestamp>/`: per kill point, the journal attempt dump from the machine disk, the fake service request log, `product_job_events` and `checks.Attempts` rows, TODO card screenshots before and after, `msb` and launcher logs, and the commit and install version.
+
+## Production TODO matrix
+
+`TestTodoMachineKillThroughInstall` extends the existing composed TODO machine
+control with subtests `M1/crossing` through `M4/crossing`. The transport-only
+`flowhost` control remains supplemental. The nightly runner requires an exact
+final observation for every crossing, bound to that subtest.
+
+M1 uses the recorded implement provider. M2 runs the scratch repository's
+`pnpm test` through the immutable-source check. M3 overrides the TODO with an
+explicitly keyed irreversible migration: GET lookup, one POST write held after
+application, then GET on recovery seals `found` without another POST. A sealed
+completed prefix and the found marker stay on the original machine disk. M4
+retains the original composed keyless control, its guest UID assertion and host
+canary, activating D2 before the kill and dispatching duplicate Retry presses
+through the served TODO route. It requires one new D1 attempt and preserved
+prior evidence.
+
+The pinned `msb` 0.6.16 controller uses `stop --force`, whose local kill path
+sends SIGKILL to the selected libkrun runtime without graceful shutdown. The
+machine name is read only from the test's owned workspace metadata, and the
+controller revalidates the approved bundle executable before signalling it.
+A process runtime, missing bundle or absent microVM cannot qualify this matrix.

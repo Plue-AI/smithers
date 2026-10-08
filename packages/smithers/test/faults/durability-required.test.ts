@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { requireReachedGoFaultMatrix, requireRebaseRecoveryObservations } from "./harness/durability.ts"
+import { machineTodoPoints, requireTodoRecoveryObservations } from "./harness/todoFaultMatrix.ts"
 import { githubCrossings, githubPoints, requireGitHubRecoveryObservations } from "./harness/githubFaultMatrix.ts"
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
@@ -37,7 +38,7 @@ const selected = process.env.SMITHERS_FAULT_HOST === "reference"
   ? [...cases,
     ["C-DUR-04", "internal/compose/rebase_fault_test.go", "TestRebaseVMCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]] as const,
     ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null, ["machine-mid-command"]] as const,
-    ["C-DUR-02", "internal/compose/todo_machine_kill_fault_test.go", "TestTodoMachineKillThroughInstall", ["machine-mid-todo"]] as const]
+    ["C-DUR-02", "internal/compose/todo_machine_kill_fault_test.go", "TestTodoMachineKillThroughInstall", [...machineTodoPoints]] as const]
   : cases
 for (const [check, file, name, points] of selected) {
   test(`${check}: ${name ?? file}`, () => {
@@ -59,7 +60,8 @@ for (const [check, file, name, points] of selected) {
     const timeout = rebaseFault ? 14_500_000 : githubControl ? (githubRunMinutes + 1) * 60_000 : referenceMachine ? 2_700_000 : packagedPause ? 750_000 : 150_000
     const evidenceNames = githubControl
       ? githubCrossings.map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
-      : packagedPause ? ["stop", "resume"].map(point => `${name}/${point}`) : names
+      : name === "TestTodoMachineKillThroughInstall" ? machineTodoPoints.map(point => `${name}/${point}/crossing`)
+        : packagedPause ? ["stop", "resume"].map(point => `${name}/${point}`) : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`,
       "-timeout", rebaseFault ? "4h" : githubControl ? `${githubRunMinutes}m` : referenceMachine ? "44m" : packagedPause ? "12m" : "2m"], {
       cwd: backend,
@@ -78,5 +80,6 @@ for (const [check, file, name, points] of selected) {
     if (rebaseFault) requireRebaseRecoveryObservations(result.stdout, name!, name === "TestRebaseFaultRootInputsValidatedBeforeUse")
     else requireReachedGoFaultMatrix(result.stdout, evidenceNames, points)
     if (githubControl) requireGitHubRecoveryObservations(result.stdout)
+    if (name === "TestTodoMachineKillThroughInstall") requireTodoRecoveryObservations(result.stdout, "machine")
   }, file === "internal/compose/rebase_fault_test.go" ? 14_550_000 : file === "internal/compose/github_outbound_kill_test.go" ? (githubRunMinutes + 1.5) * 60_000 : (check === "C-DUR-02" || file === "internal/compose/rebase_fault_test.go") ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
 }

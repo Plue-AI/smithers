@@ -36,3 +36,36 @@ Automation: `packages/smithers/test/faults/host/case40-host-kill-todo-run.test.t
 
 ## Evidence
 `.artifacts/checks/C-DUR-01/<UTC timestamp>/`: per kill point, the attempt table dump, provider fixture log, `product_job_events`, launcher restart log with timestamps, `run:<id>` snapshots before and after, and the commit and install version.
+
+## Recorded TODO crossings
+
+`TestTodoHostRecordedKillThroughInstall` extends the installed rehearsal. Each
+`K1`–`K5` case has a `crossing` subtest with its own kill marker and final literal
+observation. Setup markers cannot qualify a crossing. The nightly TypeScript
+runner requires all five observations as well as the existing keyless Retry
+control; a skipped, unreached or partially executed campaign fails qualification.
+
+| Point | Production crossing | Recovery observation |
+| --- | --- | --- |
+| K1 | PostgreSQL trigger holds the first completed plan projection before commit; kill its coding host. | Route and planner requests remain single; completed run steps retain their keys, outcomes and completion times. |
+| K2 | Recorded provider holds the implement model response; kill its coding host. | The identical request is issued at most twice total; later conversation messages are separate requests. |
+| K3 | Scratch repository's `pnpm test` runs through the immutable-source check and waits on an external check fixture. | Two check calls total and one accepted result; no finished route or plan repeats. |
+| K4 | Served TODO has a real question. | Same run, question ID and since; POST answer settles the retained question. |
+| K5 | At K2, SIGKILL only the owned PostgreSQL 18 cluster and restart it on its existing data directory. | Original run and pin remain, finished steps do not repeat, and terminal TODO facts precede the served state. |
+
+The private PostgreSQL controller never signals the shared test server. The
+recorded provider logs full request messages to distinguish a retry from a
+later turn. Evidence includes before/after TODO and run projections, provider
+requests and counts, and durable product events. Completed steps are compared
+by their retained production run keys and outcomes, not reconstructed from a
+fixture outcome.
+
+`SMITHERS_FAULT_HOST=reference` selects the approved bundle, real microVMs and
+the existing owned install-worker process controller. Set
+`SMITHERS_FAULT_INSTALL_BUNDLE`; the host kill targets that owned backend worker process group, then reopens
+the retained runtime behind the same HTTP listener. Linux crossings use the explicit trusted-process rehearsal and
+remain supplemental to the reference campaign. K3's Node recipe requires a real
+image builder; the Linux base-only adapter refuses it before dispatch rather
+than fabricating a machine-ready receipt. Linux coding-host receipts do not qualify an install backend process-group
+kill. The owned reference worker controller does not qualify launchd supervisor
+restart; that observation still requires the supervised installed package.
