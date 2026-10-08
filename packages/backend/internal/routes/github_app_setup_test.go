@@ -754,3 +754,25 @@ func TestGitHubAppSetupMixedCaseSavedOriginIsTheBrowserOrigin(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, w.Code, "another port is another origin")
 	require.Zero(t, s.beginCalls)
 }
+
+func TestGitHubAppSetupClosedNavigationRedirectsButAPIRetainsRefusal(t *testing.T) {
+	for _, accept := range []string{"text/html,application/xhtml+xml", "application/json", ""} {
+		t.Run(accept, func(t *testing.T) {
+			h, _ := githubAppSetupTestHandler()
+			h.Sessions = setupSessionStub{err: pkgerrors.New(pkgerrors.CodeSetupClosed, "setup_closed")}
+			r := httptest.NewRequest("GET", "http://localhost:4000/setup", nil)
+			r.RemoteAddr = "127.0.0.1:1234"
+			r.Header.Set("Accept", accept)
+			w := httptest.NewRecorder()
+			h.OpenSetup(w, r)
+			if strings.Contains(accept, "text/html") {
+				require.Equal(t, http.StatusSeeOther, w.Code)
+				require.Equal(t, "/", w.Header().Get("Location"))
+			} else {
+				require.Equal(t, http.StatusUnauthorized, w.Code)
+				require.Contains(t, w.Body.String(), "setup_closed")
+				require.Empty(t, w.Header().Get("Location"))
+			}
+		})
+	}
+}

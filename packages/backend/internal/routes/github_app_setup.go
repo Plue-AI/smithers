@@ -170,6 +170,11 @@ func (h *GitHubAppSetupHandler) OpenSetup(w http.ResponseWriter, r *http.Request
 	}
 	session, err := h.Sessions.Exchange(r.Context(), r.URL.Query().Get("token"))
 	if err != nil {
+		var refusal *pkgerrors.APIError
+		if errors.As(err, &refusal) && refusal.Code == pkgerrors.CodeSetupClosed && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return
+		}
 		WriteInstallSetupError(w, r, err)
 		return
 	}

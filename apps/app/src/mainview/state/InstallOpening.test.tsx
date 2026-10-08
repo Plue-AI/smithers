@@ -42,6 +42,7 @@ for (const setupSession of [true, false]) test(`install boot at / with setup ses
   model.github = { signed_in: false, app_installed: false }
   delete model.repository; delete model.repositories
   model.steps = model.steps.map(step => ({ id: step.id, state: "pending" }))
+  model.fast_model = { signed_in: false, source: "coding model" }
   const requests: string[] = []
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, {
@@ -60,7 +61,10 @@ for (const setupSession of [true, false]) test(`install boot at / with setup ses
     flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
     await settled()
     expect(host.querySelectorAll('.setup-view[data-kind="setup"]')).toHaveLength(setupSession ? 1 : 0)
-    if (setupSession) expect(host.querySelectorAll('[data-step][data-state="pending"]')).toHaveLength(7)
+    if (setupSession) {
+      expect(host.querySelectorAll('[data-step][data-state="pending"]')).toHaveLength(7)
+      expect(host.querySelector('[data-testid="fast-model-access"]')?.textContent).toContain("Not signed in coding model")
+    }
     else expect(host.textContent).toContain("Sign in with GitHub")
     await settled(); await settled()
     expect(requests.filter(path => path.endsWith("/api/install"))).toHaveLength(1)

@@ -189,6 +189,24 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	sessionHash := sha256.Sum256([]byte("sign-in-boundary-owner-session"))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(sessionHash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	for _, accept := range []string{"text/html", "application/json"} {
+		r, err := http.NewRequestWithContext(ctx, "GET", origin+"/setup", nil)
+		require.NoError(t, err)
+		r.Header.Set("Accept", accept)
+		r.AddCookie(&http.Cookie{Name: "smithers_session", Value: "sign-in-boundary-owner-session"})
+		response, err := client.Do(r)
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		if accept == "text/html" {
+			require.Equal(t, http.StatusSeeOther, response.StatusCode, string(body))
+			require.Equal(t, "/", response.Header.Get("Location"))
+		} else {
+			require.Equal(t, http.StatusUnauthorized, response.StatusCode, string(body))
+			require.Contains(t, string(body), "setup_closed")
+		}
+	}
 	// Claiming the owner is not the leased setup job's completion receipt.
 	// The card must keep waiting until Repository admission can proceed.
 	signedInAPI := &apiclient.Client{BaseURL: origin, Header: http.Header{"Cookie": {"smithers_session=sign-in-boundary-owner-session"}}}

@@ -11,7 +11,7 @@ export function FastModelAccess({ status, actions, onAction }: { readonly status
  if (!status) return null
  const cause = status.cause === "capacity" ? "daily Smithers quota used" : status.cause === "refused" ? "Smithers credential refused" : "Smithers unreachable"
  return <div data-testid="fast-model-access">
-  <span>{status.signed_in ? "Signed in" : "Not signed in"}</span>
+  <span>{status.signed_in ? "Signed in" : "Not signed in"}</span>{" "}
   <span>{status.source}</span>
   {status.remaining !== undefined && <span>{status.remaining} tokens left{status.reset_at ? ` · ${resetTime(status.reset_at)}` : ""}</span>}
   {status.cause && <span role="status">Fast model: {cause}; using {status.source}{status.reset_at ? ` until ${resetTime(status.reset_at)}` : ""}</span>}

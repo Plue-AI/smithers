@@ -314,6 +314,16 @@ test("C-INS-01 the install works at loopback and at each origin the owner sets, 
       return visitor
     })
 
+    await test.step("a signed-in owner reopens Setup in the app; API clients retain the refusal", async () => {
+      const refusal = await owner.page.request.get(`${install.loopback}/setup`, { headers: { Accept: "application/json" }, maxRedirects: 0 })
+      expect(refusal.status()).toBe(401)
+      expect(await refusal.json()).toMatchObject({ code: "setup_closed" })
+      const returned = await owner.page.goto(`${install.loopback}/setup`)
+      expect((await returned?.request().redirectedFrom()?.response())?.status()).toBe(303)
+      await expect(owner.page).toHaveURL(`${install.loopback}/`)
+      await expect(owner.page.locator('[data-keyboard-pane="Chat controls"]')).toBeVisible()
+    })
+
     await test.step("the owner sets the bind and the origins in Address; no restart", async () => {
       const saved = await inPage(owner.page, "PUT", "/api/install", { bind: install.bind, origins: install.ownerSet })
       expect(saved.status, JSON.stringify(saved.body)).toBe(200)
