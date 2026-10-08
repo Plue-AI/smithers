@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -47,7 +48,8 @@ def namespace_campaign(temporary):
     bundle = Path("/usr/local/lib/smithers/current")
     sentinel = Path("/sentinel")
     sentinel.write_bytes(b"outside-fixture\0")
-    before = (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode)
+    before = (b"outside-fixture\0", 0, stat.S_IFREG | 0o644)
+    assert (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode) == before
     # Prove the literal shell payload is executable on this boundary before
     # using its absence as a refusal assertion. Restore only sentinel bytes;
     # owner and mode must remain identical through the positive control too.
@@ -156,7 +158,8 @@ def namespace_campaign(temporary):
                   for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable",
                                    "contents", "hardlink", "fifo", "directory", "canary")]
     schedules += [("launcher", target, mutation)
-                  for target in (".", "bin", "share", "share/trm06")
+                  for target in ("/usr/local", "/usr/local/lib", "/usr/local/lib/smithers",
+                                 ".", "bin", "share", "share/trm06")
                   for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable")]
     for phase, target, mutation in schedules:
         # The launcher boundary runs the same rendered bootstrap, then holds
@@ -200,7 +203,7 @@ if pid == 0:
         path.write_bytes(b"#!/bin/sh\\nprintf canary >> /sentinel\\n")
         path.chmod(0o755)
     end = time.monotonic_ns()
-    Path('/race.json').write_text(json.dumps({'worker_pid': os.getpid(), 'start_ns': start, 'end_ns': end}))
+    Path('/race.json').write_text(json.dumps({'worker_pid': os.getpid(), 'worker_uid': os.geteuid(), 'start_ns': start, 'end_ns': end}))
     os.write(reply_w, b'1'); os._exit(0)
 os.close(request_r); os.close(reply_w)
 held = None
@@ -231,7 +234,7 @@ exec(compile(BOOTSTRAP, '<installed-bootstrap>', 'exec'), {'__name__': '__main__
             assert result.stderr == b'{"class":"unavailable","code":"prototype_authority_unavailable","check":"C-SPK-08"}\n', (target, mutation, result.stderr)
         assert result.stdout == b"", result.stdout
         record = json.loads(Path('/race.json').read_text())
-        assert record['worker_pid'] > 0
+        assert record['worker_pid'] > 0 and record['worker_uid'] == 0
         assert 0 < record['held_ns'] <= record['start_ns'] <= record['end_ns'] <= record['resume_ns']
         assert (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode) == before
         record.update({"phase": phase, "target": target, "mutation": mutation,
@@ -265,10 +268,10 @@ class BootstrapBoundary(unittest.TestCase):
             result = subprocess.run(["unshare", "-Ur", "-m", sys.executable, "-I", "-S", str(Path(__file__).resolve()), "--namespace", temporary], capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         receipt = json.loads(result.stdout)
-        self.assertEqual(receipt["loader_controls"], 193)
+        self.assertEqual(receipt["loader_controls"], 208)
         self.assertFalse(receipt["accepted"])
         self.assertEqual(len(receipt["synchronized_bootstrap_samples"]), 22)
-        self.assertEqual(len(receipt["synchronized_launcher_samples"]), 80)
+        self.assertEqual(len(receipt["synchronized_launcher_samples"]), 95)
         evidence = os.environ.get("TRM06_LOADER_EVIDENCE")
         if evidence:
             # Publish only after behavioral assertions pass; raw NO output is

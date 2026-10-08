@@ -365,22 +365,24 @@ required. Issue #3554 is still closed despite those missing receipts; the lead
 owns its reconciliation.
 
 Pass-5 supplemental launcher controls (2026-10-08): `test_bootstrap.py` adds
-80 synchronized schedules after the production launcher's initial artifact
+95 synchronized schedules after the production launcher's initial artifact
 hashes and before its final path checks. The rendered embedded bootstrap loads
 the unchanged production launcher; no ownership check or exec function is
 mocked. A forked worker replaces each of manifest, launcher, run/revoke/flow
 entries and gateway with copied bytes, retained-inode links, symlinks, writable
 files, same-size bytes, hardlinks, FIFOs, directories and an executable canary.
-Four ancestor matrices also preserve child inodes when replacing a parent.
-Ten positive schedules complete the same trace/worker ordering without mutation.
+Seven ancestor matrices (including `/usr/local`, `/usr/local/lib` and
+`/usr/local/lib/smithers`) also preserve child inodes when replacing a parent.
+Thirteen positive schedules complete the same trace/worker ordering without mutation.
 The literal shell canary is independently executed before refusal controls;
+Sentinel owner 0 and regular-file mode 0644 are literal expectations;
 every refusal retains exit 78 and the exact authority error, with outside
 sentinel digest/owner/mode unchanged. Samples include worker PID and monotonic
 hold/start/end/resume ordering. Removing final launcher revalidation makes the
 retained-inode manifest schedule accept, failing the regression assertion.
 
-The combined namespace campaign now has 193 controls (22 synchronized bootstrap
-and 80 synchronized launcher schedules). Its receipt retains both arrays and
+The combined namespace campaign now has 208 controls (22 synchronized bootstrap
+and 95 synchronized launcher schedules). Its receipt retains both arrays and
 `accepted=false`; the gateway remains `/bin/true`. These controls supplement
 the installed root-validation campaign but are **not** wired as passing native
 controls, do not remove `pending_controls`, and do not supply the missing
