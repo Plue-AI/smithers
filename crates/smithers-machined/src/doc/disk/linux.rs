@@ -102,6 +102,13 @@ impl<V: Versions> LinuxDisk<V> {
     fn parent(&self, path: &str) -> Result<(File, String)> {
         crate::confine::parent(&self.workspace, path).map_err(confined_error)
     }
+    fn existing_parent(&self, path: &str) -> Result<Option<(File, String)>> {
+        match crate::confine::parent(&self.workspace, path) {
+            Ok(parent) => Ok(Some(parent)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(confined_error(error)),
+        }
+    }
     fn keep(&mut self, parent: File, name: String, file: File) -> Result<Displaced> {
         regular(&file)?;
         let token = self.next;
@@ -157,7 +164,9 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     }
 
     fn read(&mut self, path: &str) -> Result<Option<Vec<u8>>> {
-        let (parent, name) = self.parent(path)?;
+        let Some((parent, name)) = self.existing_parent(path)? else {
+            return Ok(None);
+        };
         match fs::openat2(
             &parent,
             &name,
@@ -192,7 +201,8 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         // Drain outside changes and close another author's pending burst before
         // replacing bytes. This callback runs on the same daemon mutation lock.
         self.versions.before_write(path, actor)?;
-        let (parent, name) = self.parent(path)?;
+        let (parent, name) =
+            crate::confine::create_parent(&self.workspace, path).map_err(confined_error)?;
         let old = match fs::openat2(
             &parent,
             &name,
@@ -283,7 +293,9 @@ impl<V: Versions> Disk for LinuxDisk<V> {
         })
     }
     fn recover_temps(&mut self, path: &str, key: Digest) -> Result<Vec<Recovery>> {
-        let (parent, _) = self.parent(path)?;
+        let Some((parent, _)) = self.existing_parent(path)? else {
+            return Ok(vec![]);
+        };
         let prefix = format!(".smithers-doc-{}-", hex(&key));
         let mut directory = fs::Dir::read_from(&parent).map_err(io)?;
         let mut tokens = vec![];
@@ -344,7 +356,12 @@ impl<V: Versions> Disk for LinuxDisk<V> {
     }
     fn remove_file(&mut self, path: &str, key: Digest, actor: Option<&str>) -> Result<Removal> {
         self.versions.before_write(path, actor)?;
-        let (parent, name) = self.parent(path)?;
+        let Some((parent, name)) = self.existing_parent(path)? else {
+            return Ok(Removal {
+                displaced: None,
+                error: None,
+            });
+        };
         // Validate type/permissions before mutation; a later replacement is retained,
         // never followed and never exchanged back over a new outside writer.
         match open(&parent, &name, OFlags::RDONLY, Mode::empty()) {

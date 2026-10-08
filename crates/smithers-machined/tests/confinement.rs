@@ -306,3 +306,48 @@ fn production_broker_and_daemon_refuse_branch_supplied_bootstrap_before_io() {
         assert_eq!(fs::read_dir(&fixture.0).unwrap().count(), 3);
     }
 }
+
+#[test]
+fn creating_parents_refuses_symlinks_and_invalid_paths_and_preserves_existing_modes() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.0.join("real")).unwrap();
+    fs::set_permissions(fixture.0.join("real"), fs::Permissions::from_mode(0o750)).unwrap();
+    symlink("real", fixture.0.join("link")).unwrap();
+    symlink("missing", fixture.0.join("dangling")).unwrap();
+    let root = File::open(&fixture.0).unwrap();
+    for path in [
+        "link/new/file",
+        "dangling/new/file",
+        "../new/file",
+        "new/../../file",
+        "/new/file",
+        "new//file",
+        "new/./file",
+        "",
+    ] {
+        assert!(confine::create_parent(&root, path).is_err(), "{path}");
+    }
+    assert!(!fixture.0.join("new").exists());
+    assert!(!fixture.0.join("real/new").exists());
+    assert!(!fixture.0.join("missing").exists());
+    let (parent, name) = confine::create_parent(&root, "real/deep/file").unwrap();
+    assert_eq!(name, "file");
+    assert_eq!(
+        parent.metadata().unwrap().ino(),
+        fs::metadata(fixture.0.join("real/deep")).unwrap().ino()
+    );
+    assert_eq!(
+        fs::metadata(fixture.0.join("real")).unwrap().mode() & 0o7777,
+        0o750
+    );
+    assert_eq!(
+        confine::create_parent(&root, "flat")
+            .unwrap()
+            .0
+            .metadata()
+            .unwrap()
+            .ino(),
+        root.metadata().unwrap().ino()
+    );
+}

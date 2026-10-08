@@ -7,6 +7,7 @@ use std::{
 };
 pub const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_MAGICLINKS)
+    .union(ResolveFlags::NO_SYMLINKS)
     .union(ResolveFlags::NO_XDEV);
 pub fn open(parent: &File, name: &str, flags: OFlags, mode: Mode) -> io::Result<File> {
     Ok(fs::openat2(
@@ -34,6 +35,54 @@ pub fn parent(workspace: &File, path: &str) -> io::Result<(File, String)> {
         .into(),
         name.into(),
     ))
+}
+/// Create parents only after document preflight has accepted the entire batch.
+/// Empty directories are retained on later failure: another writer may already
+/// be using them; document rollback must never remove shared directories.
+pub fn create_parent(workspace: &File, path: &str) -> io::Result<(File, String)> {
+    use std::os::unix::fs::MetadataExt;
+    if !crate::doc::disk::valid_path(path) {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let mut parts = path.split('/').peekable();
+    let mut directory = workspace.try_clone()?;
+    while let Some(part) = parts.next() {
+        if parts.peek().is_none() {
+            return Ok((directory, part.into()));
+        }
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY;
+        directory = match open(&directory, part, flags, Mode::empty()) {
+            Ok(child) => child,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let metadata = directory.metadata()?;
+                let created = match fs::mkdirat(&directory, part, Mode::from_raw_mode(0o775)) {
+                    Ok(()) => true,
+                    Err(rustix::io::Errno::EXIST) => false,
+                    Err(error) => return Err(error.into()),
+                };
+                // Reopen through the same kernel boundary, including after a
+                // competing mkdir. A symlink replacement is always refused.
+                let child = open(&directory, part, flags, Mode::empty())?;
+                if created {
+                    fs::fchown(
+                        &child,
+                        None,
+                        Some(rustix::process::Gid::from_raw(metadata.gid())),
+                    )?;
+                    // Only the new directory; never chmod an existing tree.
+                    fs::fchmod(
+                        &child,
+                        Mode::from_raw_mode(0o775 | (metadata.mode() & 0o2000)),
+                    )?;
+                    child.sync_all()?;
+                    directory.sync_all()?;
+                }
+                child
+            }
+            Err(error) => return Err(error),
+        };
+    }
+    unreachable!("validated nonempty path")
 }
 pub fn regular(file: &File) -> io::Result<()> {
     if !file.metadata()?.is_file() {

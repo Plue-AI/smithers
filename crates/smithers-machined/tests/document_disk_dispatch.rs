@@ -1457,3 +1457,131 @@ fn new_files_use_public_default_mode_and_existing_permissions_survive() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn nested_batch_create_reads_back_and_inherits_directory_group_and_setgid() {
+    let f = Fixture::new();
+    let workspace = f.root.join("workspace");
+    fs::set_permissions(&workspace, fs::Permissions::from_mode(0o2775)).unwrap();
+    let (_service, mut cx) = f.service();
+    for path in ["nested/fixture.txt", "deep/one/two/three/file.txt"] {
+        let reply = batch(&mut cx, &[(path, None, b"nested bytes")]);
+        assert_eq!(reply[0], 17);
+        assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
+        let reply =
+            result(&rpc::dispatch(&request(2, &[conn::field(1, string(path))]), &mut cx).unwrap());
+        assert_eq!(reply[0], 2);
+        assert_eq!(
+            &conn::fields("result2", &reply[1..]).unwrap()[0].1[4..],
+            b"nested bytes"
+        );
+        assert_eq!(fs::read(workspace.join(path)).unwrap(), b"nested bytes");
+        let gid = fs::metadata(&workspace).unwrap().gid();
+        assert_eq!(fs::metadata(workspace.join(path)).unwrap().gid(), gid);
+        let mut parent = workspace.join(path);
+        while parent.pop() && parent != workspace {
+            let metadata = fs::metadata(&parent).unwrap();
+            assert_eq!(metadata.gid(), gid);
+            assert_eq!(metadata.mode() & 0o7777, 0o2775);
+        }
+        let refused = batch(&mut cx, &[(path, None, b"overwrite")]);
+        let fields = conn::fields("result17", &refused[1..]).unwrap();
+        assert_eq!(fields[0].1, [0, 0]);
+        assert_eq!(
+            conn::fields("batch_failure", fields[1].1).unwrap()[1].1,
+            [1]
+        );
+        assert_eq!(fs::read(workspace.join(path)).unwrap(), b"nested bytes");
+    }
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn missing_parents_are_absent_for_read_recovery_and_removal() {
+    use smithers_machined::doc::disk::Disk;
+    let f = Fixture::new();
+    let mut disk = LinuxDisk::new(
+        File::open(f.root.join("workspace")).unwrap(),
+        File::open(f.root.join("store")).unwrap(),
+        f.receipts.clone(),
+    )
+    .unwrap();
+    let path = "missing/deep/file.txt";
+    assert_eq!(disk.read(path).unwrap(), None);
+    assert!(disk
+        .recover_temps(path, digest(path.as_bytes()))
+        .unwrap()
+        .is_empty());
+    let removed = disk
+        .remove_file(path, digest(path.as_bytes()), None)
+        .unwrap();
+    assert!(removed.displaced.is_none());
+    assert!(removed.error.is_none());
+    assert!(!f.root.join("workspace/missing").exists());
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn nested_preflight_refuses_symlinks_and_workspace_escape_without_creating_directories() {
+    let f = Fixture::new();
+    fs::create_dir(f.root.join("workspace/real")).unwrap();
+    symlink("real", f.root.join("workspace/link")).unwrap();
+    symlink("..", f.root.join("workspace/outside")).unwrap();
+    let (_service, mut cx) = f.service();
+    for path in [
+        "link/new/file",
+        "outside/new/file",
+        "../new/file",
+        "/new/file",
+    ] {
+        let reply = batch(&mut cx, &[(path, None, b"refused")]);
+        if !smithers_machined::doc::disk::valid_path(path) {
+            // Invalid syntax is refused by RPC decoding before batch admission.
+            assert_eq!(reply[0], 255, "{path}");
+            continue;
+        }
+        assert_eq!(reply[0], 17, "{path}");
+        let fields = conn::fields("result17", &reply[1..]).unwrap();
+        assert_eq!(fields[0].1, [0, 0], "{path}");
+        assert_eq!(
+            conn::fields("batch_failure", fields[1].1).unwrap()[1].1,
+            [1]
+        );
+    }
+    assert!(!f.root.join("workspace/real/new").exists());
+    assert!(!f.root.join("new").exists());
+    assert_eq!(
+        fs::read(f.root.join("sentinel")).unwrap(),
+        b"outside unchanged"
+    );
+}
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn nested_batch_refused_preflight_leaves_no_directories_or_records() {
+    let f = Fixture::new();
+    let (service, mut cx) = f.service();
+    for changes in [
+        vec![
+            ("nested/fixture.txt", None, &b"new"[..]),
+            ("a.rs", None, &b"bad"[..]),
+        ],
+        vec![("nested/fixture.txt", Some(&b"stale"[..]), &b"new"[..])],
+    ] {
+        let reply = batch(&mut cx, &changes);
+        let fields = conn::fields("result17", &reply[1..]).unwrap();
+        assert_eq!(fields[0].1, [0, 0]);
+        assert_eq!(
+            conn::fields("batch_failure", fields[1].1).unwrap()[1].1,
+            [1]
+        );
+        for now in [200, 2000, 60_001] {
+            f.clock.0.store(now, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+        }
+        assert!(!f.root.join("workspace/nested").exists());
+        assert_eq!(fs::read(f.root.join("workspace/a.rs")).unwrap(), b"abc");
+        assert_eq!(fs::read_dir(f.root.join("store")).unwrap().count(), 0);
+    }
+}
