@@ -71,7 +71,10 @@ const member = async (cookie: string, login: string) => {
   // This Linux namespace has no admitted microVM runtime for /file reads.
   // Reuse the production controller's document owner and command dispatcher;
   // the separate reference-browser journey proves /file admission on the mini.
-  const provider = controller.fileDocuments!.resolve(branch, "retry.ts")!.provider
+  const provider = controller.fileDocuments!.resolve(branch, "retry.ts", {
+    path: "retry.ts", branch, language: "", digest: "", content: { kind: "text", text: "" },
+    mode: "read_only", diagnostics: [], authors: [], editors: []
+  })!.provider
   const card = await mountDocument(provider, controller, {
     id: `epoch-${login}`, kind: "file", title: "retry.ts", status: "active", createdAt: 1, ordinal: 1,
     payload: { repo: "ben/demo", ref: branch, path: "retry.ts", content: "", truncated: false }
@@ -91,46 +94,70 @@ try {
   await wait("baseline saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved")
   assert.equal(ben.text().toString(), "")
   assert.equal(alice.text().toString(), "")
-  partitioned = true
-  ben.card.insert(0, "BEN-REAPPLY")
-  alice.card.insert(0, "ALICE-COPY")
-  assert.equal(ben.provider.saved, "saving")
-  assert.equal(alice.provider.saved, "saving")
-  console.log("NEW_EPOCH")
-  const input = console[Symbol.asyncIterator]()
-  const reply = await input.next()
-  assert.equal(reply.value?.trim(), "RESTARTED")
-  partitioned = false
-  await wait("new epoch recovery", () => ben.synced() && alice.synced() && !!ben.provider.unsaved && !!alice.provider.unsaved && !ben.provider.editable && !alice.provider.editable && ben.text().toString() === "" && alice.text().toString() === "")
-  assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" })
-  assert.deepEqual(alice.provider.unsaved, { count: 1, text: "ALICE-COPY" })
-  assert.equal(ben.text().toString(), "")
-  assert.equal(alice.text().toString(), "")
-  ben.card.recovery(1, "BEN-REAPPLY")
-  alice.card.recovery(1, "ALICE-COPY")
-  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Clipboard denied") } } })
-  await alice.card.activate("Copy")
-  await wait("failed Copy stays visible", () => alice.card.copyFailed())
-  assert.deepEqual(alice.provider.unsaved, { count: 1, text: "ALICE-COPY" })
-  let copied = ""
-  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { copied = value } } })
-  await alice.card.activate("Copy")
-  await wait("mounted Copy clears only Alice recovery", () => alice.provider.unsaved === undefined)
-  assert.equal(copied, "ALICE-COPY")
-  assert.equal(alice.card.text(), "")
-  assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" })
-  assert.ok(ben.controller.fileDocuments!.has("retry.ts", topic.split(":")[2]), "Ben owns his recovery document")
-  const reapplied = await ben.card.activate("Reapply")
-  assert.equal(reapplied?.status, "executed", JSON.stringify(reapplied))
-  assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" }, "Reapply retains text until the real daemon acknowledgment")
-  assert.equal(ben.provider.saved, "saving")
-  await wait("Reapply saved and peer converged", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.text().toString() === "BEN-REAPPLY")
-  assert.equal(ben.provider.reapply(), false, "Reapply cannot duplicate an acknowledged recovery")
-  assert.equal(ben.text().toString(), "BEN-REAPPLY")
-  assert.equal(ben.card.text(), "BEN-REAPPLY")
-  assert.equal(alice.card.text(), "BEN-REAPPLY")
-  ben.card.saved(); alice.card.saved()
-  console.log(JSON.stringify({ text: "BEN-REAPPLY", copied, retained: { Ben: 1, Alice: 1 } }))
+  if (process.env.SMITHERS_CODE_DOCUMENT_PHASE === "compare") {
+    ben.card.insert(0, "BEN-COMPARE")
+    await wait("baseline Compare edit saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.card.text() === "BEN-COMPARE")
+    console.log("OUTSIDE_COMPARE")
+    const input = console[Symbol.asyncIterator]()
+    assert.equal((await input.next()).value?.trim(), "WRITTEN")
+    const expected = "BEN-COMPARE\nOUTSIDE-COMPARE\n"
+    await wait("real watcher reconciles outside text", () => ben.card.text() === expected && alice.card.text() === expected)
+    console.log("CAPTURE_COMPARE")
+    assert.equal((await input.next()).value?.trim(), "CAPTURED")
+    await wait("real outside version projected", () => !!ben.provider.file?.outside && !!alice.provider.file?.outside && ben.card.text() === expected && alice.card.text() === expected)
+    const current = expected + "BEN-AFTER-CAPTURE"
+    ben.card.insert(ben.card.text().length, "BEN-AFTER-CAPTURE")
+    await wait("later edit saved without changing retained version", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.card.text() === current)
+    const result = await ben.card.activate("Compare")
+    assert.equal(result?.status, "executed", JSON.stringify(result))
+    assert.equal(ben.provider.comparison?.text, expected, "Compare reads the retained outside after-version, not the pre-burst bytes")
+    ben.card.comparison(expected, current)
+    assert.equal(alice.provider.comparison, undefined, "Compare stays local to its member")
+    await wait("Compare never changes the live document", () => ben.provider.saved === "saved" && alice.provider.saved === "saved")
+    console.log(JSON.stringify({ text: current, compared: ben.provider.comparison?.text, version: ben.provider.comparison?.version }))
+  } else {
+    partitioned = true
+    ben.card.insert(0, "BEN-REAPPLY")
+    alice.card.insert(0, "ALICE-COPY")
+    assert.equal(ben.provider.saved, "saving")
+    assert.equal(alice.provider.saved, "saving")
+    console.log("NEW_EPOCH")
+    const input = console[Symbol.asyncIterator]()
+    const reply = await input.next()
+    assert.equal(reply.value?.trim(), "RESTARTED")
+    partitioned = false
+    await wait("new epoch recovery", () => ben.synced() && alice.synced() && !!ben.provider.unsaved && !!alice.provider.unsaved && !ben.provider.editable && !alice.provider.editable && ben.text().toString() === "" && alice.text().toString() === "")
+    await wait("fresh epoch authenticated and synced", () => ben.provider.available && alice.provider.available)
+    assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" })
+    assert.deepEqual(alice.provider.unsaved, { count: 1, text: "ALICE-COPY" })
+    assert.equal(ben.text().toString(), "")
+    assert.equal(alice.text().toString(), "")
+    ben.card.recovery(1, "BEN-REAPPLY")
+    alice.card.recovery(1, "ALICE-COPY")
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("Clipboard denied") } } })
+    await alice.card.activate("Copy")
+    await wait("failed Copy stays visible", () => alice.card.copyFailed())
+    assert.deepEqual(alice.provider.unsaved, { count: 1, text: "ALICE-COPY" })
+    let copied = ""
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { copied = value } } })
+    await alice.card.activate("Copy")
+    await wait("mounted Copy clears only Alice recovery", () => alice.provider.unsaved === undefined)
+    assert.equal(copied, "ALICE-COPY")
+    assert.equal(alice.card.text(), "")
+    assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" })
+    assert.ok(ben.controller.fileDocuments!.has("retry.ts", topic.split(":")[2]), "Ben owns his recovery document")
+    const reapplied = await ben.card.activate("Reapply")
+    assert.equal(reapplied?.status, "executed", JSON.stringify(reapplied))
+    assert.deepEqual(ben.provider.unsaved, { count: 1, text: "BEN-REAPPLY" }, "Reapply retains text until the real daemon acknowledgment")
+    assert.equal(ben.provider.saved, "saving")
+    await wait("Reapply saved and peer converged", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.text().toString() === "BEN-REAPPLY")
+    assert.equal(ben.provider.reapply(), false, "Reapply cannot duplicate an acknowledged recovery")
+    assert.equal(ben.text().toString(), "BEN-REAPPLY")
+    assert.equal(ben.card.text(), "BEN-REAPPLY")
+    assert.equal(alice.card.text(), "BEN-REAPPLY")
+    ben.card.saved(); alice.card.saved()
+    console.log(JSON.stringify({ text: "BEN-REAPPLY", copied, retained: { Ben: 1, Alice: 1 } }))
+  }
 } finally {
   ben.card.dispose(); alice.card.dispose(); await ben.controller.dispose(); await alice.controller.dispose(); ben.channel.dispose(); alice.channel.dispose()
 }

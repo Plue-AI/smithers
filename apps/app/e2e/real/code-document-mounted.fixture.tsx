@@ -48,6 +48,7 @@ export async function mountDocument(provider: LiveDocProvider, controller?: AppC
       flushSync(() => button.click())
       return await command
     },
+    comparison(value: string, current = value) { render(); const outside = EditorView.findFromDOM(host.querySelector(".code-file-outside .cm-editor")!)!; assert.equal(outside.state.doc.toString(), value); assert.equal(editor().state.doc.toString(), current); },
     copyFailed: () => host.querySelector('[role="status"]')?.textContent === "Copy failed",
     recovery(count: number, value: string) { render(); assert.ok(host.textContent?.includes(`${count} edit wasn't saved`)); assert.ok(host.textContent?.includes(value)); assert.equal(host.querySelector('[contenteditable="true"]'), null); },
     text: () => editor().state.doc.toString(),

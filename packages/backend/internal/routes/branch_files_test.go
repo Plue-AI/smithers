@@ -25,6 +25,9 @@ func TestBranchFileRefusesWithoutSourceAuthority(t *testing.T) {
 		{"empty digest", "JOURNEY.md?digest=", true, 503},
 		{"comparison", "JOURNEY.md?compare=burst-before", true, 503},
 		{"empty comparison", "JOURNEY.md?compare=", true, 503},
+		{"outside without version", "JOURNEY.md?outside=1", true, 400},
+		{"invalid outside selector", "JOURNEY.md?compare=burst&outside=after", true, 400},
+		{"outside unavailable", "JOURNEY.md?compare=burst&outside=1", true, 503},
 		{"revision does not override digest", "JOURNEY.md?at=main&digest=sha256:abc", true, 503},
 		{"anonymous digest", "JOURNEY.md?digest=sha256:abc", false, 401},
 	} {

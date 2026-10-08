@@ -41,7 +41,7 @@ func (t *liveTopics) branchChanges(ctx context.Context, topic string, repository
 		if _, err := t.presence.branches.PresenceBranch(ctx, row.ID, repository, member); err != nil {
 			return nil, err
 		}
-		rows, err := t.changePool.Query(ctx, `SELECT DISTINCT ON(f.path) jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'renamed_to',f.renamed_to,'last_writer',e.data->'actor','post_digest',COALESCE(f.post_digest,'absent'))) FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 ORDER BY f.path,e.sequence DESC`, strconv.FormatInt(repository, 10), "branch:"+row.ID)
+		rows, err := t.changePool.Query(ctx, `SELECT DISTINCT ON(f.path) jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'renamed_to',f.renamed_to,'last_writer',e.data->'actor','post_digest',COALESCE(f.post_digest,'absent'),'outside_change',CASE WHEN e.data->>'versions' IS NOT NULL THEN jsonb_build_object('version',e.data->>'versions','at',e.recorded_at) END)) FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 ORDER BY f.path,e.sequence DESC`, strconv.FormatInt(repository, 10), "branch:"+row.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -60,6 +60,23 @@ func (t *liveTopics) branchChanges(ctx context.Context, topic string, repository
 			file["last_writer"], err = actor(file["last_writer"])
 			if err != nil {
 				return nil, err
+			}
+			var change, destination string
+			if err := json.Unmarshal(file["change"], &change); err != nil {
+				return nil, err
+			}
+			if change == "deleted" || change == "renamed" {
+				gone := map[string]any{"kind": "deleted", "by": file["last_writer"]}
+				if change == "renamed" {
+					if err := json.Unmarshal(file["renamed_to"], &destination); err != nil {
+						return nil, err
+					}
+					gone["kind"], gone["to"] = "renamed", destination
+				}
+				file["gone"], err = json.Marshal(gone)
+				if err != nil {
+					return nil, err
+				}
 			}
 			data, err = json.Marshal(file)
 			if err != nil {

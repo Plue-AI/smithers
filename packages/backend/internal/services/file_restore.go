@@ -133,6 +133,16 @@ func (s *WorkspaceService) readBurstFile(ctx context.Context, repositoryID int64
 }
 
 func (s *WorkspaceService) CompareBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version string) (WorkspaceFileContent, error) {
+	return s.compareBranchFile(ctx, branch, repositoryID, userID, filePath, version, false)
+}
+
+// CompareOutsideBranchFile reads the retained outside end state, rather than
+// the pre-burst version used by ordinary file recovery.
+func (s *WorkspaceService) CompareOutsideBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version string) (WorkspaceFileContent, error) {
+	return s.compareBranchFile(ctx, branch, repositoryID, userID, filePath, version, true)
+}
+
+func (s *WorkspaceService) compareBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version string, outside bool) (WorkspaceFileContent, error) {
 	if s.burstPool == nil || s.burstVersions == nil {
 		return WorkspaceFileContent{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "file versions unavailable")
 	}
@@ -146,15 +156,19 @@ func (s *WorkspaceService) CompareBranchFile(ctx context.Context, branch string,
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
+	column, objectPath := "before_blob", "a/"+filePath
+	if outside {
+		column, objectPath = "after_blob", "b/"+filePath
+	}
 	var before string
-	err = s.burstPool.QueryRow(ctx, `SELECT COALESCE(f.before_blob,'') FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 AND e.data->>'versions'=$3 AND f.path=$4 ORDER BY e.sequence DESC LIMIT 1`, fmt.Sprint(repositoryID), "branch:"+row.ID, version, filePath).Scan(&before)
+	err = s.burstPool.QueryRow(ctx, `SELECT COALESCE(f.`+column+`,'') FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE e.tenant_id=$1 AND e.principal_id=$2 AND e.data->>'versions'=$3 AND f.path=$4 ORDER BY e.sequence DESC LIMIT 1`, fmt.Sprint(repositoryID), "branch:"+row.ID, version, filePath).Scan(&before)
 	if err == pgx.ErrNoRows {
 		return WorkspaceFileContent{}, pkgerrors.NotFound("file version not found")
 	}
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
-	content, err := s.readBurstBefore(ctx, repositoryID, filePath, version, before)
+	content, err := s.readBurstFile(ctx, repositoryID, objectPath, version, before)
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}

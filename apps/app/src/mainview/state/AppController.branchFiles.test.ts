@@ -102,10 +102,10 @@ for (const actor of ["user", "agent"] as const) {
 test("failed Compare keeps the File card and reports a visible failure", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: string[] = []
-  const model: FileCard = { ...file, outside: { version: "before-17", at: "2026-10-06T00:00:00Z" } }
+  const model: FileCard = { ...file, branch: "scratch/ben/compare", outside: { version: "before-17", at: "2026-10-06T00:00:00Z" } }
   const app = controller(store, agent, {
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
-    branchOptions: { ready: () => true, scope: () => ({ branch: "main", member: "ben", revision: 1, sleeping: false }) },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "scratch/ben/compare", member: "ben", revision: 1, sleeping: false }) },
     fetchImpl: async url => {
       requests.push(String(url))
       return String(url).includes("?compare=")
@@ -115,13 +115,13 @@ test("failed Compare keeps the File card and reports a visible failure", async (
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   requests.length = 0
-  await app.commands.submit({ name: "file", payload: { path: file.path, branch: file.branch }, actor: "user" })
+  await app.commands.submit({ name: "file", payload: { path: model.path, branch: model.branch }, actor: "user" })
   const opened = [...store.collections.cards.values()].find(card => card.kind === "file")!
-  const result = await app.commands.submit({ name: "file.compare", payload: { path: file.path, branch: file.branch }, actor: "user" })
+  const result = await app.commands.submit({ name: "file.compare", payload: { path: model.path, branch: model.branch }, actor: "user" })
   expect(result.status).toBe("failed")
   expect(JSON.stringify(result)).toContain("Could not compare the file.")
   expect(store.collections.cards.get(opened.id)).toEqual(opened)
-  expect(requests).toEqual(["/api/branches/main/files/README.md", "/api/branches/main/files/README.md?compare=before-17"])
+  expect(requests).toEqual(["/api/branches/scratch%2Fben%2Fcompare/files/README.md", "/api/branches/scratch%2Fben%2Fcompare/files/README.md?compare=before-17"])
 })
 
 test("install file commands use the persisted selected branch without injected options", async () => {

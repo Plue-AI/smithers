@@ -22,6 +22,7 @@ import (
 type BranchFileContentService interface {
 	ReadBranchFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error)
 	CompareBranchFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error)
+	CompareOutsideBranchFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error)
 	BranchFileFact(context.Context, string, int64, int64, string) (*services.BranchFileFact, error)
 }
 
@@ -61,6 +62,10 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 	// Selectors are handled only by their authoritative provider. Never
 	// silently drop a digest and answer unrelated mirror bytes.
 	query := r.URL.Query()
+	if query.Has("outside") && (!query.Has("compare") || query.Get("outside") != "1") {
+		writeRouteError(w, r, pkgerrors.BadRequest("invalid outside selector"))
+		return
+	}
 
 	if query.Has("compare") && h.Live != nil && h.Authorize != nil {
 		if query.Has("digest") {
@@ -72,7 +77,11 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 			writeRouteError(w, r, err)
 			return
 		}
-		content, err := h.Live.CompareBranchFile(r.Context(), branch, repository, member, filePath, query.Get("compare"))
+		compare := h.Live.CompareBranchFile
+		if query.Has("outside") {
+			compare = h.Live.CompareOutsideBranchFile
+		}
+		content, err := compare(r.Context(), branch, repository, member, filePath, query.Get("compare"))
 		if err != nil {
 			writeRouteError(w, r, err)
 			return

@@ -267,3 +267,14 @@ test("committed burst snapshots reload open files after missed hints and retain 
   dispose()
   expect(subscriptions).toBe(0)
 })
+
+ test("live Compare selects outside end state; ordinary recovery keeps before state", async () => {
+   const calls: string[] = []
+   const seam = fixture(async url => { calls.push(url); return json({ text: "retained\n" }) }, ready)
+   expect(await seam.compare(file(), "versions-17", true)).toEqual({ ok: { text: "retained\n" } })
+   expect(await seam.compare(file(), "versions-17")).toEqual({ ok: { text: "retained\n" } })
+   expect(calls).toEqual([
+     "/api/branches/scratch%2Fmaya%2Fdemo/files/src/deliver.ts?compare=versions-17&outside=1",
+     "/api/branches/scratch%2Fmaya%2Fdemo/files/src/deliver.ts?compare=versions-17"
+   ])
+ })

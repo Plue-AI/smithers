@@ -35,7 +35,7 @@ export class FileDocuments {
         const snapshot = this.channel.getSnapshot(topic)
         if (snapshot?.error) { provider.revoke(); return }
         const data = branchFileRows(snapshot?.data)
-        const rows = Array.isArray(data) ? data : []
+        const rows = Array.isArray(data) ? data : data && typeof data === "object" && "changed" in data && Array.isArray(data.changed) ? data.changed : []
         const row = rows.find(row => row?.path === path)
         if (row && typeof row === "object" && "branch" in row && row.branch !== branch) return
         const outside = Outside.safeParse(row?.outside_change)
@@ -68,12 +68,12 @@ export class FileDocuments {
     if (!model) return "File recovery is unavailable."
     if (tag === "file.compare") {
       if (!model.outside) return "No outside change."
-      const result = await this.files.compare(model, model.outside.version)
+      const result = await this.files.compare(model, model.outside.version, true)
       if ("error" in result) return result.error
-      const snapshot = z.object({ before: z.string(), current: z.string() }).safeParse(result.ok)
+      const snapshot = z.object({ text: z.string() }).safeParse(result.ok)
       if (!snapshot.success) return "The comparison was malformed."
       if (!provider.available || provider.file?.outside?.version !== model.outside.version) return "The outside change moved."
-      provider.setComparison({ version: model.outside.version, text: snapshot.data.before })
+      provider.setComparison({ version: model.outside.version, text: snapshot.data.text })
       return { value: JSON.stringify(result.ok) }
     }
     if (tag === "file.follow-rename") {

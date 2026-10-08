@@ -444,7 +444,7 @@ export interface BranchFileOperations {
   readonly restoreDocument: (file: FileCard, text: string) => Promise<BranchFileAnswer<unknown>>
   readonly reload: (file: FileCard, event: { path: string; post_digest: string; actor: FileCard["last_writer"] }) => Promise<BranchFileAnswer<FileCard> | undefined>
   readonly restore: (file: FileCard, burst: { version: string; post_digest: string }, deleted?: boolean) => Promise<BranchFileAnswer<FileCard> | { readonly compare: unknown }>
-  readonly compare: (file: FileCard, version: string) => Promise<BranchFileAnswer<unknown>>
+  readonly compare: (file: FileCard, version: string, outside?: boolean) => Promise<BranchFileAnswer<unknown>>
   readonly follow: (file: FileCard) => Promise<BranchFileAnswer<FileCard>>
 }
 
@@ -491,11 +491,12 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       return { ok: { ...parsed.data, mode: "read_only" } }
     } catch { return { error: "Could not read the file." } }
   }
-  const compare: BranchFileOperations["compare"] = async (file, version) => {
+  const compare: BranchFileOperations["compare"] = async (file, version, outside = false) => {
     const scope = scopeFor(file.branch, file.path)
     if ("error" in scope) return scope
     try {
       const query = new URLSearchParams({ compare: version })
+      if (outside) query.set("outside", "1")
       if (scope.sleeping) query.set("at", scope.capturedHead!)
       const response = await ctx.http(`${url(file.branch, file.path)}?${query}`)
       if (!response.ok) return { error: await readErrorMessage(response, "Could not compare the file.") }

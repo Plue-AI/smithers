@@ -840,3 +840,81 @@ func TestLiveCodeDocumentRealPathConfinement(t *testing.T) {
 	ben.savedClientClock(t, client, uint64(len("SAFE-DOCUMENT-STILL-EDITABLE")))
 	require.Equal(t, "-STILL-EDITABLESAFE-DOCUMENT", f.disk(t))
 }
+
+// Mounted Compare uses the real production command, member session, retained
+// object store and composed HTTP reader. The branch guest is a Linux namespace;
+// this does not claim /file microVM admission or reference-host qualification.
+func TestLiveCodeDocumentRealMountedCompare(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-epoch.fixture.ts")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "bun", "run", script)
+	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+f.origin,
+		"SMITHERS_CODE_DOCUMENT_TOPIC="+f.topic, "SMITHERS_CODE_DOCUMENT_PHASE=compare")
+	input, err := command.StdinPipe()
+	require.NoError(t, err)
+	output, err := command.StdoutPipe()
+	require.NoError(t, err)
+	stderr := &lockedBuffer{}
+	command.Stderr = stderr
+	require.NoError(t, command.Start())
+	t.Cleanup(func() { cancel(); _ = command.Process.Kill() })
+	scanner := bufio.NewScanner(output)
+	var last string
+	captures := 0
+	for scanner.Scan() {
+		if scanner.Text() == "OUTSIDE_COMPARE" {
+			require.Equal(t, "BEN-COMPARE", f.disk(t))
+			temp := filepath.Join(f.root, "outside.tmp")
+			require.NoError(t, os.WriteFile(temp, []byte("BEN-COMPARE\nOUTSIDE-COMPARE\n"), 0640))
+			require.NoError(t, os.Rename(temp, filepath.Join(f.root, "retry.ts")))
+			_, err = io.WriteString(input, "WRITTEN\n")
+			require.NoError(t, err)
+			continue
+		}
+		if scanner.Text() == "CAPTURE_COMPARE" {
+			captured, err := f.registry.Capture(t.Context(), f.branch)
+			require.NoError(t, err)
+			require.Len(t, captured.Head, 40)
+			captures++
+			_, err = io.WriteString(input, "CAPTURED\n")
+			require.NoError(t, err)
+			continue
+		}
+		last = scanner.Text()
+	}
+	require.NoError(t, scanner.Err())
+	require.NoError(t, command.Wait(), stderr.String())
+	var result struct{ Text, Compared, Version string }
+	require.NoError(t, json.Unmarshal([]byte(last), &result), last)
+	require.Equal(t, 1, captures)
+	require.Equal(t, "BEN-COMPARE\nOUTSIDE-COMPARE\n", result.Compared)
+	require.Len(t, result.Version, 40)
+	require.Equal(t, result.Text, f.disk(t))
+	read := func(cookie, selector string, status int) string {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, f.origin+"/api/branches/"+f.branch+"/files/retry.ts?"+selector, nil)
+		require.NoError(t, err)
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, status, response.StatusCode, "%s", raw)
+		var body struct{ Text string }
+		require.NoError(t, json.Unmarshal(raw, &body))
+		return body.Text
+	}
+	require.Equal(t, "BEN-COMPARE", read("ben-cookie", "compare="+result.Version, http.StatusOK), "ordinary recovery Compare still reads the before-version")
+	require.Equal(t, result.Compared, read("alice-cookie", "compare="+result.Version+"&outside=1", http.StatusOK))
+	read("ben-cookie", "compare="+strings.Repeat("0", 40)+"&outside=1", http.StatusNotFound)
+	read("ben-cookie", "compare="+result.Version+"&outside=after", http.StatusBadRequest)
+	_, err = f.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, f.alice)
+	require.NoError(t, err)
+	read("alice-cookie", "compare="+result.Version+"&outside=1", http.StatusUnauthorized)
+	require.Equal(t, result.Text, f.disk(t), "refusals cannot mutate the document or its durable file")
+	f.documentEvidence(t, "mounted-compare")
+}
