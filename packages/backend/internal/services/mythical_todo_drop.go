@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -44,16 +45,11 @@ type mythicalRunCanceller interface {
 	CancelRequestInTx(context.Context, pgx.Tx, jobs.Scope, string) (jobs.Operation, error)
 }
 
-// dropTodo is Drop on an unmerged TODO (spec §4.1 any unmerged → dropped,
-// §10.7.2). Under the stack's row lock it applies the control guard, cancels
-// the attempt's runs in the same transaction, settles every open wait,
-// clears the pause and records the TODO cancelled, which projects dropped:
-// no later TODO's merge waits on it (mythicalMergeAfter) and no later
-// prefix includes it. A TODO with a pull request keeps a close obligation in
-// its pending_op: the stack comments "Dropped in Smithers by @x" and closes
-// it (appSend), then releases its lane as it does every settled item's. The
-// same Idempotency-Key again answers the same receipt; another press on the
-// dropped TODO is 409.
+// dropTodo admits a person's Drop under the stack lock. A live pinned attempt
+// first commits cancellation and a durable capture obligation; the stack worker
+// stops physical writers and retains their final capture before folding forks
+// and removing the item. The existing pending_op owns PR close recovery. A
+// repeated Idempotency-Key replays the original acknowledgment at either stage.
 func (s *MythicalService) dropTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
@@ -99,12 +95,46 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 					return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
 				}
 			}
-			// A pinned composition may still write after cancellation admission.
-			// Until stopped-writer capture is composed, refuse before recording
-			// cancellation or allowing successor rebases to discard its work.
 			checks := mythicalChecksOf(item)
 			if item.FlowDigest.Valid && checks.RunLaunched && item.RequestOutcome == "" {
-				return todoControlUnavailable()
+				capture, ok := s.lanes.(todoDropCapture)
+				_, cancels := s.launcher.(mythicalRunCanceller)
+				if !ok || !cancels || !stack.ActorUserID.Valid || item.WorkspaceID == "" {
+					return todoControlUnavailable()
+				}
+				if err := capture.DropCaptureReady(ctx, tx, item); err != nil {
+					return err
+				}
+				var forks bool
+				if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces w JOIN mythical_items child ON child.workspace_id=w.id::text WHERE w.forked_from_item=$1 AND child.stack_position IS NOT NULL)`, item.ID).Scan(&forks); err != nil {
+					return err
+				}
+				if forks {
+					_, reads := s.lanes.(interface {
+						CapturedHead(context.Context, string, int64, int64) (string, error)
+					})
+					if !reads || s.host == nil || !mythicalSHA.MatchString(item.CandidateBase) || !mythicalSHA.MatchString(item.CandidateHead) {
+						return todoControlUnavailable()
+					}
+				}
+				if item.PRNumber.Valid && s.github == nil {
+					return todoControlUnavailable()
+				}
+				if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
+					return err
+				}
+				checks.DropRequested = &todoDrop{Request: input.Request, Credential: credential, By: person.Username, At: s.now().UTC()}
+				item.Checks = checks.encode()
+				saved, err := q.SaveMythicalItem(ctx, item)
+				if err != nil {
+					return err
+				}
+				receipt = TodoControlReceipt{State: "accepted"}
+				if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.drop-requested", receipt, map[string]any{"item": uuidString(item.ID), "n": number}); err != nil {
+					return err
+				}
+				s.itemChanged(ctx, q, stack, saved.ID)
+				return nil
 			}
 			if err := s.FoldIntoForks(ctx, tx, stack, item); err != nil {
 				return err
@@ -124,6 +154,7 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err != nil {
 				return err
 			}
+
 			changed, err := s.removeTodoPlace(ctx, q, stack, saved, order)
 			if err != nil {
 				return err
@@ -213,6 +244,7 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 			checks.Waits[i].SettledAt = &at
 		}
 	}
+	checks.DropRequested = nil
 	checks.Dropped = &drop
 	checks.GitHubDropRead = nil
 	checks.GitHubClosedAt = &drop.At
@@ -233,4 +265,66 @@ func mythicalDropComment(drop *todoDrop) string {
 		return "Dropped in Smithers"
 	}
 	return "Dropped in Smithers by @" + drop.By
+}
+
+// Cancellation admission and machine shutdown must commit separately: capture
+// ingestion takes the stack lock too. The existing stack worker retries this
+// obligation after crashes; neither a cancel receipt nor a DB head proves that
+// the physical writer has stopped.
+type todoDropCapture interface {
+	DropCaptureReady(context.Context, pgx.Tx, db.MythicalItem) error
+	CaptureDroppedTodo(context.Context, db.MythicalItem, func() error) error
+}
+
+func (s *MythicalService) advanceTodoDrop(ctx context.Context, stack db.MythicalStack, item db.MythicalItem) error {
+	capture, ok := s.lanes.(todoDropCapture)
+	if !ok {
+		return todoControlUnavailable()
+	}
+	return capture.CaptureDroppedTodo(ctx, item, func() error {
+		return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID); err != nil {
+				return err
+			}
+			q := db.New(tx)
+			current, err := q.GetMythicalItem(ctx, item.ID)
+			if err != nil {
+				return err
+			}
+			drop := mythicalChecksOf(current).DropRequested
+			if drop == nil {
+				return nil
+			}
+			if current.Attempt != item.Attempt || current.WorkspaceID != item.WorkspaceID || mythicalMergeFenced(current) {
+				return todoControlConflict("TODO changed during Drop")
+			}
+			if err := s.FoldIntoForks(ctx, tx, stack, current); err != nil {
+				return err
+			}
+			order, err := q.LockMythicalStackOrder(ctx, current.RepositoryID)
+			if err != nil {
+				return err
+			}
+			saved, err := q.SaveMythicalItem(ctx, mythicalDropped(current, *drop))
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `UPDATE workspaces SET branch_archived_at=COALESCE(branch_archived_at,$2) WHERE id::text=$1`, saved.WorkspaceID, drop.At); err != nil {
+				return err
+			}
+			changed, err := s.removeTodoPlace(ctx, q, stack, saved, order)
+			if err != nil {
+				return err
+			}
+			for _, successor := range changed {
+				s.itemChanged(ctx, q, stack, successor.ID)
+			}
+			raw, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "by": drop.By})
+			if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.dropped", todoState(saved), raw); err != nil {
+				return err
+			}
+			s.itemChanged(ctx, q, stack, saved.ID)
+			return nil
+		})
+	})
 }

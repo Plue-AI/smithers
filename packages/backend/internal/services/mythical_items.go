@@ -619,6 +619,10 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
+			// Drop owns terminal settlement once cancellation is committed.
+			if mythicalChecksOf(item).DropRequested != nil {
+				return nil
+			}
 			// A reopened generation cannot revive or be changed by its closed run.
 			if todoReopenedAttempt(item) {
 				return nil
@@ -1499,6 +1503,14 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	}()
 	for _, item := range items {
 		if ctx.Err() != nil {
+			return
+		}
+		if mythicalChecksOf(item).DropRequested != nil {
+			if err := s.advanceTodoDrop(ctx, r.row, item); err != nil {
+				s.logger.Warn("todo.drop_pending", "item", uuidString(item.ID), "error", err)
+				r.advanceError = fmt.Errorf("Drop T%d: %w", item.Number.Int64, err)
+			}
+			r.dueAt(step.now.Add(time.Second))
 			return
 		}
 		if todoWatchdogEligible(item) {
@@ -5323,6 +5335,7 @@ func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.Mythi
 			checks.Waits[i].SettledAt = &at
 		}
 	}
+	checks.DropRequested = nil
 	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
 	item.Checks = checks.encode()
 	return settleTodoAttemptEvidence(item, "merged")
@@ -5700,7 +5713,8 @@ type mythicalChecks struct {
 	// counts from there while the attempt number keeps counting.
 	AttemptBase int32 `json:"attemptBase,omitempty"`
 	// Dropped is the person's Drop (dropTodo): its key, who and when.
-	Dropped *todoDrop `json:"dropped,omitempty"`
+	Dropped       *todoDrop `json:"dropped,omitempty"`
+	DropRequested *todoDrop `json:"drop_requested,omitempty"`
 	// TodoEvent is the GitHub event id of the last maintainer application
 	// of todo the stack acted on.
 	TodoEvent int64 `json:"todoEvent,omitempty"`

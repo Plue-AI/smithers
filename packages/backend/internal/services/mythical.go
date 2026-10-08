@@ -347,7 +347,8 @@ type mythicalOutcome struct {
 	// due is when an item this pass advanced or passed over can take its
 	// next step with no outside event (zero: none can): the stack runs
 	// again then, not at the stale sweep.
-	due time.Time
+	due          time.Time
+	advanceError error
 }
 
 func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStack) {
@@ -497,7 +498,8 @@ type mythicalRun struct {
 	owner, repo, branch    string
 	mainTip, tip, notesRef string
 	// due is the earliest moment an item can step again (mythicalOutcome.due).
-	due time.Time
+	due          time.Time
+	advanceError error
 }
 
 // dueAt records that an item can take its next step at t.
@@ -596,6 +598,9 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
+		if r.advanceError != nil {
+			return mythicalFailed("%v", r.advanceError)
+		}
 		outcome.due = r.due
 		return outcome
 	}

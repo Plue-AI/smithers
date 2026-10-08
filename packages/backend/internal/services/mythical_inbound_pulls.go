@@ -201,6 +201,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 						checks.Waits[i].SettledAt = &at
 					}
 				}
+				checks.DropRequested = nil
 				next.State, next.PRState, next.Reason = "rejected", "closed", "closed on GitHub"
 				if payload.ClosedBy != nil && payload.ClosedBy.Login != "" {
 					next.Reason += " by @" + payload.ClosedBy.Login
@@ -255,6 +256,9 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 				checks.RunLaunched, checks.RunAttached = false, false
 				next.State, next.PRState, next.Reason = "proposed", "open", ""
+				if _, err := tx.Exec(ctx, `UPDATE workspaces SET branch_archived_at=NULL WHERE repository_id=$1 AND target_bookmark=$2`, item.RepositoryID, checks.Branch); err != nil {
+					return nil, err
+				}
 				checks.GitHubReopenedAttempt = item.Attempt
 				checks.GitHubClosedAt = nil
 				// Missing branches are restored from the last verified proposal; a

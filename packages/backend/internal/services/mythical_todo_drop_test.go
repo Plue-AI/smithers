@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -266,4 +268,66 @@ func TestTodoDropClosesLateDiscoveredPull(t *testing.T) {
 	require.Equal(t, "closed", h.pull(dropped.PRNumber.Int64).State)
 	require.Len(t, h.pullCreates(), 1)
 	require.Len(t, h.comments(dropped.PRNumber.Int64), 1)
+}
+
+// Fault injection supplements TestTodoLiveDropBundledHost's production path.
+type dropCaptureFault struct {
+	*fakeMythicalLanes
+	failure  error
+	captures int
+}
+
+func (f *dropCaptureFault) DropCaptureReady(context.Context, pgx.Tx, db.MythicalItem) error {
+	return nil
+}
+func (f *dropCaptureFault) CaptureDroppedTodo(_ context.Context, _ db.MythicalItem, finish func() error) error {
+	f.captures++
+	if f.failure != nil {
+		return f.failure
+	}
+	return finish()
+}
+func TestTodoDropCaptureFailureRecovery(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "capture recovery")
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	o.projectTodo(launches[0], jobs.StateWaiting, "drop-run", todoPinOne, "")
+	item = o.byID(uuidString(item.ID))
+	fault := &dropCaptureFault{fakeMythicalLanes: o.lanes, failure: errors.New("capture disconnected")}
+	o.service.lanes = fault
+	press := TodoControlInput{Op: "drop", Repository: o.repoID, Actor: o.userID, Request: "deferred-drop"}
+	for range 2 {
+		receipt, err := o.service.ControlTodo(session, item.Number.Int64, press)
+		require.NoError(t, err)
+		require.Equal(t, "accepted", receipt.State)
+	}
+	pending := o.byID(uuidString(item.ID))
+	require.NotNil(t, mythicalChecksOf(pending).DropRequested)
+	require.Equal(t, item.StackPosition, pending.StackPosition)
+	require.Empty(t, o.facts(item, "todo.dropped"))
+	require.Zero(t, fault.captures)
+	stack, err := o.service.queries().GetMythicalStack(ctx, o.repoID)
+	require.NoError(t, err)
+	require.ErrorContains(t, o.service.advanceTodoDrop(ctx, stack, pending), "capture disconnected")
+	require.Equal(t, pending, o.byID(uuidString(item.ID)))
+	// The cancelled checkpoint cannot turn the admitted Drop into failed.
+	o.projectTodo(launches[0], jobs.StateCancelled, "drop-run", todoPinOne, "")
+	require.Equal(t, pending, o.byID(uuidString(item.ID)))
+	// Simulate worker reconstruction: the obligation lives on the item, not
+	// an in-memory cancellation callback.
+	recovered := *o.service
+	fault.failure = nil
+	require.NoError(t, recovered.advanceTodoDrop(ctx, stack, o.byID(uuidString(item.ID))))
+	saved := o.byID(uuidString(item.ID))
+	require.Equal(t, "dropped", todoState(saved))
+	require.False(t, saved.StackPosition.Valid)
+	require.Nil(t, mythicalChecksOf(saved).DropRequested)
+	require.Len(t, o.facts(item, "todo.dropped"), 1)
+	receipt, err := recovered.ControlTodo(session, item.Number.Int64, press)
+	require.NoError(t, err)
+	require.Equal(t, "accepted", receipt.State)
 }

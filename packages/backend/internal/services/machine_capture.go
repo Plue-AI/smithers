@@ -161,6 +161,12 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 			continue
 		}
 		checks := mythicalChecksOf(item)
+		// Drop retains this snapshot for reopening, independently of the last
+		// accepted generation. It cannot revoke that generation's evidence.
+		if checks.DropRequested != nil {
+			needed = true
+			continue
+		}
 		if resolved && retained.ReconcileWaitID != "" {
 			var now time.Time
 			if err := p.tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {

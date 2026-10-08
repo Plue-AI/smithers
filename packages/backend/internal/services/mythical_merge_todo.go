@@ -461,6 +461,8 @@ func mythicalMergeReady(item db.MythicalItem, before int64, head string, fenced 
 		return mythicalMergeConflict("state", "only a TODO in review can merge")
 	case before > 0:
 		return mythicalMergeConflict("order", fmt.Sprintf("Merges after T%d", before))
+	case mythicalChecksOf(item).DropRequested != nil:
+		return mythicalMergeConflict("pending_work", "Drop is pending")
 	case mythicalMergeFenced(item) && !fenced:
 		return mythicalMergeConflict("merging", "A merge is in flight")
 	case mythicalRebuilding(item):

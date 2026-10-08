@@ -166,6 +166,9 @@ func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoCo
 	if err := input.validate(); err != nil {
 		return err
 	}
+	if mythicalChecksOf(item).DropRequested != nil {
+		return todoControlConflict("Drop is pending")
+	}
 	if mythicalMergeFenced(item) {
 		return &TodoControlError{http.StatusConflict, "merging", "conflict", "TODO is merging"}
 	}
@@ -338,7 +341,7 @@ func todoControlReplay(ctx context.Context, tx pgx.Tx, q *db.Queries, item db.My
 	canonical, _ := json.Marshal(input)
 	var raw []byte
 	err = tx.QueryRow(ctx, `SELECT authorization_context->'receipt' FROM product_job_requests
-	 WHERE operation=$1 AND authorization_context->>'credential'=$2 AND authorization_context->>'request'=$3
+	 WHERE (operation=$1 OR ($1='todo.dropped' AND operation='todo.drop-requested')) AND authorization_context->>'credential'=$2 AND authorization_context->>'request'=$3
 	 AND payload->>'item'=$4 AND authorization_context->'request_body'=$5::jsonb`, operation, credential, input.Request, uuidString(item.ID), canonical).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TodoControlReceipt{}, false, todoRequestMismatch()
