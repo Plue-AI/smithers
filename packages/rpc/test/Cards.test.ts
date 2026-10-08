@@ -838,6 +838,7 @@ const FIXTURES: Record<
       source: { path: "TODO.md", owner: "ben", opened: true },
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",
+      issuePreparation: { source: { author: "ben", number: 7, title: "Original issue", body: "Original body", url: "https://github.com/org/repo/issues/7", digest: "a".repeat(64), comments: [{ author: "alice", body: "Observed failure" }] }, state: "failed", error: "Model unavailable" },
       imagePreparation: { name: "todo", repo: "org/repo", state: "requested" },
       issuePreparation: { source: { author: "ben", number: 7, title: "Retry webhooks", body: "Retry transient failures", url: "https://github.com/org/repo/issues/7", digest: "a".repeat(64), comments: [{ author: "mia", body: "Use jitter" }] }, state: "requested" },
       idempotencyKey: "commit-1",
