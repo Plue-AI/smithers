@@ -76,6 +76,15 @@ func (s *MythicalService) movedOffWriter(resolve func(context.Context, pgx.Tx, s
 		if err != nil {
 			return ack, err
 		}
+		// A retained machine event cannot reopen a settled TODO. Record the
+		// transport rejection so its outbox can drain without changing either
+		// the branch fact or the item's waits.
+		switch item.State {
+		case "landed", "cancelled", "rejected", "declined":
+			ack.Outcome = machined.AckRejected
+			return ack, nil
+		}
+		from := todoState(item)
 		checks := mythicalChecksOf(item)
 		var fact workspaceMovedOff
 		if len(prior) > 0 {
@@ -140,7 +149,7 @@ func (s *MythicalService) movedOffWriter(resolve func(context.Context, pgx.Tx, s
 		if moved.Returned {
 			text = fmt.Sprintf("returned to T%d", number)
 		}
-		data, err := json.Marshal(map[string]any{"id": uuid.UUID(event.EventID).String(), "kind": "moved_off", "actor": by, "text": text, "branch": branch, "n": number, "wait": fact.Wait, "moved_off": json.RawMessage(prior), "by": by})
+		data, err := json.Marshal(map[string]any{"id": uuid.UUID(event.EventID).String(), "kind": "moved_off", "actor": by, "from": from, "to": todoState(saved), "text": text, "branch": branch, "n": number, "wait": fact.Wait, "moved_off": json.RawMessage(prior), "by": by})
 		if err != nil {
 			return ack, err
 		}
