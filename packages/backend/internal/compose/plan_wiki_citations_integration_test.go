@@ -155,7 +155,7 @@ func TestPlanWikiCitationsReferenceHost(t *testing.T) {
 	// A real completed plan followed by the existing no-proposal watchdog
 	// refusal gives Retry a failed TODO without injecting a run or plan row.
 	// The override still calls the shipped Request (route + plan), on the VM.
-	_, pinned := activateWatchdogOverride(t, r, `import { Request, RequestInput, StackBase } from "@smthrs/coding"
+	planOnly := `import { Request, RequestInput, StackBase } from "@smthrs/coding"
 import { Flow } from "@smthrs/flow"
 import { Schema } from "effect"
 export default Flow.make("todo", {
@@ -165,8 +165,9 @@ export default Flow.make("todo", {
  success: Request.successSchema, error: Request.errorSchema,
  body: (input) => Request.child(input)
 })
-`)
-	plan := func(n int64, revision int64, digest string) json.RawMessage {
+`
+	_, pinned := activateWatchdogOverride(t, r, planOnly)
+	plan := func(n int64, revision int64, digest, slug string) json.RawMessage {
 		t.Helper()
 		_, err := r.waitTodoWithin(n, 8*time.Minute, "failed")
 		require.NoError(t, err)
@@ -191,12 +192,12 @@ export default Flow.make("todo", {
 					continue
 				}
 				citations++
-				require.Equal(t, "retry-policy", item.Slug)
+				require.Equal(t, slug, item.Slug)
 				require.Equal(t, revision, item.Revision)
 				require.Equal(t, digest, item.Digest)
 				history, err := r.expect("GET", item.URL, "", 200)
 				require.NoError(t, err)
-				if revision == 1 {
+				if revision != 2 {
 					require.Equal(t, body, string(history))
 				} else {
 					require.Equal(t, edited, string(history))
@@ -215,7 +216,7 @@ export default Flow.make("todo", {
 		}
 		require.NoError(t, json.Unmarshal(receipt, &recorded))
 		require.Len(t, recorded.Citations, 1)
-		require.Equal(t, "retry-policy", recorded.Citations[0].Slug)
+		require.Equal(t, slug, recorded.Citations[0].Slug)
 		require.Equal(t, revision, recorded.Citations[0].Revision)
 		require.Equal(t, digest, recorded.Citations[0].Digest)
 		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "todo-"+strconv.FormatInt(n, 10)+".json"), card, 0600))
@@ -223,7 +224,7 @@ export default Flow.make("todo", {
 	}
 	n, err := r.file("Retry deliveries", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow retry-policy.")
 	require.NoError(t, err)
-	before := plan(n, 1, digest)
+	before := plan(n, 1, digest, "retry-policy")
 	require.NoError(t, r.drop(n))
 	payload, err = json.Marshal(map[string]any{"body": edited, "expected_revision": 1})
 	require.NoError(t, err)
@@ -231,7 +232,7 @@ export default Flow.make("todo", {
 	require.NoError(t, err)
 	next, err := r.file("Retry deliveries after decision edit", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow retry-policy.")
 	require.NoError(t, err)
-	after := plan(next, 2, editedDigest)
+	after := plan(next, 2, editedDigest, "retry-policy")
 	trace, err := os.ReadFile(filepath.Join(r.evidence, "model-turns.jsonl"))
 	require.NoError(t, err)
 	require.Contains(t, string(trace), body)
@@ -341,4 +342,93 @@ export default Flow.make("todo", {
 		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name), receipt, 0600))
 	}
 	require.NoError(t, r.drop(retryNumber))
+
+	// Restore the immutable generated-page publication fixture, not a plan,
+	// run or candidate receipt. Planning must fetch its provenance through
+	// the production run-authorized API and recollect inputs inside the VM.
+	const declaration = `{"wikiCitations":true,"pages":[{"id":"runtime","title":"Runtime","purpose":"Runtime contracts","kind":"current","document":"RUNTIME.md","inputs":["runtime.ts"],"related":[]}]}`
+	_, err = r.pushGitHubMain("Declare generated planning input", map[string]string{
+		".smithers/coding-project.json": declaration,
+		"RUNTIME.md":                    "# Runtime\n\nThe runtime starts once.\n",
+		"runtime.ts":                    "export const start = () => 1\n",
+	})
+	require.NoError(t, err)
+	activateWatchdogOverride(t, r, planOnly+"\n// generated freshness control\n")
+	// Keep one selectable page so the recorded index-0 selection exercises
+	// the generated revision, rather than an authored-page fallback.
+	_, err = r.expect("PATCH", api+"/retry-policy", `{"slug":"generated-runtime","expected_revision":3}`, 200)
+	require.NoError(t, err)
+	var repositoryID int64
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT repository_id FROM mythical_stacks`).Scan(&repositoryID))
+	_, err = db.New(r.pool).EnsureMythicalWiki(r.ctx, repositoryID)
+	require.NoError(t, err)
+	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_wikis SET pages=$2 WHERE repository_id=$1`, repositoryID,
+		`[{"id":"runtime","slug":"generated-runtime","revision":4,"bodyDigest":"0314a7d6edf2ad4b7057d059f7dfdf17df0ab800ec24b502f02ecb38c1bbed22","inputDigest":"8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6","ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]`)
+	require.NoError(t, err)
+	generated, err := r.expect("GET", api+"/generated-runtime", "", 200)
+	require.NoError(t, err)
+	var generatedPage services.WikiPageResponse
+	require.NoError(t, json.Unmarshal(generated, &generatedPage))
+	require.Equal(t, &services.WikiGeneratedSource{ID: "runtime", InputDigest: "8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6", SourceRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, generatedPage.Generated)
+	fresh, err := r.file("Fresh generated retry policy", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
+	require.NoError(t, err)
+	plan(fresh, 4, digest, "generated-runtime")
+	require.NoError(t, r.drop(fresh))
+	_, err = r.pushGitHubMain("Invalidate generated planning input", map[string]string{"runtime.ts": "export const start = () => 2\n"})
+	require.NoError(t, err)
+	activateWatchdogOverride(t, r, planOnly+"\n// stale generated control\n")
+	stale, err := r.file("Exclude stale generated retry policy", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
+	require.NoError(t, err)
+	_, err = r.waitTodoWithin(stale, 8*time.Minute, "failed")
+	require.NoError(t, err)
+	// A failed launch or refused gather cannot satisfy the exclusion oracle.
+	var fault string
+	var completedPlan bool
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'fault'->>'tag', checks->'planReceipt'->>'runId'=request_run_id AND (checks->'planReceipt'->>'attempt')::int=attempt FROM mythical_items WHERE number=$1`, stale).Scan(&fault, &completedPlan))
+	require.Equal(t, "no_proposal", fault)
+	require.True(t, completedPlan, "the current plan must actually complete before testing exclusion")
+	var staleReceipt json.RawMessage
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT plan FROM mythical_items WHERE number=$1`, stale).Scan(&staleReceipt))
+	var stalePlan struct {
+		Citations []json.RawMessage `json:"wikiCitations"`
+		Memory    []struct {
+			Slug     string `json:"slug"`
+			Markdown string `json:"markdown"`
+		} `json:"memory"`
+	}
+	require.NoError(t, json.Unmarshal(staleReceipt, &stalePlan))
+	require.Empty(t, stalePlan.Citations, "stale API page must not be cited")
+	for _, note := range stalePlan.Memory {
+		require.NotEqual(t, body, note.Markdown, "stale bytes must not enter planning context")
+	}
+	staleCard, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", stale), "", 200)
+	require.NoError(t, err)
+	require.NotContains(t, string(staleCard), `"kind":"wiki"`)
+	for name, receipt := range map[string]json.RawMessage{"generated-api.json": generated, "stale-plan.json": staleReceipt, "stale-card.json": staleCard} {
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name), receipt, 0600))
+	}
+	require.NoError(t, r.drop(stale))
+
+	// Corrupt the stored digest after a valid publication. The composed wiki
+	// API must refuse the snapshot; the real plan must not turn this into an
+	// empty authorized vault or publish a successful receipt.
+	_, err = r.pool.Exec(r.ctx, `UPDATE wiki_pages SET content_digest=$2 WHERE id=$1`, page.ID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	require.NoError(t, err)
+	_, err = r.expect("GET", api+"/generated-runtime", "", 503)
+	require.NoError(t, err)
+	corrupt, err := r.file("Refuse corrupt wiki snapshot", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
+	require.NoError(t, err)
+	_, err = r.waitTodoWithin(corrupt, 8*time.Minute, "failed")
+	require.NoError(t, err)
+	var noPlanReceipt bool
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT NOT (checks ? 'planReceipt') FROM mythical_items WHERE number=$1`, corrupt).Scan(&noPlanReceipt))
+	require.True(t, noPlanReceipt, "a failed wiki read cannot publish a successful plan")
+	corruptCard, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", corrupt), "", 200)
+	require.NoError(t, err)
+	require.NotContains(t, string(corruptCard), `"kind":"wiki"`)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "corrupt-card.json"), corruptCard, 0600))
+	_, err = r.pool.Exec(r.ctx, `UPDATE wiki_pages SET content_digest=$2 WHERE id=$1`, page.ID, digest)
+	require.NoError(t, err)
+	require.NoError(t, r.drop(corrupt))
+
 }

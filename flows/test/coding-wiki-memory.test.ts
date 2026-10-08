@@ -148,7 +148,8 @@ test("API generated pages retain source freshness checks; authored pages do not 
   const { root, digest } = await repository()
   try {
     const f = fixture(["retry-policy"])
-    const inputDigest = await digest()
+    const inputDigest = "8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6"
+    assert.equal(await digest(), inputDigest)
     f.provider.read = () =>
       Effect.succeed({ ...authored, generated: { id: "runtime", inputDigest, sourceRevision: "main@abc" } })
     const opts = { ...options, repositoryPath: root, pages: [spec], wikiProvider: f.provider }
