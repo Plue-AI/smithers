@@ -352,3 +352,70 @@ func TestRestoreAuthorityRefusals(t *testing.T) {
 		require.Empty(t, entries)
 	})
 }
+
+// A backup restores from nothing but its own directory. It is archived,
+// extracted under a state root with a different absolute path, and the
+// original state is deleted before the restore: the second Mac of C-REL-06
+// holds only what tar carried.
+func TestRealRestoreFromAnArchivedBackupOnAnotherStateRoot(t *testing.T) {
+	bin, major := testdb.Tools(t)
+	require.Equal(t, 18, major)
+	f := realInstall{t: t, bin: bin, state: installState(t)}
+	const seeded = "a=one\nb=two\nc=three"
+	live := f.start(f.state)
+	f.query(live, "CREATE TABLE backup_proof(key text PRIMARY KEY, value text NOT NULL); INSERT INTO backup_proof VALUES ('a','one'),('b','two'),('c','three')")
+	write(t, filepath.Join(f.state, "config/secrets.json"), "install key", 0600)
+	write(t, filepath.Join(f.state, "workspaces/run/file"), "workspace", 0600)
+	require.NoError(t, os.Symlink("../run/file", filepath.Join(f.state, "workspaces/run/readme")))
+	at := time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)
+	backup, err := hostbackup.Backup(t.Context(), hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: f.state, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Authority: &liveDatabase{database: live, at: at}, Cloner: hostbackup.APFSCloner{}})
+	require.NoError(t, err)
+	f.stop(live)
+
+	// No path in a backup is absolute: the manifest never names this state root.
+	manifest, err := os.ReadFile(filepath.Join(backup, "MANIFEST.json"))
+	require.NoError(t, err)
+	require.NotContains(t, string(manifest), f.state)
+	require.NotContains(t, string(manifest), `"path": "/`)
+	require.NotContains(t, string(manifest), `"link": "/`)
+
+	archive := filepath.Join(installState(t), "backup.tar")
+	out, err := exec.Command("/usr/bin/tar", "-C", filepath.Dir(backup), "-cf", archive, filepath.Base(backup)).CombinedOutput()
+	require.NoError(t, err, string(out))
+	other := filepath.Join(installState(t), "Library/Application Support/Smithers")
+	require.NoError(t, os.MkdirAll(filepath.Join(other, "backups"), 0700))
+	require.NoError(t, os.Chmod(other, 0700))
+	out, err = exec.Command("/usr/bin/tar", "-C", filepath.Join(other, "backups"), "-xf", archive).CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NoError(t, os.RemoveAll(f.state))
+	carried := filepath.Join(other, "backups", "1.2.3-20261007T010203.000000000Z")
+	info, err := os.Stat(carried)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0700), info.Mode().Perm())
+
+	var calls []string
+	authority := f.authority(other, &calls, func(bundle string) {
+		require.Empty(t, bundle)
+		restored := f.start(other)
+		defer f.stop(restored)
+		require.Equal(t, seeded, f.rows(restored))
+	})
+	restoredAt, err := hostbackup.Restore(t.Context(), hostbackup.RestoreConfig{State: other, Backup: carried, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Authority: authority, Cloner: hostbackup.APFSCloner{}})
+	require.NoError(t, err)
+	require.Equal(t, at, restoredAt)
+	require.Equal(t, []string{"isolation", "start"}, calls)
+	secrets, err := os.ReadFile(filepath.Join(other, "config/secrets.json"))
+	require.NoError(t, err)
+	require.Equal(t, "install key", string(secrets))
+	info, err = os.Stat(filepath.Join(other, "config/secrets.json"))
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	target, err := os.Readlink(filepath.Join(other, "workspaces/run/readme"))
+	require.NoError(t, err)
+	require.Equal(t, "../run/file", target)
+	through, err := os.ReadFile(filepath.Join(other, "workspaces/run/readme"))
+	require.NoError(t, err)
+	require.Equal(t, "workspace", string(through))
+	require.NoFileExists(t, filepath.Join(other, ".upgrade-incomplete"))
+	require.DirExists(t, carried)
+}

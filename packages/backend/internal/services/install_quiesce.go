@@ -265,6 +265,11 @@ func (s *InstallQuiesce) Available() error {
 	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
 		return &QuiesceDependencyError{"T-MCH-07"}
 	}
+	// A composed machine provider can still lack capture or its runtime.
+	// Ask it now: finding out at the capture step would close admissions first.
+	if provider, ok := machines.(interface{ QuiesceAvailable() error }); ok && provider.QuiesceAvailable() != nil {
+		return &QuiesceDependencyError{"T-MCH-07"}
+	}
 	if missingQuiesceProvider(s.Admission) {
 		return &QuiesceDependencyError{"T-MCH-06"}
 	}

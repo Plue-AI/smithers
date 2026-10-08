@@ -276,8 +276,8 @@ func (s *WorkspaceService) captureAndSleepExcluded(ctx context.Context, row db.W
 // machine still awake afterwards refuses; an unavailable provider is never an
 // empty machine list.
 func (s *WorkspaceService) CaptureAndStop(ctx context.Context) error {
-	if _, ok := s.branchHeads.(workspaceSnapshotStore); !ok || s.branchCapture == nil || !s.hasWorkspaceRuntime() || s.requireBranchMachineProviders() != nil {
-		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "quiesce requires verified branch capture and the machine runtime")
+	if err := s.QuiesceAvailable(); err != nil {
+		return err
 	}
 	running, err := s.q.ListRunningWorkspaces(ctx)
 	if err != nil {
@@ -304,6 +304,16 @@ func (s *WorkspaceService) CaptureAndStop(ctx context.Context) error {
 		failures = append(failures, fmt.Errorf("branch %s: still awake after capture", quiesceBranchName(row)))
 	}
 	return errors.Join(failures...)
+}
+
+// QuiesceAvailable reports whether every provider the machine step needs is
+// composed. Quiesce asks before it freezes, so a missing one refuses with
+// admissions still open.
+func (s *WorkspaceService) QuiesceAvailable() error {
+	if _, ok := s.branchHeads.(workspaceSnapshotStore); !ok || s.branchCapture == nil || !s.hasWorkspaceRuntime() || s.requireBranchMachineProviders() != nil {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "quiesce requires verified branch capture and the machine runtime")
+	}
+	return nil
 }
 
 func (s *WorkspaceService) quiesceMachine(ctx context.Context, row db.Workspace) error {
