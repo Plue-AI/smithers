@@ -206,6 +206,16 @@ func TestHostRestorePathConfinement(t *testing.T) {
 func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 	require.NotZero(t, os.Geteuid(), "never execute branch-built code as root")
 	bundle := installedMaintenanceCommand(t)
+	database := testdb.New(t)
+	pool, err := postgresfixture.Open(t.Context(), database.URL, 4)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	require.NoError(t, product.Apply(t.Context(), pool))
+	queries := db.New(pool)
+	owner, err := queries.CreateUser(t.Context(), db.CreateUserParams{Username: "isolationowner", LowerUsername: "isolationowner"})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
 	t.Logf("production backend pid authority: uid=%d gid=%d; no root execution", os.Geteuid(), os.Getegid())
 	for _, payload := range []struct{ name, body string }{
 		{"hostile retained environment", `{"PATH":"/workspace/bin","PYTHONPATH":"/workspace/imports","LD_PRELOAD":"/workspace/inject.so"}`},
@@ -232,10 +242,20 @@ func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 			manifest.Files = append(manifest.Files, hostbackup.File{Path: "state/homes/member/.config", Link: outside})
 			maintenanceManifest(t, backup, manifest)
 			extra := []string{"PATH=" + filepath.Join(repository, "bin") + ":/usr/bin:/bin", "PYTHONPATH=" + filepath.Join(repository, "imports"), "GIT_SSH_COMMAND=" + filepath.Join(repository, "bin/brew"), "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=" + filepath.Join(repository, ".git/hooks"), "SMITHERS_MSB_PATH=" + filepath.Join(repository, "bin/smithers-backend"), "SMITHERS_DATABASE_URL=postgres://attacker.invalid/db", "DYLD_INSERT_LIBRARIES=" + filepath.Join(repository, "inject.dylib")}
+			service := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: state})
+			handler := &routes.InstallQuiesceHandler{Owners: queries, Service: service}
+			closeSocket, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(handler.HandleInstallingOwner))
+			require.NoError(t, err)
+			socketClosed := false
+			t.Cleanup(func() {
+				if !socketClosed {
+					require.NoError(t, closeSocket())
+				}
+			})
 			before := maintenanceInventory(t, home)
 			require.Equal(t, "unsafe_path: state/homes/member/.config", runInstalledMaintenance(t, bundle, home, repository, extra, "restore", backup))
 			require.Equal(t, before, maintenanceInventory(t, home))
-			require.Equal(t, "host_maintenance_unavailable: upgrade health wake requires machine admission (T-MCH-06)", runInstalledMaintenance(t, bundle, home, repository, extra, "upgrade"))
+			require.Equal(t, "host_maintenance_unavailable: maintenance health wake unavailable", runInstalledMaintenance(t, bundle, home, repository, extra, "upgrade"))
 			require.Equal(t, before, maintenanceInventory(t, home))
 			// Valid confined retained-home control reaches the actual bundled doctor;
 			// unavailable isolation still refuses before staging or PostgreSQL.
@@ -243,9 +263,20 @@ func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 			manifest.Files = manifest.Files[:len(manifest.Files)-1]
 			maintenanceManifest(t, backup, manifest)
 			before = maintenanceInventory(t, home)
+			require.Equal(t, "install_running: restore refuses a running install; run smthrs host stop first", runInstalledMaintenance(t, bundle, home, repository, extra, "restore", backup))
+			require.Equal(t, before, maintenanceInventory(t, home))
+			require.NoError(t, closeSocket())
+			socketClosed = true
+			before = maintenanceInventory(t, home)
 			require.Equal(t, "host_maintenance_unavailable: microVM isolation is not ready on this Mac; run smthrs host status", runInstalledMaintenance(t, bundle, home, repository, extra, "restore", backup))
 			require.Equal(t, before, maintenanceInventory(t, home))
 			require.NoFileExists(t, canary)
+			var freezes int
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+			require.Zero(t, freezes, "unavailable health wake must refuse before freezing")
+			var username string
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT username FROM users WHERE id=$1`, owner.ID).Scan(&username))
+			require.Equal(t, "isolationowner", username)
 		})
 	}
 	t.Run("replaced bundled executable", func(t *testing.T) {
@@ -262,12 +293,12 @@ func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 		require.Equal(t, "host_maintenance_unavailable: restore runs from an installed bundle: postgres/bundle.json: not approved by the installed bundle: postgres/root/bin/initdb differs from the bundle manifest", runInstalledMaintenance(t, bundle, home, home, nil, "restore", backup))
 		require.Equal(t, before, maintenanceInventory(t, home))
 	})
-	t.Run("health continuation refuses without a grant", func(t *testing.T) {
+	t.Run("health continuation rejects backup outside recovery tree", func(t *testing.T) {
 		home, state := ownerHome(t)
 		backup, _ := maintenanceSnapshot(t, home, nil)
 		maintenanceSeedFile(t, filepath.Join(state, ".upgrade-incomplete"), backup+"\n", 0600)
 		before := maintenanceInventory(t, home)
-		require.Equal(t, "upgrade incomplete: host_maintenance_unavailable: upgrade health wake requires machine admission (T-MCH-06); restore with smthrs host restore '"+backup+"'", runInstalledMaintenance(t, bundle, home, home, []string{"PYTHONPATH=/hostile", "GIT_SSH_COMMAND=/hostile"}, "upgrade-continue", backup))
+		require.Equal(t, "upgrade incomplete: lstat "+filepath.Join(state, "backups")+": no such file or directory; restore with smthrs host restore '"+backup+"'", runInstalledMaintenance(t, bundle, home, home, []string{"PYTHONPATH=/hostile", "GIT_SSH_COMMAND=/hostile"}, "upgrade-continue", backup))
 		require.Equal(t, before, maintenanceInventory(t, home))
 		require.NoFileExists(t, filepath.Join(state, recoveryGrantPath))
 	})
