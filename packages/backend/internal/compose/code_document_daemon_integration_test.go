@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
@@ -200,6 +204,116 @@ func TestLiveCodeDocumentRealProviderQualification(t *testing.T) {
 	require.Equal(t, outside, f.disk(t))
 }
 
+// Exercise the non-document write door against an already open document. The
+// installed daemon, not a scripted peer, must reconcile the transaction into
+// both live replicas and refuse the old base without touching disk.
+func TestLiveCodeDocumentRealWriteFile(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	ben, alice := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")
+	ben.sub(t, f.topic)
+	client := ben.assigned(t)
+	alice.sub(t, f.topic)
+	alice.assigned(t)
+	ben.edit(t, codeInsert(client, "BROWSER-BEFORE-WRITE"))
+	ben.saved(t, 1)
+	before, err := f.registry.ReadFile(t.Context(), f.branch, "retry.ts", "")
+	require.NoError(t, err)
+	write := func(content string, status int) []byte {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"content": content, "base_digest": before.Digest})
+		require.NoError(t, err)
+		request, err := http.NewRequestWithContext(t.Context(), "PUT", f.origin+"/api/repos/ben/demo/workspaces/"+f.branch+"/files/content?path=retry.ts", strings.NewReader(string(body)))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", f.origin)
+		request.Header.Set("X-CSRF-Token", "document-qualification")
+		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "document-qualification"})
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "alice-cookie"})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		raw, err := io.ReadAll(response.Body)
+		require.NoError(t, err)
+		require.Equal(t, status, response.StatusCode, "%s", raw)
+		return raw
+	}
+	want := "BROWSER-BEFORE-WRITE\nALICE-WRITE-FILE"
+	// The namespace harness has no admitted member runtime. Its HTTP write
+	// door must stay closed; this is not evidence that the install's real
+	// microVM write provider is qualified.
+	require.Contains(t, string(write(want, http.StatusServiceUnavailable)), `"code":"service_unavailable"`)
+	require.Equal(t, "BROWSER-BEFORE-WRITE", f.disk(t))
+	tx, err := f.pool.Begin(t.Context())
+	require.NoError(t, err)
+	actor, err := machined.RecordActorInTx(t.Context(), tx, f.branch, f.branch, machined.ActorIdentity{Kind: "person", MemberID: f.alice, Via: "web"})
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(t.Context()))
+	result, err := f.registry.WriteFiles(t.Context(), f.branch, actor, []machined.FileChange{{Path: "retry.ts", BaseDigest: &before.Digest, Content: []byte(want)}})
+	require.NoError(t, err)
+	require.Nil(t, result.Stale)
+	require.Len(t, result.Applied, 1)
+	ben.converge(t, want)
+	alice.converge(t, want)
+	require.Equal(t, want, f.disk(t))
+	result, err = f.registry.WriteFiles(t.Context(), f.branch, actor, []machined.FileChange{{Path: "retry.ts", BaseDigest: &before.Digest, Content: []byte("STALE-WRITE-MUST-NOT-LAND")}})
+	require.NoError(t, err)
+	require.NotNil(t, result.Stale)
+	require.Empty(t, result.Applied)
+	require.Equal(t, want, f.disk(t))
+}
+
+// Revocation is bounded even without a roster event or further inbound input.
+// The unaffected member can continue editing the same real daemon document.
+func TestLiveCodeDocumentRealRevocation(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	ben, alice := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")
+	ben.sub(t, f.topic)
+	client := ben.assigned(t)
+	alice.sub(t, f.topic)
+	alice.assigned(t)
+	_, err := f.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, f.alice)
+	require.NoError(t, err)
+	removed := time.Now()
+	alice.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+	require.Less(t, time.Since(removed), 5*time.Second)
+	ben.edit(t, codeInsert(client, "AUTHORIZED-AFTER-REVOCATION"))
+	ben.saved(t, 1)
+	require.Equal(t, "AUTHORIZED-AFTER-REVOCATION", f.disk(t))
+	request, err := http.NewRequestWithContext(t.Context(), "GET", f.origin+"/api/live", nil)
+	require.NoError(t, err)
+	request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "alice-cookie"})
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusUnauthorized, response.StatusCode, "suspension also refuses a new connection before upgrading")
+	require.Equal(t, "AUTHORIZED-AFTER-REVOCATION", f.disk(t))
+}
+
+func TestLiveCodeDocumentRealForeignClient(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	ben, alice := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")
+	ben.sub(t, f.topic)
+	ben.assigned(t)
+	alice.sub(t, f.topic)
+	client := alice.assigned(t)
+	alice.edit(t, codeInsert(client, "ALICE-SAVED"))
+	alice.saved(t, 1)
+	ben.converge(t, "ALICE-SAVED")
+	// This extends Alice's actual client clock, under Ben's authenticated
+	// envelope. The real daemon must refuse it, without poisoning Alice's
+	// stream or persisting a character from the forged transaction.
+	ben.edit(t, codeInsertAt(client, uint64(len("ALICE-SAVED")), "FORGED"))
+	ben.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+	require.Equal(t, "ALICE-SAVED", f.disk(t))
+	alice.edit(t, codeInsertAt(client, uint64(len("ALICE-SAVED")), "ALICE-CONTINUES"))
+	alice.saved(t, 2)
+	text := f.disk(t)
+	require.Contains(t, text, "ALICE-SAVED")
+	require.Contains(t, text, "ALICE-CONTINUES")
+	require.NotContains(t, text, "FORGED")
+	alice.converge(t, text)
+}
+
 func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 	for _, point := range []string{"K7a", "K7b", "K7c", "K7d"} {
 		for run := 1; run <= 10; run++ {
@@ -267,8 +381,8 @@ func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 				b.edit(t, bu)
 				a.edit(t, au)
 				a.edit(t, au)
-				b.saved(t, 2)
-				a.saved(t, 2)
+				b.savedClientClock(t, bc, uint64(len("BEN-RETAINED")))
+				a.savedClientClock(t, ac, uint64(len("ALICE-RETAINED")))
 				text := f.disk(t)
 				require.Equal(t, 1, strings.Count(text, "BEN-RETAINED"))
 				require.Equal(t, 1, strings.Count(text, "ALICE-RETAINED"))
@@ -281,6 +395,45 @@ func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 				sum := sha256.Sum256([]byte(text))
 				t.Logf("point=%s run=%d sha256=%s broker=empty-census vm=false", point, run, hex.EncodeToString(sum[:]))
 			})
+		}
+	}
+}
+
+// Duplicate replay need not create a new save. The durability contract is
+// coverage of the client's Yjs clock by saved.sv, not acknowledgement of each
+// retransmitted transport sequence. Decode the actual daemon receipt with an
+// independent varuint reader instead of demanding a second save for the same
+// update (which made K7 intermittently time out after a successful first save).
+func (b *codeDocumentBrowser) savedClientClock(t *testing.T, client uint32, clock uint64) {
+	t.Helper()
+	for {
+		kind, raw := b.read(t)
+		if kind == websocket.MessageBinary {
+			b.apply(t, raw)
+			continue
+		}
+		var receipt struct{ T, SV string }
+		require.NoError(t, json.Unmarshal(raw, &receipt))
+		require.Equal(t, "saved", receipt.T, string(raw))
+		vector, err := base64.StdEncoding.DecodeString(receipt.SV)
+		require.NoError(t, err)
+		read := func() uint64 {
+			t.Helper()
+			value, n := binary.Uvarint(vector)
+			require.Greater(t, n, 0, "valid Yjs state-vector varuint")
+			vector = vector[n:]
+			return value
+		}
+		count := read()
+		require.LessOrEqual(t, count, uint64(len(vector)/2))
+		covered := false
+		for n := uint64(0); n < count; n++ {
+			id, through := read(), read()
+			covered = covered || (id == uint64(client) && through >= clock)
+		}
+		require.Empty(t, vector)
+		if covered {
+			return
 		}
 	}
 }
@@ -355,11 +508,11 @@ func TestLiveCodeDocumentRealRewriteQualification(t *testing.T) {
 		t.Skip("explicit real rewrite and capture provider qualification")
 	}
 	f := startRealDocumentInstall(t, "")
-	before, err := f.registry.ReadFile(t.Context(), f.branch, "retry.ts", "")
-	require.NoError(t, err)
 	ben := f.browser(t, "ben-cookie")
 	ben.sub(t, f.topic)
 	client := ben.assigned(t)
+	before, err := f.registry.ReadFile(t.Context(), f.branch, "retry.ts", "")
+	require.NoError(t, err)
 	ben.edit(t, codeInsert(client, "DOCUMENT-BEFORE-REWRITE"))
 	ben.saved(t, 1)
 	tx, err := f.pool.Begin(t.Context())
@@ -370,7 +523,17 @@ func TestLiveCodeDocumentRealRewriteQualification(t *testing.T) {
 	captured, err := f.registry.Capture(t.Context(), f.branch)
 	require.NoError(t, err)
 	require.Len(t, captured.Head, 40)
-	_, err = f.registry.Rebase(t.Context(), f.branch, actor, captured.Head)
+	// The current mutation provider correctly refuses rebasing a change onto
+	// itself. Build a distinct root revision with the same tree so this driver
+	// exercises an actual rewrite rather than that invalid no-op request.
+	gitDir := filepath.Join(f.root, ".git")
+	tree, err := exec.CommandContext(t.Context(), "git", "--git-dir", gitDir, "rev-parse", captured.Head+"^{tree}").Output()
+	require.NoError(t, err)
+	command := exec.CommandContext(t.Context(), "git", "--git-dir", gitDir, "-c", "user.name=Document qualification", "-c", "user.email=qualification@example.invalid", "commit-tree", strings.TrimSpace(string(tree)))
+	command.Stdin = strings.NewReader("Independent rewrite target\n")
+	onto, err := command.Output()
+	require.NoError(t, err)
+	_, err = f.registry.Rebase(t.Context(), f.branch, actor, strings.TrimSpace(string(onto)))
 	require.NoError(t, err)
 	// A pre-edit base remains stale after rewrite; it cannot overwrite the
 	// saved document just because the file or subscription was reconstructed.

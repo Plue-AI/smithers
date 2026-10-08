@@ -1552,6 +1552,9 @@ mod dispatcher {
             calls: Mutex<Vec<&'static str>>,
         }
         impl hooks::Watcher for Rewrite {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
+            }
             fn drain(&self, _: &mut LockCx) -> hooks::Result<()> {
                 self.calls.lock().unwrap().push("drain");
                 Ok(())
@@ -1562,6 +1565,9 @@ mod dispatcher {
             }
         }
         impl hooks::Broker for Rewrite {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
+            }
             fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
                 self.calls.lock().unwrap().push("freeze");
                 Ok(None)
@@ -1572,6 +1578,9 @@ mod dispatcher {
             }
         }
         impl hooks::Core for Rewrite {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
+            }
             fn validate_rebase(&self, onto: [u8; 20]) -> hooks::Result<()> {
                 assert_eq!(onto, [17; 20]);
                 Ok(())
@@ -1596,6 +1605,19 @@ mod dispatcher {
                     .files
                     .insert("a.rs".into(), b"abc typing\nrebased\n".to_vec());
                 Ok([34; 20])
+            }
+        }
+        // Return now rechecks the full provider set before freezing. These
+        // are explicit component-test providers, never installed readiness
+        // or confinement evidence; their unused operations remain unsupported.
+        impl hooks::Sessions for Rewrite {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
+            }
+        }
+        impl hooks::EventSink for Rewrite {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
             }
         }
         for method in [11, 12] {
@@ -1633,6 +1655,15 @@ mod dispatcher {
                 if method == 11 { 2 } else { 1 },
                 conn::actor_bytes(&hooks::Actor::Principal(b"Rebased onto T2".to_vec())),
             ));
+            if method == 12 {
+                let refused = rpc::dispatch(&control(method, &fields), &mut cx).unwrap();
+                let result = conn::fields("response", &refused.payload[1..]).unwrap()[1].1;
+                assert_eq!(result[0], 255, "missing session/event providers refuse Return");
+                assert!(rewrite.calls.lock().unwrap().is_empty());
+                assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc");
+            }
+            cx.hooks.sessions = rewrite.clone();
+            cx.hooks.events = rewrite.clone();
             let reply = rpc::dispatch(&control(method, &fields), &mut cx).unwrap();
             let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
             assert_eq!(result[0], method);
