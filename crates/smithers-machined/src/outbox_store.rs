@@ -20,10 +20,10 @@ pub fn format_unsupported(error: &io::Error) -> bool {
 }
 
 const MAX_EVENT_BYTES: usize = 4 * 1024 * 1024;
-#[cfg(target_os = "linux")]
-const NOFOLLOW: i32 = 0o400000 | 0o4000; // O_NOFOLLOW | O_NONBLOCK
-#[cfg(target_os = "macos")]
-const NOFOLLOW: i32 = 0x100 | 0x4; // O_NOFOLLOW | O_NONBLOCK
+// The platform's values: a literal is right on one architecture only, and on
+// another silently opens through a link.
+const NOFOLLOW: i32 =
+    (rustix::fs::OFlags::NOFOLLOW.bits() | rustix::fs::OFlags::NONBLOCK.bits()) as i32;
 
 fn corrupt(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
@@ -360,6 +360,25 @@ mod tests {
         fs::remove_file(&entry).unwrap();
         fs::write(fixture.state.join("outbox/garbage"), [1]).unwrap();
         assert!(fixture.open().is_err());
+    }
+
+    #[test]
+    fn an_entry_that_is_a_link_is_not_read_even_to_a_file_that_would_pass() {
+        use std::os::unix::fs::symlink;
+        let fixture = Fixture::new();
+        let mut store = fixture.open().unwrap();
+        let seq = store.append(|_| Ok(vec![7; 9])).unwrap();
+        assert_eq!(store.read(seq, fixture.owner).unwrap(), vec![7; 9]);
+        // The same bytes, owner and mode, reached through a link: every
+        // check on the opened file would pass, so only the open can refuse.
+        let entry = fixture.state.join("outbox").join(event_name(seq));
+        let outside = fixture.state.join("outside.ev");
+        fs::rename(&entry, &outside).unwrap();
+        symlink(&outside, &entry).unwrap();
+        assert!(store.read(seq, fixture.owner).is_err());
+        fs::remove_file(&entry).unwrap();
+        fs::rename(&outside, &entry).unwrap();
+        assert_eq!(store.read(seq, fixture.owner).unwrap(), vec![7; 9]);
     }
 
     #[test]

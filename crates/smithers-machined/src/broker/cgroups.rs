@@ -8,9 +8,11 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-const NOFOLLOW: i32 = 0o400000;
-const NONBLOCK: i32 = 0o4000;
-const DIRECTORY: i32 = 0o200000;
+// The platform's values. Octal literals here were x86-64's: on arm64, where
+// machines run, they are O_LARGEFILE and O_DIRECT, and no directory opens.
+const NOFOLLOW: i32 = libc::O_NOFOLLOW;
+const NONBLOCK: i32 = libc::O_NONBLOCK;
+const DIRECTORY: i32 = libc::O_DIRECTORY;
 const ROOT: &str = "/sys/fs/cgroup/smithers/sessions";
 fn invalid(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
