@@ -509,6 +509,10 @@ func (r *rehearsal) amendmentReachesRun(n int64, key, text string) error {
 	if held < 0 {
 		return fmt.Errorf("no model turn was held on [HOLD %s]", key)
 	}
+	var admitted time.Time
+	if err := r.pool.QueryRow(r.ctx, `SELECT recorded_at FROM product_job_events WHERE event_type='todo.amended' AND (data->>'n')::bigint=$1 AND (data->>'rev')::int=2`, n).Scan(&admitted); err != nil {
+		return err
+	}
 	before, err := r.j3Lane(n)
 	if err != nil {
 		return err
@@ -520,11 +524,11 @@ func (r *rehearsal) amendmentReachesRun(n int64, key, text string) error {
 		if turns, err = r.modelTurns(); err != nil {
 			return err
 		}
-		next := -1
-		for i := held + 1; i < len(turns) && next < 0; i++ {
-			if turns[i]["hold"] == key {
-				next = i
-			}
+		// A held HTTP model request can time out and retry while an earlier
+		// placement row waits. Pre-admission retries cannot consume this input.
+		next, err := firstHeldTurnAfterAdmission(turns, key, admitted)
+		if err != nil {
+			return err
 		}
 		if next >= 0 {
 			carried := false
@@ -648,4 +652,28 @@ func short7(sha string) string {
 		return sha[:7]
 	}
 	return sha
+}
+
+// The first dispatch after admission, never an arbitrary later matching turn.
+func firstHeldTurnAfterAdmission(turns []map[string]any, key string, admitted time.Time) (int, error) {
+	// The provider clock has millisecond precision. Use the lower bound so
+	// rounding cannot silently skip the first post-admission dispatch.
+	admitted = admitted.Truncate(time.Millisecond)
+	for i, turn := range turns {
+		if turn["hold"] != key {
+			continue
+		}
+		stamp, ok := turn["dispatchAt"].(string)
+		if !ok {
+			return -1, fmt.Errorf("model turn %d has no dispatch timestamp", i+1)
+		}
+		at, err := time.Parse(time.RFC3339Nano, stamp)
+		if err != nil {
+			return -1, fmt.Errorf("model turn %d has an invalid dispatch timestamp: %w", i+1, err)
+		}
+		if !at.Before(admitted) {
+			return i, nil
+		}
+	}
+	return -1, nil
 }

@@ -33,7 +33,7 @@ const record = (kind, step, detail) => {
   turns[kind]++
   turns.steps[step] = (turns.steps[step] ?? 0) + 1
   console.log(`provider ${kind} ${step}`)
-  if (trace) appendFileSync(trace, JSON.stringify({ n: turns.total, kind, step, ...detail }) + "\n")
+  if (trace) appendFileSync(trace, JSON.stringify({ n: turns.total, dispatchAt: new Date().toISOString(), kind, step, ...detail }) + "\n")
 }
 
 // [HOLD key]: each held edit turn waits on its key until POST /release/<key>.

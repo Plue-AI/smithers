@@ -290,6 +290,12 @@ func TestTodoRetainedReviewHTTPNextTurn(t *testing.T) {
 			reviewed = card
 			return true
 		}, 5*time.Minute, 100*time.Millisecond, "each retained steer must return to In review with a new head")
+		require.Eventually(t, func() bool {
+			var head, verdict string
+			var posted bool
+			err := r.pool.QueryRow(r.ctx, `SELECT COALESCE(checks->'review'->>'head',''),COALESCE(checks->'review'->>'verdict',''),COALESCE((checks->'review'->>'posted')::boolean,false) FROM mythical_items WHERE source='todo' AND number=$1`, n).Scan(&head, &verdict, &posted)
+			return err == nil && head == reviewed.PR.Head && verdict == "approve" && posted
+		}, 5*time.Minute, 100*time.Millisecond, "each re-entered candidate receives a fresh engine review")
 		after, err := r.j3Lane(n)
 		require.NoError(t, err)
 		require.Equal(t, before, after, "review steer retains run, attempt and working copy")
