@@ -153,15 +153,56 @@ func TestRegisteredCodingNotesAuthenticatedIngest(t *testing.T) {
 			require.Equal(t, 3, count(), "foreign host queues no signal")
 		})
 	}
+	// Retained launch and daemon receipts confer no authority after member,
+	// host or launch qualification changes. Every refusal must roll back the
+	// burst as well as its signal, so the same event can succeed on recovery.
+	for _, qualification := range []struct {
+		name, refuse, restore string
+		args                  []any
+	}{
+		{"read-only member", `UPDATE collaborators SET permission='read' WHERE repository_id=$1 AND user_id=$2`, `UPDATE collaborators SET permission='write' WHERE repository_id=$1 AND user_id=$2`, []any{repository, member}},
+		{"unprovisioned member uid", `UPDATE collaborators SET unix_uid=0 WHERE repository_id=$1 AND user_id=$2`, `UPDATE collaborators SET unix_uid=20001 WHERE repository_id=$1 AND user_id=$2`, []any{repository, member}},
+		{"inactive member", `UPDATE users SET is_active=false WHERE id=$1`, `UPDATE users SET is_active=true WHERE id=$1`, []any{member}},
+		{"prohibited member", `UPDATE users SET prohibit_login=true WHERE id=$1`, `UPDATE users SET prohibit_login=false WHERE id=$1`, []any{member}},
+		{"deleted member", `UPDATE users SET deleted_at=now() WHERE id=$1`, `UPDATE users SET deleted_at=NULL WHERE id=$1`, []any{member}},
+		{"retired host", `UPDATE flow_runtime_host_bindings SET state='retired' WHERE id=$1`, `UPDATE flow_runtime_host_bindings SET state='running' WHERE id=$1`, []any{host}},
+		{"foreign host scope", `UPDATE flow_runtime_host_bindings SET principal_id='user:999999' WHERE id=$1`, `UPDATE flow_runtime_host_bindings SET principal_id=$2 WHERE id=$1`, []any{host, target.PrincipalID}},
+		{"cancelled launch", `UPDATE product_job_requests SET cancellation_requested=true,cancellation_requested_at=now() WHERE id=$1`, `UPDATE product_job_requests SET cancellation_requested=false,cancellation_requested_at=NULL WHERE id=$1`, []any{launch.OperationID}},
+		{"completed launch", `UPDATE product_job_requests SET state='completed',terminal_receipt='{}' WHERE id=$1`, `UPDATE product_job_requests SET state='accepted',terminal_receipt=NULL WHERE id=$1`, []any{launch.OperationID}},
+	} {
+		t.Run(qualification.name, func(t *testing.T) {
+			// The refusal query may use only the first argument; pgx rejects
+			// surplus parameters rather than silently ignoring them.
+			args := qualification.args
+			if !strings.Contains(qualification.refuse, "$2") {
+				args = args[:1]
+			}
+			_, e := pool.Exec(ctx, qualification.refuse, args...)
+			require.NoError(t, e)
+			t.Cleanup(func() {
+				_, e := pool.Exec(ctx, qualification.restore, qualification.args...)
+				require.NoError(t, e)
+			})
+			require.ErrorIs(t, apply(5), ErrNotReady)
+			require.Equal(t, 3, count(), "unqualified participant queues no signal")
+			var committed int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst' AND data->>'id'='05000000-0000-0000-0000-000000000000'`).Scan(&committed))
+			require.Zero(t, committed, "refusal rolls back the watcher burst")
+		})
+	}
+	require.NoError(t, apply(5), "restored qualification admits the previously refused event")
+	require.Equal(t, 4, count())
+	require.NoError(t, apply(5))
+	require.Equal(t, 4, count(), "recovery replay still admits only once")
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repository, member)
 	require.NoError(t, err)
-	require.ErrorIs(t, apply(5), ErrNotReady)
+	require.ErrorIs(t, apply(6), ErrNotReady)
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, repository, member)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='queued',request_run_id='' WHERE id=$1`, item)
 	require.NoError(t, err)
 	require.NoError(t, apply(6))
-	require.Equal(t, 3, count(), "no active run queues nothing")
+	require.Equal(t, 4, count(), "no active run queues nothing")
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',request_run_id='notes-run' WHERE id=$1`, item)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE product_job_events SET data=jsonb_set(data,'{uid}','0') WHERE event_type='branch.session_opened'`)
@@ -174,7 +215,7 @@ func TestRegisteredCodingNotesAuthenticatedIngest(t *testing.T) {
 	link, _ = connectTest(t, registry, branch, boot)
 	require.NoError(t, link.Reconciled())
 	require.ErrorIs(t, apply(7), ErrNotReady, "another boot cannot reuse a retained registration")
-	require.Equal(t, 3, count())
+	require.Equal(t, 4, count())
 }
 
 // This is the real dispatcher/tool leg of this named suite, not a host-process
