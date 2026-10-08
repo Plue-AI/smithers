@@ -28,6 +28,7 @@ export const journeySpecs = [
   "todo-stack-actions.spec.ts",
   "home.spec.ts",
   "todo-placement.spec.ts",
+  "fork-add-to-stack.spec.ts",
   "branch-presence.spec.ts",
   "ssh-branch.spec.ts",
   "file-gone.spec.ts",
