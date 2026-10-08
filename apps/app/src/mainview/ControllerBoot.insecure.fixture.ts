@@ -8,7 +8,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { ENVELOPE_STORAGE_KEY } from "./chain/TransactionalStorage"
 import { installFixture } from "./state/seams/InstallFixtures.test-support"
 
-GlobalRegistrator.register({ url: "http://williams-mac-mini.local:4000/" })
+GlobalRegistrator.register({ url: "http://williams-mac-mini.local:4000/setup" })
 const secure = globalThis.crypto
 const insecure = { getRandomValues: <T extends ArrayBufferView | null>(array: T): T => secure.getRandomValues(array) }
 for (const scope of new Set<object>([globalThis, window])) Object.defineProperty(scope, "crypto", { configurable: true, value: insecure })
@@ -27,6 +27,7 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   reads.push(url.pathname)
   if (url.pathname === "/api/bootstrap") return Response.json(bootstrap)
   if (url.pathname === "/api/install") return Response.json(served)
+  if (url.pathname === "/api/auth/session") return Response.json(null)
   if (url.pathname === "/api/user") return Response.json({ code: "unauthenticated", class: "permission", message: "Sign in" }, { status: 401 })
   return Response.json({ code: "not_found", class: "user", message: "Not found" }, { status: 404 })
 }) as typeof fetch
