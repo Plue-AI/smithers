@@ -3,7 +3,9 @@
 use std::io;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+#[cfg(test)]
+use std::process::Command;
+use std::process::Stdio;
 
 pub trait Ignore {
     fn ignored(&mut self, path: &Path, directory: bool) -> io::Result<bool>;
@@ -117,7 +119,7 @@ impl Ignore for GitIgnore {
             }
             return Ok(out);
         }
-        let mut child = Command::new(&self.git)
+        let mut child = crate::git::daemon_git(&self.git)
             .current_dir(&self.workspace)
             .args([
                 "--no-optional-locks",

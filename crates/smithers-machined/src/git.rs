@@ -13,6 +13,21 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Only daemon Git children trust the root-owned guest workspace. Never inherit
+/// host/global trust or expose this setting to repository-code sessions.
+pub(crate) fn daemon_git(git: &Path) -> Command {
+    let mut command = Command::new(git);
+    command
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "safe.directory")
+        .env("GIT_CONFIG_VALUE_0", "/workspace");
+    command
+}
+
 fn invalid() -> io::Error {
     io::Error::new(
         io::ErrorKind::InvalidData,
@@ -132,12 +147,8 @@ impl Repository {
     }
     fn command(&self, arguments: &[&str]) -> io::Result<Vec<u8>> {
         let output = self.temporary()?;
-        let mut command = Command::new(&self.git);
+        let mut command = daemon_git(&self.git);
         command
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .arg("--no-pager")
             .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsync=all"])
             .arg("-C")
@@ -539,6 +550,143 @@ mod tests {
         outbox_store::Store,
     };
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn daemon_git_trust_is_exact_and_child_scoped() {
+        let mut command = daemon_git(Path::new("/usr/bin/git"));
+        let environment: std::collections::BTreeMap<_, _> = command
+            .get_envs()
+            .map(|(key, value)| (key.to_str().unwrap(), value.unwrap().to_str().unwrap()))
+            .collect();
+        assert_eq!(environment.len(), 6);
+        assert_eq!(environment["GIT_CONFIG_COUNT"], "1");
+        assert_eq!(environment["GIT_CONFIG_KEY_0"], "safe.directory");
+        assert_eq!(environment["GIT_CONFIG_VALUE_0"], "/workspace");
+        assert_eq!(environment["GIT_CONFIG_GLOBAL"], "/dev/null");
+        assert_eq!(environment["GIT_CONFIG_NOSYSTEM"], "1");
+        // Ask real Git to read the protected configuration, without a repo.
+        let output = command
+            .args(["config", "--get-all", "safe.directory"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"/workspace\n");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn daemon_git_workspace_namespace_child() {
+        if std::env::var_os("SMITHERS_GIT_TRUST_CHILD").is_none() {
+            return;
+        }
+        let probe = |directory: &str, trusted: bool| {
+            let mut command = daemon_git(Path::new("/usr/bin/git"));
+            // Git's ownership test hook exercises its real dubious-owner check
+            // where this unprivileged host cannot chown to another host uid.
+            command.env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1");
+            if !trusted {
+                command
+                    .env_remove("GIT_CONFIG_COUNT")
+                    .env_remove("GIT_CONFIG_KEY_0")
+                    .env_remove("GIT_CONFIG_VALUE_0");
+            }
+            command
+                .args(["-C", directory, "rev-parse", "--git-dir"])
+                .output()
+                .unwrap()
+        };
+        for directory in ["/workspace", "/other"] {
+            let rejected = probe(directory, false);
+            assert!(!rejected.status.success());
+            assert!(String::from_utf8_lossy(&rejected.stderr).contains("dubious ownership"));
+        }
+        assert!(probe("/workspace", true).status.success());
+        let other = probe("/other", true);
+        assert!(!other.status.success());
+        assert!(String::from_utf8_lossy(&other.stderr).contains("dubious ownership"));
+        // Exercise both production launch paths at the installed pathname.
+        let repository = Repository::checked(
+            Path::new("/usr/bin/git"),
+            Path::new("/workspace"),
+            Path::new("/spool"),
+        )
+        .unwrap();
+        assert_eq!(
+            repository.command(&["rev-parse", "--git-dir"]).unwrap(),
+            b".git\n"
+        );
+        use crate::ignore::Ignore;
+        let mut ignores =
+            crate::ignore::GitIgnore::new("/workspace".into(), "/usr/bin/git".into(), vec![])
+                .unwrap();
+        assert!(ignores.ignored(Path::new("ignored.txt"), false).unwrap());
+        assert!(!ignores.ignored(Path::new("visible.txt"), false).unwrap());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn daemon_git_workspace_namespace() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        let spool = root.path().join("spool");
+        fs::create_dir(&spool).unwrap();
+        fs::set_permissions(&spool, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(daemon_git(Path::new("/usr/bin/git"))
+            .args(["init", "--quiet"])
+            .arg(&repo)
+            .status()
+            .unwrap()
+            .success());
+        fs::write(repo.join(".gitignore"), "ignored.txt\n").unwrap();
+        let status = Command::new("bwrap")
+            .args([
+                "--tmpfs",
+                "/",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--ro-bind",
+                "/lib",
+                "/lib",
+                "--ro-bind",
+                "/lib64",
+                "/lib64",
+                "--dev",
+                "/dev",
+                "--unshare-user",
+                "--uid",
+                "19998",
+                "--gid",
+                "19998",
+                "--die-with-parent",
+                "--bind",
+            ])
+            .arg(&repo)
+            .arg("/workspace")
+            .arg("--bind")
+            .arg(&repo)
+            .arg("/other")
+            .arg("--bind")
+            .arg(&spool)
+            .arg("/spool")
+            .arg("--ro-bind")
+            .arg(std::env::current_exe().unwrap())
+            .arg("/test")
+            .args(["--chdir", "/workspace", "--", "/test"])
+            .args([
+                "--exact",
+                "git::tests::daemon_git_workspace_namespace_child",
+                "--nocapture",
+            ])
+            .env("SMITHERS_GIT_TRUST_CHILD", "1")
+            .status();
+        match status {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                eprintln!("namespace test unavailable: bubblewrap not installed");
+            }
+            result => assert!(result.unwrap().success()),
+        }
+    }
 
     #[test]
     fn legacy_outbox_migration_preserves_real_pending_refs_through_gc() {
