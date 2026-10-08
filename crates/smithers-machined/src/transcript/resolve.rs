@@ -14,7 +14,7 @@
 //! before it starts a reader: this process read member-controlled bytes.
 use super::{
     discovery::{Agent, Link},
-    reader::{open_root, receive, require_owner, send, DONE, ERROR},
+    reader::{open_root, receive, require_owner, seal, send, DONE, ERROR},
     MAX_RECORD_BYTES,
 };
 use rustix::fs::{self, Mode, OFlags, ResolveFlags};
@@ -308,6 +308,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
 /// The installed executable is re-executed as `transcript-resolve` after the
 /// broker's permanent group, GID and UID drop, on its private socketpair.
 pub fn run() -> io::Result<()> {
+    seal()?;
     serve(io::stdin().lock(), io::stdout().lock())
 }
 

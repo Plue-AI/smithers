@@ -9,8 +9,7 @@
 //! only descriptors are its two ends of the socketpair. Home paths are data
 //! the child receives after the drop.
 use std::{
-    fs::File,
-    io::{self, Write},
+    io,
     os::{
         fd::OwnedFd,
         unix::{net::UnixStream, process::CommandExt},
@@ -51,18 +50,15 @@ impl Role {
 pub const EXCHANGE: Duration = Duration::from_secs(2);
 
 /// Start `executable` as `owner` in `role`. The returned socket is the
-/// broker's end, with both deadlines set to [`EXCHANGE`]. `cgroup`, the
-/// session's own held `cgroup.procs`, puts the child where killing the session
-/// kills it too, so a revoked member's reader stops with their processes.
+/// broker's end, with both deadlines set to [`EXCHANGE`].
 ///
-/// The caller is root and reaps the child. A drop that does not take every id
-/// fails the start: the child never runs with more than the owner has.
-pub fn spawn(
-    executable: &Path,
-    role: Role,
-    owner: &Owner,
-    cgroup: Option<File>,
-) -> io::Result<(Child, UnixStream)> {
+/// The child stays in the broker's own cgroup. It never joins the member's
+/// session cgroup: its CPU there would count as the session's activity and
+/// mislead observed-write attribution (spec §9.3). Stopping it is therefore
+/// the caller's job, with the handle returned here: the caller is root, kills
+/// and reaps the child. A drop that does not take every id fails the start,
+/// so the child never runs with more than the owner has.
+pub fn spawn(executable: &Path, role: Role, owner: &Owner) -> io::Result<(Child, UnixStream)> {
     if owner.uid == 0
         || owner.gid == 0
         || owner.groups.len() > 64
@@ -85,26 +81,10 @@ pub fn spawn(
         .stdout(Stdio::from(output))
         .stderr(Stdio::null());
     let (uid, gid, groups) = (owner.uid, owner.gid, owner.groups.clone());
-    let mut cgroup = cgroup;
-    // SAFETY: only syscalls and one write to a held descriptor run between
-    // fork and exec. The ids are dropped in the order that keeps each next
-    // drop permitted, then checked, then pinned.
+    // SAFETY: only syscalls run between fork and exec. The ids are dropped in
+    // the order that keeps each next drop permitted, then checked, then pinned.
     unsafe {
         command.pre_exec(move || {
-            if let Some(procs) = cgroup.as_mut() {
-                let mut digits = [0u8; 20];
-                let mut n = libc::getpid() as u32;
-                let mut i = digits.len();
-                loop {
-                    i -= 1;
-                    digits[i] = b'0' + (n % 10) as u8;
-                    n /= 10;
-                    if n == 0 {
-                        break;
-                    }
-                }
-                procs.write_all(&digits[i..])?;
-            }
             if libc::setgroups(groups.len(), groups.as_ptr()) != 0
                 || libc::setresgid(gid, gid, gid) != 0
                 || libc::setresuid(uid, uid, uid) != 0
@@ -149,7 +129,7 @@ mod tests {
             owner(20001, 20001, &[1; 65]),
         ] {
             assert_eq!(
-                spawn(binary, Role::Read, &bad, None).unwrap_err().kind(),
+                spawn(binary, Role::Read, &bad).unwrap_err().kind(),
                 io::ErrorKind::PermissionDenied
             );
         }
@@ -157,8 +137,7 @@ mod tests {
             spawn(
                 Path::new("bin/true"),
                 Role::Resolve,
-                &owner(20001, 20001, &[20000]),
-                None
+                &owner(20001, 20001, &[20000])
             )
             .unwrap_err()
             .kind(),

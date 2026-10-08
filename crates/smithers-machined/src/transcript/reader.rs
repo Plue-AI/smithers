@@ -18,8 +18,9 @@ const CHECKPOINT: u8 = 3;
 pub(super) const DONE: u8 = 4;
 const ACK: u8 = 5;
 pub(super) const ERROR: u8 = 6;
+const BIND: u8 = 7;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Startup {
     pub uid: u32,
@@ -115,15 +116,55 @@ pub(super) fn open_root(root: &str) -> io::Result<File> {
     .into())
 }
 
+/// The broker's first and only message to a reader it starts: whose transcript
+/// this child reads and under which source. It is written before the child's
+/// socket is handed to the daemon, so what the daemon then asks for can only
+/// be this. The broker never reads from the child.
+pub fn bind(writer: &mut impl Write, startup: &Startup) -> io::Result<()> {
+    if startup.checkpoint.is_some() {
+        return Err(invalid());
+    }
+    send(
+        writer,
+        BIND,
+        &serde_json::to_vec(startup).map_err(|_| invalid())?,
+    )
+}
+
+/// A member cannot attach to or dump this process although it runs as them:
+/// what it reads is theirs, but what it writes is trusted to be this code's.
+pub(super) fn seal() -> io::Result<()> {
+    Ok(rustix::process::set_dumpable_behavior(
+        rustix::process::DumpableBehavior::NotDumpable,
+    )?)
+}
+
 /// No privileged fallback. Identity is checked before opening even the root
 /// directory. All root components are resolved beneath / without symlinks.
+/// The broker's binding comes first; the daemon's startup must name the same
+/// owner, root, path and source, and adds only the checkpoint to resume from.
 pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
+    let (tag, bytes) = receive(&mut input)?;
+    if tag != BIND {
+        return Err(invalid());
+    }
+    let bound: Startup = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+    if bound.checkpoint.is_some() {
+        return Err(invalid());
+    }
+    require_owner(bound.uid, bound.gid, &bound.groups, &bound.root)?;
     let (tag, bytes) = receive(&mut input)?;
     if tag != 0 {
         return Err(invalid());
     }
     let startup: Startup = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    require_owner(startup.uid, startup.gid, &startup.groups, &startup.root)?;
+    if (Startup {
+        checkpoint: None,
+        ..startup.clone()
+    }) != bound
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
     // Validate the immutable wire binding before any home reads.
     startup
         .source
@@ -176,6 +217,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
 /// The installed executable is re-executed after the broker's permanent group,
 /// GID and UID drop. stdin/stdout are two duplicates of its private socketpair.
 pub fn run() -> io::Result<()> {
+    seal()?;
     serve(io::stdin().lock(), io::stdout().lock())
 }
 

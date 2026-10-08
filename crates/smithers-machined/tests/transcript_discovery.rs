@@ -17,16 +17,16 @@ use smithers_machined::{
     transcript::{
         discovery::{self, Agent, Found, Link},
         launch::{self, Owner, Role},
-        reader::{Reader, Startup},
+        reader::{self, Reader, Startup},
         resolve::{self, Request, Resolved},
         wire::Source,
     },
 };
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, BufRead, BufReader, Write},
     os::unix::{
-        fs::{chown, symlink, PermissionsExt},
+        fs::{chown, symlink, MetadataExt, PermissionsExt},
         process::CommandExt,
     },
     path::{Path, PathBuf},
@@ -375,7 +375,7 @@ fn the_resolver_answers_as_the_owner_from_the_agents_own_files() {
     let home = machine.home("ben");
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);
     let ask = |request: &Request| -> io::Result<Option<Resolved>> {
-        let (mut child, socket) = launch::spawn(machined(), Role::Resolve, &ben(), None)?;
+        let (mut child, socket) = launch::spawn(machined(), Role::Resolve, &ben())?;
         let answer = resolve::ask(&socket, request);
         let _ = child.kill();
         child.wait()?;
@@ -589,7 +589,7 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);
     machine.file(&format!("home/maya/{ROLLOUT}"), MAYA, META);
 
-    let (child, socket) = launch::spawn(machined(), Role::Read, &ben(), None).unwrap();
+    let (child, mut socket) = launch::spawn(machined(), Role::Read, &ben()).unwrap();
     let child = Running(child);
     // Before it has been told anything, the child already holds only Ben's
     // ids, the team group, and can never gain a privilege again.
@@ -631,7 +631,14 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
         source: source.clone(),
         checkpoint: None,
     };
+    reader::bind(&mut socket, &startup).unwrap();
     let mut reader = Reader::connect(socket, &startup).unwrap();
+    // It runs as Ben, but Ben cannot attach to it, read its memory or dump
+    // it: the kernel gives a sealed process's own files to root.
+    for file in ["mem", "environ", "fd"] {
+        let owner = fs::metadata(format!("/proc/{}/{file}", child.pid())).unwrap();
+        assert_eq!(owner.uid(), 0, "{file}");
+    }
     let mut records = Vec::new();
     let poll = |reader: &mut Reader, records: &mut Vec<String>| {
         reader.poll(
@@ -699,14 +706,19 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
             },
         ),
     ] {
-        let (other, socket) = launch::spawn(machined(), Role::Read, &ben(), None).unwrap();
-        let mut other = Running(other);
-        assert!(
-            Reader::connect(socket, &forged).is_err(),
-            "{name} was accepted"
-        );
-        // A refused child exits on its own; it is not left running.
-        wait_for(|| other.0.try_wait().unwrap().is_some());
+        // Bound to it by a broker that was wrong, then asked for it by a
+        // daemon although the broker bound the honest source.
+        for binding in [&forged, &startup] {
+            let (other, mut socket) = launch::spawn(machined(), Role::Read, &ben()).unwrap();
+            let mut other = Running(other);
+            reader::bind(&mut socket, binding).unwrap();
+            assert!(
+                Reader::connect(socket, &forged).is_err(),
+                "{name} was accepted"
+            );
+            // A refused child exits on its own; it is not left running.
+            wait_for(|| other.0.try_wait().unwrap().is_some());
+        }
     }
     // A broker asked to start a child as root, or with root's group, forks nothing.
     for owner in [
@@ -717,7 +729,7 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
             ..ben()
         },
     ] {
-        assert!(launch::spawn(machined(), Role::Read, &owner, None).is_err());
+        assert!(launch::spawn(machined(), Role::Read, &owner).is_err());
     }
     // Maya's transcript is as it was.
     assert_eq!(
@@ -728,7 +740,7 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
 
 #[test]
 #[ignore = "requires Linux root and a writable cgroup v2 hierarchy"]
-fn discovery_resolution_and_reading_agree_on_one_live_agent_and_stop_with_its_session() {
+fn discovery_resolution_and_reading_agree_on_one_live_agent_of_a_kernel_cgroup() {
     require_root();
     let machine = Machine::new("slice");
     let home = machine.home("ben");
@@ -741,13 +753,12 @@ fn discovery_resolution_and_reading_agree_on_one_live_agent_and_stop_with_its_se
     );
 
     // A session cgroup of the kernel's own: the list discovery reads is the
-    // kernel's, and killing the cgroup is how a session is revoked.
+    // kernel's, and killing the cgroup is how a session ends.
     let cgroup =
         Path::new("/sys/fs/cgroup").join(format!("smithers-agt-test-{}", std::process::id()));
     fs::create_dir(&cgroup).expect(ROOT);
     let procs = cgroup.join("cgroup.procs");
     fs::write(&procs, codex.pid().to_string()).expect(ROOT);
-    let session = || Some(File::options().write(true).open(&procs).unwrap());
 
     let found = discovery::scan(&procs, BEN, &home).unwrap();
     assert_eq!(found.len(), 1);
@@ -762,8 +773,7 @@ fn discovery_resolution_and_reading_agree_on_one_live_agent_and_stop_with_its_se
         pid: agent.pid,
         link: agent.link.clone(),
     };
-    let (mut resolver, socket) =
-        launch::spawn(machined(), Role::Resolve, &ben(), session()).unwrap();
+    let (mut resolver, socket) = launch::spawn(machined(), Role::Resolve, &ben()).unwrap();
     let resolved = resolve::ask(&socket, &request).unwrap().unwrap();
     resolver.wait().unwrap();
     let source = Source {
@@ -774,21 +784,19 @@ fn discovery_resolution_and_reading_agree_on_one_live_agent_and_stop_with_its_se
     };
     assert_eq!(source.profile, "codex-rollout/0.160");
 
-    let (reader_child, socket) = launch::spawn(machined(), Role::Read, &ben(), session()).unwrap();
-    let mut reader_child = Running(reader_child);
-    let mut reader = Reader::connect(
-        socket,
-        &Startup {
-            uid: BEN,
-            gid: BEN,
-            groups: vec![TEAM],
-            root: agent.root.clone(),
-            path: resolved.path.clone(),
-            source: source.clone(),
-            checkpoint: None,
-        },
-    )
-    .unwrap();
+    let (reader_child, mut socket) = launch::spawn(machined(), Role::Read, &ben()).unwrap();
+    let reader_child = Running(reader_child);
+    let startup = Startup {
+        uid: BEN,
+        gid: BEN,
+        groups: vec![TEAM],
+        root: agent.root.clone(),
+        path: resolved.path.clone(),
+        source: source.clone(),
+        checkpoint: None,
+    };
+    reader::bind(&mut socket, &startup).unwrap();
+    let mut reader = Reader::connect(socket, &startup).unwrap();
     let mut texts = Vec::new();
     reader
         .poll(
@@ -801,28 +809,25 @@ fn discovery_resolution_and_reading_agree_on_one_live_agent_and_stop_with_its_se
         )
         .unwrap();
     assert_eq!(texts, vec![META.trim_end().to_owned()]);
-    // The reader is the install's own process in the member's session: a scan
-    // of the session that now contains it still finds exactly the one agent.
-    let listed = fs::read_to_string(&procs).unwrap();
-    assert!(
-        listed
-            .lines()
-            .any(|pid| pid == reader_child.pid().to_string()),
-        "the reader joined the session's cgroup"
+    // The reader runs as Ben and never joins his session's cgroup: its CPU
+    // there would read as the session's own activity (spec §9.3). The session
+    // still holds exactly the one agent.
+    assert_eq!(
+        fs::read_to_string(&procs).unwrap().trim(),
+        codex.pid().to_string()
     );
     assert_eq!(discovery::scan(&procs, BEN, &home).unwrap(), found);
-    // The member is removed: the session is killed, and with it the agent
-    // and the reader, inside the 5 s revocation bound.
-    let killed = Instant::now();
+    // The session ends: its agent is gone from the next scan. The reader is
+    // the broker's to stop, with the handle it kept.
     fs::write(cgroup.join("cgroup.kill"), "1").unwrap();
-    wait_for(|| reader_child.0.try_wait().unwrap().is_some());
-    assert!(killed.elapsed() < Duration::from_secs(5));
+    drop(codex);
+    wait_for(|| fs::read_to_string(&procs).unwrap().trim().is_empty());
+    assert_eq!(discovery::scan(&procs, BEN, &home).unwrap(), vec![]);
+    assert!(fs::metadata(format!("/proc/{}", reader_child.pid())).is_ok());
+    drop(reader_child);
     assert!(
         reader.poll(|| Ok(()), |_| Ok(()), |_| Ok(())).is_err(),
         "a killed reader read again"
     );
-    drop(codex);
-    wait_for(|| fs::read_to_string(&procs).unwrap().trim().is_empty());
-    assert_eq!(discovery::scan(&procs, BEN, &home).unwrap(), vec![]);
     fs::remove_dir(&cgroup).unwrap();
 }

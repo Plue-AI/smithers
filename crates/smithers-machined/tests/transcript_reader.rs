@@ -1,6 +1,6 @@
 #![cfg(target_os = "linux")]
 use smithers_machined::transcript::{
-    reader::{Reader, Startup},
+    reader::{self, Reader, Startup},
     wire::Source,
 };
 use std::{
@@ -86,12 +86,109 @@ fn spawn() -> (UnixStream, Process) {
     (socket, Process { child })
 }
 
+/// What the broker does before it hands a reader's socket to the daemon, then
+/// what the daemon does with it.
+fn connect(mut socket: UnixStream, startup: &Startup) -> io::Result<Reader> {
+    let _ = reader::bind(
+        &mut socket,
+        &Startup {
+            checkpoint: None,
+            ..startup.clone()
+        },
+    );
+    Reader::connect(socket, startup)
+}
+
+#[test]
+fn the_daemon_reads_only_what_the_broker_bound_the_child_to() {
+    let fixture = Fixture::new();
+    let secret = fixture.root.join("secret.jsonl");
+    fs::write(&secret, b"{\"secret\":1}\n").unwrap();
+    let honest = fixture.startup();
+    let mut other_source = honest.clone();
+    other_source.source.lifetime = [3; 16];
+    let mut other_session = honest.clone();
+    other_session.source.session = 2;
+    let mut other_participant = honest.clone();
+    other_participant.source.participant = [4; 16];
+    let mut other_profile = honest.clone();
+    other_profile.source.profile = "codex-rollout/0.160".into();
+    let inner = fixture.root.join("inner");
+    fs::create_dir(&inner).unwrap();
+    fs::write(inner.join("session.jsonl"), b"{\"inner\":1}\n").unwrap();
+    // Each asks the owner's child for something the broker did not bind it to.
+    for (name, asked) in [
+        (
+            "another file beneath the same root",
+            Startup {
+                path: "secret.jsonl".into(),
+                ..honest.clone()
+            },
+        ),
+        (
+            "another root of the same owner",
+            Startup {
+                root: inner.to_str().unwrap().into(),
+                ..honest.clone()
+            },
+        ),
+        ("another source lifetime", other_source),
+        ("another session", other_session),
+        ("another participant", other_participant),
+        ("another profile", other_profile),
+        (
+            "fewer groups",
+            Startup {
+                groups: vec![],
+                ..honest.clone()
+            },
+        ),
+    ] {
+        let (mut socket, mut child) = spawn();
+        reader::bind(&mut socket, &honest).unwrap();
+        assert!(Reader::connect(socket, &asked).is_err(), "{name}");
+        assert!(!child.child.wait().unwrap().success(), "{name}");
+    }
+    // A startup with no binding before it, a second binding, and a binding
+    // that carries a checkpoint are each refused; the child exits unread.
+    let (socket, mut child) = spawn();
+    assert!(Reader::connect(socket, &honest).is_err());
+    assert!(!child.child.wait().unwrap().success());
+    let (mut socket, mut child) = spawn();
+    reader::bind(&mut socket, &honest).unwrap();
+    reader::bind(&mut socket, &honest).unwrap();
+    assert!(Reader::connect(socket, &honest).is_err());
+    assert!(!child.child.wait().unwrap().success());
+    let mut socket = UnixStream::pair().unwrap().0;
+    let carried = Startup {
+        checkpoint: Some("{}".into()),
+        ..honest.clone()
+    };
+    assert!(reader::bind(&mut socket, &carried).is_err());
+    // The bound request still reads, and only the bound file.
+    let (socket, _child) = spawn();
+    let mut reader = connect(socket, &honest).unwrap();
+    let mut texts = vec![];
+    reader
+        .poll(
+            || Ok(()),
+            |event| {
+                texts.push(Source::decode(event).unwrap().1.text);
+                Ok(())
+            },
+            |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(texts, ["{\"a\":1}"]);
+    assert_eq!(fs::read(&secret).unwrap(), b"{\"secret\":1}\n");
+}
+
 #[test]
 fn child_socketpair_outbox_checkpoint_restart_and_revoke() {
     let fixture = Fixture::new();
     let (socket, _child) = spawn();
     let mut startup = fixture.startup();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     let outbox_dir = fixture.root.join("outbox");
     fs::create_dir(&outbox_dir).unwrap();
     fs::set_permissions(&outbox_dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -144,7 +241,7 @@ fn child_socketpair_outbox_checkpoint_restart_and_revoke() {
         .write_all(b"done\n")
         .unwrap();
     let (socket, _restarted) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     assert_eq!(
         reader
             .poll(
@@ -188,7 +285,7 @@ fn failed_persistence_leaves_record_replayable() {
     let fixture = Fixture::new();
     let startup = fixture.startup();
     let (socket, _child) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     assert!(reader
         .poll(
             || Ok(()),
@@ -198,7 +295,7 @@ fn failed_persistence_leaves_record_replayable() {
         .is_err());
     drop(reader);
     let (socket, _retry) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     assert_eq!(reader.poll(|| Ok(()), |_| Ok(()), |_| Ok(())).unwrap(), 1);
 }
 
@@ -218,7 +315,7 @@ fn child_refuses_identity_and_symlink_roots_before_reading() {
             }
         }
         let (socket, _child) = spawn();
-        assert!(Reader::connect(socket, &startup).is_err());
+        assert!(connect(socket, &startup).is_err());
     }
     assert_eq!(
         fs::read(fixture.root.join("session.jsonl")).unwrap(),
@@ -228,15 +325,24 @@ fn child_refuses_identity_and_symlink_roots_before_reading() {
 
 #[test]
 fn malformed_and_oversized_socketpair_requests_terminate_child() {
-    for packet in [
-        vec![0, 0, 128, 0, 1],
-        vec![1, 0, 0, 0, 0],
-        vec![0, 0, 0, 0, 1, b'{'],
-    ] {
-        let (mut socket, _child) = spawn();
-        socket.write_all(&packet).unwrap();
-        let mut byte = [0];
-        assert_eq!(socket.read(&mut byte).unwrap(), 0);
+    let fixture = Fixture::new();
+    // In place of the broker's binding, then in place of the daemon's startup.
+    for bound in [false, true] {
+        for packet in [
+            vec![0, 0, 128, 0, 1],
+            vec![7, 0, 128, 0, 1],
+            vec![1, 0, 0, 0, 0],
+            vec![0, 0, 0, 0, 1, b'{'],
+            vec![7, 0, 0, 0, 1, b'{'],
+        ] {
+            let (mut socket, _child) = spawn();
+            if bound {
+                reader::bind(&mut socket, &fixture.startup()).unwrap();
+            }
+            socket.write_all(&packet).unwrap();
+            let mut byte = [0];
+            assert_eq!(socket.read(&mut byte).unwrap(), 0, "{bound} {packet:?}");
+        }
     }
 }
 
@@ -246,7 +352,7 @@ fn checkpoint_failure_and_mid_poll_revocation_disconnect_reader() {
     fs::write(fixture.root.join("session.jsonl"), b"first\nsecond\n").unwrap();
     for revoke in [false, true] {
         let (socket, mut child) = spawn();
-        let mut reader = Reader::connect(socket, &fixture.startup()).unwrap();
+        let mut reader = connect(socket, &fixture.startup()).unwrap();
         let calls = std::cell::Cell::new(0);
         let mut records = vec![];
         let mut saves = 0;
@@ -295,7 +401,7 @@ fn checkpoint_failure_and_mid_poll_revocation_disconnect_reader() {
         }
     }
     let (socket, _retry) = spawn();
-    let mut reader = Reader::connect(socket, &fixture.startup()).unwrap();
+    let mut reader = connect(socket, &fixture.startup()).unwrap();
     let mut replay = vec![];
     assert_eq!(
         reader
@@ -371,7 +477,7 @@ fn maximum_partial_record_checkpoint_crosses_socketpair_and_restarts() {
     fs::write(fixture.root.join("session.jsonl"), vec![b'x'; size]).unwrap();
     let mut startup = fixture.startup();
     let (socket, _child) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     let mut checkpoint = vec![];
     for _ in 0..size / smithers_machined::transcript::READ_BYTES {
         assert_eq!(
@@ -397,7 +503,7 @@ fn maximum_partial_record_checkpoint_crosses_socketpair_and_restarts() {
         .write_all(b"\n")
         .unwrap();
     let (socket, _retry) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     assert_eq!(
         reader
             .poll(
@@ -470,7 +576,7 @@ fn parent_refuses_foreign_or_malformed_checkpoints_before_save_and_ack() {
     let fixture = Fixture::new();
     let mut startup = fixture.startup();
     let (socket, _child) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     let mut checkpoint = Vec::new();
     reader
         .poll(
@@ -542,7 +648,7 @@ fn restarted_child_refuses_checkpoint_for_another_process_source_at_startup() {
     let fixture = Fixture::new();
     let mut startup = fixture.startup();
     let (socket, _child) = spawn();
-    let mut reader = Reader::connect(socket, &startup).unwrap();
+    let mut reader = connect(socket, &startup).unwrap();
     let mut checkpoint = Vec::new();
     reader
         .poll(
@@ -558,7 +664,7 @@ fn restarted_child_refuses_checkpoint_for_another_process_source_at_startup() {
     startup.checkpoint = Some(String::from_utf8(checkpoint).unwrap());
     startup.source.lifetime = [9; 16];
     let (socket, _restarted) = spawn();
-    assert!(Reader::connect(socket, &startup).is_err());
+    assert!(connect(socket, &startup).is_err());
     assert_eq!(
         fs::read(fixture.root.join("session.jsonl")).unwrap(),
         b"{\"a\":1}\npartial"
