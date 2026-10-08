@@ -12071,6 +12071,53 @@
                 "command"
               ],
               "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "branch": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "person-command"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "command": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation",
+                "id",
+                "title",
+                "prompt"
+              ],
+              "additionalProperties": true
             }
           ]
         },

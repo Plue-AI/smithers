@@ -2296,9 +2296,6 @@ func buildRouter(
 		})
 	})
 
-	if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
-		workspaceTerminalHandler.CommandRouter = r
-	}
 	return r
 }
 

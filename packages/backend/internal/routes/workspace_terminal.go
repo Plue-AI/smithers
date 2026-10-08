@@ -68,9 +68,6 @@ type workspaceRuntimeTerminalService interface {
 
 // WorkspaceTerminalHandler handles the WebSocket terminal endpoint for workspace sessions.
 type WorkspaceTerminalHandler struct {
-	// CommandRouter is the composed install router. Person commands re-enter
-	// its credential loader and catalog authorization on every request.
-	CommandRouter       http.Handler
 	Service             WorkspaceTerminalService
 	PersonAppend        http.Handler
 	AuthorizeTerminal   func(*http.Request, string) (int64, int64, error)
@@ -177,11 +174,6 @@ func (h *WorkspaceTerminalHandler) hasSessionCookie(r *http.Request) bool {
 // Control messages (text, JSON):
 //
 //	{"type": "resize", "cols": 120, "rows": 40}
-//
-// Person catalog commands use {type:"command", id, command, method, path,
-// body, idempotencyKey}. Only the authenticated input owner is admitted;
-// replies contain {type:"command", id, status, body}. Guest shell traffic is
-// binary and never enters this host command channel.
 func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *http.Request) {
 	if h.OwnerOnly {
 		h.ownerTerminalWebSocket(w, r)
@@ -372,7 +364,7 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 	go func() {
 		defer wg.Done()
 		defer cancel()
-		h.pipeWSToTerminalSession(ctx, guard.ctx, wsConn, termSession, sessionID, notifyActivity, r)
+		h.pipeWSToTerminalSession(ctx, guard.ctx, wsConn, termSession, sessionID, notifyActivity)
 	}()
 
 	// Goroutine 2: Keep-alive pings for this attached WebSocket.
@@ -672,7 +664,7 @@ func (h *WorkspaceTerminalHandler) pipeSSHToWS(ctx context.Context, ws *websocke
 // pipeWSToTerminalSession reads one attached WebSocket and writes input/control
 // into the durable terminal session. The durable session owns stdin and the PTY;
 // this attachment closing must not close the shared stdin.
-func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization context.Context, ws *websocket.Conn, sess *terminalSession, sessionID string, notifyActivity func(), sources ...*http.Request) {
+func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization context.Context, ws *websocket.Conn, sess *terminalSession, sessionID string, notifyActivity func()) {
 	for {
 		msgType, data, err := ws.Read(ctx)
 		if err != nil {
@@ -711,10 +703,6 @@ func (h *WorkspaceTerminalHandler) pipeWSToTerminalSession(ctx, authorization co
 				continue
 			}
 			switch msg.Type {
-			case "command":
-				if len(sources) != 0 {
-					h.personTerminalCommand(authorization, ws, sources[0], data)
-				}
 			case "close":
 				sess.destroy("terminal closed")
 				_ = ws.Close(websocket.StatusNormalClosure, "terminal closed")

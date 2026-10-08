@@ -186,5 +186,5 @@ func (h *WorkspaceTerminalHandler) ownerTerminalWebSocket(w http.ResponseWriter,
 		}
 		defer credential.ReleaseCredential()
 	}
-	h.pipeWSToTerminalSession(ctx, guard.ctx, ws, session, id, func() {}, r)
+	h.pipeWSToTerminalSession(ctx, guard.ctx, ws, session, id, func() {})
 }
