@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"golang.org/x/crypto/ssh"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -112,8 +116,26 @@ func TestSFTPCampaignRejectsSuccessfulOutsideMutations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = sftpFixture(client)
+			evidence := t.TempDir()
+			err = sftpBoundaryFixture(client, false, evidence)
 			client.Close()
+			raw, readErr := os.ReadFile(filepath.Join(evidence, "sftp-packets.jsonl"))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			rows := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+			if len(rows) < 8 {
+				t.Fatalf("lost SFTP packet receipts: %d", len(rows))
+			}
+			for _, row := range rows {
+				var packet struct {
+					Request []byte
+					Reply   []byte
+				}
+				if json.Unmarshal(row, &packet) != nil || len(packet.Request) < 5 || len(packet.Reply) < 5 {
+					t.Fatalf("invalid raw SFTP receipt: %s", row)
+				}
+			}
 			if (err == nil) != (accepted == 0 || accepted == 100) {
 				t.Fatalf("accepted outside mutation %d: %v", accepted, err)
 			}

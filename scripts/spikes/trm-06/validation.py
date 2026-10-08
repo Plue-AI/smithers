@@ -242,6 +242,8 @@ for label, target in (("boot", "/run/smithers/trm06/boot.json"),
     for mutation in ("hardlink", "fifo", "directory", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 STARTUP_MUTATIONS["startup-boot-identity"] = ("/run/smithers/trm06/boot.json", "identity")
+for mutation in ("empty", "oversized", "same-size", "duplicate", "secret"):
+    STARTUP_MUTATIONS["startup-boot-" + mutation] = ("/run/smithers/trm06/boot.json", mutation)
 for label, target in (("boot-parent", "/run/smithers/trm06"),
                       ("boot-ancestor", "/run/smithers"),
                       ("supervisor-parent", "/opt/smithers/prototype"),
@@ -266,15 +268,24 @@ def mutate_startup(target, mutation):
             os.close(fd)
     elif mutation == "hardlink":
         os.link(path, path.with_name(path.name + "-original"), follow_symlinks=False)
-    elif mutation == "identity":
+    elif mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret"):
         # Valid but different authority at the same inode: restart must not
         # silently select a new boot id/secret even when modes remain trusted.
         fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
         with os.fdopen(fd, "r+b") as output:
-            data = json.loads(output.read(4097))
-            data["boot"][0] ^= 1
+            original = output.read(4097)
+            data = json.loads(original)
+            if mutation == "identity":
+                data["boot"][0] ^= 1
+            elif mutation == "secret":
+                data["secret"][0] ^= 1
+            contents = json.dumps(data, separators=(",", ":")).encode()
+            if mutation == "empty": contents = b""
+            elif mutation == "oversized": contents = b" " * 4097
+            elif mutation == "same-size": contents = b"x" * len(original)
+            elif mutation == "duplicate": contents = b'{"boot":[1],' + contents[1:]
             output.seek(0)
-            output.write(json.dumps(data, separators=(",", ":")).encode())
+            output.write(contents)
             output.truncate()
     else:
         original = path.with_name(path.name + "-original")

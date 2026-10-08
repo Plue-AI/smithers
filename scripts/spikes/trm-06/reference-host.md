@@ -219,3 +219,11 @@ parents and ancestors also change to 20001:20001 while retaining their bytes,
 mode and inode. All six controls use installed fixture dispatch and the actual
 init restart/refusal boundary. The local mutation regression substitutes only
 fchown, verifying its held inode and fixed IDs; it grants no root authority.
+
+Pass-5 additions (unrun): retain `sftp-packets.jsonl` for the concurrent leaf
+racer and 32 acknowledged OPEN → replace → deny new OPEN → WRITE held inode →
+CLOSE → restore schedules (16 leaf, 16 ancestor). A restored inode must contain
+exactly `held-fixture`; outside bytes/owner/mode must remain unchanged. Five more
+startup cases mutate boot bytes at the same inode (empty, oversized, same-size
+invalid, duplicate key, changed secret), then require init's explicit refusal.
+The supplemental Linux regression is not an installed receipt.

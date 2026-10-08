@@ -198,7 +198,7 @@ func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
 // Mirror the literal installed observer selectors. Each runs in a fresh VM
 // through installPrototype, init and the authenticated DialWorkspacePort relay.
 func startupMutationScenarios() []string {
-	scenarios := []string{"startup-boot-identity"}
+	scenarios := []string{"startup-boot-identity", "startup-boot-empty", "startup-boot-oversized", "startup-boot-same-size", "startup-boot-duplicate", "startup-boot-secret"}
 	for _, leaf := range []string{"boot", "supervisor"} {
 		for _, mutation := range []string{"hardlink", "fifo", "directory", "owner"} {
 			scenarios = append(scenarios, "startup-"+leaf+"-"+mutation)
@@ -598,7 +598,7 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			return errors.New("valid exec fixture failed")
 		}
 	}
-	if err = sftpBoundaryFixture(client, true); err != nil {
+	if err = sftpBoundaryFixture(client, true, evidence); err != nil {
 		return err
 	}
 	if bytes, err := command("cat /workspace/trm06-sftp.txt; stat -c '%a %u %g' /workspace/trm06-sftp.txt"); err != nil || string(bytes) != "sftp-fixture\x00664 20001 20000\n" {

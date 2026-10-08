@@ -14,7 +14,7 @@ spec.loader.exec_module(observer)
 
 class StartupMutations(unittest.TestCase):
     def test_every_installed_selector_changes_the_intended_object(self):
-        self.assertEqual(len(observer.STARTUP_MUTATIONS), 28)
+        self.assertEqual(len(observer.STARTUP_MUTATIONS), 33)
         for name, (target, mutation) in observer.STARTUP_MUTATIONS.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -37,7 +37,7 @@ class StartupMutations(unittest.TestCase):
                 # Root can update the installed 0400 boot leaf. This ordinary
                 # filesystem test grants its owner write for the syscall only;
                 # it is explicitly not root-boundary evidence.
-                if mutation == "identity":
+                if mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret"):
                     path.chmod(0o600)
                 if mutation == "owner":
                     # Ownership changes need root on the installed guest. Observe
@@ -51,7 +51,7 @@ class StartupMutations(unittest.TestCase):
                     self.assertEqual(path.stat().st_mode, original.st_mode)
                 else:
                     observer.mutate_startup(str(path), mutation)
-                if mutation == "identity":
+                if mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret"):
                     path.chmod(original.st_mode & 0o777)
                 if mutation == "clone":
                     self.assertNotEqual(path.stat().st_ino, original.st_ino)
@@ -70,6 +70,17 @@ class StartupMutations(unittest.TestCase):
                     self.assertEqual(path.stat().st_ino, original.st_ino)
                     self.assertEqual(json.loads(path.read_bytes())["boot"], [0] + [1] * 15)
                     self.assertEqual(path.stat().st_mode, original.st_mode)
+                elif mutation in ("empty", "oversized", "same-size", "duplicate", "secret"):
+                    self.assertEqual(path.stat().st_ino, original.st_ino)
+                    self.assertEqual(path.stat().st_mode, original.st_mode)
+                    data = path.read_bytes()
+                    if mutation == "empty": self.assertEqual(data, b"")
+                    elif mutation == "oversized": self.assertEqual(len(data), 4097)
+                    elif mutation == "same-size":
+                        self.assertEqual(len(data), len(contents))
+                        self.assertNotEqual(data, contents)
+                    elif mutation == "duplicate": self.assertEqual(data.count(b'"boot"'), 2)
+                    elif mutation == "secret": self.assertEqual(json.loads(data)["secret"], [3] + [2] * 31)
                 elif mutation == "canary":
                     self.assertNotEqual(path.stat().st_ino, original.st_ino)
                     self.assertIn(b"printf canary", path.read_bytes())

@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -16,7 +19,16 @@ func sftpFixture(client *ssh.Client) error {
 	return sftpBoundaryFixture(client, false)
 }
 
-func sftpBoundaryFixture(client *ssh.Client, race bool) error {
+func sftpBoundaryFixture(client *ssh.Client, race bool, evidence ...string) error {
+	var transcript *os.File
+	if len(evidence) > 0 {
+		var err error
+		transcript, err = os.OpenFile(filepath.Join(evidence[0], "sftp-packets.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		defer transcript.Close()
+	}
 	session, err := client.NewSession()
 	if err != nil {
 		return err
@@ -52,6 +64,15 @@ func sftpBoundaryFixture(client *ssh.Client, race bool) error {
 			return nil, err
 		}
 		reply, err := readSFTPPacket(output)
+		if transcript != nil {
+			record := map[string]any{"request": packet, "reply": reply}
+			if err != nil {
+				record["error"] = err.Error()
+			}
+			if saveErr := json.NewEncoder(transcript).Encode(record); saveErr != nil {
+				return nil, errors.Join(err, saveErr)
+			}
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +139,10 @@ func sftpBoundaryFixture(client *ssh.Client, race bool) error {
 		}
 	}
 	if race {
-		return sftpPathRace(client, request, openBody)
+		if err := sftpPathRace(client, request, openBody); err != nil {
+			return err
+		}
+		return sftpHeldPathReplacements(client, request, openBody)
 	}
 	return nil
 }
@@ -228,6 +252,82 @@ printf '%s' "$n"`
 	}
 	if opened == 0 || denied == 0 {
 		return errors.New("SFTP race did not observe both permitted and forbidden targets")
+	}
+	return nil
+}
+
+// Synchronize member-owned leaf and ancestor swaps after OPEN and before WRITE.
+// Each mutation is acknowledged by the real SSH exec channel before SFTP uses
+// the handle/path again. The outside sentinel is checked independently by the
+// installed campaign after revocation; protocol success alone cannot pass it.
+func sftpHeldPathReplacements(client *ssh.Client, request func(byte, uint32, []byte) ([]byte, error), openBody func(string) []byte) error {
+	command := func(text string) error {
+		session, err := client.NewSession()
+		if err != nil {
+			return err
+		}
+		defer session.Close()
+		output, err := session.CombinedOutput("set -e; " + text)
+		if err != nil {
+			return fmt.Errorf("SFTP replacement exec failed: %w", err)
+		}
+		if string(output) != "replaced" {
+			return errors.New("SFTP replacement lacked acknowledgment")
+		}
+		return nil
+	}
+	for _, ancestor := range []bool{false, true} {
+		for round := uint32(0); round < 16; round++ {
+			// Fixed installed literals only. No caller path is interpolated into exec.
+			if err := command("rm -f /workspace/trm06-held-link /workspace/trm06-held-original; mkdir -p /workspace/trm06-held-parent; printf workspace > /workspace/trm06-held-parent/file; printf workspace > /workspace/trm06-held-link; printf replaced"); err != nil {
+				return err
+			}
+			path := "/workspace/trm06-held-link"
+			swap := "mv /workspace/trm06-held-link /workspace/trm06-held-original; ln -s /var/tmp/trm06-outside /workspace/trm06-held-link; printf replaced"
+			restore := "rm /workspace/trm06-held-link; mv /workspace/trm06-held-original /workspace/trm06-held-link; printf replaced"
+			if ancestor {
+				path = "/workspace/trm06-held-parent/trm06-outside"
+				if err := command("mv /workspace/trm06-held-parent/file /workspace/trm06-held-parent/trm06-outside; printf replaced"); err != nil {
+					return err
+				}
+				swap = "mv /workspace/trm06-held-parent /workspace/trm06-held-original; ln -s /var/tmp /workspace/trm06-held-parent; printf replaced"
+				restore = "rm /workspace/trm06-held-parent; mv /workspace/trm06-held-original /workspace/trm06-held-parent; printf replaced"
+			}
+			id := uint32(2000) + round*10
+			if ancestor {
+				id += 1000
+			}
+			reply, err := request(3, id, openBody(path))
+			var handle struct{ Handle string }
+			if err != nil || len(reply) < 9 || reply[0] != 102 || ssh.Unmarshal(reply[5:], &handle) != nil || len(handle.Handle) == 0 || len(handle.Handle) > 1024 {
+				return errors.New("SFTP replacement positive OPEN failed")
+			}
+			if err := command(swap); err != nil {
+				return err
+			}
+			reply, err = request(3, id+1, openBody(path))
+			if err != nil || !(sftpStatus(reply, 3) || sftpStatus(reply, 4)) {
+				return errors.New("SFTP replaced path admitted outside OPEN")
+			}
+			reply, err = request(6, id+2, ssh.Marshal(struct {
+				Handle string
+				Offset uint64
+				Data   string
+			}{handle.Handle, 0, "held-fixture"}))
+			if err != nil || !sftpStatus(reply, 0) {
+				return errors.New("SFTP original held handle WRITE failed")
+			}
+			reply, err = request(4, id+3, ssh.Marshal(handle))
+			if err != nil || !sftpStatus(reply, 0) {
+				return errors.New("SFTP original held handle CLOSE failed")
+			}
+			if err := command(restore); err != nil {
+				return err
+			}
+			if err := command(`test "$(cat ` + path + `)" = held-fixture && printf replaced`); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

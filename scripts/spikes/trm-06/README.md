@@ -296,3 +296,22 @@ an ancestor replacement at admission or restart. The installed campaign still
 uses the armed original-events observer and authenticated revocation to require
 all original processes drain within five seconds. These native controls remain
 unrun; local mutation tests are supplemental.
+
+Pass-5 path schedules (2026-10-08, installed execution pending): after the
+concurrent SFTP leaf racer, `check-session` executes 16 leaf and 16 ancestor
+replacement schedules through SSH exec and SFTP on the actual relay. OPEN holds
+a workspace inode; an acknowledged member-owned replacement points the pathname
+at the outside sentinel; a new OPEN must deny, while WRITE/CLOSE on the original
+handle must succeed. Restoring the path must expose exactly `held-fixture`.
+`sftp-packets.jsonl` retains each raw request/reply, including failing replies,
+before evaluation. The independent post-revocation sentinel check remains
+mandatory. A local SSH transport/filesystem regression substitutes the SFTP
+confinement peer and detects corrupted held writes; it is not root acceptance.
+
+Five additional startup controls mutate the held boot inode without changing its
+mode: empty, 4097 bytes, same-size invalid bytes, duplicate boot keys and a
+changed secret. Each uses the installed init restart/refusal campaign in its own
+fresh machine. Local syscall tests exercise all 33 startup mutations; the five
+new controls still need installed execution. Host launcher/artifact/destination
+race matrices, synchronized cgroup races, release assembly, real unsupported
+Landlock and native/manual evidence remain incomplete.
