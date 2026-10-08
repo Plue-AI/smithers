@@ -540,6 +540,83 @@
       "sha256": "20c313b2ae41b237d1a0e9006cbf89df1cd1819bcadebeec7f4a088d26a24a94"
     },
     {
+      "name": "res_status_safety_missing_missing",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "9a4b98e5339b84a904ef5aae05a8ad8c406c7f969aea60fa71e00477870fc522"
+    },
+    {
+      "name": "res_status_safety_missing_0",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "d54491871ce421487a38299bc4813b070fc11c6ade7492c65e7afe2f060f9939"
+    },
+    {
+      "name": "res_status_safety_missing_1",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "4e784c54f8b9e07ed47d2d80f7210b98a01c0bac9f9fbdc9e3eaf5382879f772"
+    },
+    {
+      "name": "res_status_safety_0_missing",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "7bb104dc3143e1f8aa84daa19320462c74fa2d620d3080cbd8ae227de75f34d6"
+    },
+    {
+      "name": "res_status_safety_0_0",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "204a236e475b1967d0c42c068dde101045f6242e27ca2bce63700cf9c713e524"
+    },
+    {
+      "name": "res_status_safety_0_1",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "b6ac8feb1b907f981808806bca7b293ac9c80ae80f685f0176fdca9e44fd40ab"
+    },
+    {
+      "name": "res_status_safety_1_missing",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "91da35beb81c43b666a577cee475df9dccffa91d318e1804c37c2ebe729578fa"
+    },
+    {
+      "name": "res_status_safety_1_0",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "29ba6e960796ca62bdb1959fdc005908ef5b61c3fa3c8e7b1397c878a42ce4de"
+    },
+    {
+      "name": "res_status_safety_1_1",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "db195fa337ba5360c3bb027dfee53a30abb7c7f7998b60f384a755a1959e637f"
+    },
+    {
+      "name": "res_status_safety_invalid_7",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "5c29764a957f3e3e5260bd63e3554ed913f5d521d79013d3c15ce12cc062d0ea"
+    },
+    {
+      "name": "res_status_safety_invalid_8",
+      "direction": "daemon-to-host",
+      "expected": "bad_value",
+      "local": false,
+      "sha256": "75285f4bed920176fe5396569458d5b04d1cdc580aa46442d3c1b3f909e60e8a"
+    },
+    {
       "name": "res_read_file",
       "direction": "daemon-to-host",
       "expected": "ok",
