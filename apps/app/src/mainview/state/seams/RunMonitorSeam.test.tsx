@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
 import { RunContainer } from "../../cards/RunContainer"
-import { createRunMonitorSeam } from "./RunMonitorSeam"
+import { createRunMonitorSeam, projectRunTopic } from "./RunMonitorSeam"
 import type { TopicSnapshot } from "../../runtime/LiveChannel"
 
 const run: MonitorCard = {
@@ -175,5 +175,21 @@ test("workspace-qualified monitor identities retain colons in the opaque native 
   expect(await seam.trace(id)).toBeUndefined()
   expect(seam.snapshots.get(id).model?.id).toBe(id)
   expect(requests).toEqual(["/api/runs/box%3Anative%3Arun/trace"])
+  stop(); seam.dispose()
+})
+
+test("a run topic delta extends the journal view; the seam registers that projection", () => {
+  const page = (events: ReadonlyArray<number>) => ({ summary: { runId: "native-run", flowId: "todo" }, steps: [], events: events.map(sequence => ({ sequence })), flow_version: { flow_name: "todo" } })
+  expect(projectRunTopic(page([1, 2]), page([3]))).toEqual({ ...page([3]), events: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }] })
+  expect(projectRunTopic(undefined, page([4]))).toEqual(page([4]))
+  expect((projectRunTopic(page(Array.from({ length: 1000 }, (_, n) => n)), page([1000])) as { events: unknown[] }).events).toHaveLength(1000)
+  expect(() => projectRunTopic(page([1]), { summary: {} })).toThrow()
+  const registered: string[] = []
+  const seam = createRunMonitorSeam({ http: async () => Response.json([]), live: {
+    subscribe: () => () => {}, getSnapshot: () => undefined,
+    registerProjection: (topic, project) => { registered.push(topic); expect(project).toBe(projectRunTopic) }
+  } })
+  const stop = seam.snapshots.subscribe("native-run", () => {})
+  expect(registered).toEqual(["run:native-run"])
   stop(); seam.dispose()
 })

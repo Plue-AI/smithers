@@ -82,10 +82,11 @@ export const subject = "📝 docs: add a greeting to JOURNEY.md"
  * - `[FAIL]`: the edit empties JOURNEY.md, so the repository's checks fail,
  *   until a later message of the TODO (an answer, a steer, a retry's
  *   feedback) says `[FIXED]`.
- * - `[FAILONCE]`: the first edit empties JOURNEY.md, so the first check
- *   attempt fails; the correction's repair restores it (`[RESTORE]`: the
- *   edit appends a line to JOURNEY.md), so the second attempt passes in the
- *   same run.
+ * - `[FAILONCE]`: the first edit leaves JOURNEY.md one blank line, so the
+ *   fast check (`test -s`) passes and the slow check (`grep -q .`) fails its
+ *   first attempt; the correction's repair restores it (`[RESTORE]`: the edit
+ *   appends a line to JOURNEY.md), so the second attempt passes in the same
+ *   run.
  * - `[PR]`: no detour; plan, edit and propose at once. The default path, named.
  * - `[HOLD key]`: the edit turn waits until `POST /release/<key>` on
  *   fake-todo-provider.mjs; the TODO stays Working meanwhile.
@@ -215,9 +216,14 @@ const editCell = (hosted, greeting) => {
     lines.push(`await append("CHANGELOG.md", ${JSON.stringify(`- ${line}`)});`)
     writes.push("CHANGELOG.md")
   }
-  if (markers.fail || markers.failonce) {
+  if (markers.fail) {
     // An empty JOURNEY.md fails the repository's checks (test -s, grep -q .).
     lines.push(`await put("JOURNEY.md", "");`)
+    if (!writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
+  } else if (markers.failonce) {
+    // A blank line passes the fast check (test -s) and fails the slow one
+    // (grep -q .), which the correction round repairs.
+    lines.push(`await put("JOURNEY.md", "\\n");`)
     if (!writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
   }
   if (markers.restore) {
@@ -300,12 +306,16 @@ const steps = [
     step: "coding/select-owner-repair",
     teaching: "Select one existing JJ atom owned by this Change to correct the supplied findings",
     answer: (payload, _greeting, all) => {
+      // The coding host hands the planned Change (owner, whose atoms carry
+      // the intent) beside its implementation (whose atoms carry the JJ
+      // change ids); older payloads carried both on one atom.
       const atom = firstAtom(payload)
-      const intent = String(atom?.intent ?? "Append a greeting line to JOURNEY.md.")
+      const changeId = payload?.implementation?.atoms?.[0]?.changeId ?? atom?.changeId ?? "unknown"
+      const intent = String(payload?.owner?.atoms?.[0]?.intent ?? atom?.intent ?? "Append a greeting line to JOURNEY.md.")
       // A [FIXED] anywhere in the turn (a steer, an answer) ends the scripted
       // failure; a [FAILONCE] edit is always repaired by restoring JOURNEY.md.
       const repaired = markersOf(all).fixed ? intent.replace("[FAIL]", "").trim() : intent
-      return done({ changeId: atom?.changeId ?? "unknown", intent: repaired.replace("[FAILONCE]", "[RESTORE]") })
+      return done({ changeId, intent: repaired.replace("[FAILONCE]", "[RESTORE]") })
     }
   },
   {

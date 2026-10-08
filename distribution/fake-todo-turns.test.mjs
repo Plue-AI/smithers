@@ -99,19 +99,23 @@ test("[FAIL] empties JOURNEY.md until a steer or retry feedback says [FIXED]", a
   assert.equal((await run(todoTurn(turn(EDIT, { atom: fixed })).content, { "JOURNEY.md": "x\n" })).tree["JOURNEY.md"], "x\n")
 })
 
-test("[FAILONCE] fails the first check attempt and its repair passes the second", async () => {
+test("[FAILONCE] fails the first slow check attempt and its repair passes the second", async () => {
   const failing = await plan("[ASK] [FAILONCE] [FILE t5.md] Add a greeting", { answer: "Say hello" })
   assert.deepEqual(failing.writes, ["t5.md", "JOURNEY.md"])
   const first = await run(todoTurn(turn(EDIT, { atom: failing })).content, { "JOURNEY.md": "x\n" })
-  assert.deepEqual(first.tree, { "JOURNEY.md": "", "t5.md": `${GREETING} Say hello\n` })
+  assert.deepEqual(first.tree, { "JOURNEY.md": "\n", "t5.md": `${GREETING} Say hello\n` })
   // The repair needs no steer: it restores JOURNEY.md on the same atom.
   const repair = todoTurn(turn(REPAIR, { owner: { atoms: [{ changeId: "c1", intent: failing.intent }] }, findings: [] }))
   const selected = (await run(repair.content)).settled
   assert.equal(selected.changeId, "c1")
   assert.match(selected.intent, /\[RESTORE\]/)
   assert.doesNotMatch(selected.intent, /\[FAILONCE\]/)
+  // The coding host's own payload: the plan's atom beside its implemented change.
+  const hosted = todoTurn(turn(REPAIR, { owner: { atoms: [{ changeId: null, intent: failing.intent }] },
+    implementation: { change: "greeting", atoms: [{ changeId: "zkxw", commitId: "c".repeat(40) }] }, findings: [] }))
+  assert.deepEqual((await run(hosted.content)).settled, { changeId: "zkxw", intent: selected.intent })
   const second = await run(todoTurn(turn(EDIT, { atom: { ...failing, intent: selected.intent } })).content, first.tree)
-  assert.deepEqual(second.tree, { "JOURNEY.md": `${GREETING} Say hello\n`, "t5.md": `${GREETING} Say hello\n${GREETING} Say hello\n` })
+  assert.deepEqual(second.tree, { "JOURNEY.md": `\n${GREETING} Say hello\n`, "t5.md": `${GREETING} Say hello\n${GREETING} Say hello\n` })
   assert.equal(markersOf("[FAILONCE] [FIXED]").failonce, false)
 })
 

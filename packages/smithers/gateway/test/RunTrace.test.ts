@@ -1599,6 +1599,7 @@ describe("native step transcripts and metered dispatches", () => {
   const journal: Array<JournalRecord> = [
     node(1, "flows.engine.node-scheduled", { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" }),
     fact(2, "control.agent.turn-opened", 0, { seat: "coding/implement" }),
+    fact(100, "control.agent.model-requested", 5, { modelId: "gpt-oss-120b", system: ["Implement the change.", "The task for this run:\n\n{\"atom\":\"t5.md\"}"], messages: [] }),
     fact(3, "control.agent.model-settled", 1, { text: "```cell\nwrite\n```", durationMillis: 500, usage: { inputTokens: 100, outputTokens: 100 } }),
     fact(4, "control.agent.cell-produced", 2, { language: "javascript", digest: "c", text: "await ctx.call(\"read\", { path: \"t5.md\" })" }),
     call(5, CALL_READ, "invoked", { flowName: "read", input: { path: "t5.md" },
@@ -1620,7 +1621,7 @@ describe("native step transcripts and metered dispatches", () => {
     const model = monitorFromJournal(run, journal)
     const [edit, check] = model.attempts[0]!.steps
     expect(edit).toMatchObject({ label: "Edited the files", meter: [`exec:${D1}`, `exec:${D2}`], model_calls: 1, tokens: 200,
-      output: "{\"writes\":[\"t5.md\"]}" })
+      input: { atom: "t5.md" }, output: "{\"writes\":[\"t5.md\"]}" })
     expect(check).toMatchObject({ label: "Ran checks", meter: [`exec:${D3}`] })
     expect(check).not.toHaveProperty("tokens")
     expect(check).not.toHaveProperty("usage")
@@ -1661,15 +1662,31 @@ describe("native step transcripts and metered dispatches", () => {
     expect(model.attempts[0]!.phases[0]!.cells[0]!.quote).toBe(`${"y".repeat(2000)}…`)
   })
 
+  test("agent tool calls stay in the transcript and a branch not taken stays next", () => {
+    const skipped = [
+      node(50, "flows.engine.node-scheduled", { nodeId: "decline", kind: "ActionCall", attempt: 1, action: "coding/decline-request" }),
+      node(51, "flows.engine.node-settled", { nodeId: "decline", outcome: "skipped", attempts: 0, action: "coding/decline-request" })
+    ]
+    const model = monitorFromJournal(run, [...journal, ...skipped])
+    expect(model.attempts[0]!.steps.some(step => step.key.startsWith("step:"))).toBe(false)
+    expect(model.attempts[0]!.graph.find(node => node.id.includes(":decline"))?.state).toBe("next")
+  })
+
   test("a check phase is titled by the failures its recorded output reports", () => {
     const check = (sequence: number, status: string) => [
       node(sequence, "flows.engine.node-scheduled", { nodeId: `check-${sequence}`, kind: "ActionCall", attempt: 1, action: "coding/check-command" }),
       node(sequence + 1, "flows.engine.node-settled", { nodeId: `check-${sequence}`, outcome: "built", attempts: 1, action: "coding/check-command",
         result: { preview: JSON.stringify({ checkId: "test", status }), bytes: 30, truncated: false } })
     ]
-    const model = monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed")])
-    expect(model.attempts[0]!.phases.map(phase => [phase.title, phase.tone])).toEqual([["Ran checks · 1 failed", "fail"], ["Ran checks", "ok"]])
-    expect(JSON.stringify(monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed")]))).toBe(JSON.stringify(model))
+    // The engine cuts long previews short; the receipt's leading fields still name the status.
+    const cut = [
+      node(60, "flows.engine.node-scheduled", { nodeId: "cut", kind: "ActionCall", attempt: 1, action: "coding/check-command" }),
+      node(61, "flows.engine.node-settled", { nodeId: "cut", outcome: "built", attempts: 1, action: "coding/check-command",
+        result: { preview: "{\"checkId\":\"test\",\"target\":\".\",\"startedAt\":17,\"status\":\"failed\",\"evidence\":\"{\\\"argv", bytes: 9000, truncated: true } })
+    ]
+    const model = monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed"), ...cut])
+    expect(model.attempts[0]!.phases.map(phase => [phase.title, phase.tone])).toEqual([["Ran checks · 1 failed", "fail"], ["Ran checks", "ok"], ["Ran checks · 1 failed", "fail"]])
+    expect(JSON.stringify(monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed"), ...cut]))).toBe(JSON.stringify(model))
   })
 
   test("the transcript is a pure function of the journal, and replay stops at the cursor", () => {

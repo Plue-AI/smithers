@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline"
 import { LiveChannel } from "../../../../../../apps/app/src/mainview/runtime/LiveChannel.ts"
+import { projectRunTopic } from "../../../../../../apps/app/src/mainview/state/seams/RunMonitorSeam.ts"
 
 const [origin] = process.argv.slice(2)
 if (!origin?.startsWith("http://127.0.0.1:")) throw new Error("Fixture requires its own loopback server")
@@ -32,6 +33,8 @@ try {
       continue
     }
     if (request.t !== "sub") throw new Error("Unknown rehearsal command")
+    // The run monitor registers its run:<id> projection, as the app's seam does.
+    if (request.topic.startsWith("run:")) channel.registerProjection(request.topic, projectRunTopic)
     let previous
     channel.subscribe(request.topic, () => {
       const snapshot = channel.getSnapshot(request.topic)

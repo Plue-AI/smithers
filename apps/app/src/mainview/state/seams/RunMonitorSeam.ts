@@ -15,11 +15,20 @@ const RunTopicSchema = z.object({
 })
 const RunListSchema = z.array(MonitorCardSchema.pick({ id: true, title: true }))
 
+/** The run:<id> topic's delta is its next page: summary and steps replace the
+ * view's, and its journal events extend it (the newest 1000). An unreadable
+ * delta throws, so the channel takes a fresh snapshot instead. */
+export const projectRunTopic = (previous: unknown, delta: unknown): unknown => {
+  const next = RunTopicSchema.parse(delta)
+  const prior = RunTopicSchema.safeParse(previous)
+  return { ...(delta as Record<string, unknown>), events: [...(prior.success ? prior.data.events : []), ...next.events].slice(-1000) }
+}
+
 /** The authenticated run topic is authoritative. HTTP trace reads never launch
  * a flow, retry a step, or evaluate repository presentation code. */
 export function createRunMonitorSeam(options: {
   readonly http: (path: string, init?: RequestInit) => Promise<Response>
-  readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot">
+  readonly live?: Pick<LiveChannel, "subscribe" | "getSnapshot"> & Partial<Pick<LiveChannel, "registerProjection">>
   readonly owner?: () => string | undefined
   readonly view?: (id: string) => { readonly tab?: string; readonly at?: number } | undefined
 }) {
@@ -67,6 +76,9 @@ export function createRunMonitorSeam(options: {
         if (error) publish(id, { error }, owner)
       })
     }
+    // Each page applies to the view; without a projector every delta would
+    // cost a resubscription and a fresh snapshot.
+    options.live.registerProjection?.(topic, projectRunTopic)
     subscriptions.set(id, options.live.subscribe(topic, receive))
     if (!rows.has(id) || owners.get(id) === owner) receive()
   }

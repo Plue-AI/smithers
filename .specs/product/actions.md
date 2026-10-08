@@ -109,6 +109,9 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/todo-delivery` | action | flows/coding/todo.ts:31 | Resolve the planned request for delivery | Machine | Keep | Prepared the delivery |
 | `coding/todo-pause-requested` | action | flows/coding/todo-pause.ts:10 | Read whether a person asked the TODO to pause | Machine | Keep | - |
 | `system/human-task` | action | packages/smithers/flows/flow/src/HumanTask.ts:135 | Wait for a person's answer | Machine | Keep | Waited for your answer |
+| `coding/todo-resume` | action | flows/coding/todo-pause.ts:37 | Read whether a person resumed a paused TODO | Machine | Keep | - |
+| `system/wait-for` | action | packages/smithers/flows/flow/src/WaitFor.ts:66 | Wait durably for a signal (the TODO's pause watch) | Machine | Keep | - |
+| `system/sleep` | action | packages/smithers/flows/flow/src/Sleep.ts:66 | Sleep durably | Machine | Keep | - |
 | `coding/admit-verify-source` | action | flows/coding/verify-schema.ts:34 | Admit the candidate source for verify | Machine | Keep | Opened the candidate |
 | `coding/Verify` | flow | flows/coding/verify/flow.ts:16 | Re-run required checks on a rebased candidate | Machine | Replaced by the `todo` flow (T-FLW-11): its steps survive inside the single run; this separate entry point is removed | Re-ran checks |
 | `coding/fence-vibe-source` | action | flows/coding/vibe-admission.ts:19 | Pin the exact source being landed | Install | Keep | Pinned the change |
