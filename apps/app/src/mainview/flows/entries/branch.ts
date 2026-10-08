@@ -16,7 +16,7 @@ import { designBranchFor, designSshLine } from "../../state/seams/DesignWorld/br
 import { branchSeedAvailable } from "../../state/seams/BranchSeam"
 
 /** A slash argument or the JSON a card button sends. */
-const field = (key: string): Grammar => args => {
+export const branchCommandField = (key: string): Grammar => args => {
   const text = args?.trim() ?? ""
   if (text.startsWith("{")) {
     try { return { payload: JSON.parse(text) as Record<string, unknown> } } catch { return { error: "Enter a branch" } }
@@ -41,10 +41,10 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }
   return [
     flow({ name:"branch.archive", slash:"/branch.archive", cli:["branch","archive"], journey:["J7"], group:"Branches and machines", visibility:"core", actors:["person","app_agent","external_agent"], minimumRole:"member", agent:"confirm", http:{method:"POST",path:"/api/branches/{branch}/archive"}, summary:"Archive a scratch branch", args:"<branch>", hidden:true,
-      grammar:field("branch"), input:BranchInput, confirm:payload=>`archive ${String(payload.branch)}`, confirmArgs:payload=>String(payload.branch),
+      grammar:branchCommandField("branch"), input:BranchInput, confirm:payload=>`archive ${String(payload.branch)}`, confirmArgs:payload=>String(payload.branch),
       handler:({branch})=>actions.archiveBranch ? actions.archiveBranch(branch) : "Branch unavailable" }),
     flow({ name: "branch.fork", slash: "/branch.fork", cli: ["branch","fork"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches"}, summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("from"), agent: "run", input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
+      grammar: branchCommandField("from"), agent: "run", input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
       handler: async ({ from, name }) => {
         // The shared stack service captures awake sources before selecting a revision.
         if (actions.forkBranch) {
@@ -59,7 +59,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.id === undefined ? undefined : openBranch(result.id)
       } }),
     flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/add-to-stack"}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String), title: Schema.optional(Schema.NonEmptyString), acceptance: Schema.optional(Schema.Array(Schema.String)), after: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), before: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))) }),
+      grammar: branchCommandField("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String), title: Schema.optional(Schema.NonEmptyString), acceptance: Schema.optional(Schema.Array(Schema.String)), after: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), before: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))) }),
       // A✓ (mvp.md Appendix B): the agent asks; only the person's press commits the TODO. The confirmation carries the branch it named.
       confirm: payload => `add ${String(payload.branch)} to the stack`,
       confirmArgs: payload => payload.text === undefined && payload.after === undefined && payload.before === undefined && payload.title === undefined && payload.acceptance === undefined ? String(payload.branch) : JSON.stringify(payload),
@@ -73,7 +73,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}","defaults":{"op":"rebase"}}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), agent: "run", input: Schema.Struct({ branch: Schema.String, conflict_change: Schema.optional(Schema.NonEmptyString), onto_revision: Schema.optional(Schema.NonEmptyString) }),
+      grammar: branchCommandField("branch"), agent: "run", input: Schema.Struct({ branch: Schema.String, conflict_change: Schema.optional(Schema.NonEmptyString), onto_revision: Schema.optional(Schema.NonEmptyString) }),
       handler: ({ branch, conflict_change, onto_revision }) => {
         if (actions.branchControls) return actions.branchControls.request("rebase", branch, { conflict_change, onto_revision })
         if (conflict_change !== undefined || onto_revision !== undefined) return "Branch unavailable"
@@ -84,7 +84,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: { method: "POST", path: "/api/terminals" }, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), form: { fields: { operation: { hidden: true }, id: { hidden: true }, command: { hidden: true } }, requires: payload => payload.operation === "command" ? ["id", "command"] : ["branch"], args: payload => JSON.stringify(payload) }, agent: "run", input: Schema.Union([
+      grammar: branchCommandField("branch"), form: { fields: { operation: { hidden: true }, id: { hidden: true }, command: { hidden: true } }, requires: payload => payload.operation === "command" ? ["id", "command"] : ["branch"], args: payload => JSON.stringify(payload) }, agent: "run", input: Schema.Union([
         Schema.Struct({ branch: Schema.String, operation: Schema.optional(Schema.Never), id: Schema.optional(Schema.Never), command: Schema.optional(Schema.Never) }),
         Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String })
       ]),
@@ -100,7 +100,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.id === undefined ? undefined : openTerminal(result.id)
       } }),
     flow({ name: "terminal.watch", agent: "never", actors: ["person"], minimumRole: "member", visibility: "in-card", summary: "Watch a terminal", args: "<terminal>", hidden: true,
-      grammar: field("id"), input: Schema.Struct({ id: Schema.String }),
+      grammar: branchCommandField("id"), input: Schema.Struct({ id: Schema.String }),
       handler: async ({ id }) => {
         if (actions.terminalCards?.available() && actions.terminalCards.branch(id)) {
           await actions.presentBranchCard("terminal", id, "Terminal")
@@ -112,7 +112,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return openTerminal(id)
       } }),
     flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: ["ssh"], journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: { method: "GET", path: "/api/ssh", query: { branch: "branch" } }, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), input: BranchInput,
+      grammar: branchCommandField("branch"), input: BranchInput,
       handler: async ({ branch }, _signal, _call, gesture?: CommandGesture) => {
         const copy = async (result: CommandResult): Promise<CommandResult> => {
           if (result && typeof result === "object" && "value" in result && (gesture?.copyText || typeof document !== "undefined")) {

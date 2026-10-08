@@ -191,3 +191,31 @@ test(`${capabilities.length ? "an install" : "a host without install"} ${capabil
     expect(writes).toEqual([{ path: "/api/branches/smithers%2Fretries", body: { op: operation } }])
   } finally { await act(async () => root.unmount()); await controller.dispose() }
 })
+
+test("/rebase invokes Rebase now and agent execution stays on the conversation host", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: Array<{ path: string; body: unknown }> = []
+  const profile = signupProfileFetch(async (url, init) => {
+    const path = new URL(String(url), "http://local.test").pathname
+    if (path === "/api/members") return Response.json({ members: [{ login: "ben", name: "Ben", avatar_url: "https://example.test/ben.png", color_index: 0, role: "member", suspended: false, needs_access: false, actions: [] }], access_url: "https://github.com/acme/app/settings/access" })
+    if (init?.method === "POST" && path === "/api/branches/smithers%2Fwork") {
+      writes.push({ path, body: JSON.parse(String(init.body)) })
+      return Response.json({ state: "accepted" }, { status: 202 })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => controller.membersRoster.get().model?.members.length === 1)
+    const slash = controller.slashItems("rebase").find(item => item.flow.slash === "/rebase")
+    expect(slash?.flow.name).toBe("branch.rebase-now")
+    await controller.runCommandForResult(slash!.flow.name, "smithers/work")
+    const agent = await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch.rebase-now", args: "smithers/work" }) })
+    expect(agent).toContain("this command runs on the conversation host")
+    expect(writes).toEqual([
+      { path: "/api/branches/smithers%2Fwork", body: { rebase: true } }
+    ])
+  } finally { await controller.dispose() }
+})

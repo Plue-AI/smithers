@@ -2197,11 +2197,13 @@
     },
     {
       "name": "branch.rebase-now",
-      "slash": null,
+      "slash": "/rebase",
       "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
+      "journey": [
+        "J7"
+      ],
+      "group": "Branches and machines",
+      "visibility": "core",
       "actors": [
         "person",
         "app_agent"

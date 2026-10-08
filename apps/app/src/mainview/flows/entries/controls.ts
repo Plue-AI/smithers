@@ -1,3 +1,4 @@
+import { branchCommandField } from "./branch"
 import { carriedPayload } from "../SlashPayload"
 import { parseTodoArgs } from "@smthrs/rpc/TodoCommands"
 import { pendingControls } from "@smthrs/ui/app-operations/controls"
@@ -5,7 +6,8 @@ import { bind, type CommandActions, type Handlers } from "./Declare"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 const unavailable: Refusal = { code: null, rawCode: "not_available", fault: "infra", status: 503,
   origin: "client", retryAfter: null, message: "Not available yet" }
-export const pendingControlFlows = (actions: CommandActions) => bind(pendingControls.map(operation => operation.name === "todo.takeover"
+export const pendingControlFlows = (actions: CommandActions) => bind(pendingControls.map(operation => operation.name === "branch.rebase-now"
+  ? { ...operation, grammar: branchCommandField("branch"), args: "<branch>", discloseToAgent: true } : operation.name === "todo.takeover"
   ? { ...operation, grammar: parseTodoArgs(), form: { submitLabel: "Take over", args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) } } : operation.name === "branch.bring-in"
   ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} }, form: { args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }, confirm: "bring in this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
   : operation.name === "branch.discard-foreign"

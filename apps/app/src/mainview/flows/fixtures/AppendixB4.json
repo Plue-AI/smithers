@@ -110,8 +110,8 @@
     "name": "branch.rebase-now",
     "agent": "run",
     "minimumRole": "member",
-    "visibility": "in-card",
-    "slash": null,
+    "visibility": "core",
+    "slash": "/rebase",
     "cli": null,
     "actors": [
       "person",
