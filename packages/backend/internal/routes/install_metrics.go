@@ -13,8 +13,9 @@ import (
 // are server cross-checks, never browser or guest performance passing values.
 // Absent producers remain absent rather than being reported as zero samples.
 type InstallMetricsHandler struct {
-	Metrics  *SmithersMetrics
-	Capacity *services.InstallCapacityService
+	Metrics       *SmithersMetrics
+	Capacity      *services.InstallCapacityService
+	Qualification *services.InstallQualification
 }
 
 func (h *InstallMetricsHandler) Read(w http.ResponseWriter, r *http.Request) {
@@ -35,16 +36,9 @@ func (h *InstallMetricsHandler) Read(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	pkgerrors.WriteJSON(w, http.StatusOK, map[string]any{
 		"collected_at": time.Now().UTC(), "clock": "process cumulative collectors",
-		"metrics":          families,
-		"live_connections": live.Connections(),
-		"host":             host,
-		// Runtime startup probing is not fresh/retained R1-R4 evidence. No
-		// setting, injected runtime or benchmark may turn this into approval.
-		// Authenticated reference-host provenance and the root inventory review
-		// must exist before an install can publish qualified receipts.
-		"machine_qualification": map[string]any{
-			"version": 1, "status": "unavailable",
-			"missing": []string{"T-INS-02", "T-MCH-11", "T-SEC-01", "T-MCH-10"},
-		},
+		"metrics":               families,
+		"live_connections":      live.Connections(),
+		"host":                  host,
+		"machine_qualification": h.Qualification.Snapshot(r.Context()),
 	})
 }

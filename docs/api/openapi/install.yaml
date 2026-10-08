@@ -34,14 +34,46 @@ paths:
                     minimum: 0
                   machine_qualification:
                     type: object
-                    required: [version, status, missing]
-                    description: Fails closed until authenticated reference-host lifecycle/root receipts and reviewed inventory are available. Runtime probing and operator flags cannot qualify execution.
+                    required: [version, status]
+                    description: Publishes only a signed qualification bound to an approved reference host, running bundle, configured origin and reviewed lifecycle/root inventory. Runtime probing and operator flags cannot qualify execution.
+                    oneOf:
+                      - required: [version, status, missing]
+                        properties:
+                          status: {enum: [unavailable]}
+                      - required: [version, status, commit, install_version, origin, runtime, non_root, bundle_digest, inventory_digest, reviewed_by, host_id, receipts]
+                        properties:
+                          status: {enum: [qualified]}
                     properties:
                       version: {type: integer, enum: [1]}
-                      status: {type: string, enum: [unavailable]}
+                      status: {type: string, enum: [unavailable, qualified]}
                       missing:
                         type: array
                         items: {type: string}
+                      commit: {type: string, pattern: '^[a-f0-9]{40}$'}
+                      install_version: {type: string}
+                      origin: {type: string, format: uri}
+                      runtime: {type: string, enum: [microvm]}
+                      non_root: {type: boolean, enum: [true]}
+                      bundle_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                      inventory_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                      reviewed_by: {type: string, enum: [smithers-3f]}
+                      host_id: {type: string}
+                      receipts:
+                        type: array
+                        minItems: 9
+                        maxItems: 9
+                        items:
+                          type: object
+                          required: [name, status, commit, bundle_digest, inventory_digest, provenance, receipt_digest, paths]
+                          properties:
+                            name: {type: string}
+                            status: {type: string, enum: [passed]}
+                            commit: {type: string, pattern: '^[a-f0-9]{40}$'}
+                            bundle_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                            inventory_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                            provenance: {type: string, enum: [authenticated-reference-host]}
+                            receipt_digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                            paths: {type: array, items: {type: string}, uniqueItems: true}
                   host:
                     type: object
                     nullable: true

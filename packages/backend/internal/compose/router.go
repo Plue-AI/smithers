@@ -40,6 +40,7 @@ func apiBodyLimit(r *http.Request) int64 {
 }
 
 type routerExtras struct {
+	Qualification  *services.InstallQualification
 	AckDelay       *routes.InstallAckDelayHandler
 	InstallQuiesce *services.InstallQuiesce
 	FlowRuns       *services.InstallFlowRuns
@@ -1153,7 +1154,10 @@ func buildRouter(
 			r.With(middleware.RequireAuth).Get("/install/ack-delay", ackDelay.ServeHTTP)
 			r.With(middleware.RequireAuth).Post("/install/ack-delay", ackDelay.ServeHTTP)
 			if smithersMetrics != nil && queries != nil {
-				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
+				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics, Qualification: extras.Qualification}
+				if h.Qualification == nil {
+					h.Qualification = services.NewInstalledQualification(config.PublicOrigin(cfg))
+				}
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
 					h.Capacity = extras.GitHubAppSetup.Setup.Capacity
 				}

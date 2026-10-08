@@ -1,7 +1,11 @@
 package compose
 
 import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -115,7 +119,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
         let reads=0;
         const request=async(url,options)=>{
           if(url!=="http://mini.lan:8080/api/install/metrics"||options.redirect!=="error")throw new Error("foreign read");
-          reads++;return fetch(process.argv[1]+"/api/install/metrics",options);
+          reads++;return new Promise(async(resolve,reject)=>{const {get}=await import("node:http");get(process.argv[1]+"/api/install/metrics",{headers:{...options.headers,Host:"mini.lan:8080"}},response=>{let data="";response.on("data",chunk=>data+=chunk);response.on("end",()=>resolve({status:response.statusCode,json:async()=>JSON.parse(data)}));response.on("error",reject)}).on("error",reject)});
         };
         for(const cookie of [env.SMITHERS_PERF_OWNER_COOKIE,"", "session="+process.argv[3]]){
           let refused=false;
@@ -200,6 +204,147 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 			}
 		})
 	}
+	t.Run("signed qualification publication", func(t *testing.T) {
+		public, private, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		id := services.QualificationIdentity{Commit: strings.Repeat("a", 40), InstallVersion: "1.0.0", BundleDigest: strings.Repeat("b", 64), Origin: "http://mini.lan:8080", HostID: "reference-mini"}
+		qualified := services.MachineQualification{Version: 1, Status: "qualified", Commit: id.Commit, InstallVersion: id.InstallVersion, BundleDigest: id.BundleDigest, Origin: id.Origin, HostID: id.HostID, Runtime: "microvm", NonRoot: true, ReviewedBy: "smithers-3f", InventoryDigest: strings.Repeat("c", 64)}
+		// Literal acceptance inventory, independent of the service's policy map.
+		for name, paths := range map[string][]string{
+			"TestGuestHelperInstallPinsInterpreterAndEnv": {"fresh", "retained"},
+			"TestRootSetupNeverFollowsMemberSymlinks":     {"fresh", "retained"},
+			"TestRootPreflightParsesOnlyEnvelope":         {"exec", "file", "terminal", "relay"},
+			"TestRootLayerInputsValidatedBeforeUse":       {"layer"},
+			"TestSSHRootInputsValidatedBeforeUse":         {"ssh", "retained"},
+			"TestTerminalRootInputsValidatedBeforeUse":    {"terminal"},
+			"TestBranchMachineRootInputsValidated":        {"fresh", "retained"},
+			"TestMemberImageRootInputs":                   {"member-image"},
+			"TestLiveDocumentBrokerInputs":                {"document", "retained"},
+		} {
+			qualified.Receipts = append(qualified.Receipts, services.QualificationReceipt{Name: name, Paths: paths, Status: "passed", Commit: id.Commit, BundleDigest: id.BundleDigest, InventoryDigest: qualified.InventoryDigest, Provenance: "authenticated-reference-host", ReceiptDigest: strings.Repeat("d", 64)})
+		}
+		var document []byte
+		documentPath := filepath.Join(t.TempDir(), "machine-qualification.json")
+		t.Setenv("SMITHERS_DATA_ROOT", filepath.Dir(documentPath))
+		t.Setenv("SMITHERS_MACHINE_QUALIFICATION_FILE", "")
+		sign := func(value services.MachineQualification) {
+			payload, e := json.Marshal(value)
+			require.NoError(t, e)
+			document, e = json.Marshal(map[string]any{"key_id": "reviewed-mini", "payload": json.RawMessage(payload), "signature": base64.StdEncoding.EncodeToString(ed25519.Sign(private, payload))})
+			require.NoError(t, e)
+			require.NoError(t, os.WriteFile(documentPath, document, 0600))
+		}
+		authority := services.QualificationAuthority{HostID: id.HostID, PublicKey: public}
+		service := services.NewInstalledQualification(id.Origin)
+		service.Identity = func(context.Context) (services.QualificationIdentity, error) { return id, nil }
+		service.Authorities = map[string]services.QualificationAuthority{"reviewed-mini": authority}
+		for i := range args {
+			if args[i].Type() == reflect.TypeOf(metrics) {
+				args[i] = reflect.ValueOf(routes.NewSmithersMetrics())
+			}
+		}
+		previous := args[len(args)-1]
+		defer func() { args[len(args)-1] = previous }()
+		args[len(args)-1] = reflect.ValueOf([]any{routerExtras{Qualification: service}})
+		handler := fn.CallSlice(args)[0].Interface().(http.Handler)
+		read := func(cookie string) *httptest.ResponseRecorder {
+			request := httptest.NewRequest("GET", "http://mini.lan:8080/api/install/metrics", nil)
+			request.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, request)
+			return w
+		}
+		sign(qualified)
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"qualified"`)
+		require.Equal(t, 403, read(cookies[1]).Code)
+		require.Equal(t, 403, read(cookies[2]).Code)
+		for _, token := range []string{ownerToken, delegated} {
+			request := httptest.NewRequest("GET", "http://mini.lan:8080/api/install/metrics", nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, request)
+			require.Equal(t, 403, w.Code)
+		}
+
+		server := httptest.NewServer(handler)
+		defer server.Close()
+		module, e := filepath.Abs("../../../../scripts/perf/lib/qualification.mjs")
+		require.NoError(t, e)
+		source := `import {requireMachineQualification} from ` + strconv.Quote("file://"+module) + `;
+Object.defineProperty(process,"platform",{value:"darwin"});
+const env={SMITHERS_PERF_ORIGIN:"http://mini.lan:8080",SMITHERS_PERF_OWNER_COOKIE:"session="+process.argv[2],SMITHERS_PERF_COMMIT:"a".repeat(40),SMITHERS_PERF_INSTALL_VERSION:"1.0.0"};
+const result=await requireMachineQualification(env,(_url,options)=>new Promise(async(resolve,reject)=>{const {get}=await import("node:http");get(process.argv[1]+"/api/install/metrics",{headers:{...options.headers,Host:"mini.lan:8080"}},response=>{let data="";response.on("data",chunk=>data+=chunk);response.on("end",()=>resolve({status:response.statusCode,json:async()=>JSON.parse(data)}));response.on("error",reject)}).on("error",reject)}));
+if(result.receipts.length!==9||result.status!=="qualified")throw new Error("publication refused");`
+		output, e := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", source, server.URL, cookies[0]).CombinedOutput()
+		require.NoError(t, e, "%s", output)
+		for _, mutate := range []struct {
+			name   string
+			change func(*services.MachineQualification)
+		}{
+			{"foreign commit", func(q *services.MachineQualification) { q.Commit = strings.Repeat("e", 40) }},
+			{"foreign version", func(q *services.MachineQualification) { q.InstallVersion = "other" }},
+			{"foreign bundle", func(q *services.MachineQualification) { q.BundleDigest = strings.Repeat("e", 64) }},
+			{"foreign origin", func(q *services.MachineQualification) { q.Origin = "http://other.lan" }},
+			{"foreign host", func(q *services.MachineQualification) { q.HostID = "other" }},
+			{"process runtime", func(q *services.MachineQualification) { q.Runtime = "process" }},
+			{"root", func(q *services.MachineQualification) { q.NonRoot = false }},
+			{"unreviewed", func(q *services.MachineQualification) { q.ReviewedBy = "owner" }},
+			{"missing receipt", func(q *services.MachineQualification) { q.Receipts = q.Receipts[:8] }},
+			{"duplicate receipt", func(q *services.MachineQualification) { q.Receipts[1] = q.Receipts[0] }},
+			{"failed receipt", func(q *services.MachineQualification) { q.Receipts[0].Status = "failed" }},
+			{"missing path", func(q *services.MachineQualification) { q.Receipts[0].Paths = nil }},
+			{"unauthenticated receipt", func(q *services.MachineQualification) { q.Receipts[0].Provenance = "fixture" }},
+			{"unbound inventory", func(q *services.MachineQualification) { q.Receipts[0].InventoryDigest = strings.Repeat("e", 64) }},
+			{"unbound bundle receipt", func(q *services.MachineQualification) { q.Receipts[0].BundleDigest = strings.Repeat("e", 64) }},
+			{"invalid receipt digest", func(q *services.MachineQualification) { q.Receipts[0].ReceiptDigest = "not-a-digest" }},
+			{"invalid inventory digest", func(q *services.MachineQualification) { q.InventoryDigest = "not-a-digest" }},
+			{"duplicate paths", func(q *services.MachineQualification) {
+				q.Receipts[0].Paths = append(append([]string(nil), q.Receipts[0].Paths...), q.Receipts[0].Paths[0])
+			}},
+			{"unknown receipt", func(q *services.MachineQualification) { q.Receipts[0].Name = "TestMadeUp" }},
+			{"unknown version", func(q *services.MachineQualification) { q.Version = 2 }},
+			{"unbound receipt", func(q *services.MachineQualification) { q.Receipts[0].Commit = strings.Repeat("e", 40) }},
+		} {
+			t.Run(mutate.name, func(t *testing.T) {
+				q := qualified
+				q.Receipts = append([]services.QualificationReceipt(nil), qualified.Receipts...)
+				mutate.change(&q)
+				sign(q)
+				require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+			})
+		}
+		sign(qualified)
+		originalRead := service.Read
+		service.Read = func(context.Context) ([]byte, error) { return nil, os.ErrNotExist }
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+		service.Read = func(context.Context) ([]byte, error) { return make([]byte, (1<<20)+1), nil }
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+		service.Read = originalRead
+		originalIdentity := service.Identity
+		service.Identity = func(context.Context) (services.QualificationIdentity, error) { return id, os.ErrInvalid }
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+		service.Identity = originalIdentity
+		for _, origin := range []string{"http://localhost:8080", "http://127.0.0.1:8080", "http://mini.lan/path", "http://owner@mini.lan", "https://mini.lan?q=1"} {
+			previousOrigin := id.Origin
+			id.Origin = origin
+			q := qualified
+			q.Origin = origin
+			sign(q)
+			require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+			id.Origin = previousOrigin
+		}
+		sign(qualified)
+		document[len(document)-4] ^= 1
+		require.NoError(t, os.WriteFile(documentPath, document, 0600))
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+		sign(qualified)
+		service.Authorities = nil
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+		service.Authorities = map[string]services.QualificationAuthority{"reviewed-mini": authority}
+		document = append(document, []byte(` {}`)...)
+		require.NoError(t, os.WriteFile(documentPath, document, 0600))
+		require.Contains(t, read(cookies[0]).Body.String(), `"status":"unavailable"`)
+	})
 	t.Run("SSHBenchmarkIdentity", func(t *testing.T) {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		require.NoError(t, err)
