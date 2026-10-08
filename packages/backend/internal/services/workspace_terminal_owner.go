@@ -158,6 +158,7 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 		return nil, err
 	}
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID, sessionID: id, userID: member, repositoryID: repo, url: strings.TrimRight(s.gitBaseURL, "/"), ownerUID: user.UID}
+	credential.catalogDelegation = s.credentialIssuer.TerminalCatalogReady != nil && s.credentialIssuer.TerminalCatalogReady(ctx, member, repo, row.ID, id)
 	if err = s.installTerminalCredential(ctx, credential); err != nil {
 		return nil, err
 	}

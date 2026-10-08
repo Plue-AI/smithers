@@ -80,6 +80,10 @@ func (s *AuthService) MintForSSH(ctx context.Context, userID, repositoryID int64
 }
 
 func (s *AuthService) mintForMemberSession(ctx context.Context, userID, repositoryID int64, branchID, sessionID, via string) (CreateTokenResult, error) {
+	return s.mintForMemberSessionProfile(ctx, userID, repositoryID, branchID, sessionID, via, false)
+}
+
+func (s *AuthService) mintForMemberSessionProfile(ctx context.Context, userID, repositoryID int64, branchID, sessionID, via string, catalog bool) (CreateTokenResult, error) {
 	if repositoryID <= 0 || strings.TrimSpace(branchID) == "" || strings.TrimSpace(sessionID) == "" {
 		return CreateTokenResult{}, pkgerrors.BadRequest("terminal subject is required")
 	}
@@ -96,7 +100,16 @@ func (s *AuthService) mintForMemberSession(ctx context.Context, userID, reposito
 			return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Terminal subject is not active"}
 		}
 	}
-	return s.mintForSubject(ctx, userID, terminalCredentialName(sessionID), middleware.Delegation{Via: via, Branch: branchID, Session: sessionID, Profile: middleware.TerminalProfileS1}, []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser), middleware.RepositoryRestrictionScope(repositoryID)})
+	profile := middleware.TerminalProfileS1
+	scopes := []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser), middleware.RepositoryRestrictionScope(repositoryID)}
+	if catalog {
+		if s.TerminalCatalogReady == nil || !s.TerminalCatalogReady(ctx, userID, repositoryID, branchID, sessionID) {
+			return CreateTokenResult{}, &AccessError{Status: 503, Class: "infra", Code: "terminal_unavailable", Message: "Terminal is unavailable"}
+		}
+		profile = ""
+		scopes = []string{"repo", "user", "workspace", "agent", middleware.RepositoryRestrictionScope(repositoryID)}
+	}
+	return s.mintForSubject(ctx, userID, terminalCredentialName(sessionID), middleware.Delegation{Via: via, Branch: branchID, Session: sessionID, Profile: profile}, scopes)
 }
 
 func (s *AuthService) mintForSubject(ctx context.Context, userID int64, name string, binding middleware.Delegation, scopes []string) (CreateTokenResult, error) {

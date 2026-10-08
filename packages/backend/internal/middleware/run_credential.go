@@ -102,6 +102,13 @@ func (a *AuthInfo) Delegation() (Delegation, bool) {
 	return ParseTokenDelegation(a.TokenSystemIssued, a.RawScopes)
 }
 
+// CatalogDelegation uses ordinary catalog policy. A terminal retains its
+// issuer-bound branch/session subject even after S1's allowlist is retired.
+func (a *AuthInfo) CatalogDelegation() bool {
+	d, ok := a.Delegation()
+	return ok && d.Profile == "" && (d.Branch == "" || (d.Via == "terminal" || d.Via == "ssh") && d.Session != "")
+}
+
 // TerminalDelegation is the request credential's delegation when it is a
 // stage-1 terminal's (TerminalProfileS1).
 func (a *AuthInfo) TerminalDelegation() (Delegation, bool) {

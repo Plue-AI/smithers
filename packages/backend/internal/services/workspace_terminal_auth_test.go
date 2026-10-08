@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -44,6 +45,37 @@ func TestOwnerTerminalCredentialAuthenticationLifetime(t *testing.T) {
 	credential := &terminalCredential{ownerUID: 20001, registry: registry, issuer: auth, tokens: q, writer: &fakeSessionFiles{}, workspaceID: "branch-a", sessionID: "session-a", userID: owner.ID, repositoryID: repo, url: "https://install.test"}
 	require.NoError(t, service.installTerminalCredential(ctx, credential))
 	defer credential.Close()
+	// A replacement host credential keeps the terminal's request bookkeeping.
+	_, err = q.RequestMythicalBootstrap(ctx, repo, owner.ID, 1, false)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
+	require.NoError(t, err)
+	mythical := NewMythicalService(pool, nil)
+	var firstID string
+	appendPerson := func(commandCtx context.Context) error {
+		item, appendErr := mythical.FileTodo(commandCtx, repo, owner.ID, MythicalTodoInput{Title: "Terminal append", Prompt: "One request", Request: "terminal-renewal"})
+		if appendErr != nil {
+			return appendErr
+		}
+		if firstID == "" {
+			firstID = item.ID
+		} else {
+			require.Equal(t, firstID, item.ID)
+		}
+		return nil
+	}
+	require.NoError(t, service.TerminalPersonCommand(ctx, "session-a", repo, owner.ID, appendPerson))
+	oldPerson := credential.personBearer
+	credential.mu.Lock()
+	require.NoError(t, credential.issueLocked(ctx))
+	credential.mu.Unlock()
+	require.NotEqual(t, oldPerson, credential.personBearer)
+	_, err = q.GetAuthSessionBySessionKey(ctx, sessionStorageKey(oldPerson))
+	require.Error(t, err)
+	require.NoError(t, service.TerminalPersonCommand(ctx, "session-a", repo, owner.ID, appendPerson))
+	var todoCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, repo).Scan(&todoCount))
+	require.Equal(t, 1, todoCount)
 	var token string
 	credential.writer.(*fakeSessionFiles).mu.Lock()
 	token = credential.writer.(*fakeSessionFiles).files["session-a"]

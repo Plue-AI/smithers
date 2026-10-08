@@ -142,6 +142,10 @@ func TestTerminalUnavailableProvidersFailClosed(t *testing.T) {
 
 func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...string) {
 	t.Helper()
+	catalog := len(pending) > 0 && pending[0] == "catalog-delegation"
+	if catalog {
+		pending = nil
+	}
 	f := presenceInstall(t)
 	q := db.New(f.pool)
 	machineOwner, err := q.GetBranchMachineOwner(t.Context())
@@ -283,6 +287,9 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	provider.Bind(manager)
 	handler.Service = branches
 	handler.OwnerTerminals = observedOwnerTerminals{provider, t}
+	if catalog {
+		auth.TerminalCatalogReady = terminalCatalogContracts(handler, f.p, registry, services.NewApprovalsService(q, services.WithConfirmationTodos(f.pool, services.NewMythicalService(f.pool, nil))))
+	}
 	status, body = post(fmt.Sprintf(`{"branch":%q,"owner":%d,"uid":0}`, f.row.ID, alice.ID))
 	require.Equal(t, 400, status, string(body))
 	var entered, release chan struct{}
@@ -370,6 +377,9 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions`).Scan(&count))
 	require.Zero(t, count)
 	personCommandClosed := proveTerminalPersonCommand(t, f, server.URL, opened.ID, runtime.current(opened.ID))
+	if catalog {
+		proveTerminalCatalogDelegation(t, f, server.URL, opened.ID, runtime.current(opened.ID))
+	}
 	type socketMessage struct {
 		kind websocket.MessageType
 		data []byte

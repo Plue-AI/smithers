@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
+
+type terminalPersonRequestSessionKey struct{}
 
 // Only the host lifecycle owns this key. It is never included in the guest
 // environment, token writer, terminal stream or a command response.
@@ -85,5 +88,6 @@ func (s *WorkspaceService) TerminalPersonCommand(ctx context.Context, session st
 	}
 	// This is a new catalog dispatch under the broker-owned credential.
 	ctx = context.WithValue(ctx, installAuthorizationKey{}, nil)
+	ctx = context.WithValue(ctx, terminalPersonRequestSessionKey{}, fmt.Sprintf("terminal:%d:%s", member, session))
 	return dispatch(middleware.ContextWithAuthInfo(ctx, info))
 }

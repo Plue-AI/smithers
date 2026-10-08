@@ -630,7 +630,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if policy.Agent == "never" {
 		return authorizePersonOnly(ctx, q, info, InstallRole(policy.MinimumRole))
 	}
-	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && actor != ""
+	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && info.CatalogDelegation() && actor != ""
 	_, terminal := info.TerminalDelegation()
 	if terminal {
 		// S1 was checked before specialized and bound command dispatch above.

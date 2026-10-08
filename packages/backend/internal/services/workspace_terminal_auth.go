@@ -34,9 +34,13 @@ func (s *WorkspaceService) AuthenticateOwnerTerminalToken(ctx context.Context, h
 		return nil, nil
 	}
 	found.mu.Lock()
+	catalog := found.catalogDelegation
 	id, user, repo, branch, session := found.tokenID, found.userID, found.repositoryID, found.workspaceID, found.sessionID
 	expectedScopes := found.scopes()
 	found.mu.Unlock()
+	if catalog && (issuer.TerminalCatalogReady == nil || !issuer.TerminalCatalogReady(ctx, user, repo, branch, session)) {
+		return nil, nil
+	}
 	q := db.New(issuer.Members.Pool)
 	token, err := q.GetAccessTokenByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {

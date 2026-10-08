@@ -100,6 +100,10 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 		return MythicalItemView{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
+	creationSession := info.SessionHash
+	if terminalSession, ok := ctx.Value(terminalPersonRequestSessionKey{}).(string); ok && terminalSession != "" {
+		creationSession = terminalSession
+	}
 	// The first revision is the person's own text, by them.
 	person, err := s.queries().GetUserByID(ctx, userID)
 	if err != nil {
@@ -116,7 +120,7 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 	var issue *db.MythicalTodoIssue
 	link := ""
 	if input.Issue != nil {
-		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
+		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, creationSession, input.Request); errors.Is(err, pgx.ErrNoRows) {
 			if issue, err = s.readTodoIssue(ctx, repositoryID, decision.Role, *input.Issue, input.IssueDigest); err != nil {
 				return MythicalItemView{}, err
 			}
@@ -142,11 +146,11 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
 		}
-		existing, err := q.GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request)
+		existing, err := q.GetMythicalRequest(ctx, repositoryID, creationSession, input.Request)
 		if err == nil {
 			// The same key may have approved a merge instead: a different request.
 			held := mythicalChecksOf(existing)
-			if held.FiledRequest != input.Request || held.CreationSession != info.SessionHash || held.CreationPayload != string(canonical) {
+			if held.FiledRequest != input.Request || held.CreationSession != creationSession || held.CreationPayload != string(canonical) {
 				return &TodoControlError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
 			}
 			item = existing
@@ -190,7 +194,7 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 			first["reason"] = "add-to-stack"
 		}
 		revision, _ := json.Marshal([]map[string]any{first})
-		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: info.SessionHash, CreationPayload: string(canonical)}
+		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: creationSession, CreationPayload: string(canonical)}
 		if issue != nil {
 			checks.IssueContext = issue.Context
 		}

@@ -154,19 +154,21 @@ type oauthAccountTokenHealQuerier interface {
 type AuthService struct {
 	// TerminalSubject is the install manager's exact live/startup owner binding.
 	TerminalSubject func(int64, int64, string, string) bool
-	Members         *Members
-	InstallSetup    *InstallSetupSessions
-	metrics         AuthMetricsObserver
-	revocations     revocation.Publisher
-	queries         AuthQuerier
-	cfg             config.AuthConfig
-	keyAuthVerifier KeyAuthVerifier
-	githubClient    GitHubClient
-	auth0Client     Auth0Client
-	now             func() time.Time
-	generateNonce   func() string
-	generateSession func() string
-	generateState   func() string
+	// TerminalCatalogReady is installed only by the S2 contract composition.
+	TerminalCatalogReady func(context.Context, int64, int64, string, string) bool
+	Members              *Members
+	InstallSetup         *InstallSetupSessions
+	metrics              AuthMetricsObserver
+	revocations          revocation.Publisher
+	queries              AuthQuerier
+	cfg                  config.AuthConfig
+	keyAuthVerifier      KeyAuthVerifier
+	githubClient         GitHubClient
+	auth0Client          Auth0Client
+	now                  func() time.Time
+	generateNonce        func() string
+	generateSession      func() string
+	generateState        func() string
 	// githubRefreshLocks serializes GitHub token refreshes PER USER. GitHub App
 	// refresh tokens are single-use (rotated on each exchange), so two concurrent
 	// 401s must not both spend the stored refresh token. Entries are refcounted

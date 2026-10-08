@@ -39,7 +39,8 @@ func proveTerminalPersonCommand(t *testing.T, f presenceInstallFixture, origin, 
 		return response.StatusCode, raw
 	}
 	body := `{"command":"todo.new","payload":{"title":"Person terminal append","prompt":"Append through the host command broker","place":{"mode":"append"}}}`
-	var before int
+	var before, beforeConfirmations int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM approvals`).Scan(&beforeConfirmations))
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, f.row.RepositoryID).Scan(&before))
 	for _, fixture := range []struct {
 		cookie, bearer, body string
@@ -73,7 +74,7 @@ func proveTerminalPersonCommand(t *testing.T, f presenceInstallFixture, origin, 
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, f.row.RepositoryID).Scan(&after))
 	require.Equal(t, before+1, after)
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM approvals`).Scan(&confirmations))
-	require.Zero(t, confirmations)
+	require.Equal(t, beforeConfirmations, confirmations)
 	var binding string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT convert_from(data,'UTF8') FROM auth_sessions WHERE convert_from(data,'UTF8')::jsonb->>'terminal_session'=$1`, session).Scan(&binding))
 	require.JSONEq(t, fmt.Sprintf(`{"kind":"session","via":"terminal","member":%d,"branch":%q,"terminal_session":%q}`, f.user.ID, f.row.ID, session), binding)

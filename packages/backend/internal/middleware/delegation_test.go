@@ -106,3 +106,22 @@ func TestTerminalCredentialReadsItsPersonOutsideTheRepository(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, serve("read:user,repo:7"))
 	assert.Equal(t, http.StatusForbidden, serve("read:user,repo:7,via:cli"))
 }
+
+func TestCatalogDelegationRetainsTerminalSubject(t *testing.T) {
+	for _, fixture := range []struct {
+		via, branch, session, profile string
+		want                          bool
+	}{
+		{"cli", "", "", "", true},
+		{"terminal", "branch-a", "session-a", "", true},
+		{"ssh", "branch-a", "session-a", "", true},
+		{"terminal", "branch-a", "session-a", "terminal_s1", false},
+		{"terminal", "branch-a", "", "", false},
+		{"claude-code", "branch-a", "session-a", "", false},
+		{"terminal", "branch-a", "session-a", "unknown", false},
+	} {
+		info := &AuthInfo{IsTokenAuth: true, TokenSystemIssued: true, RawScopes: strings.Join(DelegationScopes(Delegation{Via: fixture.via, Branch: fixture.branch, Session: fixture.session, Profile: fixture.profile}), ",")}
+		assert.Equal(t, fixture.want, info.CatalogDelegation(), fixture)
+	}
+	assert.False(t, (*AuthInfo)(nil).CatalogDelegation())
+}

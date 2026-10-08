@@ -36,17 +36,18 @@ func terminalCredentialName(sessionID string) string { return "terminal-session-
 
 // terminalCredential is one terminal session's delegated credential.
 type terminalCredential struct {
-	ownerUID     uint32
-	registry     *sync.Map
-	issuer       *AuthService
-	tokens       accessTokenStore
-	writer       workspaceapi.SessionCredentialWriter
-	workspaceID  string
-	sessionID    string
-	userID       int64
-	repositoryID int64
-	url          string
-	via          string
+	ownerUID          uint32
+	catalogDelegation bool
+	registry          *sync.Map
+	issuer            *AuthService
+	tokens            accessTokenStore
+	writer            workspaceapi.SessionCredentialWriter
+	workspaceID       string
+	sessionID         string
+	userID            int64
+	repositoryID      int64
+	url               string
+	via               string
 
 	mu           sync.Mutex
 	path         string
@@ -151,8 +152,13 @@ func (c *terminalCredential) environment() map[string]string {
 func (c *terminalCredential) scopes() string {
 	entries := []string{string(middleware.ScopeReadRepository), string(middleware.ScopeReadUser),
 		middleware.RepositoryRestrictionScope(c.repositoryID)}
+	profile := middleware.TerminalProfileS1
+	if c.catalogDelegation {
+		profile = ""
+		entries = []string{"repo", "user", "workspace", "agent", middleware.RepositoryRestrictionScope(c.repositoryID)}
+	}
 	entries = append(entries, middleware.DelegationScopes(middleware.Delegation{Via: c.presenceVia(),
-		Branch: c.workspaceID, Profile: middleware.TerminalProfileS1, Session: c.sessionID})...)
+		Branch: c.workspaceID, Profile: profile, Session: c.sessionID})...)
 	return strings.Join(entries, ",")
 }
 
@@ -164,7 +170,7 @@ func (c *terminalCredential) issueLocked(ctx context.Context) error {
 	var err error
 	if c.issuer != nil {
 		var minted CreateTokenResult
-		minted, err = c.issuer.mintForMemberSession(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID, c.presenceVia())
+		minted, err = c.issuer.mintForMemberSessionProfile(ctx, c.userID, c.repositoryID, c.workspaceID, c.sessionID, c.presenceVia(), c.catalogDelegation)
 		if err == nil {
 			token = temporaryRepoCloneToken{ID: minted.ID, Plaintext: minted.Token, ExpiresAt: *minted.ExpiresAt}
 		}

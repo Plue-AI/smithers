@@ -264,7 +264,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 			return confirmationPermission()
 		}
 		fresh := middleware.AuthInfoFromContext(bound)
-		delegation, ok := fresh.Delegation()
+		_, ok := fresh.Delegation()
 		_, terminal := fresh.TerminalDelegation()
 		if terminal {
 			var request MythicalTodoInput
@@ -272,7 +272,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 				return confirmationPermission()
 			}
 		}
-		if !ok || !terminal && (delegation.Profile != "" || delegation.Branch != "") || fresh.WorkspaceRestriction() != "" || len(middleware.ParseTokenPathRestrictions(fresh.RawScopes)) != 0 || fresh.RepositoryRestriction() != 0 && fresh.RepositoryRestriction() != repository {
+		if !ok || !terminal && !fresh.CatalogDelegation() || fresh.WorkspaceRestriction() != "" || len(middleware.ParseTokenPathRestrictions(fresh.RawScopes)) != 0 || fresh.RepositoryRestriction() != 0 && fresh.RepositoryRestriction() != repository {
 			return confirmationPermission()
 		}
 		if s.confirmationTodos == nil {
@@ -1035,4 +1035,10 @@ func (s *MythicalService) prepareConfirmationCapture(ctx context.Context, input 
 	}
 	preview := context.WithValue(ctx, branchConfirmationSnapshotKey{}, workspace.ID)
 	return capture.PrepareCapturedHead(preview, workspace.ID, repository, middleware.AuthInfoFromContext(ctx).User.ID)
+}
+
+// TerminalCatalogAvailable identifies the installed person confirmation
+// consumer; a bare approvals service cannot widen terminal delegation.
+func (s *ApprovalsService) TerminalCatalogAvailable() bool {
+	return s != nil && s.q != nil && s.confirmationStore != nil && s.confirmationTodos != nil
 }

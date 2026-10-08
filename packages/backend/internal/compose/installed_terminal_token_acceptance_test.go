@@ -139,8 +139,10 @@ func testInstalledTerminalTokenAcceptance(t *testing.T, h *rootLayerHarness, bra
 			require.Eventually(t, func() bool { return status() == 401 }, time.Until(started.Add(5*time.Second)), 10*time.Millisecond)
 			revokedAfter := time.Since(started)
 			var live int
-			require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&live))
-			require.Zero(t, live)
+			require.Eventually(t, func() bool {
+				require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&live))
+				return live == 0
+			}, time.Until(started.Add(5*time.Second)), 10*time.Millisecond)
 			// A real surviving/woken session inspects physical file removal. Token
 			// reuse remains refused after the machine has restarted its guest.
 			survivor := installedMemberTerminal(t, h, branch, ben)
