@@ -32,6 +32,7 @@ export const systemFlows = [
   "branch.fork",
   "branch.add-to-stack",
   "branch.rebase",
+  "branch.rebase-now",
   "branch.bring-in",
   "branch.discard-foreign",
   "merge",
