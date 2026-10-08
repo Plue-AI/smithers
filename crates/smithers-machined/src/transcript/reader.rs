@@ -15,9 +15,9 @@ const LIMIT: usize = 8 * 1024 * 1024;
 const POLL: u8 = 1;
 const EVENT: u8 = 2;
 const CHECKPOINT: u8 = 3;
-const DONE: u8 = 4;
+pub(super) const DONE: u8 = 4;
 const ACK: u8 = 5;
-const ERROR: u8 = 6;
+pub(super) const ERROR: u8 = 6;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,7 +34,7 @@ pub struct Startup {
 fn invalid() -> io::Error {
     io::ErrorKind::InvalidData.into()
 }
-fn send(writer: &mut impl Write, tag: u8, bytes: &[u8]) -> io::Result<()> {
+pub(super) fn send(writer: &mut impl Write, tag: u8, bytes: &[u8]) -> io::Result<()> {
     if bytes.len() > LIMIT {
         return Err(invalid());
     }
@@ -43,7 +43,7 @@ fn send(writer: &mut impl Write, tag: u8, bytes: &[u8]) -> io::Result<()> {
     writer.write_all(bytes)?;
     writer.flush()
 }
-fn receive(reader: &mut impl Read) -> io::Result<(u8, Vec<u8>)> {
+pub(super) fn receive(reader: &mut impl Read) -> io::Result<(u8, Vec<u8>)> {
     let mut header = [0; 5];
     reader.read_exact(&mut header)?;
     let size = u32::from_be_bytes(header[1..].try_into().unwrap()) as usize;
@@ -62,6 +62,59 @@ fn ack(reader: &mut impl Read) -> io::Result<()> {
     Ok(())
 }
 
+/// This process is exactly the registered owner: every uid and gid it holds,
+/// and its supplementary groups, are the ones the broker named, and none is
+/// root's. Checked before any home path is resolved; there is no fallback.
+pub(super) fn require_owner(uid: u32, gid: u32, groups: &[u32], root: &str) -> io::Result<()> {
+    let mut real = 0;
+    let mut effective = 0;
+    let mut saved = 0;
+    // SAFETY: getresuid/getresgid write only these initialized stack values.
+    if unsafe { libc::getresuid(&mut real, &mut effective, &mut saved) } != 0
+        || [real, effective, saved] != [uid; 3]
+        || unsafe { libc::getresgid(&mut real, &mut effective, &mut saved) } != 0
+        || [real, effective, saved] != [gid; 3]
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    let mut held: Vec<_> = rustix::process::getgroups()?
+        .iter()
+        .map(|g| g.as_raw())
+        .collect();
+    held.sort_unstable();
+    let mut expected = groups.to_vec();
+    expected.sort_unstable();
+    if uid == 0
+        || gid == 0
+        || expected.len() > 64
+        || expected.contains(&0)
+        || expected.windows(2).any(|w| w[0] == w[1])
+        || held != expected
+        || rustix::process::getuid().as_raw() != uid
+        || rustix::process::geteuid().as_raw() != uid
+        || rustix::process::getgid().as_raw() != gid
+        || rustix::process::getegid().as_raw() != gid
+        || !root.starts_with('/')
+        || root.len() > 4096
+    {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(())
+}
+
+/// The owner's agent root, held open: every component beneath / is resolved
+/// without following a link. The caller checks whose directory it is.
+pub(super) fn open_root(root: &str) -> io::Result<File> {
+    Ok(rustix::fs::openat2(
+        File::open("/")?,
+        root.trim_start_matches('/'),
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+    )?
+    .into())
+}
+
 /// No privileged fallback. Identity is checked before opening even the root
 /// directory. All root components are resolved beneath / without symlinks.
 pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
@@ -70,39 +123,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
         return Err(invalid());
     }
     let startup: Startup = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    let mut real = 0;
-    let mut effective = 0;
-    let mut saved = 0;
-    // SAFETY: getresuid/getresgid write only these initialized stack values.
-    if unsafe { libc::getresuid(&mut real, &mut effective, &mut saved) } != 0
-        || [real, effective, saved] != [startup.uid; 3]
-        || unsafe { libc::getresgid(&mut real, &mut effective, &mut saved) } != 0
-        || [real, effective, saved] != [startup.gid; 3]
-    {
-        return Err(io::ErrorKind::PermissionDenied.into());
-    }
-    let mut groups: Vec<_> = rustix::process::getgroups()?
-        .iter()
-        .map(|g| g.as_raw())
-        .collect();
-    groups.sort_unstable();
-    let mut expected = startup.groups.clone();
-    expected.sort_unstable();
-    if startup.uid == 0
-        || startup.gid == 0
-        || expected.len() > 64
-        || expected.contains(&0)
-        || expected.windows(2).any(|w| w[0] == w[1])
-        || groups != expected
-        || rustix::process::getuid().as_raw() != startup.uid
-        || rustix::process::geteuid().as_raw() != startup.uid
-        || rustix::process::getgid().as_raw() != startup.gid
-        || rustix::process::getegid().as_raw() != startup.gid
-        || !startup.root.starts_with('/')
-        || startup.root.len() > 4096
-    {
-        return Err(io::ErrorKind::PermissionDenied.into());
-    }
+    require_owner(startup.uid, startup.gid, &startup.groups, &startup.root)?;
     // Validate the immutable wire binding before any home reads.
     startup
         .source
@@ -116,14 +137,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
     if let Some(bytes) = startup.checkpoint.as_ref() {
         super::linux::validate_reader_checkpoint(bytes.as_bytes(), &startup)?;
     }
-    let root: File = rustix::fs::openat2(
-        File::open("/")?,
-        startup.root.trim_start_matches('/'),
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
-    )?
-    .into();
+    let root = open_root(&startup.root)?;
     let mut tail = match startup.checkpoint {
         Some(bytes) => Tail::resume(root, &startup.path, startup.uid, bytes.as_bytes())?,
         None => Tail::new(root, &startup.path, startup.uid)?,

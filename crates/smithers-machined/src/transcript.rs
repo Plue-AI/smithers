@@ -154,4 +154,10 @@ mod tests {
 pub mod wire;
 
 #[cfg(target_os = "linux")]
+pub mod discovery;
+#[cfg(target_os = "linux")]
+pub mod launch;
+#[cfg(target_os = "linux")]
 pub mod reader;
+#[cfg(target_os = "linux")]
+pub mod resolve;
