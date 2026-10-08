@@ -1174,7 +1174,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       ["branch.fork", "{\"from\":\"main\",\"name\":\"greeting\"}", "POST", "/api/branches", {
         from: "main",
         name: "greeting"
-      }],
+      }]
     ] as const
     for (const [name, args, method, path, payload] of cases) {
       const journal = producer((path) => file(path, JOURNEY), () =>
@@ -1196,7 +1196,12 @@ describe("an install's host runs the catalog commands its grant allows, as the t
   })
 
   test("read-only catalog bindings reject browser-only variants without dispatch", async () => {
-    for (const [name, args] of [["github", '{"operation":"retry"}'], ["runs", '{"operation":"attention"}']] as const) {
+    for (
+      const [name, args] of [["github", "{\"operation\":\"retry\"}"], [
+        "runs",
+        "{\"operation\":\"attention\"}"
+      ]] as const
+    ) {
       const journal = producer((path) => file(path, JOURNEY))
       const provider = model([execute(name, args)])
       await run(install, provider, journal)
@@ -1288,9 +1293,28 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("named flow lookup refuses unavailable responses without rendering a card", async () => {
+    for (const answer of [{ code: "call_refused" }, { status: 503, body: {} }] as const) {
+      const provider = model([execute("flow", "custom")])
+      const frames: AgentTurnFrame[] = []
+      await Effect.runPromise(runHostTurn(provider.model, install, { modelId: "m" }, (frame) =>
+        Effect.sync(() => {
+          frames.push(frame)
+        }), {
+        read: () => Effect.succeed({ code: "unused" }),
+        list: () => Effect.succeed({ code: "unused" }),
+        api: (path) => Effect.succeed(path === "/api/flows" ? { status: 200, body: [] } : answer)
+      }))
+      expect(toolOutputs(provider)).toEqual(["failed: No flow custom"])
+      expect(frames.some((frame) => frame.type === "card")).toBe(false)
+    }
+  })
+
   test("API transport refusal stops flow and stack lookup without rendering partial cards", async () => {
-    for (const command of ["flow", "stack"]) {
-      const provider = model([execute(command, command === "flow" ? "todo" : undefined)])
+    for (const command of ["flow", "stack", "todo.drop"]) {
+      const provider = model([
+        execute(command, command === "flow" ? "todo" : command === "todo.drop" ? "T12" : undefined)
+      ])
       const frames: AgentTurnFrame[] = []
       await Effect.runPromise(runHostTurn(provider.model, install, { modelId: "m" }, (frame) =>
         Effect.sync(() => {
@@ -1408,6 +1432,36 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       "failed: flow.edit needs request",
       "failed: Merge flow is built in"
     ])
+  })
+
+  test("confirmation failures return their HTTP refusal without a success frame", async () => {
+    const journal = producer((path) => file(path, JOURNEY), () => Response.json({ code: "denied" }, { status: 403 }))
+    const provider = model([execute("todo.drop", "T12")])
+    await run(install, provider, journal)
+    expect(toolOutputs(provider)).toEqual(["failed: {\"status\":403,\"body\":{\"code\":\"denied\"}}"])
+    expect(journal.frames.some((frame) => frame.type === "call.settled")).toBe(false)
+  })
+
+  test("GET commands reject extra fields before HTTP dispatch", async () => {
+    const journal = producer((path) => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("search", "{\"query\":\"hello\",\"extra\":true}")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    expect(toolOutputs(provider)).toEqual(["failed: Invalid arguments for search; use its declared payload."])
+  })
+
+  test("run inspection binds its run ID to the GET path", async () => {
+    const journal = producer((path) => file(path, JOURNEY), () => Response.json({ id: "run-7" }))
+    const provider = model([execute("run.inspect", "{\"id\":\"run-7\"}")])
+    await run(install, provider, journal)
+    expect(journal.calls.map((call) => call.body)).toEqual([{ method: "GET", path: "/api/runs/run-7" }])
+    expect(toolOutputs(provider)).toEqual(["{\"status\":200,\"body\":{\"id\":\"run-7\"}}"])
+  })
+
+  test("GET catalog bindings have no nested body projections", () => {
+    for (const row of catalogDescriptors) {
+      if (row.http?.method === "GET") expect(row.http.objects).toBeUndefined()
+    }
   })
 
   test("confirmation commands return pending status without copying the private Confirm into shared frames", async () => {
@@ -1608,8 +1662,16 @@ describe("an install's host runs the catalog commands its grant allows, as the t
         "{\"sourceCard\":null,\"runId\":\"run-1\",\"nodeId\":\"build\",\"seq\":4}",
         { command: "runs.trace.select", runId: "run-1", nodeId: "build", seq: 4 }
       ],
-      ["runs.trace.view", JSON.stringify({ runId: "run-1", view: "turns", state: { selected: "cell-1", at: 3, tab: "journal" } }),
-        { command: "runs.trace.view", runId: "run-1", view: "turns", state: { selected: "cell-1", at: 3, tab: "journal" } }],
+      [
+        "runs.trace.view",
+        JSON.stringify({ runId: "run-1", view: "turns", state: { selected: "cell-1", at: 3, tab: "journal" } }),
+        {
+          command: "runs.trace.view",
+          runId: "run-1",
+          view: "turns",
+          state: { selected: "cell-1", at: 3, tab: "journal" }
+        }
+      ],
       ["help", undefined, { command: "help" }]
     ]
     for (const [name, args, ui] of cases) {

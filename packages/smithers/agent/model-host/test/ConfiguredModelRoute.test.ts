@@ -35,6 +35,19 @@ describe("configured model routes", () => {
     if (protocol === "anthropic-messages") expect(route.headers).toMatchObject({ "anthropic-version": "2023-06-01" })
   })
 
+  test.each(["{\"accessToken\":\"token\"}", "{\"accountId\":\"account\"}", "not-json"])(
+    "incomplete ChatGPT sign-in refuses before visiting the route (%s)",
+    (credential) => {
+      let visited = false
+      expect(withRoute(plan("openai-responses-chatgpt"), Redacted.make(credential), () => {
+        visited = true
+      })).toMatchObject({
+        failure: { code: "authentication", message: "ChatGPT sign-in unavailable" }
+      })
+      expect(visited).toBe(false)
+    }
+  )
+
   test("refuses decision plans as generation routes", () => {
     expect(withRoute(plan("evaluation"), Redacted.make("fixture-key"), () => "unreachable")).toMatchObject({
       failure: { code: "no_route" }

@@ -8,6 +8,8 @@ of it.
 
 ### Added
 
+- `RunAttrs.manual` marks a run target for explicit selection.
+
 - Added `LlmLint.CredentialDelivery`, the schema of the document a review host
   writes to a private credential rotation receiver: the reviewed revision and
   each discovery's file, line and name, with no other fields (plue#730).

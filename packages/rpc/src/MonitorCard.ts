@@ -64,6 +64,9 @@ export const RunStepSchema = z.object({
   input: z.unknown().optional(),
   output: z.unknown().optional(),
   agent: ActorSchema.optional(),
+  meter: z.array(z.string()).optional(),
+  model_calls: z.number().int().nonnegative().optional(),
+  tokens: z.number().int().nonnegative().optional(),
   usage: z.object({ tokens: z.number().int().nonnegative(), cost_usd: z.number().nonnegative() }).optional()
 }).refine((step) => step.key === `${step.id}#${step.k}`, { message: "key must be <step id>#<k>", path: ["key"] })
 
@@ -123,7 +126,8 @@ export const MonitorCardSchema = z.object({
   })),
   tokens: z.number().int().nonnegative(),
   time_s: z.number().nonnegative(),
-  cost_usd: z.number().nonnegative(),
+  cost_usd: z.number().nonnegative().optional(),
+  unmetered_tokens: z.number().int().nonnegative().optional(),
   engine: z.array(z.object({ label: z.string(), detail: z.string() })),
   journal: z.array(z.object({
     seq: z.number().int().nonnegative(),

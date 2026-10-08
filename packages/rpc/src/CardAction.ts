@@ -67,6 +67,12 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
     scope: publicArgs.scope === "all" ? "all_branches" : publicArgs.scope === "main-only" ? "main_only" : publicArgs.scope
   } : {}) }
 }
+/**
+ * A card action as decoded: its catalog tag, label and arguments.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const ActionSchema = z.object({
   tag: z.union([CatalogTagSchema, z.enum(historicalPullNavigation), z.enum(historicalWorkspaceNavigation), z.enum(historicalRunLifecycle), z.enum(historicalDiff), z.enum(historicalFileNavigation), z.literal("files.read"), z.literal("proposal"), z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
@@ -83,7 +89,12 @@ export const ActionSchema = z.object({
   ? { ...action, tag: "settings" as const, args: { ...action.args, operation: action.tag.slice("settings.".length) } }
   : ["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"].some(tag => tag === action.tag) ? { ...action, tag: "secrets" as const, args: recordedSecretArgs(action.tag, action.args) } : action.tag === "context.inspect" ? { ...action, tag: "run.inspect" as const } : { ...action, tag: CatalogTagSchema.parse(action.tag) })
 
-/** Normalize recorded data before binding an action to a current executable door. */
+/**
+ * Normalize recorded data before binding an action to a current executable door.
+ *
+ * @since 1.0.0
+ * @category constructors
+ */
 export const registeredAction = (input: z.infer<typeof ActionSchema>) => {
   const action = ActionSchema.parse(input)
   return { ...action, tag: CatalogTagSchema.parse(action.tag) }
@@ -170,9 +181,10 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
 /**
  * Provisional typed inputs from Appendix A arguments and component form fields; T-CAT-01 replaces these with descriptor inference.
  * @since 1.0.0
+ * Historical tags are decodable data; no new typed command can use them.
+ *
  * @category models
  */
-/** Historical tags are decodable data; no new typed command can use them. */
 export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalPullNavigation[number] | typeof historicalWorkspaceNavigation[number] | typeof historicalRunLifecycle[number] | typeof historicalDiff[number] | typeof historicalFileNavigation[number] | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {

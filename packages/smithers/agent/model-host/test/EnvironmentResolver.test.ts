@@ -37,7 +37,7 @@ const contextInput = {
   state: "ready",
   recent: [{ title: "Earlier", text: "Earlier answer" }],
   candidates: [{
-    item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
+    item: { kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" },
     text: "export const retries = 3"
   }],
   tokenBudget: 24000,
@@ -343,4 +343,114 @@ test.each([undefined, " "])("fast credentials removed during resolution refuse (
     )
   ).rejects.toThrow("configured model route is unavailable")
   expect(fetchImpl).toHaveBeenCalledTimes(1)
+})
+
+const proxyBinding = { ...binding, baseUrl: "https://proxy.test/fast", credential: "SMITHERS_FAST_PROXY" }
+const proxyEnv = {
+  ...env,
+  SMITHERS_MODEL_KEY_SMITHERS_FAST_PROXY: "proxy-key",
+  SMITHERS_MODEL_KEY_SMITHERS_FAST_PROXY_ORIGIN: "https://proxy.test"
+}
+
+test.each(["{broken", "{}", "[{}]"])("invalid fast fallback configuration fails closed (%s)", async (fallbacks) => {
+  const fetchImpl = vi.fn<typeof fetch>()
+  await expect(Effect.runPromise(
+    environmentModelResolver({
+      binding: proxyBinding,
+      env: { ...proxyEnv, SMITHERS_FAST_FALLBACK_MODELS: fallbacks },
+      fetchImpl
+    })(grant)
+  )).rejects.toThrow("configured model route is unavailable")
+  expect(fetchImpl).not.toHaveBeenCalled()
+})
+
+test.each([undefined, ""])("a fallback key removed after planning refuses (%s)", async (removed) => {
+  let reads = 0
+  const changing = {
+    ...proxyEnv,
+    SMITHERS_FAST_FALLBACK_MODELS: JSON.stringify([binding]),
+    get SMITHERS_MODEL_KEY_FIXTURE() {
+      return ++reads === 1 ? "fixture-key" : removed
+    }
+  }
+  await expect(Effect.runPromise(environmentModelResolver({ binding: proxyBinding, env: changing })(grant)))
+    .rejects.toThrow("configured model route is unavailable")
+})
+
+test.each([false, true])("fast fallback uses the owner source and records selection (%s)", async (failedSelection) => {
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    if (String(url).includes("/selected")) {
+      expect(init?.body).toBe("{\"index\":1}")
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer proxy-key")
+      if (failedSelection) throw new TypeError("selection unavailable")
+      return Response.json({})
+    }
+    if (String(url).startsWith("https://proxy.test")) {
+      return Response.json({ error: { message: "no capacity" } }, { status: 429 })
+    }
+    expect(String(url)).toBe("https://fixture.test/v1/chat/completions")
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fixture-key")
+    return new Response(
+      "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"backup answer\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      { headers: { "content-type": "text/event-stream" } }
+    )
+  })
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({
+      binding: proxyBinding,
+      env: { ...proxyEnv, SMITHERS_FAST_FALLBACK_MODELS: JSON.stringify([binding]) },
+      fetchImpl
+    })(grant)
+  )
+  const frames: unknown[] = []
+  await Effect.runPromise(runModelTurn(resolved.model, grant.request, resolved.options, (frame) =>
+    Effect.sync(() => {
+      frames.push(frame)
+    })))
+  expect(frames).toContainEqual({ runId: "run", type: "delta", kind: "text", text: "backup answer" })
+  expect(fetchImpl).toHaveBeenCalledTimes(3)
+})
+
+test("an absent fast fallback list retains the primary model", async () => {
+  const resolved = await Effect.runPromise(environmentModelResolver({ binding: proxyBinding, env: proxyEnv })(grant))
+  expect(resolved.options.modelId).toBe("fixture")
+})
+
+test("ChatGPT answer and fast roles suppress unsupported token limits", async () => {
+  const chatgpt = {
+    protocol: "openai-responses-chatgpt",
+    baseUrl: "https://chatgpt.com/backend-api",
+    modelId: "gpt",
+    credential: "CHATGPT_SUBSCRIPTION"
+  }
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({
+      binding: chatgpt,
+      preflightBinding: chatgpt,
+      env: { CHATGPT_SUBSCRIPTION: JSON.stringify({ accessToken: "token", accountId: "account" }) }
+    })(grant, contextInput)
+  )
+  expect(resolved.options).toMatchObject({ outputTokenLimitSupported: false })
+  expect(resolved.preflight?.options).toMatchObject({ outputTokenLimitSupported: false })
+})
+
+test("fallback selection uses the host's global fetch when no transport override is supplied", async () => {
+  const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+    if (String(url).includes("/selected")) return Response.json({})
+    if (String(url).startsWith("https://proxy.test")) {
+      return Response.json({ error: { message: "busy" } }, { status: 429 })
+    }
+    return new Response(
+      "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+    )
+  })
+  vi.stubGlobal("fetch", fetchImpl)
+  const resolved = await Effect.runPromise(
+    environmentModelResolver({
+      binding: proxyBinding,
+      env: { ...proxyEnv, SMITHERS_FAST_FALLBACK_MODELS: JSON.stringify([binding]) }
+    })(grant)
+  )
+  await Effect.runPromise(runModelTurn(resolved.model, grant.request, resolved.options, () => Effect.void))
+  expect(fetchImpl.mock.calls.map(([url]) => String(url))).toContain("https://proxy.test/fast/selected")
 })

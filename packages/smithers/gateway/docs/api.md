@@ -39,17 +39,17 @@ The whole HTTP surface as one application layer a host serves.
 them to a socket. A host that supplies `runtimeBridge` adds three authenticated
 JSON routes.
 
-| Path                       | Protocol           | Serves                                               |
-| -------------------------- | ------------------ | ---------------------------------------------------- |
-| `POST /rpc`                | RPC over HTTP      | `@smthrs/control` `ControlRpcs`                      |
-| `/rpc/ws`                  | RPC over WebSocket | `ControlRpcs`, including a kept-alive `Watch`        |
-| `POST /projections`        | RPC over HTTP      | `GatewayRpcs`                                        |
-| `/projections/ws`          | RPC over WebSocket | `GatewayRpcs`, including `Projection.Subscribe`      |
-| `POST /sync`               | RPC over HTTP      | `@smthrs/sync` `SyncRpcs`                            |
-| `/sync/ws`                 | RPC over WebSocket | `SyncRpcs`                                           |
-| `GET /health`              | JSON               | `GatewayServer.Health`                               |
-| `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)    |
-| `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional) |
+| Path                       | Protocol           | Serves                                                |
+| -------------------------- | ------------------ | ----------------------------------------------------- |
+| `POST /rpc`                | RPC over HTTP      | `@smthrs/control` `ControlRpcs`                       |
+| `/rpc/ws`                  | RPC over WebSocket | `ControlRpcs`, including a kept-alive `Watch`         |
+| `POST /projections`        | RPC over HTTP      | `GatewayRpcs`                                         |
+| `/projections/ws`          | RPC over WebSocket | `GatewayRpcs`, including `Projection.Subscribe`       |
+| `POST /sync`               | RPC over HTTP      | `@smthrs/sync` `SyncRpcs`                             |
+| `/sync/ws`                 | RPC over WebSocket | `SyncRpcs`                                            |
+| `GET /health`              | JSON               | `GatewayServer.Health`                                |
+| `POST /runtime/v1/command` | JSON               | Versioned launch and Control mutations (optional)     |
+| `POST /runtime/v1/observe` | JSON               | Bounded journal replay and run projection (optional)  |
 | `POST /runtime/v1/monitor` | JSON               | Read-only existing-run monitor and journal (optional) |
 
 ### Scoped tokens
@@ -544,10 +544,12 @@ evidence do not acquire invented phases, successful checks, or file changes.
 - `spanMatches`, `traceFiltersFor`, `isTraceFilter`, and `TRACE_FILTER_IDS` own
   the shared filter vocabulary (`all`, `running`, `failed`, `model`, `flow`,
   `messages`). Historical fork spans remain readable without a fork filter. `TraceFilter` and `TraceView` type that state.
-- `JournalRecord`, `TraceRun`, `TraceOptions`, `TraceSpan`, `SpanKind`,
+- `JournalRecord`, `TraceRun`, `TraceOptions`, `TraceSpan`, `TranscriptCell`, `SpanKind`,
   `SpanStatus`, `SpanDetail`, `TraceExtent`, `PhaseId`, `PhaseBand`, `Milestone`,
   `TraceOwner`, `FrameLine`, `TraceNote`, and `TurnNarrative` describe the
-  projection. `TraceBuilder` is the mutable draft used while folding, never a
+  projection. `TranscriptCell` records one agent action inside a native step:
+  its kind, label, optional code or output, model tokens, duration, and tone.
+  `TraceBuilder` is the mutable draft used while folding, never a
   persisted graph or a second execution model.
 
 ## `RunDevTools`

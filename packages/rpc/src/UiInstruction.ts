@@ -88,6 +88,12 @@ const monitorState = z.strictObject({
   tab: z.enum(["run", "journal", "custom"]).nullable().optional()
 })
 
+/**
+ * One UI instruction frame: the command a model asks the author's screen to run.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const UiInstructionFrameSchema = z.object({ command: z.enum(UI_INSTRUCTION_COMMANDS) })
   .catchall(z.union([z.string(), z.number(), z.boolean(), monitorState, z.null()]))
   .superRefine((frame, context) => {

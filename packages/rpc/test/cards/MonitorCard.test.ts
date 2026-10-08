@@ -186,3 +186,26 @@ describe("Run summaries and boundaries", () => {
     }
   })
 })
+
+test("journal usage survives decoding before metered spend is priced", () => {
+  const { cost_usd: _cost, ...run } = running()
+  const step = { ...run.attempts[0]!.steps[0]!, meter: ["exec:digest"], model_calls: 1, tokens: 200 }
+  const projected = { ...run, tokens: 200, attempts: [{ ...run.attempts[0]!, steps: [step] }] }
+  expect(MonitorCardSchema.parse(projected).attempts[0]!.steps[0]).toMatchObject({
+    meter: ["exec:digest"],
+    model_calls: 1,
+    tokens: 200
+  })
+  expect(MonitorCardSchema.safeParse(run).success).toBe(true)
+  expect(MonitorCardSchema.safeParse({ ...run, unmetered_tokens: 200 }).success).toBe(true)
+  for (const field of ["model_calls", "tokens"] as const) {
+    for (const value of [-1, 0.5]) {
+      expect(
+        MonitorCardSchema.safeParse({
+          ...projected,
+          attempts: [{ ...projected.attempts[0]!, steps: [{ ...step, [field]: value }] }]
+        }).success
+      ).toBe(false)
+    }
+  }
+})

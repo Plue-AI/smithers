@@ -143,6 +143,7 @@ export const TestAttrs = Schema.Struct({
  */
 export const RunAttrs = Schema.Struct({
   ...sharedFields,
+  /** Run only when explicitly selected. @since 0.1.0 */
   manual: Schema.optional(Schema.Boolean),
   approval: Schema.optional(Attr.Approval),
   services: Schema.optional(Attr.Services),

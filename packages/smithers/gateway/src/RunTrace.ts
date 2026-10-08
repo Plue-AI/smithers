@@ -2416,7 +2416,7 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
     const call = callFactOf(record)
     if (call === undefined) continue
     const handle = `${call.stepId}:${call.fact.callId}`
-    const payload = call.fact as unknown as Record<string, unknown>
+    const payload = asRecord(call.fact)
     if (call.fact.phase === "invoked") {
       const input = cellText(call.fact.input)
       const cell: TranscriptCell = {

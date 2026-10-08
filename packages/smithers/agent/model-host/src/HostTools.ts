@@ -632,10 +632,9 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
         if (binding.method === "GET" && projection !== undefined) {
           const fields = new Set([
             ...Object.values(projection),
-            ...[...binding.path.matchAll(/\{([^}]+)\}/g)].map(match => match[1]!),
-            ...Object.values(binding.objects ?? {}).flatMap(nested => [nested.when, ...Object.values(nested.body)])
+            ...[...binding.path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1]!)
           ])
-          if (Object.keys(payload).some(key => !fields.has(key))) throw new Error("Unavailable payload binding")
+          if (Object.keys(payload).some((key) => !fields.has(key))) throw new Error("Unavailable payload binding")
         }
         request = catalogRequest(row, payload)
       } catch {

@@ -87,6 +87,12 @@ export const FastModelStatusSchema = z.object({
  signed_in: z.boolean(), source: z.string(), cause: z.enum(["capacity", "unreachable", "refused"]).optional(),
  remaining: z.number().int().nonnegative().optional(), reset_at: z.string().optional()
 })
+/**
+ * The setup card payload.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const SetupCardSchema = z.object({
  fast_model: FastModelStatusSchema.optional(),
   address: z.object({ listen: z.enum(["mac", "network"]), bind: z.string(), origins: z.array(HttpUrlSchema) }),

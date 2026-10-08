@@ -33,6 +33,7 @@ values at runtime; supply schemas when results need runtime validation.
 and `Exec.ExecError`. `ToolRun` uses the same schemas; `ToolBuild` declares
 `ToolBuild.Outputs` and `ToolBuild.BuildError` because it captures output files.
 Catalog stubs infer a `never` success and `Target.NotImplemented` failure.
+`RunAttrs.manual` marks a `Shell.Run` target for explicit selection.
 
 A declaration is read exactly once, as data. The author's object is snapshotted
 before the schema sees it: a `Proxy` is refused, an accessor is refused by name,
