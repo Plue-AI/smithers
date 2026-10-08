@@ -25,7 +25,7 @@ func TestDaemonFilesNeverFallBackToGuest(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			// A nil CLI makes any fallback observable as a panic.
 			r := &Runtime{workspaces: map[string]*workspace{"a": newWorkspace(metadata{ID: "a", Machine: "vm", State: state}, "")}}
-			data, err := r.ReadWorkingCopyFile(t.Context(), "a", "README.md")
+			data, err := r.ReadFile(t.Context(), "a", "README.md")
 			require.Error(t, err)
 			require.Nil(t, data)
 			ctx := workspaceapi.WithOperation(t.Context(), workspaceapi.Operation{TenantID: "1", PrincipalID: "2", OperationID: "write"})
@@ -33,7 +33,7 @@ func TestDaemonFilesNeverFallBackToGuest(t *testing.T) {
 			require.Error(t, err)
 			cancelled, cancel := context.WithCancel(t.Context())
 			cancel()
-			_, err = r.ReadWorkingCopyFile(cancelled, "a", "README.md")
+			_, err = r.ReadFile(cancelled, "a", "README.md")
 			require.ErrorIs(t, err, context.Canceled)
 			_, err = r.CompareWriteFiles(cancelled, "a", nil)
 			require.ErrorIs(t, err, context.Canceled)

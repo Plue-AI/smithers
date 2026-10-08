@@ -47,7 +47,7 @@ func (r *Runtime) fileOperation(ctx context.Context, workspaceID, root string, s
 }
 
 func (r *Runtime) ReadFile(ctx context.Context, workspaceID, path string) ([]byte, error) {
-	return r.fileOperation(ctx, workspaceID, guestRoot, nil, "read", path, strconv.FormatInt(r.config.FileReadLimit, 10))
+	return r.ReadWorkingCopyFile(ctx, workspaceID, path)
 }
 
 func (r *Runtime) WriteFile(ctx context.Context, workspaceID, path string, content []byte, mode fs.FileMode) error {

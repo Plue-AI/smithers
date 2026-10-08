@@ -24,6 +24,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -334,17 +337,38 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		init := exec.Command(jj, "git", "init", root)
 		output, err := init.CombinedOutput()
 		require.NoError(t, err, string(output))
-		hostRepo := t.TempDir()
-		output, err = exec.Command("/usr/bin/git", "init", "--bare", hostRepo).CombinedOutput()
+		native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+		require.NoError(t, native.Load())
+		config := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "stale-save-campaign"}
+		repository := config.RepoPath("digestowner", "demo")
+		_, err = native.InitRepo(repository)
+		require.NoError(t, err)
+		hostRepo := filepath.Join(repository, ".jj", "repo", "store", "git")
+		host, err := repohostserver.NewWithFFI(config, native)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, host.Shutdown(context.Background())) })
+		client := repohost.NewLocalClient(http.NotFoundHandler(), config.AuthToken)
+		client.BindMachineRepository(host.WithMachineRepository)
+		baseCommand := exec.Command(jj, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+		baseCommand.Dir = root
+		baseBytes, err := baseCommand.Output()
+		require.NoError(t, err)
+		base := strings.TrimSpace(string(baseBytes))
+		output, err = exec.Command("/usr/bin/git", "-C", hostRepo, "fetch", filepath.Join(root, ".git"), base).CombinedOutput()
 		require.NoError(t, err, string(output))
+		output, err = exec.Command("/usr/bin/git", "-C", hostRepo, "update-ref", "refs/smithers/branches/"+id+"/head", base).CombinedOutput()
+		require.NoError(t, err, string(output))
+		_, err = pool.Exec(ctx, "UPDATE workspaces SET head_commit_id=$2 WHERE id=$1", id, base)
+		require.NoError(t, err)
 		registry := new(machined.Registry)
-		registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
-			if branch != id {
-				return "", machined.ErrUnauthorized
-			}
-			return hostRepo, nil
-		}))
+		t.Cleanup(bindMachineObjects(ctx, registry, pool, client))
 		t.Cleanup(func() { require.NoError(t, registry.Close()) })
+		// Native writes emit durable watcher/capture events as well as RPC replies.
+		// The production dispatcher commits their receipts before acknowledging;
+		// without it, an otherwise valid long campaign fills the inbound queue.
+		stop, err := bindMachineEvents(ctx, registry, pool, client, nil, nil)
+		require.NoError(t, err)
+		t.Cleanup(stop)
 		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, t.TempDir(), binary, &machined.ItemBinding{}))
 		previous, previousReader := provider.writer, provider.reader
 		t.Cleanup(func() { provider.writer, provider.reader = previous, previousReader })
@@ -473,6 +497,44 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		}
 		outsideDigest := fmt.Sprintf("%x", sha256.Sum256([]byte("outside")))
 		read(200, "outside", outsideDigest)
+		// C-COL-03 W4 completed-outside-save boundary. This campaign does not
+		// pause between compare and swap or qualify the full W1-W4 VM matrix.
+		t.Run("outside save stale HTTP 100 runs", func(t *testing.T) {
+			baseDigest := outsideDigest
+			for run := 0; run < 100; run++ {
+				content := fmt.Sprintf("outside save %03d\n", run)
+				temporary := filepath.Join(root, "outside-save")
+				require.NoError(t, os.WriteFile(temporary, []byte(content), 0600))
+				require.NoError(t, os.Rename(temporary, filepath.Join(root, "real.txt")))
+				request, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(`{"content":"must not replace outside","base_digest":"`+baseDigest+`"}`))
+				require.NoError(t, err)
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set("Origin", origin)
+				request.Header.Set("X-CSRF-Token", "digest-csrf")
+				request.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+				request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+				response, err := server.Client().Do(request)
+				require.NoError(t, err)
+				body, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, 409, response.StatusCode, "run %d: %s", run, body)
+				require.Contains(t, string(body), `"code":"stale"`)
+				baseDigest = fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+				require.Contains(t, string(body), baseDigest)
+				disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
+				require.NoError(t, err)
+				require.Equal(t, content, string(disk), "run %d", run)
+			}
+		})
+		// Durable outside events must have reached the real transactional
+		// consumer. Final capture convergence is a separate qualification.
+		require.Eventually(t, func() bool {
+			var receipts int
+			return pool.QueryRow(ctx, "SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1", id).Scan(&receipts) == nil && receipts > 0
+		}, 10*time.Second, 100*time.Millisecond)
+		// Restore the fixed oracle used by the subsequent offline refusal.
+		require.NoError(t, os.WriteFile(filepath.Join(root, "real.txt"), []byte("outside"), 0600))
 		// Loss of the authenticated daemon must not expose a process-runtime
 		// fallback for either reads or writes, even while the checkout exists.
 		require.NoError(t, registry.Close())
