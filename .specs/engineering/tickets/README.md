@@ -1,5 +1,7 @@
 # Tickets
 
+**Doneish first (Will, 2026-10-08; AGENTS.md).** A ticket is *doneish* when it is believed complete on `main` with the J1–J11 journeys passing, or is listed in `PRERELEASE.md` as off, missing or unverified. Doneish is the working target for every prerelease. The definition of **done** below is unchanged and gates the real release only.
+
 Every ticket ships a vertical slice: code, tests, the docs the change touches, and the checks it names. A ticket is **done** when four things hold:
 - its phase’s checks pass on their stated layers with machine-written receipts at the landed commit (C-PRC-03);
 - the issue links each required receipt, command log and verified log digest (C-PRC-03);

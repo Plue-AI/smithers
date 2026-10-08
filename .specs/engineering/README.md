@@ -13,6 +13,8 @@ Owner: the engineering agent (smithers-8a, tech lead). Product: [../product/mvp.
 | [research/](research/) | Cited findings about `main` on 2026-10-02 (10 reports) | To verify a claim in delta.md |
 | [reviews/](reviews/) | Fable and Codex Astra reviews of the core docs, tickets and checks, and how each finding was resolved | To see why the spec says what it says |
 
+**Working target: doneish (Will, 2026-10-08; [AGENTS.md](../../AGENTS.md) "Doneish first; release continuously").** Until the first prerelease ships, a lane may start and land work without a `Ready:` stamp, owner pre-review, second-model review, receipts or reference-host evidence; each missing item becomes a line under Unverified in `PRERELEASE.md`. The HARD RULES below and contributor trust rules still hold: a feature with a known hole ships switched off and listed. Done (below and in [tickets/README.md](tickets/README.md)) is unchanged and gates only the real release.
+
 Ready before start (product, 2026-10-02). No lane starts a ticket until the tech lead stamps it with a line `Ready: <date> <who> sha256:<first 12 hex digits>` under its header. Ready means:
 1. **Depends on** lists every runtime precondition the change needs to land safely, not just the code it builds on.
 2. **Out of scope** names the tempting exclusions explicitly.
