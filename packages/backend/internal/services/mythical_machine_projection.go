@@ -257,7 +257,10 @@ func (s *MythicalService) PublishMachineGrant(ctx context.Context, grant microsa
 		return err
 	}
 	if published {
-		return tx.Commit(ctx)
+		if err = tx.Commit(ctx); err != nil {
+			return err
+		}
+		return s.publishMachineQueueProjection(ctx)
 	}
 	state := "waking"
 	if row.Status == "running" {
@@ -274,5 +277,10 @@ func (s *MythicalService) PublishMachineGrant(ctx context.Context, grant microsa
 	if _, err = jobs.RecordFactInTx(ctx, tx, scope, grant.PublicationID, "branch.machine.granted", "granted", data); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	// Queue positions for TODO/Home are part of the same grant barrier. A
+	// lost reply retries both existing source writers before any next grant.
+	return s.publishMachineQueueProjection(ctx)
 }

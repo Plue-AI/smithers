@@ -174,3 +174,53 @@ func TestMachineGrantPublicationRollbackAndLostReply(t *testing.T) {
 	require.JSONEq(t, fmt.Sprintf(`{"branch":{"id":%q,"machine":{"state":"waking"}},"admission":{"holder":%q,"actor":"Alice","class":"person"}}`, row.ID, grant.Holder), string(page.Events[0].Data))
 	require.Error(t, recovered.PublishMachineGrant(ctx, microsandbox.AdmissionRequest{Holder: grant.Holder}))
 }
+
+// A committed Branch receipt alone cannot acknowledge the grant if its TODO
+// positions rolled back. Retry through a fresh service retains both cursors.
+func TestMachineGrantWaitsForTodoProjectionCommit(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	first := o.fileTodo(session, "T1")
+	second := o.fileTodo(session, "T2")
+	ctx, q := t.Context(), db.New(o.pool)
+	runtime := new(microsandbox.Runtime)
+	lanes := NewWorkspaceMythicalLanes(NewWorkspaceService(q, WithWorkspaceRuntime(runtime)))
+	capacity := &InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
+	o.service.SetOrchestration(nil, nil, lanes)
+	o.service.SetInstallParallel(capacity)
+	require.NoError(t, o.service.publishMachineQueueProjection(ctx))
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: owner, Name: "source-barrier", TargetBookmark: "scratch/owner/source-barrier", Status: "suspended"})
+	require.NoError(t, err)
+	_, err = runtime.Request("person", "workspace:"+branch.ID, "Alice", "terminal")
+	require.NoError(t, err)
+	grant := microsandbox.AdmissionRequest{PublicationID: "22222222-2222-4222-8222-222222222222", Holder: "workspace:" + branch.ID, Class: "person", Actor: "Alice", State: "granted"}
+	_, err = o.pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE product_job_requests ADD CONSTRAINT grant_todo_refused CHECK(operation <> 'todo.machine.queue' OR principal_id <> '%s') NOT VALID`, todoOperationScope(second).PrincipalID))
+	require.NoError(t, err)
+	store, err := jobs.NewStore(o.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	head, err := store.Head(ctx, todoOperationScope(first))
+	require.NoError(t, err)
+	require.Error(t, o.service.PublishMachineGrant(ctx, grant))
+	unchanged, err := store.Head(ctx, todoOperationScope(first))
+	require.NoError(t, err)
+	require.Equal(t, head, unchanged)
+	_, err = o.pool.Exec(ctx, `ALTER TABLE product_job_requests DROP CONSTRAINT grant_todo_refused`)
+	require.NoError(t, err)
+	recovered := NewMythicalService(o.pool, nil)
+	recovered.SetOrchestration(nil, nil, lanes)
+	recovered.SetInstallParallel(capacity)
+	require.NoError(t, recovered.PublishMachineGrant(ctx, grant))
+	require.NoError(t, recovered.PublishMachineGrant(ctx, grant))
+	var count int
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.machine.granted' AND operation_id=$1`, grant.PublicationID).Scan(&count))
+	require.Equal(t, 1, count)
+	page, err := store.Replay(ctx, todoOperationScope(first), head, 10)
+	require.NoError(t, err)
+	require.Len(t, page.Events, 1)
+	var fact struct {
+		Card struct{ Queue struct{ Position int } }
+	}
+	require.NoError(t, json.Unmarshal(page.Events[0].Data, &fact))
+	require.Equal(t, 2, fact.Card.Queue.Position)
+}

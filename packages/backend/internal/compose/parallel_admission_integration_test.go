@@ -311,6 +311,7 @@ esac
 		})})
 	require.NoError(t, err)
 	stack.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(workspaces))
+	composeAdmissionPublication(runtime, stack)
 	stack.EnableTodoAdmission()
 	stack.SetTodoFlow(func(ctx context.Context, repositoryID int64, _ string) (string, error) {
 		return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
@@ -1049,7 +1050,7 @@ esac
 		lastBranchCursor = int64(*frame.Cursor)
 		var event jobs.Event
 		require.NoError(t, json.Unmarshal(frame.Data, &event))
-		require.Equal(t, "branch.machine", event.Type)
+		require.Contains(t, []string{"branch.machine", "branch.machine.granted"}, event.Type)
 		var fact struct {
 			Branch struct {
 				Machine struct {
