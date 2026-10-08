@@ -490,7 +490,7 @@ func (h *askingHost) resolver(t *testing.T) flowruntime.FlowRuntimeResolver {
 			if len(h.waits) > 0 {
 				status = "waiting-approval"
 			}
-			value = map[string]any{"run": flowruntime.Run{RunID: "todo-run", FlowID: "todo", Status: status, PendingWaits: h.waits},
+			value = map[string]any{"run": flowruntime.Run{RunID: input["runId"].(string), FlowID: "todo", Status: status, PendingWaits: h.waits},
 				"events": []any{}, "nextCursor": "", "hasMore": false, "terminal": false}
 		} else {
 			operation, _ := input["operation"].(string)
@@ -501,8 +501,12 @@ func (h *askingHost) resolver(t *testing.T) flowruntime.FlowRuntimeResolver {
 			}
 			value = map[string]any{"operation": operation, "applicationRequestId": input["applicationRequestId"], "ownerGeneration": 1,
 				"runtimeArtifactDigest": identity.RuntimeArtifactDigest, "sourceRevision": identity.SourceRevision,
-				"receipt": flowruntime.Receipt{Tag: "Accepted", RunID: "todo-run"}}
+				"receipt": flowruntime.Receipt{Tag: "Accepted", RunID: input["runId"].(string)}}
 			if operation == "launch" {
+				requireRunID, _ := input["runId"].(string)
+				if requireRunID != "dispatch:"+input["applicationRequestId"].(string) {
+					t.Errorf("launch did not use its reserved run identity: %q", requireRunID)
+				}
 				value["executionDigest"] = todoPinOne
 			}
 		}
@@ -538,9 +542,12 @@ func TestTodoAnswerResumesTheRunThatAsked(t *testing.T) {
 	item := o.fileTodo(session, "resume")
 	id := uuidString(item.ID)
 	o.wake()
+	var requestID string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT id::text FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationLaunch).Scan(&requestID))
+	expectedRunID := "dispatch:" + requestID
 	startWorker()
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
-	require.Equal(t, "todo-run", o.byID(id).RequestRunID)
+	require.Equal(t, expectedRunID, o.byID(id).RequestRunID)
 
 	peer.ask(humanAsk("WaitFor-token-6", "coding-clarification", "Backoff or a fixed delay?"))
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "needs_you" }, 10*time.Second, 10*time.Millisecond)
@@ -556,7 +563,7 @@ func TestTodoAnswerResumesTheRunThatAsked(t *testing.T) {
 	require.Equal(t, map[string]any{"name": "coding-clarification", "payload": "Use backoff"}, peer.delivered()[0])
 	require.Eventually(t, func() bool {
 		item := o.byID(id)
-		return todoState(item) == "working" && item.RequestRunID == "todo-run"
+		return todoState(item) == "working" && item.RequestRunID == expectedRunID
 	}, 10*time.Second, 10*time.Millisecond)
 	// Later observations of the resumed run leave the answered question settled.
 	time.Sleep(50 * time.Millisecond)

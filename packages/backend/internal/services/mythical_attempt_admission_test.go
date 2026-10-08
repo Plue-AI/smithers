@@ -49,7 +49,8 @@ func TestTodoAttemptAdmissionTransaction(t *testing.T) {
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
 	attached := mythicalChecksOf(o.byID(id)).Attempts
 	require.Len(t, attached, 1)
-	require.Equal(t, "todo-run", attached[0].RunID)
+	require.Equal(t, peer.reservedRun(t, "todo"), attached[0].RunID)
+	require.NotEmpty(t, attached[0].RunID)
 	require.Equal(t, todoPinOne, attached[0].FlowDigest)
 	require.Equal(t, records[0].SourceCommit, attached[0].SourceCommit)
 	require.Empty(t, attached[0].Outcome)

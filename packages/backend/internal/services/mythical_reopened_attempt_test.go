@@ -133,7 +133,7 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 			require.Contains(t, string(raw), text)
 			startWorker()
 			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)
-			require.Equal(t, "todo-run", o.byID(uuidString(item.ID)).RequestRunID)
+			require.Equal(t, peer.reservedRun(t, "todo"), o.byID(uuidString(item.ID)).RequestRunID)
 			require.Equal(t, closedAttempt, mythicalChecksOf(o.byID(uuidString(item.ID))).Attempts[0], "new work cannot rewrite the dropped attempt")
 			require.NotEqual(t, accepted.RequestRunID, o.byID(uuidString(item.ID)).RequestRunID)
 			peer.mu.Lock()

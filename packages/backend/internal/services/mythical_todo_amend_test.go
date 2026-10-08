@@ -65,8 +65,10 @@ func TestTodoAmendTransactionAndDelivery(t *testing.T) {
 	item := o.fileTodo(session, "amend")
 	ready, _, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = "proposed", ready.Attempt, ready.RequestRunID
-	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
-	item.CandidateVerified, item.CandidateHead, item.CandidateBase = true, strings.Repeat("c", 40), o.landedMain()
+	item.WorkspaceID, item.FlowDigest, item.Checks = "11111111-1111-4111-8111-111111111111", ready.FlowDigest, ready.Checks
+	item.CandidateBase = o.landedMain()
+	item.CandidateHead = o.laneResult(item.WorkspaceID, item.CandidateBase, map[string]string{"GREETING.md": "Hello\n"}, "✨ feat: greet")
+	item.CandidateVerified = true
 	checks := mythicalChecksOf(item)
 	checks.Waits = []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep this open?"}}
 	item.Checks = checks.encode()
@@ -75,7 +77,8 @@ func TestTodoAmendTransactionAndDelivery(t *testing.T) {
 	// A verified successor must lose the evidence tied to the amended prefix.
 	later := o.fileTodo(session, "after-amend")
 	later.State, later.CandidateVerified = "proposed", true
-	later.CandidateBase, later.CandidateHead = item.CandidateHead, strings.Repeat("e", 40)
+	later.CandidateBase = item.CandidateHead
+	later.CandidateHead = o.laneResult("22222222-2222-4222-8222-222222222222", later.CandidateBase, map[string]string{"AFTER.md": "After\n"}, "✨ feat: follow greeting")
 	later.Checks = (mythicalChecks{Todo: true, Land: &mythicalLand{Head: later.CandidateHead}}).encode()
 	later, err = q.SaveMythicalItem(ctx, later)
 	require.NoError(t, err)
@@ -140,8 +143,8 @@ func TestTodoAmendTransactionAndDelivery(t *testing.T) {
 	_, err = o.service.AmendTodo(delegated, item.Number.Int64, input)
 	var denied *AccessError
 	require.ErrorAs(t, err, &denied)
-	require.Equal(t, "confirmation_unavailable", denied.Code)
-	require.Equal(t, 503, denied.Status)
+	require.Equal(t, "permission", denied.Code)
+	require.Equal(t, 403, denied.Status)
 	// Refusal neither adds a revision nor invalidates current runtime evidence.
 	require.Equal(t, saved, o.byID(uuidString(item.ID)))
 }
