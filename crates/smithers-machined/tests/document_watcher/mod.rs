@@ -470,9 +470,16 @@ fn failed_delete_checkpoint_withholds_receipt_and_refuses_following_mutation() {
     assert_eq!(s.bytes(&s.checkpoint().recorded["a.rs"]), b"abc");
     s.observed.checkpoint_fail.store(false, Ordering::Relaxed);
     let reply = mutations(&mut s.cx, &[("a.rs", None, Some(b"must not restore"))]);
+    // A failed checkpoint fences the watcher until it reloads durable state.
+    // The next mutation is refused before batch dispatch; decode that typed
+    // refusal rather than interpreting an error envelope as a batch result.
+    assert_eq!(reply[0], 0xff);
+    let refusal = conn::fields("error", &reply[1..]).unwrap();
+    assert_eq!(refusal[0].1, &[3]);
     assert_eq!(
-        conn::fields("result17", &reply[1..]).unwrap()[0].1,
-        0u16.to_be_bytes()
+        refusal[1].1,
+        string("reload watcher checkpoint after IO failure")
     );
     assert!(!s.f.root.join("workspace/a.rs").exists());
+    assert_eq!(s.bytes(&s.checkpoint().recorded["a.rs"]), b"abc");
 }
