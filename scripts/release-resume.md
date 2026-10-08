@@ -27,7 +27,20 @@ gh workflow run release.yml --ref main \
   -F dryRun=true
 ```
 
-This path checks out that exact commit and verifies its ancestry to `origin/main`. It runs every existing version, changelog, source, build, and smoke gate, archives the tested candidate, and skips publication. The intended tag need not exist; a stale changelog still fails and must be corrected in a new source commit before certification. The candidate records the checked-out source SHA and intended release label.
+This path checks out that exact commit and verifies its ancestry to `origin/main`. It runs every existing version, changelog, source, build, and smoke gate, archives the tested candidate, installs and starts the packed CLI on the four installer platforms, and skips publication. The intended tag need not exist; a stale changelog still fails and must be corrected in a new source commit before certification. The candidate records the checked-out source SHA and intended release label.
+
+### Prereleases
+
+A suffixed version such as `1.0.0-rc.1` is a prerelease. It publishes under the npm `next` dist-tag, and only what proves it builds, installs and starts can block it (`AGENTS.md`, "Doneish first; release continuously"). The publish job therefore runs as two parallel lanes:
+
+| Lane | Runs | A failure |
+| --- | --- | --- |
+| `candidate` | Version check, build, pack, installed-consumer smoke, archive, publication | Fails the run and stops publication |
+| `gates` | Every gate, including the changelog check and the mode matrix | Shows red on the run; the run does not fail |
+
+A rehearsal of a prerelease is green when the `candidate` lane, the native helpers, the server bundle and the four installer jobs pass. Read the `gates` lane for what is red on that commit; each gate's result is also in the `release-gate-results-<run-id>` artifact. Installer signing and the Homebrew bottle do not run for a suffixed version, so a prerelease has no bottle; the darwin-arm64 server bundle is the run's `server-bundle-darwin-arm64` artifact.
+
+An unsuffixed version runs one `release` lane: every gate, then the candidate, then publication. Any red gate blocks it, and a stale changelog blocks it before the build.
 
 New candidates must pass installed-consumer smoke on Node 26.4.0 with npm 11.16.0, using the tarballs they were packed as. The separate `release-smoke-evidence-<run-id>` artifact retains `node26.json`; its upload also runs on failure. The candidate's `smoke-evidence.json` is the Node 26.4.0 receipt. Archived-candidate restores preserve the original receipt.
 

@@ -362,6 +362,10 @@ const parseArguments = (argv) => {
 export const rehearsalContexts = ({ tag, publish = false, runnerTemp = "/tmp/runner", workflowName = "Release" }) => ({
   github: { event_name: "workflow_dispatch", ref_name: tag, run_attempt: "1", workflow: workflowName },
   inputs: { releaseTag: tag, dryRun: !publish },
+  // A rehearsal runs the `release` lane, every gate and then the candidate,
+  // whatever the tag: the lanes of a prerelease exist to stop a red gate from
+  // blocking a publication, and a rehearsal publishes nothing.
+  matrix: { lane: "release" },
   runner: { temp: runnerTemp },
   env: {},
   steps: {}

@@ -39,8 +39,11 @@ on:
 permissions:
   contents: read
 
+# One run per tag at a time, so two publications of one version cannot race.
+# A sourceRef rehearsal publishes nothing, so each rehearsed commit has its own
+# group and rehearsals of different commits run side by side.
 concurrency:
-  group: release-${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}
+  group: release-${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref_name }}${{ inputs.sourceRef != '' && '-' || '' }}${{ inputs.sourceRef }}
   cancel-in-progress: false
 
 jobs:
@@ -74,6 +77,10 @@ jobs:
         with:
           name: server-bundle-darwin-arm64
           path: apps/app/.native-archive/*
+          # The archive directory is dot-prefixed, and upload-artifact skips
+          # hidden paths unless told otherwise: without this line the step
+          # found no files and no run ever produced the bundle artifact.
+          include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -115,8 +122,34 @@ jobs:
     name: validate, build, and publish
     runs-on: ubuntu-latest
     needs: native-helper
+    # A suffixed version (1.0.0-rc.2) is a prerelease. It publishes under npm
+    # `next`, and only what proves it builds, installs and starts may block it
+    # (AGENTS.md, "Doneish first; release continuously"). A prerelease
+    # therefore runs this job as two parallel lanes:
+    #
+    #   candidate  builds, packs, smoke-tests the tarballs in installed
+    #              consumers, and publishes. No gate runs in it.
+    #   gates      runs every gate and nothing else. A red gate fails this
+    #              lane, the lane is reported on the run, and the run does not
+    #              fail: `continue-on-error` is true for this lane alone.
+    #
+    # An unsuffixed version runs the single `release` lane: every gate, then
+    # the candidate, then publication, and any red gate blocks, as before.
+    #
+    # The suffix test is the one "Compute the publish plan" uses to choose the
+    # `next` dist-tag. Steps select a lane through `matrix.lane`. The gates do
+    # not name a lane: they follow `steps.setup`, which the candidate lane
+    # skips, so their text stays the copy of ci.yml that pack-release.test.mjs
+    # compares.
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-') && '["candidate","gates"]' || '["release"]') }}
+    continue-on-error: ${{ matrix.lane == 'gates' }}
     # npm libraries have their own source, package, and installed-consumer gates.
-    timeout-minutes: 180
+    # The gates lane runs the whole roster serially and reports every gate, red
+    # or not, so the bound leaves it room below GitHub's six-hour limit.
+    timeout-minutes: 330
     environment: npm-publish
     permissions:
       contents: read
@@ -145,7 +178,9 @@ jobs:
           echo "Run attempt $GITHUB_RUN_ATTEMPT would rebuild the candidate and then collide with this run's release-candidate-$GITHUB_RUN_ID artifact." >&2
           echo "Dispatch Release again with releaseTag=$RELEASE_TAG instead. To resume the archived candidate, pass candidateRunId=$GITHUB_RUN_ID and candidateArtifactId=<the release-candidate-$GITHUB_RUN_ID artifact ID> (scripts/release-resume.md)." >&2
           exit 1
+      # The mode matrix is a gate, so its precondition is too.
       - name: Require Plue matrix target
+        if: matrix.lane != 'candidate'
         env:
           SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
@@ -198,6 +233,7 @@ jobs:
       # actionlint models GitHub's per-key expression-context rules, including
       # the fact that `runner` is available to steps but not a job-level env.
       - name: Validate GitHub Actions workflows
+        if: matrix.lane != 'candidate'
         uses: docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f
         with:
           args: ".github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-auth.yml .github/workflows/apps-deploy.yml .github/workflows/distribution.yml .github/workflows/canary.yml .github/workflows/reliability.yml .github/workflows/native-windows.yml .github/workflows/mirror-sync.yml .github/workflows/drift.yml .github/workflows/reference-host.yml"
@@ -299,12 +335,6 @@ jobs:
           # the two published groups the loop above reads.
           node scripts/set-release-version.mjs --check "$RELEASE_VERSION"
           echo "RELEASE_VERSION=$RELEASE_VERSION" >> "$GITHUB_ENV"
-      # The changelog is generated from the commit range, so a release whose
-      # section is missing or stale is a release nobody wrote up. Failing here
-      # costs a re-tag; failing after the publish step costs an immutable npm
-      # version whose changelog says nothing about it.
-      - name: Release changelog section
-        run: node scripts/generate-changelog.mjs --check --version "$RELEASE_VERSION"
       - name: Install jj
         uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b
         with:
@@ -327,8 +357,11 @@ jobs:
             fi
           fi
         shell: bash
+      # Every gate below runs only after this step succeeds. The candidate
+      # lane skips it, and with it every gate.
       - name: Install PostgreSQL
         id: setup
+        if: matrix.lane != 'candidate'
         run: |
           case "$(uname -s)" in
             Linux)
@@ -366,6 +399,15 @@ jobs:
       # on a runner with no rg binary and failed 25 cases. pack-release.test.mjs
       # compares these blocks against ci.yml, so the copy cannot go stale in
       # silence, and the toolchain block above is a one-line copy per bump.
+      # The changelog is generated from the commit range, so a release whose
+      # section is missing or stale is a release nobody wrote up. A red result
+      # here blocks an unsuffixed release before the build, so it costs a
+      # re-tag and never an immutable npm version whose changelog says nothing
+      # about it. It carries the gate condition so that a stale section is
+      # reported beside the other gates instead of skipping them.
+      - name: Release changelog section
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: node scripts/generate-changelog.mjs --check --version "$RELEASE_VERSION"
       - name: Examples
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: pnpm exec smthrs ci '//examples/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
@@ -534,18 +576,25 @@ jobs:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      # These five steps are gates and their setup, so they carry the gate
+      # condition: they run after an earlier red gate, and never in the
+      # candidate lane.
       - name: Install Playwright Chromium
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: pnpm --filter smithers-app exec playwright install --with-deps chromium
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Install PostgreSQL 18 for the owned local mode
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: bash .github/scripts/install-postgres-18.sh
       - name: Real PostgreSQL backup and restore
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: go test -p 1 ./distribution -run 'TestRealBackupRestorePostgreSQL|TestRealFailedUpgradeRecoveryPostgreSQL|TestFailedUpgradeReportsRecovery|TestIncompleteUpgrade' -count=1 -v
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_POSTGRES_TEST_MAJOR: "18"
       - name: Distribution release contracts
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: node --test scripts/repo-contract/mac-distribution.test.mjs distribution/fake-coding-provider.test.mjs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -553,6 +602,7 @@ jobs:
       # The macOS job gates the native pair. This job gates the web and local
       # pairs with fresh PostgreSQL.
       - name: Product deployment mode matrix
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
@@ -560,13 +610,17 @@ jobs:
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}
       - name: Upload product deployment mode matrix receipt
-        if: always()
+        if: ${{ always() && steps.setup.conclusion == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: product-deployment-mode-matrix
           path: "${{ runner.temp }}/smithers-mode-matrix"
           if-no-files-found: error
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      # Not a gate: the server gates below and the candidate build both run on
+      # the repository's pinned Node, after a red gate as well.
+      - name: Select the repository's pinned Node
+        if: ${{ !cancelled() }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version-file: .node-version
       - name: Server typecheck and tests
@@ -721,14 +775,18 @@ jobs:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      # The candidate. These steps never run in the gates lane.
       - name: Build all workspaces from clean artifacts
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
         run: node scripts/build-release.mjs
+      # A gate that needs the build above. A prerelease reports its result
+      # without blocking; an unsuffixed release blocks on it.
       - name: Review declaration API drift
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        continue-on-error: ${{ matrix.lane == 'candidate' }}
         run: node scripts/check-api-baseline.mjs
       - name: Retrieve native helpers for npm
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -748,19 +806,19 @@ jobs:
       # selects the repository's pinned release, so reinstall the floor and its
       # certified npm here rather than trust whichever Node ran last.
       - name: Install the supported Node floor
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
           registry-url: https://registry.npmjs.org
       - name: Install certified npm for the Node floor
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
         run: |
           npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
           test "$(npm --version)" = '11.16.0'
         shell: bash
       - name: Pack and smoke-test release artifacts
-        if: env.CANDIDATE_RUN_ID == ''
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           SMOKE_EVIDENCE_DIR: ${{ runner.temp }}/release-smoke-evidence
@@ -773,7 +831,7 @@ jobs:
           node scripts/smoke-release.mjs "$PACK_DIR"
           cp "$PACK_DIR/smoke-evidence.json" "$SMOKE_EVIDENCE_DIR/node26.json"
       - name: Restore and verify archived release candidate
-        if: env.CANDIDATE_RUN_ID != ''
+        if: env.CANDIDATE_RUN_ID != '' && matrix.lane != 'gates'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           GH_TOKEN: ${{ github.token }}
@@ -787,14 +845,17 @@ jobs:
       # The plan is computed on both paths, so a dry run reports the exact set,
       # order, version, and dist-tag a real run would publish.
       - name: Archive tested release artifacts
+        if: matrix.lane != 'gates'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-candidate-${{ github.run_id }}
           path: ${{ runner.temp }}/release-packs
           if-no-files-found: error
           retention-days: 30
+      # Gate evidence, so only a lane that ran the gates collects and uploads
+      # it: two lanes of one run cannot both upload one artifact name.
       - name: Collect ci-test-tier-evidence
-        if: always()
+        if: ${{ always() && steps.setup.conclusion == 'success' }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-test-tier-evidence"
           for f in '/tmp/smithers-ci-inventory-'*'.json'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
@@ -803,12 +864,21 @@ jobs:
           for f in '/tmp/smithers-runner-'*'.log'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
           for f in '/tmp/smithers-runner-'*'.json'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
       - name: Upload ci-test-tier-evidence
-        if: always()
+        if: ${{ always() && steps.setup.conclusion == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-test-tier-evidence
           path: "${{ runner.temp }}/ci-test-tier-evidence"
           if-no-files-found: ignore
+      # One JSON file per gate: what the gates lane of a prerelease reports.
+      - name: Upload gate results
+        if: ${{ always() && steps.setup.conclusion == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-gate-results-${{ github.run_id }}
+          path: ${{ runner.temp }}/smthrs-results
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Upload release runtime smoke evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -818,6 +888,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Compute the publish plan
+        if: matrix.lane != 'gates'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
@@ -839,7 +910,7 @@ jobs:
           echo "Publish plan for $release_version on the $publish_tag dist-tag:"
           cat "$PUBLISH_ORDER"
       - name: Publish packages in dependency order
-        if: env.DRY_RUN != 'true' && !inputs.sourceRef
+        if: env.DRY_RUN != 'true' && !inputs.sourceRef && matrix.lane != 'gates'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
@@ -864,18 +935,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Report the skipped publication
-        if: env.DRY_RUN == 'true'
+        if: env.DRY_RUN == 'true' && matrix.lane != 'gates'
         env:
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
+          LANE: ${{ matrix.lane }}
         run: |
-          echo "Dry run: every current gate ran; candidate build/smoke or archived-candidate verification passed. Nothing was published."
+          if [ "$LANE" = candidate ]; then
+            echo "Dry run of a prerelease: candidate build/smoke or archived-candidate verification passed. The gates lane of this run reports every gate and blocks nothing. Nothing was published."
+          else
+            echo "Dry run: every current gate ran; candidate build/smoke or archived-candidate verification passed. Nothing was published."
+          fi
           echo "A real run would publish these at $PUBLISH_VERSION on the $PUBLISH_DIST_TAG dist-tag:"
           cat "$PUBLISH_ORDER"
   installer-archive:
     name: installed npm CLI (${{ matrix.platform }})
     needs: publish
-    # A sourceRef rehearsal has no release tag and cannot earn a tag receipt.
-    if: inputs.sourceRef == ''
+    # This job installs the packed npm CLI on each platform and starts it, so
+    # it is part of what a rehearsal must prove: a tag push runs it only after
+    # npm has published. A sourceRef rehearsal checks out that commit instead
+    # of the tag and runs it too. Signing stays tag-bound in the next job.
     strategy:
       fail-fast: false
       matrix:
@@ -895,7 +973,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
+          ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
@@ -924,7 +1002,10 @@ jobs:
   installer-publish:
     name: sign and publish installer archives
     needs: installer-archive
-    if: github.event_name != 'workflow_dispatch' || !inputs.dryRun
+    # The signed archives have one consumer, the Homebrew job below, and a
+    # prerelease publishes to npm `next` only. So a suffixed version signs
+    # nothing; an unsuffixed release signs at its tag, as before.
+    if: (github.event_name != 'workflow_dispatch' || !inputs.dryRun) && !contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: installer-publish
@@ -987,7 +1068,10 @@ jobs:
   homebrew-bottle:
     name: macOS arm64 Homebrew bottle
     needs: [installer-publish, server-bundle]
-    if: inputs.sourceRef == '' && (github.event_name != 'workflow_dispatch' || !inputs.dryRun)
+    # A prerelease publishes to npm `next` and nowhere else: the bottle and the
+    # tap formula are what `brew install` resolves, so they move only with an
+    # unsuffixed release, which must also earn the receipts `qualify` requires.
+    if: inputs.sourceRef == '' && (github.event_name != 'workflow_dispatch' || !inputs.dryRun) && !contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-')
     runs-on: macos-15
     timeout-minutes: 60
     environment: homebrew-publish

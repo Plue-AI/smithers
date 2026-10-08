@@ -39,12 +39,12 @@ const workflow = (name) => readFileSync(join(repoRoot, ".github", "workflows", n
  * quotes keys and values while the handwritten release workflow does not;
  * parsing both preserves every setting without treating quoting as drift.
  */
-const jobSteps = (source, job) => {
+const jobSteps = (source, job, normalize = (step) => step) => {
   const declared = parse(source).jobs?.[job]
   assert.ok(declared !== undefined, `${job} is not a job in this workflow`)
   const steps = declared.steps
   assert.ok(Array.isArray(steps) && steps.length > 0, `${job} declares no steps`)
-  return steps.map((step) => stringify([step], { lineWidth: 0 }).trimEnd().split("\n")
+  return steps.map((step) => stringify([normalize(step)], { lineWidth: 0 }).trimEnd().split("\n")
     .map((line) => `      ${line}`).join("\n"))
 }
 
@@ -352,7 +352,21 @@ test("every toolchain step in ci.yml's required test job also runs in release.ym
   // release.yml carries the same bytes.
   const ciSteps = jobSteps(workflow("ci.yml"), "test")
   const releaseSource = workflow("release.yml")
-  const releaseSteps = jobSteps(releaseSource, "publish")
+  // A prerelease runs the publish job as a candidate lane and a gates lane
+  // (the comment on release.yml's publish job). Two copied steps therefore
+  // carry one extra key that keeps them out of the candidate lane: the
+  // workflow validation, which is a gate, and the setup step every gate
+  // follows. The key is dropped before the comparison and its carriers are
+  // pinned after it, so the copies stay the same bytes otherwise and a third
+  // step cannot leave the candidate lane unnoticed.
+  const laneCondition = "matrix.lane != 'candidate'"
+  const publishSteps = parse(releaseSource).jobs.publish.steps
+  assert.deepEqual(
+    publishSteps.filter((step) => step.if === laneCondition).map((step) => step.name),
+    ["Require Plue matrix target", "Validate GitHub Actions workflows", "Install PostgreSQL"]
+  )
+  const releaseSteps = jobSteps(releaseSource, "publish", (step) =>
+    step.if === laneCondition ? Object.fromEntries(Object.entries(step).filter(([key]) => key !== "if")) : step)
   const declared = new Set(releaseSteps)
 
   // Two steps the release deliberately extends rather than copies: it checks

@@ -230,20 +230,62 @@ test("publication tolerates tag checkouts and bounded registry throttling", () =
 
 })
 
-test("only the re-run guard, candidate preparation and publication select a path; diagnostics survive failure", () => {
+/** What keeps a step out of the candidate lane of a prerelease. */
+const outsideCandidate = "matrix.lane != 'candidate'"
+
+/** What keeps a step that produces or reports gate evidence to the lanes that ran the gates. */
+const afterSetup = "${{ always() && steps.setup.conclusion == 'success' }}"
+
+/** The candidate: everything from the build to the publication report. */
+const candidateSteps = [
+  "Build all workspaces from clean artifacts",
+  "Review declaration API drift",
+  "Retrieve native helpers for npm",
+  "Install the supported Node floor",
+  "Install certified npm for the Node floor",
+  "Pack and smoke-test release artifacts",
+  "Restore and verify archived release candidate",
+  "Archive tested release artifacts",
+  "Compute the publish plan",
+  "Publish packages in dependency order",
+  "Report the skipped publication"
+]
+
+/** Gates that are not build-graph invocations, and the setup two of them need. */
+const otherGates = [
+  "Release changelog section",
+  "Install Playwright Chromium",
+  "Install PostgreSQL 18 for the owned local mode",
+  "Real PostgreSQL backup and restore",
+  "Distribution release contracts",
+  "Product deployment mode matrix"
+]
+
+test("only the re-run guard, the lanes, candidate preparation and publication select a path; diagnostics survive failure", () => {
   // Every gate runs after an earlier red gate but never after failed setup,
   // exactly as the generated ci.yml renders it (#2071).
   const gates = release.jobs.publish.steps.filter((candidate) => /pnpm exec smthrs /.test(candidate.run ?? ""))
   assert.ok(gates.length > 30)
   assert.deepEqual(gates.filter((candidate) => candidate.if !== gateCondition).map((candidate) => candidate.name), [])
-  assert.deepEqual(release.jobs.publish.steps.filter((candidate) => candidate.id === "setup").map((candidate) => candidate.if), [undefined])
+  // The candidate lane of a prerelease skips setup, and with it every gate.
+  assert.deepEqual(release.jobs.publish.steps.filter((candidate) => candidate.id === "setup").map((candidate) => candidate.if), [outsideCandidate])
   const conditional = release.jobs.publish.steps
     .filter((candidate) => candidate.if !== undefined && !gates.includes(candidate))
     .map((candidate) => candidate.name)
 
   assert.deepEqual(conditional, [
     "Refuse a re-run attempt",
+    "Require Plue matrix target",
+    "Validate GitHub Actions workflows",
+    "Install PostgreSQL",
+    "Release changelog section",
+    "Install Playwright Chromium",
+    "Install PostgreSQL 18 for the owned local mode",
+    "Real PostgreSQL backup and restore",
+    "Distribution release contracts",
+    "Product deployment mode matrix",
     "Upload product deployment mode matrix receipt",
+    "Select the repository's pinned Node",
     "Build all workspaces from clean artifacts",
     "Review declaration API drift",
     "Retrieve native helpers for npm",
@@ -251,19 +293,155 @@ test("only the re-run guard, candidate preparation and publication select a path
     "Install certified npm for the Node floor",
     "Pack and smoke-test release artifacts",
     "Restore and verify archived release candidate",
+    "Archive tested release artifacts",
     "Collect ci-test-tier-evidence",
     "Upload ci-test-tier-evidence",
+    "Upload gate results",
     "Upload release runtime smoke evidence",
+    "Compute the publish plan",
     "Publish packages in dependency order",
     "Upload the publish receipt",
     "Report the skipped publication"
   ])
-  assert.equal(step("Collect ci-test-tier-evidence").if, "always()")
-  assert.equal(step("Upload product deployment mode matrix receipt").if, "always()")
+  for (const name of ["Require Plue matrix target", "Validate GitHub Actions workflows"]) {
+    assert.equal(step(name).if, outsideCandidate, name)
+  }
+  // A gate that is not a build-graph invocation is still a gate: it carries
+  // the gate condition, so one red gate never hides the next one's result.
+  for (const name of otherGates) assert.equal(step(name).if, gateCondition, name)
+  // Two lanes of one run cannot upload one artifact name, and the gate
+  // evidence exists only where the gates ran.
+  for (const name of [
+    "Upload product deployment mode matrix receipt",
+    "Collect ci-test-tier-evidence",
+    "Upload ci-test-tier-evidence",
+    "Upload gate results"
+  ]) {
+    assert.equal(step(name).if, afterSetup, name)
+  }
   assert.equal(step("Upload the publish receipt").if, "always()")
-  assert.equal(step("Upload ci-test-tier-evidence").if, "always()")
   assert.equal(step("Upload release runtime smoke evidence").if, "always()")
-  assert.equal(step("Archive tested release artifacts").if, undefined)
+  // The server gates and the candidate build read the pinned Node after a red gate too.
+  assert.equal(step("Select the repository's pinned Node").if, "${{ !cancelled() }}")
+  assert.equal(step("Select the repository's pinned Node").with["node-version-file"], ".node-version")
+  for (const name of candidateSteps) assert.match(step(name).if, / && matrix\.lane != 'gates'$|^matrix\.lane != 'gates'$/, name)
+})
+
+test("a prerelease runs the candidate and the gates as two lanes, and only the candidate can block", () => {
+  // AGENTS.md, "Doneish first; release continuously": for a suffixed version
+  // only what proves it builds, installs and starts may block; every other
+  // gate reports. The lanes are selected by the same suffix test that picks
+  // the `next` dist-tag. The driver's evaluator has no function calls, so the
+  // selection is pinned as text and the lanes are evaluated below.
+  const job = release.jobs.publish
+  const suffixed = "contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-')"
+  assert.deepEqual(job.strategy, {
+    "fail-fast": false,
+    matrix: { lane: `\${{ fromJSON(${suffixed} && '["candidate","gates"]' || '["release"]') }}` }
+  })
+  // The gates lane fails red and the run does not; no other lane is excused.
+  assert.equal(job["continue-on-error"], "${{ matrix.lane == 'gates' }}")
+  assert.match(step("Compute the publish plan").run, /case "\$release_version" in \*-\*\) publish_tag="next" ;; esac/)
+
+  const runs = (candidate, lane, contexts) => {
+    if (candidate.if === undefined) return true
+    return condition(candidate.if, {
+      ...contexts,
+      matrix: { lane },
+      // What the runner records once the lane's own setup condition is applied.
+      steps: { setup: { conclusion: lane === "candidate" ? "skipped" : "success" } }
+    }) === true
+  }
+  const dryRun = dispatchContexts("v0.1.0-rc.1", true)
+  dryRun.env = { ...jobEnv(dryRun), CANDIDATE_RUN_ID: "" }
+  const named = job.steps.filter((candidate) => candidate.name !== undefined)
+  const gates = named.filter((candidate) => /pnpm exec smthrs /.test(candidate.run ?? "")).map((candidate) => candidate.name)
+  const reportOnly = [
+    "Require Plue matrix target",
+    "Validate GitHub Actions workflows",
+    "Install PostgreSQL",
+    ...otherGates,
+    ...gates,
+    "Upload product deployment mode matrix receipt",
+    "Collect ci-test-tier-evidence",
+    "Upload ci-test-tier-evidence",
+    "Upload gate results"
+  ]
+  const ran = (lane, contexts = dryRun) => named.filter((candidate) => runs(candidate, lane, contexts)).map((candidate) => candidate.name)
+
+  // The candidate lane runs no gate, so no gate can block it.
+  assert.deepEqual(ran("candidate").filter((name) => reportOnly.includes(name)), [])
+  // It builds, packs, smoke-tests, archives and reports; a dry run publishes nothing.
+  assert.deepEqual(
+    candidateSteps.filter((name) => ran("candidate").includes(name)),
+    candidateSteps.filter((name) => !["Restore and verify archived release candidate", "Publish packages in dependency order"].includes(name))
+  )
+  // The gates lane runs every gate and nothing of the candidate.
+  assert.deepEqual(reportOnly.filter((name) => !ran("gates").includes(name)), [])
+  assert.deepEqual(candidateSteps.filter((name) => ran("gates").includes(name)), [])
+  // An unsuffixed release runs one lane with every gate ahead of the candidate.
+  assert.deepEqual(
+    named.map((candidate) => candidate.name).filter((name) => !ran("release").includes(name)),
+    ["Refuse a re-run attempt", "Restore and verify archived release candidate", "Publish packages in dependency order"]
+  )
+  const names = job.steps.map((candidate) => candidate.name)
+  for (const name of reportOnly.filter((gate) => !gate.startsWith("Upload") && !gate.startsWith("Collect"))) {
+    assert.ok(names.indexOf(name) < names.indexOf("Build all workspaces from clean artifacts"), `${name} precedes the build`)
+  }
+
+  // A tag push publishes from the candidate lane or the release lane, never from the gates lane.
+  const push = pushContexts("v0.1.0-rc.1")
+  push.env = jobEnv(push)
+  const publish = step("Publish packages in dependency order")
+  assert.equal(runs(publish, "candidate", push), true)
+  assert.equal(runs(publish, "release", push), true)
+  assert.equal(runs(publish, "gates", push), false)
+
+  // Step-level tolerance exists once: the API drift gate needs the build, so
+  // it reports from the candidate lane. No other step hides a failure.
+  assert.deepEqual(
+    job.steps.filter((candidate) => candidate["continue-on-error"] !== undefined)
+      .map((candidate) => [candidate.name, candidate["continue-on-error"]]),
+    [["Review declaration API drift", "${{ matrix.lane == 'candidate' }}"]]
+  )
+
+  // Publications of one tag stay serialized; rehearsals of different commits do not queue.
+  const sourceRef = "a".repeat(40)
+  const rehearsal = { ...dispatchContexts("v0.1.0-rc.1", true), inputs: { releaseTag: "v0.1.0-rc.1", dryRun: true, sourceRef } }
+  assert.equal(interpolate(release.concurrency.group, rehearsal), `release-v0.1.0-rc.1-${sourceRef}`)
+  assert.equal(interpolate(release.concurrency.group, dispatchContexts("v0.1.0-rc.1", false)), "release-v0.1.0-rc.1")
+  assert.equal(interpolate(release.concurrency.group, pushContexts("v0.1.0-rc.1")), "release-v0.1.0-rc.1")
+  assert.equal(release.concurrency["cancel-in-progress"], false)
+
+  // The bundle archive lives in a dot-prefixed directory, which the upload
+  // action skips by default: run 37837413419 assembled it for forty minutes
+  // and then uploaded nothing.
+  const bundleUpload = release.jobs["server-bundle"].steps.find((candidate) => candidate.with?.name === "server-bundle-darwin-arm64")
+  assert.equal(bundleUpload.with.path, "apps/app/.native-archive/*")
+  assert.equal(bundleUpload.with["include-hidden-files"], true)
+  assert.equal(bundleUpload.with["if-no-files-found"], "error")
+  // No other artifact path in the workflow is inside a dot-prefixed directory.
+  const hidden = Object.values(release.jobs).flatMap((job) => job.steps)
+    .filter((candidate) => candidate.uses?.startsWith("actions/upload-artifact@"))
+    .filter((candidate) => /(?:^|\/)\.[^/]/.test(String(candidate.with.path)) && candidate.with["include-hidden-files"] !== true)
+    .map((candidate) => candidate.with.name)
+  assert.deepEqual(hidden, [])
+
+  // A prerelease publishes to npm `next` only: nothing signs installers or
+  // builds a bottle for it, and the installer check runs in a rehearsal too.
+  assert.equal(
+    release.jobs["installer-publish"].if,
+    `(github.event_name != 'workflow_dispatch' || !inputs.dryRun) && !${suffixed}`
+  )
+  assert.equal(
+    release.jobs["homebrew-bottle"].if,
+    `inputs.sourceRef == '' && (github.event_name != 'workflow_dispatch' || !inputs.dryRun) && !${suffixed}`
+  )
+  assert.equal(release.jobs["installer-archive"].if, undefined)
+  assert.equal(
+    release.jobs["installer-archive"].steps[0].with.ref,
+    "${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}"
+  )
 })
 
 test("release builds the checked public graph and pins npm before smoke", () => {
