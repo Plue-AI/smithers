@@ -106,3 +106,14 @@ the reference Mac before accepting the six fault receipts. The host flow drain
 and dependency barriers must be composed before these stages can succeed.
 Linux skips all six faults explicitly. Recorder logic has a separate portable
 check: `node --test scripts/release/host-maintenance-evidence.test.mjs`.
+
+C-REL-06's remaining command checks have explicit stages. Run
+`refuse-incomplete` and `refuse-hash` with a complete backup as the third argv;
+they clone it into the private evidence directory and damage only that copy,
+assert the literal installed-command refusal and compare independent live
+digests afterward. Run `refuse-space` after the owner prepares the disposable
+low-space volume; it checks the actual 40 GiB floor and database size before
+calling backup. It never fills a volume itself. After restoring normal free
+space, `retention` takes four backups and verifies that exactly the newest three
+remain. These stages require the composed maintenance providers and have not
+been qualified on Linux.
