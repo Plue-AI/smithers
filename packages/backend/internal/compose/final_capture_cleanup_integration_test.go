@@ -40,8 +40,12 @@ func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runt
 	require.NoError(t, activityTx.Commit(ctx))
 	observed, err := runtime.InspectWorkspace(ctx, id)
 	require.NoError(t, err)
+	// Older attempts must remain readable even after the current machine closes.
+	const attempts = `[{"attempt":1,"run_id":"cleanup-attempt-1","revision":"1111111111111111111111111111111111111111","items":[{"kind":"check","name":"unit","state":"failed","evidence":"retry preserves the failure"}]},{"attempt":2,"run_id":"cleanup-attempt-2","revision":"2222222222222222222222222222222222222222","items":[{"kind":"check","name":"integration","state":"passed","evidence":"literal passing receipt"}]}]`
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',attempt=3 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
 	settled := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339Nano)
-	checks := fmt.Sprintf(`{"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, head, settled)
+	checks := fmt.Sprintf(`{"attempts":%s,"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, attempts, head, settled)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed',checks=$2 WHERE id=$1`, item.ID, []byte(checks))
 	require.NoError(t, err)
 	assertRetained := func() {
@@ -122,7 +126,7 @@ func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runt
 			err := pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, id).Scan(&status)
 			return err == nil && status == "suspended"
 		}, 5*time.Second, 20*time.Millisecond)
-		checks = fmt.Sprintf(`{"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, head, time.Now().Add(-24*time.Hour+time.Minute).UTC().Format(time.RFC3339Nano))
+		checks = fmt.Sprintf(`{"attempts":%s,"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, attempts, head, time.Now().Add(-24*time.Hour+time.Minute).UTC().Format(time.RFC3339Nano))
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed',checks=$2 WHERE id=$1`, item.ID, []byte(checks))
 		require.NoError(t, err)
 		time.Sleep(120 * time.Millisecond)
@@ -130,7 +134,7 @@ func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runt
 		// A mismatched ref remains ineligible even with a valid retained receipt.
 		out, err := exec.Command("/usr/bin/git", "--git-dir", hostGit, "update-ref", "refs/smithers/branches/"+id+"/head", base).CombinedOutput()
 		require.NoError(t, err, string(out))
-		checks = fmt.Sprintf(`{"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, head, settled)
+		checks = fmt.Sprintf(`{"attempts":%s,"completion":{"commit":%q,"since":%q,"outcome":"closed"}}`, attempts, head, settled)
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, []byte(checks))
 		require.NoError(t, err)
 		time.Sleep(120 * time.Millisecond)
@@ -181,6 +185,14 @@ func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runt
 		}
 	}
 	require.True(t, retainedActivity, "closed branch activity stays readable after disk removal")
+	var todo struct {
+		Evidence json.RawMessage `json:"evidence"`
+	}
+	require.NoError(t, json.Unmarshal(read(fmt.Sprintf("/api/todos/%d", item.Number.Int64), 200), &todo))
+	require.JSONEq(t, attempts, string(todo.Evidence), "closed TODO retains both attempts and their literal evidence")
+	var storedAttempts json.RawMessage
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'attempts' FROM mythical_items WHERE id=$1`, item.ID).Scan(&storedAttempts))
+	require.JSONEq(t, attempts, string(storedAttempts))
 	var kept int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM burst_files WHERE event_id=$1 AND path='retained.txt' AND after_blob='2222222222222222222222222222222222222222'`, activity.EventID).Scan(&kept))
 	require.Equal(t, 1, kept)
