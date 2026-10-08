@@ -15,7 +15,10 @@ guest thaw or outbox drain.
 The committed TODO `rebase_pending` now carries `onto_revision` (the stored
 actual SHA) alongside its existing `onto` display label. The composed HTTP
 admission test checks that binding against the independently created main
-commit. This completes the pending-target seam; it is not a guest hold receipt.
+commit. This completes the pending-target seam. Main also contains the retained occupied
+rebase path, public receipt attribution and automatic rebase coverage from
+T-STK-08; pending-target/activity availability is no longer a dependency blocker.
+It is not reference-host freeze or timing evidence.
 
 The installed guest now writes `/var/lib/smithers-machined/rebase.jsonl` as
 UID 19998 into daemon-owned state. It records `held` before freeze/capture,
@@ -73,3 +76,13 @@ checked before pushes. No Mac executes scratch repository commands.
 These observations are diagnostic evidence, not a passing C-PERF-06 receipt.
 Marker attribution and real lifecycle/root qualification remain required. No machine qualification flag is added and the
 browser C-PERF-06 fixme remains until its real guest path is proved.
+
+The artifact verdict and live adapter now share `lib/rebase-receipts.mjs`.
+The adapter retains the originally armed window alongside held, thawed and drain
+observations. Recomputing a verdict checks the held barrier against the thaw,
+requires a successful rewrite and a marker observed during the hold, and binds
+the ACK to that armed window and the drain to the complete capture identity.
+Removing or changing these records fails the budget while preserving raw samples.
+The composed native-daemon HTTP test also runs this verifier on actual guest and
+owner ACK records and rejects changed branch, window, boot, sequence and thaw
+facts. It supplies no document marker or reference-host qualification.

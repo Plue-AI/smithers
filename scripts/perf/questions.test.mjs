@@ -61,6 +61,15 @@ test('browser fixtures prove server identity and conversation access before muta
 import { measure as rebaseHold } from './rebase-hold.mjs'
 
 // Test-only dependency contracts. They never produce artifacts or real passes.
+function retainedHold(hold, onto) {
+ const branch = '11111111-1111-4111-8111-111111111111'
+ const evidence = { ...hold, branch, onto, phase: 'thawed', failed: false }
+ evidence.heldObservation = { id: hold.id, branch, onto, phase: 'held', clock: hold.clock, start: hold.start }
+ evidence.armedWindow = { id: hold.acknowledgementReceipt.id, boot: 'b'.repeat(32), branch, state: 'armed' }
+ evidence.acknowledgementReceipt = { ...hold.acknowledgementReceipt, branch }
+ evidence.drainObservation = { ...hold, branch, onto, phase: 'drained', outboxDepth: 0 }
+ return evidence
+}
 function rebaseBoundary(overrides = {}) {
  let main, marker, withheld, pending = false
  return {
@@ -71,8 +80,8 @@ function rebaseBoundary(overrides = {}) {
   async pressRebaseNow() { assert.equal(pending, true); pending = false },
   async waitWriteHold() { assert.equal(pending, false) },
   async typeMarker(value) { marker = value },
-  async waitRebased(onto) { assert.equal(onto, main); return { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice' } } },
-  async guestHold(id) { return { capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 } },
+  async waitRebased(onto) { assert.equal(onto, main); return { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice', typedDuringHold: true } } },
+  async guestHold(id) { return retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 }, id) },
   async waitOutboxDrained(id) { assert.equal(id, main); assert.equal(withheld, true) },
   ...overrides
  }
@@ -89,7 +98,7 @@ test('rebase cannot drop a lost edit, automatic rebase, missing guest receipt or
  for (const overrides of [
   { waitRebasePending: async onto => ({ onto, state: 'pending', present: true, rebased: true }) },
   { waitRebased: async onto => ({ id: onto, onto, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto }], marker: { text: 'lost', member: 'Alice' } }) },
-  { guestHold: async id => ({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010 }) },
+  { guestHold: async id => retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010 }, id) },
   { guestHold: async id => ({ id, clock: 'host monotonic', start: 10, end: 110 }) },
   { guestHold: async id => ({ id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: true, localSnapshotQueued: true, withheldMs: 10000 }) }
  ]) await assert.rejects(rebaseHold(rebaseBoundary(overrides)))
@@ -174,7 +183,7 @@ test('rebase threshold and cleanup failures retain all completed raw observation
   return true
  })
  await assert.rejects(rebaseHold(rebaseBoundary({
-  guestHold: async id => ({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 })
+  guestHold: async id => retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, id)
  })), error => {
   assert.match(error.message, /each acknowledgement cohort/)
   assert.equal(error.samples.length, 200)

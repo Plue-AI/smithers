@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -501,6 +503,34 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 		require.Len(t, capture["event"], 32)
 		require.Greater(t, capture["sequence"].(float64), float64(0))
 		require.GreaterOrEqual(t, rows[1]["end"].(float64), rows[0]["start"].(float64))
+		// Revalidate real guest and owner HTTP receipts through the same module
+		// used by the live driver and artifact verdict. No marker is invented:
+		// live-document activation still requires the owner's review.
+		module, err := filepath.Abs("../../../../scripts/perf/lib/rebase-receipts.mjs")
+		require.NoError(t, err)
+		source := `import {verifyHeldObservation,verifyCaptureDelay,verifyDrain} from ` + strconv.Quote((&url.URL{Scheme: "file", Path: module}).String()) + `;
+        const {rows,ack,branch}=JSON.parse(process.argv[1]);
+        const [held,hold,drained]=rows.map(row=>({...row,branch}));
+        const armed={id:ack.id,boot:ack.boot,branch,state:"armed"};
+        verifyHeldObservation(held,{branch,onto:hold.onto},hold);
+        verifyCaptureDelay(ack,hold,armed); verifyDrain(drained,hold);
+        for(const change of [{branch:"foreign"},{id:"foreign"},{boot:"0".repeat(32)},{sequence:ack.sequence+1}]){
+          let refused=false;try{verifyCaptureDelay({...ack,...change},hold,armed)}catch{refused=true}
+          if(!refused)throw new Error("altered host evidence accepted");
+        }
+        for(const change of [{id:"foreign"},{onto:"0".repeat(40)},{start:hold.start+1},{clock:"browser monotonic"}]){
+          let refused=false;try{verifyHeldObservation(held,{branch,onto:hold.onto},{...hold,...change})}catch{refused=true}
+          if(!refused)throw new Error("altered guest evidence accepted");
+        }
+        for(const change of [{branch:"foreign"},{outboxDepth:1},{capture:{...drained.capture,sequence:ack.sequence+1}}]){
+          let refused=false;try{verifyDrain({...drained,...change},hold)}catch{refused=true}
+          if(!refused)throw new Error("altered drain evidence accepted");
+        }`
+		evidence, err := json.Marshal(map[string]any{"rows": rows, "ack": delay, "branch": f.row.ID})
+		require.NoError(t, err)
+		output, err := exec.CommandContext(ctx, "node", "--input-type=module", "-e", source, string(evidence)).CombinedOutput()
+		require.NoError(t, err, "%s", output)
+
 	}
 	var eventRaw []byte
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&eventRaw))

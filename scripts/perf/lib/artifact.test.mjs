@@ -208,12 +208,21 @@ test('failed first-token workloads retain partial samples and cross-checks in ch
 }))
 
 
+function retainedHold(hold, onto) {
+ const branch = '11111111-1111-4111-8111-111111111111'
+ const evidence = { ...hold, branch, onto, phase: 'thawed', failed: false }
+ evidence.heldObservation = { id: hold.id, branch, onto, phase: 'held', clock: hold.clock, start: hold.start }
+ evidence.armedWindow = { id: hold.acknowledgementReceipt.id, boot: 'b'.repeat(32), branch, state: 'armed' }
+ evidence.acknowledgementReceipt = { ...hold.acknowledgementReceipt, branch }
+ evidence.drainObservation = { ...hold, capture: { ...hold.capture }, branch, onto, phase: 'drained', outboxDepth: 0 }
+ return evidence
+}
 const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => {
   const main = (i + 1).toString(16).padStart(40, '0'), marker = `marker-${i}`
   return { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:' + 'b'.repeat(32), failed: false,
     pending: { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' },
-    receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice' } },
-    hold: { capture: { event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id: main, state: 'acknowledged', event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id: main, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, outboxDrained: i >= 100 }
+    receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice', typedDuringHold: true } },
+    hold: retainedHold({ capture: { event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id: main, state: 'acknowledged', event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id: main, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, main), outboxDrained: i >= 100 }
 })
 const rebaseProvider = value => ({ available() {}, fields: { writeHold: 'holdMs' }, measure: async () => ({ ...passing(), samples: value }) })
 test('unified rebase verdict requires both acknowledgement cohorts independently', async () => {
@@ -291,11 +300,24 @@ test('unified wake verdict verifies host intervals and unique requests independe
  test('unified rebase verdict refuses fabricated durations and lost or replayed evidence', async () => {
   for (const corrupt of [
     s => { s.holdMs = 0 },
+    s => { delete s.hold.heldObservation },
+    s => { s.hold.heldObservation.start++ },
+    s => { s.hold.heldObservation.onto = 'c'.repeat(40) },
+    s => { s.hold.failed = true },
+    s => { s.hold.acknowledgementReceipt.branch = 'foreign' },
+    s => { s.hold.acknowledgementReceipt.id = 'foreign' },
+    s => { delete s.hold.armedWindow },
+    s => { s.hold.armedWindow.state = 'cancelled' },
+    s => { delete s.hold.drainObservation },
+    s => { s.hold.drainObservation.capture.sequence++ },
+    s => { s.hold.drainObservation.outboxDepth = 1 },
     s => { delete s.hold },
     s => { s.hold.clock = 'guest monotonic:other' },
     s => { s.hold.id = 'other' },
     s => { s.pending.rebased = true },
     s => { s.receipt.marker.member = 'Mallory' },
+    s => { delete s.receipt.marker.typedDuringHold },
+    s => { s.receipt.marker.typedDuringHold = false },
     s => { s.receipt.activity = [] },
     s => { s.receipt.approvalsCleared = false },
     s => { s.hold.acknowledgedBeforeThaw = true },

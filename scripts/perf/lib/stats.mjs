@@ -1,3 +1,5 @@
+import { verifyHeldObservation, verifyCaptureDelay, verifyDrain } from './rebase-receipts.mjs'
+
 /** Installed-product samples use one named clock; library counter gates cannot serve. */
 export function summarize(samples, fields, minimum) {
   if (!Number.isInteger(minimum) || minimum < 100) throw new Error('minimum must be at least 100')
@@ -24,16 +26,16 @@ export function verifyRebase(sample, { requireDrain = true } = {}) {
   if (!receipt || typeof receipt.id !== 'string' || !receipt.id || receipt.onto !== main) throw new Error('rebase receipt identity missing or mismatched')
   if (!hold || hold.id !== receipt.id || typeof hold.clock !== 'string' || !hold.clock.startsWith('guest monotonic:') || hold.clock.length <= 'guest monotonic:'.length || hold.clock !== sample.clock ||
       !Number.isFinite(hold.start) || !Number.isFinite(hold.end) || hold.start < 0 || hold.end < hold.start || sample.holdMs !== hold.end - hold.start) throw new Error('rebase duration differs from guest hold observation')
+  verifyHeldObservation(hold.heldObservation, { branch: hold.branch, onto: main }, hold)
+  if (hold.failed !== false) throw new Error('guest rewrite did not succeed')
   if (receipt.activity?.length !== 1 || receipt.activity[0].kind !== 'rebase' || receipt.activity[0].onto !== main) throw new Error('requires one attributed rebase activity')
   if (typeof receipt.headChanged !== 'boolean' || receipt.approvalsCleared !== receipt.headChanged) throw new Error('rebase approval clearing differs from head change')
-  if (typeof marker !== 'string' || !marker || receipt.marker?.text !== marker || receipt.marker.member !== pending.member) throw new Error('held edit missing or attributed to another member')
+  if (typeof marker !== 'string' || !marker || receipt.marker?.text !== marker || receipt.marker.member !== pending.member || receipt.marker.typedDuringHold !== true) throw new Error('held edit missing or attributed to another member')
   if (acknowledgementsWithheld && (hold.acknowledgedBeforeThaw !== false || hold.localSnapshotQueued !== true || requireDrain && (!Number.isFinite(hold.withheldMs) || hold.withheldMs < 10000 || sample.outboxDrained !== true))) throw new Error('delayed rebase capture or outbox drain evidence missing')
   if (acknowledgementsWithheld && requireDrain) {
-    const ack = hold.acknowledgementReceipt, capture = hold.capture
-    if (!ack || !capture || ack.state !== 'acknowledged' || typeof ack.id !== 'string' || !ack.id ||
-        !/^[a-f0-9]{32}$/.test(capture.event ?? '') || !/^[a-f0-9]{32}$/.test(capture.boot ?? '') ||
-        !Number.isSafeInteger(capture.sequence) || capture.sequence < 1 || ack.event !== capture.event || ack.boot !== capture.boot || ack.sequence !== capture.sequence ||
-        hold.clock !== `guest monotonic:${capture.boot}` || ack.withheld_ms !== hold.withheldMs || hold.withheldMs < 10000) throw new Error('authenticated capture acknowledgement receipt missing or mismatched')
+    verifyCaptureDelay(hold.acknowledgementReceipt, hold, hold.armedWindow)
+    verifyDrain(hold.drainObservation, hold)
+    if (hold.acknowledgementReceipt.withheld_ms !== hold.withheldMs) throw new Error('acknowledgement duration differs from retained receipt')
   }
   return hold.end - hold.start
 }
