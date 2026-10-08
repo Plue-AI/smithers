@@ -46,6 +46,13 @@ func TestBranchItemProjection(t *testing.T) {
 	projected, err := branchItemProjection(raw, todos)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"id":"b2","name":"smithers/renamed","machine":{"state":"asleep"},"item":{"n":2,"title":"Retry webhooks","state":"working","place":3,"step":"Code"},"rebase":{"state":"pending","onto":"main"}}`, string(projected))
+	todos[1]["waits"] = []map[string]any{{"kind": "question"}, {"kind": "conflict", "paths": []string{"retry.ts"}, "conflict_change": "retained-change", "onto_revision": "retained-onto"}}
+	projected, err = branchItemProjection(projected, todos)
+	require.NoError(t, err)
+	var conflict map[string]any
+	require.NoError(t, json.Unmarshal(projected, &conflict))
+	require.Equal(t, map[string]any{"state": "conflict", "onto": "main", "paths": []any{"retry.ts"}, "conflict_change": "retained-change", "onto_revision": "retained-onto"}, conflict["rebase"])
+	delete(todos[1], "waits")
 	todos[1]["state"] = "merged"
 	delete(todos[1], "place")
 	delete(todos[1], "rebase_pending")

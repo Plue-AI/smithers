@@ -565,14 +565,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
-		if runtime, ok := options.Workspace.(interface {
-			BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error))
-		}); ok {
-			runtime.BindMachinedItem(func(ctx context.Context, branch string) (machined.ItemBinding, error) {
-				return machineItemBinding(ctx, pool, branch)
-			})
-			defer runtime.BindMachinedItem(nil)
-		}
 		roster := &machineRoster{pool: pool, client: options.Machined, branches: options.Machined.ConnectedBranches}
 		if runtime, ok := options.Workspace.(interface {
 			BindMemberRoster(microsandbox.MemberRoster)
@@ -611,6 +603,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
+		if runtime, ok := options.Workspace.(interface {
+			BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error))
+		}); ok {
+			runtime.BindMachinedItem(func(ctx context.Context, branch string) (machined.ItemBinding, error) {
+				return machineItemBinding(ctx, pool, branch, repoHostClient)
+			})
+			defer runtime.BindMachinedItem(nil)
+		}
 		host := newMachineHost(pool, repoHostClient)
 		stopObjects := bindMachineObjects(ctx, options.Machined, pool, repoHostClient)
 		defer stopObjects()
@@ -2141,6 +2141,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}); ok {
 			runtime.BindMachinedHost(machineBranchHead(pool, repoHostClient))
 			defer runtime.BindMachinedHost(nil)
+		}
+		if runtime, ok := options.Workspace.(interface {
+			BindMachinedConflict(func(context.Context, string) (*machined.RetainedConflict, error))
+		}); ok {
+			runtime.BindMachinedConflict(func(ctx context.Context, branch string) (*machined.RetainedConflict, error) {
+				return machineRetainedConflict(ctx, pool, branch)
+			})
+			defer runtime.BindMachinedConflict(nil)
 		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()

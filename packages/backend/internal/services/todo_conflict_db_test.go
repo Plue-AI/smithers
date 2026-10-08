@@ -92,7 +92,7 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 		require.Empty(t, launcher.sent())
 	}
 	refused("conflict_validation_unavailable")
-	fake := &conflictValidationFake{paths: []string{"a.txt"}}
+	fake := &preparingConflictValidationFake{conflictValidationFake: conflictValidationFake{paths: []string{"a.txt"}}}
 	o.service.SetConflictValidator(fake)
 	refused("still_conflicted")
 	require.Equal(t, ConflictValidation{Workspace: item.WorkspaceID, Change: "change", Onto: onto, Run: item.RequestRunID, Digest: item.FlowDigest.String}, fake.calls[0])
@@ -104,8 +104,10 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 	item, err = o.service.queries().SaveMythicalItem(session, item)
 	require.NoError(t, err)
 	before := len(fake.calls)
+	prepared := len(fake.prepared)
 	refused("stale_conflict")
 	require.Len(t, fake.calls, before)
+	require.Len(t, fake.prepared, prepared, "a stale target must not reconnect or reconcile the daemon")
 	checks.Rebase.Onto = onto
 	item.Checks = checks.encode()
 	item, err = o.service.queries().SaveMythicalItem(session, item)
@@ -132,4 +134,16 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 	facts := o.facts(item, "todo.answered")
 	require.Len(t, facts, 1)
 	require.Equal(t, "conflict-1", facts[0]["wait"])
+}
+
+// Native startup is mocked only for transaction ordering; the composed
+// rehearsal independently proves real restart/reconciliation and Done.
+type preparingConflictValidationFake struct {
+	conflictValidationFake
+	prepared []ConflictValidation
+}
+
+func (f *preparingConflictValidationFake) PrepareConflictValidation(_ context.Context, in ConflictValidation) error {
+	f.prepared = append(f.prepared, in)
+	return nil
 }

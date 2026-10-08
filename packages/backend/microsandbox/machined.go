@@ -25,6 +25,13 @@ func (r *Runtime) BindMachinedHost(head func(context.Context, string) (string, e
 	r.machinedHead = head
 }
 
+// BindMachinedConflict binds only the composed stack's retained native conflict.
+func (r *Runtime) BindMachinedConflict(resolve func(context.Context, string) (*machined.RetainedConflict, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.machinedConflict = resolve
+}
+
 // BindMachineAgentAdmission keeps the actual host owner authorization locked
 // across native spawn and run registration. It is never supplied by a guest.
 func (r *Runtime) BindMachineAgentAdmission(admit func(context.Context, string, string, func(context.Context) error) error) {
@@ -69,6 +76,7 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	r.mu.Lock()
 	headReader := r.machinedHead
 	itemReader := r.machinedItem
+	conflictReader := r.machinedConflict
 	r.mu.Unlock()
 	if r.config.Bundle == nil || headReader == nil || itemReader == nil || !r.machined.EventConsumerReady() {
 		return fmt.Errorf("%w: installed machine host providers unavailable", ErrUnavailable)
@@ -191,7 +199,15 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 			}
 		}
 	}()
-	if err = r.machined.AdmitReady(ctx, id, head, nil); err != nil {
+	var retained *machined.RetainedConflict
+	if conflictReader != nil {
+		retained, err = conflictReader(ctx, id)
+		if err != nil {
+			_ = link.Close()
+			return err
+		}
+	}
+	if err = r.machined.AdmitReady(ctx, id, head, nil, retained); err != nil {
 		_ = link.Close()
 		return err
 	}

@@ -197,6 +197,8 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		}
 		if wait.Kind == "conflict" {
 			projected["paths"] = wait.Paths
+			projected["conflict_change"] = wait.ConflictChange
+			projected["onto_revision"] = wait.OntoRevision
 			// Done is the conflict's todo.answer. Offer it only when native
 			// validation is composed; without it the door refuses with 503.
 			if wait.AnsweredBy == "" && wait.Signal != nil && s.conflictValidator != nil && s.host != nil {

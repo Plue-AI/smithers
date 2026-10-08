@@ -289,6 +289,33 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 		return err
 	}
 	by := todoActor(ctx, person)
+	if prepare, ok := s.conflictValidator.(interface {
+		PrepareConflictValidation(context.Context, ConflictValidation) error
+	}); ok && input.Answer == "done" {
+		if err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+			return guardInstallTodoWrite(ctx, tx, repositoryID, userID)
+		}); err != nil {
+			return err
+		}
+		if err := AuthorizeTodoBranch(ctx, s.queries(), repositoryID, number); err != nil {
+			return err
+		}
+		item, err := s.queries().GetMythicalItemByNumber(ctx, repositoryID, number)
+		if err != nil {
+			return err
+		}
+		for _, wait := range todoOpenWaits(item) {
+			if wait.ID == input.Wait && wait.Kind == "conflict" {
+				if err := s.validateConflictDoneTarget(ctx, s.queries(), item, wait, input.Answer); err != nil {
+					return err
+				}
+				if err := prepare.PrepareConflictValidation(ctx, ConflictValidation{Workspace: item.WorkspaceID, Change: wait.ConflictChange, Onto: wait.OntoRevision, Run: item.RequestRunID, Digest: item.FlowDigest.String}); err != nil {
+					return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+				}
+				break
+			}
+		}
+	}
 	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
 			return err

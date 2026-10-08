@@ -407,6 +407,20 @@ impl Repository {
     }
     /// Bind a resolution to the retained logical change and its target before
     /// inspecting disk. A checkout of another change is never a resolution.
+    pub fn retained_conflict_paths(
+        &self,
+        retained: Oid,
+        onto: Oid,
+        item: Option<&str>,
+    ) -> io::Result<Vec<String>> {
+        if let Some(item) = item {
+            let (_, repo) = self.load()?;
+            if Self::commit(&repo, retained)?.change_id().reverse_hex() != item {
+                return Err(invalid("retained conflict belongs to another item"));
+            }
+        }
+        self.resolution_paths(retained, onto)
+    }
     pub fn resolution_paths(&self, retained: Oid, onto: Oid) -> io::Result<Vec<String>> {
         let (workspace, repo) = self.load()?;
         let expected = Self::commit(&repo, retained)?;

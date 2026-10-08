@@ -166,8 +166,8 @@ func (st *mythicalItemStep) continueNativeRebase(ctx context.Context, item db.My
 		next.Checks = checks.encode()
 		next.Integration, _ = json.Marshal(map[string]any{"conflict": map[string]any{"head": result.Head, "onto": pending.Onto, "paths": result.Paths, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
 		next.Reason = "rebase_conflict_pending"
-		// Conflict continuation belongs to the existing conflict path.
-		checks.Rebase.Native = nil
+		// Retain the authenticated native receipt across restart. The conflict
+		// continuation owns this state until it supplies a resolved capture.
 		next.Checks = checks.encode()
 		return &next, false, nil
 	}

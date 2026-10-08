@@ -144,6 +144,7 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automa
 		f.wake()
 		conflicted := f.item(second.Number.Int64)
 		require.Equal(t, "rebase_conflict_pending", conflicted.Reason)
+		require.Equal(t, executor.result, *mythicalChecksOf(conflicted).Rebase.Native, "restart retains the authenticated native conflict receipt")
 		require.Equal(t, held.CandidateHead, conflicted.CandidateHead)
 		var integration struct {
 			Conflict struct {

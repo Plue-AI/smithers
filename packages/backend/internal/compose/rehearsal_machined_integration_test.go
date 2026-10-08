@@ -47,6 +47,7 @@ type rehearsalRestart struct {
 	Attach func(context.Context, string) error
 	// HostHead comes from the production machineBranchHead provider.
 	HostHead string
+	Conflict *machined.RetainedConflict
 	Exited   chan error
 }
 
@@ -129,6 +130,11 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	var stopOnce sync.Once
 	stop := func() { stopOnce.Do(func() { _ = command.Process.Kill(); <-done; _ = log.Close() }) }
 	t.Cleanup(stop)
+	defer func() {
+		if result != nil {
+			stop()
+		}
+	}()
 	for _, register := range retirement {
 		register(stop)
 	}
@@ -199,6 +205,9 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	}
 	// The daemon and host already share this exact repository. No object transfer
 	// fixture or synthetic readiness receipt substitutes for native reconciliation.
+	if restart != nil && restart.Conflict != nil {
+		return registry.AdmitReady(ctx, branch, hex.EncodeToString(headBytes), nil, restart.Conflict)
+	}
 	reply, err := link.Request(ctx, branch, wire.WakeReconcile, wire.Field(1, headBytes))
 	if err != nil {
 		return fmt.Errorf("wake reconcile request: %w", err)

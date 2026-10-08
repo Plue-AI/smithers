@@ -403,7 +403,8 @@ func (l *Link) Request(ctx context.Context, branch string, method wire.Method, a
 	if err := ctx.Err(); err != nil {
 		return wire.Frame{}, err
 	}
-	if method == wire.WakeReconcile || method == wire.SetRoster || method == wire.Status {
+	if method == wire.WakeReconcile || method == wire.SetRoster || method == wire.Status ||
+		method == wire.InspectConflict && ctx.Value(retainedAdmissionKey{}) == branch {
 		l.registry.mu.Lock()
 		valid := branch == l.boot.branch && l.current()
 		l.registry.mu.Unlock()

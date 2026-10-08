@@ -146,7 +146,7 @@ func (s *MythicalService) SetConflictValidator(provider ConflictValidator) {
 	s.conflictValidator = provider
 }
 
-func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Queries, item db.MythicalItem, wait TodoWait, answer string) error {
+func (s *MythicalService) validateConflictDoneTarget(ctx context.Context, q *db.Queries, item db.MythicalItem, wait TodoWait, answer string) error {
 	if answer != "done" {
 		return &TodoControlError{400, "invalid_answer", "user", "Press Done after resolving the conflict"}
 	}
@@ -201,9 +201,19 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Querie
 	if step.prefix(item) != wait.OntoRevision {
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
+	return nil
+}
+
+func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Queries, item db.MythicalItem, wait TodoWait, answer string) error {
+	if err := s.validateConflictDoneTarget(ctx, q, item, wait, answer); err != nil {
+		return err
+	}
 	paths, err := s.conflictValidator.UnresolvedPaths(ctx, ConflictValidation{Workspace: item.WorkspaceID, Change: wait.ConflictChange,
 		Onto: wait.OntoRevision, Run: item.RequestRunID, Digest: item.FlowDigest.String})
 	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("mythical.conflict_validation_failed", "workspace_id", item.WorkspaceID, "error", err)
+		}
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	if len(paths) != 0 {

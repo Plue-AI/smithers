@@ -582,6 +582,18 @@ func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.Raw
 		if pending, ok := todo["rebase_pending"].(map[string]any); ok {
 			model["rebase"] = map[string]any{"state": "pending", "onto": pending["onto"]}
 		}
+		if waits, ok := todo["waits"].([]map[string]any); ok {
+			for _, wait := range waits {
+				if wait["kind"] == "conflict" {
+					onto := "main"
+					if pending, ok := todo["rebase_pending"].(map[string]any); ok {
+						onto, _ = pending["onto"].(string)
+					}
+					model["rebase"] = map[string]any{"state": "conflict", "onto": onto, "paths": wait["paths"], "conflict_change": wait["conflict_change"], "onto_revision": wait["onto_revision"]}
+					break
+				}
+			}
+		}
 		break
 	}
 	return json.Marshal(model)

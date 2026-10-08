@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -16,6 +17,34 @@ type WorkspaceConflictValidator struct {
 	Inspect    func(context.Context, string, string, string) ([]string, error)
 }
 
+// PrepareConflictValidation reconnects an already-running authenticated daemon
+// before the answer transaction locks the stack. Wake reconciliation publishes
+// capture receipts through that same stack, so it cannot start under its lock.
+func (v *WorkspaceConflictValidator) PrepareConflictValidation(ctx context.Context, in ConflictValidation) error {
+	s := v.Workspaces
+	item, _, err := v.conflictBinding(ctx, in)
+	if err != nil {
+		return err
+	}
+	actor := middleware.UserFromContext(ctx)
+	if actor == nil {
+		return errors.New("conflict authority unavailable")
+	}
+	row, err := s.loadWorkspaceWithAccess(ctx, in.Workspace, item.RepositoryID, actor.ID, WorkspaceAccessRead)
+	if err != nil {
+		return err
+	}
+	if row.Status != "running" {
+		return nil
+	}
+	if runtime, ok := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); ok {
+		return runtime.EnsureMachined(ctx, row.ID)
+	}
+	return nil
+}
+
 func (v *WorkspaceConflictValidator) UnresolvedPaths(ctx context.Context, in ConflictValidation) ([]string, error) {
 	return v.unresolvedPaths(ctx, in, false)
 }
@@ -25,23 +54,33 @@ func (v *WorkspaceConflictValidator) UnresolvedPaths(ctx context.Context, in Con
 func (v *WorkspaceConflictValidator) UnresolvedPathsForStack(ctx context.Context, in ConflictValidation) ([]string, error) {
 	return v.unresolvedPaths(ctx, in, true)
 }
-func (v *WorkspaceConflictValidator) unresolvedPaths(ctx context.Context, in ConflictValidation, stackRead bool) ([]string, error) {
-	unavailable := errors.New("conflict working copy unavailable")
+func (v *WorkspaceConflictValidator) conflictBinding(ctx context.Context, in ConflictValidation) (db.MythicalItem, db.Workspace, error) {
 	s := v.Workspaces
+	unavailable := errors.New("conflict working copy unavailable")
 	if s == nil || s.installQueries == nil || in.Workspace == "" || in.Change == "" || in.Onto == "" || in.Run == "" || in.Digest == "" {
-		return nil, unavailable
+		return db.MythicalItem{}, db.Workspace{}, unavailable
 	}
 	lane, err := s.installQueries.GetMythicalLane(ctx, in.Workspace)
 	if err != nil || lane.RetiredAt.Valid {
-		return nil, unavailable
+		return db.MythicalItem{}, db.Workspace{}, unavailable
 	}
 	item, err := s.installQueries.GetMythicalItem(ctx, lane.ItemID)
 	if err != nil || item.RepositoryID != lane.RepositoryID || item.WorkspaceID != in.Workspace || item.RequestRunID != in.Run || !item.FlowDigest.Valid || item.FlowDigest.String != in.Digest {
-		return nil, unavailable
+		return db.MythicalItem{}, db.Workspace{}, unavailable
 	}
 	row, err := s.q.GetWorkspace(ctx, in.Workspace)
 	if err != nil || row.RepositoryID != item.RepositoryID {
-		return nil, unavailable
+		return db.MythicalItem{}, db.Workspace{}, unavailable
+	}
+	return item, row, nil
+}
+
+func (v *WorkspaceConflictValidator) unresolvedPaths(ctx context.Context, in ConflictValidation, stackRead bool) ([]string, error) {
+	unavailable := errors.New("conflict working copy unavailable")
+	s := v.Workspaces
+	item, row, err := v.conflictBinding(ctx, in)
+	if err != nil {
+		return nil, err
 	}
 	// Reuse branch access and retained-ref verification from ordinary file reads.
 	actor := middleware.UserFromContext(ctx)

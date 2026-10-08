@@ -446,7 +446,28 @@ impl Core for NativeCore {
                     // Drain observed movement before validating the retained identity.
                     let watcher = cx.hooks.watcher.clone();
                     watcher.drain(cx)?;
-                    self.native.resolution_paths(retained, onto).map_err(hook)
+                    if !cx.maintenance_ready {
+                        let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
+                        let acked = self
+                            .git
+                            .acknowledged()
+                            .map_err(hook)?
+                            .ok_or_else(hooks::Error::unsupported)?;
+                        if item.number > 0
+                            && !self
+                                .native
+                                .captured_item_head(acked, &item.change)
+                                .map_err(hook)?
+                        {
+                            return Err(hooks::Error::unsupported());
+                        }
+                        let change = (item.number > 0).then_some(item.change.as_str());
+                        self.native
+                            .retained_conflict_paths(retained, onto, change)
+                            .map_err(hook)
+                    } else {
+                        self.native.resolution_paths(retained, onto).map_err(hook)
+                    }
                 })?;
                 Ok(structure_bytes(&[field(
                     1,
@@ -2461,6 +2482,76 @@ pub(crate) mod tests {
             "retry must not create another revision"
         );
     }
+    #[test]
+    fn retained_rebase_conflict_inspection_is_bound_and_survives_restart() {
+        let (dir, mut core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("conflict"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item conflicting edit");
+        fs::write(root.join("conflict"), b"item version\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        crate::native::tests::child(&core.native, base, "main conflicting edit");
+        fs::write(root.join("conflict"), b"main version\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        core.git.clone().acknowledge_and_sync(item).unwrap();
+        let retained = rebased_head(&rebase(&core, onto));
+        let mut restarted = reopened_core(&core, dir.path());
+        let bytes = fs::read(root.join("conflict")).unwrap();
+        for args in [vec![field(1, retained)], vec![field(2, onto)]] {
+            assert!(conn::fields("args18", &structure_bytes(&args)).is_err());
+        }
+        for args in [
+            vec![field(1, base), field(2, onto)],
+            vec![field(1, retained), field(2, base)],
+            vec![field(1, item), field(2, onto)],
+        ] {
+            let response = call(restarted.clone(), 18, &args);
+            let fields = conn::fields("response", &response.payload[1..]).unwrap();
+            assert_eq!(fields[1].1[0], 255);
+            assert_eq!(restarted.native.current().unwrap().0, retained);
+            assert_eq!(fs::read(root.join("conflict")).unwrap(), bytes);
+        }
+        let args = [field(1, retained), field(2, onto)];
+        let response = call(restarted.clone(), 18, &args);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 18);
+        let fields = conn::fields("result18", &fields[1].1[1..]).unwrap();
+        assert!(fields[0].1.len() > 2);
+
+        assert_eq!(fs::read(root.join("conflict")).unwrap(), bytes);
+        let bound = restarted.item.clone();
+        Arc::get_mut(&mut restarted)
+            .unwrap()
+            .item
+            .as_mut()
+            .unwrap()
+            .change = crate::native::tests::change(&restarted.native, onto);
+        let response = call(restarted.clone(), 18, &args);
+        assert_eq!(
+            conn::fields("response", &response.payload[1..]).unwrap()[1].1[0],
+            255
+        );
+        Arc::get_mut(&mut restarted).unwrap().item = bound;
+        fs::write(root.join("conflict"), b"item version\nmain version\n").unwrap();
+        let response = call(restarted.clone(), 18, &args);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        let fields = conn::fields("result18", &fields[1].1[1..]).unwrap();
+        assert_eq!(fields[0].1, &[0, 0]);
+
+        assert!(
+            restarted
+                .native
+                .resolution_paths(retained, onto)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     #[test]
     fn rebase_rpc_retains_conflict_and_can_restore_exact_pre_rebase_change() {
         let (dir, core) = fixture();

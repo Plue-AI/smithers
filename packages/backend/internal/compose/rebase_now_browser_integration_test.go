@@ -23,6 +23,10 @@ func TestRebaseNowBrowserRehearsal(t *testing.T) {
 }
 
 func (r *rehearsal) pressRebaseInBrowser(n int64) error {
+	return r.runRebaseBrowser(n, "rebase-now", "journey-rebase-now")
+}
+
+func (r *rehearsal) runRebaseBrowser(n int64, spec, scenario string) error {
 	origin, err := url.Parse(r.origin)
 	if err != nil {
 		return err
@@ -41,12 +45,12 @@ func (r *rehearsal) pressRebaseInBrowser(n int64) error {
 	}
 	app := filepath.Join(r.root, "apps/app")
 	require.FileExists(r.t, filepath.Join(app, "dist/index.html"))
-	playwright := exec.CommandContext(r.t.Context(), filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/github-j10/rebase-now.spec.ts")
+	playwright := exec.CommandContext(r.t.Context(), filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/github-j10/"+spec+".spec.ts")
 	playwright.Dir = app
 	environment := slices.DeleteFunc(os.Environ(), func(variable string) bool {
 		return strings.HasPrefix(variable, "SMITHERS_REAL_") || strings.HasPrefix(variable, "SMITHERS_JOURNEY") || strings.HasPrefix(variable, "CI=")
 	})
-	playwright.Env = append(environment, "SMITHERS_REAL_BASE_URL="+r.origin, "SMITHERS_REAL_E2E_HOST=local", "SMITHERS_REAL_AUTH_KIND=owner-session", "SMITHERS_REAL_E2E_REVISION="+reviewSteerCommit(r.t, r.root), "SMITHERS_JOURNEY_COMPOSED_HOST="+host, "SMITHERS_REAL_TEST_GREP=journey-rebase-now", "SMITHERS_REAL_E2E_REPORT="+filepath.Join(r.evidence, "browser-results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(r.evidence, "browser-artifacts"))
+	playwright.Env = append(environment, "SMITHERS_REAL_BASE_URL="+r.origin, "SMITHERS_REAL_E2E_HOST=local", "SMITHERS_REAL_AUTH_KIND=owner-session", "SMITHERS_REAL_E2E_REVISION="+reviewSteerCommit(r.t, r.root), "SMITHERS_JOURNEY_COMPOSED_HOST="+host, "SMITHERS_REAL_TEST_GREP="+scenario, "SMITHERS_REAL_E2E_REPORT="+filepath.Join(r.evidence, "browser-results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(r.evidence, "browser-artifacts"))
 	playwright.Stdout, playwright.Stderr = os.Stdout, os.Stderr
 	return playwright.Run()
 }

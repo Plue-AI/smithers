@@ -253,7 +253,7 @@ impl Daemon {
                             .collect();
                         return Ok(Some(response(id, 1, conn::structure_bytes(&fields))));
                     }
-                    if !matches!(method, 5 | 16)
+                    if !matches!(method, 5 | 16 | 18)
                         && !(state.load(Ordering::Acquire) && roster.load(Ordering::Acquire))
                     {
                         return Ok(Some(refused(id, not_ready())));
@@ -268,14 +268,21 @@ impl Daemon {
                     if method == 16 && result.payload.get(11) == Some(&16) {
                         roster.store(true, Ordering::Release);
                     }
-                    if method == 5 {
+                    if method == 5 || (method == 18 && !state.load(Ordering::Acquire)) {
                         cx.maintenance_ready = false;
                         state.store(false, Ordering::Release);
                         let fields = conn::fields("response", &result.payload[1..])?;
                         let value = fields[1].1;
+                        if value[0] == 18 {
+                            // The authenticated host uses the same retained-pair
+                            // inspection for recovery; native boot authority and
+                            // target validation precede any restored admission.
+                            state.store(true, Ordering::Release);
+                            cx.maintenance_ready = true;
+                        }
                         if value[0] == 5 {
                             let fields = conn::fields("result5", &value[1..])?;
-                            // Conflict is a real wake outcome, not permission to admit sessions.
+                            // Ordinary wake conflicts remain closed.
                             if matches!(fields[0].1[0], 1 | 2) {
                                 state.store(true, Ordering::Release);
                                 cx.maintenance_ready = true;

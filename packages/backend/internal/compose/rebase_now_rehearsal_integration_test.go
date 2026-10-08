@@ -196,7 +196,7 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 	return r.rebaseBranchWithMain(n, press, path, "clean main change\n")
 }
 
-func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, targetContent string) (string, error) {
+func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, targetContent string, onConflict ...func(rehearsalTodo, string) error) (string, error) {
 	before, err := r.todo(n)
 	if err != nil {
 		return "", err
@@ -270,6 +270,23 @@ func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, target
 		card, err := r.todo(n)
 		if err != nil {
 			return "", err
+		}
+		if card.State == "needs_you" && len(onConflict) != 0 {
+			callback := onConflict[0]
+			onConflict = nil
+			if err := callback(card, main); err != nil {
+				return "", err
+			}
+			// A restart disposes the old browser channel. Reconnect through
+			// the same authenticated live door before refreshing presence.
+			tab, err = r.openLive(r.jar)
+			if err != nil {
+				return "", err
+			}
+			defer tab.stop()
+			if _, err = tab.subscribe("branch:" + before.Branch.ID); err != nil {
+				return "", err
+			}
 		}
 		if card.State == "failed" || card.State == "blocked" {
 			return "", fmt.Errorf("T%d rebase verification blocked: %+v", n, card)

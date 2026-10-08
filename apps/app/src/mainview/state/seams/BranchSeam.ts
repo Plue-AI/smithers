@@ -127,11 +127,14 @@ export function projectBranch(previous: unknown, delta: unknown): unknown {
   const card = z.object({ n: z.number().int().positive(), title: z.string(), state: TodoStateSchema,
     place: z.number().int().nonnegative().optional(), branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
     steps: z.array(z.object({ state: z.string(), label: z.string() })).optional(),
-    rebase_pending: z.object({ onto: z.string() }).optional()
+    rebase_pending: z.object({ onto: z.string() }).optional(),
+    waits: z.array(z.object({ kind: z.string(), paths: z.array(z.string()).optional(), conflict_change: z.string().optional(), onto_revision: z.string().optional() })).optional()
   }).parse(fact.Data?.card)
   if (card.branch.id !== before.id) throw new Error("Branch source binding changed")
   const current = card.steps?.find(step => step.state === "current")
+  const conflict = card.waits?.find(wait => wait.kind === "conflict")
   return Branch.parse({ ...before, name: card.branch.name, scratch: undefined, machine: card.branch.machine,
-    rebase: card.rebase_pending ? { state: "pending", onto: card.rebase_pending.onto } : undefined,
+    rebase: conflict ? { state: "conflict", onto: card.rebase_pending?.onto ?? "main", paths: conflict.paths ?? [], conflict_change: conflict.conflict_change, onto_revision: conflict.onto_revision }
+      : card.rebase_pending ? { state: "pending", onto: card.rebase_pending.onto } : undefined,
     item: { n: card.n, title: card.title, state: card.state, place: card.place ?? 0, ...(current ? { step: current.label } : {}) } })
 }

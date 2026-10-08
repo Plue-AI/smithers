@@ -2052,11 +2052,11 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if mythicalChecksOf(item).ForeignBring != nil {
 		return st.consumeForeignBring(ctx, item)
 	}
-	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
-		return st.continueNativeRebase(ctx, item)
-	}
 	if item.Reason == "rebase_conflict_pending" {
 		return st.continueConflict(ctx, item)
+	}
+	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
+		return st.continueNativeRebase(ctx, item)
 	}
 	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {

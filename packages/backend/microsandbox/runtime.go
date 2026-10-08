@@ -170,6 +170,7 @@ type Runtime struct {
 	machinedItem           func(context.Context, string) (machined.ItemBinding, error)
 	machinedAgentAdmission func(context.Context, string, string, func(context.Context) error) error
 	machinedHead           func(context.Context, string) (string, error)
+	machinedConflict       func(context.Context, string) (*machined.RetainedConflict, error)
 	secretEnvironment      func(context.Context, string) (MachineSecrets, error)
 	memberRoster           MemberRoster
 	memberActor            MemberActor

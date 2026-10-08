@@ -135,7 +135,7 @@ Rejected: the host presenting the relay secret as a bearer value (§9.5.3's word
 
 `protocol` is `10`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues. Protocol 8 adds optional status observations 7 `bursts_idle`
-and 8 `documents_flushed` (T-MCH-06, #3567). Protocol 9 moves conflict inspection to method 18 with two required OIDs and a required paths list ([owner ruling](https://github.com/smithersai/smithers/issues/3532#issuecomment-6052691254)). `status()` takes no arguments, returns only fields 1–8, and never freezes writers. `inspect_conflict` requires ready admission, validates the retained change and target, and freezes writers while draining the watcher and inspecting resolution. There is no negotiation or older live protocol accepted. Host and daemon
+and 8 `documents_flushed` (T-MCH-06, #3567). Protocol 9 moves conflict inspection to method 18 with two required OIDs and a required paths list ([owner ruling](https://github.com/smithersai/smithers/issues/3532#issuecomment-6052691254)). `status()` takes no arguments, returns only fields 1–8, and never freezes writers. `inspect_conflict` requires ready admission for ordinary consumers, validates the retained change and target, and freezes writers while draining the watcher and inspecting resolution. There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
@@ -191,9 +191,11 @@ T-MCH-06 adds optional status observations 7 and 8 without changing existing fra
 
 Rebase field 3 carries the stack-fenced verified base when a native Bring-in changed the physical parent. The daemon merges the whole captured item delta from that immutable base, keeping the bound logical change. Missing base objects refuse before capture; older schemas reject the unknown field before dispatch. The base is unprivileged object data and never reaches the root broker. Requests without field 3 retain their existing decoding.
 
+T-STK-08 also reuses `inspect_conflict` (18), with its unchanged two required OIDs and paths result, to recover an existing stack-owned rebase conflict before writer admission. Only the authenticated host's internal admission path can issue this call before ready. It first verifies that the daemon's acknowledged head is the host-selected head; native inspection then verifies the boot's item authority, retained conflict and exact target under the existing barrier. A successful inspection restores maintenance admission, subject to the current roster and actual daemon status. Ordinary wake conflicts remain unready. No method, field, frame or protocol version changes.
+
 T-STK-08 uses `inspect_conflict` (18) for native conflict inspection. With the required retained change and onto revision, the daemon freezes broker writers with the fixed one-second deadline, flushes documents and inspects the same logical change under its mutation lock. A changed target is refused; every inspection outcome thaws. Result field 1 `paths` is required even when empty; a missing result is never successful Done. `status()` remains observational and never enters this barrier.
 
-Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
+Until ordinary `wake_reconcile` or the bound retained-conflict admission succeeds on this boot, every method except `status`, `wake_reconcile`, authenticated host recovery inspection and handshake roster synchronization
 (`set_roster`) answers `not_ready`.
 
 ```

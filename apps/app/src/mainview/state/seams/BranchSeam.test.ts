@@ -166,3 +166,12 @@ test("Add to stack facts rename the same scratch Branch without retaining its so
   expect(model.activity).toEqual([{ id: event.id, at: event.at, kind: "rebase", actor: { kind: "system", color_index: 7 }, text: "Rebased onto main", files: 0, actions: [] }])
   expect(branchModel(branch, [{ ...event, onto_revision: "main" }], [], "b1")).toBeUndefined()
  })
+
+test("conflict source facts preserve Done binding and settle on resolution", () => {
+  const card = { n: 2, title: "Retry", state: "needs_you", branch: { id: "b1", name: "branch", machine: { state: "awake" } }, rebase_pending: { onto: "T1" },
+    waits: [{ kind: "conflict", paths: ["retry.ts"], conflict_change: "retained-change", onto_revision: "retained-onto" }] }
+  const held = projectBranch(branch, { Type: "todo.waiting", Data: { card } })
+  expect(branchModel(held, [], [], "b1")?.rebase).toEqual({ state: "conflict", onto: "T1", paths: ["retry.ts"], conflict_change: "retained-change", onto_revision: "retained-onto" })
+  const resolved = projectBranch(held, { Type: "todo.rebased", Data: { card: { ...card, state: "working", waits: [], rebase_pending: undefined } } })
+  expect(branchModel(resolved, [], [], "b1")?.rebase).toBeUndefined()
+})
