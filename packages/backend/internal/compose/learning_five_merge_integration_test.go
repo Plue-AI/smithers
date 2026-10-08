@@ -90,7 +90,7 @@ func TestLearningFiveMergeProposalComposedInstall(t *testing.T) {
 	for n := 1; n <= 6; n++ {
 		var workspace string
 		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name,status,vm_id) VALUES($1,$2,$3,'running',$3) RETURNING id::text`, repo, owner.ID, fmt.Sprintf("learning-%d", n)).Scan(&workspace))
-		checks := `{"attempts":[],"steers":[{"text":"Use the existing retry helper because it already backs off.","attempt":1}]}`
+		checks := `{"attempts":[]}`
 		if n == 1 || n == 3 || n == 5 || n == 6 {
 			checks = `{"attempts":[{"attempt":1,"run_id":"attempt-first","failures":[{"signature":"check:lint@review","text":"Run lint before review to catch unused imports."}],"items":[]},{"attempt":2,"run_id":"attempt-fixed","items":[]}],"steers":[{"text":"Use the existing retry helper because it already backs off.","attempt":1}]}`
 		}
@@ -133,6 +133,9 @@ func TestLearningFiveMergeProposalComposedInstall(t *testing.T) {
 		var cards []map[string]any
 		require.NoError(t, json.Unmarshal(raw, &cards))
 		lessons := 1
+		if n == 2 || n == 4 {
+			lessons = 0
+		}
 		if n < 5 {
 			require.Empty(t, cards)
 		} else {

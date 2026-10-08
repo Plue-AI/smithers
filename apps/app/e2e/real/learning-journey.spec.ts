@@ -59,8 +59,8 @@ test("C-J5-03 learning proposal changes checks only after a member merges", scen
       todos.push({ todo, stored })
       await merge(n)
       if (n < 5) {
-        await expect.poll(async () => (await f.read("Will", `/api/todos/${n}`)).lessons,
-          { timeout: 300_000 }).toBeGreaterThan(0)
+        await expect.poll(() => f.sql(`SELECT learning_receipt FROM mythical_items WHERE number=${n}`)[0]?.learning_receipt != null,
+          { timeout: 300_000 }).toBe(true)
         const early = f.sql("SELECT id FROM memory_notes WHERE provenance_json::jsonb->>'signature'='check:lint@review' AND status='pending'")
         expect(early).toEqual([])
         expect(active(await flow()).id).toBe(before.id)
