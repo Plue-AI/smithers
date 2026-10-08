@@ -136,6 +136,77 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Equal(t, "merged", card["state"])
 	require.Equal(t, float64(2), card["lessons"])
 	require.EqualValues(t, 1, runtime.starts.Load())
+	var completionFact []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.learning.receipt'`).Scan(&completionFact))
+	var completed map[string]any
+	require.NoError(t, json.Unmarshal(completionFact, &completed))
+	require.Equal(t, "merged", completed["from"])
+	require.Equal(t, "merged", completed["to"])
+	require.Equal(t, map[string]any{"kind": "run", "id": "learning-recorded"}, completed["actor"])
+	// Independently authored completion sources: only Merged may accept
+	// Learning's receipt. A late completion never changes the TODO's state.
+	for _, c := range []struct {
+		state, engine                              string
+		launched, attached, paused, wait, accepted bool
+	}{
+		{"queued", "queued", false, false, false, false, false},
+		{"starting", "running", true, false, false, false, false},
+		{"working", "running", true, true, false, false, false},
+		{"needs_you", "running", true, true, false, true, false},
+		{"paused", "running", true, true, true, false, false},
+		{"failed", "blocked", true, true, false, false, false},
+		{"in_review", "proposed", true, true, false, false, false},
+		{"merged", "landed", true, true, false, false, true},
+		{"dropped", "cancelled", true, true, false, false, false},
+	} {
+		t.Run("Learning completion from "+c.state, func(t *testing.T) {
+			checks := map[string]any{"todo": true, "run_launched": c.launched, "run_attached": c.attached}
+			if c.wait {
+				checks["waits"] = []map[string]any{{"id": "foreign", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:00Z"}}
+			}
+			raw, err := json.Marshal(checks)
+			require.NoError(t, err)
+			pr := ""
+			if c.accepted {
+				pr = "merged"
+			}
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_state=$4,paused_at=CASE WHEN $5 THEN now() ELSE NULL END WHERE id=$1`, item.ID, c.engine, raw, pr, c.paused)
+			require.NoError(t, err)
+			before, err := db.New(pool).GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			var facts, revisions int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&facts))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_page_revisions`).Scan(&revisions))
+			err = consumer.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{OperationID: operation, Scope: jobs.Scope{TenantID: cp.Target.TenantID, PrincipalID: cp.Target.PrincipalID}, State: jobs.StateCompleted, Checkpoint: cp})
+			if c.accepted {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, services.ErrLearningBinding)
+			}
+			after, err := db.New(pool).GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&count))
+			require.Equal(t, facts, count)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_page_revisions`).Scan(&count))
+			require.Equal(t, revisions, count)
+			req, err := http.NewRequest("GET", server.URL+"/api/todos/1", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			require.Equal(t, http.StatusOK, res.StatusCode)
+			var card map[string]any
+			require.NoError(t, json.NewDecoder(res.Body).Decode(&card))
+			require.Equal(t, c.state, card["state"])
+			if c.accepted {
+				require.Equal(t, float64(2), card["lessons"])
+			} else {
+				require.Nil(t, card["lessons"])
+			}
+		})
+	}
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='learning.admission'`).Scan(&count))
 	require.Equal(t, 1, count)
 }

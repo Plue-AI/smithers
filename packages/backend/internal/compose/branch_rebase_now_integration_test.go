@@ -44,6 +44,14 @@ func (h *rebaseAdmissionHost) InfoRefs(context.Context, string, string, string, 
 }
 
 func TestBranchRebaseNowComposedAdmission(t *testing.T) {
+	testBranchRebaseNowComposedAdmission(t, false)
+}
+
+func TestTodoRebaseSourceTransitionLiteralCases(t *testing.T) {
+	testBranchRebaseNowComposedAdmission(t, true)
+}
+
+func testBranchRebaseNowComposedAdmission(t *testing.T, sources bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "pin-owner", LowerUsername: "pin-owner", DisplayName: "Owner"})
@@ -120,6 +128,81 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 		return res.StatusCode, data
 	}
 	call := func(key string) (int, map[string]any) { return callBody(key, `{"rebase":true}`) }
+	if sources {
+		for _, c := range []struct {
+			state, engine                        string
+			launched, attached, paused, wait, pr bool
+			status                               int
+		}{
+			{"queued", "queued", false, false, false, false, false, 409},
+			{"starting", "integrating", true, false, false, false, false, 202},
+			{"working", "integrating", true, true, false, false, false, 202},
+			{"needs_you", "integrating", true, true, false, true, false, 202},
+			{"paused", "integrating", true, true, true, false, false, 409},
+			{"failed", "blocked", true, true, false, false, false, 409},
+			{"in_review", "integrating", true, true, false, false, true, 202},
+			{"merged", "landed", true, true, false, false, false, 409},
+			{"dropped", "cancelled", true, true, false, false, false, 409},
+		} {
+			t.Run(c.state, func(t *testing.T) {
+				checks := map[string]any{"todo": true, "run_launched": c.launched, "run_attached": c.attached, "branch": "smithers/test", "rebase": map[string]any{"onto": onto, "name": "main"}}
+				if c.wait {
+					checks["waits"] = []map[string]any{{"id": "foreign", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:00Z"}}
+				}
+				raw, err := json.Marshal(checks)
+				require.NoError(t, err)
+				pr := ""
+				if c.pr {
+					pr = "open"
+				}
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_number=1,pr_state=$4,paused_at=CASE WHEN $5 THEN now() ELSE NULL END WHERE id=$1`, item.ID, c.engine, raw, pr, c.paused)
+				require.NoError(t, err)
+				before, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				read := func() map[string]any {
+					req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+					require.NoError(t, err)
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+					res, err := http.DefaultClient.Do(req)
+					require.NoError(t, err)
+					defer res.Body.Close()
+					require.Equal(t, 200, res.StatusCode)
+					var card map[string]any
+					require.NoError(t, json.NewDecoder(res.Body).Decode(&card))
+					return card
+				}
+				require.Equal(t, c.state, read()["state"])
+				var facts int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.rebase-requested'`).Scan(&facts))
+				code, data := call("literal-rebase-" + c.state)
+				require.Equal(t, c.status, code, data)
+				after, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Equal(t, c.state, read()["state"])
+				var n int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.rebase-requested'`).Scan(&n))
+				if c.status != 202 {
+					require.Equal(t, before, after)
+					require.Equal(t, facts, n)
+					return
+				}
+				require.Equal(t, facts+1, n)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.rebase-requested' ORDER BY sequence DESC LIMIT 1`).Scan(&raw))
+				var fact map[string]any
+				require.NoError(t, json.Unmarshal(raw, &fact))
+				require.Equal(t, c.state, fact["from"])
+				require.Equal(t, c.state, fact["to"])
+				require.Equal(t, map[string]any{"kind": "system", "id": "stack"}, fact["actor"])
+				code, replay := call("literal-rebase-" + c.state)
+				require.Equal(t, 202, code)
+				require.Equal(t, data, replay)
+				replayed, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Equal(t, after, replayed)
+			})
+		}
+		return
+	}
 	// An event write failure rolls back the scheduling override and receipt.
 	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_rebase_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.rebase-requested' THEN RAISE EXCEPTION 'injected rebase fact failure'; END IF; RETURN NEW; END $$;
  CREATE TRIGGER refuse_rebase_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_rebase_fact()`)
@@ -219,7 +302,7 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	// rather than mistaking an accepted launch for successful execution. Each
 	// refusal leaves the private admission receipt intact and schedules no work.
 	for _, failure := range []struct{ name, update string }{
-		{"conflict needs resolution", `reason='rebase_conflict_pending'`},
+		{"conflict needs resolution", `reason='rebase_conflict_pending',checks=jsonb_set(checks,'{waits}','[{"id":"native-conflict","kind":"conflict","prompt":"Resolve","since":"2026-10-02T12:00:00Z"}]')`},
 		{"item dropped", `state='cancelled'`},
 		{"pending rewrite removed", `checks=checks-'rebase'`},
 		{"rewrite has no completion fact", `checks=jsonb_set(checks,'{rebase,rebased}','true')`},

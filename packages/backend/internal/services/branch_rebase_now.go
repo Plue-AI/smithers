@@ -212,6 +212,7 @@ func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, a
 		receipt = TodoControlReceipt{State: "accepted", Number: number, Onto: pending.Onto}
 		if err = s.recordTodoControl(ctx, tx, item, control, credential, "todo.rebase-requested", receipt, map[string]any{
 			"item": uuidString(item.ID), "n": number, "onto": pending.Onto, "head": item.CandidateHead,
+			"from": todoState(item), "to": todoState(item),
 			"generation": item.Generation, "actor": map[string]string{"kind": "system", "id": "stack"}, "by": todoActorRef(ctx, person),
 		}); err != nil {
 			return err

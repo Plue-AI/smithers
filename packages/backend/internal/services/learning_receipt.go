@@ -215,7 +215,7 @@ func (t *learningReceiptTx) RecordReceipt(ctx context.Context, b LearningBinding
 	if err != nil {
 		return err
 	}
-	payload, _ := json.Marshal(map[string]any{"kind": "learning", "itemId": uuidString(t.item.ID), "todo": b.Todo, "lessons": n, "topics": []string{fmt.Sprintf("todo:%d", b.Todo), "home", "proposals"}})
+	payload, _ := json.Marshal(map[string]any{"kind": "learning", "itemId": uuidString(t.item.ID), "todo": b.Todo, "lessons": n, "from": "merged", "to": "merged", "actor": map[string]any{"kind": "run", "id": b.Run}, "topics": []string{fmt.Sprintf("todo:%d", b.Todo), "home", "proposals"}})
 	if _, err = jobs.RecordFactInTx(ctx, t.tx, t.store.update.Scope, uuid.NewSHA1(uuid.NameSpaceOID, []byte("learning.receipt:"+uuidString(t.item.ID))).String(), "learning.receipt", "completed", payload); err != nil {
 		return err
 	}

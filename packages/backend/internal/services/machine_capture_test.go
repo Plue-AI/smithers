@@ -15,7 +15,7 @@ func TestPendingCaptureDoesNotRetryOrAcceptOldVerification(t *testing.T) {
 			item.Checks = mythicalChecks{Todo: true, Capture: &MachineCapturePending{Head: strings.Repeat("c", 40), Tree: strings.Repeat("d", 40), Base: strings.Repeat("a", 40), Onto: strings.Repeat("c", 40)}}.encode()
 			original := item
 			// No launch, host or GitHub providers: pending capture must not attempt any.
-			step := new(mythicalItemStep)
+			step := &mythicalItemStep{r: &mythicalRun{mainTip: item.CandidateBase}}
 			next, saved, err := step.advance(t.Context(), item)
 			require.NoError(t, err)
 			require.Nil(t, next)
