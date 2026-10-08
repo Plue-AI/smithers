@@ -48,6 +48,13 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 		t.Skip("reference machine required for the packaged native writer")
 	}
 	t.Setenv(enable, "1")
+	proposalStatus := http.StatusAccepted
+	if enable == "SMITHERS_GITHUB_OUTBOUND_LINUX" {
+		// Reserved proposal admission requires sandboxed live observations.
+		// The process diagnostic must prove this refusal, never impersonate
+		// a microVM. Its pending slot is created by the production TODO worker.
+		proposalStatus = http.StatusServiceUnavailable
+	}
 	for _, scenario := range []string{"push", "open", "body", "merge", "close", "open-drop", "body-order", "push-foreign", "close-reopen", "close-person-event", "close-other-app-event", "close-canonical-event", "close-person-marker", "close-other-app-marker", "close-canonical-marker", "merge-revoked", "merge-stale-head", "merge-missing-approval", "merge-competing-fence"} {
 		kind := strings.SplitN(scenario, "-", 2)[0]
 		variant := strings.TrimPrefix(scenario, kind+"-")
@@ -147,7 +154,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						raw, err := io.ReadAll(response.Body)
 						_ = response.Body.Close()
 						require.NoError(t, err)
-						require.Equal(t, 202, response.StatusCode, string(raw))
+						require.Equal(t, proposalStatus, response.StatusCode, string(raw))
 						if proposalReceipt == nil {
 							proposalReceipt = raw
 						} else {
@@ -490,7 +497,11 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 									return false
 								}
 								card, err := r.todo(number)
-								return err == nil && card.State == "needs_you"
+								if err != nil || card.State != "needs_you" {
+									return false
+								}
+								var facts int
+								return r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push' AND state='needs_you' AND data->>'n'=$1`, fmt.Sprint(number)).Scan(&facts) == nil && facts == 1
 							}
 							if point == "before-send" {
 								return len(pending) == 0
@@ -551,14 +562,15 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							require.NoError(t, err)
 							require.Equal(t, 200, status)
 							var projection struct {
-								State    string `json:"state"`
-								NeedsYou struct {
+								State string `json:"state"`
+								Waits []struct {
 									Kind string `json:"kind"`
-								} `json:"needs_you"`
+								} `json:"waits"`
 							}
 							require.NoError(t, json.Unmarshal(card, &projection))
 							require.Equal(t, "needs_you", projection.State)
-							require.Equal(t, "foreign_push", projection.NeedsYou.Kind)
+							require.Len(t, projection.Waits, 1)
+							require.Equal(t, "foreign_push", projection.Waits[0].Kind)
 						}
 						return
 					}
@@ -693,6 +705,12 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					writesBeforeReplay := len(r.fake.Writes())
 					var requestsBeforeReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
+					replayStatus := proposalStatus
+					if kind == "close" || kind == "merge" || dropLate {
+						// Current authorization rejects an ended attempt, including
+						// an original accepted request. Replay cannot revive its grant.
+						replayStatus = http.StatusForbidden
+					}
 					for range 3 {
 						request, err := http.NewRequest("POST", r.origin+path, strings.NewReader(body))
 						require.NoError(t, err)
@@ -703,8 +721,12 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						raw, err := io.ReadAll(response.Body)
 						_ = response.Body.Close()
 						require.NoError(t, err)
-						require.Equal(t, 202, response.StatusCode, string(raw))
-						require.JSONEq(t, string(proposalReceipt), string(raw))
+						require.Equal(t, replayStatus, response.StatusCode, string(raw))
+						if replayStatus == http.StatusForbidden {
+							require.JSONEq(t, `{"class":"permission","code":"permission","message":"Not your confirmation"}`, string(raw))
+						} else {
+							require.JSONEq(t, string(proposalReceipt), string(raw))
+						}
 					}
 					var requestsAfterReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfterReplay))

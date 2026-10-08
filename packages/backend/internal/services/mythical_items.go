@@ -4142,6 +4142,23 @@ func (st *mythicalItemStep) holdForeignHead(item db.MythicalItem, foreign *mythi
 	}
 	checks := mythicalChecksOf(next)
 	checks.ForeignHead = foreign.Head
+	waitIndex := -1
+	for i, wait := range checks.Waits {
+		if wait.Kind == "foreign_push" && wait.SettledAt == nil {
+			waitIndex = i
+			break
+		}
+	}
+	if waitIndex < 0 {
+		waitIndex = len(checks.Waits)
+		checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: st.now.UTC()})
+	}
+	wait := &checks.Waits[waitIndex]
+	if wait.SHA != foreign.Head {
+		checks.ForeignBring = nil
+		wait.AnsweredBy, wait.Answer, wait.By = "", "", nil
+	}
+	wait.SHA, wait.Prompt = foreign.Head, next.Reason
 	checks.notice("foreign_push:"+foreign.Head, "Smithers is holding this TODO: "+next.Reason+".")
 	next.Checks = checks.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}

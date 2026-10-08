@@ -163,7 +163,19 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		// The branch holds a head Smithers neither recorded nor published: a
 		// person's push, held exactly as one found before the push.
 		held := st.holdForeignHead(item, &mythicalForeignHead{Branch: op.Target, Head: observed})
-		saved, err := st.q.SaveMythicalItemUnderLease(ctx, *held, st.r.row.Claim)
+		var saved db.MythicalItem
+		err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+			var err error
+			saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, *held, st.r.row.Claim)
+			if err != nil {
+				return err
+			}
+			if mythicalTodo(item) && todoState(item) != todoState(saved) {
+				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(saved), "sha": observed})
+				_, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), data)
+			}
+			return err
+		})
 		return &saved, err
 	}
 	if op.State == "intended" {

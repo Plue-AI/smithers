@@ -53,4 +53,9 @@ receipt. Reference qualification requires `SMITHERS_GITHUB_OUTBOUND_KILL=1` and
 `SMITHERS_GITHUB_OUTBOUND_LINUX=1` explicitly selects the existing Linux
 rehearsal's file-writer fixture for supplemental HTTP/worker diagnostics. It
 does not qualify the packaged writer, guest execution or this reference-host
-check. Startup failures before a crossing produce no kill-point receipt.
+check. Reserved `stack.propose` replays in this diagnostic must return 503:
+production live candidate observation requires sandboxed execution. The slot
+under test is created by the TODO's production publication worker before the
+restart; the diagnostic asserts replay refusal preserves it and creates no work.
+Reference runs still require 202 admission. Startup failures before a crossing
+produce no kill-point receipt.

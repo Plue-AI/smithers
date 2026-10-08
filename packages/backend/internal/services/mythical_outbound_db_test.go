@@ -178,3 +178,61 @@ func TestMythicalOutboundSettlementPublishesAtomically(t *testing.T) {
 	require.Len(t, replay.Events, 1)
 	require.Equal(t, events.Events[0].Sequence, replay.Events[0].Sequence)
 }
+
+// Recovery's conflict must become a visible wait in the same transaction as
+// its fact. A failed event insert cannot expose a wait without its evidence.
+func TestMythicalOutboundForeignPushWaitAtomically(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	var userID, repoID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('foreign-recovery','foreign-recovery') RETURNING id`).Scan(&userID))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'app','app') RETURNING id`, userID).Scan(&repoID))
+	_, err := q.RequestMythicalBootstrap(ctx, repoID, userID, 100, false)
+	require.NoError(t, err)
+	claims, err := q.ClaimMythicalStacks(ctx, 1, 600)
+	require.NoError(t, err)
+	require.Len(t, claims, 1)
+	item, err := q.InsertMythicalTodo(ctx, repoID, userID, "Foreign recovery", "Keep the person's push", json.RawMessage(`[]`), json.RawMessage(`{"todo":true,"branch":"smithers/foreign"}`))
+	require.NoError(t, err)
+	item.State = "proposing"
+	item.PendingOp = json.RawMessage(`{"kind":"push","target":"smithers/foreign","desired":"1111111111111111111111111111111111111111","precondition":"","state":"unknown"}`)
+	item, err = q.SaveMythicalItemUnderLease(ctx, item, claims[0].Claim)
+	require.NoError(t, err)
+	s := NewMythicalService(pool, nil)
+	sends := 0
+	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
+		return "2222222222222222222222222222222222222222", false, nil
+	}
+	s.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+		sends++
+		return nil
+	}
+	st := mythicalItemStep{s: s, q: q, r: &mythicalRun{row: claims[0]}, now: s.now()}
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_foreign_recovery() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.foreign_push' THEN RAISE EXCEPTION 'fault: foreign event'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_foreign_recovery BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_foreign_recovery()`)
+	require.NoError(t, err)
+	_, err = st.recoverOutbound(ctx, item)
+	require.ErrorContains(t, err, "fault: foreign event")
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(item.PendingOp), string(unchanged.PendingOp))
+	require.Empty(t, todoOpenWaits(unchanged))
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_foreign_recovery ON product_job_events`)
+	require.NoError(t, err)
+	held, err := st.recoverOutbound(ctx, unchanged)
+	require.NoError(t, err)
+	require.Equal(t, "needs_you", todoState(*held))
+	waits := todoOpenWaits(*held)
+	require.Len(t, waits, 1)
+	require.Equal(t, "foreign_push", waits[0].Kind)
+	require.Equal(t, "2222222222222222222222222222222222222222", waits[0].SHA)
+	require.Empty(t, waits[0].By, "remote ref lookup cannot invent a GitHub actor")
+	require.Zero(t, sends)
+	var facts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push' AND state='needs_you'`).Scan(&facts))
+	require.Equal(t, 1, facts)
+	// A repeated hold retains the wait identity and time, rather than opening
+	// a second question or inheriting authority from a previous foreign head.
+	again := st.holdForeignHead(*held, &mythicalForeignHead{Branch: "smithers/foreign", Head: "2222222222222222222222222222222222222222"})
+	require.Equal(t, waits, todoOpenWaits(*again))
+}
