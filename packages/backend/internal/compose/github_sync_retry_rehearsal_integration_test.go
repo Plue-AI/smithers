@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +24,13 @@ func TestGitHubSyncRetryDuringVerificationRehearsal(t *testing.T) {
 	require.NoError(t, r.waitSQL(time.Minute, `SELECT count(*) FROM mythical_items WHERE number=$1 AND pending_op IS NULL AND COALESCE(checks->>'proposal_run','')='' AND checks->'capture' IS NULL`, number))
 	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET state='verifying',verify_run_id='unresolved-sync-retry',verify_outcome='',next_attempt_at=clock_timestamp()-interval '1 second' WHERE number=$1`, number)
 	require.NoError(t, err)
+	// GitHub list reads also include outsider PRs that own no TODO machine.
+	// Seed through the same external-change door the full journey uses.
+	r.fake.UpdatePull("rehearsal-owner/app", 900, func(p *githubfake.Pull) {
+		p.Title = "Outsider"
+		p.User = &githubfake.PullAuthor{ID: 900, Login: "outsider", Type: "User"}
+		p.Head.Ref, p.Base.Ref, p.Head.SHA = "outsider:cache", "main", strings.Repeat("9", 40)
+	})
 	code, data, err := r.keyed("POST", "/api/github/sync", "", r.keyPrefix+"initial")
 	require.NoError(t, err)
 	require.Equal(t, 202, code, string(data))
@@ -56,5 +64,8 @@ func TestGitHubSyncRetryDuringVerificationRehearsal(t *testing.T) {
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT state,verify_outcome FROM mythical_items WHERE number=$1`, number).Scan(&state, &outcome))
 	require.Equal(t, "verifying", state)
 	require.Empty(t, outcome)
+	var outsiderItems int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items WHERE pr_number=900`).Scan(&outsiderItems))
+	require.Zero(t, outsiderItems, "sync observes outsider metadata without admitting its work")
 	r.t.Logf("Retry 202; all required streams fresh at %s in %s; verification remains unresolved", observed.Format(time.RFC3339Nano), time.Since(started).Round(time.Millisecond))
 }

@@ -274,10 +274,23 @@ func (s *Server) UpdatePull(repo string, number int64, change func(*Pull)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := repo + "/" + strconv.FormatInt(number, 10)
-	p := s.pulls[key]
+	p, exists := s.pulls[key]
+	if !exists {
+		p = s.newPull(repo, number)
+	}
 	p.UpdatedAt = time.Now().UTC()
 	change(&p)
 	s.pulls[key] = p
+}
+
+// newPull supplies GitHub identity for both external seeds and App creation.
+// Callers hold s.mu; mutations remain able to deliberately supply bad data.
+func (s *Server) newPull(repo string, number int64) Pull {
+	s.issueIDs++
+	now := time.Now().UTC()
+	p := Pull{ID: s.issueIDs, CreatedAt: now, UpdatedAt: now, Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), State: "open", HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+	p.Head.Repo.FullName, p.Base.Repo.FullName = repo, repo
+	return p
 }
 
 // SetCheck records the latest run of the named check on a commit.
@@ -1245,9 +1258,8 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 		}
 		number := s.nextNumber(repo)
-		s.issueIDs++
-		now := time.Now().UTC()
-		p := Pull{ID: s.issueIDs, CreatedAt: now, UpdatedAt: now, Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+		p := s.newPull(repo, number)
+		p.Title, p.Body, p.Draft = input.Title, input.Body, input.Draft
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
 		p.Head.SHA = fmt.Sprintf("%x", digest)[:40]
@@ -1258,8 +1270,6 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 			p.Head.SHA = head
 		}
-		p.Head.Repo.FullName = repo
-		p.Base.Repo.FullName = repo
 		p.Base.Ref = input.Base
 		key := repo + "/" + strconv.FormatInt(number, 10)
 		s.pulls[key] = p

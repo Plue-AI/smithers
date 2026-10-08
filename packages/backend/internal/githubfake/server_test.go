@@ -1288,3 +1288,53 @@ func TestDelayedMergesAndMergesByAPerson(t *testing.T) {
 	}
 	require.Equal(t, 5, puts, "a person's merge is not an App write")
 }
+
+func TestUpdatePullCreatesFetchableExternalPull(t *testing.T) {
+	server, config, key := fixture(t)
+	status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, config.AppID, time.Now().Add(time.Minute)), []byte(`{"permissions":{"pull_requests":"read","issues":"read"}}`))
+	require.Equal(t, 201, status)
+	var token struct{ Token string }
+	require.NoError(t, json.Unmarshal(raw, &token))
+	server.UpdatePull("acme/app", 900, func(p *Pull) {
+		p.Title = "Outsider"
+		p.Head.Ref = "outsider:cache"
+		p.Base.Ref = "main"
+		p.Head.SHA = strings.Repeat("9", 40)
+	})
+	var original Pull
+	status, raw = request(t, server, "GET", "/repos/acme/app/pulls/900", token.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(raw, &original))
+	require.Positive(t, original.ID)
+	require.Equal(t, int64(900), original.Number)
+	require.False(t, original.CreatedAt.IsZero())
+	require.False(t, original.UpdatedAt.IsZero())
+	require.NotEmpty(t, original.NodeID)
+	for _, path := range []string{"/repos/acme/app/pulls", "/repos/acme/app/issues"} {
+		status, raw = request(t, server, "GET", path, token.Token, nil)
+		require.Equal(t, 200, status)
+		var rows []struct {
+			ID, Number int64
+			UpdatedAt  time.Time `json:"updated_at"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &rows))
+		require.Len(t, rows, 1)
+		require.Equal(t, original.ID, rows[0].ID)
+		require.Equal(t, original.Number, rows[0].Number)
+		require.Equal(t, original.UpdatedAt, rows[0].UpdatedAt)
+	}
+	server.UpdatePull("acme/app", 900, func(p *Pull) { p.State = "closed" })
+	status, raw = request(t, server, "GET", "/repos/acme/app/pulls/900", token.Token, nil)
+	require.Equal(t, 200, status)
+	var closed Pull
+	require.NoError(t, json.Unmarshal(raw, &closed))
+	require.Equal(t, original.ID, closed.ID)
+	require.Equal(t, original.CreatedAt, closed.CreatedAt)
+	require.Equal(t, "closed", closed.State)
+	server.UpdatePull("acme/app", 901, func(p *Pull) { p.Title = "Another" })
+	status, raw = request(t, server, "GET", "/repos/acme/app/pulls/901", token.Token, nil)
+	require.Equal(t, 200, status)
+	var another Pull
+	require.NoError(t, json.Unmarshal(raw, &another))
+	require.NotEqual(t, original.ID, another.ID)
+}
