@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -411,6 +412,10 @@ type terminalFIFOGuests struct {
 	booting chan string
 }
 
+func (r *terminalFIFOGuests) ReconstructAdmission(ctx context.Context, demand []microsandbox.AdmissionRequest) error {
+	return r.queue.ReconstructAdmission(ctx, demand)
+}
+
 func (r *terminalFIFOGuests) SyncTodoAdmission(scope string, holders []string, limit int) error {
 	return r.queue.SyncTodoAdmission(scope, holders, limit)
 }
@@ -470,6 +475,10 @@ func TestSuccessfulTerminalDiskRecheckInstallBoundary(t *testing.T) {
 func TestSuccessfulTerminalOwnerCapacityInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 4, 1, 3, false, "owner")
 }
+func TestTerminalRestartOrphanInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "restart")
+}
+
 func TestTerminalCancelledBootConfirmedStopInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "cancel")
 }
@@ -510,7 +519,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		reader, writer := io.Pipe()
 		guest := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: "warm"}
 		guest.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: &echoOwnerTerminal{reader: reader, writer: writer}, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
-		if (constraint == "cancel" || constraint == "force") && i == 0 {
+		if (constraint == "cancel" || constraint == "force" || constraint == "restart") && i == 0 {
 			guest.mode = "cancel boot"
 		}
 		runtime.guests[branch.ID] = guest
@@ -675,7 +684,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		sockets = append(sockets, conn)
 	}
 	var stopLog, inventory string
-	if constraint == "cancel" || constraint == "force" {
+	if constraint == "cancel" || constraint == "force" || constraint == "restart" {
 		stopLog, inventory = filepath.Join(root, "stops"), filepath.Join(root, "inventory")
 		require.NoError(t, os.WriteFile(inventory, []byte(fmt.Sprintf(`[{"name":%q,"status":"starting"}]`, "vm-"+branches[0].ID)), 0600))
 		script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nstop) echo \"$*\" >> '%s';;\n*) echo '[]';;\nesac\n", inventory, stopLog)
@@ -686,6 +695,123 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		require.NoError(t, err)
 	}
 	freeDisk.Store(int64(40+32*slots) << 30)
+
+	if constraint == "restart" {
+		select {
+		case id := <-runtime.booting:
+			require.Equal(t, branches[0].ID, id)
+		case <-time.After(5 * time.Second):
+			t.Fatal("boot did not enter")
+		}
+		// Startup first settles unrecoverable PTYs from the existing durable request
+		// journal. The boot observation remains present across the host replacement.
+		require.NoError(t, service.RecoverOwnerTerminalRequests(ctx))
+		manager.Close()
+		require.NoError(t, service.WaitForProvisioning(ctx))
+		cancel()
+		for _, socket := range sockets {
+			socket.CloseNow()
+		}
+		server.Close()
+		require.NoError(t, queue.Close())
+		sum := sha256.Sum256([]byte(branches[0].ID))
+		directory := filepath.Join(root, "runtime", "workspaces", hex.EncodeToString(sum[:]))
+		require.NoError(t, os.MkdirAll(directory, 0700))
+		metadata, err := json.Marshal(map[string]any{"version": 1, "id": branches[0].ID, "machine": "vm-" + branches[0].ID, "state": "starting"})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "metadata.json"), metadata, 0600))
+		recovered, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, RecoverAdmission: true, HostProfile: &profile, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, recovered.Close()) })
+		recovered.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+		require.Equal(t, 1, recovered.InUse(), "fresh runtime retains the observed starting machine")
+		freshRuntime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: recovered, entered: make(chan struct{})}, guests: runtime.guests, started: make(chan string, 2), booting: make(chan string, 1)}
+		for _, branch := range branches {
+			link, _ := presenceTestLink(t, &freshRuntime.registry, branch.ID)
+			require.NoError(t, link.Reconciled())
+		}
+		freshService := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(freshRuntime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), freshRuntime)), services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+		freshService.EnableMachineAdmission(readDisk)
+		freshService.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
+		require.NoError(t, freshService.RecoverOwnerTerminalRequests(ctx))
+		done := make(chan error, 1)
+		go func() { done <- freshService.ReconstructMachineAdmission(ctx) }()
+		require.Eventually(t, func() bool {
+			calls, e := os.ReadFile(stopLog)
+			return e == nil && strings.Contains(string(calls), "stop -t 10 -q")
+		}, 5*time.Second, 10*time.Millisecond)
+		for until := time.Now().Add(300 * time.Millisecond); time.Now().Before(until); {
+			require.Equal(t, 1, recovered.InUse(), "stop acknowledgment cannot free a recovered orphan")
+			require.Empty(t, freshRuntime.started)
+			select {
+			case e := <-done:
+				t.Fatalf("recovery returned before stop observation: %v", e)
+			default:
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		require.NoError(t, os.WriteFile(inventory, []byte("[]"), 0600))
+		select {
+		case e := <-done:
+			require.NoError(t, e)
+		case <-time.After(2 * time.Second):
+			t.Fatal("orphan stop did not settle recovery")
+		}
+		require.Zero(t, recovered.InUse())
+		freshHandler := &routes.WorkspaceTerminalHandler{OwnerOnly: true, AllowedOrigins: cfg.Server.AllowedOrigins}
+		freshManager := freshHandler.SharedTerminalSessions()
+		defer freshManager.Close()
+		auth.TerminalSubject = freshManager.OwnsSubject
+		freshProvider := &installOwnerTerminals{queries: q, branches: freshService, registry: &freshRuntime.registry}
+		freshProvider.Bind(freshManager)
+		freshHandler.Service, freshHandler.OwnerTerminals = freshService, freshProvider
+		freshStack := services.NewMythicalService(f.pool, nil)
+		composeAdmissionPublication(recovered, freshStack)
+		server = httptest.NewUnstartedServer(parallelInstallRouter(cfg, q, f.pool, freshHandler, routerExtras{}))
+		require.NoError(t, server.Listener.Close())
+		server.Listener, err = net.Listen("tcp", strings.TrimPrefix(cfg.Server.PublicURL, "http://"))
+		require.NoError(t, err)
+		server.Start()
+		defer server.Close()
+		for _, branch := range branches {
+			response, e := request(branch.ID, keys[branch.ID])
+			require.NoError(t, e)
+			var replay services.WorkspaceSessionResponse
+			require.Equal(t, 202, response.StatusCode)
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&replay))
+			response.Body.Close()
+			require.Equal(t, sessions[branch.ID][0], replay.ID)
+			require.Equal(t, "failed", replay.Status)
+			var count int
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.failed' AND data->>'session'=$1`, replay.ID).Scan(&count))
+			require.Equal(t, 1, count, "startup and cancelled old worker share one terminal failure")
+		}
+		require.Empty(t, recovered.AdmissionSnapshot(), "replaying a lost request cannot create demand")
+		response, e := request(branches[1].ID, uuid.NewString())
+		require.NoError(t, e)
+		var reopened services.WorkspaceSessionResponse
+		require.Equal(t, 202, response.StatusCode)
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&reopened))
+		response.Body.Close()
+		select {
+		case id := <-freshRuntime.started:
+			require.Equal(t, branches[1].ID, id)
+		case <-time.After(2 * time.Second):
+			t.Fatal("fresh terminal did not grant after reconciliation")
+		}
+		require.Eventually(t, func() bool {
+			var count int
+			return f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, reopened.ID).Scan(&count) == nil && count == 1
+		}, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, 1, recovered.InUse())
+		var grants int
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.machine.granted'`).Scan(&grants))
+		require.Equal(t, 2, grants, "one pre-restart grant and one fresh request, never a replayed grant")
+		recovered.ConfirmAdmissionStop("workspace:"+branches[1].ID, false)
+		freshManager.Close()
+		require.NoError(t, freshService.WaitForProvisioning(ctx))
+		return
+	}
 	if constraint == "cancel" || constraint == "force" {
 		select {
 		case id := <-runtime.booting:

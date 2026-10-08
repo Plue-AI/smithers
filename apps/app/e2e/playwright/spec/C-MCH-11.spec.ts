@@ -49,3 +49,10 @@ test("C-MCH-11: cancelled boot and forced stop retain capacity until observation
   expect(output).toContain("--- PASS: TestTerminalCancelledBootConfirmedStopInstallBoundary")
   expect(output).toContain("--- PASS: TestTerminalForceStopConfirmedObservationInstallBoundary")
 })
+
+
+test("C-MCH-11: restart settles lost terminal requests and confirmed orphan stop", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestTerminalRestartOrphanInstallBoundary$")
+  expect(output).toContain("--- PASS: TestTerminalRestartOrphanInstallBoundary")
+})
