@@ -374,7 +374,7 @@ def main():
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
         return
-    if operation in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"):
+    if operation in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-ancestor-owner"):
         parent = os.open("/sys/fs/cgroup", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             child = os.open("smithers", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
@@ -382,7 +382,9 @@ def main():
                 info = os.fstat(child)
                 if info.st_uid != 0 or info.st_mode & 0o022:
                     raise ValueError("untrusted initial cgroup ancestor")
-                if operation == "cgroup-live-ancestor-writable":
+                if operation == "cgroup-live-ancestor-owner":
+                    os.fchown(child, 20001, 20001)
+                elif operation == "cgroup-live-ancestor-writable":
                     os.fchmod(child, 0o777)
                 else:
                     os.rename("smithers", "trm06-smithers-original", src_dir_fd=parent, dst_dir_fd=parent)
@@ -400,7 +402,7 @@ def main():
             os.close(parent)
         print(json.dumps({"cgroup_replaced": operation, "outside": fingerprint()}))
         return
-    if operation in ("cgroup-live-child-replaced", "cgroup-live-child-writable"):
+    if operation in ("cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-child-owner"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             names = sorted(os.listdir(parent))
@@ -412,7 +414,9 @@ def main():
                     info = os.fstat(child)
                     if info.st_uid != 0 or info.st_mode & 0o022:
                         raise ValueError("untrusted initial live cgroup")
-                    if operation == "cgroup-live-child-writable":
+                    if operation == "cgroup-live-child-owner":
+                        os.fchown(child, 20001, 20001)
+                    elif operation == "cgroup-live-child-writable":
                         os.fchmod(child, 0o777)
                     else:
                         os.rename(name, "trm06-original-" + name, src_dir_fd=parent, dst_dir_fd=parent)
@@ -423,10 +427,13 @@ def main():
             os.close(parent)
         print(json.dumps({"cgroup_replaced": operation, "outside": fingerprint()}))
         return
-    if operation in ("cgroup-writable", "cgroup-live-parent-writable"):
+    if operation in ("cgroup-writable", "cgroup-live-parent-writable", "cgroup-live-parent-owner"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            os.fchmod(parent, 0o777)
+            if operation == "cgroup-live-parent-owner":
+                os.fchown(parent, 20001, 20001)
+            else:
+                os.fchmod(parent, 0o777)
         finally:
             os.close(parent)
         print(json.dumps({"cgroup_parent_writable": True, "outside": fingerprint()}))

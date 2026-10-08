@@ -67,7 +67,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	}()
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
-		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"}
+		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-owner", "cgroup-live-child-owner", "cgroup-live-ancestor-owner"}
 	}
 	if operation == "check-no-landlock" {
 		scenarios = []string{"no-landlock"}

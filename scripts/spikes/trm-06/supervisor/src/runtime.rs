@@ -69,6 +69,9 @@ impl Kernel {
         if kind == Kind::Pty {
             crate::terminal::decode(modes)?;
         }
+        for (owned_id, session) in &self.owned {
+            self.groups.recheck_group(owned_id, &session.group)?;
+        }
         let group = Arc::new(self.groups.create(id)?);
         self.owned.insert(
             id.to_owned(),

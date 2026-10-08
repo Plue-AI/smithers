@@ -64,7 +64,7 @@ func TestLiveCgroupDrainRequiresOriginalTimedKernelObservations(t *testing.T) {
 }
 
 func TestLiveCgroupSelectorsAreFixed(t *testing.T) {
-	for _, selector := range []string{"cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable"} {
+	for _, selector := range []string{"cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-parent-owner", "cgroup-live-child-owner", "cgroup-live-ancestor-owner"} {
 		if !cgroupLiveFixture(selector) || cgroupRestartFixture(selector) {
 			t.Fatal("live mutation routed to restart fixture")
 		}

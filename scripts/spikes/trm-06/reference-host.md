@@ -186,3 +186,11 @@ relay, not a direct supervisor socket. Local fixture and receipt-parser tests
 are supplemental; they do not qualify actual cgroup races, Darwin launcher
 startup/replacement controls or native/manual acceptance. The campaign remains
 incomplete and refuses PASS until the remaining controls are qualified.
+
+Live ownership controls (unrun): `check-session` also changes the held original
+sessions parent, session child or smithers ancestor to 20001:20001 after live
+foreground/background enrollment. Mode and inode remain unchanged. Each uses
+the same installed authenticated admission/refusal and original-descriptor
+revocation campaign; retain raw mutation, refusal and drain observations.
+Local syscall-selection regressions substitute fchown because the lane is
+unprivileged; they are not installed ownership or revocation evidence.

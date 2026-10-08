@@ -141,6 +141,43 @@ class ObserverReceipt(unittest.TestCase):
                 else:
                     self.assertEqual(ancestor.stat().st_mode & 0o777, 0o777)
 
+    def test_live_owner_mutations_select_only_held_original_directories(self):
+        # No root execution: observe the exact descriptor/identity syscall at
+        # the installed fixture boundary, retaining real no-follow path opens.
+        for component in ("parent", "child", "ancestor"):
+            with self.subTest(component=component), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                ancestor = root / "smithers"
+                sessions = ancestor / "sessions"
+                sessions.mkdir(parents=True)
+                ancestor.chmod(0o755)
+                sessions.chmod(0o755)
+                child = sessions / "s-0000000000000001"
+                child.mkdir(mode=0o755)
+                sentinel = root / "outside"
+                sentinel.write_bytes(b"outside-fixture\0")
+                before = sentinel.stat()
+                target = {"ancestor": ancestor, "parent": sessions, "child": child}[component]
+                expected_inode = target.stat().st_ino
+                real_open, real_stat = os.open, os.fstat
+                def rooted_open(path, flags, *args, **kwargs):
+                    self.assertTrue(flags & os.O_NOFOLLOW)
+                    path = {"/sys/fs/cgroup": root, "/sys/fs/cgroup/smithers/sessions": sessions}.get(path, path)
+                    return real_open(path, flags, *args, **kwargs)
+                def owned(fd):
+                    values = list(real_stat(fd)); values[4] = 0
+                    return os.stat_result(values)
+                calls = []
+                def change_owner(fd, uid, gid):
+                    calls.append((real_stat(fd).st_ino, uid, gid))
+                with patch.object(fixture.sys, "argv", ["installed-fixture", "cgroup-live-" + component + "-owner"]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=rooted_open), patch.object(fixture.os, "fstat", side_effect=owned), patch.object(fixture.os, "fchown", side_effect=change_owner), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()):
+                    fixture.main()
+                self.assertEqual(calls, [(expected_inode, 20001, 20001)])
+                self.assertEqual(target.stat().st_ino, expected_inode)
+                self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+                self.assertEqual(sentinel.read_bytes(), b"outside-fixture\0")
+                self.assertEqual((sentinel.stat().st_ino, sentinel.stat().st_uid, sentinel.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
+
     def test_reader_waits_for_complete_locked_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "observer.json"
