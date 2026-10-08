@@ -288,6 +288,19 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	require.Zero(t, retired, "previous delegated credential is revoked")
 	checkScope(first, true)
 	checkScope(second, false)
+	var checkClientCache func()
+	if independent != nil {
+		checkClientCache = startTerminalClientCacheProbe(t, ctx, origin, second, independentToken, func() string {
+			old := independent
+			independent = open(svc, false, independentSession)
+			replacement := runtime.current(independentSession)
+			require.NotEmpty(t, replacement)
+			require.NotEqual(t, independentToken, replacement)
+			independentToken = replacement
+			_ = old.CloseNow()
+			return replacement
+		})
+	}
 	_ = a.CloseNow()
 	// Wait for the old handler's detach; it must not delete the successor.
 	require.Eventually(t, func() bool {
@@ -314,6 +327,9 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&remaining))
 	require.Zero(t, remaining)
 	checkScope(second, true)
+	if checkClientCache != nil {
+		checkClientCache()
+	}
 	if independent != nil {
 		require.Equal(t, independentToken, runtime.current(independentSession), "closing one session must leave the other file unchanged")
 		checkScope(independentToken, false)

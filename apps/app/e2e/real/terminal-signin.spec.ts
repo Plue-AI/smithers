@@ -5,6 +5,7 @@ import { command } from "./support/test"
 
 // Reference-host acceptance: separate, freshly prepared S1 and S2 installs.
 // No seeded card, intercepted route, guest double or qualification override.
+// GitHub uses the installed githubfake provider; tests never write a real repo.
 const required = (key: string) => {
   const value = process.env[key]
   if (!value) throw new Error(`Reference-host precondition missing: ${key}`)
@@ -17,6 +18,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
   // Each phase has its own install and literal T1/T2 fixture. Never reuse S2
   // authority to qualify S1. Missing reference-host inputs fail the test.
   const fixture = (key: string) => required(`SMITHERS_TERMINAL_${stage}_${key}`)
+  const githubOrigin = stage === "S2" ? new URL(fixture("GITHUB_URL")).origin : undefined
   const context = await browser.newContext({ storageState: fixture("BEN_STATE") })
   const page = await context.newPage()
   const origin = new URL(fixture("ORIGIN")).origin
@@ -25,15 +27,17 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
   const presence: unknown[] = []
   const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'"
   let sequence = 0
-  const run = async (script: string) => {
+  const run = async (script: string, expectedExit = 0) => {
     await journeyTerminalInput(page.locator(".terminal-view").last())
     const start = output.length
     const marker = `J6_${stage}_${++sequence}`
     // Split marker defeats PTY input echo; check completion from actual output.
-    await page.keyboard.type(`${script}; printf '\\nJ6_${stage}_%s\\n' ${sequence}`)
+    await page.keyboard.type(`{ ${script}; }; j6_status=$?; printf '\\nJ6_${stage}_%s exit=%s\\n' ${sequence} "$j6_status"`)
     await page.keyboard.press("Enter")
-    await expect.poll(() => output.slice(start), { timeout: 180_000 }).toMatch(new RegExp(`^${marker}\\r?$`, "m"))
-    return output.slice(start)
+    await expect.poll(() => output.slice(start), { timeout: 180_000 }).toMatch(new RegExp(`^${marker} exit=[0-9]+\\r?$`, "m"))
+    const result = output.slice(start)
+    expect(result).toMatch(new RegExp(`^${marker} exit=${expectedExit}\\r?$`, "m"))
+    return result
   }
   const repository = fixture("REPOSITORY")
   const stack = async (): Promise<{ landedMain?: string; items: { number: number; title: string; stack_position: number }[] }> => {
@@ -47,11 +51,11 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     expect(response.status()).toBe(200)
     return response.json()
   }
-  const guestRequest = async (method: string, path: string, body: unknown, status: number, code: string) => {
+  const guestRequest = async (method: string, path: string, body: unknown, status: number, code: string, headers: Record<string, string> = {}) => {
     // Execute in the actual delegated guest. Never put bearer bytes in argv,
     // browser traffic, transcript, evidence or a second credential file.
-    const script = `import json,os,urllib.request,urllib.error; token=open(os.environ['SMITHERS_TOKEN_FILE']).read().strip(); request=urllib.request.Request(os.environ['SMITHERS_URL'].rstrip('/')+${JSON.stringify(path)},data=${JSON.stringify(JSON.stringify(body))}.encode(),method=${JSON.stringify(method)},headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Idempotency-Key':'j6-'+${JSON.stringify(stage + "-" + String(sequence))}}); exec("try:\n response=urllib.request.urlopen(request)\nexcept urllib.error.HTTPError as error:\n response=error"); result=json.load(response); assert response.status==${status}, (response.status,result); assert result.get('class')=='permission' and result.get('code')==${JSON.stringify(code)}, result; print('J6'+'HTTP='+str(response.status)+' '+json.dumps(result))`
-    const result = await run(`/usr/bin/python3 -c ${quote(script)}`)
+    const script = `import json,os,urllib.request,urllib.error; token=open(os.environ['SMITHERS_TOKEN_FILE']).read().strip(); request=urllib.request.Request(os.environ['SMITHERS_URL'].rstrip('/')+${JSON.stringify(path)},data=${JSON.stringify(JSON.stringify(body))}.encode(),method=${JSON.stringify(method)},headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Idempotency-Key':'j6-'+${JSON.stringify(stage + "-" + String(sequence))},**${JSON.stringify(headers)}}); exec("try:\n response=urllib.request.urlopen(request)\nexcept urllib.error.HTTPError as error:\n response=error"); result=json.load(response); assert response.status==${status}, (response.status,result); assert result.get('class')=='permission' and result.get('code')==${JSON.stringify(code)}, result; print('J6'+'HTTP='+str(response.status)+' '+json.dumps(result))`
+    const result = await run(`/usr/bin/python3 -c ${quote(script)}`, 0)
     expect(result).toMatch(new RegExp(`^J6HTTP=${status} `, "m"))
     return result
   }
@@ -95,7 +99,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       'test "$(readlink "$HOME/.agents/skills/smithers")" = /opt/smithers/bundle/share/skills/smithers',
       'grep -q "smthrs todo new" "$HOME/.agents/skills/smithers/SKILL.md"',
       "printf 'J6''SIGNIN=verified\\n'"
-    ].join(" && "))
+    ].join(" && "), 0)
     expect(signIn).toMatch(/^J6SIGNIN=verified\r?$/m)
     const tokenPath = signIn.match(/^\/run\/smithers\/[^\r\n]+\/token\r?$/m)?.[0]?.trim()
     expect(tokenPath).toBeDefined()
@@ -187,14 +191,14 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       await second.keyboard.press("Enter")
       await second.close()
     }
-    const runClaude = async (prompt: string, expected: readonly string[]) => {
-      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); print('J6'+'SKILL=executed')`
-      const result = await run(`claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`)
+    const runClaude = async (prompt: string, expected: readonly string[], refusal?: { code: string; message: string }) => {
+      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); tool_results=[block for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_result']; refusal=${refusal ? JSON.stringify(refusal) : "None"}; assert refusal is None or any(all(value in json.dumps(block) for value in ['permission',refusal['code'],refusal['message']]) for block in tool_results), 'Claude skill did not receive the literal refusal'; print('J6'+'SKILL=executed')`
+      const result = await run(`claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`, 0)
       expect(result).toMatch(/^J6SKILL=executed\r?$/m)
       return result
     }
     if (stage === "S1_NO_CONFIRM") {
-      await runClaude("Use the installed Smithers skill to append one TODO titled No consumer skill append. Report the permission refusal; do not retry or approve it.", ["todo new"])
+      await runClaude("Use the installed Smithers skill to append one TODO titled No consumer skill append. Report the permission refusal; do not retry or approve it.", ["todo new"], { code: "confirm_in_app", message: "Confirm in the app" })
       expect(await order()).toEqual([1, 2])
       expect(await confirmations()).toEqual([])
       const refusal = await guestRequest("POST", "/api/todos", { title: "No consumer append", prompt: "No consumer append", place: { mode: "append" } }, 403, "confirm_in_app")
@@ -291,16 +295,32 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(entry!.text).toContain(kind === "answer" ? "Use backoff" : "Use the retry helper")
     }
     if (stage === "S1") {
-      for (const [path, payload] of [
-        ["/api/secrets", { name: "J6_FORBIDDEN", value: "not-a-secret", scope: "all" }],
-        ["/api/members", { login: "alice", role: "owner" }],
-        ["/api/confirmations", { command: "todo.new", payload: { prompt: "Forbidden explicit confirmation" } }],
-        ["/api/todos/1/answer", { wait: fixture("APPROVAL_WAIT"), answer: "approve" }]
+      const protectedSnapshot = async () => {
+        const snapshot: Record<string, unknown> = {}
+        for (const path of ["/api/members", "/api/secrets"]) {
+          const response = await context.request.get(`${origin}${path}`)
+          expect(response.status()).toBe(200)
+          snapshot[path] = await response.json()
+        }
+        return snapshot
+      }
+      const protectedBefore = await protectedSnapshot()
+      for (const [method, path, payload] of [
+        ["PUT", "/api/secrets", { name: "J6_FORBIDDEN", value: "not-a-secret", scope: "all" }],
+        ["PATCH", "/api/members/alice", { role: "maintainer" }],
+        ["POST", "/api/confirmations", { command: "todo.new", payload: { prompt: "Forbidden explicit confirmation" } }],
+        ["POST", "/api/todos/1/answer", { wait: fixture("APPROVAL_WAIT"), answer: "approve" }]
       ] as const) {
-        await guestRequest("POST", path, payload, 403, "permission")
+        await guestRequest(method, path, payload, 403, "permission")
         expect(await order()).toEqual([1, 2, created])
         expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
       }
+      // Attribution headers must never promote the issuer-stored delegation.
+      await guestRequest("POST", "/api/todos", { title: "Forged person placement", prompt: "Must be refused", place: { mode: "after", n: 1 } }, 403, "permission", {
+        "Smithers-Via": "terminal", "Smithers-Actor-Kind": "person", "Smithers-Profile": "full", "Smithers-Agent-Session": ""
+      })
+      expect(await order()).toEqual([1, 2, created])
+      expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
       for (const mode of ["after", "before", "amend"] as const) {
         await guestRequest("POST", "/api/todos", { title: "Forbidden placement", prompt: "Forbidden placement", place: { mode, n: 1 } }, 403, "permission")
         expect(await order()).toEqual([1, 2, created])
@@ -312,15 +332,24 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
         `smthrs merge T1 --reviewed_head_sha ${quote(fixture("REVIEWED_SHA"))}`,
         "smthrs todo steer T2 forbidden"
       ]) {
-        const refusal = await run(`${forbidden} --json`)
+        const refusal = await run(`${forbidden} --json`, 1)
         expect(refusal).toMatch(/"class":\s*"permission"/)
         expect(refusal).toMatch(/"code":\s*"permission"/)
         expect(await order()).toEqual([1, 2, created])
       }
+      expect(await protectedSnapshot()).toEqual(protectedBefore)
     } else {
       // A separate ready first TODO fixture is prepared by the reference host;
       // the test never forges passing checks or changes qualification gates.
-      await run(`claude -p ${quote(`Use the Smithers skill to request merge of T1 at reviewed SHA ${fixture("REVIEWED_SHA")}. Do not approve it.`)} --output-format json`)
+      const mergeCalls = async () => {
+        const response = await context.request.get(`${githubOrigin}/_fake/writes`)
+        expect(response.status()).toBe(200)
+        const writes = await response.json() as { method: string; path: string; status: number }[]
+        return writes.filter(row => row.method === "PUT" && /^\/repos\/[^/]+\/[^/]+\/pulls\/[0-9]+\/merge$/.test(row.path))
+      }
+      const callsBefore = await mergeCalls()
+      await runClaude(`Use the installed Smithers skill to request merge of T1 at reviewed SHA ${fixture("REVIEWED_SHA")}. Do not approve it.`, ["merge"])
+      expect(await mergeCalls()).toEqual(callsBefore)
       const mergeCard = page.locator('[data-kind="confirm"]').filter({ hasText: `Merge T1 into main?` })
       await expect(mergeCard).toBeVisible()
       await expect(mergeCard).toContainText(fixture("REVIEWED_SHA"))
@@ -339,6 +368,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       const cancelled = (await confirmations()).find(row => row.id === mergeRows[0]!.id)!
       expect(cancelled.state).toBe("rejected")
       expect(cancelled.payload.effect).toBeUndefined()
+      expect(await mergeCalls()).toEqual(callsBefore)
       const agents = presence.flatMap(snapshot => snapshot as { actor: { kind: string; id: string; agent?: string; avatar_url?: string; for_member?: { login: string } } }[]).map(row => row.actor)
       const claude = agents.find(actor => actor.kind === "agent" && actor.agent === "claude-code" && actor.for_member?.login === "ben")
       const coding = agents.find(actor => actor.kind === "agent" && actor.agent === "coding")
@@ -347,7 +377,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(claude!.id).not.toBe(coding!.id)
       expect(claude!.avatar_url).toBeTruthy()
       expect(claude!.avatar_url).not.toBe(coding!.avatar_url)
-      await info.attach("s2-review-merge", { body: JSON.stringify({ mergeRows, before, after: await stack() }), contentType: "application/json" })
+      await info.attach("s2-review-merge", { body: JSON.stringify({ mergeRows, before, after: await stack(), outboundMergeCallsBefore: callsBefore, outboundMergeCallsAfter: await mergeCalls() }), contentType: "application/json" })
     }
     await closeAndVerify()
     await info.attach(`${stage.toLowerCase()}-terminal-acceptance`, { body: JSON.stringify({ stage, stack: await stack(), confirmations: await confirmations(), activity: facts, presence }), contentType: "application/json" })
