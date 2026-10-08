@@ -20,7 +20,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 // mergeOrderCredential mints a system-issued token for user and answers its
@@ -241,77 +240,9 @@ func TestTodoMergeOrderPostgres(t *testing.T) {
 		assert.Equal(t, "T2", mergeOrderBlocks(t, h)[3]["detail"], "T3 now merges after T2")
 	})
 
-	t.Run("step 8: T2 merges only at its rebased head", func(t *testing.T) {
-		// T-STK-08 owns rebase execution and verification. This fixture
-		// supplies its accepted results: real cherry-picks of T2 onto
-		// GitHub's squash commit and of T3 onto T2's rebased change; the
-		// stack publishes them as the PRs' new heads.
-		base := h.item(t1).PRMergeCommit
-		require.NotEmpty(t, base)
-		h.git(h.work, "fetch", "-q", h.github, "main")
-		rebase := func(n int64, head, onto string) string {
-			h.git(h.work, "fetch", "-q", h.github, "refs/heads/"+mythicalChecksOf(h.item(n)).Branch)
-			h.git(h.work, "checkout", "-q", onto)
-			h.git(h.work, "cherry-pick", head)
-			candidate := h.git(h.work, "rev-parse", "HEAD")
-			h.git(h.work, "push", "-q", h.hostDir, base+":refs/heads/main", candidate+":"+repohost.MythicalReservedRefNS+"keep/"+candidate)
-			require.NoError(t, h.host.ImportRefs(h.ctx, "", ""))
-			item := h.item(n)
-			item.CandidateBase, item.CandidateHead, item.CandidateVerified = onto, candidate, true
-			item.Generation++
-			item.State, item.Reason = "proposing", ""
-			checks := mythicalChecksOf(item)
-			checks.Rebase = nil
-			item.Checks = checks.encode()
-			_, err := h.q.SaveMythicalItem(h.ctx, item)
-			require.NoError(t, err)
-			return candidate
-		}
-		second := rebase(t2, h2, base)
-		rebase(t3, h3, second)
-		for pass := 0; pass < 8 && (h.item(t2).PRHead == h2 || h.item(t3).PRHead == h3 || h.pull(pr2).Draft); pass++ {
-			h.pass()
-		}
-		rebased := h.item(t2).PRHead
-		require.NotEqual(t, h2, rebased, "T2's PR is force-updated to H2'")
-		require.NotEqual(t, h3, h.item(t3).PRHead, "T3's PR is force-updated too")
-		pull := h.pull(pr2)
-		require.Equal(t, rebased, pull.Head.SHA)
-		require.False(t, pull.Draft, "T2 is first now; its PR is ready")
-		require.True(t, h.pull(pr3).Draft, "T3's PR stays a draft")
-		green(rebased)
-		green(h.item(t3).PRHead)
-		blocks := mergeOrderBlocks(t, h)
-		assert.Equal(t, map[string]any{"state": "ready", "on_github": true}, blocks[2])
-		assert.Equal(t, map[string]any{"state": "waiting", "reason": "order", "detail": "T2", "on_github": true}, blocks[3])
-
-		before := len(h.merges())
-		var stale *MythicalStaleHeadError
-		require.ErrorAs(t, merge(benSession, ben, t2, h2), &stale)
-		assert.Equal(t, conflict("stale_head", "the pull request changed since you saw it"), stale.TodoControlError)
-		assert.Equal(t, rebased, stale.CurrentHead)
-		assert.Nil(t, h.land(t2))
-		assert.Empty(t, h.item(t2).PendingOp)
-		assert.Len(t, h.merges(), before, "the stale head reaches no GitHub merge")
-
-		require.NoError(t, merge(benSession, ben, t2, rebased))
-		land := h.land(t2)
-		require.NotNil(t, land)
-		assert.Equal(t, []any{"ben", rebased, h.item(t2).Generation}, []any{land.By, land.Head, land.Generation}, "the approval names H2'")
-		h.pass()
-		calls := h.merges()[before:]
-		require.Len(t, calls, 1)
-		assert.Equal(t, fmt.Sprintf("/repos/%s/pulls/%d/merge", repo, pr2), calls[0].Path)
-		assert.Equal(t, http.StatusOK, calls[0].Status)
-		var sent struct {
-			SHA    string `json:"sha"`
-			Method string `json:"merge_method"`
-		}
-		require.NoError(t, json.Unmarshal(calls[0].Body, &sent))
-		assert.Equal(t, []string{rebased, "squash"}, []string{sent.SHA, sent.Method})
-		state, _ := h.mergeCard(t2)
-		assert.Equal(t, "merged", state)
-	})
+	// Step 8 runs through the composed install in
+	// TestTodoPreapprovalProductionRebaseComposed. Native rebase, real check
+	// launches and HTTP stale-head refusal replace fixture-supplied candidates.
 
 	writeMergeOrderEvidence(t, h, []int64{t1, t2, t3})
 }
