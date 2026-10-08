@@ -216,15 +216,12 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"GET", "/api/members", "", permission},
 				{"POST", "/api/members", `{"login":"carol"}`, permission},
 				{"POST", "/api/conversations/1/prompt", `{}`, permission},
-				// The owner's alone: the member boundary refuses a member first.
+				// Roster members pass the member boundary; the terminal profile
+				// still refuses opening a second session, even for the owner.
 				{"POST", "/api/repos/maya/demo/workspace/sessions", `{}`, permission},
 			} {
 				status, envelope := call(refused.method, refused.path, refused.body, header)
 				require.Equal(t, http.StatusForbidden, status, "%s %s %v", refused.method, refused.path, envelope)
-				if holder.ID != owner.ID && refused.path == "/api/repos/maya/demo/workspace/sessions" {
-					refused.envelope = envelope
-					require.Equal(t, "credential does not belong to the installation owner", envelope["message"])
-				}
 				require.Equal(t, refused.envelope, envelope, "%s %s", refused.method, refused.path)
 				// Forged attribution and actor headers change no decision.
 				forged := header.Clone()
