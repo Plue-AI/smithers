@@ -103,7 +103,13 @@ func prepareCleanupReopen(t *testing.T, r *rehearsal, n, repository, owner int64
 	capturedChange, err := r.options.Repository.GetChange(ctx, "rehearsal-owner", "app", p.head)
 	require.NoError(t, err)
 	require.NotEmpty(t, capturedChange.ChangeID)
-	_, err = r.pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,checks=jsonb_set(checks,'{machineItemChanges}',jsonb_build_object($2::text,$3::text)) WHERE id=$1`, item.ID, p.id, capturedChange.ChangeID)
+	// Model the installed TODO composition's pinned attempt awaiting review,
+	// rather than the historical unpinned runner that releases its coding lane.
+	// Publication/review may race reopen; they must keep this captured branch.
+	todoDigest, err := services.ActiveFlowDigest(ctx, q, repository, "todo")
+	require.NoError(t, err)
+	require.NotEmpty(t, todoDigest)
+	_, err = r.pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,flow_digest=$4,checks=jsonb_set(checks,'{machineItemChanges}',jsonb_build_object($2::text,$3::text)) WHERE id=$1`, item.ID, p.id, capturedChange.ChangeID, todoDigest)
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{RepositoryID: repository, WorkspaceID: p.id, ItemID: item.ID, Name: "lifecycle-fixture"})
 	require.NoError(t, err)
