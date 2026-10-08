@@ -104,54 +104,9 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 	return false
 }
 
-// terminalProfileRoutes are the routes a stage-1 terminal credential
-// (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
-// eligible reads, wiki reads, and the TODO doors whose handlers authorize
-// the rest (services.Authorize): answer and steer on its own branch's TODO
-// only, and new/amend requests, which require confirmation in the app.
-// Every other route refuses it with 403 permission before any handler runs.
-var terminalProfileRoutes = []struct {
-	method string
-	path   *regexp.Regexp
-}{
-	// The person-only scorecard policy supplies the typed never/permission refusal.
-	{http.MethodGet, regexp.MustCompile(`^/api/install/scorecard$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/stack$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?)?$`)},
-	{http.MethodPost, regexp.MustCompile(`^/api/todos(/[0-9]+(/answer)?)?$`)},
-	{http.MethodPatch, regexp.MustCompile(`^/api/todos/[0-9]+$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
-	{http.MethodGet, wikiReadPath},
-	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
-	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
-}
-
 // wikiReadPath is every wiki read: the page list, search, navigation, a
 // page, its document, updates, revisions, history and stream.
 var wikiReadPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki(/[^/]+)*$`)
-
-// allowTerminalProfileToken confines a stage-1 terminal credential to
-// terminalProfileRoutes. It writes the 403 itself and returns false when
-// refused.
-func allowTerminalProfileToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
-	if _, ok := info.TerminalDelegation(); !ok {
-		return true
-	}
-	for _, route := range terminalProfileRoutes {
-		if route.method == r.Method && route.path.MatchString(r.URL.Path) {
-			return true
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write([]byte(`{"class":"permission","code":"permission","message":"A terminal's credential cannot do this"}` + "\n"))
-	return false
-}
 
 // RequireAuth ensures a previous auth middleware attached a user to context.
 // A request whose session cookie AuthLoader found dead is refused as a dead
@@ -295,9 +250,6 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					return
 				}
 				if !allowWorkspaceRestrictedToken(w, r, authInfo, config.IsSingleOwner(cfg)) {
-					return
-				}
-				if !allowTerminalProfileToken(w, r, authInfo) {
 					return
 				}
 				if !allowCodingFileCredential(w, r, authInfo) {

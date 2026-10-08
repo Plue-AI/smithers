@@ -205,7 +205,7 @@ func (s *Sessions) OpenSession(ctx context.Context, user SessionUser, kind Sessi
 	if !validUser(user) {
 		return 0, refused("unauthorized", "invalid session user")
 	}
-	if kind < SessionPTY || kind > SessionSFTP || len(argv) > 65535 ||
+	if kind < SessionPTY || kind > SessionSFTP || len(argv) > 65535 || len(argv) > 0 && argv[0] == "" ||
 		kind == SessionExec && len(argv) == 0 || kind == SessionSFTP && len(argv) != 0 ||
 		size != nil && (kind != SessionPTY || size.Cols == 0 || size.Rows == 0) {
 		return 0, refused("malformed", "invalid session request")

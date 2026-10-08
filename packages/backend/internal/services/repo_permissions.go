@@ -441,6 +441,13 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	if len(subjects) == 1 {
 		subject = subjects[0]
 	}
+	// The S1 profile constrains every dispatch, including specialized command
+	// doors and cached decisions. The HTTP auth loader only resolves identity.
+	if info := middleware.AuthInfoFromContext(ctx); info != nil {
+		if _, terminal := info.TerminalDelegation(); terminal && (!terminalCommands[command] || command == "self.read" && subject.Resource != "identity") {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
+		}
+	}
 	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
 		info := middleware.AuthInfoFromContext(ctx)
 		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
@@ -540,9 +547,6 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	}
 
 	_, terminalProfile := info.TerminalDelegation()
-	if terminalProfile && !terminalCommands[command] {
-		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
-	}
 	if info.IsTokenAuth && !terminalProfile && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
 		scope := middleware.TokenScope(policy.CredentialScope)
 		if scope != middleware.ScopeWriteRepository && scope != middleware.ScopeReadRepository && scope != middleware.ScopeReadUser && scope != middleware.ScopeWriteUser {
@@ -619,11 +623,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string, subjects ...I
 	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && actor != ""
 	_, terminal := info.TerminalDelegation()
 	if terminal {
-		// A member's terminal credential acts as that member (spec §8.11.1);
-		// the auth loader already confined it to its profile's routes.
-		if !terminalCommands[command] {
-			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
-		}
+		// S1 was checked before specialized and bound command dispatch above.
 	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
 		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
 		message := "Sign in with a browser session"

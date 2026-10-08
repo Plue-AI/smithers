@@ -1,0 +1,108 @@
+package machined
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// These host receipts enter the production admitted RPC adapter and observe
+// the guest transport directly. Broker/kernel checks are in session_dispatch.rs;
+// actual uid/groups, rc canaries and cgroup cleanup wait for the reference VM.
+func TestSessionRootInputsValidated(t *testing.T) {
+	for _, user := range []SessionUser{{"root", 0}, {"ben", 0}, {"machined", 20001}, {"ben", 19999}, {"agent", 20001}, {"../ben", 20001}, {"ben/../../s1", 20001}, {"BEN", 20001}, {strings.Repeat("b", 33), 20001}, {"ben", 0x80000000}} {
+		t.Run(fmt.Sprintf("%s/%d", user.Login, user.UID), func(t *testing.T) {
+			sessions, guest := lspConfinementLink(t)
+			_, err := sessions.WithPresenceVia("terminal").OpenSession(t.Context(), user, SessionPTY, nil, &SessionSize{80, 24})
+			errorCode(t, err, "unauthorized")
+			requireGuestSilent(t, guest)
+		})
+	}
+	for _, cell := range []struct {
+		name string
+		kind SessionKind
+		argv []string
+		size *SessionSize
+	}{
+		{"unknown kind", 0, nil, nil}, {"zero columns", SessionPTY, nil, &SessionSize{0, 24}}, {"zero rows", SessionPTY, nil, &SessionSize{80, 0}},
+		{"exec dimensions", SessionExec, []string{"/bin/sh"}, &SessionSize{80, 24}}, {"sftp argv", SessionSFTP, []string{"/workspace/root-canary"}, nil},
+		{"empty executable", SessionPTY, []string{""}, nil},
+		{"NUL argv", SessionPTY, []string{"/bin/sh\x00"}, nil}, {"invalid UTF8", SessionPTY, []string{"\xff"}, nil}, {"oversize argv", SessionPTY, []string{strings.Repeat("x", 4097)}, nil},
+	} {
+		t.Run(cell.name, func(t *testing.T) {
+			sessions, guest := lspConfinementLink(t)
+			_, err := sessions.WithPresenceVia("terminal").OpenSession(t.Context(), SessionUser{"ben", 20001}, cell.kind, cell.argv, cell.size)
+			errorCode(t, err, "malformed")
+			requireGuestSilent(t, guest)
+		})
+	}
+	for _, id := range []uint32{0, 0x80000000, 0xffffffff} {
+		sessions, guest := lspConfinementLink(t)
+		errorCode(t, sessions.CloseSession(t.Context(), id), "malformed")
+		_, err := sessions.KillSession(t.Context(), id)
+		errorCode(t, err, "malformed")
+		_, err = sessions.AttachSession(t.Context(), id, 0)
+		errorCode(t, err, "malformed")
+		errorCode(t, sessions.RegisterRun(t.Context(), "run", id), "malformed")
+		requireGuestSilent(t, guest)
+	}
+}
+
+func TestSessionAdmissionFailsClosed(t *testing.T) {
+	for _, mode := range []string{"no provider", "no authenticated connection", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "unregistered agent"} {
+		t.Run(mode, func(t *testing.T) {
+			sessions, guest := lspConfinementLink(t)
+			sessions = sessions.WithPresenceVia("terminal")
+			user := SessionUser{"ben", 20001}
+			switch mode {
+			case "no provider":
+				sessions.rpc = nil
+			case "no authenticated connection":
+				sessions.connection = nil
+			case "unreconciled":
+				sessions.connection.registry.mu.Lock()
+				sessions.connection.ready = false
+				sessions.connection.registry.mu.Unlock()
+			case "wrong branch":
+				sessions.branch = "foreign"
+			case "closed boot":
+				require.NoError(t, sessions.connection.Close())
+			case "missing actor":
+				sessions = sessions.WithActor(nil, "")
+			case "zero actor":
+				sessions = sessions.WithActor(make([]byte, 16), "")
+			case "unregistered agent":
+				user = SessionUser{"agent", 19999}
+			}
+			_, err := sessions.OpenSession(context.Background(), user, SessionPTY, nil, nil)
+			require.Error(t, err)
+			if mode != "closed boot" {
+				requireGuestSilent(t, guest)
+			}
+		})
+	}
+}
+
+func TestTerminalRootInputsValidatedBeforeUse(t *testing.T) {
+	// The production terminal adapter uses the same OpenSession admission and
+	// selector validation; exercise it explicitly rather than a helper validator.
+	for _, cell := range []struct {
+		user SessionUser
+		size *SessionSize
+		argv []string
+	}{
+		{SessionUser{"root", 0}, &SessionSize{80, 24}, []string{"/workspace/root-canary"}},
+		{SessionUser{"../ben", 20001}, &SessionSize{80, 24}, nil},
+		{SessionUser{"ben", 20001}, &SessionSize{0, 24}, nil},
+		{SessionUser{"ben", 20001}, &SessionSize{80, 24}, []string{"/bin/sh\x00"}},
+	} {
+		sessions, guest := lspConfinementLink(t)
+		terminal, err := sessions.WithPresenceVia("terminal").OpenTerminal(t.Context(), cell.user, cell.argv, cell.size)
+		require.Error(t, err)
+		require.Nil(t, terminal)
+		requireGuestSilent(t, guest)
+	}
+}

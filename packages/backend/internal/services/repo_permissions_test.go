@@ -191,3 +191,24 @@ func TestMalformedDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
 		assert.Equal(t, "permission", access.Code)
 	}
 }
+
+// Terminal policy applies before specialized dispatch or reuse of a bound
+// decision; none of these commands may touch its database/provider first.
+func TestTerminalProfileCannotBypassDispatch(t *testing.T) {
+	info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "read:repository,read:user,repo:7,via:terminal,branch:branch-a,profile:terminal_s1,terminal-session:session-a"}
+	ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+	for _, command := range []string{"workspace.head", "workspace.children.spawn", "stack.candidate", "flow.run", "branch.fork", "members.add", "secrets.read", "approval.approve", "self", "public", "", "self.read"} {
+		t.Run(command, func(t *testing.T) {
+			for _, request := range []context.Context{ctx, WithInstallAuthorization(ctx, command, InstallAuthorization{UserID: 7, Role: InstallOwner})} {
+				_, err := Authorize(request, nil, command)
+				var refusal *AccessError
+				assert.ErrorAs(t, err, &refusal)
+				if refusal != nil {
+					assert.Equal(t, 403, refusal.Status)
+					assert.Equal(t, "permission", refusal.Class)
+					assert.Equal(t, "A terminal's credential cannot do this", refusal.Message)
+				}
+			}
+		})
+	}
+}

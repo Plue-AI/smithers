@@ -25,6 +25,8 @@ struct State {
     closes: Vec<u32>,
     kills: Vec<u32>,
     eofs: Vec<u32>,
+    resizes: Vec<(u32, u16, u16)>,
+    signals: Vec<(u32, u8)>,
     missing: Option<&'static str>,
     blocked: bool,
     fail_kill: Option<u32>,
@@ -102,10 +104,12 @@ impl Kernel for OS {
         self.0.lock().unwrap().eofs.push(id);
         Ok(())
     }
-    fn resize(&mut self, _: u32, _: u16, _: u16) -> io::Result<()> {
+    fn resize(&mut self, id: u32, rows: u16, cols: u16) -> io::Result<()> {
+        self.0.lock().unwrap().resizes.push((id, rows, cols));
         Ok(())
     }
-    fn signal(&mut self, _: u32, _: u8) -> io::Result<()> {
+    fn signal(&mut self, id: u32, signal: u8) -> io::Result<()> {
+        self.0.lock().unwrap().signals.push((id, signal));
         Ok(())
     }
     fn exited(&mut self, id: u32) -> io::Result<Option<Exit>> {
@@ -216,7 +220,8 @@ fn open_bytes(login: &str, uid: u32) -> Vec<u8> {
     ])
 }
 #[test]
-fn admission_fails_closed_through_root_dispatch_before_effects() {
+#[allow(non_snake_case)]
+fn TestSessionAdmissionFailsClosed() {
     for missing in [
         "authenticated machine",
         "wire",
@@ -1045,4 +1050,84 @@ fn process_binding_is_kernel_owned_and_invalid_identity_rolls_back_spawn() {
         assert_eq!(state.lock().unwrap().kills, vec![1]);
         assert_eq!(supervisor.entries().count(), 0);
     }
+}
+
+// Production privileged dispatch with an observable kernel seam. Real account,
+// descriptor and cgroup effects are deliberately not claimed by this receipt.
+#[test]
+#[allow(non_snake_case)]
+fn TestSessionRootInputsValidated() {
+    let (mut supervisor, state) = setup();
+    roster(&mut supervisor);
+    let id = open(&mut supervisor, user(), Kind::Pty);
+    for (operation, body) in [
+        (6, host_open_bytes("../ben", 20001)),
+        (6, host_open_bytes("ben", 0)),
+        (6, host_open_bytes("ben", 20002)),
+        (6, host_open_bytes("root", 20001)),
+        (6, open_bytes("ben", 20001)), // no host attribution
+        (
+            8,
+            conn::structure_bytes(&[conn::field(1, 0u32.to_be_bytes())]),
+        ),
+        (
+            8,
+            conn::structure_bytes(&[conn::field(1, 999u32.to_be_bytes())]),
+        ),
+        (
+            10,
+            conn::structure_bytes(&[
+                conn::field(1, [0, 3, b'r', b'u', b'n']),
+                conn::field(2, id.to_be_bytes()),
+            ]),
+        ), // member cannot own a run
+        (
+            15,
+            conn::structure_bytes(&[
+                conn::field(1, 999u32.to_be_bytes()),
+                conn::field(2, 0u64.to_be_bytes()),
+            ]),
+        ),
+        (20, b"/sys/fs/cgroup/smithers/sessions/../../root".to_vec()),
+        (25, br#"{"session":1,"pid":1,"uid":0}"#.to_vec()),
+    ] {
+        let reply = control::handle(&packet(operation, &body), &mut supervisor).unwrap();
+        assert_eq!(reply[4], 255, "operation {operation}");
+    }
+    for payload in [
+        vec![3, 0, 0, 0, 80],
+        vec![3, 0, 24, 0, 0],
+        vec![4, 0],
+        vec![4, 255],
+    ] {
+        let bytes = [
+            (payload.len() as u32).to_be_bytes().as_slice(),
+            &[5],
+            id.to_be_bytes().as_slice(),
+            &payload,
+        ]
+        .concat();
+        assert_eq!(
+            control::handle(&packet(17, &bytes), &mut supervisor).unwrap()[4],
+            255
+        );
+    }
+    for bytes in [vec![0; 65537], vec![0; 4], packet(254, &[0; 4])] {
+        let reply = control::handle(&bytes, &mut supervisor);
+        assert!(reply.is_err() || reply.unwrap()[4] == 255);
+    }
+    let observed = state.lock().unwrap();
+    assert_eq!(observed.spawns.len(), 1);
+    assert!(observed.closes.is_empty());
+    assert!(observed.kills.is_empty());
+    assert!(observed.inputs.is_empty());
+    assert!(observed.resizes.is_empty());
+    assert!(observed.signals.is_empty());
+    drop(observed);
+    assert_eq!(supervisor.entries().count(), 1);
+    // Valid controls reach only the held mapping for the admitted member.
+    send(&mut supervisor, frame(id, vec![3, 0, 30, 0, 100]));
+    send(&mut supervisor, frame(id, vec![4, 2]));
+    assert_eq!(state.lock().unwrap().resizes, [(id, 100, 30)]);
+    assert_eq!(state.lock().unwrap().signals, [(id, 2)]);
 }

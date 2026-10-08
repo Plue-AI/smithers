@@ -25,6 +25,21 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
 			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
+			if _, terminal := info.TerminalDelegation(); terminal && (command == "" || command == "self" || command == "public") {
+				if r.Method == http.MethodGet && r.URL.Path == "/api/user" {
+					command = "self.read"
+					decision, err := services.Authorize(r.Context(), queries, command, services.InstallSubject{Resource: "identity"})
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, services.InstallSubject{Resource: "identity"})))
+					return
+				}
+				_, err := services.Authorize(r.Context(), queries, command)
+				writeConfirmationDispatchError(w, err)
+				return
+			}
 			if command == "github.import-read" {
 				subject, validation := services.InstallGitHubImportReadSubject(strings.TrimPrefix(r.URL.Path, "/api/github/import/"))
 				decision, err := services.Authorize(r.Context(), queries, command, subject)

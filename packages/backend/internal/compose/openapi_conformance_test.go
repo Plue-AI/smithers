@@ -125,6 +125,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
+	user      *routes.UserHandler
 	mythical  *routes.MythicalHandler
 	pool      *pgxpool.Pool
 	billing   *routes.BillingHandler
@@ -153,6 +154,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	if deps.members == nil {
 		deps.members = &routes.MembersHandler{}
 	}
+	if deps.user == nil {
+		deps.user = &routes.UserHandler{}
+	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
@@ -169,7 +173,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 		fastGateway = &modelproxy.FastGateway{}
 	}
 	router := buildRouter(cfg, queries, deps.pool,
-		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
+		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, deps.user, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
 		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, deps.billing,
