@@ -218,3 +218,65 @@ func TestTodoValidatedSubmissionConsumesOnlyItsCapture(t *testing.T) {
 		})
 	}
 }
+
+func TestTodoLiveCapturedSubmissionAcrossEnginePhases(t *testing.T) {
+	for _, mode := range []string{"integrating", "verifying", "proposing", "waiting", "proposed", "ended", "newer", "stale", "paused", "question"} {
+		t.Run(mode, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			id := uuidString(o.fileTodo(session, "live-captured-submission").ID)
+			o.wake()
+			o.projectTodo(o.launcher.last("todo"), jobs.StateWaiting, "current-run", todoPinOne, "")
+			item := o.byID(id)
+			candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"JOURNEY.md": "Keep the person's retry fix.\n"}, "Keep retries")
+			capture := MachineCapturePending{Head: candidate, Onto: candidate, Base: item.BaseCommit}
+			item.State = mode
+			switch mode {
+			case "ended":
+				item.State, item.RequestOutcome = "proposed", "completed"
+			case "newer":
+				item.State = "proposed"
+				capture.Head = o.laneResult(item.WorkspaceID, candidate, map[string]string{"JOURNEY.md": "A person's newer edit.\n"}, "Keep newer edits")
+				capture.Onto = capture.Head
+			case "stale":
+				item.State, capture.Stale = "proposed", true
+			case "paused", "question":
+				item.State = "proposed"
+			}
+			tree, err := exec.Command("git", "--git-dir", o.hostDir, "rev-parse", capture.Head+"^{tree}").Output()
+			require.NoError(t, err)
+			capture.Tree = strings.TrimSpace(string(tree))
+			checks := mythicalChecksOf(item)
+			checks.Capture = &capture
+			if mode == "question" {
+				checks.Waits = []TodoWait{{ID: "unanswered", Kind: "question"}}
+			}
+			item.Checks = checks.encode()
+			if mode == "paused" {
+				item.PausedAt.Valid = true
+				item.PausedAt.Time = item.CreatedAt.Time
+			}
+			item, err = o.service.queries().SaveMythicalItem(t.Context(), item)
+			require.NoError(t, err)
+			raw, err := json.Marshal(capture)
+			require.NoError(t, err)
+			_, err = o.service.store.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status,head_commit_id,capture_pending) VALUES($1,$2,$3,'capture','capture-vm','running',$4,$5)`, item.WorkspaceID, o.repoID, o.userID, capture.Head, raw)
+			require.NoError(t, err)
+			submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit, Source: candidate, RequestRunID: "current-run", Summary: "Keep retries", Plan: json.RawMessage(`{"changes":[{"title":"Keep retries","atoms":[{"changeId":null,"message":"Keep retries"}],"checks":[]}]}`)}
+			_, err = o.service.SubmitLane(t.Context(), o.repoID, o.userID, submission)
+			switch mode {
+			case "ended", "newer", "stale", "paused", "question":
+				require.Error(t, err)
+				require.Equal(t, item, o.byID(id), "refused delivery cannot change the attempt or its capture")
+			default:
+				require.NoError(t, err)
+				after := o.byID(id)
+				require.Equal(t, "integrating", after.State)
+				require.Equal(t, candidate, after.CandidateHead)
+				require.Equal(t, item.RequestRunID, after.RequestRunID)
+				require.Nil(t, mythicalChecksOf(after).Capture)
+				require.NotEmpty(t, after.Plan)
+			}
+		})
+	}
+}

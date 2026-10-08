@@ -485,7 +485,16 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 		// delivery child hands the request child's validated result over
 		// while the composition runs, so its bound run is the composition's.
 		_, pinned := mythicalPinOf(item)
-		composed := pinned && item.State == "running" && mythicalChecksOf(item).RunAttached
+		checks := mythicalChecksOf(item)
+		// Native capture and the stack's verification/proposal can advance while
+		// the same live composition is delivering a steer. Its exact retained
+		// capture still belongs to that bound run; the engine phase is not a
+		// replacement attempt. Ended runs and unresolved captures cannot resume.
+		liveCapture := item.RequestOutcome == "" && !item.PausedAt.Valid && len(todoOpenWaits(item)) == 0 &&
+			checks.Capture != nil && checks.Capture.Head == input.Source && checks.Capture.Onto == input.Source &&
+			!checks.Capture.Stale && !checks.Capture.Conflict && checks.Capture.ReconciledOnto == "" && checks.Capture.ReconcileWaitID == ""
+		continuing := liveCapture && slices.Contains([]string{"integrating", "verifying", "proposing", "waiting", "proposed"}, item.State)
+		composed := pinned && checks.RunAttached && (item.State == "running" || continuing)
 		if !composed && (item.State != "delivering" || item.RequestOutcome != "validated") {
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the lane's item is " + item.State + ", not waiting for a validated result")
 		}
@@ -528,7 +537,7 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 		// validated source. That exact snapshot is now the candidate, rather
 		// than a second edited-only continuation waiting behind this steer.
 		// A later edit or an unresolved capture must remain pending.
-		checks := mythicalChecksOf(next)
+		checks = mythicalChecksOf(next)
 		if capture := checks.Capture; composed && capture != nil && capture.Head == input.Source && capture.Onto == input.Source && !capture.Stale && !capture.Conflict && capture.ReconciledOnto == "" && capture.ReconcileWaitID == "" {
 			if _, err := s.store.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1 AND capture_pending->>'head'=$2 AND capture_pending->>'onto'=$2 AND capture_pending->>'tree'=$3 AND COALESCE((capture_pending->>'stale')::boolean,false)=false AND COALESCE((capture_pending->>'conflict')::boolean,false)=false`, input.WorkspaceID, input.Source, capture.Tree); err != nil {
 				return MythicalLaneReceipt{}, err
