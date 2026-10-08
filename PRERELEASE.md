@@ -1,18 +1,28 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 13:34 PDT
-main          fa2bffbaa0 when written, 49 commits past the last journey run
+Updated       2026-10-08 14:03 PDT
+main          4881e80270 when written
 
-Real install  BROKEN. A TODO cannot run on a real Mac today. The machine daemon
-              does not start in a real machine. 2 fixes landed, 4 defects open.
-              No real install has started yet.
-Journeys      7 of 11 have no failed row, on Linux fixtures only.
-              Red: J4, J5, J7, J10. Ran on d0b0c7b2f0 and df9c9e0476, not on main.
+Real machine  The machine daemon starts, admits its session and lands writes in
+              a real VM on main. Proven on this MacBook at 99a4356a1a. All
+              eight defects found today are fixed.
+Real install  NOT YET PROVEN. No TODO has run on a real install. The install
+              run on this MacBook is building its bundle.
+Journeys      7 of 11 have no failed row, on Linux fixtures, at d0b0c7b2f0.
+              Red (pass/fail/pending): J4 22/1/2, J5 18/2/0, J7 11/4/6, J10 35/1/4.
+              Those four are rerunning on main 4881e80270 since 14:02 PDT.
 Doneish       No. It needs one real install that takes a TODO to a merged PR, and
               all 11 journeys passing on one commit. Neither exists.
-Dry run       NOT GREEN. Run 37837413419 stopped at the changelog gate.
-              Build, pack and smoke did not run.
+Dry run       NOT GREEN. Version 1.0.0-rc.1, cut 4cac606955.
+              #1 37837413419 failed: changelog gate, and the Mac bundle was
+              never uploaded (hidden directory). Fixed on main, 86881fe0d0.
+              #2 37842512795 and #3 37843714479 are running on the cut.
+              #3 is the first that can deliver the bundle.
+Tag push      Publishes npm under `next` and nothing else. It cannot publish
+              after a failed build, pack or smoke. Homebrew and installer
+              signing are skipped. No GitHub Release is created.
+              (smithers-8a read the workflow at 86881fe0d0.)
 
 Ships         npm packages under `next`, plus the Apple Silicon server bundle
               as a download. No Homebrew.
@@ -22,10 +32,11 @@ To try it     Apple Silicon Mac, macOS 15 or later, and 44 GiB free on the state
               Unpack the bundle, then: ./bin/smthrs host start --bundle .
 No Mac mini   The Mac mini will not be online (Will, today).
 No Cloud      Smithers Cloud cannot run a TODO.
-Real run      One, on this MacBook, when disk allows: 20.6 GiB free, 72 needed.
+Real run      One, on this MacBook: 37 GiB free now. It clears caches to hold
+              44 for the first start.
 
 Needs Will    Now: nothing.
-              When the dry run is green: the commands under Publish.
+              When the last dry run is green: the tag push under Publish.
 ```
 
 ## 1. What works
