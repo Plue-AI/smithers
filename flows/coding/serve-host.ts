@@ -16,6 +16,7 @@ import { prepareFlowDependencies, withImmutableCommit, withPinnedSource } from "
 import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
+import * as MeteredSteps from "./metered-steps.ts"
 import { nativeLayer } from "./native.ts"
 import { boundRelayWikiProvider } from "./planning-wiki-provider.ts"
 import { loadProject } from "./project-config.ts"
@@ -172,6 +173,12 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
     // The managed runtime launches this packaged entry as agent. No root helper
     // parses the repository JSON or selects its destination.
     const snapshot = consumeInstallProject(process.env)
+    // Every model call to the install's metered proxy names the engine
+    // dispatch it ran under, so the monitor prices each step (T-FLW-07).
+    const metered = (platform: NativeControl.Platform): NativeControl.Platform => ({
+      ...platform,
+      requestExecutor: MeteredSteps.layer(platform.requestExecutor, process.env.SMITHERS_MODEL_PROXY_URL)
+    })
     const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
       loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG).pipe(
         Effect.flatMap((landing) => {
@@ -294,7 +301,7 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
         import("@effect/platform-bun/BunRuntime"),
         import("@effect/platform-bun/BunHttpClient")
       ])
-      runtime.runMain(run(platform, http.layer))
+      runtime.runMain(run(metered(platform), http.layer))
     } else {
       // One constructor owns "the Undici client this process should use": it
       // routes through the egress proxy the environment names and is the plain
@@ -306,7 +313,7 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
         import("@effect/platform-node/NodeRuntime"),
         import("@smthrs/platform-node/EgressHttpClient")
       ])
-      runtime.runMain(run(platform, egress.layer(process.env)))
+      runtime.runMain(run(metered(platform), egress.layer(process.env)))
     }
   }
 }
