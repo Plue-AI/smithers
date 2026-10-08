@@ -28280,6 +28280,50 @@
     }
   },
   {
+    "label": "//apps/app:journeyAgentTerminal",
+    "package": "apps/app",
+    "name": "journeyAgentTerminal",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyAskRepository",
     "package": "apps/app",
     "name": "journeyAskRepository",
@@ -29331,6 +29375,50 @@
     "label": "//apps/app:journeySshBranch",
     "package": "apps/app",
     "name": "journeySshBranch",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyTerminalSignin",
+    "package": "apps/app",
+    "name": "journeyTerminalSignin",
     "rule": "NodeTest",
     "kinds": [
       "test"
