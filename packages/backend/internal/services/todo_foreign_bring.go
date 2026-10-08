@@ -161,7 +161,9 @@ func (st *mythicalItemStep) lockForeignBring(ctx context.Context, tx pgx.Tx, ite
 	}
 	var repository int64
 	var status string
-	if err := tx.QueryRow(ctx, `SELECT repository_id,status FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, pending.Workspace).Scan(&repository, &status); err != nil {
+	// Fence wake and capture updates while allowing native session identity
+	// readers to take KEY SHARE before the daemon acknowledges its rewrite.
+	if err := tx.QueryRow(ctx, `SELECT repository_id,status FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE`, pending.Workspace).Scan(&repository, &status); err != nil {
 		return err
 	}
 	occupied := current.WorkspaceID != ""
