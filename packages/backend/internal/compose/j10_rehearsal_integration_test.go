@@ -1383,7 +1383,7 @@ func TestJ10Rehearsal(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			rewritten, err := r.githubGit("commit-tree", tree, "-p", parent, "-m", "Rewritten on GitHub")
+			rewritten, err := r.githubGit("-c", "user.name=GitHub", "-c", "user.email=noreply@github.test", "commit-tree", tree, "-p", parent, "-m", "Rewritten on GitHub")
 			if err != nil {
 				return err
 			}
