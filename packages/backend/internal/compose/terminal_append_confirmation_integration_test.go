@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -89,6 +90,33 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	require.Equal(t, "Waiting for ben to confirm", receipt["message"])
 	id, ok := receipt["confirmation"].(string)
 	require.True(t, ok, receipt)
+	// Feed the real installed-router CLI receipt (exit 3) through the same
+	// parser that the native Claude driver runs. A Bash error flag for that
+	// exit must preserve the pending id, never turn it into a failed skill.
+	proof := exec.CommandContext(ctx, "bun", "-e", `import { terminalSkillProof } from "../../../../apps/app/e2e/real/support/terminal-skill-proof.ts"; console.log(terminalSkillProof(["todo new"], "todo new"))`)
+	parser, err := proof.CombinedOutput()
+	require.NoError(t, err, string(parser))
+	encodedReceipt, err := json.Marshal(receipt)
+	require.NoError(t, err)
+	for _, toolError := range []bool{false, true} {
+		messages := []any{
+			map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Bash", "id": "append", "input": map[string]any{"command": "smthrs todo new --json"}}}}},
+			map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "tool_result", "tool_use_id": "append", "is_error": toolError, "content": string(encodedReceipt)}}}},
+			map[string]any{"type": "result", "subtype": "success", "is_error": false},
+		}
+		var transcript strings.Builder
+		for _, message := range messages {
+			encoded, err := json.Marshal(message)
+			require.NoError(t, err)
+			transcript.Write(encoded)
+			transcript.WriteByte('\n')
+		}
+		parse := exec.CommandContext(ctx, "/usr/bin/python3", "-c", string(parser))
+		parse.Stdin = strings.NewReader(transcript.String())
+		output, err := parse.CombinedOutput()
+		require.NoError(t, err, string(output))
+		require.Equal(t, "J6CONFIRMATION="+id+"\nJ6SKILL=executed\n", string(output))
+	}
 	code, replay := invoke(argv...)
 	require.Equal(t, 3, code)
 	require.Equal(t, receipt, replay)

@@ -163,7 +163,13 @@ func TestTodoAmendHeldLifecycle(t *testing.T) {
 			input.Steer = &text
 			next, feedback, _, err := prepareTodoAmend(ctx, item, input, amendment, json.RawMessage(`{}`), nil, time.Now())
 			if state == "landed" || state == "cancelled" {
-				require.Equal(t, "todo_closed", err.(*TodoControlError).Code)
+				var refused *TodoTransitionRefusedError
+				require.ErrorAs(t, err, &refused)
+				require.Equal(t, 409, refused.Status)
+				require.Equal(t, "conflict", refused.Class)
+				require.Equal(t, "todo_transition_refused", refused.Code)
+				require.Equal(t, map[string]string{"landed": "merged", "cancelled": "dropped"}[state], refused.From)
+				require.Equal(t, "steer", refused.Trigger)
 				require.Equal(t, item, next)
 				return
 			}

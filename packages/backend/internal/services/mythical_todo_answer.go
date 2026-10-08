@@ -359,7 +359,10 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 				return &TodoControlError{http.StatusNotFound, "wait_not_found", "user", "Question not found"}
 			}
 			wait := &checks.Waits[index]
-			if wait.Kind != "conflict" {
+			// Questions and conflicts are answerable through the terminal skill.
+			// Only an approval wait requires a person's decision; the shared
+			// authorizer already binds question answers to the delegated branch.
+			if wait.Kind == "approval" {
 				if err := middleware.RequirePerson(ctx, "answer a human wait"); err != nil {
 					return err
 				}
