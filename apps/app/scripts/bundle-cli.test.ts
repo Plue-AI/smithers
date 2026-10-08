@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { requiresMacOS } from "./RequiresMacOS"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import * as HostService from "../../../packages/smithers/src/internal/backend/HostService"
 
 const root = mkdtempSync(join(tmpdir(), "bundle-cli-"))
 const binary = join(root, "smthrs")
@@ -21,6 +22,23 @@ for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "
     expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
   })
 }
+
+test("the bundle README shows the lines host start prints", () => {
+  // The Stage-1 section of this README ships as the bundle's README.md
+  // (server-bundle.integration.test.ts). It showed `{"setup_urls":[...]}`,
+  // which is what `--json` prints. The command it tells the reader to run
+  // prints the links, one per line; a real install on 2026-10-08 found the
+  // difference.
+  const readme = readFileSync(join(import.meta.dir, "README.md"), "utf8")
+  const stage = readme.split("## Stage-1 service\n")[1]!.split("\n## ")[0]!
+  expect(stage).toContain("./bin/smthrs host start --bundle .\n")
+  const shown = /After readiness it prints[^\n]*\n\n```text\n([\s\S]*?)\n```/.exec(stage)?.[1]
+  expect(shown).toBeDefined()
+  const urls = shown!.split("\n")
+  expect(urls).toEqual(["http://localhost:4000/setup?token=...", "http://127.0.0.1:4000/setup?token=..."])
+  expect(HostService.startText({ setup_urls: urls })).toBe(shown!)
+  expect(stage).not.toContain('"setup_urls"')
+})
 
 // Off macOS, host start refuses at the launchd platform check first
 // (packages/smithers/test/HostService.test.ts covers that refusal).

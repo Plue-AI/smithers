@@ -17,10 +17,11 @@ Start the per-user service:
 ./bin/smthrs host start --bundle .
 ```
 
-After readiness it prints one JSON line:
+After readiness it prints the setup links, one per line:
 
-```json
-{"setup_urls":["http://localhost:4000/setup?token=...","http://127.0.0.1:4000/setup?token=..."]}
+```text
+http://localhost:4000/setup?token=...
+http://127.0.0.1:4000/setup?token=...
 ```
 
 Open the first link in your browser. Repeat start keeps the token. The service
@@ -174,7 +175,7 @@ the C compiler and linker. `manifest.json` records both under
 records the Zig release. Then assemble and verify:
 
 ```sh
-smthrs build //apps/app:serverBundle
+pnpm exec smthrs build //apps/app:serverBundle
 bun apps/app/scripts/server-bundle-manifest.ts apps/app/.native
 ```
 
