@@ -353,6 +353,14 @@ func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
 	require.Equal(t, "proposed", proposed.State, proposed.Reason)
 	require.Equal(t, generation+1, proposed.Generation)
 	require.Equal(t, 1, f.verifies(proposed), "one verification")
+	// Review waits for the attached run to observe its own acceptance; it
+	// does not stop that run's machine mid-operation.
+	f.wake()
+	require.Zero(t, guest.stops, "the run's machine stays until it sees the proposal")
+	require.Equal(t, item.WorkspaceID, f.item(item.Number.Int64).WorkspaceID)
+	result, status = call("stack.propose", proposal)
+	require.Equal(t, 200, status)
+	require.Equal(t, ReservedStackResult{Generation: generation + 1, Head: proposed.PRHead}, result)
 	// Independently observed GitHub bytes: the PR head has the verified
 	// candidate's tree on main.
 	require.Equal(t, proposed.PRHead, f.githubRef(mythicalChecksOf(proposed).Branch))
@@ -361,6 +369,50 @@ func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
 	require.Equal(t, "member bytes", f.git(f.github, "show", proposed.PRHead+":MEMBER.md"))
 	writes := len(f.writes())
 	require.Len(t, f.pullCreates(), 1)
+
+	// Replays settle on the recorded publication without another write.
+	seen := f.item(item.Number.Int64)
+	result, status = call("stack.propose", proposal)
+	require.Equal(t, 200, status)
+	require.Equal(t, proposed.PRHead, result.Head)
+	result, status = call("stack.candidate", capture)
+	require.Equal(t, 200, status)
+	require.Equal(t, generation+1, result.Generation)
+	require.Equal(t, seen.Version, f.item(item.Number.Int64).Version, "replays write nothing")
+	_, status = call("stack.propose", ReservedStackInput{RequestID: proposal.RequestID, Generation: generation})
+	require.Equal(t, 409, status, "a stale generation refuses")
+
+	// Once the run has seen its proposal, review takes the coding machine and
+	// the retired lane's credential authorizes neither operation.
 	f.wake()
+	require.Equal(t, 1, guest.stops)
+	_, status = call("stack.propose", proposal)
+	require.Equal(t, 403, status)
 	require.Len(t, f.writes(), writes, "no second push or pull request")
+}
+
+// The review handoff waits only for the run that offered its candidate through
+// stack.candidate and has not yet seen acceptance. Every other fact releases it.
+func TestTodoRunAwaitsProposal(t *testing.T) {
+	held := func(mutate func(*db.MythicalItem, *mythicalChecks)) bool {
+		item := db.MythicalItem{State: "proposed", WorkspaceID: "coding-lane", RequestRunID: "current-run", FlowDigest: pgtype.Text{String: todoPinOne, Valid: true}}
+		checks := mythicalChecks{FlowSource: strings.Repeat("a", 40), RunAttached: true, ProposalRun: "current-run"}
+		mutate(&item, &checks)
+		item.Checks = checks.encode()
+		return todoRunAwaitsProposal(item)
+	}
+	require.True(t, held(func(*db.MythicalItem, *mythicalChecks) {}))
+	for name, mutate := range map[string]func(*db.MythicalItem, *mythicalChecks){
+		"acceptance observed, or delivery by lane submission": func(_ *db.MythicalItem, c *mythicalChecks) { c.ProposalRun = "" },
+		"offered by an earlier run":                           func(_ *db.MythicalItem, c *mythicalChecks) { c.ProposalRun = "older-run" },
+		"run ended":                                           func(i *db.MythicalItem, _ *mythicalChecks) { i.RequestOutcome = "completed" },
+		"run not attached":                                    func(_ *db.MythicalItem, c *mythicalChecks) { c.RunAttached = false },
+		"no run":                                              func(i *db.MythicalItem, c *mythicalChecks) { i.RequestRunID, c.ProposalRun = "", "" },
+		"lane already released":                               func(i *db.MythicalItem, _ *mythicalChecks) { i.WorkspaceID = "" },
+		"not proposed":                                        func(i *db.MythicalItem, _ *mythicalChecks) { i.State = "verifying" },
+		"closed":                                              func(i *db.MythicalItem, _ *mythicalChecks) { i.State = "landed" },
+		"unpinned":                                            func(i *db.MythicalItem, _ *mythicalChecks) { i.FlowDigest = pgtype.Text{} },
+	} {
+		require.False(t, held(mutate), name)
+	}
 }

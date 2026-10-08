@@ -1713,7 +1713,7 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
-	if mythicalChecksOf(item).Capture != nil {
+	if mythicalChecksOf(item).Capture != nil || todoRunAwaitsProposal(item) {
 		return item
 	}
 	// Keep interrupted work for its person. Finished review lanes use the
@@ -4476,6 +4476,9 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return &item, false, nil
 	}
+	if todoRunAwaitsProposal(item) {
+		return &item, false, nil
+	}
 	if mythicalChecksOf(item).Outages > mythicalOutageBound {
 		// This head's review used up its outages: nothing is admitted for it
 		// again. A new head (a refresh, a person's push) starts over.
@@ -5430,6 +5433,9 @@ type mythicalChecks struct {
 	Waits           []TodoWait  `json:"waits,omitempty"`
 	RunLaunched     bool        `json:"run_launched,omitempty"`
 	RunAttached     bool        `json:"run_attached,omitempty"`
+	// ProposalRun is the run that offered a candidate through stack.candidate
+	// and has not yet observed its acceptance (todoRunAwaitsProposal).
+	ProposalRun string `json:"proposal_run,omitempty"`
 	// FlowSource is the main commit the attempt's todo pin was chosen from;
 	// flow_digest holds the pin's execution digest (mythicalPinOf).
 	FlowSource string `json:"flowSource,omitempty"`

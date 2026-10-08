@@ -255,3 +255,6 @@ lane. Candidate acknowledgments reuse the immutable head when its prefix and
 live tree are equal and its verification is valid or still running. An observed invalidation requests fresh checks even if the next snapshot has equal bytes. Proposal acknowledgments name only the generation that the
 same worker has published. A proposal of the current generation waits while its
 checks run; failed checks, changed trees and stale generations refuse.
+When the attached run offered its candidate through `stack.candidate`, review
+takes the coding machine only after that run has observed its proposal or
+ended, so it is not stopped before it sees its own acceptance.

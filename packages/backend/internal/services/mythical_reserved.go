@@ -221,6 +221,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		item.State, item.Reason = "integrating", ""
 		checks := mythicalChecksOf(item)
 		checks.Capture, checks.Land, checks.Review = &captured, nil, nil
+		// This run now waits on stack.propose for its acceptance.
+		checks.ProposalRun = item.RequestRunID
 		item.Checks = checks.encode()
 		encoded, err := json.Marshal(captured)
 		if err != nil {
@@ -255,6 +257,18 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return empty, 0, pkgerrors.Conflict("candidate changed")
 		}
 		if item.State == "proposed" && item.PRHead != "" && len(item.PendingOp) == 0 {
+			// The run saw its acceptance; review may now take its machine.
+			// Cleared once: a replay returns its receipt above.
+			if checks := mythicalChecksOf(item); checks.ProposalRun != "" {
+				checks.ProposalRun = ""
+				item.Checks = checks.encode()
+				if item, err = q.SaveMythicalItem(live, item); err != nil {
+					return empty, 0, err
+				}
+				if _, err := q.RequestMythicalStack(live, repository); err != nil {
+					return empty, 0, err
+				}
+			}
 			return complete(ReservedStackResult{Generation: item.Generation, Head: item.PRHead})
 		}
 	}
@@ -331,4 +345,19 @@ func (s *MythicalService) recordReservedStack(ctx context.Context, tx pgx.Tx, it
 	}
 	_, err = tx.Exec(ctx, `UPDATE product_job_requests SET authorization_context=$2::jsonb WHERE id=$1`, id, metadata)
 	return err
+}
+
+// todoRunAwaitsProposal reports a proposed TODO whose attached composition
+// offered its candidate through stack.candidate and has not yet observed the
+// acceptance through stack.propose. Review and lane release wait: retiring
+// that machine would stop the run before it sees its own proposal. An ended
+// run (RequestOutcome), another run or an observed acceptance ends the hold.
+// A composition that delivers by lane submission never sets it.
+func todoRunAwaitsProposal(item db.MythicalItem) bool {
+	if item.State != "proposed" || item.WorkspaceID == "" || item.RequestOutcome != "" || item.RequestRunID == "" {
+		return false
+	}
+	_, pinned := mythicalPinOf(item)
+	checks := mythicalChecksOf(item)
+	return pinned && checks.RunAttached && checks.ProposalRun == item.RequestRunID
 }
