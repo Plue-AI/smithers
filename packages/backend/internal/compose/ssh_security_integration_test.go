@@ -2,19 +2,24 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	internalssh "github.com/smithersai/smithers/packages/backend/internal/ssh"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -62,7 +67,33 @@ func TestSSHUnavailableProvidersFailClosed(t *testing.T) {
 	}
 	// Omit each required production bridge capability independently. These are
 	// actual install adapters; no recording bridge can supply acceptance.
-	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool))
+	// C-MCH-11: refusals enter the production SSH gateway with a real
+	// admission runtime composed. Inject only VM inventory/boot observations;
+	// a missing door must not create demand, a durable transition or a VM.
+	binary := filepath.Join(t.TempDir(), "msb")
+	bootLog := filepath.Join(t.TempDir(), "unexpected-boot")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = list ]; then echo '[]'; else echo \"$*\" >> %q; exit 99; fi\n", bootLog)), 0700))
+	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: t.TempDir(), Binary: binary, HostProfile: &profile,
+		SkipQualification: true, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithWorkspaceRuntime(runtime),
+		services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
+	service.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
+	assertNoAdmission := func(t *testing.T) {
+		t.Helper()
+		require.Empty(t, runtime.AdmissionSnapshot())
+		require.Zero(t, runtime.InUse())
+		require.NoFileExists(t, bootLog)
+		stored, err := q.GetWorkspace(ctx, machine.ID)
+		require.NoError(t, err)
+		require.Equal(t, "stopped", stored.Status)
+		var sessions int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1`, machine.ID).Scan(&sessions))
+		require.Zero(t, sessions)
+	}
+	assertNoAdmission(t)
 	for _, missing := range []string{"authorization", "admission", "session tracking", "authenticated daemon transport", "transaction boundary"} {
 		t.Run(missing, func(t *testing.T) {
 			bridge := installDaemonBridge(pool, service, &machined.Registry{})
@@ -86,6 +117,7 @@ func TestSSHUnavailableProvidersFailClosed(t *testing.T) {
 				c.Close()
 			}
 			require.Error(t, e)
+			assertNoAdmission(t)
 		})
 	}
 	resolver := &internalssh.InstallBranchResolver{Database: pool}

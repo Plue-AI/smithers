@@ -72,3 +72,61 @@ func TestMaintenanceAdmissionFencesReadinessRace(t *testing.T) {
 	require.ErrorIs(t, err, ErrAdmissionFrozen)
 	require.False(t, r.AdmissionHeld("workspace:one"))
 }
+
+func TestMaintenanceHealthWakeUsesIsolatedGrantAndConfirmedStop(t *testing.T) {
+	r, ws, log := startupRecoveryTransport(t, "recover-files")
+	require.NoError(t, r.DrainMachineAdmission(t.Context()))
+	providers := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
+	err := r.MaintenanceHealthWake(t.Context(), ws.ID, "owner-upgrade", providers)
+	require.ErrorContains(t, err, "injected recover-files failure")
+	require.Equal(t, []string{"list", "install", "kill-all", "recover-files", "stop", "list"}, invocations(t, log))
+	require.Zero(t, r.InUse(), "release follows an independent stop observation")
+	require.False(t, r.AdmissionHeld("workspace:"+ws.ID))
+	_, err = r.Request("person", "workspace:other", "member", "terminal")
+	require.ErrorIs(t, err, ErrAdmissionFrozen, "a health failure never reopens normal admission")
+	require.Len(t, r.AdmissionSnapshot(), 1)
+	require.Equal(t, "released", r.AdmissionSnapshot()[0].State)
+}
+
+func TestMaintenanceHealthWakeRefusesMissingAuthorityOrHeldSlots(t *testing.T) {
+	for _, kind := range []string{"unfrozen", "ready", "disk", "capacity", "held", "reclaimed", "cancelled"} {
+		t.Run(kind, func(t *testing.T) {
+			r, ws, log := startupRecoveryTransport(t, "recover-files")
+			p := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
+			require.NoError(t, r.DrainMachineAdmission(t.Context()))
+			ctx := t.Context()
+			switch kind {
+			case "unfrozen":
+				require.NoError(t, r.ResumeMachineAdmission(ctx))
+			case "ready":
+				p.Ready = nil
+			case "disk":
+				p.FreeDisk = func(context.Context) (int64, error) { return 40 << 30, nil }
+			case "capacity":
+				r.SetCapacityReader(func(context.Context) (int, error) { return 0, nil })
+			case "held":
+				r.auxVMs = map[string]struct{}{"prepare": {}}
+			case "reclaimed":
+				ws.Reclaimed = true
+			case "cancelled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			require.Error(t, r.MaintenanceHealthWake(ctx, ws.ID, "upgrade", p))
+			require.Empty(t, invocations(t, log), "refusal precedes the VM boundary")
+		})
+	}
+}
+
+func TestMaintenanceHealthWakeUnconfirmedStopRetainsSlot(t *testing.T) {
+	r, ws, _ := startupRecoveryTransport(t, "stop")
+	require.NoError(t, r.DrainMachineAdmission(t.Context()))
+	p := AdmissionProviders{Ready: func(context.Context, AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
+	require.Error(t, r.MaintenanceHealthWake(t.Context(), ws.ID, "upgrade", p))
+	require.Equal(t, 1, r.InUse())
+	require.True(t, r.AdmissionHeld("workspace:"+ws.ID))
+	require.Error(t, r.MaintenanceHealthWake(t.Context(), ws.ID, "upgrade", p), "no second isolated grant before confirmed stop")
+	_, err := r.Request("person", "workspace:other", "member", "terminal")
+	require.ErrorIs(t, err, ErrAdmissionFrozen)
+}

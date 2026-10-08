@@ -625,3 +625,95 @@ func (r *admissionDemandRecorder) ReconstructAdmission(_ context.Context, rows [
 	r.rows = append([]microsandbox.AdmissionRequest(nil), rows...)
 	return nil
 }
+
+// The installing-owner HTTP door composes the production freeze store, branch
+// authority and admission runtime. Only runtime boot/stop observations and free
+// disk are substituted. A failed guest bootstrap retains the upgrade fence.
+func TestMaintenanceHealthWakeProductionOwnerHTTP(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t, 8)
+	ctx := t.Context()
+	q := db.New(pool)
+	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "healthowner", LowerUsername: "healthowner"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "health", LowerName: "health", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"healthowner","repository_name":"health","repository_id":%d,"last_access_check_at":%q}`, repo.ID, time.Now().UTC().Format(time.RFC3339Nano))
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
+	machineOwner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: "health", TargetBookmark: "scratch/healthowner/health", Kind: "vm", Status: "suspended"})
+	require.NoError(t, err)
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "owner"), []byte("smithers-backend-0123456789abcdef\n"), 0600))
+	sum := sha256.Sum256([]byte(branch.ID))
+	directory := filepath.Join(root, "workspaces", hex.EncodeToString(sum[:]))
+	require.NoError(t, os.MkdirAll(directory, 0700))
+	machine := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
+	metadata, _ := json.Marshal(map[string]any{"version": 1, "id": branch.ID, "machine": machine, "state": "stopped"})
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "metadata.json"), metadata, 0600))
+	binary, running, calls := filepath.Join(t.TempDir(), "msb"), filepath.Join(t.TempDir(), "running"), filepath.Join(t.TempDir(), "calls")
+	script := fmt.Sprintf(`#!/bin/sh
+ echo "$1" >> %q
+ case "$1" in
+ list) if [ -f %q ]; then echo '[{"name":%q,"status":"running"}]'; else echo '[{"name":%q,"status":"stopped"}]'; fi ;;
+ start) touch %q ;;
+ stop) rm -f %q ;;
+ exec) exit 99 ;;
+ *) exit 99 ;;
+ esac
+`, calls, running, machine, machine, running, running)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}
+	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: binary, HostProfile: &profile, SkipQualification: true, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 3})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
+	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
+	workspaces.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
+	state := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(state, ".upgrade-incomplete"), []byte("/installed-backup\n"), 0600))
+	freeze, _ := json.Marshal(services.QuiesceFreeze{Op: "upgrade-proof", By: owner.ID, Ready: true, Since: time.Now().Add(-time.Minute), LeaseUntil: time.Now().Add(-time.Second)})
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "quiesce", Value: freeze}))
+	service := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: state})
+	require.NoError(t, composeInstallAdmission(ctx, service, runtime, workspaces))
+	handler := &routes.InstallQuiesceHandler{Owners: q, Service: service}
+	call := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		handler.HandleInstallingOwner(response, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return response
+	}
+	require.Equal(t, 204, call("GET", "/maintenance/health/check", "").Code)
+	for _, body := range []string{`{}`, `{"op":"upgrade-proof","branch":"other"}`, `{"op":"upgrade-proof"} {}`, `{"op":1}`} {
+		require.Equal(t, 400, call("POST", "/maintenance/health/wake", body).Code, body)
+	}
+	require.Equal(t, 405, call("GET", "/maintenance/health/wake", "").Code)
+	require.Equal(t, 405, call("POST", "/maintenance/health/check", "").Code)
+
+	before, err := os.ReadFile(calls)
+	require.NoError(t, err)
+	require.Equal(t, 503, call("POST", "/maintenance/health/wake", `{"op":"foreign-upgrade"}`).Code)
+	after, err := os.ReadFile(calls)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+	require.Equal(t, 503, call("POST", "/maintenance/health/wake", `{"op":"upgrade-proof"}`).Code, "guest refusal stays visible")
+	require.NoFileExists(t, running)
+	after, err = os.ReadFile(calls)
+	require.NoError(t, err)
+	require.Contains(t, string(after), "start\nexec\nstop\nlist\n")
+	require.Zero(t, runtime.InUse())
+	require.Len(t, runtime.AdmissionSnapshot(), 1)
+	require.Equal(t, "released", runtime.AdmissionSnapshot()[0].State)
+	_, err = runtime.Request("person", "workspace:other", "member", "terminal")
+	require.ErrorIs(t, err, microsandbox.ErrAdmissionFrozen)
+	require.Error(t, service.Gate.Admit(ctx, "person"))
+	require.FileExists(t, filepath.Join(state, ".upgrade-incomplete"))
+	stored, err := q.GetInstallSetting(ctx, "quiesce")
+	require.NoError(t, err)
+	require.JSONEq(t, string(freeze), string(stored.Value))
+}

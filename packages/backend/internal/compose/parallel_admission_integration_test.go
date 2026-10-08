@@ -256,7 +256,7 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	require.NoError(t, bus.Start(liveContext))
 	routes.SetRevocationSource(bus)
 	t.Cleanup(func() { routes.SetRevocationSource(nil) })
-	topics := &liveTopics{queries: q, todos: stack, jobs: store, capacity: capacity, install: &services.InstallSetupService{Capacity: capacity}}
+	topics := &liveTopics{queries: q, todos: stack, jobs: store, capacity: capacity, install: &services.InstallSetupService{Capacity: capacity}, presence: &branchPresence{queries: q, branches: workspaces}}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(liveContext, nil), Queries: q, Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
 	setup := &routes.GitHubAppSetupHandler{Owners: q, Origins: liveHandler.Origins, Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}
 	// The install's owner terminal door (compose/main.go): a person's wake
@@ -563,6 +563,55 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	kind, before := readHome(homeConn)
 	require.Equal(t, "snap", kind)
 	require.Equal(t, homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 2}, before)
+	// Keep a real TODO subscription open across the person dispatch.
+	// Its cursors must identify committed source events, including replay;
+	// a refreshed seeded card cannot satisfy this acceptance boundary.
+	readFrame := func(conn *websocket.Conn) live.Frame {
+		t.Helper()
+		deadline, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		for {
+			_, raw, err := conn.Read(deadline)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.NotEqual(t, "err", frame.T, string(raw))
+			if frame.T == "snap" || frame.T == "delta" {
+				require.NotNil(t, frame.Cursor)
+				return frame
+			}
+		}
+	}
+	thirdItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 3)
+	require.NoError(t, err)
+	todoConn := dial("todo:3")
+	todoBefore := readFrame(todoConn)
+	require.Equal(t, "snap", todoBefore.T)
+	readQueueDelta := func(conn *websocket.Conn, previous int64) live.Frame {
+		t.Helper()
+		for {
+			frame := readFrame(conn)
+			require.Equal(t, "delta", frame.T)
+			require.Greater(t, int64(*frame.Cursor), previous)
+			previous = int64(*frame.Cursor)
+			var event jobs.Event
+			require.NoError(t, json.Unmarshal(frame.Data, &event))
+			var data struct {
+				Card parallelCard `json:"card"`
+			}
+			require.NoError(t, json.Unmarshal(event.Data, &data))
+			if data.Card.Queue == nil || data.Card.Queue.Position != 2 {
+				continue
+			}
+			require.Equal(t, 3, data.Card.N)
+			require.Equal(t, "machine", data.Card.Queue.Reason)
+			var committed []byte
+			require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3`,
+				fmt.Sprint(repo.ID), "todo:"+uuid.UUID(thirdItem.ID.Bytes).String(), *frame.Cursor).Scan(&committed))
+			require.JSONEq(t, string(committed), string(event.Data))
+			return frame
+		}
+	}
 	code, body = call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, scratchBranch.ID), benCookie)
 	require.Equal(t, 202, code, string(body))
 	shifted := homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 2, 4: 3, 5: 4}, Parallel: -1}
@@ -576,6 +625,45 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 		// A delta is the old order or the whole new one, never a partial move.
 		require.Equal(t, before, got, "step 5 delta")
 	}
+	todoShift := readQueueDelta(todoConn, int64(*todoBefore.Cursor))
+	// Reconnect from the pre-dispatch cursor: the production journal replays
+	// the same fact instead of synthesizing a new queue state or cursor.
+	replayConn := dial("todo:3")
+	require.Equal(t, "snap", readFrame(replayConn).T)
+	require.NoError(t, replayConn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:3","cursor":%d}`, *todoBefore.Cursor))))
+	replayed := readQueueDelta(replayConn, int64(*todoBefore.Cursor))
+	require.Equal(t, *todoShift.Cursor, *replayed.Cursor)
+	require.JSONEq(t, string(todoShift.Data), string(replayed.Data))
+	// Scratch branches have no TODO journal. Their real branch source still
+	// exposes the runtime position on an authenticated subscription.
+	branchConn := dial("branch:" + scratchBranch.ID)
+	branchWaiting := readFrame(branchConn)
+	require.Equal(t, "snap", branchWaiting.T)
+	var branchCard struct {
+		Machine struct {
+			State    string `json:"state"`
+			Position int    `json:"position"`
+		} `json:"machine"`
+	}
+	require.NoError(t, json.Unmarshal(branchWaiting.Data, &branchCard))
+	require.Equal(t, "waiting", branchCard.Machine.State)
+	require.Equal(t, 1, branchCard.Machine.Position)
+	// A second real terminal on the same sleeping branch coalesces without
+	// taking a second position or letting a TODO jump ahead of the person.
+	code, body = call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, scratchBranch.ID), benCookie)
+	require.Equal(t, 202, code, string(body))
+	require.True(t, assertEventually(10*time.Second, func() bool {
+		personRows := 0
+		for _, row := range runtime.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+scratchBranch.ID && row.State == "waiting" {
+				personRows++
+				if row.Class != "person" || row.Position != 1 {
+					return false
+				}
+			}
+		}
+		return personRows == 1
+	}), "both terminal launches share the person actor and one holder: %+v", runtime.AdmissionSnapshot())
 	settle("step 5 waiting", working, map[int]int{3: 2, 4: 3, 5: 4})
 	todoSnapshot("step 5 waiting", 3, 2)
 	held("step 5 waiting", 3)

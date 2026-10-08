@@ -22,7 +22,11 @@ type AdmissionRequest struct {
 	sequence                            uint64
 }
 
+type maintenanceHealthKey struct{}
+type maintenanceHealthGrant struct{ nonce byte }
+
 type admissionHolder struct {
+	health        *maintenanceHealthGrant
 	rows          map[string]*AdmissionRequest
 	held          bool
 	machine       string
@@ -587,6 +591,9 @@ func (r *Runtime) admissionIdleCandidateLocked(now time.Time, observations []Adm
 	var oldest time.Time
 	for _, s := range observations {
 		h := r.admission[s.Holder]
+		if h != nil && h.health != nil {
+			continue
+		}
 		if h == nil || !h.held || !h.releasing.IsZero() || h.idlePreparing || s.IdleSince.IsZero() || s.IdleSince.After(now) {
 			continue
 		}
@@ -630,10 +637,14 @@ func WithAdmissionHolder(ctx context.Context, holder string) context.Context {
 }
 
 func (r *Runtime) admitMachineLocked(ctx context.Context, maximum int, machine string) error {
-	if r.admissionFrozen {
-		return ErrAdmissionFrozen
-	}
 	holder, _ := ctx.Value(admissionContextKey{}).(string)
+	if r.admissionFrozen {
+		token, _ := ctx.Value(maintenanceHealthKey{}).(*maintenanceHealthGrant)
+		h := r.admission[holder]
+		if token == nil || h == nil || h.health != token {
+			return ErrAdmissionFrozen
+		}
+	}
 	if holder == "" {
 		return r.admitRunningLocked(maximum)
 	}

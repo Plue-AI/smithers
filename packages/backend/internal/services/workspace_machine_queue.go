@@ -528,3 +528,43 @@ func (l *workspaceMythicalLanes) MachineOwnershipChanges() <-chan struct{} {
 	}
 	return nil
 }
+
+// MaintenanceHealthWake uses one retained branch machine on the installed
+// repository. It cannot create a branch, run or terminal, or choose a caller's
+// workspace. Readiness uses the same unique binding and guest authority as
+// ordinary admission, while the runtime keeps every ordinary request frozen.
+func (s *WorkspaceService) MaintenanceHealthWake(ctx context.Context, owner int64, op string) error {
+	runtime, ok := s.runtime.(interface {
+		MaintenanceHealthWake(context.Context, string, string, microsandbox.AdmissionProviders) error
+	})
+	if !ok || s.installQueries == nil || s.machineAdmission == nil {
+		return errors.New("maintenance health providers unavailable")
+	}
+	repository, err := InstallRepositoryID(ctx, s.installQueries)
+	if err != nil {
+		return err
+	}
+	machines, err := s.installQueries.GetBranchMachineOwner(ctx)
+	if err != nil {
+		return err
+	}
+	for offset := int32(0); ; offset += 100 {
+		rows, err := s.q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{RepositoryID: repository, UserID: machines, PageOffset: offset, PageSize: 100})
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			if (row.Status != "suspended" && row.Status != "stopped") || row.DiskReclaimedAt.Valid || row.BranchArchivedAt.Valid {
+				continue
+			}
+			if _, err := s.AuthorizeTerminalBranch(ctx, row.ID, repository, owner); err != nil {
+				return err
+			}
+			return runtime.MaintenanceHealthWake(ctx, row.ID, op, *s.machineAdmission)
+		}
+		if len(rows) < 100 {
+			break
+		}
+	}
+	return errors.New("maintenance health requires a retained stopped branch machine")
+}

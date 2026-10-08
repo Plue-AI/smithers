@@ -64,8 +64,11 @@ func release(t *testing.T, version string) {
 
 // `smthrs host upgrade` refuses before it asks the install anything: no
 // preflight, no freeze, no backup and no Homebrew run. The health check's
-// isolated wake belongs to machine admission, which has not composed it.
+// isolated wake must be composed by machine admission.
 func TestUpgradeRefusesBeforeFreezingWithoutHealthWake(t *testing.T) {
+	originalHealthWake := composedHealthWake
+	composedHealthWake = nil
+	t.Cleanup(func() { composedHealthWake = originalHealthWake })
 	if os.Geteuid() == 0 {
 		t.Skip("installing user required")
 	}
@@ -303,8 +306,11 @@ func TestFailedUpgradeContinuationKeepsTheMarkerAndPrintsTheRestore(t *testing.T
 }
 
 // The command the previous release becomes is dispatched like any other. As
-// composed today it refuses at its first step and keeps the marker.
+// missing health composition refuses at its first step and keeps the marker.
 func TestDispatchedUpgradeContinuationRefusesWithoutHealthWake(t *testing.T) {
+	originalHealthWake := composedHealthWake
+	composedHealthWake = nil
+	t.Cleanup(func() { composedHealthWake = originalHealthWake })
 	if os.Geteuid() == 0 {
 		t.Skip("installing user required")
 	}
@@ -333,4 +339,16 @@ func TestDispatchedUpgradeContinuationRefusesWithoutHealthWake(t *testing.T) {
 	require.ErrorContains(t, err, "upgrade incomplete: host_maintenance_unavailable: upgrade continues from an installed bundle: ")
 	require.ErrorContains(t, err, "; restore with smthrs host restore '"+u.backup+"'")
 	require.FileExists(t, filepath.Join(u.state, ".upgrade-incomplete"))
+}
+
+func TestComposedHealthWakeUsesInstallingOwnerSocket(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	_, state := ownerHome(t)
+	requests := ownerSocket(t, state, 204)
+	authority := &maintenanceAuthority{state: state}
+	require.NoError(t, authority.checkHealthWake(t.Context()))
+	require.NoError(t, composedHealthWake(t.Context(), "upgrade-proof"))
+	require.Equal(t, []string{"GET /maintenance/health/check", "POST /maintenance/health/wake"}, *requests)
 }

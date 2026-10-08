@@ -87,7 +87,7 @@ func DispatchMaintenance(ctx context.Context, args []string, executable func() (
 			return true, err
 		}
 		backup.Bundle = host.bundle.Root()
-		upgrade := &upgradeAuthority{maintenanceAuthority: authority, host: host, brew: homebrewProgram, keg: homebrewKeg, healthWake: composedHealthWake}
+		upgrade := &upgradeAuthority{maintenanceAuthority: authority, host: host, brew: homebrewProgram, keg: homebrewKeg, healthWake: composedHealthWake, healthCheck: authority.checkHealthWake}
 		_, err = hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup, Upgrade: upgrade})
 		return true, err
 	case "upgrade-continue":
@@ -103,11 +103,17 @@ func DispatchMaintenance(ctx context.Context, args []string, executable func() (
 	return true, errors.New("invalid_command: maintenance operation required")
 }
 
-// composedHealthWake is the upgrade health check's isolated wake: one machine
-// wakes as the freeze's only grant after the new release migrated (spec §16.4
-// step 6). Machine admission (T-MCH-06) owns that grant and has not composed
-// it, so it is nil and `smthrs host upgrade` refuses before it freezes.
-var composedHealthWake func(ctx context.Context, op string) error
+// composedHealthWake crosses only the installing-user socket. The backend
+// authorizes the original ready upgrade operation and retains its freeze while
+// its runtime reserves, wakes and confirms the stop of one warm machine.
+var composedHealthWake = func(ctx context.Context, op string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	authority := &maintenanceAuthority{state: filepath.Join(home, "Library/Application Support/Smithers")}
+	return authority.healthWake(ctx, op)
+}
 
 // installedRestoreAuthority composes restore from the installed bundle: its
 // PostgreSQL programs load the dump, its microVM doctor proves isolation and

@@ -51,7 +51,83 @@ func (r *Runtime) ResumeMachineAdmission(ctx context.Context) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for _, h := range r.admission {
+		if h.health != nil {
+			return errors.New("maintenance health wake in progress")
+		}
+	}
 	r.admissionFrozen = false
 	r.notifyAdmissionLocked()
 	return nil
+}
+
+// MaintenanceHealthWake reserves the freeze's only slot for a retained warm
+// machine. It uses the ordinary start/guest/stop path and never resumes normal
+// admission. The installing-owner boundary must authorize the frozen operation
+// before calling this method; the private context capability cannot be supplied
+// by an HTTP caller or reused after this call.
+func (r *Runtime) MaintenanceHealthWake(ctx context.Context, id, op string, p AdmissionProviders) (err error) {
+	ctx, cancelWake := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelWake()
+	if op == "" || id == "" || p.Ready == nil || p.FreeDisk == nil {
+		return errors.New("maintenance health providers unavailable")
+	}
+	holder := "workspace:" + id
+	request := AdmissionRequest{Holder: holder, Actor: "maintenance:" + op, Class: "background", Reason: "health", State: "granted"}
+	if err := p.Ready(ctx, request); err != nil {
+		return err
+	}
+	maximum, err := r.admissionMaximum(ctx, p.FreeDisk)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		r.mu.Unlock()
+		return err
+	}
+	ws, err := r.workspaceLocked(id)
+	if err != nil {
+		r.mu.Unlock()
+		return err
+	}
+	if r.closed || !r.admissionFrozen || r.admissionRecoveryPending || r.inUseLocked() != 0 || maximum < 1 || ws.State != "stopped" || ws.Reclaimed {
+		r.mu.Unlock()
+		return errors.New("maintenance health requires frozen admission, free capacity and a retained stopped machine")
+	}
+	if r.admission == nil {
+		r.admission = map[string]*admissionHolder{}
+	}
+	h := r.admission[holder]
+	if h == nil {
+		h = &admissionHolder{rows: map[string]*AdmissionRequest{}}
+		r.admission[holder] = h
+	}
+	token := &maintenanceHealthGrant{}
+	h.health, h.held, h.machine, h.releasing = token, true, "", time.Time{}
+	r.admissionSequence++
+	request.sequence = r.admissionSequence
+	h.rows[request.Actor] = &request
+	r.notifyAdmissionLocked()
+	r.mu.Unlock()
+	granted := context.WithValue(WithAdmissionHolder(ctx, holder), maintenanceHealthKey{}, token)
+	defer func() {
+		// Cancellation cannot release capacity without a runtime stop observation.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		stopErr := r.StopWorkspace(cleanup, id)
+		r.mu.Lock()
+		h.health = nil
+		// A start refused before binding created no VM. A bound VM is released only
+		// by StartWorkspace/StopWorkspace's independently confirmed stop.
+		if h.machine == "" {
+			h.held = false
+			request.State = "released"
+		}
+		r.notifyAdmissionLocked()
+		r.mu.Unlock()
+		err = errors.Join(err, stopErr)
+	}()
+	_, err = r.StartWorkspace(granted, id)
+	return err
 }

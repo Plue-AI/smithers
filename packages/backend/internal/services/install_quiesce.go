@@ -170,10 +170,11 @@ func (g *QuiesceGate) Admit(ctx context.Context, class string) error {
 }
 
 type InstallQuiesce struct {
-	Gate      *QuiesceGate
-	Machines  MachineQuiescer
-	Admission QuiesceAdmission
-	Host      QuiesceHostRuntime
+	HealthWake func(context.Context, int64, string) error
+	Gate       *QuiesceGate
+	Machines   MachineQuiescer
+	Admission  QuiesceAdmission
+	Host       QuiesceHostRuntime
 	// Persistence barriers cover documents, wiki, periodic work and outbound
 	// writes. Each must preflight without side effects, then drain durably.
 	Barriers map[string]QuiesceBarrier
@@ -481,4 +482,23 @@ func missingQuiesceProvider(provider any) bool {
 	default:
 		return false
 	}
+}
+
+// MaintenanceHealthWake holds the durable freeze lock throughout the isolated
+// grant. A restarted upgrade may outlive its lease, but only its pinned marker
+// plus the original ready owner operation can authorize this wake.
+func (s *InstallQuiesce) MaintenanceHealthWake(ctx context.Context, by int64, op string) error {
+	if s == nil || s.Gate == nil || s.Gate.Store == nil || s.HealthWake == nil || op == "" {
+		return errors.New("maintenance health wake unavailable")
+	}
+	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
+		marker, err := s.Gate.marker()
+		if err != nil {
+			return row, err
+		}
+		if !marker || row == nil || !row.Ready || row.Op != op || row.By != by {
+			return row, errors.New("ready upgrading owner operation required")
+		}
+		return row, s.HealthWake(ctx, by, op)
+	})
 }

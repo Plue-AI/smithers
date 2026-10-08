@@ -150,3 +150,32 @@ func (a *maintenanceAuthority) Reopen(ctx context.Context, op string) error {
 	}
 	return nil
 }
+
+func (a *maintenanceAuthority) checkHealthWake(ctx context.Context) error {
+	response, err := a.request(ctx, http.MethodGet, "/maintenance/health/check", nil, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return maintenanceRefusal(response)
+	}
+	return nil
+}
+func (a *maintenanceAuthority) healthWake(ctx context.Context, op string) error {
+	body, err := json.Marshal(struct {
+		Op string `json:"op"`
+	}{op})
+	if err != nil {
+		return err
+	}
+	response, err := a.request(ctx, http.MethodPost, "/maintenance/health/wake", bytes.NewReader(body), 65*time.Second)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		return maintenanceRefusal(response)
+	}
+	return nil
+}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 )
 
 type maintenanceMachineRuntime interface {
@@ -50,6 +51,11 @@ func composeInstallAdmission(ctx context.Context, service *services.InstallQuies
 		return nil // Available names the missing T-MCH-06 contract.
 	}
 	service.Admission = installMachineAdmission{runtime: machine, workspaces: workspaces}
+	if _, ok := runtime.(interface {
+		MaintenanceHealthWake(context.Context, string, string, microsandbox.AdmissionProviders) error
+	}); ok && workspaces != nil {
+		service.HealthWake = workspaces.MaintenanceHealthWake
+	}
 	var frozen bool
 	if err := service.Gate.Store.Update(ctx, func(row *services.QuiesceFreeze) (*services.QuiesceFreeze, error) {
 		frozen = row != nil

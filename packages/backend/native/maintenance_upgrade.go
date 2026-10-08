@@ -21,10 +21,10 @@ const (
 	homebrewKeg = "/opt/homebrew/opt/smithers/libexec"
 )
 
-// errHealthWakeUnavailable is why upgrade stays closed today. After the new
+// An unavailable health provider refuses the upgrade before freezing. After the new
 // release migrates, the health check wakes one machine as the freeze's only
 // grant (spec §16.4 step 6). That grant belongs to machine admission, which
-// has not composed it; an upgrade must not reopen an install it could not
+// owns its isolated grant; an upgrade must not reopen an install it could not
 // prove wakes a machine.
 var errHealthWakeUnavailable = errors.New("host_maintenance_unavailable: upgrade health wake requires machine admission (T-MCH-06)")
 
@@ -39,7 +39,8 @@ type upgradeAuthority struct {
 	brew, keg string
 	// healthWake is the new release's isolated wake. Nil refuses the upgrade
 	// before it freezes.
-	healthWake func(ctx context.Context, op string) error
+	healthWake  func(ctx context.Context, op string) error
+	healthCheck func(context.Context) error
 	// replace turns this process into another program (execve). It returns
 	// only on failure.
 	replace func(program string, args, env []string) error
@@ -53,6 +54,11 @@ func (a *upgradeAuthority) CheckUpgrade(ctx context.Context) error {
 	}
 	if a.healthWake == nil {
 		return errHealthWakeUnavailable
+	}
+	if a.healthCheck != nil {
+		if err := a.healthCheck(ctx); err != nil {
+			return err
+		}
 	}
 	// Homebrew upgrades the keg it links. An install started from another
 	// bundle would keep running that bundle after the upgrade.

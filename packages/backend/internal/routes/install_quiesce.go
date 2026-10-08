@@ -49,6 +49,39 @@ func (h *InstallQuiesceHandler) HandleInstallingOwner(w http.ResponseWriter, r *
 		quiesceResponse(w, errors.New("quiesce unavailable"))
 		return
 	}
+	if r.URL.Path == "/maintenance/health/check" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if h.Service.HealthWake == nil {
+			quiesceResponse(w, errors.New("maintenance health wake unavailable"))
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.URL.Path == "/maintenance/health/wake" {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var request struct {
+			Op string `json:"op"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+		decoder.DisallowUnknownFields()
+		if err := decodeSingleJSONDocument(decoder, &request); err != nil || request.Op == "" {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("maintenance op required"))
+			return
+		}
+		if err := h.Service.MaintenanceHealthWake(r.Context(), owner.ID, request.Op); err != nil {
+			quiesceResponse(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if r.URL.Path == "/maintenance/database/size" || r.URL.Path == "/maintenance/database/dump" {
 		h.handleDatabase(w, r, owner.ID)
 		return
