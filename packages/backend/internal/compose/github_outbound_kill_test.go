@@ -474,8 +474,8 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=checks-'land' WHERE number=$1`, number)
 						require.NoError(t, err)
 					}
-					fmt.Printf("CRASH-POINT github-%s-%s subject todo\n", scenario, point)
-					fmt.Println("CRASH-POINT github-production-propose subject todo")
+					t.Logf("CRASH-POINT github-%s-%s subject todo", scenario, point)
+					t.Log("CRASH-POINT github-production-propose subject todo")
 					assertProxyRefuses(child)
 					unlock()
 					traceMu.Lock()
@@ -827,7 +827,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						}
 						require.Equal(t, 1, closes, "one compensating close after late PR recovery")
 					}
-					fmt.Printf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d}\n", scenario, point, expectedWrites)
+					t.Logf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d}", scenario, point, expectedWrites)
 				})
 			})
 		}

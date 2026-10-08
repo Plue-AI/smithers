@@ -67,3 +67,8 @@ configured install address remain unchanged across the restart, so retained
 checkout receipts keep their bound Git origin. Reference workers use the
 approved installed bundle and microVM runtime; Linux workers use the explicitly
 selected process diagnostic with native capture, never claim guest isolation.
+
+The nightly fault runner requires a subtest-bound marker for every one of these
+37 crossings, including steps 4–6. Parent or sibling markers cannot qualify an
+unreached crossing. Its finite aggregate budget scales with the case count;
+each production recovery still must settle within the same 60-second limit.

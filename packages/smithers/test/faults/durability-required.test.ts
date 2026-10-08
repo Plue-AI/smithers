@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { requireReachedGoFaultMatrix } from "./harness/durability.ts"
+import { githubCrossings, githubPoints } from "./harness/githubFaultMatrix.ts"
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
 const backend = `${root}packages/backend`
-const githubKinds = ["push", "open", "body", "merge", "close"] as const
-const githubStages = ["before-send", "potentially-sent", "remote-success"] as const
-const githubCrossings = githubKinds.flatMap(kind => githubStages.map(stage => `${kind}/${stage}`))
-const githubPoints = githubKinds.flatMap(kind => githubStages.map(stage => `github-${kind}-${stage}`))
+// Preserve the original per-case suite allowance as the matrix grows from 16.
+// Production recovery still has its independent 60-second deadline.
+const githubRunMinutes = Math.ceil(44 * githubCrossings.length / 16)
 const cases = [
   ["C-DUR-01", "internal/compose/todo_pause_delivery_fault_test.go", "TestTodoStopResumeDeliveryCrashComposed", ["stop-pre-delivery", "stop-delivery", "resume-pre-delivery", "resume-delivery"]],
   ["C-DUR-01", "internal/compose/todo_pause_fault_test.go", "TestTodoStartCrashThroughRoute", ["start"]],
   ["C-DUR-01", "internal/compose/todo_live_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
-  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-open-drop-remote-success", "github-production-propose"]],
+  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-production-propose"]],
   ["C-DUR-04", "internal/machined/fault_test.go", null, []],
   ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseFaultRootInputsValidatedBeforeUse", []],
   ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
@@ -55,12 +55,12 @@ for (const [check, file, name, points] of selected) {
     const referenceMachine = check === "C-DUR-02"
     const rebaseFault = file === "internal/machined/rebase_fault_test.go"
     const packagedPause = name === "TestTodoStartPauseResumeCrashThroughRoutes"
-    const timeout = referenceMachine || githubControl ? 2_700_000 : packagedPause ? 750_000 : 150_000
+    const timeout = githubControl ? (githubRunMinutes + 1) * 60_000 : referenceMachine ? 2_700_000 : packagedPause ? 750_000 : 150_000
     const evidenceNames = githubControl
-      ? [...githubCrossings, "open-drop/remote-success"].map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
+      ? githubCrossings.map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
       : packagedPause ? ["stop", "resume"].map(point => `${name}/${point}`) : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`,
-      "-timeout", referenceMachine || githubControl ? "44m" : packagedPause ? "12m" : "2m"], {
+      "-timeout", githubControl ? `${githubRunMinutes}m` : referenceMachine ? "44m" : packagedPause ? "12m" : "2m"], {
       cwd: backend,
       env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" }
         : packagedPause ? { ...process.env, SMITHERS_TODO_PAUSE_HOST_KILL: "1" }
@@ -76,5 +76,5 @@ for (const [check, file, name, points] of selected) {
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
     requireReachedGoFaultMatrix(result.stdout, evidenceNames, points,
       name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
-  }, check === "C-DUR-02" || file === "internal/compose/github_outbound_kill_test.go" ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
+  }, file === "internal/compose/github_outbound_kill_test.go" ? (githubRunMinutes + 1.5) * 60_000 : check === "C-DUR-02" ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
 }
