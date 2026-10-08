@@ -24,7 +24,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
-import { loadBox } from "../state/TestFixtures"
+import { loadBox, TEST_BOX } from "../state/TestFixtures"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
@@ -314,8 +314,10 @@ describe("the three-door law", () => {
     try {
       cloudSession(store, "signed-in", "will")
       await loadBox(store, "will/smithers")
+      await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "will", open: true, selected_branch: "scratch/will/review", nodes: [] } }).isPersisted.promise
+      await store.dispatch({ type: "card.upsert", actor: "user", card: { id: `branch:${TEST_BOX}`, kind: "branch", title: "scratch/will/review", status: "active", createdAt: 1, ordinal: 1, payload: { id: TEST_BOX } } }).isPersisted.promise
       await settle()
-      expect((await controller.commands.run("flow.plan", "review will/smithers", "automatic")).status).toBe("executed")
+      expect(await controller.commands.run("flow.plan", "review will/smithers", "automatic")).toMatchObject({ status: "executed" })
       expect([...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.flowId === "review")).toBe(true)
       expect((await controller.commands.run("triggers.list", "will/smithers", "automatic")).status).toBe("executed")
       expect(store.collections.cards.get("trigger-list-will/smithers")?.kind).toBe("trigger-list")
