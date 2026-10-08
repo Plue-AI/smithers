@@ -7,6 +7,7 @@ import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import { memoryStorage, signupProfileFetch, unavailableAgent, waitFor } from "../state/TestFixtures"
 import type { BranchControl } from "../state/seams/BranchControlsSeam"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { fixtures as todos } from "../../../../../packages/rpc/test/fixtures/Todo"
 
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
@@ -147,5 +148,46 @@ for (const ready of [false, true]) test(`scratch Resolve opens only its bound br
       expect(file?.payload).toMatchObject({ path: "src/retry.ts", file: { branch: "scratch/ben/try" } })
       expect(host.querySelector('[data-flow="branch.rebase"]')).toBeNull()
     }
+  } finally { await act(async () => root.unmount()); await controller.dispose() }
+})
+
+// The production boot passes no override: an install binds Sleep and Wake to its own route; another host binds none.
+for (const capabilities of [["install"], []] as Array<AppBootstrap["capabilities"]>) for (const [operation, state, label] of [["sleep", "awake", "Sleep"], ["wake", "asleep", "Wake"]] as const)
+test(`${capabilities.length ? "an install" : "a host without install"} ${capabilities.length ? "binds" : "does not bind"} ${label} without an override`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: Array<{ path: string; body: unknown }> = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(String(input), "https://install.test").pathname
+    if (init?.method === "POST") { writes.push({ path, body: JSON.parse(String(init.body)) }); return Response.json({ state: "accepted" }, { status: 202 }) }
+    if (path === "/api/branches/smithers%2Fretries") return Response.json({ name: "smithers/retries", machine: { id: "b-install" } })
+    return new Response("{}", { status: 404 })
+  })
+  const snapshots = new Map([
+    ["branch:b-install", { topic: "branch:b-install", data: { id: "b-install", name: "smithers/retries", machine: { state }, item: { n: 2, title: "Retries", state: "working", place: 1 }, presence: [], terminals: [], ssh_line: "ssh -p 2222 retries@localhost" } }],
+    ["branch:b-install:activity", { topic: "branch:b-install:activity", data: [] }], ["branch:b-install:files", { topic: "branch:b-install:files", data: [] }]
+  ])
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities, authFlow: "redirect", sandbox: null },
+    live: { subscribe: () => () => {}, getSnapshot: topic => snapshots.get(topic) } })
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await controller.runCommandForResult("branch", "smithers/retries")
+    const card = store.collections.cards.get("branch:b-install")
+    if (!capabilities.length) {
+      expect(controller.branchControls).toBeUndefined()
+      expect(await controller.submitCommand({ name: operation === "sleep" ? "box.suspend" : "box.resume", payload: { branch: "smithers/retries" }, actor: "user" })).toMatchObject({ status: "failed" })
+      expect(writes).toEqual([])
+      return
+    }
+    if (card?.kind !== "branch") throw new Error("Expected branch")
+    await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+    const button = host.querySelector<HTMLButtonElement>(`[data-flow="${operation === "sleep" ? "box.suspend" : "box.resume"}"]`)
+    expect(button?.textContent).toBe(label)
+    await act(async () => {
+      button!.click()
+      for (let i = 0; i < 50 && !writes.length; i++) await new Promise(resolve => setTimeout(resolve, 2))
+    })
+    expect(writes).toEqual([{ path: "/api/branches/smithers%2Fretries", body: { op: operation } }])
   } finally { await act(async () => root.unmount()); await controller.dispose() }
 })

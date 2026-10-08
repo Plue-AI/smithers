@@ -1068,7 +1068,10 @@ export const createAppController = (
     await presentCard("branch", branch.name, branch.id)
     return { value: `Opened ${branch.name}` }
   } : undefined
-  const branchControls = services.branchControlOptions ? createBranchControlsSeam(seamCtx, services.branchControlOptions) : undefined
+  // An install composes Sleep, Wake and Rebase now behind POST /api/branches/{b}; the server authorizes each and
+  // refuses one whose provider it did not compose. Other hosts have no branch machine and bind none.
+  const branchControlOptions = services.branchControlOptions ?? (installHost ? { ready: () => true } : undefined)
+  const branchControls = branchControlOptions ? createBranchControlsSeam(seamCtx, branchControlOptions) : undefined
   const pendingSshReads = new Set<() => void>()
   ctx.onDispose(() => { for (const cancel of pendingSshReads) cancel() })
   const branchSshLine: AppController["branchSshLine"] = installHost ? async (target, signal) => {
