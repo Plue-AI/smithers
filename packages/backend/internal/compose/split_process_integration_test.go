@@ -70,8 +70,7 @@ func splitProcessDatabase(t *testing.T) (repositoryURL string, repositoryHealthC
 	return repoHost.URL, &checks, pool
 }
 
-// startSplitProcess starts one composition and stops it at test cleanup.
-func startSplitProcess(t *testing.T, options Options) http.Handler {
+func configureNativeInstallFixture(t *testing.T) {
 	t.Helper()
 	// Keep native configuration scoped to the composed install fixture. A
 	// shared Cargo target used by the gate must not hide this checkout's build.
@@ -86,6 +85,12 @@ func startSplitProcess(t *testing.T, options Options) http.Handler {
 			t.Setenv("SMITHERS_FFI_LIBRARY_PATH", path)
 		}
 	}
+}
+
+// startSplitProcess starts one composition and stops it at test cleanup.
+func startSplitProcess(t *testing.T, options Options) http.Handler {
+	t.Helper()
+	configureNativeInstallFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan http.Handler, 1)
 	finished := make(chan struct{})
