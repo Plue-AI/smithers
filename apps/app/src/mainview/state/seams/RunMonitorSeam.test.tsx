@@ -58,6 +58,20 @@ test("authenticated run data reaches the mounted View with costs, phases, waits 
   stop(); h.seam.dispose()
 })
 
+test("a pending live snapshot keeps the run loading without granting read authority", async () => {
+  const h = harness()
+  const stop = h.seam.snapshots.subscribe("native-run", () => {})
+  h.send(undefined)
+  expect(h.seam.snapshots.get("native-run")).toEqual({})
+  expect(await h.seam.trace("native-run")).toBe("Run unavailable")
+  expect(h.requests).toEqual([])
+  h.send(run)
+  expect(h.seam.snapshots.get("native-run").model?.id).toBe("native-run")
+  h.send(undefined, "forbidden")
+  expect(h.seam.snapshots.get("native-run")).toEqual({ error: "Run unavailable" })
+  stop(); h.seam.dispose()
+})
+
 test("unavailable topics, malformed costs and another run fail closed without a trace read", async () => {
   const h = harness()
   const stop = h.seam.snapshots.subscribe("native-run", () => {})

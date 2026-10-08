@@ -90,6 +90,10 @@ export function createRunMonitorSeam(options: {
       const value = options.live?.getSnapshot(topic)
       if (!value) return
       if (value.error) { authorized.delete(id); revisions.set(id, (revisions.get(id) ?? 0) + 1); publish(id, { error: unavailable }); return }
+      // The channel creates an empty snapshot while the first authenticated
+      // page is pending. Loading is not a refusal; no authority is granted
+      // until a real page arrives.
+      if (value.data === undefined) return
       const source = RunTopicSchema.safeParse(value.data)
       if (source.success && (source.data.summary.runId === id || source.data.summary.runId === id.slice(id.indexOf(":") + 1))) {
         authorized.set(id, owner)
