@@ -43,6 +43,34 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
+	// This expanded pinning journey retains A's question, B's proposal and
+	// R's pre-activation failure concurrently. Ask the owner for three TODO
+	// slots through Settings, within the fixture's detected capacity of three.
+	// The trusted-process adapter does not compose automatic safe-idle release;
+	// default-parallel and idle-release evidence belong to their own checks.
+	if !r.step("0b Owner sets three parallel TODOs", "PUT /api/install; GET /api/install", "parallel 3, capacity 3", "T-FLW-11", func() error {
+		if _, err := r.expect("PUT", "/api/install", `{"parallel":3}`, 200); err != nil {
+			return err
+		}
+		data, err := r.expect("GET", "/api/install", "", 200)
+		if err != nil {
+			return err
+		}
+		var settings struct {
+			Parallel int `json:"parallel"`
+			Capacity int `json:"capacity"`
+		}
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return err
+		}
+		if settings.Parallel != 3 || settings.Capacity != 3 {
+			return fmt.Errorf("install Settings %+v, want parallel 3 within capacity 3", settings)
+		}
+		r.actual = "200; owner-requested parallel 3, detected capacity 3"
+		return nil
+	}) {
+		return
+	}
 	r.step("1 The message reaches the app agent", "POST "+"/api/conversations/main/prompt", "200; an answer with JOURNEY.md's File card", "T-APP-03", func() error {
 		select {
 		case err := <-r.besideChat():
