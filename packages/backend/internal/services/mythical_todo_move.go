@@ -34,14 +34,19 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 	if _, err := Authorize(ctx, s.queries(), "stack.move"); err != nil {
 		return TodoControlReceipt{}, err
 	}
-	// Read the requested revision before waiting for the placement lock. A
-	// competing move may win, but this press must not move a different pair.
-	requested, readErr := s.queries().GetMythicalItemByNumber(ctx, input.Repository, number)
-	if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
-		return TodoControlReceipt{}, readErr
+	// Pin the requested pair before waiting for placement locks. Execution
+	// receipts can change row versions without changing this person's move.
+	requested, err := s.queries().ListMythicalStackOrder(ctx, input.Repository)
+	if err != nil {
+		return TodoControlReceipt{}, err
+	}
+	requestedAt := slices.IndexFunc(requested, func(item db.MythicalItem) bool { return item.Number.Int64 == number })
+	delta := -1
+	if input.Direction == "down" {
+		delta = 1
 	}
 	var receipt TodoControlReceipt
-	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		person, credential, err := lockTodoRequest(ctx, tx, q, "stack.move", input)
 		if err != nil {
@@ -81,8 +86,16 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 		if err := todoControlGuard(item, input, todoControlFacts{}); err != nil {
 			return err
 		}
-		if readErr == nil && item.Version != requested.Version {
-			return todoControlConflict("TODO moved; try again")
+		if requestedAt >= 0 {
+			if at != requestedAt || item.StackPosition != requested[requestedAt].StackPosition {
+				return todoControlConflict("TODO moved; try again")
+			}
+			requestedTo, currentTo := requestedAt+delta, at+delta
+			if currentTo >= 0 && currentTo < len(order) &&
+				(requestedTo < 0 || requestedTo >= len(requested) || order[currentTo].ID != requested[requestedTo].ID ||
+					order[currentTo].StackPosition != requested[requestedTo].StackPosition) {
+				return todoControlConflict("TODO moved; try again")
+			}
 		}
 		if at < 0 {
 			return todoControlConflict("TODO is not on the stack")

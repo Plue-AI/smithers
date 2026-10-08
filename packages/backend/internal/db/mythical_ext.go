@@ -352,9 +352,18 @@ func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, lim
 // trigger counts them), each row locked until the transaction ends, so a
 // placement reads and rewrites one order.
 func (q *Queries) LockMythicalStackOrder(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	return q.mythicalStackOrder(ctx, repositoryID, " FOR UPDATE")
+}
+
+// ListMythicalStackOrder reads one placement snapshot without waiting for locks.
+func (q *Queries) ListMythicalStackOrder(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	return q.mythicalStackOrder(ctx, repositoryID, "")
+}
+
+func (q *Queries) mythicalStackOrder(ctx context.Context, repositoryID int64, lock string) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1
 		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') AND stack_position IS NOT NULL
-		ORDER BY stack_position, created_at FOR UPDATE`, repositoryID)
+		ORDER BY stack_position, created_at`+lock, repositoryID)
 	return scanMythicalItems(rows, err)
 }
 

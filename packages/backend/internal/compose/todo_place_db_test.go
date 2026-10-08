@@ -129,12 +129,42 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.False(t, third.CandidateVerified)
 	require.Equal(t, "rebase_pending", third.Reason)
 
-	code, body = call("POST", "/api/todos/3", `{"op":"move","direction":"up"}`, "move")
+	// A worker receipt committed while this press waits for the placement
+	// lock must not turn an unchanged pair into "TODO moved; try again".
+	moveTx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer moveTx.Rollback(ctx)
+	_, err = moveTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repo)
+	require.NoError(t, err)
+	type moveResult struct {
+		code int
+		body map[string]any
+	}
+	result := make(chan moveResult, 1)
+	go func() {
+		code, body := call("POST", "/api/todos/3", `{"op":"move","direction":"up"}`, "move")
+		result <- moveResult{code, body}
+	}()
+	require.Eventually(t, func() bool {
+		var waiting int
+		err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory'`).Scan(&waiting)
+		return err == nil && waiting == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = moveTx.Exec(ctx, `UPDATE mythical_items SET version=version+1, next_attempt_at=NOW() WHERE repository_id=$1 AND number=3`, repo)
+	require.NoError(t, err)
+	require.NoError(t, moveTx.Commit(ctx))
+	moved := <-result
+	code, body = moved.code, moved.body
+
 	require.Equal(t, 202, code, body)
+	require.EqualValues(t, 3, body["place"])
 	require.Equal(t, []int64{1, 4, 3, 2}, order())
 	code, body = call("POST", "/api/todos/3", `{"op":"move","direction":"up"}`, "move")
 	require.Equal(t, 202, code, body)
 	require.Equal(t, []int64{1, 4, 3, 2}, order())
+	var moveFacts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.moved' AND (data->>'n')::bigint=3`).Scan(&moveFacts))
+	require.Equal(t, 1, moveFacts)
 	code, body = call("POST", "/api/todos/1", `{"op":"move","direction":"up"}`, "first")
 	require.Equal(t, 409, code, body)
 	require.Equal(t, "conflict", body["code"])
