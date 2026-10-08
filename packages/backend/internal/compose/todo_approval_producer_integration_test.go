@@ -90,6 +90,21 @@ func TestTodoApprovalProducerAnswerComposedInstall(t *testing.T) {
 			before, err := h.q.GetMythicalItem(ctx, h.item.ID)
 			require.NoError(t, err)
 			requests := count("product_job_requests")
+			// An agent account cannot satisfy its own human requirement, even
+			// with the owner's otherwise-authorized session and repository role.
+			for _, account := range []string{"bot", "service"} {
+				_, err = h.pool.Exec(ctx, `UPDATE users SET user_type=$2 WHERE id=$1`, h.owner, account)
+				require.NoError(t, err)
+				status, refused := h.call(t, "POST", fmt.Sprintf(`{"wait":%q,"answer":%q}`, wait, answer), "agent-approval-"+account, "answer")
+				require.Equal(t, 403, status, refused)
+				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				require.Equal(t, events+1, count("product_job_events"))
+				require.Equal(t, requests, count("product_job_requests"))
+			}
+			_, err = h.pool.Exec(ctx, `UPDATE users SET user_type='user' WHERE id=$1`, h.owner)
+			require.NoError(t, err)
 			status, refusal := h.call(t, "POST", `{"op":"stop"}`, "approval-stop")
 			require.Equal(t, 409, status, refusal)
 			require.Equal(t, "todo_transition_refused", refusal["code"])
