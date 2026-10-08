@@ -7420,6 +7420,33 @@
       }
     },
     {
+      "name": "mirror.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "read:repository",
+      "agent": "never",
+      "summary": "mirror.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/mirror-sync/{run_id}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "model.assign",
       "slash": null,
       "cli": null,

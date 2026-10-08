@@ -81,6 +81,7 @@ func buildRouterCompat(
 	optional ...any, // *routes.GitHubImportHandler, *routes.ProviderConnectionHandler, routerExtras
 ) http.Handler {
 	var deployKeyHandler *routes.DeployKeyHandler
+	var mirrorSyncHandler *routes.GitMirrorSyncHandler
 	var gitHubUserReposHandler *routes.GitHubUserReposHandler
 	var gitHubRepoListHandler *routes.GitHubRepoListHandler
 	var protectedBookmarkHandler *routes.ProtectedBookmarkHandler
@@ -94,6 +95,8 @@ func buildRouterCompat(
 	var extras []any
 	for _, handler := range optional {
 		switch h := handler.(type) {
+		case *routes.GitMirrorSyncHandler:
+			mirrorSyncHandler = h
 		case *routes.DeployKeyHandler:
 			deployKeyHandler = h
 		case *routes.GitHubUserReposHandler:
@@ -125,7 +128,7 @@ func buildRouterCompat(
 		queries,
 		pool,
 		repoHandler,
-		nil, // mirrorSyncHandler
+		mirrorSyncHandler,
 		authHandler,
 		userHandler,
 		sshKeyHandler,

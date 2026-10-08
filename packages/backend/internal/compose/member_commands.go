@@ -87,7 +87,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				admitInstallAccountMutation(w, r, queries, command, next)
 				return
 			}
-			if command == "egress.read" || command == "egress.update" || strings.HasPrefix(command, "webhooks.") || command == "repo.topics.update" || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") || strings.HasPrefix(command, "variables.") || strings.HasPrefix(command, "deploy-keys.") {
+			if command == "mirror.read" || command == "egress.read" || command == "egress.update" || strings.HasPrefix(command, "webhooks.") || command == "repo.topics.update" || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "protected-bookmarks.") || strings.HasPrefix(command, "variables.") || strings.HasPrefix(command, "deploy-keys.") {
 				admitInstallRepositoryAdmin(w, r, queries, command, next)
 				return
 			}

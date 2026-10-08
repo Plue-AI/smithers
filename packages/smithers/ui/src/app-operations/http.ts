@@ -35,6 +35,7 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ repositoryAdmin("mirror.read", "GET", "/api/repos/{owner}/{repo}/mirror-sync/{run_id}", NoInput),
  repositoryAdmin("workspace.preview.update", "PUT", "/api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility", Schema.Struct({ public: Schema.Boolean })),
  operation({ name: "runs.cancel", input: NoInput, summary: "Stop run", hidden: true, visibility: "hidden", slash: null, cli: null,
    http: { method: "POST", path: "/api/repos/{owner}/{repo}/runs/{id}/cancel" }, minimumRole: "member", agent: "confirm", credentialScope: "write:repository", actors: ["person", "app_agent"] }),

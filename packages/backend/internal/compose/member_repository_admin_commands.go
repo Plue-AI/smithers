@@ -59,7 +59,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 	subject.RepositoryID = repository.ID
 	var id, delivery int64
 	var selector string
-	if len(parts) >= 6 && (strings.HasPrefix(command, "webhooks.") || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
+	if len(parts) >= 6 && (command == "mirror.read" || strings.HasPrefix(command, "webhooks.") || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid resource id"))
@@ -157,7 +157,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "egress.update" {
+	if command == "mirror.read" {
+		subject = services.InstallMirrorSyncReadSubject(repository.ID, id)
+	} else if command == "egress.update" {
 		value, _ := input.(services.RepositoryEgressPatchInput)
 		subject, err = services.InstallRepositoryEgressPatchSubject(repository.ID, value)
 	} else if command == "egress.read" {

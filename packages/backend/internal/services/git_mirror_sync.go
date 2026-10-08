@@ -58,6 +58,7 @@ type GitMirrorSyncQuerier interface {
 }
 
 type GitMirrorSyncService struct {
+	install        *installGitMirrorStore
 	queries        GitMirrorSyncQuerier
 	resolveRemotes func(context.Context, int64, int64, string, string) (gitMirrorRemotes, error)
 
@@ -212,20 +213,34 @@ func (s *GitMirrorSyncService) startMirrorSync(ctx context.Context, userID, repo
 }
 
 func (s *GitMirrorSyncService) GetMirrorSyncRun(ctx context.Context, repositoryID, runID int64) (GitMirrorSyncRunResult, error) {
-	if repositoryID <= 0 {
-		return GitMirrorSyncRunResult{}, pkgerrors.BadRequest("repository is required")
+	if s != nil && s.install != nil {
+		return s.getInstallMirrorSyncRun(ctx, repositoryID, runID)
 	}
-	if runID <= 0 {
-		return GitMirrorSyncRunResult{}, pkgerrors.BadRequest("invalid mirror sync run id")
+	if err := validateMirrorSyncRead(s, repositoryID, runID); err != nil {
+		return GitMirrorSyncRunResult{}, err
 	}
-	if s == nil || s.queries == nil {
-		return GitMirrorSyncRunResult{}, pkgerrors.Internal("git mirror sync store not configured")
-	}
-
 	if err := s.recoverMirrorSyncRuns(ctx, repositoryID); err != nil {
 		return GitMirrorSyncRunResult{}, err
 	}
-	run, err := s.queries.GetGithubMirrorSyncRun(ctx, db.GetGithubMirrorSyncRunParams{
+	return readMirrorSyncRun(ctx, s.queries, repositoryID, runID)
+}
+
+func validateMirrorSyncRead(s *GitMirrorSyncService, repositoryID, runID int64) error {
+	if repositoryID <= 0 {
+		return pkgerrors.BadRequest("repository is required")
+	}
+	if runID <= 0 {
+		return pkgerrors.BadRequest("invalid mirror sync run id")
+	}
+	if s == nil || s.queries == nil {
+		return pkgerrors.Internal("git mirror sync store not configured")
+	}
+
+	return nil
+}
+
+func readMirrorSyncRun(ctx context.Context, q GitMirrorSyncQuerier, repositoryID, runID int64) (GitMirrorSyncRunResult, error) {
+	run, err := q.GetGithubMirrorSyncRun(ctx, db.GetGithubMirrorSyncRunParams{
 		ID:           runID,
 		RepositoryID: repositoryID,
 	})
@@ -235,7 +250,7 @@ func (s *GitMirrorSyncService) GetMirrorSyncRun(ctx context.Context, repositoryI
 		}
 		return GitMirrorSyncRunResult{}, pkgerrors.Internal("failed to get git mirror sync run").WithCause(err)
 	}
-	refs, err := s.queries.ListGithubMirrorSyncRefResults(ctx, run.ID)
+	refs, err := q.ListGithubMirrorSyncRefResults(ctx, run.ID)
 	if err != nil {
 		return GitMirrorSyncRunResult{}, pkgerrors.Internal("failed to list git mirror sync ref results").WithCause(err)
 	}

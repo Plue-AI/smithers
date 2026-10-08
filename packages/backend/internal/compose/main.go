@@ -1311,6 +1311,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}}
 	gitMirrorSyncService := services.NewGitMirrorSyncService(queries, services.WithGitMirrorCredentials(queries, gitHubUserReposService, publicBaseURL, repoConnectionService),
 		services.WithGitMirrorPullPolicy(gitHubMainPullService.PullPolicyRecorded))
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithGitMirrorInstallAuthorization(pool)(gitMirrorSyncService)
+	}
 
 	repoHandler := &routes.RepoHandler{
 		Service:               repoService,

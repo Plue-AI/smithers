@@ -615,6 +615,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "code.hover", regexp.MustCompile(`^/api/branches/[^/]+/lsp/[^/]+$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspace-snapshots(?:/[^/]+)?$`)},
 	{http.MethodPatch, "egress.update", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/egress-policy$`)},
+	{http.MethodGet, "mirror.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mirror-sync/[0-9]+$`)},
 	{http.MethodGet, "egress.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/egress-policy$`)},
 	{http.MethodPost, "account.oauth.revoke", regexp.MustCompile(`^/api/oauth2/revoke-all$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(workspaces|workspace/sessions)$`)},
