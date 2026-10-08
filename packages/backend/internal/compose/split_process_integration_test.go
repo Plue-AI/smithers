@@ -7,6 +7,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -70,6 +73,19 @@ func splitProcessDatabase(t *testing.T) (repositoryURL string, repositoryHealthC
 // startSplitProcess starts one composition and stops it at test cleanup.
 func startSplitProcess(t *testing.T, options Options) http.Handler {
 	t.Helper()
+	// Keep native configuration scoped to the composed install fixture. A
+	// shared Cargo target used by the gate must not hide this checkout's build.
+	if os.Getenv("SMITHERS_FFI_LIBRARY_PATH") == "" {
+		_, source, _, _ := runtime.Caller(0)
+		library := "libsmithers_ffi.so"
+		if runtime.GOOS == "darwin" {
+			library = "libsmithers_ffi.dylib"
+		}
+		path := filepath.Join(filepath.Dir(source), "../../../../target/debug", library)
+		if _, err := os.Stat(path); err == nil {
+			t.Setenv("SMITHERS_FFI_LIBRARY_PATH", path)
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan http.Handler, 1)
 	finished := make(chan struct{})
