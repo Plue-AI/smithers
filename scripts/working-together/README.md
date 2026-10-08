@@ -144,3 +144,47 @@ or waking the VM. K6 still uses the actual msb force-stop/wake path. Each run
 retains the writer hashes, outbox, heads, rows and host object checks. A green
 selected campaign remains incomplete evidence for C-DUR-04 until real watcher
 K4/K4b host crash/outage and the remaining campaigns qualify together.
+
+`node scripts/working-together/faults.mjs --s2` runs the real Linux watcher,
+Linux watcher/host, approved guest-session, VM and guest-member host outage
+campaigns sequentially. Each
+campaign retains its existing logs and per-run evidence; the aggregate
+`s2-*/summary.json` links every receipt and checks that they tested the same
+commit. Missing fixtures remain failures and do not prevent recording the
+remaining campaigns' refusals. Evidence directories have unique suffixes so
+fast preflight failures cannot collide in the same millisecond.
+
+This command currently exits 1 on a failed campaign or 2 when all five selected
+boundaries pass. It never grants a C-DUR-04 pass: the Linux K4/K4b campaign has
+an empty broker census, so populated guest member sessions during host exit
+remain an integration gap. A reference host is necessary to execute
+the guest campaigns; authoring the combined K4 host-exit/session campaign remains work.
+
+
+`node scripts/working-together/faults.mjs --member-host-only` authors ten K4b
+runs on the approved reference guest through the composed install. The writer
+opens through the authenticated member terminal route; its recorded UID and
+`/proc/self/cgroup` must show a real member in the production broker cgroup.
+The driver closes the private link and holds the existing authoritative-head
+lookup while production reconnect retries. Fifty writes each fsync and close
+before the ordinary debug local-capture hook closes their bursts. All fifty
+bursts and captures must remain in the actual outbox, with no host rows during
+the outage. Reconnect is released only after fifty captures and at least thirty
+seconds. The production reconnect, authenticated event consumer, PostgreSQL,
+host object store, file HTTP route and terminal reattachment then verify the
+retained writes. This keeps the same host process and guest daemon. Evidence
+includes the member process/cgroup, writer hashes, actual outage duration,
+host PID, queued records, drained outbox, database exports and capture heads.
+
+This case is authored and compiled on Linux; executing its ten runs requires
+the approved Apple Silicon guest bundle. It remains unqualified until those
+runs pass. It does not author or qualify K4's host-process exit with real members.
+
+K4's first Linux repetition deliberately waits for the first acknowledged file
+to commit before writing the other nineteen. A real host can exit at an early
+burst under contention or the normal capture cadence. Pre-ACK evidence must
+show a committed nonempty prefix, not assume all files shared that transaction.
+After replay, every acknowledged path still must have exactly one durable row,
+its independent expected bytes in the capture and sleeping HTTP diff, and no
+unacknowledged outbox record. Diff verification sorts paths across entries;
+it does not require the writer to finish inside a single burst window.

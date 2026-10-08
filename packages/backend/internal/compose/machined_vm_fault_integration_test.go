@@ -27,19 +27,26 @@ import (
 // checkout binary, helper, script or interpreter is planted or executed as root.
 // This campaign never substitutes a process kill for msb force-stop.
 func TestMachinedK6VMStop(t *testing.T) {
-	testMachinedGuestFaults(t, true)
+	testMachinedGuestFaults(t, true, false)
 }
 
 // Uses the same installed watcher/member cgroups/object store as K6. Guest
 // init, rather than the driver, replaces the daemon and cleans up sessions.
 func TestMachinedDaemonSessionFaultRecovery(t *testing.T) {
-	testMachinedGuestFaults(t, false)
+	testMachinedGuestFaults(t, false, false)
 }
 
-func testMachinedGuestFaults(t *testing.T, vmStop bool) {
+func TestMachinedMemberHostOutageRecovery(t *testing.T) {
+	testMachinedGuestFaults(t, false, true)
+}
+
+func testMachinedGuestFaults(t *testing.T, vmStop, hostOutage bool) {
 	flag := "SMITHERS_MACHINED_K6_REFERENCE"
 	if !vmStop {
 		flag = "SMITHERS_MACHINED_SESSION_FAULT_REFERENCE"
+	}
+	if hostOutage {
+		flag = "SMITHERS_MACHINED_HOST_SESSION_REFERENCE"
 	}
 	if os.Getenv(flag) != "1" {
 		t.Skip("reference Mac and approved killpoints qualification bundle required")
@@ -107,9 +114,17 @@ func testMachinedGuestFaults(t *testing.T, vmStop bool) {
 		points = []string{"K1", "K2", "K3", "K3b", "K5a", "K5b", "K5c"}
 		campaign = "session"
 	}
+	if hostOutage {
+		points = []string{"K4b"}
+		campaign = "host-session"
+	}
 	for _, point := range points {
 		for run := 1; run <= 10; run++ {
 			t.Run(fmt.Sprintf("%s/%02d", point, run), func(t *testing.T) {
+				if hostOutage {
+					testMemberHostOutage(t, r, vm, branch, run, control, evidence, hostGit)
+					return
+				}
 				prefix := fmt.Sprintf("%s-%s-%02d", campaign, point, run)
 				before, err := registry.Capture(t.Context(), branch)
 				require.NoError(t, err)

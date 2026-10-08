@@ -204,3 +204,58 @@ test('real watcher host campaign requires every process-exit recovery lifecycle'
   assert.equal(watcherHostLifecycles.length, 22)
   assert.equal(watcherHostVerdict(0, logs.replaceAll(pkg, 'another/package')), 'failed')
 })
+
+
+test('S2 receipts cannot combine missing, reordered, failed or different revisions into qualification', async () => {
+  const { s2Campaigns, s2Verdict } = await import('./faults.mjs')
+  const campaigns = s2Campaigns.map(({ name, points }) => ({ name, points,
+    commit: 'a'.repeat(40), componentStatus: 'boundary-passed' }))
+  assert.equal(s2Verdict(campaigns), 'incomplete', 'separate guest and host runs do not qualify integrated K4/K4b')
+  assert.equal(s2Verdict([]), 'failed')
+  assert.equal(s2Verdict([...campaigns].reverse()), 'failed')
+  assert.equal(s2Verdict([...campaigns, campaigns[0]]), 'failed')
+  for (let i = 0; i < campaigns.length; i++) {
+    for (const changed of [{ componentStatus: 'failed' }, { componentStatus: 'component-passed' },
+      { commit: 'b'.repeat(40) }, { commit: '' }, { points: [] }, { name: 'fixture' }]) {
+      assert.equal(s2Verdict(campaigns.map((item, j) => j === i ? { ...item, ...changed } : item)), 'failed')
+    }
+  }
+})
+
+test('S2 CLI visits every real boundary and retains all refusals without qualifying Linux as a VM', async () => {
+  const { mkdtemp, readdir, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { runS2, s2Campaigns } = await import('./faults.mjs')
+  const root = await mkdtemp(join(tmpdir(), 's2-fault-refusal-'))
+  try {
+    assert.equal(await runS2({ root }), 1)
+    const parent = join(root, '.artifacts/checks/C-DUR-04')
+    const directories = await readdir(parent)
+    assert.equal(directories.length, 6)
+    const summary = JSON.parse(await readFile(join(parent, directories.find(name => name.startsWith('s2-')), 'summary.json'), 'utf8'))
+    assert.equal(summary.status, 'failed')
+    assert.deepEqual(summary.campaigns.map(item => item.name), s2Campaigns.map(item => item.name))
+    for (const item of summary.campaigns) {
+      assert.equal(item.componentStatus, 'failed')
+      assert.equal(item.reason, 'host fixture unavailable')
+      const child = JSON.parse(await readFile(join(item.directory, 'summary.json'), 'utf8'))
+      assert.equal(child.commit, summary.commit)
+      assert.equal(child.status, 'failed')
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+
+test('member/host qualification requires each of the ten real guest outage lifecycles', async () => {
+ const { memberHostLifecycles, memberHostVerdict } = await import('./faults.mjs')
+ const logs = receipt(memberHostLifecycles, 1)
+ assert.equal(memberHostVerdict(0, logs), 'boundary-passed')
+ assert.equal(memberHostVerdict(1, logs), 'failed')
+ assert.equal(memberHostLifecycles.length, 11)
+ for (const name of memberHostLifecycles) {
+  for (const replacement of ['', event('skip', name), event('fail', name)]) {
+   assert.equal(memberHostVerdict(0, logs.replace(event('pass', name), replacement)), 'failed')
+  }
+ }
+})
