@@ -274,3 +274,22 @@ test("private native credential reaches source import, publication and reserved 
   await run((native) => Effect.result(native.read()))
   assert.equal(await readFile(join(root, "credential.txt"), "utf8"), "")
 })
+
+test("native import distinguishes malformed refs from duplicate identities before transport", async (t) => {
+  const { root, run } = await fixture(t, {})
+  const commit = {
+    commitId: "a".repeat(40),
+    ref: `refs/smithers/workspaces/11111111-1111-4111-8111-111111111111/sources/${"a".repeat(40)}`
+  }
+  for (
+    const [commits, reason] of [
+      [[{ ...commit, commitId: "short" }], "native_import_identity_invalid"],
+      [[commit, commit], "native_import_duplicate_or_zero"]
+    ] as const
+  ) {
+    const error = await run(true, (native) => Effect.flip(native.importSource!({ requestId, commits })))
+    assert.equal(error.code, "source_refused")
+    assert.ok(error.message.includes(`source_refused: ${reason}`))
+  }
+  assert.deepEqual(await readdir(root), ["helper"])
+})

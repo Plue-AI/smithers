@@ -353,3 +353,26 @@ func TestSourceRetentionDistinctRefusals(t *testing.T) {
 		})
 	}
 }
+
+func TestSourceRetentionOwnerAndCloneRefusalReasons(t *testing.T) {
+	t.Run("missing repository owner", func(t *testing.T) {
+		s, _, a, input, _ := retentionTestFixture(t)
+		s.imports.installMainMirror = true
+		a.ownerID = 0
+		_, err := s.Retain(t.Context(), 7, 9, input)
+		var api *pkgerrors.APIError
+		require.ErrorAs(t, err, &api)
+		require.Equal(t, "source_refused: repository_owner_missing", api.Message)
+	})
+	t.Run("clone authorization", func(t *testing.T) {
+		s, _, _, input, _ := retentionTestFixture(t)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+		defer server.Close()
+		t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+		s.imports.httpClient = server.Client()
+		_, err := s.Retain(t.Context(), 7, 9, input)
+		var api *pkgerrors.APIError
+		require.ErrorAs(t, err, &api)
+		require.Equal(t, "source_refused: clone_authorization", api.Message)
+	})
+}

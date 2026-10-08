@@ -266,11 +266,12 @@ test(
 // Supplemental native boundary proof: only the executor-owned continuation
 // keeps the existing working change. J10 proves this through the served install.
 for (
-  const [label, owner, retained] of [
-    ["legacy", undefined, false],
-    ["first TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 0 }, false],
-    ["later TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 1 }, true],
-    ["other flow", { rootId: "request-run", flowId: "coding/request", launchOrdinal: 1 }, false]
+  const [label, owner, retained, conflicted] of [
+    ["legacy", undefined, false, false],
+    ["first TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 0 }, false, false],
+    ["later TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 1 }, true, false],
+    ["conflicted re-entry", { rootId: "todo-run", flowId: "todo", launchOrdinal: 1 }, true, true],
+    ["other flow", { rootId: "request-run", flowId: "coding/request", launchOrdinal: 1 }, false, false]
   ] as const
 ) {
   test(`base setup preserves edits only on executor re-entry: ${label}`, async (t) => {
@@ -282,7 +283,7 @@ for (
     const { Revision } = await import("../coding/schema.ts")
     const { CreateStackBase, stackBaseLayer } = await import("../coding/stack.ts")
     const current = resolved("z", "d".repeat(40), ["e".repeat(40)])
-    const native = fake(current)
+    const native = fake(conflicted ? { ...current, kind: "conflicted", treeTerms: [] } as NativeRevision : current)
     const operation = await Effect.runPromise(prepareStackBase(base, "base-setup").pipe(Effect.provide(native.layer)))
     native.calls.length = 0
     const Probe = Flow.make("test/retained-base", {
@@ -301,6 +302,14 @@ for (
       )
     )
     t.after(() => runtime.dispose())
+    if (conflicted) {
+      await assert.rejects(
+        runtime.runPromise(Probe.execute({}, { executionId: "probe" })),
+        /source_refused: stack_retained_unresolved/
+      )
+      assert.deepEqual(native.calls, ["read"])
+      return
+    }
     const result = await runtime.runPromise(Probe.execute({}, { executionId: "probe" }))
     assert.equal(result.changeId, retained ? current.changeId : "m".repeat(32))
     assert.equal(result.commitId, retained ? current.commitId : "c".repeat(40))

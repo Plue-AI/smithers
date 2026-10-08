@@ -76,12 +76,15 @@ test("source retention binds every acknowledgement to the provisioned workspace 
   const workspace = "22222222-2222-4222-8222-222222222222", head = "b".repeat(40), base = "a".repeat(40)
   const ref = (sha: string) => `refs/smithers/workspaces/${workspace}/sources/${sha}`
   const requests: Record<string, unknown>[] = []
-  let status = 200, override: Record<string, unknown> = {}
+  let status = 200,
+    override: Record<string, unknown> = {},
+    sourceName = "original/source",
+    refusalMessage = "fixture refusal"
   const server = createServer(async (request, response) => {
     response.setHeader("content-type", "application/json")
     assert.equal(request.headers.authorization, "Bearer fixture-token")
     if (request.url === "/api/repos/local/mirror/repository-source") {
-      response.end(JSON.stringify({ source: "github", full_name: "original/source" }))
+      response.end(JSON.stringify({ source: "github", full_name: sourceName }))
       return
     }
     assert.equal(request.url, "/api/repos/local/mirror/repository-source/retain")
@@ -106,7 +109,7 @@ test("source retention binds every acknowledgement to the provisioned workspace 
             clone_url: "https://native.example/local/mirror.git",
             ...override
           } :
-          { error: "fixture refusal" }
+          { message: refusalMessage }
       )
     )
   })
@@ -157,8 +160,21 @@ test("source retention binds every acknowledgement to the provisioned workspace 
     status = http
     const outcome = await Effect.runPromise(remote.retainSource!(pr).pipe(Effect.result))
     assert.equal(outcome._tag, "Failure")
-    if (outcome._tag === "Failure") assert.equal(outcome.failure.code, code)
+    if (outcome._tag === "Failure") {
+      assert.equal(outcome.failure.code, code)
+      if (code === "source_refused") assert.equal(outcome.failure.message, "source_refused: remote_http_refused")
+    }
   }
+  refusalMessage = "source_refused: workspace_owner_mismatch"
+  status = 403
+  await assert.rejects(Effect.runPromise(remote.retainSource!(pr)), /source_refused: workspace_owner_mismatch/)
+  status = 200
+  sourceName = "invalid"
+  await assert.rejects(Effect.runPromise(remote.retainSource!(pr)), /source_refused: remote_source_invalid/)
+  await assert.rejects(
+    Effect.runPromise(remote.retainSource!({ ...pr, head: "invalid" })),
+    /source_refused: retention_identity_invalid/
+  )
 })
 
 test("native main retention uses only the provisioned native identity and exact workspace ref", async (t) => {
@@ -216,7 +232,7 @@ test("native main retention uses only the provisioned native identity and exact 
   )
   assert.equal((await Effect.runPromise(remote.retainMain!(main))).head_ref, ref)
   assert.deepEqual(requests, [{ kind: "main", workspace_id: workspace, head: main, base: main }])
-  await assert.rejects(Effect.runPromise(remote.retainMain!("0".repeat(40))), /exact immutable commit/)
+  await assert.rejects(Effect.runPromise(remote.retainMain!("0".repeat(40))), /source_refused: main_commit_invalid/)
   assert.equal(requests.length, 1)
   for (
     const changed of [
