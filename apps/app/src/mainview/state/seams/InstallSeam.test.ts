@@ -143,6 +143,67 @@ describe("T-APP-03 install seam", () => {
     expect(h.seam.snapshots.get().error?.class).toBe("permission")
     expect(h.toasts[0]?.outcome).toBe("Owner access required")
   })
+  // The `settings` flow presents the card before the install answers; a refusing install takes it back out.
+  const presented = async (h: Awaited<ReturnType<typeof harness>>) => {
+    await h.store.dispatch({ type: "card.upsert", actor: "user", card: { id: "settings", kind: "settings", title: "Settings", status: "active", createdAt: 1, ordinal: 1, payload: {} } }).isPersisted.promise
+    await h.store.dispatch({ type: "card.upsert", actor: "user", card: { id: "setup", kind: "setup", title: "Set up Smithers", status: "active", createdAt: 2, ordinal: 2, payload: {} } }).isPersisted.promise
+    return () => [...h.store.collections.cards.keys()].sort()
+  }
+  test("an install that refuses the viewer withdraws the presented Settings card and keeps Setup", async () => {
+    const refused = await harness(() => Response.json(failure("permission"), { status: 403 }))
+    const refusedCards = await presented(refused)
+    refused.seam.showSettings(); await refused.idle()
+    expect(refusedCards()).toEqual(["setup"]); expect(refused.presentations).toEqual([])
+    expect(refused.toasts[0]?.outcome).toBe("The operation failed.")
+
+    const model = installFixture(); model.github.signed_in = false
+    const signedOut = await harness(() => Response.json(model))
+    const signedOutCards = await presented(signedOut)
+    signedOut.seam.showSettings(); await signedOut.idle()
+    expect(signedOutCards()).toEqual(["setup"]); expect(signedOut.presentations).toEqual([])
+    expect(signedOut.toasts[0]?.outcome).toBe("Owner access required")
+
+    const demoted = await harness(() => Response.json(installFixture()))
+    const demotedCards = await presented(demoted)
+    demoted.seam.showSettings(); await demoted.idle()
+    expect(demotedCards()).toEqual(["settings", "setup"]); expect(demoted.presentations).toEqual(["settings"])
+    demoted.refuse(failure("permission"))
+    expect(demotedCards()).toEqual(["setup"])
+
+    const write = await harness((_path, init) => init?.method === "PUT" ? Response.json(failure("permission"), { status: 403 }) : Response.json(installFixture()))
+    const writeCards = await presented(write)
+    await write.seam.readInstall(); write.seam.setInstallParallel(2); await write.idle()
+    expect(writeCards()).toEqual(["setup"])
+  })
+  test("a host with no install, an unreachable install and a failing install keep the presented Settings card", async () => {
+    for (const [answer, outcome] of [
+      [() => new Response("<!doctype html>", { status: 404 }), TOAST_SUPERSEDED],
+      [() => { throw new Error("offline") }, "Could not reach this install"],
+      [() => new Response("Bad gateway", { status: 502 }), "Install request failed"],
+      [() => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }), "The operation failed."]
+    ] as const) {
+      const h = await harness(answer, { quietWithoutInstall: true })
+      const cards = await presented(h)
+      h.seam.showSettings(); await h.idle()
+      expect(h.toasts.map(toast => toast.outcome)).toEqual([outcome])
+      expect(cards()).toEqual(["settings", "setup"])
+    }
+  })
+  test("a refused setup write and a disposed seam leave the Settings card alone", async () => {
+    const refusal: InstallError = { code: "origin", class: "permission", message: "request origin differs from install origin" }
+    const model = installFixture(); for (const step of model.steps.slice(1)) step.state = "pending"
+    const setup = await harness((_path, init) => init?.method === "POST" ? Response.json(refusal, { status: 403 }) : Response.json(model))
+    const setupCards = await presented(setup)
+    await setup.seam.readInstall(); setup.seam.setupStep({ step: "app_manifest", owner: "smithersai" }); await setup.idle()
+    expect(setupCards()).toEqual(["settings", "setup"])
+
+    const gate = deferred<Response>()
+    const disposed = await harness(() => gate.promise)
+    const disposedCards = await presented(disposed)
+    const read = disposed.seam.readInstall(); disposed.seam.dispose()
+    gate.resolve(Response.json(failure("permission"), { status: 403 })); await read
+    expect(disposedCards()).toEqual(["settings", "setup"])
+  })
   test("unresolved reads acknowledge immediately; duplicate opens coalesce", async () => {
     const gate = deferred<Response>(); const h = await harness(() => gate.promise)
     expect(h.seam.showSettings()).toEqual({ value: "Requested" })

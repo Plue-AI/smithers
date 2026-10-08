@@ -60,6 +60,8 @@ test("Settings docs are unavailable to a non-owner", async ({ page }) => {
   await page.route("**/api/install", route => route.fulfill({ json: { ...model, github: { ...model.github, signed_in: false } } }))
   await page.goto("/")
   await say(page, "/settings")
+  // The flow presents Settings before the install answers; only the settled refusal shows what a non-owner is left with.
+  await expect(page.getByRole("alert").filter({ hasText: "Owner access required" })).toBeVisible()
   await expect(page.getByTestId("card-settings")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Notifications need HTTPS ↗", exact: true })).toHaveCount(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()

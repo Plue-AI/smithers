@@ -91,6 +91,28 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.cards).toEqual(["settings"])
     } finally { resolve(Response.json(installFixture())); await h.controller.dispose() }
   })
+  // T-APP-24: the flow presents Settings before the install answers, so a refusing install must take the card back.
+  const signedOut = () => { const model = installFixture(); return Response.json({ ...model, github: { ...model.github, signed_in: false } }) }
+  const forbidden = () => Response.json({ code: "owner_required", class: "permission", message: "Owner access required" }, { status: 403 })
+  const installHost: AppBootstrap = { apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
+  test.each([
+    ["a seed host, signed out", undefined, signedOut], ["a seed host, forbidden", undefined, forbidden],
+    ["an install host, signed out", installHost, signedOut], ["an install host, forbidden", installHost, forbidden]
+  ] as const)("a person the install refuses is left no Settings card: %s", async (_name, bootstrap, install) => {
+    let resolve!: (response: Response) => void
+    const read = new Promise<Response>(done => { resolve = done })
+    const h = await harness(bootstrap, () => read)
+    try {
+      expect((await h.controller.commands.submit({ name: "settings", payload: {}, actor: "user" })).status).toBe("executed"); await tick()
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+      resolve(install()); await tick()
+      expect([...h.store.collections.cards.keys()]).toEqual([])
+      expect(h.cards).toEqual([])
+      expect(h.controller.installSnapshots.get().model).toBeUndefined()
+      expect(h.controller.installSnapshots.get().error?.class).toBe("permission")
+      expect([...h.store.collections.toasts.values()].map(toast => toast.detail)).toEqual(["Owner access required"])
+    } finally { resolve(install()); await h.controller.dispose() }
+  })
   test.each(["slash", "button"] as const)("capacity writes share the same flow from %s", async door => {
     const h = await harness()
     try {

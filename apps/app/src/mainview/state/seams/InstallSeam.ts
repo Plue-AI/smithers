@@ -81,10 +81,18 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     get: () => shared.snapshot,
     subscribe: listener => { shared.listeners.add(listener); return () => { shared.listeners.delete(listener) } }
   }
+  /**
+   * Settings is owner-only. The `settings` flow presents its card before the install answers (the seed stands in on a
+   * host with no install), so an install that refuses the viewer takes that card back out of the conversation.
+   */
+  const withdrawSettings = () => {
+    if (current() && ctx.store.collections.cards.get("settings")?.kind === "settings") ctx.dispatch({ type: "card.removed", actor: ctx.actor(), id: "settings" })
+  }
   const revoke = (failure: InstallError) => {
     shared.generation++
     shared.stop?.(); shared.stop = undefined
     publish({ error: failure })
+    withdrawSettings()
   }
   /**
    * The served install with this browser's own requests over it: a step it asked for reads running, an App lease
@@ -189,7 +197,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (failure) return serviceFailureSentence(failure)
     if (!current() || !shared.snapshot.model) return false
     if (kind === "settings" && !shared.snapshot.model.github.signed_in) {
-      publish({ error: permission }); return serviceFailureSentence(permission)
+      publish({ error: permission }); withdrawSettings(); return serviceFailureSentence(permission)
     }
     await options.present?.(kind)
     for (const row of fastRequests().filter(row => row.state === "requested" || row.state === "running")) {
