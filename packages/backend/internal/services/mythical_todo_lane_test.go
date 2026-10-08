@@ -92,10 +92,10 @@ func TestTodoRetryOpensANewLaneWhenItsLaneIsRetired(t *testing.T) {
 // retains its working copy for review re-entry; both release the isolated
 // review lane when the engine review answers.
 func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
-	for _, mode := range []string{"completed", "live"} {
+	for _, mode := range []string{"completed", "live", "completed-during-review"} {
 		t.Run(mode, func(t *testing.T) {
 			o, session := newTodoAdmission(t)
-			if mode == "live" {
+			if mode != "completed" {
 				o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			}
 			ctx := context.Background()
@@ -129,7 +129,7 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 
 			item = o.byID(id)
 			require.Equal(t, "proposed", item.State, item.Reason)
-			if mode == "live" {
+			if mode != "completed" {
 				assert.NotContains(t, o.lanes.deleted, coding)
 			} else {
 				assert.Contains(t, o.lanes.deleted, coding)
@@ -138,7 +138,7 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			require.NotEmpty(t, review.RequestID, "the review launched: reason %q checks %s next %v", item.Reason, item.Checks, item.NextAttemptAt)
 			reviewLane := review.Target.WorkspaceID
 			assert.NotEqual(t, coding, reviewLane)
-			if mode == "live" {
+			if mode != "completed" {
 				assert.Equal(t, coding, item.WorkspaceID)
 			} else {
 				assert.Equal(t, reviewLane, item.WorkspaceID)
@@ -148,10 +148,16 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			require.NoError(t, o.pool.QueryRow(ctx, `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&name))
 			assert.Equal(t, "TODO 1 review g2", name)
 
+			if mode == "completed-during-review" {
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET request_outcome='completed' WHERE id=$1`, item.ID)
+				require.NoError(t, err)
+			}
 			o.answerReviews(`"request-changes"`)
 			item = o.byID(id)
 			assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
-			if mode == "live" {
+			if mode == "completed-during-review" {
+				assert.NotEqual(t, reviewLane, item.WorkspaceID, "subsequent work does not retain the settled reviewer")
+			} else if mode == "live" {
 				assert.Equal(t, coding, item.WorkspaceID)
 				assert.True(t, item.Lane.Valid)
 				assert.NotContains(t, o.lanes.deleted, coding)

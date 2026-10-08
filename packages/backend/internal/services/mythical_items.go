@@ -1729,14 +1729,18 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 	if mythicalChecksOf(item).Capture != nil || todoRunAwaitsProposal(item) {
 		return item
 	}
-	// A live TODO is parked for review, not finished. Retain the coding
-	// workspace and journal so a review steer re-enters that exact run.
-	if item.State == "proposed" && item.FlowDigest.Valid && item.RequestOutcome == "" {
+	// A separate reviewer releases its lane after settlement even if the
+	// implementer completed while that review was running.
+	if item.State == "proposed" && s.lanes != nil && r.row.ActorUserID.Valid {
 		if review := mythicalChecksOf(item).Review; review != nil && review.Verdict != "" && review.Lane != "" && review.Lane != item.WorkspaceID {
 			if err := s.retireLane(ctx, r, review.Lane); err != nil && ctx.Err() == nil {
 				s.logger.Warn("mythical.review_release_failed", "workspace_id", review.Lane, "error", err)
 			}
 		}
+	}
+	// A live TODO is parked for review, not finished. Retain the coding
+	// workspace and journal so a review steer re-enters that exact run.
+	if item.State == "proposed" && item.FlowDigest.Valid && item.RequestOutcome == "" {
 		return item
 	}
 	// Keep interrupted work for its person. Finished review lanes use the

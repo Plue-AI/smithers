@@ -145,5 +145,5 @@ func runTodoFreshReviewerContext(t *testing.T, enable string) {
 	require.Eventually(t, func() bool {
 		var retired bool
 		return r.pool.QueryRow(r.ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, state.Review.Lane).Scan(&retired) == nil && retired
-	}, time.Minute, 100*time.Millisecond, "a settled reviewer releases its own machine while the implementer remains held")
+	}, time.Minute, 100*time.Millisecond, "a settled reviewer releases its own machine independently of implementer settlement")
 }
