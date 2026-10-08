@@ -11,7 +11,13 @@ import (
 // This drives the installed HTTP door, stack worker, check launcher and GitHub
 // fake. The machine runtime is the existing rehearsal process boundary; it is
 // not microVM or broker freeze evidence.
-func TestRebaseNowRehearsal(t *testing.T) {
+func TestRebaseNowRehearsal(t *testing.T) { testRebaseNowRehearsal(t, false) }
+
+// Keep the complete person-initiated PR/card proof independently runnable;
+// absence and checkpoint acceptance must not conceal its passing receipt.
+func TestRebaseNowExplicitRehearsal(t *testing.T) { testRebaseNowRehearsal(t, true) }
+
+func testRebaseNowRehearsal(t *testing.T, explicitOnly bool) {
 	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_REBASE_REHEARSAL", "C-J10-04", "rebase-now-")
 	if !r.setupSource() || !r.setupMachine() {
@@ -36,8 +42,52 @@ func TestRebaseNowRehearsal(t *testing.T) {
 	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowBranch(n); return err }) {
 		return
 	}
+	if explicitOnly {
+		return
+	}
+	if !r.step("Rebase at a checkpoint without people", "GitHub main sync; GET /api/todos/{n}; GitHub fake", "clean rebase without a person acting, same PR, new head", "T-STK-08", func() error { return r.rebaseCheckpoint(n) }) {
+		return
+	}
 	if !r.step("Rebase after browser departure", "POST /api/live presence; GitHub main sync", "hold while present, one clean rebase within 60 s of departure, same PR", "T-STK-08", func() error { _, err := r.rebaseBranch(n, false); return err }) {
 		return
+	}
+}
+
+func (r *rehearsal) rebaseCheckpoint(n int64) error {
+	before, err := r.todo(n)
+	if err != nil {
+		return err
+	}
+	main, err := r.pushMain("CHECKPOINT-REBASE.md", "checkpoint main change\n", "Main moves at a checkpoint")
+	if err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
+		card, err := r.todo(n)
+		if err != nil {
+			return err
+		}
+		if card.State == "failed" {
+			return fmt.Errorf("checkpoint rebase failed: %+v", card)
+		}
+		if card.State == "in_review" && card.PR.Head != before.PR.Head && card.Merge.State == "ready" {
+			pull, err := r.readFakePull(card.PR.Number)
+			if err != nil {
+				return err
+			}
+			parent, err := r.githubGit("rev-parse", pull.Head.SHA+"^")
+			if err != nil {
+				return err
+			}
+			if card.PR.Number != before.PR.Number || card.PR.Head != pull.Head.SHA || parent != main {
+				return fmt.Errorf("checkpoint PR binding differs: %+v parent=%s main=%s", card.PR, parent, main)
+			}
+			r.actual = fmt.Sprintf("T%d PR #%d %s → %s on %s", n, card.PR.Number, short7(before.PR.Head), short7(card.PR.Head), short7(main))
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("checkpoint did not rebase: %+v", card)
+		}
 	}
 }
 
@@ -52,18 +102,6 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 	}
 	if before.Branch == nil || before.PR.Head == "" {
 		return "", fmt.Errorf("T%d has no branch/PR", n)
-	}
-	// The process coding-file fixture does not launch the daemon when an
-	// unplanned run starts. Once its logical change exists, reconcile the
-	// actual native boot on the retained checkout before driving HTTP.
-	if runtime, ok := r.options.Workspace.(bindingProcessRuntime); ok {
-		observed, err := runtime.InspectWorkspace(r.ctx, before.Branch.ID)
-		if err != nil {
-			return "", err
-		}
-		if err := runtime.ensureDaemon(r.ctx, before.Branch.ID, observed.Root); err != nil {
-			return "", err
-		}
 	}
 	tab, err := r.openLive(r.jar)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -26,7 +27,26 @@ type rebaseExecutionFixture struct {
 }
 
 func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, member int64, onto string, _ func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
-	err := guard(func() error { r.calls++; return nil })
+	err := guard(func() error {
+		// The authenticated presence reader holds KEY SHARE independently of
+		// native admission. It must finish while the worker fences the rewrite.
+		read, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		tx, err := r.f.pool.Begin(read)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(context.WithoutCancel(ctx))
+		var observed string
+		if err := tx.QueryRow(read, `SELECT id::text FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch).Scan(&observed); err != nil {
+			return err
+		}
+		if observed != branch {
+			return errors.New("presence read another branch")
+		}
+		r.calls++
+		return nil
+	})
 	return r.result, err
 }
 func (r *rebaseExecutionFixture) Capture(ctx context.Context, branch string) (machined.CaptureResult, error) {

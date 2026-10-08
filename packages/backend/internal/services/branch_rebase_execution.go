@@ -61,7 +61,7 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 		return errors.New("rebase binding changed")
 	}
 	var status, head string
-	if err := tx.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status, &head); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status, &head); err != nil {
 		return err
 	}
 	if executing {
