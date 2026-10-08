@@ -134,7 +134,8 @@ func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
 // Placement, pause and admission enter through the install HTTP and engine paths.
 // J7's trusted-process adapter has no automatic idle-release providers (#3567,
 // #3572); retaining its reviewed coding run (#3531) cannot free capacity there.
-// This oracle supplies a real runtime stop, never a fabricated ownership bit.
+// This oracle holds the stop acknowledgment before its independent observation:
+// capacity and queued TODOs stay unchanged until the runtime observes the stop.
 func TestTodoBeforeAdmittedWhenHolderStops(t *testing.T) {
 	testParallelAdmissionInstallBoundary(t, true, true, false)
 }
@@ -234,8 +235,22 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 	// Runtime boot/stop responses: every boot or wake stays in flight (holding
 	// its grant) until the test ends; the inventory lists the sleeping machine.
 	release := filepath.Join(scratch, "release-boots")
+	stopPending := filepath.Join(scratch, "stop-pending")
+	stopAcknowledged := filepath.Join(scratch, "stop-acknowledged")
 	msb := filepath.Join(scratch, "msb")
-	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n create|run|start) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;\n list) printf '%s\\n' ;;\n *) printf '[]\\n' ;;\nesac\n", release, inventoryJSON)), 0o700))
+	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf(`#!/bin/sh
+case "$1" in
+ create|run|start) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;
+ stop) touch %q; printf '[]\n' ;;
+ list)
+  if [ -f %q ]; then
+   printf '[{"name":"%%s","status":"running"}]\n' "$(cat %q)"
+  else
+   printf '%%s\n' %q
+  fi ;;
+ *) printf '[]\n' ;;
+esac
+`, release, stopAcknowledged, stopPending, stopPending, inventoryJSON)), 0o700))
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
 		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 8})
@@ -546,7 +561,42 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 			held("paused holder retains capacity", 2)
 			releasedHolder = "workspace:" + first.WorkspaceID
 			require.True(t, runtime.AdmissionHeld(releasedHolder))
-			require.NoError(t, runtime.StopWorkspace(ctx, first.WorkspaceID))
+			// A successful stop command is only an acknowledgment. Keep the
+			// guest observable as running while the actual runtime stop waits.
+			sum := sha256.Sum256([]byte(first.WorkspaceID))
+			machine := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
+			require.NoError(t, os.WriteFile(stopPending, []byte(machine), 0o600))
+			stopped := make(chan error, 1)
+			stopCtx, cancelStop := context.WithTimeout(ctx, 10*time.Second)
+			defer cancelStop()
+			go func() { stopped <- runtime.StopWorkspace(stopCtx, first.WorkspaceID) }()
+			require.True(t, assertEventually(5*time.Second, func() bool {
+				_, err := os.Stat(stopAcknowledged)
+				return err == nil
+			}), "runtime did not request the guest stop")
+			select {
+			case err := <-stopped:
+				t.Fatalf("stop returned before independent observation: %v", err)
+			case <-time.After(300 * time.Millisecond):
+			}
+			require.True(t, runtime.AdmissionHeld(releasedHolder), "acknowledgment must retain ownership")
+			held("stop acknowledged, guest still running", 2)
+			pending := cards()
+			require.Equal(t, "paused", pending[1].State)
+			require.Equal(t, "working", pending[2].State)
+			for _, n := range []int{3, 4, 5, 6} {
+				require.Equal(t, "queued", pending[n].State, "acknowledgment cannot admit T%d", n)
+			}
+			for _, n := range []int64{3, 4, 5, 6} {
+				queued, err := q.GetMythicalItemByNumber(ctx, repo.ID, n)
+				require.NoError(t, err)
+				require.Empty(t, queued.WorkspaceID, "no machine before observed stop")
+				require.Empty(t, queued.RequestRunID, "no run before observed stop")
+			}
+			// Only this observed disappearance allows the production scheduler
+			// to reuse the occupied slot; neither disk nor parallel changes.
+			require.NoError(t, os.Remove(stopPending))
+			require.NoError(t, <-stopped)
 			require.False(t, runtime.AdmissionHeld(releasedHolder), "stop must be observed before capacity is reused")
 			expectedParallel, expectedHeld = 2, 2
 		} else {
