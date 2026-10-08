@@ -19,6 +19,7 @@ import (
 func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	capture := checks.Capture
+	submitted := capture != nil && item.RequestRunID != "" && item.RequestOutcome == "" && checks.RunAttached && checks.ProposalRun == item.RequestRunID && checks.ProposalHead == capture.Head
 	// A native observation can arrive after the same head's authenticated,
 	// validated delivery. It confirms that candidate; it is not edited work
 	// waiting for another steer or verification launch.
@@ -27,7 +28,7 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 		item.CandidateVerified && item.VibeOutcome == "submitted" && capture.Head == item.CandidateHead {
 		return st.consumeSubmittedCapture(ctx, item, *capture)
 	}
-	if capture == nil || capture.Stale || capture.Conflict || capture.ReconciledOnto != "" || todoReopenedAttempt(item) || item.PausedAt.Valid || len(item.PendingOp) > 0 || checks.ForeignHead != "" {
+	if capture == nil || capture.Stale || capture.Conflict || capture.ReconciledOnto != "" || todoReopenedAttempt(item) || item.PausedAt.Valid || len(item.PendingOp) > 0 || checks.ForeignHead != "" && !submitted {
 		return nil, false, nil
 	}
 	if _, pinned := mythicalPinOf(item); !pinned {
@@ -42,16 +43,20 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	if review := checks.Review; review != nil && review.Verdict == "" {
 		return nil, false, nil
 	}
-	// Text has priority. Delivery is not consumption; until its ordered
-	// boundary proves consumption, a retained current-attempt input holds this
-	// edited-only continuation.
+	// Text holds an edited-only continuation. The current run's exact sealed
+	// submission still needs verification to unblock stack.candidate; retained
+	// history is not a consumption receipt and must remain for later inputs.
 	for _, input := range checks.Steers {
-		if input.Attempt == item.Attempt && !input.InputConsumed {
+		if input.Attempt == item.Attempt && (input.ReleasePending || !input.InputConsumed && !submitted) {
 			return nil, false, nil
 		}
 	}
-	if len(todoOpenWaits(item)) > 0 {
-		return nil, false, nil
+	for _, wait := range todoOpenWaits(item) {
+		// Verification may finish under an outside-push hold. Publication
+		// still refuses through its independent wait/head gate.
+		if !submitted || wait.Kind != "foreign_push" {
+			return nil, false, nil
+		}
 	}
 	if st.s == nil || st.r == nil || item.WorkspaceID == "" || item.CandidateBase == "" {
 		return nil, false, nil

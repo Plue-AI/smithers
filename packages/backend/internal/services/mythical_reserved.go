@@ -232,6 +232,20 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		}
 		pending := mythicalChecksOf(item).Capture
 		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || checking {
+			if pending != nil && pending.Head == input.Source.CommitID && pending.Tree == tree {
+				checks := mythicalChecksOf(item)
+				if checks.ProposalRun != item.RequestRunID || checks.ProposalHead != pending.Head {
+					checks.ProposalRun, checks.ProposalHead = item.RequestRunID, pending.Head
+					if !checking && len(item.PendingOp) == 0 {
+						item.CandidateBase, item.CandidateVerified = prefix, false
+						item.State, item.Reason = "integrating", ""
+					}
+					item.Checks = checks.encode()
+					if _, err := q.SaveMythicalItem(live, item); err != nil {
+						return empty, 0, err
+					}
+				}
+			}
 			if _, err := q.RequestMythicalStack(live, repository); err != nil {
 				return empty, 0, err
 			}
@@ -253,7 +267,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		checks := mythicalChecksOf(item)
 		checks.Capture, checks.Land, checks.Review = &captured, nil, nil
 		// This run now waits on stack.propose for its acceptance.
-		checks.ProposalRun = item.RequestRunID
+		checks.ProposalRun, checks.ProposalHead = item.RequestRunID, captured.Head
 		item.Checks = checks.encode()
 		encoded, err := json.Marshal(captured)
 		if err != nil {
@@ -291,7 +305,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			// The run saw its acceptance; review may now take its machine.
 			// Cleared once: a replay returns its receipt above.
 			if checks := mythicalChecksOf(item); checks.ProposalRun != "" {
-				checks.ProposalRun = ""
+				checks.ProposalRun, checks.ProposalHead = "", ""
 				item.Checks = checks.encode()
 				acceptTodoWatchdog(&item, s.now())
 				if item, err = q.SaveMythicalItem(live, item); err != nil {

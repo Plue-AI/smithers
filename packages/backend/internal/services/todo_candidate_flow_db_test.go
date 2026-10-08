@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -245,14 +246,22 @@ func (h hostWorkspaceSources) ReadWorkspaceSource(_ context.Context, _, _ string
 // Git, JJ guest checkout, stack worker and GitHub fake. The microVM and the
 // native helper's HTTP hop are the only substitutions.
 func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false)
+	testReservedCandidateProposesVerifiedTree(t, false, false, false)
 }
 
 func TestReservedCandidateWithoutProposeReleasesLane(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, true)
+	testReservedCandidateProposesVerifiedTree(t, true, false, false)
 }
 
-func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
+func TestReservedCandidateBindsExistingCapture(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, true, false)
+}
+
+func TestReservedCandidateVerifiesUnderForeignHold(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, false, true)
+}
+
+func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold bool) {
 	f := newRebaseFixture(t)
 	ctx := context.Background()
 	q := db.New(f.pool)
@@ -271,10 +280,15 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
 	checks := mythicalChecksOf(item)
 	checks.FlowSource, checks.RunAttached = f.main, true
+	// Bring in can resume the same run with its question/steer history still
+	// retained. Its sealed candidate must reach checks without erasing that
+	// history or treating a delivered steer as a consumption receipt.
+	checks.Steers = []todoSteer{{ID: "question-steer", Attempt: 1, Text: "Ask which greeting", By: json.RawMessage(`{"kind":"person","login":"owner"}`)}, {ID: "held-steer", Attempt: 1, Text: "Log each retry", By: json.RawMessage(`{"kind":"person","login":"owner"}`)}}
 	checks.Watchdog = &todoWatchdog{ActiveSince: time.Now().UnixMilli()}
 	item.Checks = checks.encode()
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
+	steers := mythicalChecksOf(item).Steers
 	generation := item.Generation
 
 	machine := NewWorkspaceService(q, WithWorkspaceInstallAuthorization(q), WithWorkspaceTransactions(f.pool.(*pgxpool.Pool)), WithWorkspaceRuntime(guest), WithWorkspaceSourceReader(hostWorkspaceSources{hostDir: f.hostDir}))
@@ -317,6 +331,18 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	guest.run(t, "git", "push", "-q", f.hostDir, head+":"+repohost.WorkspaceSourceRef(item.WorkspaceID, head))
 	source := repohost.WorkspaceSource{ChangeID: change, CommitID: head, TreeID: tree, ParentCommitIDs: []string{f.main}}
 	capture := ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source}
+	if existingCapture {
+		// The native outbox may publish this exact snapshot before the run's
+		// sealed submission arrives. Admission must bind and advance it too.
+		checks.Capture = &MachineCapturePending{Head: head, Tree: tree, Base: f.main, Onto: head, SourceRef: repohost.WorkspaceSourceRef(item.WorkspaceID, head)}
+		item.Checks = checks.encode()
+		item, err = q.SaveMythicalItem(ctx, item)
+		require.NoError(t, err)
+		raw, err := json.Marshal(checks.Capture)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET capture_pending=$2,head_commit_id=$3 WHERE id=$1`, item.WorkspaceID, raw, head)
+		require.NoError(t, err)
+	}
 
 	_, status = call("stack.candidate", capture)
 	require.Equal(t, 202, status, "changed bytes wait for the owning claim")
@@ -327,6 +353,14 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	_, status = call("stack.candidate", capture)
 	require.Equal(t, 202, status)
 	require.Equal(t, pending.Version, f.item(item.Number.Int64).Version, "a replay while pending writes nothing")
+	if foreignHold {
+		checks := mythicalChecksOf(pending)
+		checks.ForeignHead = strings.Repeat("f", 40)
+		checks.Waits = []TodoWait{{ID: "foreign", Kind: "foreign_push", SHA: checks.ForeignHead, Since: time.Now().UTC()}}
+		pending.Checks = checks.encode()
+		_, err = q.SaveMythicalItem(ctx, pending)
+		require.NoError(t, err)
+	}
 
 	// The owning claim pins the retained bytes, allocates one generation and
 	// launches the separate verification.
@@ -337,6 +371,7 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	require.Equal(t, f.main, verifying.CandidateBase)
 	require.Equal(t, head, verifying.CandidateHead)
 	require.Nil(t, mythicalChecksOf(verifying).Capture)
+	require.Equal(t, steers, mythicalChecksOf(verifying).Steers)
 	require.Equal(t, 1, f.verifies(verifying))
 
 	result, status := call("stack.candidate", capture)
@@ -359,6 +394,16 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	require.NoError(t, f.service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateCompleted, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: launch.Projection, FlowID: "coding/verify", ExecutionDigest: todoPinOne, RunID: "verify-reserved", Run: &flowruntime.FlowRuntimeRun{RunID: "verify-reserved", FinalOutput: &output}}}))
 	f.wake()
 	proposed := f.item(item.Number.Int64)
+	if foreignHold {
+		require.True(t, proposed.CandidateVerified, "the outside push holds publication, not verification")
+		require.Equal(t, strings.Repeat("f", 40), mythicalChecksOf(proposed).ForeignHead)
+		require.Equal(t, "foreign", todoOpenWaits(proposed)[0].ID)
+		require.Empty(t, f.githubRef(mythicalChecksOf(proposed).Branch))
+		_, status = call("stack.propose", proposal)
+		require.Equal(t, 202, status)
+		require.Empty(t, f.githubRef(mythicalChecksOf(f.item(item.Number.Int64)).Branch))
+		return
+	}
 	require.Equal(t, "proposed", proposed.State, proposed.Reason)
 	require.Equal(t, generation+1, proposed.Generation)
 	require.Equal(t, 1, f.verifies(proposed), "one verification")

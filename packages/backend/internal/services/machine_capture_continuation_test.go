@@ -14,7 +14,7 @@ import (
 )
 
 func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
-	for _, name := range []string{"ready", "stale", "wake conflict", "wake awaits capture", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "consumed text", "reopened"} {
+	for _, name := range []string{"ready", "stale", "wake conflict", "wake awaits capture", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "consumed text", "submitted text", "submitted held text", "newer capture", "older submitting run", "ended submitting run", "unattached submitting run", "reopened"} {
 		t.Run(name, func(t *testing.T) {
 			main := strings.Repeat("b", 40)
 			item := db.MythicalItem{WorkspaceID: "10000000-0000-4000-8000-000000000001", CandidateBase: main, Source: "todo", State: "proposed", Attempt: 2, FlowDigest: pgtype.Text{String: strings.Repeat("a", 64), Valid: true}}
@@ -40,6 +40,22 @@ func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
 				checks.Review = &mythicalReview{Head: "reviewing"}
 			case "held text", "delivered text", "consumed text":
 				checks.Steers = []todoSteer{{Attempt: 2, Text: "do this first", ReleasePending: name == "held text", InputConsumed: name == "consumed text"}}
+			case "submitted text", "submitted held text", "newer capture", "older submitting run", "ended submitting run", "unattached submitting run":
+				item.RequestRunID = "current-run"
+				checks.RunAttached, checks.ProposalRun, checks.ProposalHead = true, item.RequestRunID, checks.Capture.Head
+				checks.Steers = []todoSteer{{Attempt: 2, Text: "retained history"}}
+				switch name {
+				case "submitted held text":
+					checks.Steers[0].ReleasePending = true
+				case "newer capture":
+					checks.ProposalHead = strings.Repeat("d", 40)
+				case "older submitting run":
+					checks.ProposalRun = "older-run"
+				case "ended submitting run":
+					item.RequestOutcome = "completed"
+				case "unattached submitting run":
+					checks.RunAttached = false
+				}
 			case "reopened":
 				checks.GitHubReopenedAttempt = 2
 			}
@@ -47,7 +63,7 @@ func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
 			// No providers: refusal occurs before object transport or launch.
 			step := &mythicalItemStep{s: &MythicalService{}, r: &mythicalRun{mainTip: main}}
 			next, saved, err := step.consumeCapturedEdits(t.Context(), item)
-			if name == "ready" || name == "consumed text" {
+			if name == "ready" || name == "consumed text" || name == "submitted text" {
 				require.EqualError(t, err, "captured edits need the retained check plan")
 			} else {
 				require.NoError(t, err)

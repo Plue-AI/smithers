@@ -5933,6 +5933,9 @@ type mythicalChecks struct {
 	// ProposalRun is the run that offered a candidate through stack.candidate
 	// and has not yet observed its acceptance (todoRunAwaitsProposal).
 	ProposalRun string `json:"proposal_run,omitempty"`
+	// ProposalHead binds the run's sealed submission, so retained steering
+	// history cannot block its verification or authorize a newer capture.
+	ProposalHead string `json:"proposal_head,omitempty"`
 	// FlowSource is the main commit the attempt's todo pin was chosen from;
 	// flow_digest holds the pin's execution digest (mythicalPinOf).
 	FlowSource string `json:"flowSource,omitempty"`
