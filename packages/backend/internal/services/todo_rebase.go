@@ -94,3 +94,22 @@ func (s *MythicalService) rebaseRequestAuthorized(ctx context.Context, q *db.Que
 	}
 	return AuthorizeTodoBranch(current, q, item.RepositoryID, item.Number.Int64) == nil
 }
+
+// A reviewed TODO releases its execution lane, but keeps its coding branch.
+// Consult that branch's authenticated presence rather than treating the cleared
+// execution binding as an unknown branch forever. The retained branch can have
+// been reopened by a person, so retirement alone is not permission to rebase.
+func (s *MythicalService) mayRebaseItemAtBoundary(ctx context.Context, item db.MythicalItem) bool {
+	workspace := item.WorkspaceID
+	if s.rebasePresence != nil && workspace == "" {
+		if s.store == nil {
+			return false
+		}
+		branch, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
+		if err != nil {
+			return false
+		}
+		workspace = branch.ID
+	}
+	return s.mayRebaseAtBoundary(ctx, item.RepositoryID, workspace)
+}

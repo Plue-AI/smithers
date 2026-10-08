@@ -2985,7 +2985,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			return st.awaitRebase(item, onto, fmt.Sprintf("T%d", mythicalItemNumber(*earlier))), false, nil
 		}
 	}
-	if item.CandidateBase != onto && !s.mayExecuteRequestedRebase(ctx, item, onto) && !s.mayRebaseAtBoundary(ctx, r.row.RepositoryID, item.WorkspaceID) {
+	if item.CandidateBase != onto && !s.mayExecuteRequestedRebase(ctx, item, onto) && !s.mayRebaseItemAtBoundary(ctx, item) {
 		return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {

@@ -25,6 +25,34 @@ func TestRebaseAtBoundary(t *testing.T) {
 	}
 }
 
+func TestReleasedTodoRebaseReadsRetainedCodingBranch(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, _ := h.first("Retained coding branch")
+	item := h.item(n)
+	coding, err := h.q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: h.repoID, UserID: h.userID,
+		Name: "coding", TargetBookmark: "mythical", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	_, _, err = h.q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: coding.ID, RepositoryID: h.repoID, ItemID: item.ID, Name: "T1"})
+	require.NoError(t, err)
+	require.NoError(t, h.q.RetireMythicalLane(t.Context(), coding.ID))
+	review, err := h.q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: h.repoID, UserID: h.userID,
+		Name: "review", TargetBookmark: "mythical", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	_, _, err = h.q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: review.ID, RepositoryID: h.repoID, ItemID: item.ID, Name: "T1 review g1"})
+	require.NoError(t, err)
+	item.WorkspaceID = ""
+	for _, presence := range []RebasePresence{RebasePresenceEmpty, RebasePresenceAgent, RebasePresencePeople, RebasePresenceUnknown} {
+		h.service.SetRebasePresence(func(_ context.Context, repository int64, workspace string) (RebasePresence, error) {
+			require.Equal(t, h.repoID, repository)
+			require.Equal(t, coding.ID, workspace, "review lane is not the TODO's branch")
+			return presence, nil
+		})
+		require.Equal(t, presence == RebasePresenceEmpty || presence == RebasePresenceAgent, h.service.mayRebaseItemAtBoundary(t.Context(), item))
+	}
+	item.RepositoryID++
+	require.False(t, h.service.mayRebaseItemAtBoundary(t.Context(), item), "retained branch must belong to this repository")
+}
+
 func TestRebaseWaitsForAnEarlierRebaseBeforeEffects(t *testing.T) {
 	// Nil service, bridge and git executor detect any fetch, pin or launch:
 	// a later item waits for an earlier item's rebase without effects, so it
