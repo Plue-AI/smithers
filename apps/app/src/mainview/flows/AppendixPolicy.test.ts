@@ -66,3 +66,13 @@ test("build command rejects injected aliases and Replaced entry points without l
     expect(output).toContain(diagnostic)
   }
 }, 120_000)
+
+// Runtime registration normalizes both declarations to one engine flow shape.
+test("engine-normalized registrations retain literal tag, source and placement checks", () => {
+  expect(auditRuntimeTags([{ id: "coding/prepare-atom", runtime: "machine", kind: "registration" }])).toEqual([])
+  expect(auditRuntimeTags([{ id: "coding/prepare-atom", runtime: "machine", kind: "flow" }])).toEqual([{ id: "coding/prepare-atom", reason: "unlisted" }])
+  expect(auditRuntimeTags([{ id: "model/parked", runtime: "machine", kind: "registration" }])).toEqual([{ id: "model/parked", reason: "unlisted" }])
+  expect(auditRuntimeTags([{ id: "model/parked", runtime: "machine", kind: "registration", source: "packages/smithers/agent/src/Agent.ts" }])).toEqual([])
+  expect(auditRuntimeTags([{ id: "model/parked", runtime: "machine", kind: "registration", source: "invented.ts" }])).toEqual([{ id: "model/parked", reason: "unlisted" }])
+  expect(auditRuntimeTags([{ id: "coding/ReadNative", runtime: "machine", kind: "registration" }])).toEqual([{ id: "coding/ReadNative", reason: "runtime" }])
+})

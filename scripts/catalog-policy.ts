@@ -30,6 +30,7 @@ export const auditCliPaths = (paths: ReadonlyArray<string>): Violation[] => {
 export type RuntimeTag = {
   readonly id: string
   readonly runtime: "install" | "machine"
+  /** "registration" is the engine-normalized flow/action representation. */
   readonly kind?: string
   readonly source?: string
 }
@@ -47,7 +48,7 @@ const tagMatch = (id: string, template: string): boolean => {
 export const auditRuntimeTags = (tags: ReadonlyArray<RuntimeTag>): Violation[] =>
   tags.flatMap<Violation>(({ id, runtime, kind = "flow", source }) => {
     const rows = appendixC.rows.filter((row) =>
-      row.kind === kind &&
+      (kind === "registration" || row.kind === kind) &&
       (row.id.includes("<") ? source === row.source.split(":")[0] && tagMatch(id, row.id) : id === row.id)
     )
     if (rows.length === 0) return [{ id, reason: "unlisted" as const }]
