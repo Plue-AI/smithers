@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The installed coding host executes a real exit-127 CheckCommand over its
-// native immutable source. The authenticated bridge, dispatcher, verifier,
+// The built-in TODO routes, plans and implements before a declared exit-127
+// CheckCommand runs over its native immutable source. The authenticated bridge, dispatcher, verifier,
 // HTTP TODO provider and mounted app are production paths. Linux substitutes
 // the guest compute/file transport only; this is not machine qualification.
 func TestTodoMissingToolCodingReceiptBrowser(t *testing.T) {
@@ -28,15 +28,18 @@ func TestTodoMissingToolCodingReceiptBrowser(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_TODO_MISSING_TOOL_BROWSER", "C-APP-03", "missing-tool-")
 	require.True(t, r.install("Install"))
 	t.Log("Composed install ready")
-	source, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/missing-tool/flows/todo/flow.ts"))
+	source, err := os.ReadFile(filepath.Join(r.root, "flows/todo/flow.ts"))
 	require.NoError(t, err)
-	_, err = r.pushGitHubMain("Seed the main machine recipe", map[string]string{".smithers/machine.json": `{"packages":["jq"]}`})
+	_, err = r.pushGitHubMain("Seed the main machine recipe", map[string]string{
+		".smithers/machine.json":        `{"packages":["jq"]}`,
+		".smithers/coding-project.json": `{"wiki":false,"detected":[{"flow":"checks/figlet","argv":["/bin/sh","-c","PATH=/nonexistent figlet"],"timeoutMs":10000}],"checks":[{"id":"figlet","target":".","flow":"checks/figlet","tier":"fast","required":true}]}`,
+	})
 	require.NoError(t, err)
 	activateMonitorOverride(t, r, string(source))
-	t.Log("Missing-tool TODO override Active")
-	n, err := r.file("Missing machine tool", "Check the machine for figlet")
+	t.Log("Production TODO composition Active with the declared missing-tool check")
+	n, err := r.file("Missing machine tool", "Add a greeting to JOURNEY.md")
 	require.NoError(t, err)
-	_, err = r.waitTodoWithin(n, 3*time.Minute, "failed")
+	_, err = r.waitTodoWithin(n, 8*time.Minute, "failed")
 	require.NoError(t, err)
 	data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", n), "", 200)
 	require.NoError(t, err)
