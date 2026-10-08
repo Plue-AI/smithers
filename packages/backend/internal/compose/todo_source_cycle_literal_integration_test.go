@@ -535,6 +535,23 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 						require.Nil(t, wait.SettledAt)
 					}
 				}
+				// The next offering phase still goes through the composed engine's
+				// publication guard. Providers exist; the independent branch wait,
+				// rather than absent composition, must hold the agent's next push.
+				f.stack.EnableTodoPublication(f.credentials, f.sync.connections, nil)
+				writes := f.upstream.Writes()
+				_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET state='proposing',next_attempt_at=$2 WHERE id=$1`, item.ID, time.Unix(f.clock.Load(), 0).UTC())
+				require.NoError(t, err)
+				f.cycle(t)
+				require.Eventually(t, func() bool {
+					current, err := f.q.GetMythicalItem(t.Context(), item.ID)
+					return err == nil && strings.Contains(current.Reason, "will not overwrite")
+				}, 10*time.Second, 20*time.Millisecond)
+				require.Equal(t, writes, f.upstream.Writes(), "a settled question cannot authorize an outside-head overwrite")
+				status, card = f.call(t, 1, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, "needs_you", card["state"])
+				require.Len(t, card["waits"], 1)
 			}
 			if paused {
 				status, receipt := f.call(t, 1, "POST", `{"op":"stop"}`, "")

@@ -62,7 +62,11 @@ func TestBranchRebaseNativeCrashRecovery(t *testing.T) {
 	}
 }
 
-func testBranchRebaseNative(t *testing.T, people bool, point string) {
+func TestTodoInReviewRebaseSelfLoopComposedInstall(t *testing.T) {
+	testBranchRebaseNative(t, true, "", true)
+}
+
+func testBranchRebaseNative(t *testing.T, people bool, point string, review ...bool) {
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
 	}
@@ -133,6 +137,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	checks, _ := json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "capture": map[string]any{"head": edited, "tree": git("--git-dir", store, "rev-parse", edited+"^{tree}"), "base": base, "onto": edited}, "rebase": map[string]any{"onto": onto, "name": "main"}})
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',attempt=1,flow_digest=$2,request_run_id='pinned-run',workspace_id=$3,candidate_base=$4,candidate_head=$5,candidate_verified=true,next_attempt_at=NOW(),plan='{"checks":[]}',checks=$6 WHERE id=$1`, item.ID, strings.Repeat("b", 64), f.row.ID, base, edited, checks)
 	require.NoError(t, err)
+	inReview := len(review) > 0 && review[0]
+	if inReview {
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pr_number=999,pr_state='open',pr_head=$2 WHERE id=$1`, item.ID, edited)
+		require.NoError(t, err)
+	}
+
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$1,head_commit_id=$2 WHERE id=$1`, f.row.ID, edited)
 	require.NoError(t, err)
 	// The ordinary wake exporter must not accept an upstream target.
@@ -492,6 +502,32 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 		require.Greater(t, capture["sequence"].(float64), float64(0))
 		require.GreaterOrEqual(t, rows[1]["end"].(float64), rows[0]["start"].(float64))
 	}
+	var eventRaw []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&eventRaw))
+	var event map[string]any
+	require.NoError(t, json.Unmarshal(eventRaw, &event))
+	expectedState := "working"
+	if inReview {
+		expectedState = "in_review"
+	}
+	require.Equal(t, expectedState, event["from"])
+	require.Equal(t, expectedState, event["to"])
+	require.Equal(t, base, event["previous_base"])
+	require.Equal(t, expectedState, event["card"].(map[string]any)["state"])
+	// Read the persisted projection through the person's installed card door.
+	req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+	response, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	var card map[string]any
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, 200, response.StatusCode, card)
+	require.Equal(t, expectedState, card["state"])
+	require.Equal(t, "pinned-run", current.RequestRunID)
+	require.EqualValues(t, 1, current.Attempt)
+
 	// Recovery still observes this exact completed rewrite after the pending
 	// destination changes. A newer request cannot settle an older toast.
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase}', '{"onto":"later-main","name":"main"}') WHERE id=$1`, item.ID)

@@ -3464,7 +3464,6 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
-	from := item.CandidateBase
 	next.Generation++
 	next.WorkspaceID = workspaceID
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified, next.VerifyOutcome, next.VerifyRunID = onto, rebased, false, "", ""
@@ -3488,7 +3487,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	}
 	var before func(pgx.Tx) error
 	also := func(tx pgx.Tx, saved db.MythicalItem) error {
-		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
+		return st.s.recordTodoRebased(ctx, tx, saved, item, name)
 	}
 	if native := mythicalChecksOf(item).Rebase; native != nil && native.Native != nil {
 		before = func(tx pgx.Tx) error { return st.lockNativeRebaseReceipt(ctx, tx, item, onto) }
@@ -3499,7 +3498,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 				if _, err := tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
 					return err
 				}
-				return st.s.recordTodoRebased(ctx, tx, saved, from, name)
+				return st.s.recordTodoRebased(ctx, tx, saved, item, name)
 			}
 		}
 	}
@@ -3563,7 +3562,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 // recordTodoRebased writes a TODO's activity entry for a done rebase, in the
 // transaction that launches its checks: "Rebased onto main" or "Rebased
 // onto T<k>" (§10.5.3). A legacy issue item has no TODO activity.
-func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, saved db.MythicalItem, from, onto string) error {
+func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, saved, previous db.MythicalItem, onto string) error {
 	if !mythicalTodo(saved) || !saved.Number.Valid {
 		return nil
 	}
@@ -3572,7 +3571,7 @@ func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, save
 		receiptID = rebase.ReceiptID
 	}
 	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
-		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_revision": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
+		"generation": saved.Generation, "from": todoState(previous), "to": todoState(saved), "previous_base": previous.CandidateBase, "onto": saved.CandidateBase, "onto_revision": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
 		"receipt_id": receiptID,
 		"by":         rebaseRequester(saved), "text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
 	id := uuid.NewString()
