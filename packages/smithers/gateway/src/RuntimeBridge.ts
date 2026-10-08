@@ -488,6 +488,18 @@ export const observe = (control: Control["Service"], input: ObserveRequest) =>
     }
   })
 
+// Disposable raw journal prefixes for Inspect. This stores no run state: the
+// existing monitor fold still derives every answer from journal records. Bound
+// retention across all runs of one control service, and rebuild after eviction.
+const monitorJournals = new WeakMap<
+  Control["Service"],
+  Map<string, {
+    readonly records: ReadonlyArray<ControlEvent>
+    readonly bytes: number
+  }>
+>()
+const monitorJournalBytes = 64 * 1024 * 1024
+
 /** Read an existing run and its committed journal without invoking any execution door.
  * @since 1.0.0
  * @category constructors
@@ -503,15 +515,49 @@ export const monitor = (control: Control["Service"], runId: string, at?: number)
         retryable: false
       })
     }
-    const records = Array.from(
-      yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1))
+    const cache = monitorJournals.get(control) ??
+      new Map<string, { readonly records: ReadonlyArray<ControlEvent>; readonly bytes: number }>()
+    monitorJournals.set(control, cache)
+    const cached = cache.get(runId)
+    const last = cached?.records.at(-1)?.sequence
+    // Replay the final entry because one entry may expand into several events.
+    const consumed = last === undefined ? 0 : cached!.records.filter((row) => row.sequence === last).length
+    let skipped = 0
+    const suffix = Array.from(
+      yield* Stream.runCollect(
+        control.watch({
+          runId,
+          follow: false,
+          ...(last === undefined || last === 0 ? {} : { afterSequence: last - 1 })
+        }).pipe(
+          Stream.filter((row) =>
+            last === undefined || row.sequence > last || row.sequence === last && skipped++ >= consumed
+          ),
+          Stream.take(Projections.maxEventsScanned + 1)
+        )
+      )
     )
+    const records = [...(cached?.records ?? []), ...suffix]
     if (records.length > Projections.maxEventsScanned) {
       return yield* new BridgeError({
         code: "resource_limit",
         message: "Run journal exceeds the inspection limit",
         retryable: false
       })
+    }
+    const bytes = (cached?.bytes ?? 0) +
+      suffix.reduce((sum, row) => sum + new TextEncoder().encode(JSON.stringify(row)).byteLength, 0)
+    const current = cache.get(runId)
+    // A slower reader cannot overwrite a longer committed prefix.
+    if (bytes <= monitorJournalBytes && (current === undefined || current.records.length <= records.length)) {
+      cache.delete(runId)
+      cache.set(runId, { records, bytes })
+      let total = [...cache.values()].reduce((sum, entry) => sum + entry.bytes, 0)
+      while (cache.size > 32 || total > monitorJournalBytes) {
+        const oldest = cache.keys().next().value!
+        total -= cache.get(oldest)!.bytes
+        cache.delete(oldest)
+      }
     }
     const folded = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
     // The journal is read page by page when its tab opens (run-events). Only a

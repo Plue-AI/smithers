@@ -2520,3 +2520,36 @@ describe("Projections window accounting", () => {
       expect(summary.cursor.value).toBe(2)
     }))
 })
+
+describe("incremental journal snapshots", () => {
+  it.effect("reads only the suffix, including events appended in one sequence and unchanged summaries", () =>
+    Effect.gen(function*() {
+      let history = [event(1, "control.agent.cell-call-started", { flowName: "one" })]
+      const cursors: Array<number | undefined> = []
+      const projections = make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [run] }),
+        watch: (filter) => {
+          cursors.push(filter.afterSequence)
+          return Stream.fromIterable(
+            history.filter((e) => filter.afterSequence === undefined || e.sequence > filter.afterSequence)
+          )
+        }
+      }))
+      const selector = { _tag: "run-tree", runId: "run-1" } as const
+      expect((yield* projections.snapshot(selector)).rows).toHaveLength(1)
+      history = [
+        ...history,
+        event(1, "control.agent.cell-call-started", { flowName: "two" }),
+        event(5, "control.agent.cell-call-started", { flowName: "three" })
+      ]
+      const next = yield* projections.snapshot(selector)
+      expect(next.rows.map((row) => (row as { label: string }).label)).toEqual(["one", "two", "three"])
+      expect((yield* projections.snapshot(selector)).rows).toEqual(next.rows)
+      expect(cursors).toEqual([undefined, 0, 4])
+      const cold = make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [run] }),
+        watch: () => Stream.fromIterable(history)
+      }))
+      expect((yield* cold.snapshot(selector)).rows).toEqual(next.rows)
+    }))
+})

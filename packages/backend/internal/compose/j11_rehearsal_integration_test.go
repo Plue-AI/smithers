@@ -483,11 +483,11 @@ func TestJ11Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("%d priced steps sum to $%.6f = run total = %d metered nanodollars over %d proxy calls", priced, steps, metered, calls)
 		return nil
 	})
-	// A step state change reaches the browser's run:<id> topic 6 to 8 s
-	// (median) after its host journals it while T5 works: each page of the
-	// topic folds the whole journal twice on the host and pages every new
-	// event's payload. Within 1 s needs a host that pushes its changes.
-	r.pending("17 Live step states", "GET /api/live run:<id>", "a step state change arrives within 1 s", "T-FLW-07", "live-slice")
+	r.step("17 Live step states", "GET /api/live run:<id> → browser LiveChannel (SQLite host journal)", "50 step changes after a 24 MB transcript; append-to-frame p95 <= 1 s", "T-FLW-07", func() error {
+		actual, err := liveJournalLatency(t)
+		r.actual = actual
+		return err
+	})
 }
 
 // j11Receipt reads a check receipt's id and status from its leading fields.

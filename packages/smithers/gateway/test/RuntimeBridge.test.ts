@@ -975,3 +975,43 @@ it.effect("monitor extent ignores nonpositive times and bounds unordered observa
     expect(replay.extent).toEqual({ start: "1970-01-01T00:00:02.000Z", end: "1970-01-01T00:00:09.000Z" })
     expect(replay.journal?.map((row) => row.seq)).toEqual([1, 2])
   }))
+
+it.effect("Inspect reads a journal suffix and replay stays identical after warming the prefix", () =>
+  Effect.gen(function*() {
+    let records = [{
+      sequence: 1,
+      kind: "control.agent.cell-call-started",
+      runId: "run-1",
+      occurredAt: 1,
+      payload: { flowName: "one" }
+    }]
+    const cursors: Array<number | undefined> = []
+    const control = service({
+      watch: (filter) => {
+        cursors.push(filter.afterSequence)
+        return Stream.fromIterable(
+          records.filter((row) => filter.afterSequence === undefined || row.sequence > filter.afterSequence)
+        )
+      }
+    })
+    yield* RuntimeBridge.monitor(control, "run-1")
+    records = [...records, {
+      sequence: 1,
+      kind: "control.agent.cell-call-started",
+      runId: "run-1",
+      occurredAt: 2,
+      payload: { flowName: "two" }
+    }, {
+      sequence: 5,
+      kind: "control.agent.cell-call-started",
+      runId: "run-1",
+      occurredAt: 3,
+      payload: { flowName: "three" }
+    }]
+    const warmed = yield* RuntimeBridge.monitor(control, "run-1")
+    const replay = yield* RuntimeBridge.monitor(control, "run-1", 1)
+    const cold = service({ watch: () => Stream.fromIterable(records) })
+    expect(warmed).toEqual(yield* RuntimeBridge.monitor(cold, "run-1"))
+    expect(replay).toEqual(yield* RuntimeBridge.monitor(cold, "run-1", 1))
+    expect(cursors).toEqual([undefined, 0, 4])
+  }))

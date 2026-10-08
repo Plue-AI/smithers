@@ -787,24 +787,56 @@ const cursorPositionOf = (source: Source): CursorPosition =>
 
 /** Implements a read path after its construction settings have been admitted. */
 const makeService = (control: ControlService, heartbeatMillis: number, now: () => number): Service => {
-  /** Every committed event of one run, oldest first. */
+  // A bounded, disposable journal read cache. The journal remains authoritative:
+  // every read asks it for the suffix, including when the summary is unchanged.
+  // Cache eviction or host restart simply rebuilds the same fold from sequence 0.
+  const journalBuffers = new Map<string, EventBuffer>()
   const eventsOf = (
     run: ControlSchema.RunSummary,
     compactHealth: boolean
-  ): Effect.Effect<EventBuffer, GatewayError> => {
-    const runId = run.runId
-    const message = `Reading the events of ${runId} failed`
-    return Stream.runFoldEffect(
-      control.watch({ runId, follow: false }).pipe(
-        Stream.tapError((cause) => logReadFailure("read-events", cause)),
-        Stream.mapError((cause) => unavailable(message, cause)),
-        // The window bounds what is held; this bounds what is read.
-        Stream.take(maxEventsScanned)
-      ),
-      () => emptyEventBuffer(compactHealth),
-      (buffer, event) => appendEvent(buffer, event, `${message}: the control plane returned an invalid event`, run)
-    )
-  }
+  ): Effect.Effect<EventBuffer, GatewayError> =>
+    Effect.suspend(() => {
+      const runId = run.runId
+      const key = `${runId}:${compactHealth}`
+      const cached = journalBuffers.get(key)
+      const seed = cached === undefined ? emptyEventBuffer(compactHealth) : { ...cached, events: [...cached.events] }
+      const message = `Reading the events of ${runId} failed`
+      let position: CursorPosition | undefined
+      return Stream.runFoldEffect(
+        control.watch({
+          runId,
+          follow: false,
+          ...(cached === undefined || !cached.seen || cached.lastPosition.value === 0
+            ? {} :
+            { afterSequence: cached.lastPosition.value - 1 })
+        }).pipe(
+          Stream.tapError((cause) => logReadFailure("read-events", cause)),
+          Stream.mapError((cause) => unavailable(message, cause)),
+          Stream.take(maxEventsScanned)
+        ),
+        () => seed,
+        (buffer, candidate) =>
+          Effect.flatMap(decodedEvent(candidate, message), (event) => {
+            if (position !== undefined && event.sequence < position.value) {
+              return Effect.fail(unavailable(message, undefined))
+            }
+            position = { value: event.sequence, offset: position?.value === event.sequence ? position.offset + 1 : 0 }
+            if (cached !== undefined && cached.seen && comparePosition(position, cached.lastPosition) <= 0) {
+              return Effect.succeed(buffer)
+            }
+            return appendEvent(buffer, event, message, run)
+          })
+      ).pipe(Effect.tap((buffer) =>
+        Effect.sync(() => {
+          const current = journalBuffers.get(key)
+          if (current === undefined || comparePosition(buffer.lastPosition, current.lastPosition) >= 0) {
+            journalBuffers.delete(key)
+            journalBuffers.set(key, { ...buffer, events: [...buffer.events] })
+            if (journalBuffers.size > 32) journalBuffers.delete(journalBuffers.keys().next().value!)
+          }
+        })
+      ))
+    })
 
   /**
    * One bounded page of a run's journal, starting after `after`.
