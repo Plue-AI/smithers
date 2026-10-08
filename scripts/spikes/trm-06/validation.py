@@ -20,8 +20,27 @@ OUTSIDE = Path("/var/tmp/trm06-outside")
 
 
 def fingerprint():
-    info = OUTSIDE.stat(follow_symlinks=False)
-    return {"sha256": hashlib.sha256(OUTSIDE.read_bytes()).hexdigest(), "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
+    # Hash and inspect one held inode. A symlink, FIFO or replacement must not
+    # redirect this root observer or combine metadata and bytes from two files.
+    fd = os.open(OUTSIDE, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError("untrusted outside sentinel")
+        if info.st_size > 65536:
+            raise ValueError("oversized outside sentinel")
+        data = source.read(info.st_size + 1)
+        if len(data) != info.st_size:
+            raise ValueError("outside sentinel size changed during observation")
+        digest = hashlib.sha256(data).hexdigest()
+        after = os.fstat(source.fileno())
+        current = OUTSIDE.stat(follow_symlinks=False)
+        identity = lambda value: (value.st_dev, value.st_ino, value.st_uid, value.st_gid,
+                                  value.st_mode, value.st_nlink, value.st_size,
+                                  value.st_mtime_ns, value.st_ctime_ns)
+        if identity(info) != identity(after) or identity(after) != identity(current):
+            raise ValueError("outside sentinel changed during observation")
+        return {"sha256": digest, "uid": info.st_uid, "mode": stat.S_IMODE(info.st_mode)}
 
 
 def cgroup_parent():
