@@ -475,6 +475,120 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	require.Len(t, seenConfirmationCredentials, 9, "each minted delegated credential owns a distinct confirmation scope")
+	// Literal admitted effects, separate from admission and mismatch ledgers.
+	// Each destructive cell has its own stored paused TODO. Pausing keeps the
+	// stack worker out of the observation interval without replacing a service.
+	todoEffectCells := 0
+	for _, cell := range []struct {
+		command, method, body string
+		delegatedConfirmation bool
+	}{
+		{"todo.steer", "POST", `{"steer":"Keep cancellation observable"}`, false},
+		{"todo.amend", "PATCH", `{"prompt":"Keep cancellation observable","acceptance":["No duplicate effect"]}`, true},
+		{"todo.drop", "POST", `{"op":"drop"}`, true},
+	} {
+		for _, cred := range credentials {
+			for _, subject := range []string{"own", "other-member"} {
+				t.Run("admitted-effect/"+cell.command+"/"+cred.name+"/"+subject, func(t *testing.T) {
+					holder := cred.user
+					if subject == "other-member" {
+						holder = owner.ID
+						if holder == cred.user {
+							holder = ben.ID
+						}
+					}
+					var number int64
+					require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
+ VALUES($1,'todo','proposed','Access effect subject','Access effect subject',$2,$2,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number`, repo.ID, holder).Scan(&number))
+					path := fmt.Sprintf("/api/todos/%d", number)
+					key := fmt.Sprintf("campaign-effect-%d", todoEffectCells)
+					before, outboundBefore := withoutConfirmations(), githubMutations()
+					out := call(cred, cell.method, path, cell.body, key, cell.command, 202)
+					var response map[string]any
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &response))
+					confirmation := ""
+					if cell.delegatedConfirmation && cred.token != "" {
+						require.Len(t, response, 2)
+						require.Equal(t, "pending", response["state"])
+						confirmation = response["confirmation"].(string)
+						var storedCommand, state string
+						var member int64
+						require.NoError(t, pool.QueryRow(ctx, `SELECT command,state,member_id FROM approvals WHERE id=$1`, confirmation).Scan(&storedCommand, &state, &member))
+						require.Equal(t, cell.command, storedCommand)
+						require.Equal(t, "pending", state)
+						require.Equal(t, cred.user, member)
+						require.Equal(t, before, withoutConfirmations(), "pending card cannot execute its action")
+						foreign := credentials[0]
+						if foreign.user == cred.user {
+							foreign = credentials[4]
+						}
+						request(t, retainedHTTPCase{Command: "confirmation.decide-own", Method: "POST", Path: "/api/confirmations/" + confirmation + "/approve", Body: map[string]any{}}, foreign, "active/full/foreign-effect-confirmation", 403, "permission")
+					} else {
+						require.Equal(t, "accepted", response["state"])
+						require.NotContains(t, response, "confirmation")
+					}
+					beforeReplay := snapshot()
+					replay := call(cred, cell.method, path, cell.body, key, cell.command, 202)
+					require.JSONEq(t, out.Body.String(), replay.Body.String())
+					require.Equal(t, beforeReplay, snapshot(), "replay creates neither a card nor a second effect")
+					if confirmation != "" {
+						pressed := call(personSessions[cred.user], "POST", "/api/confirmations/"+confirmation+"/approve", `{}`, key+"-press", cell.command, 200)
+						require.JSONEq(t, fmt.Sprintf(`{"id":%q,"state":"approved"}`, confirmation), pressed.Body.String())
+						beforePressReplay := snapshot()
+						pressedAgain := call(personSessions[cred.user], "POST", "/api/confirmations/"+confirmation+"/approve", `{}`, key+"-press", cell.command, 200)
+						require.JSONEq(t, pressed.Body.String(), pressedAgain.Body.String())
+						require.Equal(t, beforePressReplay, snapshot(), "duplicate press executes once")
+						resolved := call(cred, cell.method, path, cell.body, key, cell.command, 202)
+						require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"approved"}`, confirmation), resolved.Body.String())
+						require.Equal(t, beforePressReplay, snapshot(), "resolved replay discloses current state without execution")
+					}
+					var storedState string
+					var checks, revisions []byte
+					var storedOwner int64
+					require.NoError(t, pool.QueryRow(ctx, `SELECT state,checks,revisions,owner_id FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&storedState, &checks, &revisions, &storedOwner))
+					require.Equal(t, holder, storedOwner, "command does not take ownership")
+					var facts struct {
+						Steers []struct {
+							Text string `json:"text"`
+						} `json:"steers"`
+						Dropped *struct {
+							By string `json:"by"`
+						} `json:"dropped"`
+					}
+					require.NoError(t, json.Unmarshal(checks, &facts))
+					var revs []struct {
+						Text       string   `json:"text"`
+						Acceptance []string `json:"acceptance"`
+					}
+					require.NoError(t, json.Unmarshal(revisions, &revs))
+					switch cell.command {
+					case "todo.steer":
+						require.Equal(t, "proposed", storedState)
+						require.Len(t, facts.Steers, 1)
+						require.Equal(t, "Keep cancellation observable", facts.Steers[0].Text)
+						require.Len(t, revs, 1)
+					case "todo.amend":
+						require.Equal(t, "proposed", storedState)
+						require.Len(t, facts.Steers, 1)
+						require.Len(t, revs, 2)
+						require.Equal(t, "Original prompt", revs[0].Text)
+						require.Equal(t, "Keep cancellation observable", revs[1].Text)
+						require.Equal(t, []string{"No duplicate effect"}, revs[1].Acceptance)
+					case "todo.drop":
+						require.Equal(t, "cancelled", storedState)
+						require.NotNil(t, facts.Dropped)
+						require.Equal(t, strings.Split(cred.name, "/")[0], facts.Dropped.By)
+						require.Empty(t, facts.Steers)
+						require.Len(t, revs, 1)
+					}
+					require.Equal(t, outboundBefore, githubMutations(), "no command may merge or write GitHub")
+					receipts = append(receipts, map[string]any{"command": cell.command, "credential": cred.name, "state": "active/full/paused-in-review", "subject": subject, "subject_number": number, "status": 202, "decisions": []string{cell.command}, "effects": 1, "effect_kind": "stored-todo-control", "confirmation": confirmation, "replay_effects": 0, "press_replay_effects": 0})
+					todoEffectCells++
+				})
+			}
+		}
+	}
+	require.Equal(t, 72, todoEffectCells)
 	// Qualify allowed management writes on real stored subjects for both
 	// eligible person roles. Each request binds exactly one decision, and no
 	// management write may create a confirmation or outbound GitHub mutation.
@@ -601,6 +715,47 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	terminalSession, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: workspace.ID, RepositoryID: repo.ID, UserID: ben.ID, Cols: 80, Rows: 24})
 	require.NoError(t, err)
 	terminal, err := issuer.MintForTerminal(ctx, ben.ID, repo.ID, workspace.ID, terminalSession.ID)
+	require.NoError(t, err)
+	terminalProfileCells := 0
+	terminalCredential := credential{name: "ben/external_agent/terminal_s1", token: terminal.Token, user: ben.ID}
+	var terminalOwn, terminalOther int64
+	for index, binding := range []string{workspace.ID, ""} {
+		var number int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt,workspace_id)
+ VALUES($1,'todo','proposed','Terminal effect subject','Terminal effect subject',$2,$2,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1,$3) RETURNING number`, repo.ID, ben.ID, binding).Scan(&number))
+		if index == 0 {
+			terminalOwn = number
+		} else {
+			terminalOther = number
+		}
+	}
+	terminalPath := fmt.Sprintf("/api/todos/%d", terminalOwn)
+	terminalOutbound := githubMutations()
+	terminalSteer := call(terminalCredential, "POST", terminalPath, `{"steer":"Bound terminal feedback"}`, "campaign-terminal-effect", "todo.steer", 202)
+	require.NotContains(t, terminalSteer.Body.String(), "confirmation")
+	var terminalText string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'steers'->0->>'text' FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, terminalOwn).Scan(&terminalText))
+	require.Equal(t, "Bound terminal feedback", terminalText)
+	terminalBeforeReplay := snapshot()
+	terminalReplay := call(terminalCredential, "POST", terminalPath, `{"steer":"Bound terminal feedback"}`, "campaign-terminal-effect", "todo.steer", 202)
+	require.JSONEq(t, terminalSteer.Body.String(), terminalReplay.Body.String())
+	require.Equal(t, terminalBeforeReplay, snapshot())
+	require.Equal(t, terminalOutbound, githubMutations())
+	receipts = append(receipts, map[string]any{"command": "todo.steer", "credential": terminalCredential.name, "state": "active/terminal_s1/paused-in-review", "subject": "own-workspace", "status": 202, "effects": 1, "replay_effects": 0})
+	terminalProfileCells++
+	for _, denied := range []retainedHTTPCase{
+		{Command: "todo.steer", Method: "POST", Path: fmt.Sprintf("/api/todos/%d", terminalOther), Body: map[string]any{"steer": "Foreign terminal feedback"}},
+		{Command: "todo.amend", Method: "PATCH", Path: terminalPath, Body: map[string]any{"prompt": "Refused terminal amendment", "acceptance": []string{}}},
+		{Command: "todo.drop", Method: "POST", Path: terminalPath, Body: map[string]any{"op": "drop"}},
+	} {
+		request(t, denied, terminalCredential, "active/terminal_s1/subject-profile", 403, "permission")
+		terminalProfileCells++
+	}
+	require.Equal(t, 4, terminalProfileCells)
+	// Retire this cell's temporary association after observing its effects.
+	// Keeping a paused TODO on the manually created system workspace makes
+	// the real admission worker retain it as occupied for the later run cell.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='' WHERE repository_id=$1 AND number=$2`, repo.ID, terminalOwn)
 	require.NoError(t, err)
 	for _, c := range fixture.Commands {
 		if c.Delegated != "never" {
@@ -803,15 +958,15 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	}
 	require.Equal(t, 2*(httpCommands+len(dispatchCases)), runDeathCells)
 	require.Equal(t, 137, httpCommands)
-	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts)-todoEffectCells-36-terminalProfileCells, "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "todo_control_effect_cells": todoEffectCells, "terminal_profile_effect_cells": terminalProfileCells, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("HTTP campaign: %d commands, %d refusal cells, 11 admitted writes, 193 asserted reads and 18 private pending confirmations; full admitted-effect matrix remains separate", httpCommands, len(receipts)-240)
+	t.Logf("HTTP campaign: %d commands, %d receipts, %d TODO control effect cells; full admitted-effect matrix remains incomplete", httpCommands, len(receipts), todoEffectCells)
 }
 
 // Catalog data is used only to measure coverage; it never supplies outcomes.
