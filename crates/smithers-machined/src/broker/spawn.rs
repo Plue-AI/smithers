@@ -212,7 +212,43 @@ struct Process {
     output: Option<std::process::ChildStdout>,
     error: Option<std::process::ChildStderr>,
     exit_observed: bool,
+    pending_exit: Option<Exit>,
+    cleanup_on_exit: bool,
     identity: Option<super::sessions::ProcessIdentity>,
+}
+impl Process {
+    fn observe_exit(
+        &mut self,
+        cleanup: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<Option<Exit>> {
+        if self.exit_observed {
+            return Ok(None);
+        }
+        if self.pending_exit.is_none() {
+            let Some(status) = self.child.try_wait()? else {
+                return Ok(None);
+            };
+            self.pending_exit = Some(if let Some(code) = status.code() {
+                Exit::Code(code)
+            } else {
+                let actual = status.signal().ok_or_else(invalid)?;
+                match (1..=7).find(|s| signal_number(*s).ok() == Some(actual)) {
+                    Some(signal) => Exit::Signal {
+                        signal,
+                        core: status.core_dumped(),
+                    },
+                    None => Exit::Code(128 + actual),
+                }
+            });
+        }
+        // A failed barrier retains the wait status for retry. Ordinary member
+        // sessions and PTYs keep their background-process lifetime.
+        if self.cleanup_on_exit {
+            cleanup()?;
+        }
+        self.exit_observed = true;
+        Ok(self.pending_exit.take())
+    }
 }
 pub struct Processes<A> {
     groups: Cgroups,
@@ -423,6 +459,8 @@ impl<A: Admission> Kernel for Processes<A> {
                     output,
                     error,
                     exit_observed: false,
+                    pending_exit: None,
+                    cleanup_on_exit: user.uid == 19999 && kind == Kind::Exec,
                     identity: None,
                 },
             );
@@ -509,7 +547,8 @@ impl<A: Admission> Kernel for Processes<A> {
     fn signal(&mut self, id: u32, signal: u8) -> io::Result<()> {
         let signal = signal_number(signal)?;
         let p = self.process(id)?;
-        if !matches!(p.kind, Kind::Exec | Kind::Pty) || p.exit_observed {
+        if !matches!(p.kind, Kind::Exec | Kind::Pty) || p.exit_observed || p.pending_exit.is_some()
+        {
             return Err(invalid());
         }
         if unsafe { libc::kill(-(p.child.id() as i32), signal) } < 0 {
@@ -518,26 +557,19 @@ impl<A: Admission> Kernel for Processes<A> {
         Ok(())
     }
     fn exited(&mut self, id: u32) -> io::Result<Option<Exit>> {
-        let p = self.process(id)?;
-        if p.exit_observed {
-            return Ok(None);
-        }
-        let Some(status) = p.child.try_wait()? else {
-            return Ok(None);
-        };
-        p.exit_observed = true;
-        Ok(Some(if let Some(code) = status.code() {
-            Exit::Code(code)
-        } else {
-            let actual = status.signal().ok_or_else(invalid)?;
-            match (1..=7).find(|s| signal_number(*s).ok() == Some(actual)) {
-                Some(signal) => Exit::Signal {
-                    signal,
-                    core: status.core_dumped(),
-                },
-                None => Exit::Code(128 + actual),
+        let Self {
+            groups, processes, ..
+        } = self;
+        let p = processes.get_mut(&id).ok_or_else(invalid)?;
+        p.observe_exit(|| {
+            // A coding host's descendants can retain stdout/stderr after the
+            // leader exits. Confirm their termination before waiting for EOF,
+            // keeping the held output descriptors for Pipe to drain.
+            if groups.contains(id) {
+                groups.kill(id, Instant::now() + Duration::from_secs(5))?;
             }
-        }))
+            Ok(())
+        })
     }
     fn close(&mut self, id: u32, kind: Kind) -> io::Result<()> {
         let p = self.process(id)?;
@@ -545,6 +577,7 @@ impl<A: Admission> Kernel for Processes<A> {
             // HUP the process group explicitly: duplicated masters must never
             // accidentally keep a closed PTY's foreground process alive.
             if !p.exit_observed
+                && p.pending_exit.is_none()
                 && unsafe { libc::kill(-(p.child.id() as i32), libc::SIGHUP) } < 0
                 && io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
             {
@@ -594,4 +627,159 @@ pub fn tcp(port: u16) -> io::Result<()> {
     // closes the input pump. Waiting for it would deadlock an SSH half-close.
     drop(input);
     Ok(())
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+
+    fn process(script: &str, cleanup_on_exit: bool) -> Process {
+        let child = Command::new("/bin/sh")
+            .args(["-c", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        Process {
+            child,
+            kind: Kind::Exec,
+            master: None,
+            input: None,
+            output: None,
+            error: None,
+            exit_observed: false,
+            pending_exit: None,
+            cleanup_on_exit,
+            identity: None,
+        }
+    }
+
+    // Uses real waitpid status and production observation; no output bytes can
+    // choose the outcome, including when cleanup has to be retried.
+    #[test]
+    fn coding_host_exit_retains_status_until_cleanup_succeeds() {
+        for (script, expected) in [
+            ("printf 'SMITHERS-EXIT 0'; exit 7", Exit::Code(7)),
+            (
+                "kill -TERM $$",
+                Exit::Signal {
+                    signal: 2,
+                    core: false,
+                },
+            ),
+        ] {
+            let mut p = process(script, true);
+            p.child.wait().unwrap();
+            assert_eq!(
+                p.observe_exit(|| Err(io::ErrorKind::TimedOut.into()))
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::TimedOut
+            );
+            assert!(!p.exit_observed);
+            assert_eq!(p.pending_exit, Some(expected));
+            assert_eq!(p.observe_exit(|| Ok(())).unwrap(), Some(expected));
+            assert!(p.exit_observed);
+            assert_eq!(p.observe_exit(|| panic!("cleanup repeated")).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn coding_host_cleanup_unblocks_inherited_output_without_losing_bytes() {
+        // A real background child retains the pipe after the leader exits.
+        // The privileged cgroup operation needs the reference host; here the
+        // same production observation drives a held test process group.
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "printf literal; sleep 120 & exit 7"])
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        struct Group(u32, bool);
+        impl Drop for Group {
+            fn drop(&mut self) {
+                if self.1 {
+                    unsafe {
+                        libc::kill(-(self.0 as i32), libc::SIGKILL);
+                    }
+                }
+            }
+        }
+        let mut group = Group(child.id(), true);
+        let mut out = child.stdout.take().unwrap();
+        nonblocking(&out).unwrap();
+        child.wait().unwrap();
+        let mut p = Process {
+            child,
+            kind: Kind::Exec,
+            master: None,
+            input: None,
+            output: None,
+            error: None,
+            exit_observed: false,
+            pending_exit: None,
+            cleanup_on_exit: true,
+            identity: None,
+        };
+        let mut bytes = Vec::new();
+        assert_eq!(
+            out.read_to_end(&mut bytes).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(bytes, b"literal");
+        assert_eq!(
+            p.observe_exit(|| {
+                if unsafe { libc::kill(-(group.0 as i32), libc::SIGKILL) } != 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                group.1 = false;
+                Ok(())
+            })
+            .unwrap(),
+            Some(Exit::Code(7))
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match out.read_to_end(&mut bytes) {
+                Ok(_) => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline, "descendant retained stdout");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert_eq!(bytes, b"literal");
+    }
+
+    #[test]
+    fn coding_host_running_leader_never_triggers_cleanup() {
+        let mut p = process("exec sleep 120", true);
+        assert_eq!(
+            p.observe_exit(|| panic!("live leader killed")).unwrap(),
+            None
+        );
+        p.child.kill().unwrap();
+        p.child.wait().unwrap();
+        assert_eq!(
+            p.observe_exit(|| Ok(())).unwrap(),
+            Some(Exit::Signal {
+                signal: 4,
+                core: false
+            })
+        );
+    }
+
+    #[test]
+    fn member_exec_and_agent_pty_keep_background_lifetime() {
+        let mut p = process("exit 0", false);
+        p.child.wait().unwrap();
+        assert_eq!(
+            p.observe_exit(|| panic!("ordinary session cleanup"))
+                .unwrap(),
+            Some(Exit::Code(0))
+        );
+    }
 }
