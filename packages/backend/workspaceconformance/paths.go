@@ -77,7 +77,7 @@ func runPaths(t *testing.T, harness CoreHarness, started workspace.Workspace) {
 	}
 	for i, file := range files {
 		name := path.Join(directory, file.name)
-		if err := runtime.WriteFile(harness.Context("paths-write-"+file.name), harness.Spec.ID, name, []byte(file.overwritten), 0o600); err != nil {
+		if err := writeConformanceFile(runtime, harness.Context("paths-write-"+file.name), harness.Spec.ID, name, []byte(file.overwritten), 0o600, conformanceDigest([]byte(file.original))); err != nil {
 			fail("WriteFile(%q): %v", name, err)
 		}
 		for j, sibling := range files {
@@ -129,7 +129,7 @@ func runPaths(t *testing.T, harness CoreHarness, started workspace.Workspace) {
 	command("plant-outside", `mkdir -p -- "$1" && printf %s "$2" > "$1/target"`, outside, "outside sentinel\n")
 	link := path.Join(started.Root, directory, "outside-link")
 	command("link-outside", `ln -s -- "$1" "$2"`, path.Join(outside, "target"), link)
-	_ = runtime.WriteFile(harness.Context("paths-write-outside-link"), harness.Spec.ID, path.Join(directory, "outside-link"), []byte("overwrite"), 0o600)
+	_ = writeConformanceFile(runtime, harness.Context("paths-write-outside-link"), harness.Spec.ID, path.Join(directory, "outside-link"), []byte("overwrite"), 0o600, "absent")
 	if got := command("check-outside-write", `cat -- "$1" 2>/dev/null || :`, path.Join(outside, "target")).Stdout; got != "outside sentinel\n" {
 		problem("WriteFile(outside symlink) changed target to %q", got)
 	}
@@ -167,7 +167,7 @@ func runPaths(t *testing.T, harness CoreHarness, started workspace.Workspace) {
 	command("plant-outside-directory", `mkdir -p -- "$1/directory" && printf child > "$1/directory/child"`, outside)
 	dirLink := path.Join(started.Root, directory, "directory-link")
 	command("link-directory", `ln -s -- "$1" "$2"`, path.Join(outside, "directory"), dirLink)
-	_ = runtime.WriteFile(harness.Context("paths-write-through-parent-link"), harness.Spec.ID, path.Join(directory, "directory-link", "escape"), []byte("escape"), 0o600)
+	_ = writeConformanceFile(runtime, harness.Context("paths-write-through-parent-link"), harness.Spec.ID, path.Join(directory, "directory-link", "escape"), []byte("escape"), 0o600, "absent")
 	if got := command("check-parent-escape", `test -e "$1/escape" && printf present || :`, path.Join(outside, "directory")).Stdout; got != "" {
 		problem("WriteFile through outside parent symlink created escape file")
 	}

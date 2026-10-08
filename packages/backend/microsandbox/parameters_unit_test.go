@@ -43,7 +43,10 @@ func TestMicrosandboxUnitCancelledOperationsReturnNoWork(t *testing.T) {
 			require.Nil(t, value)
 			return err
 		}},
-		{"write", func(t *testing.T) error { return runtime.WriteFile(ctx, "workspace", "file", []byte("content"), 0) }},
+		{"write", func(t *testing.T) error {
+			_, err := runtime.CompareWriteFiles(ctx, "workspace", []workspaceapi.FileMutation{{Path: "file", BaseDigest: "absent", Content: []byte("content")}})
+			return err
+		}},
 		{"list files", func(t *testing.T) error {
 			value, err := runtime.ListFiles(ctx, "workspace", ".")
 			require.Nil(t, value)

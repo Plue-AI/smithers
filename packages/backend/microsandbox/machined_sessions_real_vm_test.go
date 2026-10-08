@@ -29,7 +29,7 @@ func TestRealMicroVMMachinedSessionTransport(t *testing.T) {
 	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete"), id)) }()
-	require.NoError(t, runtime.WriteFile(ctx, id, "session-tests", body, 0755))
+	require.NoError(t, writeGuestFixture(runtime, ctx, id, "session-tests", body, 0755))
 	result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-c", `test "$(id -u)" = 19999 && exec /workspace/session-tests --nocapture --test-threads=1`}})
 	require.NoError(t, err)
 	t.Log(result.Stdout)

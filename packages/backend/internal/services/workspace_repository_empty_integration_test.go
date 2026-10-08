@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -31,11 +30,13 @@ type failFirstRepositoryReceiptRuntime struct {
 	failed atomic.Bool
 }
 
-func (r *failFirstRepositoryReceiptRuntime) WriteFile(ctx context.Context, id, path string, contents []byte, mode fs.FileMode) error {
-	if path == workspaceRepositoryReceiptPath && !r.failed.Swap(true) {
+func (r *failFirstRepositoryReceiptRuntime) WriteRepositoryReceipt(ctx context.Context, id string, contents []byte) error {
+	if !r.failed.Swap(true) {
 		return errors.New("injected receipt write failure")
 	}
-	return r.WorkspaceRuntime.WriteFile(ctx, id, path, contents, mode)
+	return r.WorkspaceRuntime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	}).WriteRepositoryReceipt(ctx, id, contents)
 }
 
 // Inject bridge loss only after a real Git clone has completed with a failure.

@@ -183,7 +183,7 @@ func TestRealMicroVMReclaimedDiskRestartsEmpty(t *testing.T) {
 	_, err := r.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, r.DeleteWorkspace(operation("delete"), id)) }()
-	require.NoError(t, r.WriteFile(ctx, id, "scratch.txt", []byte("scratch\n"), 0o600))
+	require.NoError(t, writeGuestFixture(r, ctx, id, "scratch.txt", []byte("scratch\n"), 0o600))
 	require.ErrorContains(t, r.ReclaimWorkspaceDisk(ctx, id), "only a stopped workspace's disk is reclaimed")
 
 	require.NoError(t, r.StopWorkspace(ctx, id))

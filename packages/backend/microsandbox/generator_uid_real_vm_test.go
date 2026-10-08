@@ -64,7 +64,7 @@ func registeredMigrations()([]fs.DirEntry,error){return migrations.ReadDir("migr
 		files[name] = string(body)
 	}
 	for name, body := range files {
-		require.NoError(t, r.WriteFile(ctx, id, name, []byte(body), 0o644))
+		require.NoError(t, writeGuestFixture(r, ctx, id, name, []byte(body), 0o644))
 	}
 
 	// A hostile root envelope must fail in the trusted preflight, before either

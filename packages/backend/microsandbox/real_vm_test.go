@@ -160,7 +160,7 @@ func TestRealMicroVMGuestFacts(t *testing.T) {
 
 	_, err = runtime.ReadFile(ctx, "microvm-facts", "../../etc/passwd")
 	require.Error(t, err)
-	require.NoError(t, runtime.WriteFile(ctx, "microvm-facts", "a/b.txt", []byte("x"), 0o644))
+	require.NoError(t, writeGuestFixture(runtime, ctx, "microvm-facts", "a/b.txt", []byte("x"), 0o644))
 	entries, err := runtime.ListFiles(ctx, "microvm-facts", "a")
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
@@ -238,7 +238,7 @@ func TestRealMicroVMServicePreviewAndRestart(t *testing.T) {
 	ctx := operation("service")
 	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "microvm-service"})
 	require.NoError(t, err)
-	require.NoError(t, runtime.WriteFile(ctx, "microvm-service", "index.html", []byte("hello from the guest\n"), 0o644))
+	require.NoError(t, writeGuestFixture(runtime, ctx, "microvm-service", "index.html", []byte("hello from the guest\n"), 0o644))
 	_, err = runtime.StartService(ctx, "microvm-service", workspaceapi.ServiceSpec{Name: "web",
 		Command:      workspaceapi.Command{Args: []string{"python3", "-m", "http.server", "18080", "--bind", "127.0.0.1"}},
 		ReadyAddress: "127.0.0.1:18080", ReadyTimeout: 30 * time.Second})
@@ -311,7 +311,7 @@ func TestRealMicroVMManagedHost(t *testing.T) {
 		// service relay through its ordinary unprivileged execution boundary.
 		_, err = runtime.StartManagedHost(ctx, "microvm-terminal", spec)
 		require.EqualError(t, err, "session credential: invalid token")
-		require.NoError(t, runtime.WriteFile(ctx, "microvm-terminal", "relay-control.txt", []byte("guest-relay-control\n"), 0o644))
+		require.NoError(t, writeGuestFixture(runtime, ctx, "microvm-terminal", "relay-control.txt", []byte("guest-relay-control\n"), 0o644))
 		_, err = runtime.StartService(ctx, "microvm-terminal", workspaceapi.ServiceSpec{
 			Name: "relay-control", Command: workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-m", "http.server", "18081", "--bind", "127.0.0.1", "--directory", "/workspace"}},
 			ReadyAddress: "127.0.0.1:18081", ReadyTimeout: 30 * time.Second,
@@ -393,7 +393,7 @@ func TestRealMicroVMTwentyRetainedDisks(t *testing.T) {
 		_, err := r.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
 		require.NoError(t, err)
 		content := []byte(fmt.Sprintf("uncommitted notes for TODO %02d\n", i))
-		require.NoError(t, r.WriteFile(ctx, id, "notes.txt", content, 0o600))
+		require.NoError(t, writeGuestFixture(r, ctx, id, "notes.txt", content, 0o600))
 		require.NoError(t, r.StopWorkspace(ctx, id))
 		observed, err := r.InspectWorkspace(ctx, id)
 		require.NoError(t, err)

@@ -83,7 +83,7 @@ func runHead(t *testing.T, h CoreHarness) string {
 	if err != nil || head != strings.TrimSpace(result.Stdout) {
 		t.Fatalf("captured head = %q, %v; want %q", head, err, result.Stdout)
 	}
-	if err := h.Runtime.WriteFile(h.Context("dirty-head"), h.Spec.ID, "uncommitted", []byte("dirty"), 0644); err != nil {
+	if err := writeConformanceFile(h.Runtime, h.Context("dirty-head"), h.Spec.ID, "uncommitted", []byte("dirty"), 0644, "absent"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolver.ResolveWorkspaceSourceRevision(h.Context("refuse-dirty-head"), h.Spec.ID); !errors.Is(err, workspace.ErrWorkspaceSourceUnavailable) {
@@ -106,7 +106,7 @@ func runCompareWrites(t *testing.T, h CoreHarness) {
 	}
 	ctx := h.Context("compare-write")
 	for _, name := range []string{"compare-a", "compare-b"} {
-		if err := h.Runtime.WriteFile(ctx, h.Spec.ID, name, []byte("original"), 0644); err != nil {
+		if err := writeConformanceFile(h.Runtime, ctx, h.Spec.ID, name, []byte("original"), 0644, "absent"); err != nil {
 			t.Fatal(err)
 		}
 	}

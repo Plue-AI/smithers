@@ -10,8 +10,10 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +30,7 @@ import (
 
 // The W1-W4 preservation campaign enters the composed browser file door and
 // authenticated broker sessions on a production-created microVM. It covers the
-// fifty rewrites and ten Return cycles. Frozen/timeout/swap barriers and the ACK
+// fifty rewrites and ten Return cycles, including a real kernel frozen barrier. Timeout/swap barriers and the ACK
 // delay/timing campaign are separate requirements; this test does not claim them.
 // The bundle is install-controlled; no checkout program executes as root.
 func TestMachinedMutationWriterPreservation(t *testing.T) {
@@ -37,7 +39,7 @@ func TestMachinedMutationWriterPreservation(t *testing.T) {
 	}
 	require.Equal(t, "darwin", runtime.GOOS)
 	require.Equal(t, "arm64", runtime.GOARCH)
-	_, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
+	bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
 	require.NoError(t, err)
 	t.Setenv(pinnedMicroVMRehearsal, "1")
 	r := newRehearsal(t, pinnedMicroVMRehearsal, "C-COL-03", "writers-")
@@ -194,11 +196,72 @@ while i<1200:
 		}
 		return len(seen) == 4
 	}, 30*time.Second, 10*time.Millisecond)
+	machine, err := vm.WorkspaceMachineIdentity(ctx, branch)
+	require.NoError(t, err)
+	// The observer stays outside the member-session parent. Only the approved
+	// base-image setpriv runs privileged; all qualification bytes run as machined.
+	control := func(script string) []byte {
+		t.Helper()
+		msb := bundle.Program("bin/msb")
+		require.NoError(t, msb.Check())
+		command := exec.CommandContext(ctx, msb.Path(), "exec", machine, "--", "/usr/bin/setpriv", "--reuid=19998", "--regid=20000", "--clear-groups", "/usr/bin/env", "-i", "PATH=/usr/bin:/bin", "/usr/bin/python3", "-I", "-S", "-c", script)
+		command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"}
+		out, err := command.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return out
+	}
+	control(`import os
+p='/var/lib/smithers-machined/qualification-frozen.arm'
+f=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+os.fsync(f);os.close(f)`)
+	var freezeEvidence json.RawMessage
 	var rewriteTimes []int64
 	for i := 0; i < 50; i++ {
 		began := time.Now()
-		_, err := registry.Rebase(ctx, branch, person, r.mainCommit)
-		require.NoError(t, err, "rebase %d", i)
+		done := make(chan error, 1)
+		go func() { _, err := registry.Rebase(ctx, branch, person, r.mainCommit); done <- err }()
+		if i == 0 {
+			require.Eventually(t, func() bool {
+				out := control(`from pathlib import Path
+p=Path('/var/lib/smithers-machined/qualification-frozen.hit')
+print(p.read_text() if p.exists() else '')`)
+				return strings.TrimSpace(string(out)) == "frozen"
+			}, 20*time.Second, 20*time.Millisecond)
+			// Observe actual inotify while W1 continues sending authenticated
+			// requests and the registered W2/W3/W4 processes remain alive. The
+			// observer is not frozen, so silence cannot be a frozen-reader artifact.
+			freezeEvidence = control(`import ctypes,os,select,struct,time,json
+assert 'frozen 1' in open('/sys/fs/cgroup/smithers/sessions/cgroup.events').read().splitlines()
+lib=ctypes.CDLL(None,use_errno=True)
+fd=lib.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
+assert fd>=0
+assert lib.inotify_add_watch(fd,b'/workspace',0x100|0x2|0x8|0x80|0x200)>=0
+start=time.monotonic_ns();events=[]
+while time.monotonic_ns()-start<500000000:
+ if not select.select([fd],[],[],.02)[0]: continue
+ data=os.read(fd,65536);offset=0
+ while offset<len(data):
+  wd,mask,cookie,n=struct.unpack_from('iIII',data,offset)
+  name=data[offset+16:offset+16+n].split(b'\0',1)[0].decode()
+  offset+=16+n
+  if name.startswith('col03-'): events.append({'name':name,'mask':mask})
+assert 'frozen 1' in open('/sys/fs/cgroup/smithers/sessions/cgroup.events').read().splitlines()
+print(json.dumps({'start_ns':start,'end_ns':time.monotonic_ns(),'events':events}))
+os.close(fd)`)
+			var observed struct {
+				Events []json.RawMessage `json:"events"`
+			}
+			require.NoError(t, json.Unmarshal(freezeEvidence, &observed))
+			require.Empty(t, observed.Events, "a real session wrote during frozen 1")
+			select {
+			case err := <-done:
+				t.Fatalf("rewrite completed inside frozen hold: %v", err)
+			default:
+			}
+			control(`import os
+os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
+		}
+		require.NoError(t, <-done, "rebase %d", i)
 		rewriteTimes = append(rewriteTimes, time.Since(began).Nanoseconds())
 		select {
 		case <-ctx.Done():
@@ -278,7 +341,7 @@ while i<1200:
 		}
 		return nil
 	}))
-	for name, value := range map[string]any{"writers.json": acknowledged, "rewrite-rpc-nanoseconds.json": rewriteTimes, "captured.json": captured} {
+	for name, value := range map[string]any{"writers.json": acknowledged, "rewrite-rpc-nanoseconds.json": rewriteTimes, "captured.json": captured, "frozen-inotify.json": freezeEvidence} {
 		bytes, err := json.MarshalIndent(value, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name), append(bytes, '\n'), 0600))

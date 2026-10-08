@@ -326,7 +326,7 @@ func TestRealUndeclaredMachineReadyThroughComposedSetup(t *testing.T) {
 				require.NoError(t, h.runtime.DeleteWorkspace(ctx, id))
 			})
 			for path, content := range files {
-				require.NoError(t, h.runtime.WriteFile(h.ctx(t), id, path, []byte(content), 0644))
+				require.NoError(t, writeGuestFixture(h.runtime, h.ctx(t), id, path, []byte(content), 0644))
 			}
 			result, err := h.runtime.ExecuteCommand(h.ctx(t), id, workspaceapi.Command{Args: argv})
 			require.NoError(t, err)

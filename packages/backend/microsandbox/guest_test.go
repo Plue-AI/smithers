@@ -152,3 +152,51 @@ guest.home_defaults(entry)  # idempotent across restarts
 	require.NoError(t, err)
 	require.Equal(t, "GOTOOLCHAIN=local\nGOPROXY=off\nGOFLAGS=-mod=readonly\nGOMODCACHE=/var/cache/smithers/gomod\nGOCACHE=/var/cache/smithers/gocache\n", string(goEnv))
 }
+
+func TestGuestFSOnlyFixedReceiptCanWrite(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	for _, tc := range []struct{ operation, path string }{
+		{"write", "victim"}, {"read", "victim"},
+		{"receipt-write", "victim"}, {"receipt-read", "victim"},
+	} {
+		t.Run(tc.operation, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(root, "victim"), []byte("unchanged"), 0600))
+			cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "agent", tc.operation, root, tc.path, "600")
+			cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
+			cmd.Stdin = strings.NewReader("replaced")
+			out, err := cmd.CombinedOutput()
+			require.Error(t, err, string(out))
+			contents, err := os.ReadFile(filepath.Join(root, "victim"))
+			require.NoError(t, err)
+			require.Equal(t, "unchanged", string(contents))
+		})
+	}
+}
+
+func TestGuestFSReceiptRoundTrip(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	root := t.TempDir()
+	call := func(op, body string) ([]byte, error) {
+		cmd := exec.Command(python, "-B", filepath.Join("guest", "smithers-guest.py"), "fs", "agent", op, root, repositoryReceiptPath)
+		cmd.Env = append(os.Environ(), "SMITHERS_GUEST_USER=")
+		cmd.Stdin = strings.NewReader(body)
+		return cmd.CombinedOutput()
+	}
+	out, err := call("receipt-write", "fixed receipt\n")
+	require.NoError(t, err, string(out))
+	info, err := os.Stat(filepath.Join(root, repositoryReceiptPath))
+	require.NoError(t, err)
+	require.EqualValues(t, 0600, info.Mode().Perm())
+	out, err = call("receipt-read", "")
+	require.NoError(t, err, string(out))
+	require.Equal(t, "fixed receipt\n", string(out))
+	out, err = call("receipt-write", strings.Repeat("x", 65537))
+	require.Error(t, err, string(out))
+	require.Contains(t, string(out), "repository receipt exceeds limit")
+	out, err = call("receipt-read", "")
+	require.NoError(t, err)
+	require.Equal(t, "fixed receipt\n", string(out))
+}

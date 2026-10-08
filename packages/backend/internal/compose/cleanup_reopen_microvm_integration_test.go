@@ -59,7 +59,7 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 	h.expect("POST", url+"/resume", "", 200)
 	files := map[string][]byte{"JOURNEY.md": []byte("tracked cleanup bytes\n"), "cleanup-untracked.txt": []byte("untracked cleanup bytes\n"), "cleanup-binary.bin": {0, 255, 128, 1}, ".gitattributes": []byte("*.txt filter=hostile\n"), "cleanup-probe.sh": []byte("#!/bin/sh\nset -eu\nid -u\nprintf old-disk > /tmp/cleanup-original-disk\n")}
 	for path, data := range files {
-		require.NoError(t, h.runtime.WriteFile(ctx, branch, path, data, 0600))
+		require.NoError(t, writeGuestFixture(h.runtime, ctx, branch, path, data, 0600))
 	}
 	// An uncaptured file outside /workspace distinguishes a fresh guest from
 	// an accidentally reused disk without changing the captured branch tree.

@@ -180,7 +180,7 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine boo
 		t.Cleanup(func() { require.NoError(t, vm.DeleteWorkspace(context.WithoutCancel(operation), machine.ID)) })
 		machine, err = q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: machine.ID, VmID: created.ID, Status: "running"})
 		require.NoError(t, err)
-		require.NoError(t, vm.WriteFile(operation, machine.ID, "shared.txt", []byte("ben\n"), 0664))
+		require.NoError(t, writeGuestFixture(vm, operation, machine.ID, "shared.txt", []byte("ben\n"), 0664))
 	}
 	if !realMachine && !concurrent {
 		_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: machine.ID})

@@ -43,7 +43,7 @@ func TestRootBoundaryApprovedBundleStartup(t *testing.T) {
 	_, err := r.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "sec01-helper"})
 	require.NoError(t, err)
 	// T-SEC-01 R1: imports controlled by members may run only after UID drop.
-	require.NoError(t, r.WriteFile(ctx, "sec01-helper", "sitecustomize.py", []byte(`import os
+	require.NoError(t, writeGuestFixture(r, ctx, "sec01-helper", "sitecustomize.py", []byte(`import os
 with open("/workspace/import-observed","a") as f: f.write(str(os.geteuid())+"\n")
 `), 0o644))
 	observations := 0
@@ -186,7 +186,7 @@ func TestRootBoundaryApprovedBundleDispatch(t *testing.T) {
 					t.Logf("R3 phase=%s fixture=%s refusal=%q", phase, fixture.name, refused.stderr)
 				})
 			}
-			require.NoError(t, r.WriteFile(ctx, "sec01-envelope", "positive.txt", []byte("positive fixture\n"), 0o640))
+			require.NoError(t, writeGuestFixture(r, ctx, "sec01-envelope", "positive.txt", []byte("positive fixture\n"), 0o640))
 			body, err := r.ReadFile(ctx, "sec01-envelope", "positive.txt")
 			require.NoError(t, err)
 			require.Equal(t, "positive fixture\n", string(body))

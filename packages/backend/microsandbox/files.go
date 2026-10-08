@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,34 +49,18 @@ func (r *Runtime) ReadFile(ctx context.Context, workspaceID, path string) ([]byt
 	return r.ReadWorkingCopyFile(ctx, workspaceID, path)
 }
 
-func (r *Runtime) WriteFile(ctx context.Context, workspaceID, path string, content []byte, mode fs.FileMode) error {
-	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
-	if fenceErr != nil {
-		return fenceErr
-	}
-	defer releaseFence()
-	if mode == 0 {
-		mode = 0o600
-	}
-	if content == nil {
-		content = []byte{}
-	}
-	_, err := r.fileOperation(ctx, workspaceID, guestRoot, content, "write", path, strconv.FormatUint(uint64(mode&0o777), 8))
-	return err
-}
-
 const repositoryReceiptPath = ".git/smithers-workspace-initialization.json"
 
 // These preparation-only methods do not expose a caller-selected path. The
 // receipt must exist before the working copy can admit its daemon.
 func (r *Runtime) ReadRepositoryReceipt(ctx context.Context, id string) ([]byte, error) {
-	return r.fileOperation(ctx, id, guestRoot, nil, "read", repositoryReceiptPath, "65536")
+	return r.fileOperation(ctx, id, guestRoot, nil, "receipt-read", repositoryReceiptPath)
 }
 func (r *Runtime) WriteRepositoryReceipt(ctx context.Context, id string, content []byte) error {
 	if len(content) > 65536 {
 		return fmt.Errorf("%w: repository receipt exceeds limit", ErrUnavailable)
 	}
-	_, err := r.fileOperation(ctx, id, guestRoot, content, "write", repositoryReceiptPath, "600")
+	_, err := r.fileOperation(ctx, id, guestRoot, content, "receipt-write", repositoryReceiptPath)
 	return err
 }
 

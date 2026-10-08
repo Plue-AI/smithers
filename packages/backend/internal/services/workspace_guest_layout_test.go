@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"io/fs"
 	"strings"
 	"sync"
 	"testing"
@@ -96,7 +95,7 @@ func (r *guestLayoutRuntime) ReadFile(_ context.Context, workspaceID, _ string) 
 		SourceRevision: strings.Repeat("a", 40), InitializedAt: time.Now().UTC()})
 }
 
-func (*guestLayoutRuntime) WriteFile(context.Context, string, string, []byte, fs.FileMode) error {
+func (*guestLayoutRuntime) WriteRepositoryReceipt(context.Context, string, []byte) error {
 	return nil
 }
 

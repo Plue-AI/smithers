@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 HTTPServer(("127.0.0.1", port), Handler).serve_forever()
 `
-	require.NoError(t, runtime.WriteFile(ctx, workspaceID, "host-fixture.py", []byte(fixture), 0o644))
+	require.NoError(t, writeGuestFixture(runtime, ctx, workspaceID, "host-fixture.py", []byte(fixture), 0o644))
 
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "agent-session", BindingID: "session-1"}
 	authority := flowhost.Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: workspaceID,

@@ -30,9 +30,9 @@ func TestCleanupRepositoryExecutionBoundary(t *testing.T) {
 	require.NoError(t, os.Remove(canary))
 	hostile := fmt.Sprintf("#!/bin/sh\nprintf hostile > %q\nprintf '%%s\\n' \"$(id -u)\" >> /workspace/guest-execution\n", canary)
 	for _, path := range []string{".hooks/post-checkout", ".hooks/pre-commit", "hostile.sh"} {
-		require.NoError(t, r.WriteFile(ctx, id, path, []byte(hostile), 0755))
+		require.NoError(t, writeGuestFixture(r, ctx, id, path, []byte(hostile), 0755))
 	}
-	require.NoError(t, r.WriteFile(ctx, id, ".gitconfig", []byte("[core]\n hooksPath = /workspace/.hooks\n[filter \"hostile\"]\n smudge = /workspace/hostile.sh\n clean = /workspace/hostile.sh\n"), 0600))
+	require.NoError(t, writeGuestFixture(r, ctx, id, ".gitconfig", []byte("[core]\n hooksPath = /workspace/.hooks\n[filter \"hostile\"]\n smudge = /workspace/hostile.sh\n clean = /workspace/hostile.sh\n"), 0600))
 	// Positive control: branch bytes execute only through guest command admission.
 	result, err := r.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "/workspace/hostile.sh"}})
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestCleanupRootInputsValidatedBeforeUse(t *testing.T) {
 		require.NoError(t, err)
 		// Member import bytes are deliberately hostile to root startup. The
 		// positive control proves they execute after the normal UID drop.
-		require.NoError(t, r.WriteFile(ctx, id, "sitecustomize.py", []byte("import os\nwith open('/workspace/import-observed','a') as out: out.write(str(os.geteuid())+'\\n')\n"), 0600))
+		require.NoError(t, writeGuestFixture(r, ctx, id, "sitecustomize.py", []byte("import os\nwith open('/workspace/import-observed','a') as out: out.write(str(os.geteuid())+'\\n')\n"), 0600))
 		positive, err := r.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/usr/bin/python3", "-c", "import os; print(os.geteuid())"}, Environment: map[string]string{"PYTHONPATH": "/workspace"}})
 		require.NoError(t, err)
 		require.Zero(t, positive.ExitCode, positive.Stderr)

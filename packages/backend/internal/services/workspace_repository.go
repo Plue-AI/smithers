@@ -478,14 +478,13 @@ func (s *WorkspaceService) writeRuntimeRepositoryReceipt(ctx context.Context, ro
 	if err != nil {
 		return err
 	}
-	write := func() error {
-		return s.runtime.WriteFile(operationCtx, row.ID, workspaceRepositoryReceiptPath, contents, 0o600)
-	}
-	if preparer, ok := s.runtime.(interface {
+	preparer, ok := s.runtime.(interface {
 		WriteRepositoryReceipt(context.Context, string, []byte) error
-	}); ok {
-		write = func() error { return preparer.WriteRepositoryReceipt(operationCtx, row.ID, contents) }
+	})
+	if !ok {
+		return pkgerrors.Internal("workspace repository receipt writer unavailable")
 	}
+	write := func() error { return preparer.WriteRepositoryReceipt(operationCtx, row.ID, contents) }
 	if err := write(); err != nil {
 		return runtimeOperationError("commit workspace repository receipt", err)
 	}

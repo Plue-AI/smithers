@@ -54,7 +54,8 @@ func TestFinalCaptureMicroVMAdapterExcludesUntilConfirmedStop(t *testing.T) {
 	err := r.WithCaptureWritersExcluded(t.Context(), ws.ID, func(ctx context.Context) error {
 		_, err := r.StartWorkspace(t.Context(), ws.ID)
 		require.ErrorIs(t, err, workspaceapi.ErrCleanupBusy)
-		require.ErrorIs(t, r.WriteFile(t.Context(), ws.ID, "late", []byte("lost"), 0600), workspaceapi.ErrCleanupBusy)
+		_, writeErr := r.CompareWriteFiles(t.Context(), ws.ID, []workspaceapi.FileMutation{{Path: "late", BaseDigest: "absent", Content: []byte("lost")}})
+		require.ErrorIs(t, writeErr, workspaceapi.ErrCleanupBusy)
 		require.NoError(t, r.StopWorkspace(ctx, ws.ID))
 		return r.ReclaimWorkspaceDisk(ctx, ws.ID)
 	})

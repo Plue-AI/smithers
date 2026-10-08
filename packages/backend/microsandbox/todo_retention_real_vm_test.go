@@ -22,7 +22,7 @@ func TestRealMicroVMTwentyRetainedWorkspaceDisks(t *testing.T) {
 		id := fmt.Sprintf("retained-todo-%02d", i)
 		_, err := r.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
 		require.NoError(t, err)
-		require.NoError(t, r.WriteFile(ctx, id, "notes.txt", []byte(fmt.Sprintf("uncommitted notes %02d\n", i)), 0o600))
+		require.NoError(t, writeGuestFixture(r, ctx, id, "notes.txt", []byte(fmt.Sprintf("uncommitted notes %02d\n", i)), 0o600))
 		require.NoError(t, r.StopWorkspace(ctx, id))
 		dir := machineDirectory(r.cli.home, r.machineName(id))
 		u, a := privateBytes(dir), allocatedBytes(dir)

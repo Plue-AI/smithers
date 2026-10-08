@@ -32,7 +32,7 @@ func TestRealMicroVMMachinedW2Objects(t *testing.T) {
 	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: "w2-objects"})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete-w2"), "w2-objects")) }()
-	require.NoError(t, runtime.WriteFile(ctx, "w2-objects", "w2-component-tests", bytes, 0o755))
+	require.NoError(t, writeGuestFixture(runtime, ctx, "w2-objects", "w2-component-tests", bytes, 0o755))
 	result, err := runtime.ExecuteCommand(ctx, "w2-objects", workspaceapi.Command{
 		Args: []string{"/bin/sh", "-c", "test \"$(id -u)\" = 19999 && exec /workspace/w2-component-tests git::tests --nocapture --test-threads=1"},
 	})
@@ -78,7 +78,7 @@ func TestRealMicroVMMachinedW2Recovery(t *testing.T) {
 		binary := os.Getenv(fixture.environment)
 		bytes, err := os.ReadFile(binary)
 		require.NoError(t, err)
-		require.NoError(t, runtime.WriteFile(ctx, "w2-recovery", fixture.name, bytes, 0o755))
+		require.NoError(t, writeGuestFixture(runtime, ctx, "w2-recovery", fixture.name, bytes, 0o755))
 		result, err := runtime.ExecuteCommand(ctx, "w2-recovery", workspaceapi.Command{
 			Args: []string{"/bin/sh", "-c", "test \"$(id -u)\" = 19999 && exec /workspace/" + fixture.name + " " + fixture.filter + " --nocapture --test-threads=1"},
 		})

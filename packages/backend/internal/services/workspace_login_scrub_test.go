@@ -349,7 +349,7 @@ func (r *loginRuntime) ReadFile(_ context.Context, workspaceID, _ string) ([]byt
 		SourceRevision: strings.Repeat("a", 40), InitializedAt: time.Now().UTC()})
 }
 
-func (*loginRuntime) WriteFile(context.Context, string, string, []byte, os.FileMode) error {
+func (*loginRuntime) WriteRepositoryReceipt(context.Context, string, []byte) error {
 	return nil
 }
 

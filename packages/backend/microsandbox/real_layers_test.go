@@ -241,7 +241,7 @@ func TestRealMicroVMWorkspaceFromLayers(t *testing.T) {
 	archive, err := exec.Command("git", "-C", repo, "archive", "--format=tar", revision).Output()
 	require.NoError(t, err)
 	started = time.Now()
-	require.NoError(t, runtime.WriteFile(ctx, id, ".seed.tar", archive, 0o600))
+	require.NoError(t, writeGuestFixture(runtime, ctx, id, ".seed.tar", archive, 0o600))
 	result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"sh", "-c", "tar -xf .seed.tar && rm .seed.tar"}})
 	require.NoError(t, err)
 	require.Equal(t, 0, result.ExitCode, result.Stderr)
@@ -296,7 +296,7 @@ func screenshotApp(t *testing.T, runtime *Runtime, id, evidence string) {
   console.log(JSON.stringify({ title: await page.title(), browser: browser.version() }));
   await browser.close();
 })().catch((error) => { console.error(error); process.exit(1); });`
-	require.NoError(t, runtime.WriteFile(ctx, id, "apps/app/.acceptance-screenshot.cjs", []byte(script), 0o644))
+	require.NoError(t, writeGuestFixture(runtime, ctx, id, "apps/app/.acceptance-screenshot.cjs", []byte(script), 0o644))
 	started = time.Now()
 	result, err = runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Directory: "apps/app", Args: []string{"sh", "-c",
 		"mkdir -p /workspace/.acceptance && node .acceptance-screenshot.cjs"}})
@@ -436,7 +436,7 @@ func TestRealMicroVMDetectedRepositoryLayers(t *testing.T) {
 			for name := range fixture.files {
 				data, err := reader.ReadSourceFile(t.Context(), workspaceapi.WorkspaceSource{Revision: reader.revision}, name)
 				require.NoError(t, err)
-				require.NoError(t, runtime.WriteFile(ctx, id, name, data, 0o644))
+				require.NoError(t, writeGuestFixture(runtime, ctx, id, name, data, 0o644))
 			}
 			if fixture.name == "pnpm" {
 				result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-ec", "test ! -e /var/cache/smithers/lifecycle.jsonl"}})

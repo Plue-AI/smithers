@@ -1345,10 +1345,13 @@ def run_exec(request):
 def run_fs(args):
     # Called only after admission/drop (or by a process already unprivileged).
     operation, root, path = args[2], args[3], args[4]
-    if operation == "read":
-        fs_read(root, path, int(args[5]))
-    elif operation == "write":
-        fs_write(root, path, int(args[5], 8))
+    if operation in ("receipt-read", "receipt-write"):
+        if path != ".git/smithers-workspace-initialization.json":
+            fail(125, "invalid repository receipt path")
+        if operation == "receipt-read":
+            fs_read(root, path, 65536)
+        else:
+            fs_write_repository_receipt(root)
     elif operation == "compare-write":
         # No branch argument or environment can open this qualification gate.
         fail(125, "compare-write provider is not qualified")
@@ -1486,7 +1489,9 @@ def ensure_parent(real_root, parts):
             fail(3, "workspace mutation parent is not a directory")
 
 
-def fs_write(root, path, mode):
+def fs_write_repository_receipt(root):
+    path = ".git/smithers-workspace-initialization.json"
+    mode = 0o600
     parts = [p for p in path.split("/") if p not in ("", ".")]
     if path.startswith("/") or not parts or ".." in parts:
         fail(3, "workspace mutation path escapes or replaces root")
@@ -1496,7 +1501,9 @@ def fs_write(root, path, mode):
     if os.path.islink(os.path.join(real_root, *parts)):
         fail(3, "workspace mutation target is a symlink")
     directory = os.path.dirname(resolved)
-    data = sys.stdin.buffer.read()
+    data = sys.stdin.buffer.read(65537)
+    if len(data) > 65536:
+        fail(3, "repository receipt exceeds limit")
     for _ in range(16):
         temporary = os.path.join(directory, ".smithers-write-%s" % os.urandom(8).hex())
         try:

@@ -88,7 +88,7 @@ func RunCore(t *testing.T, harness CoreHarness) {
 	}
 
 	if harness.WantCapabilities.FileOperations {
-		if err := harness.Runtime.WriteFile(harness.Context("write-file"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
+		if err := writeConformanceFile(harness.Runtime, harness.Context("write-file"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode, "absent"); err != nil {
 			t.Fatalf("%T: WriteFile: %v", harness.Runtime, err)
 		}
 		content, err := harness.Runtime.ReadFile(harness.Context("read-file"), harness.Spec.ID, harness.FilePath)
@@ -108,7 +108,7 @@ func RunCore(t *testing.T, harness CoreHarness) {
 			t.Fatalf("%T: plant temporary symlink: %#v, %v", harness.Runtime, fixture, err)
 		}
 		outside := fixture.Stdout
-		if err := harness.Runtime.WriteFile(harness.Context("write-over-temp-symlink"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
+		if err := writeConformanceFile(harness.Runtime, harness.Context("write-over-temp-symlink"), harness.Spec.ID, harness.FilePath, harness.FileContent, harness.FileMode, conformanceDigest(harness.FileContent)); err != nil {
 			t.Fatalf("%T: WriteFile with planted temporary symlink: %v", harness.Runtime, err)
 		}
 		check, err := harness.Runtime.ExecuteCommand(harness.Context("check-temp-symlink"), harness.Spec.ID, workspace.Command{Args: []string{
@@ -128,7 +128,7 @@ func RunCore(t *testing.T, harness CoreHarness) {
 		writeResults := make(chan error, len(parallel))
 		for _, file := range parallel {
 			go func() {
-				writeResults <- harness.Runtime.WriteFile(harness.Context("parallel-write-"+file.content), harness.Spec.ID, file.path, []byte(file.content), harness.FileMode)
+				writeResults <- writeConformanceFile(harness.Runtime, harness.Context("parallel-write-"+file.content), harness.Spec.ID, file.path, []byte(file.content), harness.FileMode, "absent")
 			}()
 		}
 		for range parallel {
@@ -257,7 +257,7 @@ func RunColdSnapshots(t *testing.T, harness SnapshotHarness) {
 			t.Fatalf("%T: start snapshot source: %v", harness.Runtime, err)
 		}
 	}
-	if err := harness.Runtime.WriteFile(harness.Context("snapshot-write"), harness.Source.ID, harness.FilePath, harness.FileContent, harness.FileMode); err != nil {
+	if err := writeConformanceFile(harness.Runtime, harness.Context("snapshot-write"), harness.Source.ID, harness.FilePath, harness.FileContent, harness.FileMode, "absent"); err != nil {
 		t.Fatalf("%T: write snapshot fixture: %v", harness.Runtime, err)
 	}
 	if err := harness.Runtime.StopWorkspace(harness.Context("snapshot-source-stop"), harness.Source.ID); err != nil {
