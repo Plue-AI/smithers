@@ -10,6 +10,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -117,9 +118,11 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 		}
 		return s.billing.AuthorizeWorkflowDispatchCommitted(ctx, input.RepositoryID, insert)
 	}
+	info := middleware.AuthInfoFromContext(ctx)
+	explicitMain := strings.TrimSpace(input.TriggerRef) != "" && info != nil && info.User != nil && info.User.ID == input.UserID && !info.IsTokenAuth && info.SessionHash != "" && info.CredentialKind() == middleware.CredentialPerson
 	run, def, err := s.invoker.Invoke(ctx, InvokedFlowLaunch{
 		RepositoryID: input.RepositoryID, UserID: input.UserID, FlowID: flowID,
-		Input: dispatchInputs, TriggerRef: triggerRef,
+		Input: dispatchInputs, TriggerRef: triggerRef, ExplicitMain: explicitMain,
 	}, admit)
 	if err != nil {
 		return nil, err

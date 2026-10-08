@@ -1107,13 +1107,17 @@ func TestWorkflowSandboxSchedulerWorker_OrgOwnedRepoClonesWithRepoBoundCredentia
 // NixOS CI channel carries an unbound secret, so the refusal names exactly the
 // secrets the run was given.
 func TestWorkflowSandboxSchedulerInjectsMainOnlySecretsOnlyIntoTrustedMainRuns(t *testing.T) {
+	// 4ce6b87012 intentionally withheld main-only secrets from legacy CI:
+	// push/schedule provide neither a manual person nor a background binding.
+	// The positive control now exercises manual dispatch in compose's
+	// TestTrustedMainManualFlowThroughInstallRouter (MVP spec §8.8.2).
 	t.Parallel()
 	for _, tc := range []struct {
 		event, ref string
 		trusted    bool
 	}{
-		{"push", "refs/heads/main", true},
-		{"schedule", "main", true},
+		{"push", "refs/heads/main", false},
+		{"schedule", "main", false},
 		{"push", "refs/heads/feature", false},
 		{"landing_request", "main", false},
 		{"", "main", false},

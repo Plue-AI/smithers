@@ -2833,10 +2833,115 @@ def read_request(handle):
     return json.loads(body)
 
 
+def scan_secret_sentinels(body, roots=("/",)):
+    # Installed helper only. File names and contents are untrusted literal data;
+    # descriptor-relative opens never follow links or execute scanned bytes.
+    if len(body) > 8192:
+        fail(3, "scan request exceeds limit")
+    sentinels = unique_secret_json(body)
+    if (not isinstance(sentinels, dict) or not 1 <= len(sentinels) <= 16
+            or any(not isinstance(k, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{0,31}", k)
+                   or not isinstance(v, str) or not 32 <= len(v.encode()) <= 256
+                   or "\0" in v for k, v in sentinels.items())):
+        fail(3, "invalid scan sentinels")
+    needles = {k: v.encode() for k, v in sentinels.items()}
+    hits, failures = [], []
+    scanned, total = 0, 0
+    longest = max(map(len, needles.values()))
+    def scan_file(fd, path):
+        nonlocal scanned, total
+        found, tail = set(), b""
+        while True:
+            data = os.read(fd, 1024 * 1024)
+            if not data:
+                break
+            total += len(data)
+            if total > 64 * 1024**3:
+                fail(3, "scan byte limit exceeded")
+            data = tail + data
+            for label, needle in needles.items():
+                if needle in data:
+                    found.add(label)
+            tail = data[-(longest - 1):]
+        scanned += 1
+        if scanned > 1000000:
+            fail(3, "scan file limit exceeded")
+        for label in sorted(found):
+            if len(hits) >= 100000:
+                fail(3, "scan hit limit exceeded")
+            hits.append({"path": path, "label": label,
+                         "sha256": hashlib.sha256(needles[label]).hexdigest()})
+    def walk(fd, prefix):
+        if prefix.count("/") > 256:
+            fail(3, "scan depth limit exceeded")
+        for name in os.listdir(fd):
+            path = prefix.rstrip("/") + "/" + name
+            if path in ("/proc", "/sys", "/dev"):
+                continue
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                continue
+            child = None
+            try:
+                flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+                if stat.S_ISDIR(info.st_mode):
+                    flags |= os.O_DIRECTORY
+                child = os.open(name, flags, dir_fd=fd)
+                opened = os.fstat(child)
+                if (opened.st_dev, opened.st_ino, stat.S_IFMT(opened.st_mode)) != (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)):
+                    fail(3, "scan entry changed")
+                if stat.S_ISDIR(opened.st_mode):
+                    walk(child, path)
+                elif stat.S_ISREG(opened.st_mode):
+                    scan_file(child, path)
+            except OSError as error:
+                failures.append({"path": path, "errno": error.errno})
+            finally:
+                if child is not None:
+                    os.close(child)
+    for root in roots:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            walk(fd, root)
+        finally:
+            os.close(fd)
+    # Proc files are scanned independently; disappearing processes are expected.
+    if roots == ("/",):
+        proc = os.open("/proc", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for pid in os.listdir(proc):
+                if not pid.isdecimal():
+                    continue
+                directory = None
+                try:
+                    directory = os.open(pid, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=proc)
+                    for name in ("environ", "cmdline"):
+                        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                        try:
+                            scan_file(fd, "/proc/" + pid + "/" + name)
+                        finally:
+                            os.close(fd)
+                except OSError as error:
+                    if error.errno not in (2, 3):
+                        failures.append({"path": "/proc/" + pid, "errno": error.errno})
+                finally:
+                    if directory is not None:
+                        os.close(directory)
+        finally:
+            os.close(proc)
+    return {"hits": hits, "failures": failures, "files": scanned, "bytes": total}
+
+
 def main(args):
     if not args:
         fail(125, "missing subcommand")
     command = args[0]
+    if command == "scan-secrets" and len(args) == 1:
+        if os.geteuid() != 0:
+            fail(3, "scan requires trusted host root transport")
+        result = scan_secret_sentinels(sys.stdin.buffer.read(8193))
+        print(json.dumps(result, sort_keys=True))
+        return
     if command == "machined-check" and len(args) == 2:
         print("current" if machined_program(args[1]) else "replace")
         return

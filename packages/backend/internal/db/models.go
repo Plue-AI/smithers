@@ -1545,6 +1545,7 @@ type ModelUsage struct {
 	BoundTokens        int64              `json:"bound_tokens"`
 	PaidBy             string             `json:"paid_by"`
 	WorkflowStepID     pgtype.Int8        `json:"workflow_step_id"`
+	NativeStep         pgtype.Text        `json:"native_step"`
 }
 
 type MythicalChange struct {
@@ -2415,6 +2416,27 @@ type RevocationEvent struct {
 	KeyFingerprint string      `json:"key_fingerprint"`
 }
 
+type RunArchive struct {
+	RepositoryID int64           `json:"repository_id"`
+	WorkspaceID  string          `json:"workspace_id"`
+	RunID        string          `json:"run_id"`
+	FlowID       string          `json:"flow_id"`
+	Status       string          `json:"status"`
+	Summary      json.RawMessage `json:"summary"`
+	Tree         json.RawMessage `json:"tree"`
+	Monitor      json.RawMessage `json:"monitor"`
+	CapturedAt   time.Time       `json:"captured_at"`
+}
+
+type RunArchiveEvent struct {
+	RepositoryID int64           `json:"repository_id"`
+	WorkspaceID  string          `json:"workspace_id"`
+	RunID        string          `json:"run_id"`
+	Sequence     int64           `json:"sequence"`
+	CursorOffset int64           `json:"cursor_offset"`
+	Event        json.RawMessage `json:"event"`
+}
+
 type RunSummary struct {
 	RunID        string             `json:"run_id"`
 	Attempt      int64              `json:"attempt"`
@@ -2803,17 +2825,20 @@ type WorkflowRunCodingHost struct {
 }
 
 type WorkflowRunFlowInvocation struct {
-	WorkflowRunID   int64       `json:"workflow_run_id"`
-	UserID          int64       `json:"user_id"`
-	FlowID          string      `json:"flow_id"`
-	OperationID     string      `json:"operation_id"`
-	WorkspaceID     pgtype.UUID `json:"workspace_id"`
-	CreatedAt       time.Time   `json:"created_at"`
-	WorkflowStepID  pgtype.Int8 `json:"workflow_step_id"`
-	LogCursor       string      `json:"log_cursor"`
-	TriggerCommit   string      `json:"trigger_commit"`
-	SourceRevision  string      `json:"source_revision"`
-	LaunchRedaction string      `json:"launch_redaction"`
+	WorkflowRunID         int64       `json:"workflow_run_id"`
+	UserID                int64       `json:"user_id"`
+	FlowID                string      `json:"flow_id"`
+	OperationID           string      `json:"operation_id"`
+	WorkspaceID           pgtype.UUID `json:"workspace_id"`
+	CreatedAt             time.Time   `json:"created_at"`
+	WorkflowStepID        pgtype.Int8 `json:"workflow_step_id"`
+	LogCursor             string      `json:"log_cursor"`
+	TriggerCommit         string      `json:"trigger_commit"`
+	SourceRevision        string      `json:"source_revision"`
+	LaunchRedaction       string      `json:"launch_redaction"`
+	ManualCredential      []byte      `json:"manual_credential"`
+	BackgroundWorkspaceID pgtype.UUID `json:"background_workspace_id"`
+	TrustedMainRevision   string      `json:"trusted_main_revision"`
 }
 
 type WorkflowRunLog struct {

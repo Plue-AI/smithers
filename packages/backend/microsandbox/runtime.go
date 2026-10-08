@@ -583,6 +583,18 @@ func describe(ws *workspace) workspaceapi.Workspace {
 		State: workspaceapi.WorkspaceState(ws.State)}
 }
 
+// WorkspaceMachineIdentity resolves the runtime-owned VM name, never caller data.
+func (r *Runtime) WorkspaceMachineIdentity(ctx context.Context, id string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	ws, err := r.runningWorkspace(id)
+	if err != nil {
+		return "", err
+	}
+	return ws.Machine, nil
+}
+
 // WorkspaceIDs lists every workspace this runtime owns.
 func (r *Runtime) WorkspaceIDs() []string {
 	r.mu.Lock()

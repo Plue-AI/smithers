@@ -41,6 +41,9 @@ const (
 // "you are not the owner" when no explicit share exists — both return 403.
 // This prevents ownership enumeration via timing or error shape differences.
 func (s *WorkspaceService) requireWorkspaceAccess(ctx context.Context, workspaceID string, ownerUserID, requesterUserID int64, minLevel WorkspaceAccessLevel) error {
+	if err := s.refuseBackgroundWorkspaceAccess(ctx, workspaceID); err != nil {
+		return err
+	}
 	branchOwned, err := s.branchMachineOwned(ctx, ownerUserID)
 	if err != nil {
 		return err
@@ -125,6 +128,9 @@ func commitWorkspaceMutation(ctx context.Context, tx pgx.Tx, authority workspace
 // begun after it is refused. Credential issuance reuses this transaction;
 // ordinary service operations retain their existing stores.
 func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, row db.Workspace, requesterID int64, fn func(context.Context) error) error {
+	if err := s.refuseBackgroundWorkspaceAccess(ctx, row.ID); err != nil {
+		return err
+	}
 	// Nested lifecycle steps already hold this workspace/member's grant.
 	// Reuse it before any pool read, so a held transaction never needs a
 	// second connection just to discover that it is already authorized.
@@ -222,4 +228,21 @@ func (s *WorkspaceService) touchWorkspaceEntryRecency(ctx context.Context, works
 	if err := s.q.TouchWorkspaceLastAccessed(ctx, id); err != nil {
 		slog.Warn("touch workspace last_accessed_at failed", "workspace_id", id, "access_path", accessPath, "error", err)
 	}
+}
+
+// Background machines have no branch/session/file door. The sole authority
+// is their persisted manual run; ordinary workspace ownership grants none.
+func (s *WorkspaceService) refuseBackgroundWorkspaceAccess(ctx context.Context, id string) error {
+	if store, ok := s.q.(interface {
+		IsWorkflowBackgroundWorkspace(context.Context, string) (bool, error)
+	}); ok {
+		background, err := store.IsWorkflowBackgroundWorkspace(ctx, id)
+		if err != nil {
+			return err
+		}
+		if background {
+			return pkgerrors.Forbidden("background machine belongs to its run")
+		}
+	}
+	return nil
 }

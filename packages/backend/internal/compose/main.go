@@ -793,9 +793,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}); ok && config.IsSingleOwner(cfg.Auth) {
 		runtime.BindSecretEnvironment(func(ctx context.Context, branch string) (microsandbox.MachineSecrets, error) {
 			reader := queries
+			var authorityStore interface {
+				QueryRow(context.Context, string, ...any) pgx.Row
+			} = pool
 			injector := secretInjector
 			if tx := machined.SessionAdmissionTransaction(ctx, branch); tx != nil {
 				reader = db.New(tx)
+				authorityStore = tx
 				injector = services.NewSecretInjector(reader, webhookSecretCodec, services.WithSecretInjectorSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 			}
 			row, err := reader.GetWorkspace(ctx, branch)
@@ -804,7 +808,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			}
 			// Host-bound secrets reach the machine as placeholders the egress
 			// relay swaps toward their hosts (spec §8.8.0, §8.8.1b).
-			snapshot, err := injector.RepositorySecrets(ctx, row.RepositoryID, false)
+			trusted, err := services.TrustedMainMachine(ctx, authorityStore, reader, branch)
+			if err != nil {
+				return microsandbox.MachineSecrets{}, err
+			}
+			snapshot, err := injector.RepositorySecrets(ctx, row.RepositoryID, trusted)
 			return microsandbox.MachineSecrets{Env: snapshot.Env, Bound: snapshot.Bound, Files: snapshot.Files}, err
 		})
 		defer runtime.BindSecretEnvironment(nil)

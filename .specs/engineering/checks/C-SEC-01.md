@@ -35,3 +35,27 @@ Automation: `packages/backend/internal/services/machine_secret_scan_integration_
 ## Evidence
 
 `.artifacts/checks/C-SEC-01/<UTC timestamp>/`: per machine, the scan command, its exit code and its hit list with paths (values shown as SHA-256 only), the relay audit query result, the model proxy request log entry (credential kind only), the commit and the `msb` version.
+
+## Reference-host scan harness
+
+`TestMachineSecretScanRealMicroVM` is opt-in (`SMITHERS_CSEC01_CHECK=1`), with
+`SMITHERS_CSEC01_FIXTURE` naming a private JSON fixture from the trusted journey
+harness. It attaches to the already-running install; it does not reopen runtime
+state, allocate machines or install a test-built privileged artifact. Run it only
+against the installed bundle at the commit under test.
+
+The fixture supplies `Commit`, `DatabaseURL`, `Bundle`, `Evidence`, five distinct
+random 40-byte `Sentinels` (`ALL`, `MAIN`, `BOUND`, `PROVIDER`, `PEM`), and exactly
+three `Machines`. Each machine supplies `Kind` (`item`, `scratch`, `main`),
+`Workspace`, the runtime-owned `Machine` name, `RunID`, and `RelayAudit`. Branch
+machines also supply complete materialized `CaptureTree` and `OperationLog`
+paths; the item supplies the observed `ModelCredentialKind` (`run`). Create the
+machines and sentinels through the production journey doors before writing this
+fixture. The test verifies their live database bindings, scans all ordinary guest
+files plus process environments/argv, and checks captures and relay observations.
+Missing files, scan failures or missing positive controls fail the test. Reports
+contain sentinel hashes and paths, never values. The scan uses the installed
+helper's fixed `scan-secrets` operation, never a repository-supplied script.
+
+Linux router/predicate and hostile-path tests are supplemental evidence. The
+real-VM C-SEC-01 and C-MCH-07 receipts remain pending on the reference Mac mini.

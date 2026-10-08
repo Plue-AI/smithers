@@ -1072,13 +1072,31 @@ func workflowCachePublisher(triggerEvent string) bool {
 	return false
 }
 
-// workflowRunOnTrustedMain refuses main-only delivery until the stored run
-// supplies current person/role, trusted revision and ephemeral background-machine
-// authority. Trigger/ref strings alone prove none of these (spec §8.8.2).
-// The legacy scheduler has no such binding; keep its delivery dark rather than
-// treating a push, schedule or empty ref as a maintainer's manual run.
-func workflowRunOnTrustedMain(run db.WorkflowRun, repository db.Repository) bool {
-	return false
+// trustedMainEvidence is resolved from persisted admission and current host state,
+// never dispatch inputs. Legacy CI runs supply no evidence and remain untrusted.
+type trustedMainEvidence struct {
+	PersonID            int64
+	Active              bool
+	Role                InstallRole
+	Manual              bool
+	BackgroundWorkspace string
+	Workspace           string
+	SourceRevision      string
+	TrustedRevision     string
+	Outsider            bool
+	Shared              bool
+}
+
+func workflowRunOnTrustedMain(run db.WorkflowRun, repository db.Repository, evidence ...trustedMainEvidence) bool {
+	if len(evidence) != 1 {
+		return false
+	}
+	e := evidence[0]
+	return run.ID > 0 && run.RepositoryID == repository.ID && repository.ID > 0 &&
+		run.TriggerEvent == InvokeTriggerEvent && (run.TriggerRef == "main" || run.TriggerRef == "refs/heads/main") &&
+		e.PersonID > 0 && e.Active && (e.Role == InstallOwner || e.Role == InstallMaintainer) && e.Manual &&
+		e.BackgroundWorkspace != "" && e.BackgroundWorkspace == e.Workspace && !e.Outsider && !e.Shared &&
+		flowCommitPattern.MatchString(e.TrustedRevision) && e.SourceRevision == e.TrustedRevision
 }
 
 func normalizeWorkflowCacheBookmark(rawRef, defaultBookmark string) string {

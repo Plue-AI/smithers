@@ -8,9 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
@@ -23,6 +25,12 @@ import (
 
 // invokedFlowBinding names an invoked run's Flow host target and projection.
 const invokedFlowBinding = "workflow-invoke"
+
+// InvokedBackgroundMachine uses a fresh, run-addressed machine, never a branch.
+type InvokedBackgroundMachine interface {
+	PrepareMainMachine(context.Context, string, int64, int64, string) error
+	RetireMainMachine(context.Context, string) error
+}
 
 // InvokedFlowDispatcher is the flowdispatch.Service surface an invocation uses.
 type InvokedFlowDispatcher interface {
@@ -48,10 +56,13 @@ type InvokedFlowService struct {
 	secrets        *SecretInjector
 	terminal       WorkflowRunTerminalPublisher
 	sources        repositorySourceHost
+	background     InvokedBackgroundMachine
 }
 
 func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces InvokedFlowWorkspace) *InvokedFlowService {
-	return &InvokedFlowService{pool: pool, repositoryJobs: repositoryJobs, workspaces: workspaces}
+	s := &InvokedFlowService{pool: pool, repositoryJobs: repositoryJobs, workspaces: workspaces}
+	s.background, _ = workspaces.(InvokedBackgroundMachine)
+	return s
 }
 
 func (s *InvokedFlowService) SetFlowDispatcher(dispatcher InvokedFlowDispatcher) {
@@ -96,6 +107,7 @@ type InvokedFlowLaunch struct {
 	Pin          *flowruntime.Pin
 	RetryOf      int64
 	RetryKey     string
+	ExplicitMain bool
 }
 
 func invokedFlowRequestID(runID int64) string {
@@ -220,6 +232,21 @@ func (s *InvokedFlowService) insertInvocation(ctx context.Context, tx pgx.Tx, la
 		run.ID, launch.UserID, launch.FlowID, receipt.OperationID, step.ID, triggerCommit); err != nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.Internal("failed to record the invocation").WithCause(err)
 	}
+	// Only the authenticated browser person's explicit main invocation is manual.
+	// Agent/delegated provenance cannot be upgraded by payload or ref strings.
+	info := middleware.AuthInfoFromContext(ctx)
+	if launch.ExplicitMain && info != nil && info.User != nil && info.User.ID == launch.UserID && !info.IsTokenAuth && info.SessionHash != "" && info.CredentialKind() == middleware.CredentialPerson && (launch.TriggerRef == "main" || launch.TriggerRef == "refs/heads/main") {
+		role, err := InstallRoleOf(ctx, q, launch.UserID)
+		if err != nil {
+			return db.WorkflowRun{}, db.WorkflowDefinition{}, err
+		}
+		if role == InstallOwner || role == InstallMaintainer {
+			credential, _ := json.Marshal(middleware.CredentialOf(info))
+			if _, err := tx.Exec(ctx, `UPDATE workflow_run_flow_invocations SET manual_credential=$2,trusted_main_revision=$3 WHERE workflow_run_id=$1`, run.ID, credential, triggerCommit); err != nil {
+				return db.WorkflowRun{}, db.WorkflowDefinition{}, err
+			}
+		}
+	}
 	return run, def, nil
 }
 
@@ -309,6 +336,55 @@ func (s *InvokedFlowService) ResolveFlowHostTarget(ctx context.Context, target f
 	if _, err := s.repositoryJobs.authorizedRepo(ctx, repositoryID, userID, true); err != nil {
 		return refuse("runtime_target_forbidden", false)
 	}
+	var manual bool
+	var trustedRevision string
+	if err := s.pool.QueryRow(ctx, `SELECT manual_credential IS NOT NULL,trusted_main_revision FROM workflow_run_flow_invocations WHERE workflow_run_id=$1`, runID).Scan(&manual, &trustedRevision); err != nil {
+		return refuse("runtime_binding_unavailable", true)
+	}
+	if manual {
+		if s.background == nil {
+			return refuse("runtime_background_unavailable", true)
+		}
+		workspaceID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(invokedFlowRequestID(runID))).String()
+		tx, err := s.pool.Begin(ctx)
+		if err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err = tx.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,status,kind,vm_id,source_commit,is_fork) VALUES($1::uuid,$2,$3,$4,'starting','vm',$1::text,$5,true) ON CONFLICT(id) DO NOTHING`, workspaceID, repositoryID, userID, invokedFlowRequestID(runID), trustedRevision); err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		if _, err = tx.Exec(ctx, `UPDATE workflow_run_flow_invocations SET workspace_id=$2::uuid,background_workspace_id=$2::uuid WHERE workflow_run_id=$1 AND (workspace_id IS NULL OR workspace_id=$2::uuid)`, runID, workspaceID); err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		// Recheck live role and credential before any allocation. The expected
+		// source is used only here; actual source is recorded after guest verification.
+		info, err := s.manualMainCredential(ctx, runID)
+		if err != nil {
+			return refuse("runtime_target_forbidden", false)
+		}
+		ctx = middleware.ContextWithAuthInfo(ctx, info)
+		if IsTerminalWorkflowRunStatus(record.Status) {
+			return refuse("runtime_target_finished", false)
+		}
+		if err = s.background.PrepareMainMachine(ctx, workspaceID, repositoryID, userID, trustedRevision); err != nil {
+			return flowhost.Authority{}, err
+		}
+		if _, err = s.pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspaceID); err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		if _, err = s.pool.Exec(ctx, `UPDATE workflow_run_flow_invocations SET source_revision=$2 WHERE workflow_run_id=$1`, runID, trustedRevision); err != nil {
+			return flowhost.Authority{}, fmt.Errorf("manual main binding: %w", err)
+		}
+		trusted, err := TrustedMainMachine(ctx, s.pool, db.New(s.pool), workspaceID)
+		if err != nil || !trusted {
+			return refuse("runtime_target_forbidden", false)
+		}
+		return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: workspaceID, CatalogKey: flowhost.CatalogCoding, SourceRevision: trustedRevision}, nil
+	}
 	workspaceID := record.WorkspaceID
 	if workspaceID == "" {
 		if s.workspaces == nil {
@@ -367,17 +443,28 @@ func invokedRunStatus(update flowdispatch.ProjectionUpdate) string {
 	return ""
 }
 
-// FlowHostEnvironment is the start environment an invoked run's host adds to
-// its box's: the repository and organization variables and secrets a
-// workflow run receives, without main-only secrets (an invocation is never a
-// trusted run on the default bookmark). A secret never reaches a box with
-// write shares, whose guests could read it; such a run fails typed instead of
-// running without it. Other targets add nothing.
+// FlowHostEnvironment uses the same stored authority as machine delivery.
+// Only a maintainer's manual main run on its exclusive background machine
+// receives main-only values; legacy working-copy invocations never do.
 func (s *InvokedFlowService) FlowHostEnvironment(ctx context.Context, authority flowhost.Authority) (map[string]string, error) {
 	if authority.Target.BindingKind != invokedFlowBinding || s == nil || s.secrets == nil {
 		return nil, nil
 	}
-	environment, secrets, err := s.secrets.RepositoryEnvironmentAndSecrets(ctx, authority.RepositoryID, false)
+	trusted, err := TrustedMainMachine(ctx, s.pool, db.New(s.pool), authority.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if trusted {
+		runID, err := strconv.ParseInt(authority.Target.BindingID, 10, 64)
+		if err != nil {
+			return nil, repositoryJobFlowFailure{code: "runtime_target_unsupported", retryable: false}
+		}
+		record, err := scanInvokedFlow(s.pool.QueryRow(ctx, "SELECT "+invokedFlowColumns, runID))
+		if err != nil || record.RepositoryID != authority.RepositoryID || record.UserID != authority.UserID || record.WorkspaceID != authority.WorkspaceID {
+			return nil, repositoryJobFlowFailure{code: "runtime_target_forbidden", retryable: false}
+		}
+	}
+	environment, secrets, err := s.secrets.RepositoryEnvironmentAndSecrets(ctx, authority.RepositoryID, trusted)
 	if err != nil {
 		return nil, repositoryJobFlowFailure{code: "runtime_environment_unavailable", retryable: false}
 	}
@@ -769,6 +856,17 @@ func (s *InvokedFlowService) projectFlowRuntimeTx(ctx context.Context, update fl
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+	if status != "" && status != "running" && s.background != nil {
+		var background string
+		if err := s.pool.QueryRow(ctx, `SELECT COALESCE(background_workspace_id::text,'') FROM workflow_run_flow_invocations WHERE workflow_run_id=$1`, projection.WorkflowRunID).Scan(&background); err != nil {
+			return err
+		}
+		if background != "" {
+			if err := s.background.RetireMainMachine(ctx, background); err != nil {
+				return err
+			}
+		}
 	}
 	notify := db.New(s.pool)
 	for _, inserted := range logs {

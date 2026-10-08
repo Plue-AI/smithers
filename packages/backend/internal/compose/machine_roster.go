@@ -179,7 +179,7 @@ func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machin
 	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
  JOIN workspaces w ON w.repository_id=c.repository_id
  LEFT JOIN users u ON u.id=c.user_id
- WHERE w.id=$1::uuid AND c.suspended_at IS NULL
+ WHERE w.id=$1::uuid AND NOT EXISTS (SELECT 1 FROM workflow_run_flow_invocations i WHERE i.background_workspace_id=w.id) AND c.suspended_at IS NULL
  AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
  AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
  AND (c.user_id IS NULL OR (u.is_active AND u.deleted_at IS NULL))

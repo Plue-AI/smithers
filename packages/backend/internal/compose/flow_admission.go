@@ -278,6 +278,23 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			return flowhost.Connection{}, err
 		}
 	}
+	// Ephemeral main runs receive no landing/publisher credential.
+	if background, ok := l.targets.(interface {
+		IsBackgroundFlowHost(context.Context, string) (bool, error)
+	}); ok {
+		ephemeral, err := background.IsBackgroundFlowHost(ctx, launch.Authority.WorkspaceID)
+		if err != nil {
+			return flowhost.Connection{}, err
+		}
+		if ephemeral {
+			revision, err := l.SourceResolver.ResolveFlowHostSource(ctx, launch.Authority)
+			if err != nil || revision != launch.Authority.SourceRevision {
+				return flowhost.Connection{}, errors.New("manual main source changed before launch")
+			}
+			launch.Environment = targetEnvironment
+			return l.Launcher.StartFlowHost(ctx, launch)
+		}
+	}
 	environment, err := l.boxes.PrepareBoxHost(ctx, launch.Binding.ID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID)
 	if err != nil {
 		return flowhost.Connection{}, err
