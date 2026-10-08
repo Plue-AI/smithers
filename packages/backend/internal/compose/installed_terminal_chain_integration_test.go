@@ -95,7 +95,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n"})
 	h.runSetupThroughSource()
 	seedInstalledSecretFiles(t, h)
-	h.expect("POST", installedSecretsURL, `{"name":"MCH_RELAY_KEY","value":"mch-relay-real-fixture","path":"~/.config/mch/relay","hosts":["127.0.0.1"],"match_headers":["x-api-key"]}`, 201)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_RELAY_KEY","value":"mch-relay-real-fixture-0123456789abcdef","path":"~/.config/mch/relay","hosts":["127.0.0.1"],"match_headers":["x-api-key"]}`, 201)
 	memberFixture := &rehearsal{ctx: t.Context(), origin: h.origin, jar: h.jar, client: h.client, fake: h.github}
 	benBrowser, err := memberFixture.member("ben", 8, "write")
 	require.NoError(t, err)
@@ -157,10 +157,12 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	installedShell(t, term, fmt.Sprintf(`test "$(cat "$HOME/.config/mch/relay")" = MCH_RELAY_KEY && test "$(curl --silent --show-error --fail --noproxy '' --proxy "$http_proxy" -H "x-api-key: $(cat "$HOME/.config/mch/relay")" %q)" = provider-fixture-ok`, provider.URL))
 	select {
 	case received := <-providerRequests:
-		require.Equal(t, "mch-relay-real-fixture", received)
+		require.Equal(t, "mch-relay-real-fixture-0123456789abcdef", received)
 	case <-time.After(10 * time.Second):
 		t.Fatal("guest request never reached the provider fixture through the production relay")
 	}
+
+	testInstalledBoundKeyDiskScan(t, h, branch, bundle)
 
 	// A second live session must have a distinct credential file. Closing the
 	// first shell revokes only its file, without breaking the second terminal.

@@ -35,12 +35,13 @@ func testInstalledCredentials(t *testing.T, h *rootLayerHarness, branch string, 
 	}, 15*time.Minute, 250*time.Millisecond)
 	second := installedMemberTerminal(t, h, secondBranch, browser)
 	installedShell(t, second, `test ! -e "$HOME/.marker" && test ! -e "$HOME/.claude/.credentials.json" && test ! -e "$HOME/.codex/auth.json" && test ! -e "$HOME/.config/gh/hosts.yml" && mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.config/gh" && printf 'mch-claude-B-fixture\n' > "$HOME/.claude/.credentials.json" && printf 'mch-codex-B-fixture\n' > "$HOME/.codex/auth.json" && printf 'mch-gh-B-fixture\n' > "$HOME/.config/gh/hosts.yml"`)
+	installedShell(t, term, `test "$(cat "$HOME/.claude/.credentials.json")" = mch-claude-A-fixture && test "$(cat "$HOME/.codex/auth.json")" = mch-codex-A-fixture && test "$(cat "$HOME/.config/gh/hosts.yml")" = mch-gh-A-fixture && test "$(stat -c '%u:%g:%a' "$HOME")" = 20001:20001:700`)
 	testInstalledHomeWorkload(t, term, second)
 	// Every fixture login is private, including files below tool-specific parents.
 	alice := installedMemberTerminal(t, h, branch, aliceBrowser)
-	installedShell(t, alice, `for p in .claude/.credentials.json .codex/auth.json .config/gh/hosts.yml; do ! cat "/home/ben/$p" || exit 1; done`)
+	installedShell(t, alice, installedBenHomeDenied)
 	alice.close()
-	result, err := h.runtime.ExecuteCommand(t.Context(), branch, workspaceapi.Command{Args: []string{"/bin/sh", "-c", `for p in .claude/.credentials.json .codex/auth.json .config/gh/hosts.yml; do ! cat "/home/ben/$p" || exit 1; done`}})
+	result, err := h.runtime.ExecuteCommand(t.Context(), branch, workspaceapi.Command{Args: []string{"/bin/sh", "-c", installedBenHomeDenied}})
 	require.NoError(t, err)
 	require.Zero(t, result.ExitCode, result.Stdout+result.Stderr)
 

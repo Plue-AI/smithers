@@ -21,3 +21,10 @@ share one deadline across the HTTP mutation and every home observation.
 Environment scans send only the real fixture's SHA-256 digest to the guest,
 so the acceptance command itself cannot plant the key in shell history.
 These additional assertions still require execution on the approved bundle.
+
+The native chain now invokes the existing installed-bundle `scan-secrets`
+diagnostic after relay substitution. It requires a complete whole-disk and
+process-environment scan with no hits for either literal host-bound key.
+Sentinels travel only over the trusted diagnostic's stdin; no terminal command
+contains them. This authors the disk scan; execution on the approved bundle
+and the installed coding-tool falsifier remain pending.

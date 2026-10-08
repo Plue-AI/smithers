@@ -35,3 +35,8 @@ files, retains replacement terminals after wake, verifies logins across backend
 recomposition and checks B again after A logs out and B sleeps/wakes. Backend
 recomposition does not replace step 2's physical host-service restart. New-recipe
 recreation and exhaustive daemon-event evidence remain pending.
+
+Private-login reads by Alice and agent now require the kernel's `EACCES` for
+Ben's directory and all three login paths. Ben first reads the exact fixtures
+and verifies his home's literal uid, gid and mode; missing files cannot stand
+in for permission isolation. Native execution remains pending.

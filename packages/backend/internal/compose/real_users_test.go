@@ -21,6 +21,24 @@ func installedShell(t *testing.T, term *rehearsalTerminal, script string) {
 	require.NoError(t, err)
 }
 
+// A missing fixture is not evidence of isolation. Observe the kernel's
+// EACCES for both directory enumeration and every credential-file open.
+const installedBenHomeDenied = `python3 - <<'MCHDENIED'
+import errno, os
+for path in ("/home/ben", "/home/ben/.claude/.credentials.json", "/home/ben/.codex/auth.json", "/home/ben/.config/gh/hosts.yml"):
+    try:
+        if path == "/home/ben":
+            os.listdir(path)
+        else:
+            with open(path, "rb") as f:
+                f.read()
+    except OSError as error:
+        assert error.errno == errno.EACCES, (path, error.errno)
+    else:
+        raise AssertionError("private home readable: " + path)
+MCHDENIED
+`
+
 func testInstalledUsers(t *testing.T, h *rootLayerHarness, branch string, term *rehearsalTerminal, benBrowser, aliceBrowser http.CookieJar) {
 	t.Helper()
 	installedShell(t, term, `test "$(stat -c '%u:%g:%a' "$HOME")" = "$(id -u):$(id -u):700" && test "$(stat -c '%u:%g' /workspace)" = 0:20000 && test "$(stat -c %a /workspace)" = 2775 && ! command -v sudo && ! command -v su && test -z "$(find / -xdev -type f -perm /6000 2>/dev/null)" && test -z "$(getcap -r / 2>/dev/null)" && ! mount | grep -E ' on /home(/| )'`)

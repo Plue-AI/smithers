@@ -3,8 +3,13 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -22,8 +27,8 @@ func seedInstalledSecretFiles(t *testing.T, h *rootLayerHarness) {
 		require.Equal(t, 400, code, string(body))
 		require.Contains(t, string(body), `"class":"user"`)
 	}
-	body := h.expect("POST", installedSecretsURL, `{"name":"ANTHROPIC_API_KEY","value":"mch-provider-real-fixture","path":"~/.config/anthropic/key","hosts":["api.anthropic.com"],"match_headers":["x-api-key"]}`, 201)
-	require.NotContains(t, string(body), "mch-provider-real-fixture")
+	body := h.expect("POST", installedSecretsURL, `{"name":"ANTHROPIC_API_KEY","value":"mch-provider-real-fixture-0123456789abcdef","path":"~/.config/anthropic/key","hosts":["api.anthropic.com"],"match_headers":["x-api-key"]}`, 201)
+	require.NotContains(t, string(body), "mch-provider-real-fixture-0123456789abcdef")
 	h.expect("POST", installedSecretsURL, `{"name":"MCH_FILE","value":"mch-file-v1","path":"~/.config/mch/key"}`, 201)
 }
 
@@ -40,8 +45,8 @@ func testInstalledSecretFiles(t *testing.T, h *rootLayerHarness, branch string, 
 	initial := `test "$(stat -c '%u:%g:%a' "$HOME/.config/anthropic/key")" = "$(id -u):$(id -g):600" && test "$(cat "$HOME/.config/anthropic/key")" = ANTHROPIC_API_KEY && test "$ANTHROPIC_API_KEY" = ANTHROPIC_API_KEY && test "$(cat "$HOME/.config/mch/key")" = mch-file-v1`
 	// Send only a digest into the guest: embedding the real fixture in a
 	// grep command would itself plant that key in shell history.
-	digest := sha256.Sum256([]byte("mch-provider-real-fixture"))
-	initial += fmt.Sprintf(` && python3 -c 'import hashlib,os; n=25; expected="%x"; assert all(hashlib.sha256(value.encode()[i:i+n]).hexdigest()!=expected for value in os.environ.values() for i in range(max(0,len(value.encode())-n+1)))'`, digest)
+	digest := sha256.Sum256([]byte("mch-provider-real-fixture-0123456789abcdef"))
+	initial += fmt.Sprintf(` && python3 -c 'import hashlib,os; n=%d; expected="%x"; assert all(hashlib.sha256(value.encode()[i:i+n]).hexdigest()!=expected for value in os.environ.values() for i in range(max(0,len(value.encode())-n+1)))'`, len("mch-provider-real-fixture-0123456789abcdef"), digest)
 	for _, member := range terminals {
 		installedShell(t, member, initial)
 	}
@@ -97,4 +102,29 @@ func installedAgentSecretCheck(t *testing.T, h *rootLayerHarness, branch string,
 	require.NoError(t, err)
 	require.Zero(t, result.ExitCode, result.Stdout+result.Stderr)
 	require.True(t, time.Now().Before(deadline), "agent secret observation exceeded deadline")
+}
+
+// Reuse the bundle's reviewed no-follow diagnostic; never install test code
+// as root or pass the key in a terminal command/history entry.
+func testInstalledBoundKeyDiskScan(t *testing.T, h *rootLayerHarness, branch string, bundle *installbundle.Bundle) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(branch))
+	body, err := os.ReadFile(filepath.Join(h.runtimeState, "workspaces", fmt.Sprintf("%x", sum), "metadata.json"))
+	require.NoError(t, err)
+	var stored struct {
+		ID      string `json:"id"`
+		Machine string `json:"machine"`
+	}
+	require.NoError(t, json.Unmarshal(body, &stored))
+	require.Equal(t, branch, stored.ID)
+	require.NotEmpty(t, stored.Machine)
+	scan, err := microsandbox.ScanInstalledMachine(t.Context(), microsandbox.Config{Bundle: bundle}, stored.Machine, map[string]string{
+		"PROVIDER": "mch-provider-real-fixture-0123456789abcdef",
+		"RELAY":    "mch-relay-real-fixture-0123456789abcdef",
+	})
+	require.NoError(t, err, "whole-disk/environment scan must be complete")
+	require.Empty(t, scan.Failures)
+	require.Positive(t, scan.Files)
+	require.Empty(t, scan.Hits, "host-bound key entered guest disk or process environment")
+	t.Logf("C-MCH-12 installed scan: files=%d bytes=%d hits=%d failures=%d", scan.Files, scan.Bytes, len(scan.Hits), len(scan.Failures))
 }
