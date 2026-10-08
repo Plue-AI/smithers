@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import type { StorageRecoverySnapshot } from "../../src/mainview/chain/StorageRecovery"
 
 const downloadRecovery = async (page: Page): Promise<StorageRecoverySnapshot> => {
-  await expect(page.getByText("Recovery files can include private conversations", { exact: false })).toBeVisible()
+  await expect(page.getByText("Recovery files can include private conversations", { exact: false }).and(page.locator("p"))).toBeVisible()
   const downloaded = page.waitForEvent("download")
   await page.getByRole("button", { name: "Download local recovery file" }).click()
   const file = await downloaded

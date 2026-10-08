@@ -233,7 +233,7 @@ test("C-J11-03: the owner removes the fast key in Settings without blocking Chat
  await expect(remove).toHaveAttribute("data-operation", "model-key")
  await remove.press("Enter")
  await expect.poll(() => requests.length).toBe(1)
- await expect(page.getByText("Key not accepted", { exact: true }).first()).toBeVisible()
+ await expect(page.getByRole("alert").filter({ hasText: "Removing key" })).toContainText("The operation failed.")
  await expect(remove).toBeVisible()
  await remove.press("Enter")
  await expect.poll(() => requests.length).toBe(2)

@@ -35,42 +35,44 @@ const seedNotes = async (page: Page, count: number) => {
 }
 
 /** The whole-Wiki card `wiki` embeds: every note in one FileTree. */
-const wikiCard = (page: Page) => page.getByTestId("card-world-embedded")
+const wikiCard = (page: Page) => page.locator(".world-surface")
 
 test("a note row in the card's tree runs wiki.card.select and the card opens that note", async ({ page }) => {
   await seedNotes(page, 2)
-  await run(page, "/wiki")
+  await run(page, "/wiki.pane")
   const card = wikiCard(page)
   await expect(card).toBeVisible({ timeout: 10_000 })
-  const path = card.locator(".world-card-path").first()
+  const path = card.getByTestId("wiki-page-path")
+  await card.getByRole("button", { name: "Untitled 1", exact: true }).first().click()
   await expect(path).toContainText("Untitled 1.md")
 
-  await card.locator(".world-card-sidebar button", { hasText: "Untitled 2" }).click()
+  await card.getByRole("button", { name: "Untitled 2", exact: true }).first().click()
   await expect(path).toContainText("Untitled 2.md")
   // The row is the door both ways, not a one-shot that only ever moves forward.
-  await card.locator(".world-card-sidebar button", { hasText: "Untitled 1" }).click()
+  await card.getByRole("button", { name: "Untitled 1", exact: true }).first().click()
   await expect(path).toContainText("Untitled 1.md")
 })
 
 test("an outline heading runs wiki.heading and the card turns to the document it scrolls", async ({ page }) => {
   await seedNotes(page, 1)
-  await run(page, "/wiki")
+  await run(page, "/wiki.pane")
   const card = wikiCard(page)
   await expect(card).toBeVisible({ timeout: 10_000 })
   // A new note is `# Untitled 1`, so its outline has exactly that heading.
-  const outline = card.getByRole("list", { name: "Page outline" })
+  const outline = card.getByRole("complementary", { name: "Untitled 1 links and outline" })
   await expect(outline).toContainText("Untitled 1")
-  await expect(card.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "false")
+  const editor = card.getByRole("textbox", { name: "Edit Untitled 1", exact: true })
+  await expect(editor).toContainText("Untitled 1")
 
-  await outline.getByRole("button", { name: "Untitled 1", exact: true }).click()
+  await outline.getByRole("treeitem", { name: "Untitled 1", exact: true }).click()
   /*
    * wiki.heading scrolls the open note's editor, so it first has to BE the
    * open editor: the flow turns the card to its document view and only then
    * scrolls. That turn is the visible half, and it happens only if the flow
    * ran — a refusal would leave the outline showing and say why.
    */
-  await expect(card.getByRole("button", { name: "Document", exact: true })).toHaveAttribute("aria-pressed", "true", { timeout: 10_000 })
-  await expect(card.locator(".ProseMirror")).toBeVisible()
+  await expect(editor).toBeFocused()
+  await expect(editor.getByRole("heading", { name: "Untitled 1", exact: true })).toBeInViewport()
   await expect(page.locator(".smithers-transcript")).not.toContainText("no longer available")
   await expect(page.locator(".smithers-transcript")).not.toContainText("has no line")
 })

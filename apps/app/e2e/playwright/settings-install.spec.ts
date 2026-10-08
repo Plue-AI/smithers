@@ -1,3 +1,4 @@
+import { fillComposer } from "./composer"
 import { expect, test } from "./browserTest"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
 import { owner as signedInOwner, say } from "./spec/j1-fixtures"
@@ -126,14 +127,21 @@ test("Settings TODOs per day persists through reload and keeps Chat usable", asy
   await expect(card.locator('form[data-flow="settings"][data-operation="daily-admissions"] output')).toHaveText("13")
 })
 
-test("recorded Account and Environment doors open the Settings card", async ({ page }) => {
+test("Account opens Settings and retired Environment and provider doors refuse", async ({ page }) => {
   await owner(page)
   await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), todo_daily_admissions: 12 } }))
   await page.goto("/")
-  for (const line of ["/account.show", "/env.view", "/secrets.connections"]) {
+  for (const line of ["/account.show"]) {
     await say(page, line)
     await expect(page.getByTestId("card-settings")).toBeVisible()
     await expect(page.locator('[data-kind="account"], [data-kind="env"], [data-kind="provider-accounts"]')).toHaveCount(0)
+  }
+  for (const name of ["env.view", "secrets.connections"]) {
+    await fillComposer(page, `/${name}`)
+    await page.keyboard.press("Enter")
+    await expect(page.getByTestId("palette")).toContainText(`There is no /${name} flow.`)
+    await expect(page.getByTestId("composer-input")).toHaveValue(`/${name}`)
+    await expect(page.locator('[data-kind="env"], [data-kind="provider-accounts"]')).toHaveCount(0)
   }
 })
 
