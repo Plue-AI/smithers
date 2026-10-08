@@ -332,6 +332,9 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 			if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.answered", todoState(saved), fact); err != nil {
 				return err
 			}
+			if err := recordBranchActivity(ctx, tx, saved, "answer:"+input.Wait, "answer", by, input.Answer); err != nil {
+				return err
+			}
 			payload, _ := json.Marshal(input.Answer)
 			authorization, _ := json.Marshal(map[string]any{"repositoryId": repositoryID, "userId": userID, "itemId": id, "wait": input.Wait})
 			projection, _ := json.Marshal(map[string]any{"kind": "mythical-answer", "itemId": id, "wait": input.Wait})

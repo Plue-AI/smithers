@@ -318,6 +318,9 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 			if _, err := s.recordTodoFact(ctx, tx, saved, feedback.ID, "todo.steer_received", todoState(saved), fact); err != nil {
 				return err
 			}
+			if err := recordBranchActivity(ctx, tx, saved, "steer:"+feedback.ID, "steer", feedback.By, feedback.Text); err != nil {
+				return err
+			}
 			stack, err := q.GetMythicalStack(ctx, repository)
 			if err != nil {
 				return err

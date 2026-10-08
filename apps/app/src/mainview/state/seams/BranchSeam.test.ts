@@ -109,3 +109,21 @@ test("moved-off activity retains the served text and actor without a versions co
   expect(model.moved_off).toEqual({ by: actor, item: 2 })
   expect(model.activity.map(entry => ({ actor: entry.actor, text: entry.text, actions: entry.actions }))).toEqual(events.map(entry => ({ actor, text: entry.text, actions: [] })))
 })
+
+test("conversation activity decodes the agent's step and question, a steer and an answer as served", () => {
+  const ben = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 } as const
+  const agent = { kind: "agent", id: "run:r1", agent: "coding", name: "", avatar_url: "https://example.test/agent.png", color_index: 1, run_id: "r1",
+    for_member: { login: "will", name: "Will", avatar_url: "https://github.com/will.png" } } as const
+  const events = [
+    { id: "step:request:r1", at: "2026-10-07T08:00:00Z", kind: "step", actor: agent, text: "Plan" },
+    { id: "question:q-1", at: "2026-10-07T08:01:00Z", kind: "question", actor: agent, text: "Which greeting should the file carry?" },
+    { id: "steer:s-1", at: "2026-10-07T08:02:00Z", kind: "steer", actor: ben, text: "Keep the max at 5" },
+    { id: "answer:q-1", at: "2026-10-07T08:03:00Z", kind: "answer", actor: ben, text: "Use the existing retry helper" }
+  ]
+  const model = branchModel(branch, events, [], "b1")!
+  expect(model.activity).toEqual(events.map(entry => ({ ...entry, actions: [] })) as typeof model.activity)
+  // A conversation entry never carries a file count or a Diff.
+  expect(model.activity.every(entry => entry.files === undefined)).toBe(true)
+  // The server omits files on conversation entries; a malformed one refuses the projection.
+  expect(branchModel(branch, [{ ...events[2], files: [] }], [], "b1")).toBeUndefined()
+})

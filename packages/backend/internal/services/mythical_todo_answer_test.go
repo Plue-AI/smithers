@@ -101,6 +101,23 @@ func (o *mythicalOrchestration) facts(item db.MythicalItem, eventType string) []
 	return out
 }
 
+// branchActivity is the item's branch's conversation entries, in order.
+func (o *mythicalOrchestration) branchActivity(item db.MythicalItem) []map[string]any {
+	o.t.Helper()
+	rows, err := o.pool.Query(context.Background(), `SELECT data FROM product_job_events WHERE tenant_id = $1 AND principal_id = $2 AND event_type = $3 ORDER BY sequence`,
+		strconv.FormatInt(item.RepositoryID, 10), "branch:"+item.WorkspaceID, BranchActivityEvent)
+	require.NoError(o.t, err)
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var data []byte
+		require.NoError(o.t, rows.Scan(&data))
+		out = append(out, decodeJSON(o.t, data))
+	}
+	require.NoError(o.t, rows.Err())
+	return out
+}
+
 // newAskingTodo is an owner's TODO whose attempt's run is bound (Working).
 func newAskingTodo(t *testing.T) (*mythicalOrchestration, context.Context, *answerLauncher, db.MythicalItem, flowdispatch.LaunchRequest) {
 	t.Helper()
@@ -224,6 +241,23 @@ func TestTodoQuestionNeedsYouAndTheFirstAnswerWins(t *testing.T) {
 	}
 	require.Len(t, launcher.sent(), 1, "one signal per question")
 	require.Len(t, o.facts(item, "todo.answered"), 1)
+
+	// The branch activity reads the agent's step and question, then the
+	// answer with the person's avatar, once each (spec §3, J3.6). The steer
+	// refused above wrote nothing.
+	require.NotEmpty(t, item.WorkspaceID)
+	agent := map[string]any{"kind": "agent", "id": "run:todo-run-1", "run_id": "todo-run-1", "agent_kind": "coding", "for_member": strconv.FormatInt(o.userID, 10)}
+	activity := o.branchActivity(item)
+	require.Len(t, activity, 3, "%v", activity)
+	require.Equal(t, map[string]any{"id": "step:request:todo-run-1", "kind": "step", "actor": agent, "text": "Plan", "n": float64(n)}, activity[0])
+	require.Equal(t, map[string]any{"id": "question:" + wait.ID, "kind": "question", "actor": agent, "text": "Use backoff or a fixed delay?", "n": float64(n)}, activity[1])
+	require.Equal(t, "answer:"+wait.ID, activity[2]["id"])
+	require.Equal(t, "answer", activity[2]["kind"])
+	require.Equal(t, "Use backoff", activity[2]["text"])
+	by := activity[2]["actor"].(map[string]any)
+	require.Equal(t, "person", by["kind"])
+	require.Equal(t, ownerLogin, by["login"])
+	require.NotEmpty(t, by["avatar_url"])
 
 	// The run still reports the wait until the signal reaches it; that
 	// observation neither reopens nor duplicates the question.

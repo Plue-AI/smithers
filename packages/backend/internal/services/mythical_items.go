@@ -730,6 +730,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
 					return err
 				}
+				if err := recordRunActivity(ctx, tx, item, saved); err != nil {
+					return err
+				}
 			}
 			if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
 				// A message can commit after the launch payload but before its

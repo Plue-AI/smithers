@@ -483,6 +483,7 @@ func TestTodoSteerAdmissionTransaction(t *testing.T) {
 	var events int
 	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.steer_received'`).Scan(&events))
 	require.Zero(t, events)
+	require.Empty(t, o.branchActivity(item), "the branch entry rolls back with the steer")
 	_, err = o.pool.Exec(ctx, `DROP TRIGGER reject_test_steer ON product_job_requests; DROP FUNCTION reject_test_steer()`)
 	require.NoError(t, err)
 
@@ -498,6 +499,15 @@ func TestTodoSteerAdmissionTransaction(t *testing.T) {
 	require.Equal(t, *input.Steer, feedback[0].Text)
 	require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.steer_received'`).Scan(&events))
 	require.Equal(t, 1, events)
+	// One Steer entry on the branch with its author, however often replayed.
+	activity := o.branchActivity(read)
+	require.Len(t, activity, 1)
+	require.Equal(t, "steer:"+feedback[0].ID, activity[0]["id"])
+	require.Equal(t, "steer", activity[0]["kind"])
+	require.Equal(t, *input.Steer, activity[0]["text"])
+	actor, err := json.Marshal(activity[0]["actor"])
+	require.NoError(t, err)
+	require.JSONEq(t, string(feedback[0].By), string(actor))
 	var payload json.RawMessage
 	require.NoError(t, o.pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&payload))
 	var sent struct{ RunID, MessageID, Body string }

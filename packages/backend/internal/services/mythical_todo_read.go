@@ -638,11 +638,8 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 		}
 		steps = append(steps, map[string]any{"id": id, "label": label, "state": state})
 	}
-	add("request", "Plan", item.RequestRunID, item.RequestOutcome, "validated")
-	add("vibe", "Code", item.VibeRunID, item.VibeOutcome, "submitted")
-	add("verify", "Verify", item.VerifyRunID, item.VerifyOutcome, "passed")
-	if review := mythicalChecksOf(item).Review; review != nil {
-		add("review", "Review", review.RunID, review.Verdict, "approve")
+	for _, phase := range todoPhases(item) {
+		add(phase.id, phase.label, phase.run, phase.outcome, phase.success)
 	}
 	return steps
 }

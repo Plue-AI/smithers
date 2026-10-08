@@ -162,8 +162,9 @@ func settled(s *liveSocket, topic string, within time.Duration, ok func(liveFram
 // answers, and the coding agent continues on the same run and working copy.
 // Maya's SSH session, the member's own terminal, outside-change activity and
 // live co-editing need the machine daemon (smithers-machined), which only a
-// microVM runs, so those rows stay pending on lane machined. Branch activity
-// for steers and answers waits on lane branch-item-activity.
+// microVM runs, so those rows stay pending on lane machined. Ben's
+// branch:<id>:activity reads the agent's step and question, his steer and his
+// answer.
 func TestJ3Rehearsal(t *testing.T) {
 	// The model trace keeps each turn's messages: "6 The steer reaches the
 	// next model turn" reads the steer and the answer in it.
@@ -464,7 +465,56 @@ func TestJ3Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.pending("6 The steer and the answer in the branch activity", "Ben's branch:<id>:activity", "a Steer entry by Ben, then the answer settling the question with his avatar (the topic serves bursts and moved-off only)", "T-APP-10, T-STK-06", "branch-item-activity")
+	r.step("6 The steer and the answer in the branch activity", "Ben's branch:<id>:activity", "the coding agent's step and its question, then a Steer entry by Ben, then the answer settling the question with his avatar", "T-APP-10, T-STK-06", func() error {
+		activity := topic + ":activity"
+		if _, err := benLive.subscribe(activity); err != nil {
+			return err
+		}
+		type entry struct {
+			Kind  string `json:"kind"`
+			Text  string `json:"text"`
+			Files *int   `json:"files"`
+			Actor struct {
+				Kind      string `json:"kind"`
+				Login     string `json:"login"`
+				AvatarURL string `json:"avatar_url"`
+				Agent     string `json:"agent"`
+				RunID     string `json:"run_id"`
+			} `json:"actor"`
+		}
+		var entries []entry
+		find := func(kind, text string) int {
+			return slices.IndexFunc(entries, func(e entry) bool { return e.Kind == kind && (text == "" || e.Text == text) })
+		}
+		_, err := benLive.wait(activity, 20*time.Second, func(frame liveFrame) bool {
+			entries = nil
+			return json.Unmarshal(frame.Data, &entries) == nil && find("answer", answer) >= 0
+		})
+		var kinds []string
+		for _, e := range entries {
+			kinds = append(kinds, e.Kind+" by "+e.Actor.Login+e.Actor.Agent)
+		}
+		r.actual = fmt.Sprintf("%d entries: %s", len(entries), strings.Join(kinds, ", "))
+		if err != nil {
+			return err
+		}
+		step, asked, steered, answered := find("step", ""), find("question", question), find("steer", steer), find("answer", answer)
+		agentOn := func(i int) bool {
+			return i >= 0 && entries[i].Actor.Kind == "agent" && entries[i].Actor.Agent == "coding" && entries[i].Actor.RunID == before.run
+		}
+		benOn := func(i int) bool {
+			return i >= 0 && entries[i].Actor.Kind == "person" && entries[i].Actor.Login == "ben" && entries[i].Actor.AvatarURL != "" && entries[i].Files == nil
+		}
+		switch {
+		case !agentOn(step) || !agentOn(asked):
+			return fmt.Errorf("the coding agent's step and question are not on run %s", before.run)
+		case !benOn(steered) || !benOn(answered):
+			return fmt.Errorf("the steer and the answer are not Ben's with his avatar")
+		case !(step < asked && asked < steered && steered < answered):
+			return fmt.Errorf("entries out of order: step %d, question %d, steer %d, answer %d", step, asked, steered, answered)
+		}
+		return nil
+	})
 	r.step("6 The agent continues on the same working copy", "model trace; GET "+todoPath+"; SQL mythical_items; Ben's branch:<id>", "the plan after the answer carries it; T2 Working, held at its edit, on the same run, attempt and branch; the coding agent is on Ben's card at its step", "T-STK-06, T-COL-06", func() error {
 		if err := r.waitHeld("t2", 5*time.Minute); err != nil {
 			return err
