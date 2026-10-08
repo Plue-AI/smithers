@@ -227,3 +227,21 @@ exactly `held-fixture`; outside bytes/owner/mode must remain unchanged. Five mor
 startup cases mutate boot bytes at the same inode (empty, oversized, same-size
 invalid, duplicate key, changed secret), then require init's explicit refusal.
 The supplemental Linux regression is not an installed receipt.
+
+## Pass 6 handoff
+
+Build release inputs without fabricating a base or key using `assemble.py
+--build-only --output <new-dir>`. Retain `build-receipt.json` and all eight
+artifacts. The regular overlay command still requires the same-revision base
+and provisioned reviewer key; inputs alone never qualify an installed receipt.
+
+Run `check-session`'s nine `-close-first` scenarios as well as the existing nine
+`-close` and nine direct revoke controls. Each `-close-first` schedule arms the
+independent original-events observer, acknowledges close, verifies exact
+lingering PID/cgroup ownership, replaces the cgroup path, refuses new admission,
+and revokes through the authenticated relay. Keep `live-observations.jsonl` with
+every sample and failure; last-sample JSON files alone are insufficient.
+
+The eight new boot restart mutations bring the startup matrix to 41 selectors.
+They remain unexecuted installed controls until the approved provider runs them.
+No acceptance or activation follows from local filesystem or gateway tests.

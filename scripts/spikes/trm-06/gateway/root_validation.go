@@ -94,7 +94,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	if operation == "check-session" {
 		for _, scenario := range append([]string(nil), scenarios...) {
 			if cgroupLiveFixture(scenario) {
-				scenarios = append(scenarios, scenario+"-close")
+				scenarios = append(scenarios, scenario+"-close", scenario+"-close-first")
 			}
 		}
 	}
@@ -198,7 +198,7 @@ func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
 // Mirror the literal installed observer selectors. Each runs in a fresh VM
 // through installPrototype, init and the authenticated DialWorkspacePort relay.
 func startupMutationScenarios() []string {
-	scenarios := []string{"startup-boot-identity", "startup-boot-empty", "startup-boot-oversized", "startup-boot-same-size", "startup-boot-duplicate", "startup-boot-secret"}
+	scenarios := []string{"startup-boot-identity", "startup-boot-empty", "startup-boot-oversized", "startup-boot-same-size", "startup-boot-duplicate", "startup-boot-secret", "startup-boot-revision", "startup-boot-digest", "startup-boot-unknown", "startup-boot-null", "startup-boot-zero-boot", "startup-boot-zero-secret", "startup-boot-wrong-type", "startup-boot-trailing"}
 	for _, leaf := range []string{"boot", "supervisor"} {
 		for _, mutation := range []string{"hardlink", "fifo", "directory", "owner"} {
 			scenarios = append(scenarios, "startup-"+leaf+"-"+mutation)
@@ -234,6 +234,14 @@ func cgroupRestartFixture(scenario string) bool {
 
 func validationScenario(ctx context.Context, a *installedAuthority, runtime *microsandbox.Runtime, runtimeRoot, home, fixture, scenario, operation, evidence string) error {
 	closeControl := false
+	closeFirst := false
+	if strings.HasSuffix(scenario, "-close-first") {
+		scenario = strings.TrimSuffix(scenario, "-close-first")
+		if operation != "check-session" || !cgroupLiveFixture(scenario) {
+			return errAuthority
+		}
+		closeFirst = true
+	}
 	if strings.HasSuffix(scenario, "-close") {
 		scenario = strings.TrimSuffix(scenario, "-close")
 		if operation != "check-session" || !cgroupLiveFixture(scenario) {
@@ -369,7 +377,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return validateNoLandlockBoundary(ctx, control, observe, before, evidence)
 	}
 	if cgroupLiveFixture(scenario) {
-		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl)
+		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl, closeFirst)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {

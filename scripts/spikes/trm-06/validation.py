@@ -242,7 +242,7 @@ for label, target in (("boot", "/run/smithers/trm06/boot.json"),
     for mutation in ("hardlink", "fifo", "directory", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 STARTUP_MUTATIONS["startup-boot-identity"] = ("/run/smithers/trm06/boot.json", "identity")
-for mutation in ("empty", "oversized", "same-size", "duplicate", "secret"):
+for mutation in ("empty", "oversized", "same-size", "duplicate", "secret", "revision", "digest", "unknown", "null", "zero-boot", "zero-secret", "wrong-type", "trailing"):
     STARTUP_MUTATIONS["startup-boot-" + mutation] = ("/run/smithers/trm06/boot.json", mutation)
 for label, target in (("boot-parent", "/run/smithers/trm06"),
                       ("boot-ancestor", "/run/smithers"),
@@ -268,7 +268,7 @@ def mutate_startup(target, mutation):
             os.close(fd)
     elif mutation == "hardlink":
         os.link(path, path.with_name(path.name + "-original"), follow_symlinks=False)
-    elif mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret"):
+    elif mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret", "revision", "digest", "unknown", "null", "zero-boot", "zero-secret", "wrong-type", "trailing"):
         # Valid but different authority at the same inode: restart must not
         # silently select a new boot id/secret even when modes remain trusted.
         fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -279,11 +279,19 @@ def mutate_startup(target, mutation):
                 data["boot"][0] ^= 1
             elif mutation == "secret":
                 data["secret"][0] ^= 1
+            elif mutation == "revision": data["revision"] = "b" * 40
+            elif mutation == "digest": data["supervisor_sha256"] = "b" * 64
+            elif mutation == "unknown": data["uid"] = 0
+            elif mutation == "null": data["boot"] = None
+            elif mutation == "zero-boot": data["boot"] = [0] * 16
+            elif mutation == "zero-secret": data["secret"] = [0] * 32
+            elif mutation == "wrong-type": data["secret"] = "member"
             contents = json.dumps(data, separators=(",", ":")).encode()
             if mutation == "empty": contents = b""
             elif mutation == "oversized": contents = b" " * 4097
             elif mutation == "same-size": contents = b"x" * len(original)
             elif mutation == "duplicate": contents = b'{"boot":[1],' + contents[1:]
+            if mutation == "trailing": contents += b" {}"
             output.seek(0)
             output.write(contents)
             output.truncate()

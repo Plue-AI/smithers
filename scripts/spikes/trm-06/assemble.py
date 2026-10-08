@@ -215,23 +215,27 @@ def supervisor_build_environment(target):
     return dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=str(linker))
 
 
-def assemble(repo, base, output, review_key):
-    if os.geteuid() == 0:
-        raise ValueError("release builds must be unprivileged")
+def main_revision(repo):
     revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "origin/main"], text=True).strip()
     if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
         raise ValueError("invalid main revision")
-    manifest = validate_base(base, revision)
-    regular(review_key)
-    if review_key.stat().st_size != 32:
-        raise ValueError("reviewer key must be the owner's provisioned raw Ed25519 public key")
+    return revision
+
+
+def build_artifacts(repo, output, expected_revision=None):
+    """Build only main-pinned release inputs; never a bundle or root authority."""
+    if os.geteuid() == 0:
+        raise ValueError("release builds must be unprivileged")
+    revision = main_revision(repo)
+    if expected_revision is not None and revision != expected_revision:
+        raise ValueError("main changed before overlay build")
     if output.exists() or output.is_symlink() or output.resolve().is_relative_to(Path("/usr/local/lib/smithers")):
         raise ValueError("output must be a new uninstalled staging directory")
-    # Archive exactly main, never checkout changes or a branch-selected ref.
     with tempfile.TemporaryDirectory(prefix="trm06-main-") as temporary:
         build = Path(temporary)
         archive = build / "main.tar"
         subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", "-o", str(archive), revision], check=True)
+        source_digest = digest(archive)
         with tarfile.open(archive) as source:
             source.extractall(build / "source", filter="data")
         source = build / "source"
@@ -240,36 +244,77 @@ def assemble(repo, base, output, review_key):
         subprocess.run(["go", "build", "-trimpath", "-o", str(gateway), "./scripts/spikes/trm-06/gateway"], cwd=source, env=environment, check=True)
         validate_gateway(gateway)
         subprocess.run(["cargo", "build", "--locked", "--release", "--target", "aarch64-unknown-linux-musl", "--manifest-path", str(source / SPIKE / "supervisor/Cargo.toml")], cwd=source, env=supervisor_build_environment(build / "cargo-target"), check=True)
-        # Cargo hardlinks its top-level executable to deps. Stage a private
-        # single-link copy before applying the release artifact invariant.
+        # Cargo hardlinks its executable to deps. Retain a private single-link copy.
         supervisor = build / "trm06-supervisor"
         shutil.copyfile(build / "cargo-target/aarch64-unknown-linux-musl/release/trm06-supervisor", supervisor)
         validate_supervisor(supervisor)
+        receipt = {"revision": revision, "source_archive_sha256": source_digest,
+                   "kind": "release-inputs-only", "activation": "unavailable",
+                   "toolchain": {"go": subprocess.check_output(["go", "version"], text=True).strip(),
+                                 "rust": subprocess.check_output(["rustc", "-vV"], text=True).strip()},
+                   "files": []}
+        output.mkdir()
+        try:
+            add_artifact(output, receipt, "bin/trm06-gateway", gateway, 0o755)
+            add_artifact(output, receipt, "libexec/trm06-supervisor", supervisor, 0o755)
+            for name, mode in FILES.items():
+                add_artifact(output, receipt, "share/trm06/" + name, source / SPIKE / name, mode)
+            receipt["files"].sort(key=lambda entry: entry["path"])
+            # Deliberately not manifest.json: these inputs lack the base release,
+            # review key and signed receipts, and are never an installed bundle.
+            (output / "build-receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        except BaseException:
+            shutil.rmtree(output)
+            raise
+    return receipt
+
+
+def assemble(repo, base, output, review_key):
+    if os.geteuid() == 0:
+        raise ValueError("release builds must be unprivileged")
+    revision = main_revision(repo)
+    manifest = validate_base(base, revision)
+    regular(review_key)
+    if review_key.stat().st_size != 32:
+        raise ValueError("reviewer key must be the owner's provisioned raw Ed25519 public key")
+    if output.exists() or output.is_symlink() or output.resolve().is_relative_to(Path("/usr/local/lib/smithers")):
+        raise ValueError("output must be a new uninstalled staging directory")
+    with tempfile.TemporaryDirectory(prefix="trm06-overlay-") as temporary:
+        artifacts = Path(temporary) / "artifacts"
+        receipt = build_artifacts(repo, artifacts, revision)
         shutil.copytree(base, output, symlinks=True)
         try:
             manifest = validate_base(output, revision)
-            add_artifact(output, manifest, "bin/trm06-gateway", gateway, 0o755)
+            for entry in receipt["files"]:
+                add_artifact(output, manifest, entry["path"], artifacts / entry["path"], entry["mode"])
             validate_gateway(output / "bin/trm06-gateway")
-            add_artifact(output, manifest, "libexec/trm06-supervisor", supervisor, 0o755)
             validate_supervisor(output / "libexec/trm06-supervisor")
-            for name, mode in FILES.items():
-                add_artifact(output, manifest, "share/trm06/" + name, source / SPIKE / name, mode)
             add_artifact(output, manifest, "share/trm06/smithers-3f.pub", review_key, 0o644)
             manifest["files"].sort(key=lambda entry: entry["path"])
             publish_manifest(output, manifest)
         except BaseException:
             shutil.rmtree(output)
             raise
-    # Approval is deliberately absent. Give the reviewer the exact complete
-    # artifact map to sign; no self-generated key or acceptance receipt exists.
-    return {"revision": revision, "artifacts": {entry["path"]: entry["sha256"] for entry in manifest["files"]}, "activation": "refused-until-reviewed"}
+    return {"revision": revision, "source_archive_sha256": receipt["source_archive_sha256"],
+            "toolchain": receipt["toolchain"],
+            "artifacts": {entry["path"]: entry["sha256"] for entry in manifest["files"]},
+            "activation": "refused-until-reviewed"}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base", required=True, type=Path)
+    parser.add_argument("--base", type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--review-key", required=True, type=Path)
+    parser.add_argument("--review-key", type=Path)
+    parser.add_argument("--build-only", action="store_true", help="retain main release inputs without a base bundle or approval key")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[3]
-    print(json.dumps(assemble(repo, args.base.resolve(), args.output.absolute(), args.review_key)))
+    if args.build_only:
+        if args.base is not None or args.review_key is not None:
+            parser.error("--build-only does not accept base or review key")
+        result = build_artifacts(repo, args.output.absolute())
+    else:
+        if args.base is None or args.review_key is None:
+            parser.error("overlay requires --base and --review-key")
+        result = assemble(repo, args.base.resolve(), args.output.absolute(), args.review_key)
+    print(json.dumps(result))

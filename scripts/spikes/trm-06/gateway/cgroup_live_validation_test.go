@@ -75,3 +75,31 @@ func TestLiveCgroupSelectorsAreFixed(t *testing.T) {
 		}
 	}
 }
+
+func TestCloseRetainsExactLingeringProcessOwnership(t *testing.T) {
+	process := func(pid int, group string) json.RawMessage {
+		raw, err := json.Marshal(map[string]any{"pid": pid, "cgroup": group})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	group := "0::/smithers/trm06-sessions-original/s-0000000000000001\n"
+	before := guestSnapshot{Processes: []json.RawMessage{process(101, group), process(102, group)}}
+	after := guestSnapshot{Processes: []json.RawMessage{process(102, group), process(101, group)}}
+	if err := validateLingeringCgroupSample(before, after); err != nil {
+		t.Fatal(err)
+	}
+	for _, processes := range [][]json.RawMessage{
+		nil, {process(101, group)}, {process(101, group), process(103, group)},
+		{process(101, group), process(102, "0::/other\n")},
+		{process(101, group), process(101, group)},
+		{process(0, group), process(102, group)},
+		{process(101, ""), process(102, group)},
+		{json.RawMessage(`{`), process(102, group)},
+	} {
+		if err := validateLingeringCgroupSample(before, guestSnapshot{Processes: processes}); err == nil {
+			t.Fatalf("lost ownership accepted: %s", processes)
+		}
+	}
+}

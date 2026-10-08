@@ -225,6 +225,23 @@ class BundleAssembly(unittest.TestCase):
                                  (before.st_uid, before.st_mode, before.st_ino))
                 self.assertFalse(list(Path(temporary).rglob(".trm06-manifest.json")))
 
+    def test_build_only_cli_keeps_overlay_inputs_explicit(self):
+        for extra in (["--base", "/missing"], ["--review-key", "/missing"]):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "output"
+                result = subprocess.run([sys.executable, "-I", "-S", str(Path(__file__).with_name("assemble.py")), "--build-only", "--output", str(output), *extra], capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(b"--build-only does not accept", result.stderr)
+                self.assertFalse(output.exists())
+
+    def test_main_advance_refuses_before_artifact_build(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(assemble, "main_revision", return_value="b" * 40), patch.object(assemble.subprocess, "run") as build:
+            output = Path(temporary) / "output"
+            with self.assertRaisesRegex(ValueError, "main changed"):
+                assemble.build_artifacts(Path(temporary), output, REVISION)
+            build.assert_not_called()
+            self.assertFalse(output.exists())
+
     def test_entrypoint_refuses_wrong_base_before_build(self):
         with tempfile.TemporaryDirectory() as temporary:
             base, _ = self.base(temporary)

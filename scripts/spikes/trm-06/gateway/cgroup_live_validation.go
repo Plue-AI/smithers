@@ -23,11 +23,31 @@ func cgroupLiveFixture(scenario string) bool {
 // Installed authenticated relay only. Mutation happens after enrollment, while
 // both foreground and lingering processes are independently observed. The
 // observer holds the original events descriptors before the path is changed.
-func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl bool) error {
+func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl, closeFirst bool) error {
 	if !cgroupLiveFixture(scenario) {
 		return errAuthority
 	}
+	// Retain every poll and failed mutation, not only the final sample at a path.
+	journal, err := os.OpenFile(filepath.Join(evidence, "live-observations.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	defer journal.Close()
 	retain := func(name string, body []byte) error {
+		record, err := json.Marshal(struct {
+			UTC       string `json:"utc"`
+			Operation string `json:"operation"`
+			Raw       []byte `json:"raw"`
+		}{time.Now().UTC().Format(time.RFC3339Nano), name, body})
+		if err != nil {
+			return err
+		}
+		if _, err = journal.Write(append(record, '\n')); err != nil {
+			return err
+		}
+		if err = journal.Sync(); err != nil {
+			return err
+		}
 		return os.WriteFile(filepath.Join(evidence, name+".json"), body, 0600)
 	}
 	stream, err := control.connect(ctx)
@@ -74,12 +94,50 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 	if err = retain("live-arm", armed); err != nil {
 		return err
 	}
-	mutation, err := observe(scenario)
-	if err != nil {
-		return err
+	closeOwned := func() error {
+		preclose, sampleErr := observe("sample")
+		if err = retain("live-before-close", preclose); err != nil {
+			return errors.Join(sampleErr, err)
+		}
+		var expected guestSnapshot
+		if sampleErr != nil {
+			return sampleErr
+		}
+		if json.Unmarshal(preclose, &expected) != nil {
+			return errors.New("invalid pre-close sample")
+		}
+		var closeErr error
+		var connection net.Conn
+		connection, closeErr = control.connect(ctx)
+		if closeErr == nil {
+			closeErr = confirmSessionClose(ctx, connection, opened.Session)
+			connection.Close()
+		}
+
+		closed, sampleErr := observe("sample")
+		if err = retain("live-after-close", closed); err != nil {
+			return errors.Join(closeErr, sampleErr, err)
+		}
+		if closeErr != nil || sampleErr != nil {
+			return errors.Join(closeErr, sampleErr)
+		}
+		var remaining guestSnapshot
+		if json.Unmarshal(closed, &remaining) != nil || validateLingeringCgroupSample(expected, remaining) != nil {
+			return errors.New("close forgot or killed lingering exec processes")
+		}
+		return nil
 	}
+	if closeFirst {
+		if err = closeOwned(); err != nil {
+			return err
+		}
+	}
+	mutation, mutationErr := observe(scenario)
 	if err = retain("live-mutation", mutation); err != nil {
-		return err
+		return errors.Join(mutationErr, err)
+	}
+	if mutationErr != nil {
+		return mutationErr
 	}
 	// Do not mistake a failed handshake, timeout or generic EOF for the specific
 	// admission refusal: the live broker must return the invalid typed response.
@@ -99,25 +157,9 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 	if string(refused) == `{"transport_closed":true}` {
 		return errors.New("live cgroup replacement lacked explicit admission refusal")
 	}
-	var closeErr error
 	if closeControl {
-		var connection net.Conn
-		connection, closeErr = control.connect(ctx)
-		if closeErr == nil {
-			closeErr = confirmSessionClose(ctx, connection, opened.Session)
-			connection.Close()
-		}
-
-		closed, sampleErr := observe("sample")
-		if err = retain("live-after-close", closed); err != nil {
-			return errors.Join(closeErr, sampleErr, err)
-		}
-		if closeErr != nil || sampleErr != nil {
-			return errors.Join(closeErr, sampleErr)
-		}
-		var remaining guestSnapshot
-		if json.Unmarshal(closed, &remaining) != nil || len(remaining.Processes) < 2 {
-			return errors.New("close forgot or killed lingering exec processes")
+		if err = closeOwned(); err != nil {
+			return err
 		}
 	}
 	invoked := time.Now().UTC()
@@ -199,4 +241,43 @@ func containsPopulatedOne(events string) bool {
 		}
 	}
 	return false
+}
+
+// Close must preserve these exact live processes and original groups. Counting
+// arbitrary Ben processes would allow a forgotten session to look retained.
+func validateLingeringCgroupSample(before, after guestSnapshot) error {
+	if len(before.Processes) < 2 || len(after.Processes) != len(before.Processes) {
+		return errors.New("lingering session process set changed")
+	}
+	identities := func(processes []json.RawMessage) (map[int]string, error) {
+		result := map[int]string{}
+		for _, raw := range processes {
+			var process struct {
+				PID    int    `json:"pid"`
+				Cgroup string `json:"cgroup"`
+			}
+			if json.Unmarshal(raw, &process) != nil || process.PID <= 0 || process.Cgroup == "" || result[process.PID] != "" {
+				return nil, errors.New("missing or duplicate lingering process identity")
+			}
+			result[process.PID] = process.Cgroup
+		}
+		return result, nil
+	}
+	original, err := identities(before.Processes)
+	if err != nil {
+		return err
+	}
+	current, err := identities(after.Processes)
+	if err != nil {
+		return err
+	}
+	for pid, group := range original {
+		if current[pid] != group {
+			return errors.New("lingering process escaped original cgroup")
+		}
+	}
+	// Renamed parents/children may change observed path names. The /proc
+	// process identity comparison above is performed across close only; each
+	// original descriptor's later emptiness is separately verified at revoke.
+	return nil
 }

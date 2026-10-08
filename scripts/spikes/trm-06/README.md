@@ -315,3 +315,26 @@ fresh machine. Local syscall tests exercise all 33 startup mutations; the five
 new controls still need installed execution. Host launcher/artifact/destination
 race matrices, synchronized cgroup races, release assembly, real unsupported
 Landlock and native/manual evidence remain incomplete.
+
+### Pass 6 release inputs and cgroup schedules
+
+`python3 scripts/spikes/trm-06/assemble.py --build-only --output <new-dir>`
+builds the Darwin ARM64 gateway, static Linux ARM64 supervisor and spike scripts
+from one archived `origin/main` revision, unprivileged. It retains exact hashes,
+the source archive hash and compiler versions in `build-receipt.json`. These are
+release inputs, not an install: no base manifest, reviewer key, approval or
+activation is generated. Full overlay assembly uses the same build path and
+still requires the same-revision Darwin base and provisioned reviewer key.
+
+`check-session` also schedules each of the nine live cgroup mutations after
+acknowledged `close_session` and before `kill_sessions`, in a fresh machine.
+Close must preserve the exact independently observed PID/cgroup set, not merely
+a process count. The existing replacement-before-close controls remain. Every
+poll, mutation and refusal is retained in `live-observations.jsonl` (raw bytes
+encoded as base64), including failed mutation output.
+
+`check-install` adds eight same-inode boot restart controls: changed revision,
+changed executable digest, unknown identity field, null boot, zero boot, zero
+secret, wrong secret type and trailing JSON. All 41 startup mutation selectors
+use the existing installed fixture/init refusal path. Installed execution and
+security acceptance remain pending; local mutation tests grant no authority.
