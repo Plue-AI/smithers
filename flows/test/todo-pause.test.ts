@@ -93,6 +93,8 @@ for (const generation of [null, 1, 2]) test(`TODO boundary journals pause cycle 
   }).pipe(Effect.provide(layer), Effect.scoped))
 })
 
+// Pause observations must wait for their preceding planned producer. A
+// bindPlanned builder alone permits independent descendants to run early.
 // A real root composition observes the admitted inbox, then survives a complete
 // host shutdown while parked. The second host must replay completed work and
 // settle the same durable wait rather than starting another attempt.
@@ -106,15 +108,16 @@ test("TODO pause survives a cold SQLite host restart without repeating finished 
   const Before = Action.make("test/todo-before", { payload: {}, success: Schema.Void })
   const After = Action.make("test/todo-after", { payload: {}, success: Schema.Void })
   const Done = Action.make("test/todo-done", { payload: {}, success: Schema.Void })
+  const Planning = Flow.make("test/todo-planning", { payload: {}, success: Schema.Void, body: () => Before.call({}) })
   const Todo = Flow.make("todo", { payload: {}, success: Schema.Void,
     error: TodoBoundary.errorSchema,
-    body: () => Before.call({}).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(After.call({})), Node.andThen(TodoBoundary.call({})), Node.andThen(Done.call({}))) })
+    body: () => TodoBoundary.call({}).pipe(Node.andThen(Planning.child({})), Node.bindPlanned((planned) => Node.succeed(planned).pipe(Node.andThen(TodoBoundary.call({})))), Node.andThen(After.call({})), Node.bindPlanned((after) => Node.succeed(after).pipe(Node.andThen(TodoBoundary.call({})))), Node.andThen(Done.call({}))) })
   const open = () => {
     const sqlite = DurableWriter.layer().pipe(Layer.provideMerge(NodeDatabase.layer({ filename: join(directory, "engine.db") })))
     const persistence = Layer.mergeAll(SqlJournal.layer({ capacity: 1024, overflow: "reject" }),
       RunStore.layer, AttemptStore.layer, CacheStore.layer, DurableEngineState.layer).pipe(
       Layer.provideMerge(Layer.effectDiscard(Migrations.run)), Layer.provideMerge(Layer.merge(sqlite, NodeCrypto.layer)))
-    const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(TodoBoundary), WaitFor.layer, todoPauseLayer,
+    const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(Planning), Interpreter.layer(TodoBoundary), WaitFor.layer, todoPauseLayer,
       Before.toLayer(() => Effect.promise(async () => { entered++; await running })),
       After.toLayer(() => Effect.promise(async () => { secondStarted++; await secondRunning })),
       Done.toLayer(() => Effect.sync(() => { finished++ }))).pipe(

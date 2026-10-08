@@ -162,6 +162,10 @@ func TestTodoStartPauseResumeCrashThroughRoutes(t *testing.T) {
 				require.NotContains(t, card, "pause", "the held planning turn must precede the park")
 				require.NoError(t, r.release("pause-live"))
 				parked, err := r.waitTodoWithin(number, time.Minute, "paused")
+				if err != nil {
+					_, inspectErr := r.inspect(workspace, before.Run.ID)
+					t.Logf("pause recovery Inspect: %v", inspectErr)
+				}
 				require.NoError(t, err)
 				require.Equal(t, before.Run.ID, parked.Run.ID)
 				require.Equal(t, before.Run.Attempt, parked.Run.Attempt)
