@@ -126,7 +126,10 @@ const unitTests = Smithers.NodeTest({
   runner: Smithers.testSuite(["src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "e2e/real/chat-tools/shared-traffic.test.ts", "scripts"], { isolate: true }),
   // 6,740 tests across 520 files took 813s on a clean 2026-09-29 checkout;
   // the shared 600s default killed CI while Bun was still running tests.
-  timeout: "20m",
+  // By 2026-10-08 the suite ran ~17k tests in 652-1,078s on ubuntu-latest, and
+  // two runs (37606224809, 37853835782) were killed at 20m mid-suite in
+  // different files, not on one hung test; 30m restores the headroom.
+  timeout: "30m",
   srcs: [
     sources,
     componentSources,
