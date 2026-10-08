@@ -44,7 +44,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
-	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -377,7 +376,7 @@ path = "lib.rs"
 		if capabilities, err := exec.Command(helper, "--capabilities").Output(); err == nil && bytes.Contains(capabilities, []byte(`"trusted-process-binding/v1"`)) {
 			processDaemons = new(machined.Registry)
 			t.Cleanup(func() { _ = processDaemons.Close() })
-			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons}
+			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root)}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -1814,12 +1813,26 @@ func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
 // A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
 	*rehearsalAdmissionRuntime
-	evidence string
-	t        *testing.T
-	daemons  *machined.Registry
+	evidence     string
+	t            *testing.T
+	daemons      *machined.Registry
+	pool         *pgxpool.Pool
+	daemonBinary string
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
+
+// Person file writes use the authenticated daemon and the ordinary operation
+// context. The process runtime's direct filesystem helpers are never a fallback.
+func (r bindingProcessRuntime) CompareWriteFiles(ctx context.Context, workspaceID string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
+	return (machined.WorkspaceWriter{Client: r.daemons, EnsureReady: func(ctx context.Context, branch string) error {
+		link, err := r.daemons.Current(branch)
+		if err != nil {
+			return err
+		}
+		return link.RequireReady(branch)
+	}}).CompareWriteFiles(ctx, workspaceID, changes)
+}
 
 func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {
 	observed, err := r.InspectWorkspace(ctx, workspaceID)
@@ -1883,31 +1896,7 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 	if err := os.Rename(temporary, file); err != nil {
 		return err
 	}
-	// This controlled runtime has no SSH/PTY/session broker. An authenticated
-	// fixture peer reports that empty source census; it cannot execute or mutate.
-	if _, err := r.daemons.Current(workspaceID); err != nil {
-		link, guest := presenceTestLink(r.t, r.daemons, workspaceID)
-		go func() {
-			defer guest.Close()
-			for {
-				request, err := wire.Read(guest)
-				if err != nil {
-					return
-				}
-				id, method, _, err := request.Request()
-				if err != nil || method != byte(wire.SetRoster) {
-					return
-				}
-				if wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(method)))}) != nil {
-					return
-				}
-			}
-		}()
-		if err := link.Reconciled(); err != nil {
-			return err
-		}
-		daemonHeartbeat(r.t, guest)
-	}
+
 	return nil
 }
 
@@ -1964,6 +1953,18 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 			_ = output.Close()
 		}
 	}
+	if err == nil {
+		if _, daemonErr := r.daemons.Current(workspaceID); daemonErr != nil {
+			item, daemonErr := machineItemBinding(ctx, r.pool, workspaceID)
+			if daemonErr != nil {
+				return connection, daemonErr
+			}
+			if daemonErr = startRehearsalMachined(r.t, ctx, r.daemons, workspaceID, observed.Root, r.evidence, r.daemonBinary, &item); daemonErr != nil {
+				return connection, daemonErr
+			}
+		}
+	}
+
 	return connection, err
 }
 

@@ -11,6 +11,9 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -304,4 +307,55 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		require.Equal(t, 5, calls)
 		require.Equal(t, 6, readyCalls)
 	})
+	t.Run("real unprivileged daemon", func(t *testing.T) {
+		binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
+		if binary == "" {
+			t.Skip("requires rehearsal_daemon and Linux user namespaces")
+		}
+		root := t.TempDir()
+		jj, err := rehearsalJJBinary(os.Getenv("PATH"))
+		require.NoError(t, err)
+		init := exec.Command(jj, "git", "init", root)
+		output, err := init.CombinedOutput()
+		require.NoError(t, err, string(output))
+		registry := new(machined.Registry)
+		t.Cleanup(func() { require.NoError(t, registry.Close()) })
+		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, t.TempDir(), binary, &machined.ItemBinding{}))
+		previous := provider.writer
+		t.Cleanup(func() { provider.writer = previous })
+		provider.writer = machined.WorkspaceWriter{Client: registry, EnsureReady: func(ctx context.Context, branch string) error {
+			link, err := registry.Current(branch)
+			if err != nil {
+				return err
+			}
+			return link.RequireReady(branch)
+		}}
+		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+		for _, check := range []struct {
+			body   string
+			status int
+		}{
+			{`{"content":"hello","base_digest":"absent"}`, 200},
+			{`{"content":"must not land","base_digest":"absent"}`, 409},
+		} {
+			request, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(check.body))
+			require.NoError(t, err)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", origin)
+			request.Header.Set("X-CSRF-Token", "digest-csrf")
+			request.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(request)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.NoError(t, response.Body.Close())
+			require.Equal(t, check.status, response.StatusCode, string(body))
+			require.Contains(t, string(body), helloDigest)
+			disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
+			require.NoError(t, err)
+			require.Equal(t, "hello", string(disk))
+		}
+	})
+
 }
