@@ -4,16 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/sandbox"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // sweepMetrics records the sandbox-hours metering errors the sweep reports.
@@ -44,6 +49,7 @@ type hoursSweepFixture struct {
 	workspaces  *WorkspaceService
 	audits      *operationAuditFake
 	metrics     *sweepMetrics
+	workspaceID string
 	suspended   []string
 }
 
@@ -78,32 +84,27 @@ func newHoursSweepFixture(t *testing.T, plan string) *hoursSweepFixture {
 	}
 	f.billing = billing
 
-	row := sampleDBWorkspace("hours-ws")
-	row.UserID, row.VmID = 7, "vm-hours"
-	wq := &mockWorkspaceQuerier{
-		listRunningWorkspacesFn: func(context.Context) ([]db.Workspace, error) {
-			if !f.running {
-				return nil, nil
-			}
-			return []db.Workspace{row}, nil
-		},
-		suspendRunningWorkspaceFn: func(_ context.Context, id string) (db.Workspace, error) {
-			f.running, f.suspendedAt = false, f.now
-			suspended := row
-			suspended.Status = "suspended"
-			return suspended, nil
-		},
-	}
-	f.workspaces = newWorkspaceServiceForTests(wq,
+	// Native capture and the VM are controlled peers: the sweep exercises
+	// real durable release transactions while metering uses a virtual clock.
+	pool := newProductTestPool(t)
+	ctx := t.Context()
+	_, err := pool.Exec(ctx, `INSERT INTO users(id,username,lower_username) VALUES(7,'hours-owner','hours-owner')`)
+	require.NoError(t, err)
+	var repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES(7,'hours','hours') RETURNING id`).Scan(&repo))
+	qdb := db.New(pool)
+	row, err := qdb.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: 7, TargetBookmark: "main", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='vm-hours',head_commit_id=$2 WHERE id=$1`, row.ID, strings.Repeat("a", 40))
+	require.NoError(t, err)
+	f.workspaceID = row.ID
+	peer := &hoursSweepPeer{fixture: f, pool: pool, id: row.ID}
+	f.workspaces = newWorkspaceServiceForTests(qdb,
+		WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()),
+		WithBranchCapture(peer), WithBranchHeads(peer), WithWorkspaceRuntime(peer),
 		WithWorkspaceBillingPolicy(billing),
 		WithWorkspaceAuditService(NewAuditService(f.audits)),
-		WithWorkspaceSandboxMetrics(f.metrics),
-		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-			suspendVMFn: func(_ context.Context, vmID string) (sandbox.SuspendResult, error) {
-				f.suspended = append(f.suspended, vmID)
-				return sandbox.SuspendResult{}, nil
-			},
-		}))
+		WithWorkspaceSandboxMetrics(f.metrics))
 	return f
 }
 
@@ -143,7 +144,7 @@ func TestSandboxHoursSweep_SuspendsAtTheDailyCapAndResumesAfterReset(t *testing.
 	assert.Equal(t, "system", audit.ActorName)
 	assert.Equal(t, "user", audit.TargetType)
 	assert.Equal(t, int64(7), audit.TargetID.Int64)
-	assert.Equal(t, "hours-ws", audit.TargetName)
+	assert.Equal(t, f.workspaceID, audit.TargetName)
 	var metadata map[string]any
 	require.NoError(t, json.Unmarshal(audit.Metadata, &metadata))
 	assert.Equal(t, "2026-09-16T00:00:00Z", metadata["reset_at"])
@@ -206,13 +207,9 @@ func TestSandboxHoursSweep_UnlimitedPlansAreNeverSwept(t *testing.T) {
 
 func TestSandboxHoursSweep_SuspendFailureWritesNoAudit(t *testing.T) {
 	f := newHoursSweepFixture(t, BillingPlanFree)
-	f.workspaces.sandbox = &mockWorkspaceSandboxVMClient{
-		suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
-			return sandbox.SuspendResult{}, errors.New("provider down")
-		},
-	}
+	f.workspaces.runtime.(*hoursSweepPeer).stopErr = errors.New("provider down")
 	err := f.tick(t, f.started.Add(30*time.Minute))
-	require.ErrorContains(t, err, "suspend over-quota workspace hours-ws")
+	require.ErrorContains(t, err, "suspend over-quota workspace "+f.workspaceID)
 	assert.Empty(t, f.audits.rows, "only a suspension that happened is audited")
 }
 
@@ -221,4 +218,52 @@ func TestSandboxHoursSweep_WithoutAuditServiceStillSuspends(t *testing.T) {
 	f.workspaces.audit = nil
 	require.NoError(t, f.tick(t, f.started.Add(30*time.Minute)))
 	assert.Equal(t, []string{"vm-hours"}, f.suspended)
+}
+
+// Unused repository reads remain outside this metering fixture's contract.
+type hoursSweepPeer struct {
+	workspaceapi.WorkspaceRuntime
+	workspaceSnapshotStore
+	fixture  *hoursSweepFixture
+	pool     *pgxpool.Pool
+	id       string
+	captured bool
+	stopErr  error
+}
+
+func (p *hoursSweepPeer) Capture(ctx context.Context, id string) (machined.CaptureResult, error) {
+	var status string
+	if err := p.pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, id).Scan(&status); err != nil {
+		return machined.CaptureResult{}, err
+	}
+	if id != p.id || status != "releasing" {
+		return machined.CaptureResult{}, errors.New("capture outside release")
+	}
+	p.captured = true
+	return machined.CaptureResult{Head: strings.Repeat("a", 40), Tree: strings.Repeat("b", 40)}, nil
+}
+func (p *hoursSweepPeer) InfoRefsUploadPack(ctx context.Context, owner, repo string) ([]byte, error) {
+	return scratchHeads{repohost.BranchHeadRef(p.id): strings.Repeat("a", 40)}.InfoRefsUploadPack(ctx, owner, repo)
+}
+func (p *hoursSweepPeer) GetChange(context.Context, string, string, string) (repohost.Change, error) {
+	return repohost.Change{CommitID: strings.Repeat("a", 40)}, nil
+}
+func (p *hoursSweepPeer) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	state := workspaceapi.WorkspaceRunning
+	if !p.fixture.running {
+		state = workspaceapi.WorkspaceStopped
+	}
+	return workspaceapi.Workspace{ID: id, State: state}, nil
+}
+func (p *hoursSweepPeer) StopWorkspace(_ context.Context, id string) error {
+	if id != p.id || !p.captured {
+		return errors.New("stop before capture")
+	}
+	if p.stopErr != nil {
+		return p.stopErr
+	}
+	p.fixture.running = false
+	p.fixture.suspendedAt = p.fixture.now
+	p.fixture.suspended = append(p.fixture.suspended, "vm-hours")
+	return nil
 }

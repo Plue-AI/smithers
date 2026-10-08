@@ -12,6 +12,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -257,14 +258,24 @@ func (f *fencingFlowJournals) Fence(_ context.Context, workspaceID string) (bool
 	return f.journaled, f.fenceErr
 }
 
-type refusingResumePolicy struct {
-	countedResumePolicy
-	err error
+type restartWorkspaceQuerier struct {
+	*mockWorkspaceQuerier
+	branchMachineOwnerStore
 }
 
-func (p *refusingResumePolicy) AuthorizeCountedSandboxResume(context.Context, int64, string, string) error {
-	p.countedCalls++
-	return p.err
+// Journal recovery uses a controlled admission/runtime peer; native slot and
+// privileged-entry certification have separate reference-host checks.
+type restartAdmissionRuntime struct {
+	workspaceapi.WorkspaceRuntime
+	admissions int
+}
+
+func (r *restartAdmissionRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	if err := p.Ready(ctx, microsandbox.AdmissionRequest{Class: class, Holder: holder, Actor: actor, Reason: reason}); err != nil {
+		return nil, err
+	}
+	r.admissions++
+	return ctx, nil
 }
 
 // A box the runtime lost outright is replaced under the same workspace only
@@ -274,6 +285,7 @@ func (p *refusingResumePolicy) AuthorizeCountedSandboxResume(context.Context, in
 // host on the same journal (#1868). Without a journal database, for a box not
 // held running, or for a box that is still there, nothing is created.
 func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
+	pool := newProductTestPool(t)
 	refused := errors.New("sandbox slot refused")
 	missing := "workspace VM no longer exists"
 	for _, tc := range []struct {
@@ -320,8 +332,11 @@ func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
 			}
 			var events []string
 			runtime := &missingBoxRuntime{present: tc.present, events: &events}
-			policy := &refusingResumePolicy{err: tc.billing}
-			service := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceRuntime(runtime))
+			providers := branchMachineTestProviders()
+			providers.MicroVM = func(context.Context) error { return tc.billing }
+			admission := &restartAdmissionRuntime{WorkspaceRuntime: runtime}
+			service := newWorkspaceServiceForTests(restartWorkspaceQuerier{q, db.New(pool)}, WithWorkspaceTransactions(pool), WithBranchMachineProviders(providers), WithWorkspaceBillingPolicy(NewMachineAdmissionPolicy(&UnlimitedBillingPolicy{})), WithWorkspaceRuntime(admission))
+			service.EnableMachineAdmission(nil)
 			if tc.journals {
 				service.SetFlowJournals(&fencingFlowJournals{events: &events, journaled: tc.journaled, fenceErr: tc.fenceErr})
 			}
@@ -337,7 +352,7 @@ func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
 			require.Equal(t, tc.events, events)
 			if len(tc.events) == 2 {
 				require.Equal(t, row.ID, runtime.created[0].ID)
-				require.Equal(t, 1, policy.countedCalls, "the replacement passes the resume admission once")
+				require.Equal(t, 1, admission.admissions, "the replacement passes the resume admission once")
 			}
 		})
 	}
@@ -347,6 +362,7 @@ func TestRestartLostBoxReplacesAMissingBoxOnlyWithAJournal(t *testing.T) {
 // still holds running is started again for its host; one stopped or
 // suspended on purpose is refused and never touched (#2131).
 func TestRestartLostBoxStartsOnlyABoxHeldRunning(t *testing.T) {
+	pool := newProductTestPool(t)
 	startReached := errors.New("runtime start reached")
 	for _, status := range []string{"running", "suspended", "stopped"} {
 		t.Run(status, func(t *testing.T) {
@@ -357,7 +373,9 @@ func TestRestartLostBoxStartsOnlyABoxHeldRunning(t *testing.T) {
 				getWorkspaceFn:       func(context.Context, string) (db.Workspace, error) { return row, nil },
 			}
 			runtime := &admissionWorkspaceRuntime{startErr: startReached}
-			service := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(&countedResumePolicy{}), WithWorkspaceRuntime(runtime))
+			admission := &restartAdmissionRuntime{WorkspaceRuntime: runtime}
+			service := newWorkspaceServiceForTests(restartWorkspaceQuerier{q, db.New(pool)}, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()), WithWorkspaceBillingPolicy(NewMachineAdmissionPolicy(&UnlimitedBillingPolicy{})), WithWorkspaceRuntime(admission))
+			service.EnableMachineAdmission(nil)
 			err := service.RestartLostBox(context.Background(), row.ID, row.RepositoryID, row.UserID)
 			if status == "running" {
 				require.ErrorContains(t, err, startReached.Error())
