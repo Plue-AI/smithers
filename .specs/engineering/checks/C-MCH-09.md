@@ -1,7 +1,7 @@
 # C-MCH-09 Homes are per machine, created at first session, never shared
 
 Proves: mvp.md §6.8 Terminals (2026-10-02), M-18 · spec.md §5.5.4, §8.7.1, §8.7.2 · Layer: integration · Stage: S2 · Tickets: T-MCH-11
-Automation: `packages/backend/microsandbox/real_users_test.go` (extend; step 6 ports the T-MCH-02 spike workload) · Runs in: reference host (real microVMs)
+Automation: `packages/backend/internal/compose/real_users_test.go` (extend; step 6 ports the T-MCH-02 spike workload) · Runs in: reference host (real microVMs)
 
 ## Setup
 Members Ben and Alice. Branches A and B, both awake.
@@ -30,3 +30,7 @@ Members Ben and Alice. Branches A and B, both awake.
 
 ## Evidence
 `.artifacts/checks/C-MCH-09/<ts>/`: `stat`, `mount` and `id` output per machine, the test log and the commit.
+
+## Authored reference-host coverage (2026-10-08)
+
+The helpers run inside `TestInstalledMemberTerminalAndSSHChain`, using its approved-bundle preflight, composed install router, GitHub fake, authenticated terminal WebSocket and real broker. They live in `internal/compose` to reuse the production composition rather than add a second microVM harness. They are not passing reference-host receipts.

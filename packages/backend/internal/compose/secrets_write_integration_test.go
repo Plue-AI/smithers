@@ -347,6 +347,27 @@ func testSecretsComposed(t *testing.T, install bool) {
 	require.Equal(t, 204, status, body)
 	require.Equal(t, []string{"OWNER_KEY"}, stored())
 
+	// C-MCH-12's declaration boundary is runnable independently of the VM:
+	// literal forbidden paths must be user refusals and leave no secret row.
+	for _, path := range []string{"/workspace/key", "~/../x", "/etc/x", "~/.cargo/credentials"} {
+		status, body = request(ownerSession, "POST", "/secrets", fmt.Sprintf(`{"name":"PATH_REFUSED","value":"path-canary","path":%q}`, path))
+		require.Equal(t, 400, status, body)
+		require.Equal(t, "user", body["class"])
+		require.Equal(t, []string{"OWNER_KEY"}, stored())
+	}
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"PATH_KEY","value":"path-canary","path":"~/.config/anthropic/key","hosts":["api.anthropic.com"],"match_headers":["x-api-key"]}`)
+	require.Equal(t, 201, status, body)
+	require.Equal(t, "~/.config/anthropic/key", body["path"])
+	require.Equal(t, []any{"api.anthropic.com"}, body["hosts"])
+	require.NotContains(t, body, "value")
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"PATH_KEY","value":"path-canary-rotated"}`)
+	require.Equal(t, 201, status, body)
+	require.Equal(t, "~/.config/anthropic/key", body["path"], "replacement preserves omitted path")
+	require.NotContains(t, body, "value")
+	status, body = request(ownerSession, "DELETE", "/secrets/PATH_KEY", "")
+	require.Equal(t, 204, status, body)
+	require.Equal(t, []string{"OWNER_KEY"}, stored())
+
 	// All active member sessions read metadata, including main-only names.
 	status, body = request(ownerSession, "POST", "/secrets", `{"name":"CANARY_TOKEN","value":"machine-env-canary-value"}`)
 	require.Equal(t, 201, status, body)

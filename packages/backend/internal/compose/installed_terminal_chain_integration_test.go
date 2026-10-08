@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/pkg/sftp"
+	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -21,6 +22,8 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -68,9 +71,30 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	require.NoError(t, listener.Close())
 	t.Setenv("SMITHERS_SSH_ADDR", sshAddress)
 	t.Setenv("SMITHERS_SSH_HOST_KEY_DIR", t.TempDir())
-	h := startRootLayerHarnessRuntime(t, true, rootLayerCodingFixture{bundle: bundle, registry: registry, profile: profile})
+	providerRequests := make(chan string, 8)
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		select {
+		case providerRequests <- request.Header.Get("x-api-key"):
+		default:
+		}
+		_, _ = io.WriteString(w, "provider-fixture-ok")
+	}))
+	defer provider.Close()
+	relayListener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	relay, err := egressrelay.New(egressrelay.Config{Listener: relayListener, Local: []string{provider.Listener.Addr().String()}})
+	require.NoError(t, err)
+	defer relay.Close()
+	h := startRootLayerHarnessRuntime(t, true, rootLayerCodingFixture{bundle: bundle, registry: registry, profile: profile, relay: relay})
 	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n"})
 	h.runSetupThroughSource()
+	seedInstalledSecretFiles(t, h)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_RELAY_KEY","value":"mch-relay-real-fixture","path":"~/.config/mch/relay","hosts":["127.0.0.1"],"match_headers":["x-api-key"]}`, 201)
+	memberFixture := &rehearsal{ctx: t.Context(), origin: h.origin, jar: h.jar, client: h.client, fake: h.github}
+	benBrowser, err := memberFixture.member("ben", 8, "write")
+	require.NoError(t, err)
+	aliceBrowser, err := memberFixture.member("alice", 9, "write")
+	require.NoError(t, err)
 	state, message := h.runMachine(t, "terminal-chain")
 	require.Equal(t, "done", state, message)
 	accepted := h.expect("POST", "/api/todos", `{"title":"Terminal proof","prompt":"Add a greeting to JOURNEY.md","place":{"mode":"append"}}`, 202)
@@ -122,6 +146,16 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	_, err = term.run(fmt.Sprintf(`test "$SMITHERS_TOKEN_FILE" = %q && test "$(stat -c %%u "$SMITHERS_TOKEN_FILE")" = "$(id -u)" && test "$(stat -c %%a /run/smithers/$(id -u)/token)" = 700 && printf 'TRM''BINDING=private\n'`, expectedToken), regexp.MustCompile(`TRMBINDING=private`), 30*time.Second)
 	require.NoError(t, err)
 
+	testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
+	testInstalledSecretFiles(t, h, branch, term)
+	installedShell(t, term, fmt.Sprintf(`test "$(cat "$HOME/.config/mch/relay")" = MCH_RELAY_KEY && test "$(curl --silent --show-error --fail --noproxy '' --proxy "$http_proxy" -H "x-api-key: $(cat "$HOME/.config/mch/relay")" %q)" = provider-fixture-ok`, provider.URL))
+	select {
+	case received := <-providerRequests:
+		require.Equal(t, "mch-relay-real-fixture", received)
+	case <-time.After(10 * time.Second):
+		t.Fatal("guest request never reached the provider fixture through the production relay")
+	}
+
 	// A second live session must have a distinct credential file. Closing the
 	// first shell revokes only its file, without breaking the second terminal.
 	secondKey := uuid.NewString()
@@ -161,6 +195,15 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	if strings.HasPrefix(login, "smithers/") {
 		login = strings.TrimPrefix(login, "smithers/")
 	}
+	_, unknownPrivate, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	unknownSigner, err := gossh.NewSignerFromKey(unknownPrivate)
+	require.NoError(t, err)
+	unknown, err := gossh.Dial("tcp", sshAddress, &gossh.ClientConfig{User: login, Auth: []gossh.AuthMethod{gossh.PublicKeys(unknownSigner)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 10 * time.Second})
+	if unknown != nil {
+		_ = unknown.Close()
+	}
+	require.Error(t, err, "a key belonging to no member must not open a guest session")
 	client, err := gossh.Dial("tcp", sshAddress, &gossh.ClientConfig{User: login, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 10 * time.Second})
 	require.NoError(t, err)
 	defer client.Close()
@@ -229,5 +272,6 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	require.Equal(t, "member-forward", string(response))
 	require.NoError(t, forwarded.Close())
 	require.NoError(t, echo.Wait())
+	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }

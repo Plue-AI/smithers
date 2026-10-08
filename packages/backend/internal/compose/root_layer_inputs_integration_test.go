@@ -31,6 +31,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/egressrelay"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
@@ -454,6 +455,7 @@ func rootLayerFixtures() map[string]map[string]string {
 // ---- harness ----
 
 type rootLayerHarness struct {
+	github       *githubfake.Server
 	stop         func()
 	t            *testing.T
 	pool         *pgxpool.Pool
@@ -539,6 +541,7 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 }
 
 type rootLayerCodingFixture struct {
+	relay    *egressrelay.Relay
 	bundle   *installbundle.Bundle
 	registry flowmanifest.Registry
 	profile  microsandbox.HostProfile
@@ -578,6 +581,7 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 	require.NoError(t, err)
 	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: fixtureID, Slug: "r4-root-inputs", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: fixtureID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}}}}})
 	require.NoError(t, err)
+	h.github = fake
 	t.Cleanup(fake.Close)
 	h.storage = repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "r4-repo", FFILibraryPath: library}
 	repository, err := repohostserver.New(h.storage)
@@ -628,6 +632,7 @@ func startRootLayerHarnessRuntime(t *testing.T, direct bool, coding ...rootLayer
 			return
 		}
 		fixture := coding[0]
+		config.EgressRelay = fixture.relay
 		address, err := url.Parse(h.origin)
 		require.NoError(t, err)
 		port, err := strconv.ParseUint(address.Port(), 10, 16)

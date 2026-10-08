@@ -1,7 +1,7 @@
 # C-MCH-10 Tool logins persist per machine; tokens never copy
 
 Proves: mvp.md §6.8 Terminals, J6.1 · spec.md §8.7.2, §8.7.3 · Layer: integration · Stage: S2 · Tickets: T-MCH-11
-Automation: `packages/backend/microsandbox/real_credentials_test.go` (new) · Runs in: reference mini, two real microVMs with fixture tool logins
+Automation: `packages/backend/internal/compose/real_credentials_test.go` (new) · Runs in: reference mini, two real microVMs with fixture tool logins
 
 ## Setup
 Ben and Alice have private homes on machines A and B. Fixture tools write distinct login sentinels on each machine. Use no live tokens; C-REL-05 owns the live soak.
@@ -25,3 +25,7 @@ Ben and Alice have private homes on machines A and B. Fixture tools write distin
 
 ## Evidence
 `.artifacts/checks/C-MCH-10/<ts>/`: redacted per-machine file digests, denied reads, event and database scan results, host profile and commit.
+
+## Authored reference-host coverage (2026-10-08)
+
+The helpers run inside `TestInstalledMemberTerminalAndSSHChain`, using its approved-bundle preflight, composed install router, GitHub fake, authenticated terminal WebSocket and real broker. They live in `internal/compose` to reuse the production composition rather than add a second microVM harness. They are not passing reference-host receipts.

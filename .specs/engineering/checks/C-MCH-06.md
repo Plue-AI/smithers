@@ -1,7 +1,7 @@
 # C-MCH-06 No sudo or setuid; homes 0700; `agent` and other members can't read a home
 
 Proves: mvp.md M-18, M-29, J6.5, §6.8 Terminals, §9 Isolation · spec.md §5.5.1–§5.5.4, §8.7, §8.10.3, §8.11.1, §5.3.2 · Layer: integration · Stage: S2 · Tickets: T-MCH-11
-Automation: `packages/backend/microsandbox/real_users_test.go` (new) · Runs in: reference host (real microVM, `SMITHERS_MICROSANDBOX_BIN` set)
+Automation: `packages/backend/internal/compose/real_users_test.go` (new) · Runs in: reference host (real microVM, `SMITHERS_MICROSANDBOX_BIN` set)
 
 ## Setup
 
@@ -42,3 +42,7 @@ Automation: `packages/backend/microsandbox/real_users_test.go` (new) · Runs in:
 ## Evidence
 
 `.artifacts/checks/C-MCH-06/<UTC timestamp>/`: `go test -json` output, the transcript of each command with uid, exit code and output, the `stat` table, the layer key, the commit and the `msb` version.
+
+## Authored reference-host coverage (2026-10-08)
+
+The helpers run inside `TestInstalledMemberTerminalAndSSHChain`, using its approved-bundle preflight, composed install router, GitHub fake, authenticated terminal WebSocket and real broker. They live in `internal/compose` to reuse the production composition rather than add a second microVM harness. They are not passing reference-host receipts.
