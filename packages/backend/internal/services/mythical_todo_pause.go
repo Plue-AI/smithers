@@ -21,6 +21,7 @@ import (
 // One pause cycle belongs to one attempt run. Its signal intents and receipts
 // use the existing jobs journal; only an observed resume wait sets paused_at.
 type todoPause struct {
+	State      string          `json:"state,omitempty"`
 	Failure    string          `json:"failure,omitempty"`
 	FailureOp  string          `json:"failureOp,omitempty"`
 	Generation int64           `json:"generation"`
@@ -113,7 +114,7 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 			if checks.Pause != nil && checks.Pause.Requested {
 				return todoControlConflict("Stop is already requested")
 			}
-			checks.Pause = &todoPause{Generation: generation, Run: item.RequestRunID, Requested: true}
+			checks.Pause = &todoPause{State: item.State, Generation: generation, Run: item.RequestRunID, Requested: true}
 		} else {
 			pause := checks.Pause
 			if pause.Run != item.RequestRunID || pause.Wait.Run != item.RequestRunID || pause.Wait.Target != target ||

@@ -2111,6 +2111,14 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
 		return st.continueNativeRebase(ctx, item)
 	}
+	// A review steer keeps the accepted candidate while its same run resumes
+	// coding. If that run parks, a moved main must still reach the ordinary
+	// native rebase path; waiting for Submit would strand it until Resume.
+	// Native capture retains current branch bytes, and pause remains an overlay.
+	if mythicalTodo(item) && item.State == "running" && item.PausedAt.Valid && len(todoOpenWaits(item)) == 0 &&
+		item.CandidateHead != "" && item.CandidateBase != "" && item.CandidateBase != st.prefix(item) {
+		return st.invalidatePrefix(item), false, nil
+	}
 	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":

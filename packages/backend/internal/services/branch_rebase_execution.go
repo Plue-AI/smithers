@@ -356,6 +356,30 @@ func (st *mythicalItemStep) continueNativeRebase(ctx context.Context, item db.My
 	if pending.Onto != st.prefix(current) {
 		return st.retargetCapturedNativeRebase(ctx, current, next, capture, commit.Tree)
 	}
+	checks := mythicalChecksOf(next)
+	if pause := checks.Pause; pause != nil && pause.State == "running" && pause.Run == next.RequestRunID && next.RequestOutcome == "" {
+		// This capture repairs the parked coding run's branch, not a finished
+		// proposal. Let that same journal finish coding before verifying it.
+		next.State, next.Reason, next.CandidateVerified = "running", "", false
+		checks.Capture, checks.Land = nil, nil
+		checks.Rebase.Rebased = true
+		next.Checks = checks.encode()
+		err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+			if err := st.lockNativeRebaseReceipt(ctx, tx, current, pending.Onto); err != nil {
+				return err
+			}
+			saved, err := db.New(tx).SaveMythicalItem(ctx, next)
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, next.WorkspaceID); err != nil {
+				return err
+			}
+			next = saved
+			return st.s.recordTodoRebased(ctx, tx, saved, current, pending.Name)
+		})
+		return &next, err == nil, err
+	}
 	return st.verifyCandidate(ctx, current, next, pending.Onto, result.Head, nil)
 }
 
