@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,7 +108,13 @@ func catalogCLIConfirmationsPostgres(t *testing.T, via string) {
 		&routes.AuthHandler{Service: issuer, AuthConfig: cfg.Auth, InstallSetup: issuer.InstallSetup},
 		&routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: issuer},
 		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
-	server.Config.Handler = router
+	var sshRequests atomic.Int32
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/ssh" {
+			sshRequests.Add(1)
+		}
+		router.ServeHTTP(w, r)
+	})
 	server.Start()
 	defer server.Close()
 	// The real CLI OAuth callback independently issues each agent identity.
@@ -235,6 +242,42 @@ func catalogCLIConfirmationsPostgres(t *testing.T, via string) {
 	code, receipt = invoke("debug", "api")
 	require.Equal(t, 1, code, receipt)
 	require.Equal(t, "COMMAND_NOT_FOUND", receipt["code"])
+	// The independently OAuth-minted issuer crosses the same person-only CLI
+	// door in all three states. Each state must reach the install exactly once;
+	// a local never refusal would conceal both scope and credential death.
+	var beforeTodos, beforeConfirm, beforeJobs int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&beforeTodos))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&beforeConfirm))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&beforeJobs))
+	for i, state := range []string{"full", "narrow", "dead"} {
+		if state == "narrow" {
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$1 WHERE token_hash=$2`, "read:user,via:"+via, hex.EncodeToString(sum[:]))
+			require.NoError(t, err)
+		} else if state == "dead" {
+			_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
+			require.NoError(t, err)
+		}
+		code, refusal := invoke("ssh", "main")
+		require.Equal(t, 1, code, state)
+		expectedClass, expectedCode := "never", "never"
+		if state == "narrow" {
+			expectedClass, expectedCode = "permission", "permission"
+		}
+		if state == "dead" {
+			expectedClass, expectedCode = "permission", "unauthenticated"
+		}
+		require.Equal(t, expectedClass, refusal["class"], state)
+		require.Equal(t, expectedCode, refusal["code"], state)
+		require.NotContains(t, refusal, "confirmation")
+		require.NotContains(t, refusal, "state")
+		require.Equal(t, int32(i+1), sshRequests.Load(), state)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&count))
+		require.Equal(t, beforeTodos, count)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&count))
+		require.Equal(t, beforeConfirm, count)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&count))
+		require.Equal(t, beforeJobs, count)
+	}
 }
 
 // The source parser and dispatcher run in an isolated home against the install listener.

@@ -24,12 +24,18 @@ import (
 
 // CatalogPolicy is generated from the same Operation descriptors the host and
 // CLI consume. It is not a second declaration of command policy.
+type CatalogHTTPBinding struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+}
+
 type CatalogPolicy struct {
-	CredentialScope string   `json:"credentialScope"`
-	Agent           string   `json:"agent"`
-	MinimumRole     string   `json:"minimumRole"`
-	Actors          []string `json:"actors"`
-	Visibility      string   `json:"visibility"`
+	CredentialScope string              `json:"credentialScope"`
+	Agent           string              `json:"agent"`
+	MinimumRole     string              `json:"minimumRole"`
+	Actors          []string            `json:"actors"`
+	Visibility      string              `json:"visibility"`
+	HTTP            *CatalogHTTPBinding `json:"http"`
 }
 
 var operationCatalog = func() map[string]CatalogPolicy {
@@ -43,6 +49,10 @@ var operationCatalog = func() map[string]CatalogPolicy {
 func OperationPolicy(command string) (CatalogPolicy, bool) {
 	row, ok := operationCatalog[command]
 	row.Actors = slices.Clone(row.Actors)
+	if row.HTTP != nil {
+		binding := *row.HTTP
+		row.HTTP = &binding
+	}
 	return row, ok
 }
 

@@ -226,6 +226,16 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	_, err = wiki.CreateWikiPage(ctx, &owner, "ben", "demo", services.CreateWikiPageInput{Title: "Terminal scope", Slug: "terminal-scope", Body: "Read through the packaged skill"})
 	require.NoError(t, err)
 	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
+	broker := len(scopeChecks) > 5 && scopeChecks[5]
+	var brokerTodos *services.MythicalService
+	if broker {
+		_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
+		require.NoError(t, err)
+		brokerTodos = services.NewMythicalService(pool, nil)
+		brokerTodos.SetTodoFlow(func(ctx context.Context, repository int64, _ string) (string, error) {
+			return services.ActiveFlowDigest(ctx, q, repository, "todo")
+		})
+	}
 	var origin string
 	open := func(service *services.WorkspaceService, refused bool, session string) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
@@ -236,6 +246,9 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		cfg.Server.AllowedOrigins = []string{origin}
 		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
 		deps := conformanceServices{pool: pool, wiki: wiki, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}}
+		if broker {
+			deps.mythical = &routes.MythicalHandler{Service: brokerTodos}
+		}
 		if removal {
 			deps.members = &routes.MembersHandler{Service: members}
 		}
@@ -255,6 +268,10 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		return conn
 	}
 	a := open(svc, false, session)
+	if broker {
+		exercisePersonTerminalBroker(t, ctx, pool, q, a, runtime, session, origin, owner)
+		return
+	}
 	if wake {
 		runtime.mu.Lock()
 		require.Equal(t, 1, runtime.starts)
