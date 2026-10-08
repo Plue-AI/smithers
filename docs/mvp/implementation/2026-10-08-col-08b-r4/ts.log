@@ -1,0 +1,10 @@
+
+ RUN  v5.0.0 /home/lane/lanes/fr14-col08b-r4/packages/rpc
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  08:58:15
+   Duration  301ms (import 42%, transform 34%, tests 21%, worker 2%)
+
+$ tsc --noEmit

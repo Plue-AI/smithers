@@ -1,0 +1,191 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "lane": "fr14-col08b-r4",
+  "tested_revision": "dbed0f41315b069f9a13fefe4a0514d44165ce46",
+  "qualified_at": "2026-10-08T08:58:25.294458+00:00",
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/compose -run '^(TestDocRelay|TestMachinedWireGoldenFrames$|TestWorkingTogetherWireContract$)' -count=1 -json",
+      "exit_code": 0,
+      "log": "compose.jsonl.gz",
+      "log_sha256": "92158b3a03a84ac4461e03dee012a071fe513750eee3180ac48827ced816a9c1",
+      "passed": 11,
+      "passed_including_subtests": 192,
+      "failed": 0,
+      "failed_including_subtests": 0,
+      "skipped": 0,
+      "skipped_including_subtests": 0,
+      "tests": [
+        "TestMachinedWireGoldenFrames",
+        "TestWorkingTogetherWireContract",
+        "TestDocRelayWireContract",
+        "TestDocRelayAuthorization",
+        "TestDocRelayDarkLanding",
+        "TestDocRelayDataOnly",
+        "TestDocRelayRevocation",
+        "TestDocRelayBackpressure",
+        "TestDocRelayOneStreamPerTopic",
+        "TestDocRelayEpochChange",
+        "TestDocRelayReplacementConnection"
+      ]
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/compose -run '^TestLiveCodeDocumentsComposedInstall$' -count=1 -json",
+      "exit_code": 0,
+      "log": "install.jsonl.gz",
+      "log_sha256": "13dc5239ab0f0360e02be325af0ad37009edec358ac6faead5810003dec305c3",
+      "passed": 1,
+      "passed_including_subtests": 4,
+      "failed": 0,
+      "failed_including_subtests": 0,
+      "skipped": 0,
+      "skipped_including_subtests": 0,
+      "tests": [
+        "TestLiveCodeDocumentsComposedInstall"
+      ]
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/live -run '^(TestCodeTopic|TestDocRelay)' -count=1 -json",
+      "exit_code": 0,
+      "log": "live.jsonl.gz",
+      "log_sha256": "a0cf7ba009b44560f16bc6640c6d9c92de92f34b952f7eb136e11246ff911171",
+      "passed": 8,
+      "passed_including_subtests": 8,
+      "failed": 0,
+      "failed_including_subtests": 0,
+      "skipped": 0,
+      "skipped_including_subtests": 0,
+      "tests": [
+        "TestCodeTopicOneStreamFansOut",
+        "TestCodeTopicSyncAnswersRequester",
+        "TestCodeTopicRefusalEndsOnlyThatSubscriber",
+        "TestCodeTopicGapKeepsClientIdentity",
+        "TestCodeTopicRestartKeepsOwnedClient",
+        "TestCodeTopicCloseAndReopen",
+        "TestCodeTopicEpochChangeGapsAll",
+        "TestDocRelayAdmissionCache"
+      ]
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/machined/wire -count=1 -json",
+      "exit_code": 0,
+      "log": "wire.jsonl.gz",
+      "log_sha256": "99f21216dc6d0c52fc2f5301a96fa1a7d89519dbf1e2cb6798439953d3ac9e14",
+      "passed": 27,
+      "passed_including_subtests": 295,
+      "failed": 0,
+      "failed_including_subtests": 0,
+      "skipped": 0,
+      "skipped_including_subtests": 0,
+      "tests": [
+        "TestBurstGoldenProjection",
+        "TestDocumentGoldenPayloads",
+        "TestDocumentPayloadBoundaries",
+        "TestSequencedDocumentGoldenPayloads",
+        "TestFieldsUsesCanonicalSchema",
+        "TestStdlibOnly",
+        "TestIndependentAck",
+        "TestMAC",
+        "TestRefusalOrder",
+        "TestReadWrite",
+        "TestMessageBuilders",
+        "TestTaggedValueRefusals",
+        "TestFixedStreamRefusals",
+        "TestStreamIOFailures",
+        "TestPrimitiveFailures",
+        "TestStreamTruncationAndDataBoundaries",
+        "TestWireCorpus",
+        "TestMovedOffReturnedLiteralEvent",
+        "TestMovedOffLiteralEvent",
+        "TestMovedOffAttribution",
+        "TestPresenceSnapshotGolden",
+        "TestReconciledEventLiteralAndRefusals",
+        "TestProtocolThreeSessionAdmissionLiteral",
+        "TestProtocolFourSessionCancellationLiteral",
+        "TestTranscriptLiteralAndRefusals",
+        "TestFileWrittenGoldenProjection",
+        "FuzzFrame"
+      ]
+    },
+    {
+      "cwd": ".",
+      "command": "cargo test -p smithers-machined --test golden",
+      "exit_code": 0,
+      "log": "rust.log",
+      "log_sha256": "3c17f08f70e25bab5acad606a521702753711f27b27f54a1b357dfa7fe81a22b",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "pnpm exec vitest run test/LiveDoc.test.ts && pnpm typecheck",
+      "exit_code": 0,
+      "log": "ts.log",
+      "log_sha256": "1a207d78743f6388ae7a7e92fad7bbb4862ffbf6a87de4afb5e611e34fe9fcda",
+      "passed": 9,
+      "failed": 0,
+      "skipped": 0,
+      "typecheck_exit_code": 0
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go build -p 4 ./...",
+      "exit_code": 0,
+      "log": "build.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "cwd": ".",
+      "command": "~/lanes/lane-gates.sh",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "deferred": 0,
+      "log": "gate.log",
+      "log_sha256": "ee393bee7461ed869b7f91b23a087055e43162d9437f3ae3698ef2cf85c2c41f"
+    }
+  ],
+  "activation": {
+    "LiveCodeDocuments": "unset; unchanged",
+    "lspConfinementReceipt": "empty; unchanged"
+  },
+  "ticket_complete": false,
+  "remaining_lane_implementation": [],
+  "blocked_on": [
+    {
+      "item": "ADR 0003 topology/security/TS owner acceptance (T-COL-11)",
+      "source": "docs/architecture/0003-live-code-co-editing.md:3"
+    },
+    {
+      "item": "Real install, second Mac and signed-in members",
+      "source": ".specs/engineering/checks/C-J3-04.md:4"
+    },
+    {
+      "item": "Real daemon/microVM K7 qualification",
+      "source": ".specs/engineering/checks/C-DUR-04.md:25"
+    },
+    {
+      "item": "Reference Mac and second Mac latency",
+      "source": ".specs/engineering/checks/C-PERF-03.md:4"
+    }
+  ],
+  "limitations": [
+    "Fake-daemon component evidence does not qualify durability, reference-host latency or owner acceptance.",
+    "No source or activation change. Mirror recovery inapplicable to deleted host mirror.",
+    "Current ticket and ADR daemon-only relay supersede older delta host-owned wording."
+  ],
+  "prior_landing": "117e87587d0902001b2415cc98f37c1ea6ede57c is on fetched main",
+  "unlanded_branch": "fr-unlanded/fr14-col08b-r3 absent in fetched refs and ls-remote",
+  "environment": {
+    "database_namespace": "fr14_col08br4",
+    "database_url": "postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable",
+    "preamble": "export LANE=fr14-col08b-r4; source ~/lanes/env.sh; export GOMAXPROCS=8; export CARGO_TARGET_DIR=/home/lane/.cache/cargo-target-gate"
+  },
+  "issue_audit": "Read-only REST: #3630 open; #3553 latest comment requests 3f/38 reviews. ADR remains proposed. Lead holds claim; no issue writes."
+}
