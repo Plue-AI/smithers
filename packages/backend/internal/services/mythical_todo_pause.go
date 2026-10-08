@@ -15,7 +15,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -50,10 +49,6 @@ func todoRunExecuting(item db.MythicalItem) bool {
 }
 
 func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
-	info := middleware.AuthInfoFromContext(ctx)
-	if info == nil || info.CredentialKind() != middleware.CredentialPerson {
-		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "A person must control this TODO"}
-	}
 	signaler, ok := s.launcher.(mythicalSignaler)
 	if !ok || s.todoFlow == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()

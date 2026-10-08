@@ -1,6 +1,20 @@
 [
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_confirmation_profiles_authorization_integration_test.go",
+    "tests": [
+      "TestAccessConfirmationProfilesComposedInstallPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "access_delegated_pause_authorization_integration_test.go",
+    "tests": [
+      "TestAccessDelegatedStopResumeEffectsComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_members_browser_test.go",
     "tests": [
       "TestAccessMembersBrowserPostgres"
@@ -468,9 +482,18 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "rehearsal_admission_order_test.go",
+    "tests": [
+      "TestRehearsalDaemonProbeWaitsForRepositorySetup",
+      "TestRehearsalMainReplacementKeepsValidTree"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "rehearsal_admission_test.go",
     "tests": [
-      "TestRehearsalAdmissionOrderingAndHandoff"
+      "TestRehearsalAdmissionOrderingAndHandoff",
+      "TestRehearsalAdmissionReviewConfirmedStop"
     ]
   },
   {
