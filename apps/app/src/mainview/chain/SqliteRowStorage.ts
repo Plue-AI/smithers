@@ -590,30 +590,38 @@ export const openSqliteRowStorage = async (
       // and before the first mutation. Independent adapters have independent
       // mirrors; serializing their writes alone cannot prevent a stale commit.
       const checked = new Set<string>()
+      const rowReads: Array<Extract<RowWrite, { kind: "row" }>> = []
       for (const write of writes) {
         const identity = write.kind === "metadata"
           ? JSON.stringify(["metadata", write.key])
           : JSON.stringify(["row", write.collectionId, write.rowKey])
-        // Later writes to the same row were derived from earlier writes in
-        // this batch. Only its first expectation names the committed base.
+        // Later writes to one row depend on its earlier writes in this batch.
         if (checked.has(identity)) continue
         checked.add(identity)
-        if (write.kind === "metadata") {
-          const rows = await database.execute<{ readonly value: string }>(
-            `SELECT value FROM ${METADATA_TABLE_NAME} WHERE key = ?`, [write.key]
-          )
-          if ((rows[0]?.value ?? null) !== write.expectedValue) throw new DurableStorageConflictError(write.key)
-        } else {
-          const rows = await database.execute<{ readonly version_key: string; readonly value: string }>(
-            `SELECT version_key, value FROM ${ROW_TABLE_NAME} WHERE collection_id = ? AND row_key = ?`,
-            [write.collectionId, write.rowKey]
-          )
-          if (rows[0]?.version_key !== write.expectedVersionKey || rows[0]?.value !== write.expectedValue) {
+        if (write.kind === "row") { rowReads.push(write); continue }
+        const rows = await database.execute<{ readonly value: string }>(
+          `SELECT value FROM ${METADATA_TABLE_NAME} WHERE key = ?`, [write.key]
+        )
+        if ((rows[0]?.value ?? null) !== write.expectedValue) throw new DurableStorageConflictError(write.key)
+      }
+      // Each browser SQLite statement crosses a worker boundary. Bound the
+      // parameter count while checking the complete read set before any write.
+      for (let offset = 0; offset < rowReads.length; offset += 64) {
+        const chunk = rowReads.slice(offset, offset + 64)
+        const rows = await database.execute<{ readonly collection_id: string; readonly row_key: string; readonly version_key: string; readonly value: string }>(
+          `SELECT collection_id, row_key, version_key, value FROM ${ROW_TABLE_NAME} WHERE ${chunk.map(() => "(collection_id = ? AND row_key = ?)").join(" OR ")}`,
+          chunk.flatMap(write => [write.collectionId, write.rowKey])
+        )
+        const observed = new Map(rows.map(row => [JSON.stringify([row.collection_id, row.row_key]), row]))
+        for (const write of chunk) {
+          const row = observed.get(JSON.stringify([write.collectionId, write.rowKey]))
+          if (row?.version_key !== write.expectedVersionKey || row?.value !== write.expectedValue) {
             throw new DurableStorageConflictError(`${write.collectionId}/${write.rowKey}`)
           }
         }
       }
-      for (const write of writes) {
+      for (let index = 0; index < writes.length; index++) {
+        const write = writes[index]!
         if (write.kind === "metadata") {
           if (write.value === null) {
             await database.execute(`DELETE FROM ${METADATA_TABLE_NAME} WHERE key = ?`, [write.key])
@@ -633,13 +641,22 @@ export const openSqliteRowStorage = async (
           )
           continue
         }
+        const chunk = [write]
+        // Keep metadata, deletes and repeated row updates in their original
+        // order; SQLite applies an upsert's values from left to right.
+        while (chunk.length < 64 && index + 1 < writes.length) {
+          const next = writes[index + 1]!
+          if (next.kind !== "row" || next.row === undefined) break
+          chunk.push(next)
+          index++
+        }
         await database.execute(
           `INSERT INTO ${ROW_TABLE_NAME} (collection_id, row_key, version_key, value)
-           VALUES (?, ?, ?, ?)
+           VALUES ${chunk.map(() => "(?, ?, ?, ?)").join(", ")}
            ON CONFLICT(collection_id, row_key) DO UPDATE SET
              version_key = excluded.version_key,
              value = excluded.value`,
-          [write.collectionId, write.rowKey, write.row.versionKey, write.row.value]
+          chunk.flatMap(entry => [entry.collectionId, entry.rowKey, entry.row!.versionKey, entry.row!.value])
         )
       }
       await database.execute("COMMIT")

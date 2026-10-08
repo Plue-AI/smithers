@@ -43,6 +43,71 @@ const wire = (rows: Record<string, { readonly versionKey: string; readonly data:
   JSON.stringify(rows)
 
 describe("normalized SQLite row storage", () => {
+  for (const count of [1, 64, 65, 130]) test(`commits ${count} rows with bounded complete reads and upserts`, async () => {
+    const db = database()
+    const calls: Array<{ sql: string; params: ReadonlyArray<unknown> }> = []
+    try {
+      const storage = await openSqliteRowStorage({ execute: async (sql, params = []) => {
+        calls.push({ sql, params })
+        return db.host.execute(sql, params)
+      } }, { collections, schemaVersion: 9 })
+      calls.length = 0
+      storage.beginBatch()
+      for (let index = 0; index < count; index++) storage.applyRows("notes", [{
+        key: `s:n${index}`, versionKey: "v1", data: { id: `n${index}`, body: `body ${index}` }
+      }])
+      storage.commitBatch()
+      await storage.flush()
+      expect(calls[0]!.sql).toBe("BEGIN IMMEDIATE")
+      expect(calls.at(-1)!.sql).toBe("COMMIT")
+      expect(calls.filter(call => call.sql.startsWith("SELECT"))).toHaveLength(Math.ceil(count / 64))
+      expect(calls.filter(call => call.sql.startsWith("INSERT"))).toHaveLength(Math.ceil(count / 64))
+      expect(calls.every(call => call.params.length <= 256)).toBe(true)
+      const rows = db.sqlite.query(`SELECT row_key, version_key, value FROM ${ROW_TABLE_NAME}`).all() as Array<{ row_key: string; version_key: string; value: string }>
+      expect(rows).toHaveLength(count)
+      for (let index = 0; index < count; index++) expect(rows.find(row => row.row_key === `s:n${index}`)).toEqual({
+        row_key: `s:n${index}`, version_key: "v1", value: JSON.stringify({ id: `n${index}`, body: `body ${index}` })
+      })
+    } finally { db.sqlite.close() }
+  })
+
+  test("a conflict in a later read chunk prevents every row and metadata write", async () => {
+    const db = database()
+    try {
+      const storage = await openSqliteRowStorage(db.host, { collections, schemaVersion: 9 })
+      db.sqlite.run(`INSERT INTO ${ROW_TABLE_NAME} VALUES (?, ?, ?, ?)`, ["notes", "s:n64", "outside", JSON.stringify({ id: "n64", body: "outside" })])
+      const before = db.sqlite.query(`SELECT * FROM ${ROW_TABLE_NAME}`).all()
+      storage.beginBatch()
+      storage.storage.setItem("custom-metadata", "must not commit")
+      for (let index = 0; index < 65; index++) storage.applyRows("notes", [{
+        key: `s:n${index}`, versionKey: "v1", data: { id: `n${index}`, body: "stale" }
+      }])
+      storage.commitBatch()
+      await expect(storage.flush()).rejects.toBeInstanceOf(DurableStorageConflictError)
+      expect(db.sqlite.query(`SELECT * FROM ${ROW_TABLE_NAME}`).all()).toEqual(before)
+      expect(db.sqlite.query(`SELECT value FROM ${METADATA_TABLE_NAME} WHERE key = ?`).get("custom-metadata")).toBeNull()
+    } finally { db.sqlite.close() }
+  })
+
+  test("batched repeated upserts and a delete retain their input order", async () => {
+    const db = database()
+    try {
+      const storage = await openSqliteRowStorage(db.host, { collections, schemaVersion: 9 })
+      storage.beginBatch()
+      storage.applyRows("notes", [
+        { key: "s:a", versionKey: "v1", data: { id: "a", body: "first" } },
+        { key: "s:a", expectedVersionKey: "v1", versionKey: "v2", data: { id: "a", body: "second" } },
+        { key: "s:a", expectedVersionKey: "v2", versionKey: undefined, data: undefined },
+        { key: "s:a", versionKey: "v3", data: { id: "a", body: "last" } }
+      ])
+      storage.commitBatch()
+      await storage.flush()
+      expect(db.sqlite.query(`SELECT row_key, version_key, value FROM ${ROW_TABLE_NAME}`).all()).toEqual([
+        { row_key: "s:a", version_key: "v3", value: JSON.stringify({ id: "a", body: "last" }) }
+      ])
+    } finally { db.sqlite.close() }
+  })
+
   test("repairs old truncated Code toast keys before boot dismisses their full ids", async () => {
     const db = database()
     const spec = [{ id: "app-toasts", schema: z.object({ id: z.string(), title: z.string() }) }]

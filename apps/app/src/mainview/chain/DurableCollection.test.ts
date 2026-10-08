@@ -169,7 +169,7 @@ const appendToNormalizedHost = async (retained: number) => {
     statements: executed.length,
     rowWrites: executed
       .filter((entry) => entry.sql.includes(`INSERT INTO ${ROW_TABLE_NAME}`))
-      .map((entry) => ({ rowKey: entry.params[1], data: JSON.parse(String(entry.params[3])) as unknown })),
+      .flatMap((entry) => Array.from({ length: entry.params.length / 4 }, (_, index) => ({ rowKey: entry.params[index * 4 + 1], data: JSON.parse(String(entry.params[index * 4 + 3])) as unknown }))),
     storedCount: stored.length,
     appendedRows: stored.filter((row) => row.row_key.startsWith("s:appended-")).map((row) => JSON.parse(row.value) as unknown)
   }
@@ -211,8 +211,8 @@ describe("durable persistence against a normalized row host", () => {
     expect(large.parseCalls).toBe(small.parseCalls)
     expect(large.parsedChars).toBe(small.parsedChars)
     expect(large.parsedChars).toBeLessThan(10_000)
-    // One BEGIN, two CAS reads, two row upserts and one COMMIT per append.
-    expect(small.statements).toBe(30)
+    // One BEGIN, one complete CAS read, one two-row upsert and one COMMIT per append.
+    expect(small.statements).toBe(20)
     expect(large.statements).toBe(small.statements)
 
     expect(small.rowWrites).toEqual(small.expectedWrites)
