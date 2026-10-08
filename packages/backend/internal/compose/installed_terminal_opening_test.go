@@ -14,13 +14,14 @@ import (
 )
 
 // Inspect kernel membership, independently of host manager counts and output.
-// A fresh session group containing any Ben process must contain only permanently
-// dropped Ben processes. Empty/reaped groups do not count as valid sessions.
+// Count every live broker session, including erroneous root-only or foreign-user
+// groups. New groups must contain only permanently dropped Ben processes.
+// Empty/reaped groups do not count as valid sessions.
 const installedTerminalSessionInventory = `import json, pathlib, sys, time
 root = pathlib.Path("/sys/fs/cgroup/smithers/sessions")
 assert root.is_dir() and (root / "cgroup.procs").is_file(), root
 def inventory():
-    groups = []
+    groups = {}
     for group in root.glob("s[0-9]*"):
         try:
             rows = []
@@ -31,12 +32,11 @@ def inventory():
                     continue
                 fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
                 rows.append(([int(x) for x in fields["Uid"].split()], [int(x) for x in fields["Gid"].split()], [int(x) for x in fields["Groups"].split()]))
-            if any(20001 in row[0] for row in rows):
-                assert all(row == ([20001]*4, [20001]*4, [20000]) for row in rows), rows
-                groups.append(group.name)
+            if rows:
+                groups[group.name] = rows
         except FileNotFoundError:
             continue
-    return sorted(groups)
+    return groups
 p = pathlib.Path(sys.argv[1])
 if sys.argv[2] == "save":
     p.write_text(json.dumps(inventory()))
@@ -45,8 +45,11 @@ else:
     expected = int(sys.argv[2])
     deadline = time.monotonic() + 5
     while True:
-        current = set(inventory())
+        rows = inventory()
+        current = set(rows)
         if baseline <= current and len(current - baseline) == expected:
+            for group in current - baseline:
+                assert all(row == ([20001]*4, [20001]*4, [20000]) for row in rows[group]), (group, rows[group])
             break
         assert time.monotonic() < deadline, (baseline, current, expected)
         time.sleep(.02)

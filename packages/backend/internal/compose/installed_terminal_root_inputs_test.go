@@ -173,11 +173,16 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 	cases := []struct{ name, key, value string }{
 		{"empty name", "", "x"},
 		{"numeric name", "1BAD", "x"},
+		{"non ASCII name", "BÉN", "x"},
+		{"newline name", "BAD\nKEY", "x"},
 		{"equals in name", "BAD=KEY", "x"},
 		{"nul in name", "BAD\x00KEY", "x"},
 		{"oversized name", strings.Repeat("K", 257), "x"},
 		{"nul in value", "SAFE", "x\x00y"},
 		{"oversized URL", "SMITHERS_URL", strings.Repeat("x", 4097)},
+		{"empty URL", "SMITHERS_URL", ""},
+		{"NUL URL", "SMITHERS_URL", "http://localhost/\x00"},
+		{"NUL token path", "SMITHERS_TOKEN_FILE", "/run/smithers/20001/token/\x00"},
 		{"foreign uid path", "SMITHERS_TOKEN_FILE", "/run/smithers/20002/token/sessions/foreign/token"},
 		{"path traversal", "SMITHERS_TOKEN_FILE", "/run/smithers/20001/token/sessions/../foreign/token"},
 		{"oversized envelope", "SAFE", strings.Repeat("x", 256*1024)},
@@ -204,6 +209,8 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 				}
 			}
 			marker := "/workspace/trm-invalid-" + session
+			installedTerminalInventory(t, observer, marker, "save")
+			defer installedShell(t, observer, fmt.Sprintf("rm -f %q", marker+".inventory"))
 			command := workspaceapi.Command{Args: []string{"/bin/sh", "-c", "touch " + marker + "; printf INVALID_ADMISSION_EXECUTED"}, Environment: environment}
 			switch cell.name {
 			case "foreign working directory":
@@ -240,9 +247,11 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 				require.Nil(t, terminal)
 			}
 			installedShell(t, observer, fmt.Sprintf("test ! -e %q && test \"$(id -u)\" = 20001", marker))
+			installedTerminalInventory(t, observer, marker, "0")
 		})
 	}
 	testInstalledTerminalAdmissionControl(t, writer, branch)
+	testInstalledTerminalEnvironmentBoundaries(t, writer, branch, observer, phase)
 	testInstalledTerminalOpeningReplacement(t, writer, branch, observer, phase)
 	testInstalledTerminalTokenPaths(t, writer, branch, observer, phase)
 }
@@ -278,12 +287,80 @@ func testInstalledTerminalAdmissionControl(t *testing.T, writer microsandbox.Mem
 	}
 }
 
+const installedTerminalEnvironmentCanary = `import os, sys
+assert os.getresuid() == (20001, 20001, 20001)
+assert os.getresgid() == (20001, 20001, 20001)
+assert os.getgroups() == [20000]
+assert os.environ["SAFE"] == sys.argv[1]
+assert os.environ["K"*256] == "boundary-name"
+assert len(os.environ["SMITHERS_URL"]) == 4096
+assert all(os.environ["ENTRY_"+str(i)] == "boundary-entry" for i in range(995))
+assert not os.path.exists(sys.argv[2])
+print("ENVIRONMENT_BOUNDARY_OK", end="")`
+
+// Positive controls exercise the literal limits through the real broker. Shell
+// syntax in environment values is data; it must not run while constructing the
+// session, and valid boundary values must survive the dropped-uid launcher.
+func testInstalledTerminalEnvironmentBoundaries(t *testing.T, writer microsandbox.MemberSessionCredentials, branch string, observer *rehearsalTerminal, phase string) {
+	t.Helper()
+	t.Run(phase+"/environment literal boundary values", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		defer cancel()
+		session := uuid.NewString()
+		token := []byte("smithers_environment_boundary")
+		digest := workspaceapi.SessionCredentialIdentity(token)
+		path, err := writer.PutSessionToken(ctx, branch, session, token, "")
+		require.NoError(t, err)
+		defer func() {
+			cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+			defer stop()
+			require.NoError(t, writer.DeleteSessionToken(cleanup, branch, session, digest))
+		}()
+		marker := "/workspace/trm-env-" + session
+		installedTerminalInventory(t, observer, marker, "save")
+		defer installedShell(t, observer, fmt.Sprintf("rm -f %q", marker+".inventory"))
+		literal := "$(touch " + marker + "); `touch " + marker + "`\n'\"; café"
+		environment := map[string]string{
+			"SMITHERS_TOKEN_FILE":    path,
+			"SMITHERS_URL":           "http://localhost/" + strings.Repeat("x", 4079),
+			"SAFE":                   literal,
+			strings.Repeat("K", 256): "boundary-name",
+		}
+		// Four entries above plus 995 plus the runtime's TERM = 1,000.
+		for i := 0; i < 995; i++ {
+			environment[fmt.Sprintf("ENTRY_%d", i)] = "boundary-entry"
+		}
+		command := workspaceapi.Command{
+			Args:        []string{"/bin/sh", "-c", `exec python3 -c "$1" "$2" "$3"`, "trm-env", installedTerminalEnvironmentCanary, literal, marker},
+			Environment: environment,
+		}
+		terminal, err := writer.OpenTerminal(ctx, branch, session, digest, command)
+		require.NoError(t, err)
+		defer terminal.Close()
+		done := make(chan struct{})
+		var output []byte
+		var readErr error
+		go func() { output, readErr = io.ReadAll(terminal); close(done) }()
+		select {
+		case <-done:
+			require.NoError(t, readErr)
+			require.Equal(t, "ENVIRONMENT_BOUNDARY_OK", string(output))
+		case <-ctx.Done():
+			_ = terminal.Close()
+			<-done
+			t.Fatal("valid environment boundaries did not complete")
+		}
+		installedShell(t, observer, fmt.Sprintf("test ! -e %q", marker))
+		installedTerminalInventory(t, observer, marker, "0")
+	})
+}
+
 // Linux validates the exact guest workloads and the canary's failure receipt.
 // This is deliberately separate from native execution evidence.
 func TestInstalledTerminalStartupWorkload(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace, installedTerminalSessionInventory} {
+	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace, installedTerminalSessionInventory, installedTerminalEnvironmentCanary} {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			out, err := exec.CommandContext(t.Context(), python, "-c", "import sys; compile(sys.argv[1], '<terminal-acceptance>', 'exec')", script).CombinedOutput()
 			require.NoError(t, err, string(out))
