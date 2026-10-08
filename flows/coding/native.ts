@@ -141,7 +141,7 @@ export const nativeLayer = (options: NativeOptions) =>
           ChildProcess.make(helperPath(options), ["--local"], {
             stdin: Stream.make(new TextEncoder().encode(input)),
             ...(options.nativeRepositoryToken !== undefined && "operation" in request &&
-                ["publish_source", "stack.candidate", "stack.propose"].includes(String(request.operation))
+                ["import_source", "publish_source", "stack.candidate", "stack.propose"].includes(String(request.operation))
               ? { extendEnv: true, env: { SMITHERS_NATIVE_REPOSITORY_TOKEN: Redacted.value(options.nativeRepositoryToken) } }
               : {}),
             cwd: options.repositoryPath

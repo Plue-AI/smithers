@@ -130,6 +130,8 @@ fn config_valid(config: &Config, path: &Path) -> bool {
             )
 }
 
+pub(super) const TOKEN_CREDENTIAL_HELPER: &str = "!f() { printf 'username=smithers\npassword=%s\n' \"$SMITHERS_NATIVE_REPOSITORY_TOKEN\"; }; f";
+
 fn credential(config: &Config) -> Result<String> {
     // The executable consumes its private landing credential before ordinary
     // tools start and supplies it only to the installed native transport.
@@ -272,7 +274,7 @@ fn push_source(repo: &ReadonlyRepo, config: &Config, source: &Source, name: &str
         (
             "credential.helper",
             if std::env::var_os("SMITHERS_NATIVE_REPOSITORY_TOKEN").is_some() {
-                "!f() { printf 'username=smithers\npassword=%s\n' \"$SMITHERS_NATIVE_REPOSITORY_TOKEN\"; }; f".into()
+                TOKEN_CREDENTIAL_HELPER.into()
             } else {
                 format!("cache --socket {}", config.credential_socket)
             },

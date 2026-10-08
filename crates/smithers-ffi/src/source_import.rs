@@ -126,13 +126,36 @@ fn git(
     #[cfg(test)]
     command.args(["-c", "protocol.file.allow=always"]);
     if let Some((binding, objects)) = transport {
+        // The host's private transport token survives publisher retirement.
+        // It is supplied only to this installed helper, never repository tools.
+        let helper = match std::env::var("SMITHERS_NATIVE_REPOSITORY_TOKEN") {
+            Ok(token) => {
+                if token.is_empty()
+                    || token.len() > 4096
+                    || token.bytes().any(|b| b <= 32 || b >= 127)
+                {
+                    return Err(Failure::new(
+                        "source_import_unavailable",
+                        "source credential is invalid",
+                    ));
+                }
+                command.env("SMITHERS_NATIVE_REPOSITORY_TOKEN", token);
+                super::source_publish::TOKEN_CREDENTIAL_HELPER.to_owned()
+            }
+            Err(std::env::VarError::NotPresent) => {
+                format!("cache --socket {}", binding.credential_socket)
+            }
+            Err(_) => {
+                return Err(Failure::new(
+                    "source_import_unavailable",
+                    "source credential is invalid",
+                ));
+            }
+        };
         command
             .env("GIT_OBJECT_DIRECTORY", objects)
             .arg("-c")
-            .arg(format!(
-                "credential.helper=cache --socket {}",
-                binding.credential_socket
-            ))
+            .arg(format!("credential.helper={helper}"))
             .args(["-c", "credential.useHttpPath=true"]);
         for (key, value) in managed_transport()? {
             command.arg("-c").arg(format!("{key}={value}"));

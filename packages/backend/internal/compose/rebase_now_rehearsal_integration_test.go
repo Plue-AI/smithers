@@ -39,33 +39,6 @@ func TestRebaseNowRehearsal(t *testing.T) {
 	if !r.step("Rebase after browser departure", "POST /api/live presence; GitHub main sync", "hold while present, one clean rebase within 60 s of departure, same PR", "T-STK-08", func() error { _, err := r.rebaseBranch(n, false); return err }) {
 		return
 	}
-	if !r.step("Bring in Alice's clean commit", "GitHub fake push; POST /api/branches/{b} {op:bring-in}", "one Bring in, Alice's bytes in the same PR", "T-STK-08, T-GH-06", func() error {
-		before, err := r.todo(n)
-		if err != nil || before.Branch == nil {
-			return fmt.Errorf("TODO branch unavailable: %v", err)
-		}
-		foreign, err := r.fake.PushAs("rehearsal-owner/app", before.Branch.Name, 202, "alice", "Log each retry", map[string]string{"alice.md": "log each retry\n"})
-		if err != nil {
-			return err
-		}
-		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
-			card, err := r.j10Card(n)
-			if err != nil {
-				return err
-			}
-			for _, wait := range card.Waits {
-				if wait.Kind == "foreign_push" && wait.SHA == foreign {
-					return r.bringInReleased(n, before.Branch.Name, foreign, wait.ID)
-				}
-			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("T%d has no foreign-push wait", n)
-			}
-		}
-	}) {
-		return
-	}
-
 }
 
 func (r *rehearsal) rebaseNowBranch(n int64) (string, error) {

@@ -131,18 +131,20 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 			return ack, err
 		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !connection.current() {
-		return ack, ErrUnauthorized
-	}
 	// The stream scope is derived from the host workspace, not the event or
 	// caller. This prevents an authenticated connection crossing repositories.
 	var repository int64
-	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&repository); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE`, branch).Scan(&repository); err != nil {
 		return ack, err
 	}
 	if scope.TenantID != fmt.Sprint(repository) || scope.PrincipalID != "branch:"+branch {
+		return ack, ErrUnauthorized
+	}
+	// Database authority precedes the registry fence, as for captures. A
+	// native opener may be waiting on the registry while holding admission.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !connection.current() {
 		return ack, ErrUnauthorized
 	}
 	if legacyReplay && b.Parts == 0 {

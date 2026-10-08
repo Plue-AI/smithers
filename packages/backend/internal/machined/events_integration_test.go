@@ -120,11 +120,19 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 		}
 		peerDone <- nil
 	}()
+	// Native admission retains the workspace key until its outbox drains.
+	// The authenticated burst must commit without waiting for that admission.
+	wake, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wake.Rollback(context.Background()) })
+	_, err = wake.Exec(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch)
+	require.NoError(t, err)
 	received, err := link.Receive(ctx)
 	require.NoError(t, err)
 	require.Equal(t, event, received)
 	require.NoError(t, s.DispatchBurst(ctx, link, scope, received))
 	require.NoError(t, <-peerDone)
+	require.NoError(t, wake.Rollback(ctx))
 	counts(1, 2, 1)
 	ack, err = s.Apply(ctx, connection, scope, event)
 	require.NoError(t, err)
