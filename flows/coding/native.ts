@@ -325,7 +325,7 @@ export const nativeLayer = (options: NativeOptions) =>
                 "source_refused",
                 "Native source import requires exact immutable source refs (" +
                   sourceRefusal("native_import_identity_invalid", {
-                    commits: request.commits?.map((c) => c?.commitId)
+                    commits: Array.isArray(request.commits) ? request.commits.map((c) => c?.commitId) : []
                   }) + ")"
               )
             )

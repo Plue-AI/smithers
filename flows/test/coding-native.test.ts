@@ -293,3 +293,12 @@ test("native import distinguishes malformed refs from duplicate identities befor
   }
   assert.deepEqual(await readdir(root), ["helper"])
 })
+
+test("malformed import collections still return their named refusal", async (t) => {
+  const { root, run } = await fixture(t, {})
+  const commits = "not-an-array" as unknown as ReadonlyArray<{ commitId: string; ref: string }>
+  const error = await run(true, (native) => Effect.flip(native.importSource!({ requestId, commits })))
+  assert.equal(error.code, "source_refused")
+  assert.match(error.message, /source_refused: native_import_identity_invalid/)
+  assert.deepEqual(await readdir(root), ["helper"])
+})
