@@ -361,8 +361,8 @@ path = "lib.rs"
 	var processDaemons *machined.Registry
 	var ownerKeys modelproxy.Keys
 	var upstreams map[string]string
-	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
-		// No TODO runs in the held-build file journey. The app agent below
+	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" || check == "C-J4-sync" {
+		// No coding runs in the file journeys or first-poll health check. The app agent below
 		// still uses its real model host and registered /file dispatch.
 	} else if realMicroVM {
 		registry = pinnedMicroVMRegistry(t)
