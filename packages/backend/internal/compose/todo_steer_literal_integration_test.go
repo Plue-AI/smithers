@@ -86,7 +86,9 @@ func TestTodoSteerTransitionLiteralCases(t *testing.T) {
 				require.NoError(t, err)
 				if !c.accepted {
 					require.Equal(t, 409, status, receipt)
-					require.Equal(t, "todo_closed", receipt["code"])
+					require.Equal(t, "todo_transition_refused", receipt["code"])
+					require.Equal(t, c.from[m], receipt["from"])
+					require.Equal(t, "steer", receipt["trigger"])
 					require.Equal(t, before, after)
 					require.Equal(t, events, count())
 					refused++

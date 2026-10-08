@@ -15,6 +15,14 @@ import (
 // Answer reads its own open wait, even when an independent branch wait or
 // pause masks the run. A terminal item never signals a retained old question.
 func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
+	testTodoAnswerTransitionLiteralCases(t, "question", "Use option A", "Use option B")
+}
+
+func TestTodoApprovalAnswerTransitionLiteralCases(t *testing.T) {
+	testTodoAnswerTransitionLiteralCases(t, "approval", "true", "false")
+}
+
+func testTodoAnswerTransitionLiteralCases(t *testing.T, kind, answer, late string) {
 	h := newTodoSignalLiteralInstall(t)
 	cases := []struct {
 		engine   string
@@ -49,7 +57,7 @@ func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
 		for m := 0; m < 4; m++ {
 			t.Run(fmt.Sprintf("%s/answer/branch=%t/paused=%t", c.engine, m%2 == 1, m >= 2), func(t *testing.T) {
 				waitID := fmt.Sprintf("q-%s-%d", c.engine, m)
-				question := map[string]any{"id": waitID, "kind": "question", "prompt": "Which?", "since": "2026-10-02T12:00:00Z", "signal": services.TodoWaitSignal{Scope: scope, Target: target, Flow: "todo", Run: "run-1", Name: waitID}}
+				question := map[string]any{"id": waitID, "kind": kind, "prompt": "Which?", "since": "2026-10-02T12:00:00Z", "signal": services.TodoWaitSignal{Scope: scope, Target: target, Flow: "todo", Run: "run-1", Name: waitID}}
 				waits := []map[string]any{question}
 				if m%2 == 1 {
 					waits = append(waits, map[string]any{"id": "f", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:01Z"})
@@ -62,7 +70,7 @@ func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
 				require.NoError(t, err)
 				events := count("product_job_events", "event_type LIKE 'todo.%'")
 				signals := count("product_job_requests", "operation='flow.runtime.signal'")
-				body := fmt.Sprintf(`{"wait":%q,"answer":"Use option A"}`, waitID)
+				body := fmt.Sprintf(`{"wait":%q,"answer":%q}`, waitID, answer)
 				status, receipt := h.call(t, "POST", body, "answer-"+waitID, "answer")
 				after, err := h.q.GetMythicalItem(t.Context(), h.item.ID)
 				require.NoError(t, err)
@@ -88,7 +96,7 @@ func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
 				require.Len(t, saved.Waits, len(waits))
 				require.NotNil(t, saved.Waits[0].SettledAt)
 				require.Equal(t, "maya", saved.Waits[0].AnsweredBy)
-				require.Equal(t, "Use option A", saved.Waits[0].Answer)
+				require.Equal(t, answer, saved.Waits[0].Answer)
 				if m%2 == 1 {
 					require.Nil(t, saved.Waits[1].SettledAt)
 				}
@@ -105,7 +113,7 @@ func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
 				status, _ = h.call(t, "POST", body, "answer-"+waitID, "answer")
 				require.Equal(t, 202, status)
 				require.Equal(t, events+1, count("product_job_events", "event_type LIKE 'todo.%'"))
-				status, receipt = h.call(t, "POST", fmt.Sprintf(`{"wait":%q,"answer":"Use option B"}`, waitID), "late-"+waitID, "answer")
+				status, receipt = h.call(t, "POST", fmt.Sprintf(`{"wait":%q,"answer":%q}`, waitID, late), "late-"+waitID, "answer")
 				require.Equal(t, 409, status, receipt)
 				require.Equal(t, "answered", receipt["code"])
 				require.Equal(t, "maya", receipt["answered_by"])
@@ -117,5 +125,5 @@ func TestTodoAnswerTransitionLiteralCases(t *testing.T) {
 	}
 	require.Equal(t, 44, accepted)
 	require.Equal(t, 16, refused)
-	t.Logf("literal Answer cases: %d accepted, %d refused; %d late answers refused", accepted, refused, accepted)
+	t.Logf("literal %s Answer cases: %d accepted, %d refused; %d late answers refused", kind, accepted, refused, accepted)
 }

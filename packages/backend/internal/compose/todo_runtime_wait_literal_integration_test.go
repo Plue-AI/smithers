@@ -18,6 +18,14 @@ import (
 // Enter the production ingestion transaction and read the installed HTTP card;
 // a refused question cannot hide behind a passing helper-only guard test.
 func TestTodoRuntimeQuestionTransitionLiteralCases(t *testing.T) {
+	testTodoRuntimeHumanWaitTransitionLiteralCases(t, "ask", "question")
+}
+
+func TestTodoRuntimeApprovalTransitionLiteralCases(t *testing.T) {
+	testTodoRuntimeHumanWaitTransitionLiteralCases(t, "confirm", "approval")
+}
+
+func testTodoRuntimeHumanWaitTransitionLiteralCases(t *testing.T, humanKind, todoKind string) {
 	var service *services.MythicalService
 	h := newTodoLiteralInstall(t, func(s *services.MythicalService, _ *pgxpool.Pool) { service = s })
 	ctx := t.Context()
@@ -63,7 +71,7 @@ func TestTodoRuntimeQuestionTransitionLiteralCases(t *testing.T) {
 	accepted, refused := 0, 0
 	for _, c := range cases {
 		for _, mode := range modes {
-			t.Run(c.engine+"/question/"+mode.name, func(t *testing.T) {
+			t.Run(c.engine+"/"+todoKind+"/"+mode.name, func(t *testing.T) {
 				checks := map[string]any{"todo": true, "run_launched": true, "run_attached": true, "attempts": []map[string]any{{"attempt": 1, "run_id": "run-1"}}, "flowSource": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 				if mode.branch {
 					checks["waits"] = []map[string]any{{"id": "foreign", "kind": "foreign_push", "prompt": "Push", "since": "2026-10-02T12:00:00Z"}}
@@ -107,7 +115,7 @@ func TestTodoRuntimeQuestionTransitionLiteralCases(t *testing.T) {
 				before, err := h.q.GetMythicalItem(ctx, h.item.ID)
 				require.NoError(t, err)
 				events := count()
-				update.Checkpoint.Run = &flowruntime.Run{RunID: mode.run, Status: "running", PendingWaits: []flowruntime.PendingWait{{RunID: "step-3", Token: "question-token", Name: "choice", Request: json.RawMessage(`{"kind":"ask","prompt":"Backoff or fixed delay?"}`)}}}
+				update.Checkpoint.Run = &flowruntime.Run{RunID: mode.run, Status: "running", PendingWaits: []flowruntime.PendingWait{{RunID: "step-3", Token: "question-token", Name: "choice", Request: json.RawMessage(fmt.Sprintf(`{"kind":%q,"prompt":"Backoff or fixed delay?"}`, humanKind))}}}
 				valid := update.Checkpoint.Run.PendingWaits[0]
 				invalidWaits := []flowruntime.PendingWait{
 					{RunID: "step-3", Token: "question-token", Name: "choice", Request: json.RawMessage(`{"kind":"unknown","prompt":"Choose"}`)},
@@ -150,7 +158,7 @@ func TestTodoRuntimeQuestionTransitionLiteralCases(t *testing.T) {
 					require.NoError(t, json.Unmarshal(after.Checks, &facts))
 					require.Len(t, facts.Waits, 1+boolQuestionInt(mode.branch))
 					question := facts.Waits[len(facts.Waits)-1]
-					require.Equal(t, "question", question.Kind)
+					require.Equal(t, todoKind, question.Kind)
 					require.Nil(t, question.SettledAt)
 					require.Equal(t, "run-1", question.Signal.Run)
 					if mode.branch {
@@ -222,7 +230,7 @@ func TestTodoRuntimeQuestionTransitionLiteralCases(t *testing.T) {
 	}
 	require.Equal(t, 28, accepted)
 	require.Equal(t, 137, refused)
-	t.Logf("literal runtime question matrix: %d accepted, %d refused", accepted, refused)
+	t.Logf("literal runtime %s matrix: %d accepted, %d refused", todoKind, accepted, refused)
 }
 
 func boolQuestionInt(value bool) int {

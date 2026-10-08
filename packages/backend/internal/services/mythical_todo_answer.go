@@ -36,9 +36,9 @@ type TodoWaitSignal struct {
 	Name   string             `json:"name"`
 }
 
-// mythicalProjectWaits keeps the item's questions in step with the human
+// mythicalProjectWaits keeps the item's run waits in step with the human
 // waits its bound todo run reports (the run summary's pendingWaits). Each
-// HumanTask `ask` the run parks on opens one question (Needs you), kept
+// HumanTask ask or confirm opens one question or approval (Needs you), kept
 // with the wait point an answer signals. A question the run no longer
 // reports, and every question of a run that ended, is withdrawn
 // unanswered. Only AnswerTodo settles a question with an answer; nothing
@@ -78,7 +78,7 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 	for i := range checks.Waits {
 		wait := &checks.Waits[i]
 		known[wait.ID] = true
-		if wait.Kind != "question" || wait.SettledAt != nil || wait.Signal == nil || wait.Signal.Run != runID || pending[wait.ID] {
+		if (wait.Kind != "question" && wait.Kind != "approval") || wait.SettledAt != nil || wait.Signal == nil || wait.Signal.Run != runID || pending[wait.ID] {
 			continue
 		}
 		withdrawn := now
@@ -116,8 +116,8 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 	}
 }
 
-// todoQuestionWait reads one pending wait as a question: a named HumanTask
-// `ask` with a prompt. Its id is stable for that park (the holding
+// todoQuestionWait reads a named HumanTask ask or confirm with a prompt.
+// Confirm projects an approval and keeps its boolean answer protocol. Its id is stable for that park (the holding
 // execution and its durable token), so a re-ask is a new question.
 func todoQuestionWait(wait flowruntime.PendingWait, update flowdispatch.ProjectionUpdate, runID string, now time.Time) (TodoWait, bool) {
 	var request struct {
@@ -130,7 +130,7 @@ func todoQuestionWait(wait flowruntime.PendingWait, update flowdispatch.Projecti
 	if json.Unmarshal(raw, &text) == nil {
 		raw = json.RawMessage(text)
 	}
-	if json.Unmarshal(raw, &request) != nil || request.Kind != "ask" || strings.TrimSpace(request.Prompt) == "" || wait.Token == "" {
+	if json.Unmarshal(raw, &request) != nil || (request.Kind != "ask" && request.Kind != "confirm") || strings.TrimSpace(request.Prompt) == "" || wait.Token == "" {
 		return TodoWait{}, false
 	}
 	name := wait.Name
@@ -141,7 +141,11 @@ func todoQuestionWait(wait flowruntime.PendingWait, update flowdispatch.Projecti
 		return TodoWait{}, false
 	}
 	sum := sha256.Sum256([]byte(wait.RunID + "\x00" + wait.Token))
-	return TodoWait{ID: "q-" + hex.EncodeToString(sum[:8]), Kind: "question", Prompt: request.Prompt, Since: now,
+	kind, prefix := "question", "q-"
+	if request.Kind == "confirm" {
+		kind, prefix = "approval", "a-"
+	}
+	return TodoWait{ID: prefix + hex.EncodeToString(sum[:8]), Kind: kind, Prompt: request.Prompt, Since: now,
 		Signal: &TodoWaitSignal{Scope: update.Scope, Target: update.Checkpoint.Target, Flow: update.Checkpoint.FlowID, Run: runID, Name: name}}, true
 }
 
@@ -347,7 +351,7 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 						return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 					}
 				}
-				if wait.ID == input.Wait && (wait.Kind == "question" || wait.Kind == "conflict") {
+				if wait.ID == input.Wait && (wait.Kind == "question" || wait.Kind == "approval" || wait.Kind == "conflict") {
 					index = i
 				}
 			}
@@ -355,6 +359,11 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 				return &TodoControlError{http.StatusNotFound, "wait_not_found", "user", "Question not found"}
 			}
 			wait := &checks.Waits[index]
+			if wait.Kind != "conflict" {
+				if err := middleware.RequirePerson(ctx, "answer a human wait"); err != nil {
+					return err
+				}
+			}
 			switch {
 			case wait.SettledAt != nil && wait.AnsweredBy == person.Username && wait.Answer == input.Answer:
 				return nil
@@ -369,6 +378,9 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 				if err := s.validateConflictDone(ctx, q, item, *wait, input.Answer); err != nil {
 					return err
 				}
+			}
+			if wait.Kind == "approval" && input.Answer != "true" && input.Answer != "false" {
+				return &TodoControlError{400, "invalid_answer", "user", "Approval requires true or false"}
 			}
 			now := s.now().UTC()
 			wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
@@ -392,6 +404,9 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 				return err
 			}
 			payload, _ := json.Marshal(input.Answer)
+			if wait.Kind == "approval" {
+				payload = json.RawMessage(input.Answer)
+			}
 			authorization, _ := json.Marshal(map[string]any{"repositoryId": repositoryID, "userId": userID, "itemId": id, "wait": input.Wait})
 			projection, _ := json.Marshal(map[string]any{"kind": "mythical-answer", "itemId": id, "wait": input.Wait})
 			_, err = signaler.SignalInTx(ctx, tx, flowdispatch.SignalRequest{Scope: signal.Scope, RequestID: "todo-answer:" + id + ":" + input.Wait,

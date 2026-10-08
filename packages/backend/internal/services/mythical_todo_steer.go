@@ -408,7 +408,8 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	}
 	state := todoState(item)
 	if state == "merged" || state == "dropped" {
-		return item, todoSteer{}, false, false, &TodoControlError{http.StatusConflict, "todo_closed", "conflict", "TODO is closed"}
+		input.Op = "steer"
+		return item, todoSteer{}, false, false, todoTransitionRefused(item, input, "TODO is closed")
 	}
 	// Only a recognized reopen can queue fresh work without a live destination.
 	// Unknown retained proposals must not consume input or lose their verified head.

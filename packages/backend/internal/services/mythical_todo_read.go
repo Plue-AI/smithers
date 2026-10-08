@@ -167,6 +167,10 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
 				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
 		}
+		if wait.Kind == "approval" && wait.Signal != nil {
+			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Approve", "args": map[string]any{"answer": "true"}},
+				map[string]any{"tag": "todo.answer", "label": "Reject", "args": map[string]any{"answer": "false"}})
+		}
 		if wait.Kind == "moved_off" && wait.AnsweredBy == "" && mythicalSHA.MatchString(wait.SHA) {
 			if s.movedReturn != nil {
 				actions = append(actions, map[string]any{"tag": "todo.return-to-item", "label": fmt.Sprintf("Return to T%d", item.Number.Int64)})

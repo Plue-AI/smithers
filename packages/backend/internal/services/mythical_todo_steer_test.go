@@ -153,7 +153,7 @@ func TestTodoSteerRefusesClosedOrUnboundRun(t *testing.T) {
 		_, _, _, _, err := prepareTodoSteer(ctx, item, input, json.RawMessage(`{}`), map[string]string{"person": "member"}, time.Now())
 		var refusal *TodoControlError
 		require.ErrorAs(t, err, &refusal)
-		require.Equal(t, "todo_closed", refusal.Code)
+		require.Equal(t, "todo_transition_refused", refusal.Code)
 	}
 	for _, change := range []func(*db.MythicalItem){
 		func(i *db.MythicalItem) { i.RequestRunID = "" },
