@@ -52,11 +52,12 @@ func TestSessionRootInputsValidated(t *testing.T) {
 }
 
 func TestSessionAdmissionFailsClosed(t *testing.T) {
-	for _, mode := range []string{"no provider", "no authenticated connection", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "unregistered agent"} {
+	for _, mode := range []string{"no provider", "no authenticated connection", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "short actor", "long actor", "member with run", "invalid via", "cancelled", "unregistered agent"} {
 		t.Run(mode, func(t *testing.T) {
 			sessions, guest := lspConfinementLink(t)
 			sessions = sessions.WithPresenceVia("terminal")
 			user := SessionUser{"ben", 20001}
+			ctx := context.Background()
 			switch mode {
 			case "no provider":
 				sessions.rpc = nil
@@ -74,11 +75,28 @@ func TestSessionAdmissionFailsClosed(t *testing.T) {
 				sessions = sessions.WithActor(nil, "")
 			case "zero actor":
 				sessions = sessions.WithActor(make([]byte, 16), "")
+			case "short actor":
+				sessions = sessions.WithActor([]byte{7}, "")
+			case "long actor":
+				sessions = sessions.WithActor([]byte(strings.Repeat("7", 17)), "")
+			case "member with run":
+				sessions = sessions.WithActor([]byte(strings.Repeat("7", 16)), "forged-run")
+			case "invalid via":
+				sessions = sessions.WithPresenceVia("agent:../../root")
+			case "cancelled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
 			case "unregistered agent":
 				user = SessionUser{"agent", 19999}
 			}
-			_, err := sessions.OpenSession(context.Background(), user, SessionPTY, nil, nil)
+			_, err := sessions.OpenSession(ctx, user, SessionPTY, nil, nil)
 			require.Error(t, err)
+			// TCP shares admission, even though it has no explicit member selector.
+			if mode != "unregistered agent" && mode != "member with run" {
+				_, err = sessions.TCPConnect(ctx, 8080)
+				require.Error(t, err)
+			}
 			if mode != "closed boot" {
 				requireGuestSilent(t, guest)
 			}

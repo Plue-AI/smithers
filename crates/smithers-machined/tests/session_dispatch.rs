@@ -1094,6 +1094,58 @@ fn TestSessionRootInputsValidated() {
         let reply = control::handle(&packet(operation, &body), &mut supervisor).unwrap();
         assert_eq!(reply[4], 255, "operation {operation}");
     }
+    // Construct hostile wire values directly: the client encoder must not
+    // sanitize them before they reach the privileged production dispatcher.
+    let user_bytes = conn::structure_bytes(&[
+        conn::field(1, [0, 3, b'b', b'e', b'n']),
+        conn::field(2, 20001u32.to_be_bytes()),
+    ]);
+    let bad_size = conn::structure_bytes(&[
+        conn::field(1, 0u16.to_be_bytes()),
+        conn::field(2, 24u16.to_be_bytes()),
+    ]);
+    for (kind, extra) in [
+        (0, vec![]),
+        (4, vec![]),
+        (2, vec![]),                             // exec needs an executable
+        (1, vec![conn::field(3, [0, 1, 0, 0])]), // empty executable
+        (1, vec![conn::field(3, [0, 1, 0, 2, b'x', 0])]),
+        (1, vec![conn::field(3, [0, 1, 0, 1, 255])]),
+        (3, vec![conn::field(3, [0, 1, 0, 1, b'x'])]),
+        (1, vec![conn::field(4, bad_size.clone())]),
+        (3, vec![conn::field(4, bad_size)]),
+        (1, vec![conn::field(7, b"/workspace/root-canary")]),
+    ] {
+        let mut fields = vec![conn::field(1, &user_bytes), conn::field(2, [kind])];
+        fields.extend(extra);
+        fields.push(conn::field(5, [7; 16]));
+        let reply =
+            control::handle(&packet(6, &conn::structure_bytes(&fields)), &mut supervisor).unwrap();
+        assert_eq!(reply[4], 255, "kind {kind}");
+    }
+    for (port, principal) in [(0, [7; 16]), (8080, [0; 16])] {
+        let args = conn::structure_bytes(&[
+            conn::field(1, (port as u16).to_be_bytes()),
+            conn::field(2, principal),
+        ]);
+        assert_eq!(
+            control::handle(&packet(7, &args), &mut supervisor).unwrap()[4],
+            255
+        );
+    }
+    // A malformed roster must not revoke the already admitted member.
+    let member = conn::structure_bytes(&[
+        conn::field(1, [0, 3, b'b', b'e', b'n']),
+        conn::field(2, 20001u32.to_be_bytes()),
+    ]);
+    let duplicate_roster = conn::structure_bytes(&[conn::field(
+        1,
+        [2u16.to_be_bytes().as_slice(), &member, &member].concat(),
+    )]);
+    assert_eq!(
+        control::handle(&packet(16, &duplicate_roster), &mut supervisor).unwrap()[4],
+        255
+    );
     for payload in [
         vec![3, 0, 0, 0, 80],
         vec![3, 0, 24, 0, 0],
@@ -1118,6 +1170,10 @@ fn TestSessionRootInputsValidated() {
     }
     let observed = state.lock().unwrap();
     assert_eq!(observed.spawns.len(), 1);
+    assert_eq!(
+        observed.ready_calls, 1,
+        "malformed requests consumed admission"
+    );
     assert!(observed.closes.is_empty());
     assert!(observed.kills.is_empty());
     assert!(observed.inputs.is_empty());
@@ -1130,4 +1186,47 @@ fn TestSessionRootInputsValidated() {
     send(&mut supervisor, frame(id, vec![4, 2]));
     assert_eq!(state.lock().unwrap().resizes, [(id, 100, 30)]);
     assert_eq!(state.lock().unwrap().signals, [(id, 2)]);
+    let kill = conn::structure_bytes(&[conn::field(
+        1,
+        conn::tagged(3, &[conn::field(1, id.to_be_bytes())]),
+    )]);
+    assert_eq!(
+        control::handle(&packet(9, &kill), &mut supervisor).unwrap()[4],
+        9
+    );
+    assert!(supervisor.entries().next().is_none());
+    for (operation, body) in [
+        (
+            8,
+            conn::structure_bytes(&[conn::field(1, id.to_be_bytes())]),
+        ),
+        (
+            15,
+            conn::structure_bytes(&[
+                conn::field(1, id.to_be_bytes()),
+                conn::field(2, 0u64.to_be_bytes()),
+            ]),
+        ),
+        (
+            10,
+            conn::structure_bytes(&[
+                conn::field(1, [0, 3, b'r', b'u', b'n']),
+                conn::field(2, id.to_be_bytes()),
+            ]),
+        ),
+        (17, frame(id, vec![1, 0, b'x']).encode().unwrap()),
+        (17, frame(id, vec![3, 0, 24, 0, 80]).encode().unwrap()),
+        (17, frame(id, vec![4, 2]).encode().unwrap()),
+    ] {
+        assert_eq!(
+            control::handle(&packet(operation, &body), &mut supervisor).unwrap()[4],
+            255
+        );
+    }
+    let observed = state.lock().unwrap();
+    assert_eq!(observed.kills, [id]);
+    assert!(observed.inputs.is_empty());
+    assert!(observed.closes.is_empty());
+    assert_eq!(observed.resizes, [(id, 100, 30)]);
+    assert_eq!(observed.signals, [(id, 2)]);
 }

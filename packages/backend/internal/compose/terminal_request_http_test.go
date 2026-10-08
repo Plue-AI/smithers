@@ -42,6 +42,17 @@ func (r *requestHTTPRuntime) InspectWorkspace(ctx context.Context, id string) (w
 	}
 }
 func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
+	testTerminalRequestHTTP(t, false)
+}
+
+// This host receipt proves HTTP validation before the asynchronous launch door.
+// Real broker uid/drop, descriptors and token-path races require the mini.
+func TestTerminalRootInputsValidatedBeforeUse(t *testing.T) {
+	testTerminalRequestHTTP(t, true)
+}
+
+func testTerminalRequestHTTP(t *testing.T, rootInputs bool) {
+	t.Helper()
 	f := presenceInstall(t)
 	q := db.New(f.pool)
 	owner, err := q.GetBranchMachineOwner(t.Context())
@@ -65,6 +76,8 @@ func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
 		require.NoError(t, service.WaitForProvisioning(ctx))
 	}()
 	cfg := testConfigAllFlagsOn()
+	// Keep this validation matrix below the fixture rate budget.
+	cfg.RateLimit.TerminalOpenPerMin = 100
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
@@ -86,6 +99,38 @@ func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
 		router.ServeHTTP(response, req)
 		return response
 	}
+	if rootInputs {
+		for _, field := range []string{
+			`"owner":0`, `"member":0`, `"uid":0`, `"gid":0`,
+			`"login":"root"`, `"session":"foreign-session"`,
+			`"argv":["/workspace/root-canary"]`, `"shell":"/workspace/root-canary"`,
+			`"environment":{"LD_PRELOAD":"/workspace/root-canary.so"}`,
+			`"cwd":"/root"`, `"token_file":"/run/smithers/20002/token/sessions/foreign/token"`,
+			`"cols":0`, `"rows":0`, `"run":"foreign-run"`,
+		} {
+			t.Run(field, func(t *testing.T) {
+				out := call(`{"branch":"`+branch.ID+`",`+field+`}`, true)
+				require.Equal(t, 400, out.Code, out.Body.String())
+			})
+		}
+		for _, body := range []string{
+			`{}`, `{"branch":null}`, `{"branch":0}`, `{"branch":""}`,
+			`{"branch":"` + branch.ID + `"} {"uid":0}`,
+			`{"branch":"` + strings.Repeat("b", 4096) + `"}`,
+		} {
+			out := call(body, true)
+			require.Equal(t, 400, out.Code, out.Body.String())
+		}
+		select {
+		case <-runtime.entered:
+			t.Fatal("invalid root inputs reached the launch provider")
+		default:
+		}
+		var tokens int
+		require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens`).Scan(&tokens))
+		require.Zero(t, tokens)
+	}
+
 	body := `{"branch":"` + branch.ID + `"}`
 	require.Equal(t, 401, call(body, false).Code)
 	require.Equal(t, 400, call(`{"branch":"`+branch.ID+`","owner":0}`, true).Code)
