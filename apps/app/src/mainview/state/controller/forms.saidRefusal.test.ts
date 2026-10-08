@@ -49,7 +49,7 @@ const fixture = (submit: (door: Door) => string) => {
   }
   const store = {
     session: () => ({ activeRepoKey: null }),
-    collections: { cards, messages, toasts: new Map(), repositories: new Map(), workingCopies: new Map(), harnesses: new Map() },
+    collections: { cards, messages, toasts: Object.assign(new Map(), { subscribeChanges: () => ({ unsubscribe: () => {} }) }), repositories: new Map(), workingCopies: new Map(), harnesses: new Map() },
     dispatch: (event: { type: string; card?: Card; text?: string }) => {
       if (event.type === "card.upsert") cards.set(event.card!.id, event.card!)
       if (event.type === "message.appended") append(event.text!)

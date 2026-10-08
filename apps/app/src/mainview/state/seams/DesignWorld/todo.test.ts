@@ -276,14 +276,14 @@ describe("withDesignTodos beside the provider: the source picks the seed or the 
       expect(await h.seam.mergeTodo(8, "abc1234")).toEqual({ value: "Requested" })
       await waitFor(() => (h.todo(8)?.payload.requests[0]?.state === "failed") && h.todo(10)?.payload.requests.every(request => request.state === "failed") === true)
       expect(h.todo(10)?.payload.requests.map(request => [request.operation, request.state, request.error]).sort())
-        .toEqual([["steer", "failed", "Stack unavailable Not your fault."], ["stop", "failed", "Stack unavailable Not your fault."]])
+        .toEqual([["steer", "failed", "Stack unavailable Not your fault."], ["stop", "failed", "Could not open the TODO."]])
       expect(h.todo(8)?.payload.requests.map(request => [request.operation, request.state, request.error]))
         .toEqual([["merge", "failed", "Stack unavailable Not your fault."]])
       expect(h.calls.filter(call => call.method !== "GET")).toEqual([
-        { url: "https://install.test/api/todos/10", method: "POST", body: { op: "steer", text: "Keep the old route" } },
-        { url: "https://install.test/api/todos/10", method: "POST", body: { op: "stop" } },
+        { url: "https://install.test/api/todos/10", method: "POST", body: { steer: "Keep the old route" } },
         { url: "https://install.test/api/todos/8/merge", method: "POST", body: { reviewed_head_sha: "abc1234" } }
       ])
+      expect(h.calls.some(call => call.url.endsWith("/api/todos/10") && call.method === "GET")).toBe(true)
       expect(await h.seam.newTodo({ text: "Real prompt" })).toEqual({ value: "Drafted" })
       expect(h.drafts()[0]!.audience_member_id).toBe("ben")
       expect(JSON.stringify(h.design.world().todos)).toBe(before)
@@ -347,7 +347,9 @@ describe("withDesignTodos beside the provider: the source picks the seed or the 
 
   test("before the host answers, a provider list sends each waiting flow to the install once, in order, and leaves the seed alone", async () => {
     const listed = deferred<Response>()
-    const h = await hostHarness("probe", (url, init) => url.endsWith("/api/todos") && !init?.method ? listed.promise : json({ state: "accepted", n: 10 }, 202))
+    const h = await hostHarness("probe", (url, init) => url.endsWith("/api/todos") && !init?.method ? listed.promise
+      : !init?.method ? json({ ...designTodoCard(h.design.world(), h.seeded("T10")), run: { id: "run-10", attempt: 1, indicators: [] } })
+      : json({ state: "accepted", n: 10 }, 202))
     try {
       const before = JSON.stringify(h.design.world().todos)
       const requested = { value: "Requested" }
@@ -360,10 +362,12 @@ describe("withDesignTodos beside the provider: the source picks the seed or the 
       const posts = () => h.calls.filter(call => call.method === "POST")
       await waitFor(() => posts().length === 3)
       expect(posts()).toEqual([
-        { url: "https://install.test/api/todos/10", method: "POST", body: { op: "steer", text: "Keep the old route" } },
+        { url: "https://install.test/api/todos/10", method: "POST", body: { steer: "Keep the old route" } },
         { url: "https://install.test/api/todos/10", method: "POST", body: { op: "stop" } },
         { url: "https://install.test/api/todos/8/merge", method: "POST", body: { reviewed_head_sha: "abc1234" } }
       ])
+      await waitFor(() => h.todo(10)?.payload.requests.find(request => request.operation === "stop")?.attempt === 1)
+      expect(h.calls.filter(call => call.url.endsWith("/api/todos/10") && call.method === "GET")).toHaveLength(1)
       expect(JSON.stringify(h.design.world().todos)).toBe(before)
       expect(h.toasts).toEqual([])
       // Answered for good: the next flow goes straight to the install without asking again.

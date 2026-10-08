@@ -435,7 +435,7 @@ test("a persisted request without its old workspace binding fails visibly instea
     resumed.resume()
     await waitFor(() => t.cards()[0]?.payload.phase === "failed")
     expect(workflowLaunchOf(t.cards()[0])?.error).toMatchObject({ stage: "preparation", code: "box_gone" })
-    expect(t.cards()[0]?.payload.error).toContain("box")
+    expect(t.cards()[0]?.payload.error).toBe("No branch is available for owner/repo")
     expect(t.launched).toEqual([])
   } finally { held.resolve(true); await resumedCtx?.dispose(); await t.close() }
 })

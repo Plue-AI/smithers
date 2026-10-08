@@ -46,7 +46,7 @@ test("a Cloud issue launches its workspace flow without waiting for a background
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return {value:"launched"} }
   }, { draftFromIssue: async () => { throw Error("Issue flows never draft a TODO") } })
-  expect(await flows.runIssueFlow("repro",9,issue.repo)).toContain("/box.open")
+  expect(await flows.runIssueFlow("repro",9,issue.repo)).toBe("No branch is available for owner/repo")
   expect(calls).toHaveLength(0)
   const workspaceId = "11111111-1111-4111-8111-111111111111"
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: issue.repo, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise

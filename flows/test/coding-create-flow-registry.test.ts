@@ -153,8 +153,9 @@ test("a freshly imported repository carries the first-party issue and PR review 
     }
     if (name === "review/change") {
       // The stack's engine review (mythicalReviewFlow): read-only, and its
-      // first line is the verdict the stack reads.
-      assert.deepEqual(flow.descriptor.capabilities, ["fs:read:**"])
+      // first line is the verdict the stack reads. Immutable candidate context
+      // replaces filesystem capabilities so the reviewer cannot inspect live state.
+      assert.deepEqual(flow.descriptor.capabilities, [])
       assert.match(flow.body.text, /first line is exactly `approve` or `request-changes`/)
       assert.equal(flow.descriptor.provenance.source, "repository-host")
     }

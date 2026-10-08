@@ -172,6 +172,7 @@ export const repositoryHttpFixture = (): import("./seams/SeamContext").SeamConte
     const url = new URL(input, "https://app.test")
     if (url.pathname.startsWith("/api/user/github-repos/") || url.pathname === "/api/notifications/list") return Response.json([])
     const path = url.pathname.replace("/api/repos/owner/repo", "")
+    if (path === "") return Response.json({ full_name: "owner/repo" })
     if (path === "/issues") return Response.json(issues.filter(issue => url.searchParams.get("state") === "all" || issue.state === (url.searchParams.get("state") ?? "open")))
     const match = /^\/issues\/(\d+)(\/comments)?$/.exec(path)
     if (match) {
