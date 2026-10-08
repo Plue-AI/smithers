@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -168,10 +169,27 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	q := db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben"})
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	installOwner := owner
+	removal := len(scopeChecks) > 3 && scopeChecks[3]
+	if removal {
+		installOwner, err = q.CreateUser(ctx, db.CreateUserParams{Username: "terminal-admin", LowerUsername: "terminal-admin"})
+		require.NoError(t, err)
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, installOwner.ID)
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "demo", LowerName: "demo", DefaultBookmark: "main"})
 	require.NoError(t, err)
+	if removal {
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,github_login) VALUES($1,$2,'write','ben')`, repo.ID, owner.ID)
+		require.NoError(t, err)
+		adminHash := sha256.Sum256([]byte("terminal-admin-cookie"))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: installOwner.ID, Username: installOwner.Username, SessionKey: hex.EncodeToString(adminHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		bus := revocation.NewBus(pool, q)
+		require.NoError(t, bus.Start(ctx))
+		routes.SetRevocationSource(bus)
+		t.Cleanup(func() { routes.SetRevocationSource(nil) })
+	}
 	binding := fmt.Sprintf(`{"owner_login":"ben","repository_name":"demo","repository_id":%d}`, repo.ID)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	verified := strings.TrimSuffix(binding, "}") + fmt.Sprintf(`,"last_access_check_at":%q}`, time.Now().UTC().Format(time.RFC3339Nano))
@@ -214,7 +232,11 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		cfg.Server.PublicURL = origin
 		cfg.Server.AllowedOrigins = []string{origin}
 		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
-		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, wiki: wiki, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}})
+		deps := conformanceServices{pool: pool, wiki: wiki, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}}
+		if removal {
+			deps.members = &routes.MembersHandler{Service: &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}
+		}
+		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, deps)
 		server.Start()
 		t.Cleanup(server.Close)
 		url := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/repos/ben/demo/workspace/sessions/" + session + "/terminal"
@@ -270,6 +292,40 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		exerciseTerminalAppendConfirmation(t, ctx, pool, q, owner, repo.ID, first)
 	}
 	checkScope(first, false)
+	if removal {
+		invoke := packagedTerminalCLIInvoker(t, ctx, origin, first)
+		code, receipt := invoke("wiki", "show", "--owner", "ben", "--repo", "demo")
+		require.Zero(t, code, receipt)
+		request, err := http.NewRequestWithContext(ctx, "DELETE", origin+"/api/members/ben", nil)
+		require.NoError(t, err)
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "terminal-admin-cookie"})
+		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		request.Header.Set("X-CSRF-Token", "csrf")
+		request.Header.Set("Origin", origin)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		body, err := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, http.StatusNoContent, response.StatusCode, string(body))
+		// Reuse the same compiled CLI/token file, without minting or switching
+		// identity. Guest cleanup may lag; persisted authority is already dead.
+		for _, argv := range [][]string{{"todo", "new", "--text", "Removed member", "--idempotencyKey", "removed-terminal"}, {"wiki", "show", "--owner", "ben", "--repo", "demo"}} {
+			code, receipt := invoke(argv...)
+			require.Equal(t, 1, code, receipt)
+			require.Equal(t, "unauthenticated", receipt["code"], receipt)
+			require.Equal(t, "permission", receipt["class"], receipt)
+		}
+		require.Eventually(t, func() bool { return runtime.current(session) == "" }, 5*time.Second, 10*time.Millisecond)
+		var remaining int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE user_id=$1`, owner.ID).Scan(&remaining))
+		require.Zero(t, remaining)
+		for _, table := range []string{"mythical_items", "approvals", "product_job_requests"} {
+			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&remaining))
+			require.Zero(t, remaining, table)
+		}
+		return
+	}
 	// Another host service has no ownership of this retained session file.
 	// Its create-only attempt must fail, revoke its candidate, and leave A usable.
 	replica := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))

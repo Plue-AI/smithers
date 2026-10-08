@@ -12,7 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
@@ -21,10 +24,23 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
 func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
+	conflictDoneAwakeNativeComposedInstall(t, false)
+}
+
+// C-SEC-05: authenticated terminal admission, compiled CLI, real PostgreSQL,
+// native conflict inspection and durable signal admission. The terminal PTY and
+// token writer are doubles; this does not qualify microVM process isolation.
+func TestTerminalConflictDoneNativeComposedInstall(t *testing.T) {
+	conflictDoneAwakeNativeComposedInstall(t, true)
+}
+
+func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool) {
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
 	}
@@ -69,8 +85,20 @@ func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
 	client.BindMachineRepository(engine.WithMachineRepository)
 	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client))
 	service := services.NewMythicalService(f.pool, client)
-	signals := &conflictDoorProvider{}
-	service.SetLauncher(signals)
+	storeJobs, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: storeJobs, Projector: service,
+		Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Fatal("answer admission must not await execution")
+			return nil, nil
+		})})
+	require.NoError(t, err)
+	service.SetLauncher(dispatcher)
+	signals := func() int {
+		var n int
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&n))
+		return n
+	}
 	registry := new(machined.Registry)
 	t.Cleanup(func() { require.NoError(t, registry.Close()) })
 	bindConflictValidator(service, workspaces, registry.InspectConflict)
@@ -101,11 +129,40 @@ func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	httpCfg.Server.PublicURL, httpCfg.Server.AllowedOrigins = origin, []string{origin}
-	server.Config.Handler = todoMergeComposeRouter(httpCfg, q, f.pool, &routes.MythicalHandler{Service: service})
+	var terminalRuntime *conflictTerminalRuntime
+	var session string
+	if terminal {
+		terminalRuntime = &conflictTerminalRuntime{replacementRuntime: replacementRuntime{repoID: f.row.RepositoryID}, row: f.row, head: edited}
+		require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO workspace_sessions(workspace_id,repository_id,user_id,status,kind) VALUES($1,$2,$3,'running','terminal') RETURNING id`, f.row.ID, f.row.RepositoryID, f.user.ID).Scan(&session))
+		terminalService := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(terminalRuntime), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+		server.Config.Handler = hostStatusProductionRouter(httpCfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: f.pool, mythical: &routes.MythicalHandler{Service: service}, terminal: &routes.WorkspaceTerminalHandler{Service: terminalService, AllowedOrigins: []string{origin}}})
+	} else {
+		server.Config.Handler = todoMergeComposeRouter(httpCfg, q, f.pool, &routes.MythicalHandler{Service: service})
+	}
 	server.Start()
 	t.Cleanup(server.Close)
+	var invoke func(...string) (int, map[string]any)
+	if terminal {
+		url := "ws" + strings.TrimPrefix(origin, "http") + "/api/repos/presence-owner/app/workspace/sessions/" + session + "/terminal"
+		conn, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"session=" + f.cookie}}, Subprotocols: []string{"terminal"}})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.CloseNow() })
+		token := terminalRuntime.current(session)
+		require.NotEmpty(t, token)
+		invoke = packagedTerminalCLIInvoker(t, ctx, origin, token)
+	}
 	call := func(expected int, code string) {
 		t.Helper()
+		if invoke != nil {
+			exit, body := invoke("todo", "answer", "T1", "done", "--wait", "conflict-1")
+			if expected == 202 {
+				require.Zero(t, exit, body)
+			} else {
+				require.Equal(t, 1, exit, body)
+				require.Equal(t, code, body["code"], body)
+			}
+			return
+		}
 		req, err := http.NewRequest("POST", origin+"/api/todos/1/answer", strings.NewReader(`{"wait":"conflict-1","answer":"done"}`))
 		require.NoError(t, err)
 		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
@@ -166,9 +223,33 @@ func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration=$3 WHERE id=$1`, item.ID, raw, integration)
 	require.NoError(t, err)
 	call(409, "still_conflicted")
-	require.Zero(t, signals.signals)
+	require.Zero(t, signals())
 	require.NoError(t, os.WriteFile(filepath.Join(guest, "a.txt"), []byte("resolved\n"), 0600))
 	call(202, "")
 	call(202, "")
-	require.Equal(t, 1, signals.signals)
+	require.Equal(t, 1, signals())
+}
+
+// Only transport and token-file placement are simulated; authority is issued by
+// the production terminal route, and conflict checks use the native daemon.
+type conflictTerminalRuntime struct {
+	replacementRuntime
+	row  db.Workspace
+	head string
+}
+
+func (r *conflictTerminalRuntime) ReadFile(context.Context, string, string) ([]byte, error) {
+	return json.Marshal(map[string]any{"version": 1, "workspace_id": r.row.ID, "repository_id": r.row.RepositoryID,
+		"clone_url": "http://127.0.0.1:4000/presence-owner/app.git", "source_bookmark": r.row.TargetBookmark,
+		"source_revision": r.head, "initialized_at": "2026-10-08T00:00:00Z"})
+}
+func (r *conflictTerminalRuntime) ExecuteCommand(_ context.Context, _ string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	switch strings.Join(command.Args, " ") {
+	case "git remote get-url origin":
+		return workspaceapi.CommandResult{Stdout: "http://127.0.0.1:4000/presence-owner/app.git\n"}, nil
+	case "git cat-file -e " + r.head + "^{commit}":
+		return workspaceapi.CommandResult{}, nil
+	default:
+		return workspaceapi.CommandResult{}, fmt.Errorf("unexpected terminal initialization command")
+	}
 }

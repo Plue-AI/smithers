@@ -17,6 +17,10 @@ import (
 // credential, and the compiled guest CLI crosses the real install HTTP/auth/catalog
 // boundary. Only the PTY and guest token file are doubles: CI has no microVM.
 // Physical Linux-arm64 guest isolation still requires the native check.
+func TestTerminalMemberRemovalComposedInstall(t *testing.T) {
+	terminalReplacementInstall(t, false, false, false, false, true)
+}
+
 func TestTerminalTokenScopeComposedInstall(t *testing.T) {
 	terminalReplacementInstall(t, false, true)
 }
