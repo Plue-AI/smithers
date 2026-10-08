@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/compose"
 	"github.com/smithersai/smithers/packages/backend/internal/hostbackup"
 	"github.com/smithersai/smithers/packages/backend/postgres"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
@@ -418,4 +419,159 @@ func TestRealRestoreFromAnArchivedBackupOnAnotherStateRoot(t *testing.T) {
 	require.Equal(t, "workspace", string(through))
 	require.NoFileExists(t, filepath.Join(other, ".upgrade-incomplete"))
 	require.DirExists(t, carried)
+}
+
+// The restore command itself, dispatched as the installed bundle's backend:
+// it verifies the backup, runs the bundle's doctor, loads the dump with the
+// bundle's PostgreSQL programs, moves the live trees aside, grants and runs
+// the bundle's `smthrs host start --bundle`, and clears the marker. The
+// bundle is a fixture whose PostgreSQL members exec the real PostgreSQL 18
+// programs; its doctor and CLI record how they were run. launchd and a real
+// microVM doctor are the Mac mini's to prove.
+func TestRealDispatchedRestoreRunsFromTheInstalledBundle(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	bin, major := testdb.Tools(t)
+	require.Equal(t, 18, major)
+	old := compose.BuildVersion
+	compose.BuildVersion = "1.3.0"
+	t.Cleanup(func() { compose.BuildVersion = old })
+
+	// The install that was backed up.
+	source := realInstall{t: t, bin: bin, state: installState(t)}
+	const seeded = "a=one\nb=two\nc=three"
+	database := source.start(source.state)
+	source.query(database, "CREATE TABLE backup_proof(key text PRIMARY KEY, value text NOT NULL); INSERT INTO backup_proof VALUES ('a','one'),('b','two'),('c','three')")
+	write(t, filepath.Join(source.state, "repositories/o/r/proof"), "files", 0600)
+	write(t, filepath.Join(source.state, "config/secrets.json"), "install key", 0600)
+	at := time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)
+	backup, err := hostbackup.Backup(t.Context(), hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: source.state, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Authority: &liveDatabase{database: database, at: at}, Cloner: hostbackup.APFSCloner{}})
+	require.NoError(t, err)
+	source.stop(database)
+
+	// This Mac: a stopped install with later data, under the owner's home.
+	home, err := os.MkdirTemp("/tmp", "ins07-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(home)) })
+	home, err = filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	t.Setenv("HOME", home)
+	hostile(t)
+	state := filepath.Join(home, "Library/Application Support/Smithers")
+	require.NoError(t, os.MkdirAll(state, 0700))
+	write(t, filepath.Join(state, "config/secrets.json"), "live key", 0600)
+
+	record := filepath.Join(t.TempDir(), "record")
+	programs := map[string]string{
+		"bin/smithers-backend": "#!/bin/sh\nprintf 'doctor %s\\n' \"$*\" >> '" + record + "'\n/usr/bin/env | /usr/bin/sed 's/=.*//' | /usr/bin/sort | /usr/bin/tr '\\n' ' ' >> '" + record + "'\necho >> '" + record + "'\nexit 0\n",
+		"bin/smthrs": "#!/bin/sh\nprintf 'start %s\\n' \"$*\" >> '" + record + "'\n" +
+			"printf 'marker ' >> '" + record + "'\n/bin/cat \"$HOME/Library/Application Support/Smithers/.upgrade-incomplete\" >> '" + record + "'\n" +
+			"printf 'grant ' >> '" + record + "'\n/bin/cat \"$HOME/Library/Application Support/Smithers/backups/.recovery-start\" >> '" + record + "'\nexit 3\n",
+	}
+	for _, program := range postgresPrograms {
+		programs["postgres/root/bin/"+program] = "#!/bin/sh\nexec '" + filepath.Join(bin, program) + "' \"$@\"\n"
+	}
+	bundle := newMaintenanceBundle(t, programs)
+
+	stdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = writer
+	handled, restoreErr := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", backup}, bundle.executable)
+	os.Stdout = stdout
+	// The variables that were hostile to the command would also break this
+	// test's own psql; the children above ran with them exported.
+	for _, name := range []string{"DYLD_INSERT_LIBRARIES", "PGPASSFILE", "SMITHERS_DATABASE_URL", "GIT_SSH_COMMAND"} {
+		require.NoError(t, os.Unsetenv(name))
+	}
+	require.NoError(t, writer.Close())
+	printed, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.NoError(t, restoreErr)
+	require.Equal(t, "2026-10-07T01:02:03Z\n", string(printed), "the command prints the backup's time and nothing else")
+
+	recorded, err := os.ReadFile(record)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(recorded)), "\n")
+	require.Len(t, lines, 5, string(recorded))
+	require.Equal(t, "doctor microvm doctor", lines[0])
+	names := strings.Fields(lines[1])
+	for _, name := range names {
+		require.Contains(t, []string{"HOME", "PATH", "SMITHERS_DATA_ROOT", "PWD", "SHLVL", "_", "OLDPWD"}, name, "the doctor inherited %s", name)
+	}
+	require.Contains(t, names, "SMITHERS_DATA_ROOT")
+	require.Equal(t, "start host start --bundle "+bundle.root, lines[2])
+	require.Equal(t, "marker "+backup, lines[3], "the start ran while the marker recorded this backup")
+	var grant recoveryGrant
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(lines[4], "grant ")), &grant))
+	require.Equal(t, backup, grant.Backup)
+	require.Equal(t, os.Getpid(), grant.PID)
+
+	require.NoFileExists(t, filepath.Join(state, ".upgrade-incomplete"))
+	require.NoFileExists(t, filepath.Join(state, recoveryGrantPath))
+	proof, err := os.ReadFile(filepath.Join(state, "repositories/o/r/proof"))
+	require.NoError(t, err)
+	require.Equal(t, "files", string(proof))
+	secrets, err := os.ReadFile(filepath.Join(state, "config/secrets.json"))
+	require.NoError(t, err)
+	require.Equal(t, "install key", string(secrets))
+	aside, err := filepath.Glob(filepath.Join(state, "backups/pre-restore-*/config/secrets.json"))
+	require.NoError(t, err)
+	require.Len(t, aside, 1)
+	later, err := os.ReadFile(aside[0])
+	require.NoError(t, err)
+	require.Equal(t, "live key", string(later))
+
+	restored := realInstall{t: t, bin: bin, state: state}
+	instance := restored.start(state)
+	defer restored.stop(instance)
+	require.Equal(t, seeded, restored.rows(instance))
+}
+
+// The dispatched command refuses, with the live install untouched, when its
+// bundle cannot prove isolation or when the install is running.
+func TestDispatchedRestoreRefusesBeforeMovingLiveData(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	old := compose.BuildVersion
+	compose.BuildVersion = "1.3.0"
+	t.Cleanup(func() { compose.BuildVersion = old })
+	for _, tc := range []struct {
+		name, refusal string
+		programs      map[string]string
+		running       bool
+	}{
+		{name: "the doctor fails", programs: map[string]string{"bin/smithers-backend": "#!/bin/sh\nexit 1\n"}, refusal: "host_maintenance_unavailable: microVM isolation is not ready on this Mac; run smthrs host status"},
+		{name: "the install is running", running: true, refusal: "install_running: restore refuses a running install; run smthrs host stop first"},
+		{name: "the bundle packages no PostgreSQL index", programs: map[string]string{"postgres/bundle.json": "{}"}, refusal: "host_maintenance_unavailable: restore runs from an installed bundle: not approved by the installed bundle: postgres/bundle.json is invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, err := os.MkdirTemp("/tmp", "ins07-")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.RemoveAll(home)) })
+			t.Setenv("HOME", home)
+			state := filepath.Join(home, "Library/Application Support/Smithers")
+			require.NoError(t, os.MkdirAll(filepath.Join(state, "run"), 0700))
+			write(t, filepath.Join(state, "config/secrets.json"), "live key", 0600)
+			if tc.running {
+				listener, err := net.Listen("unix", filepath.Join(state, "run/host.sock"))
+				require.NoError(t, err)
+				defer listener.Close()
+			}
+			bundle := newMaintenanceBundle(t, tc.programs)
+			handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", jsonBackup(t)}, bundle.executable)
+			require.True(t, handled)
+			require.EqualError(t, err, tc.refusal)
+			secrets, err := os.ReadFile(filepath.Join(state, "config/secrets.json"))
+			require.NoError(t, err)
+			require.Equal(t, "live key", string(secrets))
+			for _, absent := range []string{".upgrade-incomplete", "backups", "postgres"} {
+				_, err := os.Lstat(filepath.Join(state, absent))
+				require.True(t, os.IsNotExist(err), "%s exists after a refused restore", absent)
+			}
+		})
+	}
 }

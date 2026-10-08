@@ -137,6 +137,23 @@ func requireCompleteUpgrade(root string) error {
 	}
 	return &GuardError{Reason: "upgrade incomplete; keep the app stopped", Backup: backup}
 }
+
+// requireStartAllowed refuses a start while an upgrade or restore is
+// incomplete, with one exception: the start that owner operation itself
+// makes. The operation grants it for the backup the marker records, and the
+// grant holds only while the operation's own process is alive
+// (recoveryStartGranted). Any other start, including every start after the
+// operation died, refuses and prints the restore command. A start never
+// changes the marker, and while it exists the quiesce gate keeps every
+// mutation closed.
+func requireStartAllowed(root string) error {
+	err := requireCompleteUpgrade(root)
+	var guard *GuardError
+	if errors.As(err, &guard) && guard.Cause == nil && guard.Backup != "" && recoveryStartGranted(root, guard.Backup) {
+		return nil
+	}
+	return err
+}
 func matchVersion(state, release Version) error {
 	if state.Postgres != release.Postgres {
 		return &GuardError{Reason: fmt.Sprintf("backup tools require PostgreSQL %s, state declares %s", release.Postgres, state.Postgres)}
@@ -176,6 +193,10 @@ func VerifyVersion(root string, release Version) error {
 	if err := requireCompleteUpgrade(root); err != nil {
 		return err
 	}
+	return verifyVersion(root, release)
+}
+
+func verifyVersion(root string, release Version) error {
 	state, err := ReadVersion(filepath.Join(root, "version.env"))
 	if err != nil {
 		return &GuardError{Reason: "state version manifest is missing or invalid; restore it with the data", Cause: err}
@@ -192,11 +213,20 @@ func EnsureVersion(root string, release Version) error {
 	if err := requireCompleteUpgrade(root); err != nil {
 		return err
 	}
+	return ensureVersion(root, release)
+}
+
+// ensureVersion checks the version guards alone. Run has already decided
+// whether an incomplete operation allows this start.
+func ensureVersion(root string, release Version) error {
+	if root == "" {
+		return errors.New("install state directory is required")
+	}
 	if err := release.validate(); err != nil {
 		return err
 	}
 	if _, err := os.Lstat(filepath.Join(root, "version.env")); !os.IsNotExist(err) {
-		return VerifyVersion(root, release)
+		return verifyVersion(root, release)
 	}
 	return nil
 }

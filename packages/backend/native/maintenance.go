@@ -16,8 +16,9 @@ import (
 // DispatchMaintenance is server-free: refusals cannot bootstrap PostgreSQL,
 // migrate state, acquire a freeze or launch a repository runtime. The install
 // refuses missing coordinated capture/drain; the CLI uses the private owner socket.
-// Those providers must be composed before any destructive command is enabled.
-func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
+// executable answers the running backend's path (os.Executable): restore runs
+// only programs of the installed bundle that backend belongs to.
+func DispatchMaintenance(ctx context.Context, args []string, executable func() (string, error)) (bool, error) {
 	if len(args) == 0 || args[0] != "host-maintenance" {
 		return false, nil
 	}
@@ -77,11 +78,35 @@ func DispatchMaintenance(ctx context.Context, args []string) (bool, error) {
 		_, err := hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup})
 		return true, err
 	case "restore":
-		at, err := hostbackup.Restore(ctx, hostbackup.RestoreConfig{State: state, Backup: filepath.Clean(args[2]), Version: version, Cloner: hostbackup.APFSCloner{}})
+		source := filepath.Clean(args[2])
+		at, err := hostbackup.Restore(ctx, hostbackup.RestoreConfig{State: state, Backup: source, Version: version, Authority: installedRestoreAuthority(executable, state, source), Cloner: hostbackup.APFSCloner{}})
 		if err == nil {
 			fmt.Fprintln(os.Stdout, at.UTC().Format(time.RFC3339))
 		}
 		return true, err
 	}
 	return true, errors.New("invalid_command: maintenance operation required")
+}
+
+// installedRestoreAuthority composes restore from the installed bundle: its
+// PostgreSQL programs load the dump, its microVM doctor proves isolation and
+// its `smthrs host start` starts the result. A backend outside a bundle, or a
+// bundle without those members, yields an authority that refuses before any
+// tree moves; restore verifies the backup first either way.
+func installedRestoreAuthority(executable func() (string, error), state, backup string) *restoreAuthority {
+	unavailable := func(err error) *restoreAuthority {
+		return &restoreAuthority{state: state, unavailable: fmt.Errorf("host_maintenance_unavailable: restore runs from an installed bundle: %w", err)}
+	}
+	if !filepath.IsAbs(backup) {
+		return unavailable(errors.New("the backup directory must be absolute"))
+	}
+	host, err := openMaintenanceHost(executable, state)
+	if err != nil {
+		return unavailable(err)
+	}
+	database, err := host.postgres()
+	if err != nil {
+		return unavailable(err)
+	}
+	return &restoreAuthority{state: state, postgres: database, isolation: host.isolation, start: host.start(backup)}
 }

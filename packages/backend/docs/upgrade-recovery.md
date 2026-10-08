@@ -52,8 +52,29 @@ Live trees and the live database move to `backups/pre-restore-<time>/`; restore
 deletes nothing. The database password reaches `pg_dump` and `pg_restore`
 through their environment, never a command line.
 
-The restore command still refuses: its start on the restored bundle, and the
-microVM isolation check it runs first, are not composed yet.
+`smthrs host restore <directory>` runs from the installed bundle and executes
+only that bundle's own programs, each checked against the bundle manifest
+first, as the installing user with `HOME` and `PATH` alone:
+
+1. It verifies the backup, then refuses a running install.
+2. It runs the bundle's `microvm doctor`. A Mac that cannot isolate machines
+   never receives restored machine disks.
+3. It stages the trees and loads the database, then writes
+   `.upgrade-incomplete` and moves the live trees aside.
+4. It starts the install with the bundle's `smthrs host start --bundle`, on the
+   backup's bundle when it holds one, and waits until it answers ready.
+5. It removes `.upgrade-incomplete` and prints the backup's time.
+
+While `.upgrade-incomplete` exists every start refuses and prints the restore
+command, except the one start in step 4. Restore grants that start in
+`backups/.recovery-start`, which names the backup and the restore command's
+own process (PID and start time). The backend accepts the grant only while
+that process is alive and the marker records the same backup, so a restore or
+upgrade that was killed leaves no start the marker does not refuse. Restore
+removes the grant when step 4 returns. Writes stay refused until step 5.
+
+A development binary, and a backend that is not its bundle's
+`bin/smithers-backend`, cannot restore.
 
 The install enforces persisted freezes even when maintenance execution is
 disabled. Reads stay available. Reopen and lease recovery preserve the freeze
@@ -64,11 +85,13 @@ contracts. Upgrade retains the bundle backup and recovery marker through
 Homebrew and the new binary’s migration, readiness and isolated health-wake.
 Restore retains its guard through startup and stages a verified saved bundle
 inside install state. The native dispatcher now calls these coordinators. Backup uses the owner
-bridge; upgrade and restore refuse missing lifecycle and isolation providers.
+bridge; restore is composed from the installed bundle; upgrade refuses its
+missing lifecycle and health-wake providers before it freezes.
 The SQL summary records every TODO; capture and finished-step readers still
 need production providers. Contract tests do not qualify a release upgrade or
 restore.
 
 Keep the original install stopped when restoring a backup on another Mac.
-Restoring returns to the backup time; subsequent changes are lost. Successful
-restore execution and the C-REL-03/06 release evidence remain outstanding.
+Restoring returns to the backup time; subsequent changes are lost. A restore
+on the reference Mac with launchd and real microVMs, and the C-REL-03/06
+release evidence, remain outstanding.

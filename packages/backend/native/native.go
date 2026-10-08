@@ -35,7 +35,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		root = filepath.Dir(cfg.Postgres.StateDir)
 	}
-	if err := requireCompleteUpgrade(root); err != nil {
+	if err := requireStartAllowed(root); err != nil {
 		return err
 	}
 	head, err := product.HeadVersion()
@@ -60,7 +60,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err == nil && bundle != release {
 		return &GuardError{Reason: "bundle version manifest does not match this binary"}
 	}
-	if err := EnsureVersion(root, release); err != nil {
+	if err := ensureVersion(root, release); err != nil {
 		return err
 	}
 	// A first boot creates the database and applies every migration: on a

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestMaintenanceDispatchReleaseGuards(t *testing.T) {
 		t.Run(row.release, func(t *testing.T) {
 			compose.BuildVersion = row.release
 			backup := jsonBackup(t)
-			handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", backup})
+			handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", backup}, os.Executable)
 			require.True(t, handled)
 			require.ErrorContains(t, err, row.refusal)
 		})
@@ -38,12 +39,12 @@ func TestMaintenanceDispatchReleaseGuards(t *testing.T) {
 }
 
 func TestMaintenanceDispatchSyntaxAndCancellation(t *testing.T) {
-	handled, err := DispatchMaintenance(t.Context(), []string{"microvm", "doctor"})
+	handled, err := DispatchMaintenance(t.Context(), []string{"microvm", "doctor"}, os.Executable)
 	require.False(t, handled)
 	require.NoError(t, err)
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	handled, err = DispatchMaintenance(cancelled, []string{"host-maintenance", "upgrade"})
+	handled, err = DispatchMaintenance(cancelled, []string{"host-maintenance", "upgrade"}, os.Executable)
 	require.True(t, handled)
 	require.ErrorIs(t, err, context.Canceled)
 	if os.Geteuid() == 0 {
@@ -54,7 +55,7 @@ func TestMaintenanceDispatchSyntaxAndCancellation(t *testing.T) {
 		{"host-maintenance", "backup", "extra"}, {"host-maintenance", "upgrade", "extra"},
 		{"host-maintenance", "restore"}, {"host-maintenance", "restore", ""},
 	} {
-		handled, err := DispatchMaintenance(t.Context(), args)
+		handled, err := DispatchMaintenance(t.Context(), args, os.Executable)
 		require.True(t, handled)
 		require.Error(t, err)
 	}
@@ -97,11 +98,18 @@ func TestMaintenanceDispatchCoordinatorsRefuseMissingProviders(t *testing.T) {
 	}{
 		{[]string{"host-maintenance", "backup"}, "host_maintenance_unavailable: quiesce unavailable: T-MCH-07 required"},
 		{[]string{"host-maintenance", "upgrade"}, "host_maintenance_unavailable: upgrade lifecycle and bundle required"},
-		{[]string{"host-maintenance", "restore", jsonBackup(t)}, "host_maintenance_unavailable: restore providers required"},
+		// A test binary runs from no installed bundle, so restore has no
+		// bundled PostgreSQL, doctor or start to compose.
+		{[]string{"host-maintenance", "restore", jsonBackup(t)}, "host_maintenance_unavailable: restore runs from an installed bundle: "},
 	} {
-		handled, err := DispatchMaintenance(t.Context(), tc.args)
+		handled, err := DispatchMaintenance(t.Context(), tc.args, os.Executable)
 		require.True(t, handled)
-		require.EqualError(t, err, tc.refusal)
+		if strings.HasSuffix(tc.refusal, ": ") {
+			require.ErrorContains(t, err, tc.refusal)
+			require.True(t, strings.HasPrefix(err.Error(), tc.refusal), err)
+		} else {
+			require.EqualError(t, err, tc.refusal)
+		}
 		bytes, err := os.ReadFile(sentinel)
 		require.NoError(t, err)
 		require.Equal(t, "unchanged-live-state", string(bytes))
@@ -128,7 +136,7 @@ func TestMaintenanceDispatchCoordinatorsRefuseMissingProviders(t *testing.T) {
 		}))
 		require.NoError(t, err)
 		defer closeReady()
-		handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "backup"})
+		handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "backup"}, os.Executable)
 		require.True(t, handled)
 		require.EqualError(t, err, "clone_unavailable: APFS volume required")
 		require.NoDirExists(t, filepath.Join(state, "backups"))

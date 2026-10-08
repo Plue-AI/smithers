@@ -20,6 +20,10 @@ import (
 // dump into a database the bundled initdb creates, and starts the result.
 // Every step runs as the installing user, never root.
 type restoreAuthority struct {
+	// unavailable refuses every step. It is why this maintenance binary has
+	// no installed bundle to restore with, reported after the backup itself
+	// has been verified.
+	unavailable error
 	// state is the install state root, which may not exist on another Mac.
 	state string
 	// postgres names the bundled PostgreSQL programs and the major they
@@ -42,6 +46,9 @@ var errInstallRunning = errors.New("install_running: restore refuses a running i
 func (a *restoreAuthority) CheckStopped(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if a.unavailable != nil {
+		return a.unavailable
 	}
 	if os.Geteuid() == 0 {
 		return errors.New("host_owner_required: maintenance requires an unprivileged installing user")
