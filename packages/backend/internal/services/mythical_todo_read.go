@@ -273,6 +273,11 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		if state == "provisioning" {
 			state = "waking"
 		}
+		if state == "releasing" {
+			// Release is still in flight; the TODO card names an awake
+			// machine until its stop is confirmed, then asleep.
+			state = "awake"
+		}
 		machine := map[string]any{"state": state}
 		// A lane the full host queued waits in line: "Waiting for a
 		// machine · #2" (spec §4.2), never a failure.
