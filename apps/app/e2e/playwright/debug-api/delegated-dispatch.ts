@@ -1,6 +1,4 @@
 import { strict as assert } from "node:assert"
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
 import { createAppController } from "../../../src/mainview/state/AppController"
 import { createAppStore } from "../../../src/mainview/state/AppStore"
 import { memoryStorage, silentAgent } from "../../../src/mainview/state/TestFixtures"
@@ -28,24 +26,5 @@ try {
   }
   assert.equal(store.collections.cards.has("debug-api"), false)
   assert.equal(effects, 0)
-  for (const args of [[], ["--operationId", "get_api_todos"], ["--intent", "send"]]) {
-    const script = `const { makeCli } = await import(process.env.DEBUG_API_CLI);
-let stdout = "", code = 0, effects = 0;
-const nativeFetch = globalThis.fetch;
-globalThis.fetch = (input, init) => { effects++; return nativeFetch(input, init) };
-await makeCli({ environment: process.env, exit: n => { code = n } }).serve(JSON.parse(process.env.DEBUG_API_ARGV), {
-  env: process.env, stdout: text => { stdout += text }, exit: n => { code = n }
-});
-console.log(JSON.stringify({ code, effects, result: JSON.parse(stdout) }));`
-    const output = await promisify(execFile)("node", ["--no-warnings", "--input-type=module", "--eval", script], {
-      env: { ...process.env, DEBUG_API_CLI: new URL("../../../../../packages/smithers/src/Cli.ts", import.meta.url).href,
-        DEBUG_API_ARGV: JSON.stringify(["debug", "api", ...args, "--json"]) }
-    })
-    const receipt = JSON.parse(output.stdout)
-    assert.equal(receipt.code, 1)
-    assert.equal(receipt.result.code, "COMMAND_NOT_FOUND")
-    assert.equal(receipt.effects, 0)
-    assert.ok(!output.stdout.includes(token))
-  }
-  console.log("C-UI-10 AUTHENTICATED DELEGATED DISPATCH PASS")
+  console.log("C-UI-10 AUTHENTICATED APP-AGENT LOCAL REFUSAL PASS")
 } finally { await controller.dispose() }

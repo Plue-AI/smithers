@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,9 +24,9 @@ import (
 )
 
 // Uses an admitted/claimed real turn and the production host-only issuer.
-// This proves eligible dispatch; the combined acceptance also needs scope/role
-// precedence through the shared dispatcher, tracked separately in C-UI-10.
-func TestDebugAPIEligibleDelegatedDispatchPostgres(t *testing.T) {
+// The app refuses locally. The compiled CLI has no debug-api door, so neither
+// proves shared authorizer precedence; that remains explicitly pending in C-UI-10.
+func TestDebugAPIDelegatedDispatchBoundariesPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben"})
@@ -61,7 +63,12 @@ func TestDebugAPIEligibleDelegatedDispatchPostgres(t *testing.T) {
 	server := httptest.NewUnstartedServer(nil)
 	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
-	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, &routes.UserHandler{ProfileService: services.NewUserService(q)})
+	router := githubAppSetupComposeRouter(cfg, pool, nil, &routes.UserHandler{ProfileService: services.NewUserService(q)})
+	var requests atomic.Int64
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		router.ServeHTTP(w, r)
+	})
 	server.Start()
 	t.Cleanup(server.Close)
 	home := t.TempDir()
@@ -70,7 +77,27 @@ func TestDebugAPIEligibleDelegatedDispatchPostgres(t *testing.T) {
 	command.Env = append(os.Environ(), "SMITHERS_API_ORIGIN="+server.URL, "SMITHERS_TOKEN="+credential.Token, "XDG_CONFIG_HOME="+home, "XDG_DATA_HOME="+home)
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, string(output))
-	require.Contains(t, string(output), "C-UI-10 AUTHENTICATED DELEGATED DISPATCH PASS")
+	require.Contains(t, string(output), "C-UI-10 AUTHENTICATED APP-AGENT LOCAL REFUSAL PASS")
+	// Use the compiled production command mount, not Node's source stripping.
+	cli := newPackagedTerminalCLI(t, ctx, server.URL, credential.Token)
+	code, identity := cli.invoke("auth", "status")
+	require.Zero(t, code, identity)
+	require.Equal(t, "ben", identity["username"])
+	require.Equal(t, "delegated", identity["credential_kind"])
+	require.Equal(t, "smithers", identity["via"])
+	before := requests.Load()
+	for _, args := range [][]string{
+		{"debug", "api"},
+		{"debug", "api", "--operationId", "get_api_todos"},
+		{"debug", "api", "--intent", "send"},
+	} {
+		code, receipt := cli.invoke(args...)
+		require.Equal(t, 1, code, receipt)
+		require.Equal(t, "COMMAND_NOT_FOUND", receipt["code"])
+		require.Equal(t, before, requests.Load(), "unmounted CLI door must make no HTTP request")
+		require.NotContains(t, fmt.Sprint(receipt), credential.Token)
+	}
+
 	for _, table := range []string{"mythical_items", "workflow_runs", "approvals"} {
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))

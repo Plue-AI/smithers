@@ -115,13 +115,13 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("eligible delegated app-agent and smthrs dispatch refuse debug.api with zero API and SQL effects", async () => {
+    test("host-minted app-agent refuses locally; compiled smthrs has no debug.api door and makes no HTTP/SQL effects", async () => {
       test.setTimeout(300_000)
-      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIEligibleDelegatedDispatchPostgres$", "-count=1", "-v"], {
+      const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIDelegatedDispatchBoundariesPostgres$", "-count=1", "-v"], {
         cwd: resolve("../../packages/backend"), env: process.env,
         timeout: 270_000, maxBuffer: 8 * 1024 * 1024
       })
-      expect(result.stdout).toContain("--- PASS: TestDebugAPIEligibleDelegatedDispatchPostgres")
+      expect(result.stdout).toContain("--- PASS: TestDebugAPIDelegatedDispatchBoundariesPostgres")
       await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
     test("viewer-only API response stays out of the live host model context", async () => {
@@ -134,7 +134,7 @@ export function debugApiScenarios(prefix: string) {
       await test.info().attach("viewer-only-model-context", { body: result.stdout, contentType: "text/plain" })
     })
     pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
-      "T-CAT-01 CLI dispatcher still refuses locally before credential/role decisions: packages/smithers/src/internal/backend/Catalog.ts. App dispatcher precedence has a test-only host-authorizer contract receipt; combined real-install scope/role evidence remains pending. The eligible production MintForTurn receipt passes separately.")
+      "The shipped catalog declares debug-api with cli:null and http:null. Compiled smthrs debug api returns COMMAND_NOT_FOUND without HTTP, and the app-agent default invocation has no credentialed host authorizer. Catalog.ts now delegates served HTTP commands to the server, but that does not supply this client-only door. T-CAT-01 must supply the shared authorization contract before combined real-install precedence can be proved; T-APP-21 excludes new backend routes.")
     test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {
