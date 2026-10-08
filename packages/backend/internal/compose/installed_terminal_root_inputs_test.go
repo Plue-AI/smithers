@@ -244,6 +244,7 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 	}
 	testInstalledTerminalAdmissionControl(t, writer, branch)
 	testInstalledTerminalOpeningReplacement(t, writer, branch, observer, phase)
+	testInstalledTerminalTokenPaths(t, writer, branch, observer, phase)
 }
 
 // A valid binding must execute on both sides of the refusal matrix; an
@@ -282,7 +283,7 @@ func testInstalledTerminalAdmissionControl(t *testing.T, writer microsandbox.Mem
 func TestInstalledTerminalStartupWorkload(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace} {
+	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace, installedTerminalSessionInventory} {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			out, err := exec.CommandContext(t.Context(), python, "-c", "import sys; compile(sys.argv[1], '<terminal-acceptance>', 'exec')", script).CombinedOutput()
 			require.NoError(t, err, string(out))

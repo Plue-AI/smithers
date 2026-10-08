@@ -13,6 +13,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Inspect kernel membership, independently of host manager counts and output.
+// A fresh session group containing any Ben process must contain only permanently
+// dropped Ben processes. Empty/reaped groups do not count as valid sessions.
+const installedTerminalSessionInventory = `import json, pathlib, sys, time
+root = pathlib.Path("/sys/fs/cgroup/smithers/sessions")
+assert root.is_dir() and (root / "cgroup.procs").is_file(), root
+def inventory():
+    groups = []
+    for group in root.glob("s[0-9]*"):
+        try:
+            rows = []
+            for pid in (group / "cgroup.procs").read_text().split():
+                try:
+                    status = pathlib.Path("/proc", pid, "status").read_text()
+                except FileNotFoundError:
+                    continue
+                fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
+                rows.append(([int(x) for x in fields["Uid"].split()], [int(x) for x in fields["Gid"].split()], [int(x) for x in fields["Groups"].split()]))
+            if any(20001 in row[0] for row in rows):
+                assert all(row == ([20001]*4, [20001]*4, [20000]) for row in rows), rows
+                groups.append(group.name)
+        except FileNotFoundError:
+            continue
+    return sorted(groups)
+p = pathlib.Path(sys.argv[1])
+if sys.argv[2] == "save":
+    p.write_text(json.dumps(inventory()))
+else:
+    baseline = set(json.loads(p.read_text()))
+    expected = int(sys.argv[2])
+    deadline = time.monotonic() + 5
+    while True:
+        current = set(inventory())
+        if baseline <= current and len(current - baseline) == expected:
+            break
+        assert time.monotonic() < deadline, (baseline, current, expected)
+        time.sleep(.02)
+`
+
+func installedTerminalInventory(t *testing.T, observer *rehearsalTerminal, prefix, mode string) {
+	t.Helper()
+	installedShell(t, observer, "python3 - "+fmt.Sprintf("%q %q", prefix+".inventory", mode)+" <<'TRMINVENTORY'\n"+installedTerminalSessionInventory+"\nTRMINVENTORY\n")
+}
+
 // Coordinate at the guest executable's startup boundary, after the real broker
 // has dropped uid and validated its binding. No RPC transport or launcher is
 // replaced: the independent composed HTTP/WebSocket terminal observes startup
@@ -35,6 +79,7 @@ func testInstalledTerminalOpeningReplacement(t *testing.T, writer microsandbox.M
 			require.NoError(t, writer.DeleteSessionToken(cleanup, branch, session, oldDigest))
 		}()
 		prefix := "/workspace/trm-opening-" + session
+		installedTerminalInventory(t, observer, prefix, "save")
 		command := workspaceapi.Command{
 			Args:        []string{"/bin/sh", "-c", fmt.Sprintf(`test "$(id -u)" = 20001 || exit 91; touch %q; while test ! -e %q; do sleep .02; done; test "$(cat "$SMITHERS_TOKEN_FILE")" = smithers_opening_new || exit 92; printf 'valid\n' >> %q; printf OPENING_REPLACED_ONCE`, prefix+".ready", prefix+".release", prefix+".sessions")},
 			Environment: map[string]string{"SMITHERS_TOKEN_FILE": path, "SMITHERS_URL": "http://127.0.0.1:4000"},
@@ -52,6 +97,7 @@ func testInstalledTerminalOpeningReplacement(t *testing.T, writer microsandbox.M
 			t.Fatal("startup session exited before replacement")
 		default:
 		}
+		installedTerminalInventory(t, observer, prefix, "1")
 		replacedPath, err := writer.PutSessionToken(ctx, branch, session, newToken, oldDigest)
 		require.NoError(t, err)
 		require.Equal(t, path, replacedPath)
@@ -79,6 +125,7 @@ func testInstalledTerminalOpeningReplacement(t *testing.T, writer microsandbox.M
 		} else {
 			require.Nil(t, stale)
 		}
+		installedTerminalInventory(t, observer, prefix, "1")
 		installedShell(t, observer, fmt.Sprintf(`test -r %q && test ! -e %q && touch %q`, path, prefix+".sessions", prefix+".release"))
 		select {
 		case <-done:
@@ -89,6 +136,8 @@ func testInstalledTerminalOpeningReplacement(t *testing.T, writer microsandbox.M
 			<-done
 			t.Fatal("replacement session failed to complete")
 		}
+		installedTerminalInventory(t, observer, prefix, "0")
 		installedShell(t, observer, fmt.Sprintf(`test "$(cat %q)" = valid && test "$(wc -l < %q)" = 1 && rm %q %q %q`, prefix+".sessions", prefix+".sessions", prefix+".ready", prefix+".release", prefix+".sessions"))
+		installedShell(t, observer, fmt.Sprintf("rm %q", prefix+".inventory"))
 	})
 }
