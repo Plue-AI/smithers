@@ -1,9 +1,11 @@
 import { expect, test } from "./browserTest"
+import { queryDatabase, trackDatabaseWorker } from "./databaseProbe"
 import { installCloudFixture } from "./cloudFixture"
 
 // Initial sync health through the app's real HTTP seam and card dispatch.
 // Reference-host freshness and force-push checks remain separate receipts.
 test("install Home preserves health before the first successful GitHub sync", async ({ page }) => {
+  await trackDatabaseWorker(page)
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
   await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
@@ -31,6 +33,11 @@ test("install Home preserves health before the first successful GitHub sync", as
   await home.getByRole("button", { name: "Retry", exact: true }).press("Enter")
   await expect.poll(() => retries).toBe(1)
   await expect(page.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0)
+  // Counting the POST proves dispatch, not that its admission receipt survived reload.
+  await expect.poll(async () => {
+    const rows = await queryDatabase(page, "SELECT value FROM smithers_collection_rows WHERE collection_id = 'app-sessions'") as { value: string }[]
+    return rows.some(row => JSON.parse(row.value).githubSyncRequest?.phase === "running")
+  }).toBe(true)
   state = "limited"
   await page.reload()
   await expect(home.locator(".sync")).toHaveAttribute("data-health", "limited")
