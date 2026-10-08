@@ -19,6 +19,7 @@ const cases = [
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
   ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-open-drop-remote-success", "github-production-propose"]],
   ["C-DUR-04", "internal/machined/fault_test.go", null, []],
+  ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseFaultRootInputsValidatedBeforeUse", []],
   ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
 ] as const
 
@@ -52,6 +53,7 @@ for (const [check, file, name, points] of selected) {
     // kills the claimed worker at every send/commit/response boundary.
     const githubControl = file === "internal/compose/github_outbound_kill_test.go"
     const referenceMachine = check === "C-DUR-02"
+    const rebaseFault = file === "internal/machined/rebase_fault_test.go"
     const packagedPause = name === "TestTodoStartPauseResumeCrashThroughRoutes"
     const timeout = referenceMachine || githubControl ? 2_700_000 : packagedPause ? 750_000 : 150_000
     const evidenceNames = githubControl
@@ -61,7 +63,8 @@ for (const [check, file, name, points] of selected) {
       "-timeout", referenceMachine || githubControl ? "44m" : packagedPause ? "12m" : "2m"], {
       cwd: backend,
       env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" }
-        : packagedPause ? { ...process.env, SMITHERS_TODO_PAUSE_HOST_KILL: "1" } : process.env,
+        : packagedPause ? { ...process.env, SMITHERS_TODO_PAUSE_HOST_KILL: "1" }
+          : rebaseFault ? { ...process.env, SMITHERS_REBASE_FAULT_REQUIRED: "1" } : process.env,
       encoding: "utf8", timeout, maxBuffer: 32 << 20
     })
     // Preserve partial JSON and stderr before checking exit status: crashes,

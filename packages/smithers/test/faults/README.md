@@ -228,3 +228,27 @@ Reference-host qualification and approved check mappings remain required.
 cd packages/smithers
 pnpm exec vitest run --config vitest.faults.config.ts test/faults/durability-required.test.ts -t 'C-DUR-01: TestTodoStartPauseResumeCrashThroughRoutes'
 ```
+
+### Rebase and root-input availability
+
+`machined/rebase_fault_test.go` now names all six rebase cells (three points,
+with and without people), plus `TestRebaseFaultRootInputsValidatedBeforeUse`.
+The latter exercises production authenticated host transport validation and
+observes the guest socket staying silent for refused inputs. Its positive
+control checks the exact rebase target and principal fields. These socket
+controls do not execute a guest broker or qualify root execution.
+
+The required matrix sets `SMITHERS_REBASE_FAULT_REQUIRED=1` for both cases.
+Each unavailable cell logs a JSON observation with `passing:false`, no kill
+marker, and null write/effect counts, and fails. Ordinary targeted Go runs
+verify the host controls and log the same non-passing availability observations.
+Their successful exit is not C-DUR-04 evidence. Existing check-run log/receipt
+handling remains the only receipt mechanism; pending-owner mappings remain
+closed. No branch-built code runs as root.
+
+Still required: approved guest startup and artifact-substitution controls,
+retained symlink/outside/root canaries, actual UID/GID/groups and broker cgroup
+freeze with real member writers; dispatcher-driven rebase kills and recovery
+through the composed install; approved mini VM kills and owner argv/host
+mappings. The existing composed Rebase now rehearsal qualifies the HTTP and
+presence path separately and cannot replace these observations.
