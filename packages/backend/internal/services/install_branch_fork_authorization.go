@@ -12,12 +12,9 @@ import (
 	"strings"
 )
 
-// InstallBranchForkSubject binds the validated input to a TODO. Execution
-// credentials may fork only their current TODO, never main or another branch.
+// InstallBranchForkSubject binds every caller to the requested repository and
+// fork payload. Execution credentials may fork only their current TODO.
 func InstallBranchForkSubject(ctx context.Context, repository int64, input BranchForkInput) InstallSubject {
-	if !InstallExecutionCredential(ctx) {
-		return InstallSubject{}
-	}
 	subject := InstallSubject{RepositoryID: repository}
 	if match := branchForkTodo.FindStringSubmatch(strings.TrimSpace(input.From)); match != nil {
 		subject.TodoNumber, _ = strconv.ParseInt(match[1], 10, 64)

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -82,6 +84,8 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 	forks.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(workspaces))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "session"
+	cfg.Auth.SessionRefreshWindow = "0s"
 	cfg.Server.PublicURL = "http://example.com"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: forks}}, &routes.WorkspaceHandler{Service: workspaces})
@@ -199,9 +203,100 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 		require.Empty(t, result.Machine.ID)
 		require.Equal(t, 1, decisions)
 	})
+
+	t.Run("person fork binds the actual payload and repository", func(t *testing.T) {
+		rawCookie := "fork-person"
+		sum := sha256.Sum256([]byte(rawCookie))
+		hash := hex.EncodeToString(sum[:])
+		_, err := f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hash, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		input := services.BranchForkInput{From: from, Name: "person-proof", Request: "person-fork"}
+		raw, _ := json.Marshal(input)
+		request := func() *http.Request {
+			req := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/branches", strings.NewReader(string(raw)))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", cfg.Server.PublicURL)
+			req.Header.Set("Idempotency-Key", input.Request)
+			req.AddCookie(&http.Cookie{Name: "session", Value: rawCookie})
+			req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "fork-csrf"})
+			req.Header.Set("X-CSRF-Token", "fork-csrf")
+			return req
+		}
+		var first services.BranchMachineResponse
+		for i := 0; i < 2; i++ {
+			decisions := []string{}
+			req := request()
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			require.Equal(t, 201, out.Code, out.Body.String())
+			require.Equal(t, []string{"branch.fork"}, decisions)
+			var branch services.BranchMachineResponse
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &branch))
+			if i == 0 {
+				first = branch
+			} else {
+				require.Equal(t, first.Machine.ID, branch.Machine.ID)
+			}
+		}
+		require.Equal(t, "scratch/"+f.other.Username+"/person-proof", first.Name)
+		require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/"+first.Name))
+		for _, cookie := range []bool{true, false} {
+			req := request()
+			req.Body = io.NopCloser(strings.NewReader(`{}`))
+			if !cookie {
+				req.Header.Del("Cookie")
+			}
+			decisions := []string{}
+			req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+			out := httptest.NewRecorder()
+			router.ServeHTTP(out, req)
+			status := 400
+			if !cookie {
+				status = 401
+			}
+			require.Equal(t, status, out.Code, out.Body.String())
+			require.Equal(t, []string{"branch.fork"}, decisions)
+		}
+		ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.other, SessionHash: hash})
+		decisions := 0
+		ctx = services.WithAuthorizationObserver(ctx, func(string) { decisions++ })
+		subject := services.InstallBranchForkSubject(ctx, f.repoID, input)
+		decision, err := services.Authorize(ctx, f.q, "branch.fork", subject)
+		require.NoError(t, err)
+		ctx = services.WithInstallAuthorization(ctx, "branch.fork", decision, subject)
+		for _, change := range []string{"from", "name", "repository", "actor"} {
+			t.Run(change, func(t *testing.T) {
+				in := input
+				repository, actor := f.repoID, f.other.ID
+				switch change {
+				case "from":
+					in.From = "main"
+				case "name":
+					in.Name = "substituted"
+				case "repository":
+					repository++
+				case "actor":
+					actor = f.owner.ID
+				}
+				branch, err := forks.ForkBranch(ctx, repository, actor, in)
+				require.Error(t, err)
+				require.Empty(t, branch.Machine.ID)
+				require.Equal(t, 1, decisions)
+			})
+		}
+		_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1`, hash)
+		require.NoError(t, err)
+		branch, err := forks.ForkBranch(ctx, f.repoID, f.other.ID, input)
+		var access *services.AccessError
+		require.ErrorAs(t, err, &access)
+		require.Equal(t, 401, access.Status)
+		require.Empty(t, branch.Machine.ID)
+		require.Equal(t, 1, decisions)
+	})
 	require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/main"))
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM workspaces WHERE is_fork`).Scan(&count))
-	require.Equal(t, 2, count)
+	require.Equal(t, 3, count)
 	sum := sha256.Sum256([]byte(run))
 	return map[string]any{"credential_hash": hex.EncodeToString(sum[:]), "todo": number, "workspace": source.ID, "run": "fork-run", "attempt": 1}
 }

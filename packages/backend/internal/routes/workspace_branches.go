@@ -324,14 +324,20 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 				return 0, 0, lookup
 			}
 		}
-		if command == "branch.fork" && services.InstallExecutionCredential(r.Context()) {
+		if command == "branch.fork" {
+			refuse := func(err error) (int64, int64, error) {
+				if _, denied := services.Authorize(r.Context(), queries, command); denied != nil {
+					return 0, 0, denied
+				}
+				return 0, 0, err
+			}
 			raw, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
 			if err != nil || len(raw) > 64<<10 {
-				return 0, 0, pkgerrors.BadRequest("Invalid fork request")
+				return refuse(pkgerrors.BadRequest("Invalid fork request"))
 			}
 			input, err := DecodeBranchFork(bytes.NewReader(raw))
 			if err != nil {
-				return 0, 0, err
+				return refuse(err)
 			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			repository, err := services.InstallRepositoryID(r.Context(), queries)
@@ -356,7 +362,7 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 		if err != nil {
 			return 0, 0, err
 		}
-		if command == "file.restore" || command == "file.restore-deleted" || command == "branch.archive" {
+		if command == "branch.fork" || command == "file.restore" || command == "file.restore-deleted" || command == "branch.archive" {
 			*r = *r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject))
 		}
 		return repository, decision.UserID, nil
