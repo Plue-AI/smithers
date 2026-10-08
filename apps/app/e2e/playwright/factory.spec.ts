@@ -75,10 +75,11 @@ const serveGateway = async (page: Page, extra: {
   readonly journals?: Readonly<Record<string, ReadonlyArray<Row>>>
   /** `cloud.terminal`: the box terminal tunnel exists on this host. */
   readonly terminal?: boolean
+  readonly install?: boolean
 } = {}): Promise<{ rpc: Array<RpcCall> }> => {
   const rpc: Array<RpcCall> = []
   let answered = false
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat", ...extra.terminal ? ["cloud.terminal" as const] : []],
+  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat", ...extra.install ? ["install" as const] : [], ...extra.terminal ? ["cloud.terminal" as const] : []],
     workspaces: [runningBox(REPO)] })
   await page.route("**/api/workflow/provision", (route) => route.fulfill({ json: { status: "ready", repo: REPO, gatewayId: "gw-1" } }))
   await page.route("**/api/workflow/rpc", async (route) => {
@@ -355,18 +356,30 @@ const serveBox = async (page: Page): Promise<{ sessionPosts: Array<Row>; typed: 
 
 test("the drawer's In tab: memory in and withheld, the box it runs on, and the secret names that box reaches", async ({ page }) => {
   test.setTimeout(150_000)
-  await serveGateway(page)
+  await serveGateway(page, { install: true })
   await serveBox(page)
+  await page.route((url) => url.pathname === `/api/branches/${FIXTURE_BOX}` || url.pathname === `/api/branches/${BOX_NAME}`, (route) => route.fulfill({ json: {
+    id: FIXTURE_BOX, name: BOX_NAME, machine: { id: FIXTURE_BOX, state: "awake" }, presence: [], terminals: []
+  } }))
+  await page.route("**/api/todos", (route) => route.fulfill({ json: [] }))
   // The repository's secret metadata (SecretsSeam: GET /api/repos/{owner}/{repo}/secrets): names and bindings, never values.
   await page.route((url) => url.pathname === `/api/repos/${REPO}/secrets`, (route) => route.fulfill({ json: [
     { name: "NPM_TOKEN", main_only: false, hosts: ["registry.npmjs.org"], match_headers: ["authorization"], updated_at: "2026-08-01T00:00:00Z" }
   ] }))
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(message => {
+    if (typeof message !== "string") return
+    const frame = JSON.parse(message) as { t: string; id: string; topic?: string }
+    if (frame.t !== "sub") return
+    socket.send(JSON.stringify(frame.topic === "secrets" ? { t: "snap", id: frame.id, cursor: 1, data: {
+      secrets: [{ name: "NPM_TOKEN", scope: "all_branches", hosts: ["registry.npmjs.org"], actions: [] }]
+    } } : { t: "err", id: frame.id, code: "unsupported" }))
+  }))
   await boot(page)
   // The box's card names it; the secrets card lists the names its sessions may use (never values).
-  await command(page, `/branch ${JSON.stringify({ operation: "workspace-view", workspaceId: FIXTURE_BOX })}`)
+  await command(page, `/branch ${FIXTURE_BOX}`)
   await expect(page.getByTestId(`card-branch:${FIXTURE_BOX}`)).toContainText(BOX_NAME, { timeout: 15_000 })
-  await command(page, `/secrets.list ${REPO}`)
-  await expect(page.locator('[data-kind="secrets"]')).toContainText("NPM_TOKEN", { timeout: 15_000 })
+  await command(page, `/secrets ${REPO}`)
+  await expect(page.getByTestId(`card-secrets-${REPO}`)).toContainText("NPM_TOKEN", { timeout: 15_000 })
 
   await command(page, `/runs.open ${RUN_ID} ${REPO}`)
   const card = page.getByTestId(`card-${boxRunCardId(REPO, RUN_ID)}`)
