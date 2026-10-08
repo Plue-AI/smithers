@@ -308,6 +308,7 @@ function MessageScrollerProviderImpl({
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
+      initialRestoreSeenRef.current = true;
       const viewport = viewportRef.current;
       if (!viewport) return;
       restorePendingRef.current = false;
@@ -329,6 +330,7 @@ function MessageScrollerProviderImpl({
 
   const scrollToTop = useCallback(
     (behavior: ScrollBehavior = "auto") => {
+      initialRestoreSeenRef.current = true;
       const viewport = viewportRef.current;
       if (!viewport) return;
       restorePendingRef.current = false;
@@ -347,6 +349,8 @@ function MessageScrollerProviderImpl({
 
   const scrollToMessage = useCallback(
     (messageId: string, opts?: { behavior?: ScrollBehavior; peek?: boolean; }): boolean => {
+      // Explicit navigation wins even before a smooth scroll emits an event.
+      initialRestoreSeenRef.current = true;
       const viewport = viewportRef.current;
       const el = itemsRef.current.get(messageId);
       if (!viewport) return false;

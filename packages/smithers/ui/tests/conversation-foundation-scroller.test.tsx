@@ -396,6 +396,29 @@ describe("MessageScroller compound", () => {
     expect(viewport.scrollTop).toBe(120);
   });
 
+  test.each(["message", "top", "bottom"] as const)("an explicit %s jump wins over a delayed saved view before its scroll event", async command => {
+    let commands: MessageScrollerCommands | undefined;
+    function Probe() { commands = useMessageScroller(); return null; }
+    geometryByMessageId.set("target", { top: 300, height: 80 });
+    geometryByMessageId.set("saved", { top: 600, height: 80 });
+    const view = (initialMessageId?: string) => <MessageScrollerProvider scrollAnchor="bottom" initialMessageId={initialMessageId}>
+      <Probe />
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="target">Target</MessageScrollerItem>
+        <MessageScrollerItem messageId="saved">Saved</MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport>
+    </MessageScrollerProvider>;
+    await render(view(), { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+    await act(async () => {
+      if (command === "message") commands!.scrollToMessage("target");
+      if (command === "top") commands!.scrollToTop();
+      if (command === "bottom") commands!.scrollToBottom();
+    });
+    const position = getViewport().scrollTop;
+    await act(async () => root!.render(view("saved")));
+    expect(getViewport().scrollTop).toBe(position);
+  });
+
   test("a missing initialMessageId falls back to the anchor and retries on registration", async () => {
     const view = (withTarget: boolean) => (
       <MessageScrollerProvider scrollAnchor="bottom" initialMessageId="target">
