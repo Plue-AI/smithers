@@ -37,6 +37,19 @@ describe("Checklist.evidence", () => {
     const facts = Checklist.evidence(full)
 
     expect(facts).toEqual({
+      machine: {
+        detectorVersion: "smithers.toolchain-detect/v4",
+        tools: { node: { version: "", file: "package.json" }, pnpm: { version: "10.0.0", file: "package.json" } },
+        packageManager: "pnpm",
+        installs: [{
+          command: ["pnpm", "install", "--frozen-lockfile"],
+          offline: ["pnpm", "install", "--offline", "--frozen-lockfile"],
+          files: ["package.json", "pnpm-lock.yaml"],
+          destinations: ["registry.npmjs.org", "registry.yarnpkg.com"]
+        }],
+        checks: [{ id: "test", argv: ["pnpm", "test"] }, { id: "lint", argv: ["pnpm", "lint"] }]
+      },
+      checks: [{ id: "test", argv: ["pnpm", "test"] }, { id: "lint", argv: ["pnpm", "lint"] }],
       packageManager: "pnpm",
       scripts: { test: "vitest run", lint: "eslint .", release: "changeset publish" },
       testRunner: "vitest",
