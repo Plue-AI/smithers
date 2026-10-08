@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, required, runSlash, expect, attachJson, openTodo, todoCard, realApi } from "./todo/reference"
-import { counterIdentity, maximumTickGap } from "./support/fork-continuity"
+import { counterIdentity, maximumTickGap, observedTickInterval } from "./support/fork-continuity"
 import { journeyActivate, journeyTerminalInput } from "./support/keyboard-journey-input"
 
 // C-J7-02, including the production T-STK-05 Drop/capture boundary.
@@ -11,6 +11,8 @@ import { journeyActivate, journeyTerminalInput } from "./support/keyboard-journe
 // The source guest has a running counter writing epoch seconds to .tick;
 // SMITHERS_FORK_COUNTER_PID identifies that process. SSH observes it only.
 // Its uncommitted src/fork-uncommitted.ts contains the literal canary below.
+// SMITHERS_FORK_MIRROR_MAIN_HEAD is independently observed from the installed
+// mirror before this journey; keep main fixed until the final fork observation.
 const source = (command: string): string => {
   const host = required("SMITHERS_FORK_SOURCE_SSH_HOST")
   const port = required("SMITHERS_FORK_SOURCE_SSH_PORT")
@@ -35,6 +37,8 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
   test.setTimeout(20 * 60_000)
   await withReference(browser, info, async f => {
     const page = f.members.Ben.page
+    const mainHead = required("SMITHERS_FORK_MIRROR_MAIN_HEAD")
+    expect(mainHead).toMatch(/^[0-9a-f]{40}$/)
     const member = await f.read("Ben", "/api/user")
     expect(member.username).toBe("ben")
     const stack = await f.read("Ben", "/api/todos")
@@ -77,7 +81,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     const after = continuity()
     expect(after.boot).toBe(before.boot)
     expect(after.process).toBe(before.process)
-    const ticks = after.ticks.filter(tick => tick >= before.ticks.at(-1)!)
+    const ticks = observedTickInterval(before.ticks, after.ticks)
     expect(ticks.length).toBeGreaterThan(1)
     expect(ticks.every(Number.isFinite)).toBe(true)
     expect(maximumTickGap(ticks)).toBeLessThanOrEqual(1)
@@ -184,7 +188,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     const afterAdd = continuity()
     expect(afterAdd.boot).toBe(before.boot)
     expect(afterAdd.process).toBe(before.process)
-    const addTicks = afterAdd.ticks.filter(tick => tick >= before.ticks.at(-1)!)
+    const addTicks = observedTickInterval(before.ticks, afterAdd.ticks)
     expect(addTicks.every(Number.isFinite)).toBe(true)
     expect(maximumTickGap(addTicks)).toBeLessThanOrEqual(1)
     const events = f.sql("SELECT event_type,data FROM product_job_events WHERE event_type IN ('branch.forked','branch.added-to-stack') ORDER BY sequence")
@@ -219,6 +223,24 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     // Persist the evidence before Drop: a refusal or timeout must retain the
     // successful Fork/Add observations and the bytes it was meant to preserve.
     await attachJson(info, "fork-add-before-drop", { beforeDrop, seed, itemBranch, approvals: approvals(), events, afterAdd })
+    // The main source has no item or machine to capture. Compare its retained
+    // revision with an operator's independent mirror observation, never with
+    // another field returned by the Fork implementation itself.
+    const mainResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/branches" && r.request().method() === "POST")
+    await runSlash(page, '/branch.fork {"from":"main","name":"main-revision-proof"}')
+    const mainForked = await mainResponse
+    const mainReceipt = await mainForked.json()
+    await attachJson(info, "main-fork-dispatch", { expectedMirrorHead: mainHead, status: mainForked.status(),
+      payload: mainForked.request().postDataJSON(), receipt: mainReceipt })
+    expect(mainForked.status()).toBe(201)
+    expect(mainForked.request().postDataJSON()).toEqual({ from: "main", name: "main-revision-proof" })
+    const mainScratch = await f.read("Ben", `/api/branches/${encodeURIComponent(mainReceipt.name)}`)
+    expect(mainScratch.kind).toBe("scratch")
+    expect(mainScratch.forked_from).toMatchObject({ kind: "main", ref: "main", commit: mainHead, base: mainHead })
+    expect(mainScratch.forked_from.item).toBeUndefined()
+    expect((await f.read("Ben", "/api/todos")).map((item: any) => item.n)).toEqual([1, 2, 4, 3])
+    const finalGithubBranches = await f.github("Ben", "GET", "/branches?per_page=100") as Array<{ name: string }>
+    expect(finalGithubBranches.some(row => row.name.startsWith("scratch/"))).toBe(false)
     expect(original.pr.number).toBeGreaterThan(0)
     await runSlash(page, "/todo.drop T2")
     const dropResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/todos/2" && r.request().method() === "POST")

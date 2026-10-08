@@ -16,3 +16,16 @@ export function maximumTickGap(ticks: number[]): number {
   if (gaps.some(gap => gap < 0) || ticks.at(-1)! <= ticks[0]!) throw new Error("Source counter timestamps did not advance")
   return Math.max(...gaps)
 }
+
+// A truncated/replaced log cannot establish uninterrupted execution, even if
+// its remaining timestamps look healthy. Keep the boundary tick so a pause
+// immediately after the first observation remains part of the measured gap.
+export function observedTickInterval(before: number[], after: number[]): number[] {
+  maximumTickGap(before)
+  if (after.length <= before.length || before.some((tick, index) => after[index] !== tick)) {
+    throw new Error("Source counter history was replaced or did not advance")
+  }
+  const interval = after.slice(before.length - 1)
+  maximumTickGap(interval)
+  return interval
+}
