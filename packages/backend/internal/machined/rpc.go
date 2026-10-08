@@ -418,11 +418,11 @@ func (r *Registry) InspectConflict(ctx context.Context, branch, change, onto str
 	if err := link.RequireReady(branch); err != nil {
 		return nil, err
 	}
-	fields, err := link.call(ctx, branch, wire.Status, wire.Field(1, retained), wire.Field(2, target))
+	fields, err := link.call(ctx, branch, wire.InspectConflict, wire.Field(1, retained), wire.Field(2, target))
 	if err != nil {
 		return nil, err
 	}
-	paths, found := fields[9]
+	paths, found := fields[1]
 	if !found {
 		return nil, ErrNotReady
 	}

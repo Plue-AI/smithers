@@ -19,7 +19,7 @@
     "doc-unsupported-detail.bin": "88771414720c2ca72c8f6ebd3e7971bf14f61023fc37be9fab989dac399753ff",
     "doc-renamed.bin": "4d7cb8b7e4c58e5b9d1c40c62913b0fe6d74083e2d04b22ae594597b48964586"
   },
-  "protocol": 8,
+  "protocol": 9,
   "frames": [
     {
       "name": "hello_challenge",
@@ -27,7 +27,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "e0f41e50186dea8684f766852a51c2c7659fa354b3732ab3743b8735f917356a"
+      "sha256": "9e133ee99ec443847b98758ca9ded8c19d78bb356b2490e5d73e48639bbd2128"
     },
     {
       "name": "hello_host_proof",
@@ -35,7 +35,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "fb81edd658cfc194926a5fc43b91e5920123399b667187880c4acf5f8dc63a8c"
+      "sha256": "b2a90ce5732a9d2ebac6e17d5367125663c9b717082acdbfb0ca11388c22d2f1"
     },
     {
       "name": "hello_host_proof_bad_mac",
@@ -44,7 +44,7 @@
       "local": false,
       "vector": "a",
       "handshake": "auth_failed",
-      "sha256": "af0ead7474cdda14afa10220e77ef79c2291a90cee399b54ed75627e8aac271f"
+      "sha256": "b1f9d670f40e15adb60439e3679f07a1bab0549b074b73a623e61678e8df9e71"
     },
     {
       "name": "hello_challenge_older",
@@ -53,7 +53,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "2756072d882e8951d61b8e46692c0a7a7228afd07e0d6e9d592a497e361555be"
+      "sha256": "e0f41e50186dea8684f766852a51c2c7659fa354b3732ab3743b8735f917356a"
     },
     {
       "name": "hello_host_proof_older",
@@ -62,7 +62,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "a9cd86a13f57d4d66c260863f604824f0a0f9070ff34dfb54b3b1cb7e8924010"
+      "sha256": "89aabea090629f1b0c1215699d7409570c4c352a38530ccaf48a1bd0a69f524a"
     },
     {
       "name": "hello_challenge_newer",
@@ -70,7 +70,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "9e133ee99ec443847b98758ca9ded8c19d78bb356b2490e5d73e48639bbd2128"
+      "sha256": "978ec2503bd6e998d3e9d0bda045a5564ab7fbc8a6d5612d3a46b69bb0749ad3"
     },
     {
       "name": "hello_host_proof_newer",
@@ -78,7 +78,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "e9d4b9830ded275dce40bbe6bddb3002d892d7155083e488d9d298d8129b277a"
+      "sha256": "423502dc7bdc1eb62890db53b9f462bafd43e09ebe26f1771c304cd517d7f039"
     },
     {
       "name": "hello_challenge_b",
@@ -86,7 +86,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "ba7c635a7bc3d38936f81f5d5d7ffd897d11c8e87a5d5ab9d91ced9fc0a1273d"
+      "sha256": "8c0f95b57afa72fe231e88120fe7f77fbdece085d7383e386b1f557bdfc20aa5"
     },
     {
       "name": "hello_host_proof_b",
@@ -94,7 +94,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "6cfd788648b3bf75ccc469ea8ee59bdcfb8d8f4a02db92f0aa2255b768689d71"
+      "sha256": "e97bba0cbfcc15f5157710d6ea8c7716864047ba25e915c11991dffe1e50512b"
     },
     {
       "name": "hello_challenge_c",
@@ -102,7 +102,7 @@
       "expected": "ok",
       "local": false,
       "vector": "c",
-      "sha256": "d0f01d442fb7673e5d395bb5a91ec4c16d3015ed0ecc95583b859465ea10696f"
+      "sha256": "08490b8fb0dd33d79003c211188f3ae89c05bcbfa260d7b914f9368183931304"
     },
     {
       "name": "hello_host_proof_c",
@@ -110,7 +110,7 @@
       "expected": "ok",
       "local": false,
       "vector": "c",
-      "sha256": "e178927f1f6f13b1a7b609713f05f7953458e62db8901e2eb5845bc9884ceb17"
+      "sha256": "5acf58b26e7e2a64b7e720a924c9821f29fc12b16de978d19d2452a575b7ce1b"
     },
     {
       "name": "hello_machine",
@@ -449,18 +449,74 @@
       "sha256": "90414378b5403b6802311c93aaf4c7a340073576c6005e358bc979aa51e8d002"
     },
     {
+      "name": "req_inspect_conflict",
+      "direction": "host-to-daemon",
+      "expected": "ok",
+      "local": false,
+      "sha256": "c305df9d426248b58697aee480989fb06505d61a269900895f896c685a8ebc71"
+    },
+    {
+      "name": "req_inspect_conflict_missing_change",
+      "direction": "host-to-daemon",
+      "expected": "missing_field",
+      "local": false,
+      "sha256": "db01bb34a14514570ee6a3b1ea77f15ab951998b0b62fc7d76b03c059101e2b7"
+    },
+    {
+      "name": "req_inspect_conflict_missing_onto",
+      "direction": "host-to-daemon",
+      "expected": "missing_field",
+      "local": false,
+      "sha256": "499ac71a714b3b751b1d12bde2aa7f0445bdc09b46f5deb45d311cd110b71393"
+    },
+    {
+      "name": "req_status_conflict_args",
+      "direction": "host-to-daemon",
+      "expected": "unknown_field",
+      "local": false,
+      "sha256": "bf02c18ef85a3af1e4a69f10a4d0ae895b252a523f89211e8b576f9847419622"
+    },
+    {
+      "name": "res_inspect_conflict",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "9eae3a8d984e2c0db44c50d3d6397b73a915ee4025be33d1671973eac6b5d674"
+    },
+    {
+      "name": "res_inspect_conflict_resolved",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "f09c97e742bce60a1cc050031b4afa224504265569920e52c7ca05c44e631212"
+    },
+    {
+      "name": "res_inspect_conflict_missing_paths",
+      "direction": "daemon-to-host",
+      "expected": "missing_field",
+      "local": false,
+      "sha256": "e2b556c972ce9ac3dbfe7c2cdd4feb8c90c0899bd9a6b2930e980ce0eed04996"
+    },
+    {
+      "name": "res_status_conflict_paths",
+      "direction": "daemon-to-host",
+      "expected": "unknown_field",
+      "local": false,
+      "sha256": "959793011e8cdc5055d2e2953f34bbba5ec3cb214fcfe8026c6ba41be5dc8fcc"
+    },
+    {
       "name": "res_status",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "0360c9c741cd864b6400ba621d1022c8b35134b8f566bec4cfb064d632241ffa"
+      "sha256": "6125ff1d0e846ff2b665e4350c7eac21d7642cddb63289de6d861cf70bacea00"
     },
     {
       "name": "res_status_no_acked_head",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "42c61d0326e52ce2d8b86fa1f30b9786d205193395dfdc78369bb35d795d4dd9"
+      "sha256": "904636e8e081a3031ddd3ecec4303dc962621da03d815ffa7d76a5dc2f2eff20"
     },
     {
       "name": "res_read_file",
@@ -1891,25 +1947,25 @@
       "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "boot_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
       "nonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "protocol": 8,
-      "mac_input": "736d6974686572732d6d616368696e656420686f73740008a0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "mac": "5a3bf6b8cdc911f0e0b8b56b77fcb8313bb5c2910d9b51f52f76f440c26d84a2"
+      "protocol": 9,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740009a0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "mac": "bac5d878851f283f7a672a6e22d785c482fd07066ee6c0e00320c2ff8ec4de1a"
     },
     "b": {
       "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "nonce": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "protocol": 8,
-      "mac_input": "736d6974686572732d6d616368696e656420686f73740008b0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "mac": "d686bd784d6e1895c535d0e9444d0ed1e7db80443a19da25fbef382b9b797d8e"
+      "protocol": 9,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740009b0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "mac": "32c5feebfe24c101a91548084ec88448b71d92192db84fe072018ede8c695b7c"
     },
     "c": {
       "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "nonce": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
-      "protocol": 8,
-      "mac_input": "736d6974686572732d6d616368696e656420686f73740008b0b1b2b3b4b5b6b7b8b9babbbcbdbebf808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
-      "mac": "f2d4b2d45385f501dae86711a3fbb9439e21f6c4d2d98cc38245085bb8ae1536"
+      "protocol": 9,
+      "mac_input": "736d6974686572732d6d616368696e656420686f73740009b0b1b2b3b4b5b6b7b8b9babbbcbdbebf808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "mac": "278db3041dc10c7c84708f1e815d929f39a0f83070011d530fa776e21fa00775"
     }
   },
   "refusal_sequences": {

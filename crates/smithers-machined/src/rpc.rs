@@ -46,6 +46,9 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
                 })
             }
 
+            // Inspection has its own admitted call; status remains observational.
+            18 => hooks.core.call(cx, method, args),
+
             12 => {
                 let actor = conn::return_to_item_actor(args)?;
                 hooks.core.validate_return_to_item().and_then(|()| {

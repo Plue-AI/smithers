@@ -19,6 +19,8 @@ pub enum Method {
     CloseDoc,
     AttachSession,
     SetRoster,
+    WriteFiles,
+    InspectConflict,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

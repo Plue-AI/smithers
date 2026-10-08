@@ -455,7 +455,10 @@ func TestRegistryAckCanonicalAndRefusals(t *testing.T) {
 }
 
 func TestRegistryRequiresExactLiveProtocolBeforeCredentials(t *testing.T) {
-	for _, version := range []uint16{0, 1, 2, 3, 4, 5, 6, 7, 9} {
+	for version := uint16(0); version <= wire.Protocol+1; version++ {
+		if version == wire.Protocol {
+			continue
+		}
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			r := new(Registry)
 			authority, err := r.MintBoot("a", "vm")
@@ -694,23 +697,27 @@ func TestConflictInspectionRequiresBoundNativeReceipt(t *testing.T) {
 			require.NoError(t, err)
 			id, method, args, err := request.Request()
 			require.NoError(t, err)
-			require.Equal(t, byte(wire.Status), method)
-			fields, err := wire.Fields("args1", args)
+			require.Equal(t, byte(wire.InspectConflict), method)
+			fields, err := wire.Fields("args18", args)
 			require.NoError(t, err)
 			require.Equal(t, bytes.Repeat([]byte{0xaa}, 20), fields[1])
 			require.Equal(t, bytes.Repeat([]byte{0xbb}, 20), fields[2])
-			result := [][]byte{wire.Field(1, []byte{2}), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0))}
+			result := [][]byte{wire.Field(1, []byte{byte(wire.UnsupportedMethod)})}
+			variant := byte(255)
 			if tc.inspected {
 				list := wire.U16(uint16(len(tc.paths)))
 				for _, path := range tc.paths {
 					list = append(list, wire.String(path)...)
 				}
-				result = append(result, wire.Field(9, list))
+				result = [][]byte{wire.Field(1, list)}
+				variant = byte(wire.InspectConflict)
 			}
-			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(1, result...)))}))
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(variant, result...)))}))
 			got := <-done
 			if !tc.inspected {
-				require.ErrorIs(t, got.err, ErrNotReady)
+				var refusal *SessionError
+				require.ErrorAs(t, got.err, &refusal)
+				require.Equal(t, "unsupported", refusal.Code)
 			} else {
 				require.NoError(t, got.err)
 				require.Equal(t, tc.paths, got.paths)

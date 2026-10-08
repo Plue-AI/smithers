@@ -364,24 +364,6 @@ impl Core for NativeCore {
     fn call(&self, cx: &mut LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         match method {
             1 => {
-                let request = conn::fields("args1", args).map_err(|_| hooks::Error::unsupported())?;
-                let retained = request.iter().find(|(tag,_)| *tag == 1).map(|(_,value)| *value);
-                let onto = request.iter().find(|(tag,_)| *tag == 2).map(|(_,value)| *value);
-                let paths = match (retained, onto) {
-                    (None, None) => None,
-                    (Some(retained), Some(onto)) => {
-                        self.require_settled_wake()?;
-                        let retained = retained.try_into().map_err(|_| hooks::Error::unsupported())?;
-                        let onto = onto.try_into().map_err(|_| hooks::Error::unsupported())?;
-                        Some(crate::freeze::inspect_then(cx, |cx| {
-                            // Drain already observed movement before validating identity.
-                            let watcher = cx.hooks.watcher.clone();
-                            watcher.drain(cx)?;
-                            self.native.resolution_paths(retained, onto).map_err(hook)
-                        })?)
-                    }
-                    _ => return Err(hooks::Error {code:1,..hooks::Error::unsupported()}),
-                };
                 let watcher = cx.hooks.watcher.clone();
                 let idle = watcher.idle(cx);
                 let flushed = cx
@@ -408,10 +390,27 @@ impl Core for NativeCore {
                 if let Some(flushed) = flushed {
                     fields.push(field(8, [u8::from(flushed)]));
                 }
-                if let Some(paths) = paths {
-                    fields.push(field(9, crate::reconcile::paths_payload(&paths)?));
-                }
                 Ok(structure_bytes(&fields))
+            }
+            18 => {
+                let request =
+                    conn::fields("args18", args).map_err(|_| hooks::Error::unsupported())?;
+                let retained = request[0]
+                    .1
+                    .try_into()
+                    .map_err(|_| hooks::Error::unsupported())?;
+                let onto = request[1].1.try_into().map_err(|_| hooks::Error::unsupported())?;
+                self.require_settled_wake()?;
+                let paths = crate::freeze::inspect_then(cx, |cx| {
+                    // Drain observed movement before validating the retained identity.
+                    let watcher = cx.hooks.watcher.clone();
+                    watcher.drain(cx)?;
+                    self.native.resolution_paths(retained, onto).map_err(hook)
+                })?;
+                Ok(structure_bytes(&[field(
+                    1,
+                    crate::reconcile::paths_payload(&paths)?,
+                )]))
             }
             4 => {
                 self.require_settled_wake()?;
@@ -1054,12 +1053,23 @@ pub(crate) mod tests {
     #[test]
     fn status_idle_observations_require_each_provider() {
         struct Safety(bool);
+        impl hooks::Broker for Safety {
+            fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
+                panic!("status must not freeze writers")
+            }
+        }
         impl Watcher for Safety {
+            fn drain(&self, _: &mut LockCx) -> hooks::Result<()> {
+                panic!("status must not drain the watcher")
+            }
             fn idle(&self, _: &mut LockCx) -> hooks::Result<bool> {
                 Ok(self.0)
             }
         }
         impl Documents for Safety {
+            fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
+                panic!("status must not flush documents")
+            }
             fn ready(&self) -> hooks::Result<()> {
                 Ok(())
             }
@@ -1070,6 +1080,7 @@ pub(crate) mod tests {
         let (_dir, core) = fixture();
         for (quiet, flushed) in [(false, false), (false, true), (true, false), (true, true)] {
             let mut cx = LockCx::new(Hooks {
+                broker: Arc::new(Safety(quiet)),
                 watcher: Arc::new(Safety(quiet)),
                 documents: Arc::new(Safety(flushed)),
                 ..Default::default()
@@ -1903,24 +1914,24 @@ pub(crate) mod tests {
         core.native.move_to(item).unwrap();
         core.git.clone().acknowledge_and_sync(item).unwrap();
         let head = rebased_head(&rebase(&core, onto));
-        let inspected = call(core.clone(),1,&[field(1,head),field(2,onto)]);
+        let inspected = call(core.clone(),18,&[field(1,head),field(2,onto)]);
         let response = conn::fields("response", &inspected.payload[1..]).unwrap();
-        assert_eq!(response[1].1[0],1);
-        let status = conn::fields("result1", &response[1].1[1..]).unwrap();
-        assert_eq!(status.iter().find(|(tag,_)| *tag==9).unwrap().1,
+        assert_eq!(response[1].1[0],18);
+        let inspection = conn::fields("result18", &response[1].1[1..]).unwrap();
+        assert_eq!(inspection.iter().find(|(tag,_)| *tag==1).unwrap().1,
             crate::reconcile::paths_payload(&["conflict".into()]).unwrap());
         let markers = fs::read(root.join("conflict")).unwrap();
-        let stale = call(core.clone(),1,&[field(1,head),field(2,base)]);
+        let stale = call(core.clone(),18,&[field(1,head),field(2,base)]);
         let response = conn::fields("response", &stale.payload[1..]).unwrap();
         assert_eq!(response[1].1[0],255);
         assert_eq!(core.native.current().unwrap().0,head);
         assert_eq!(fs::read(root.join("conflict")).unwrap(),markers);
         fs::write(root.join("conflict"),b"resolved item and main\n").unwrap();
-        let inspected = call(core.clone(),1,&[field(1,head),field(2,onto)]);
+        let inspected = call(core.clone(),18,&[field(1,head),field(2,onto)]);
         let response = conn::fields("response", &inspected.payload[1..]).unwrap();
-        assert_eq!(response[1].1[0],1);
-        let status = conn::fields("result1", &response[1].1[1..]).unwrap();
-        assert_eq!(status.iter().find(|(tag,_)| *tag==9).unwrap().1,[0,0]);
+        assert_eq!(response[1].1[0],18);
+        let inspection = conn::fields("result18", &response[1].1[1..]).unwrap();
+        assert_eq!(inspection.iter().find(|(tag,_)| *tag==1).unwrap().1,[0,0]);
         assert_eq!(fs::read(root.join("conflict")).unwrap(),b"resolved item and main\n");
     }
     #[test]

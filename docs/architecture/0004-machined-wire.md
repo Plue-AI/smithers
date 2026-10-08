@@ -133,9 +133,9 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `8`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+`protocol` is `9`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues. Protocol 8 adds optional status observations 7 `bursts_idle`
-and 8 `documents_flushed` (T-MCH-06, #3567). There is no negotiation or older live protocol accepted. Host and daemon
+and 8 `documents_flushed` (T-MCH-06, #3567). Protocol 9 moves conflict inspection to method 18 with two required OIDs and a required paths list ([owner ruling](https://github.com/smithersai/smithers/issues/3532#issuecomment-6052691254)). `status()` takes no arguments, returns only fields 1–8, and never freezes writers. `inspect_conflict` requires ready admission, validates the retained change and target, and freezes writers while draining the watcher and inspecting resolution. There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
@@ -158,7 +158,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 
 | id | method | arguments | result | S2 owner; until then |
 | --- | --- | --- | --- | --- |
-| 1 | `status` | `1 conflict_change: oid`?, `2 onto_revision: oid`? (both or neither) | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16`, `7 bursts_idle: bool`?, `8 documents_flushed: bool`?, `9 conflict_paths: list<str>`? | T-COL-03a, T-MCH-06 |
+| 1 | `status` | empty | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16`, `7 bursts_idle: bool`?, `8 documents_flushed: bool`? | T-COL-03a, T-MCH-06 |
 | 2 | `read_file` | `1 path: str`, `2 at: oid`? | `1 content: bytes`, `2 digest: digest`, `3 mode: u32` | T-COL-03a |
 | 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
@@ -175,6 +175,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 15 | `attach_session` | `1 session: u32`, `2 received: u64` | `1 received: u64` | T-TRM-07; `unsupported` |
 | 16 | `set_roster` | `1 members: list<User>` | — | working-together W5; `unsupported` until broker ready |
 | 17 | `write_files` | `1 changes: list<{1 path: str, 2 base: Base, 3 content: bytes?}>` (content absent deletes), `2 actor: Actor.principal` | `1 writes: list<{1 post: Base, 2 raced: Raced?}>`, `2 failure: BatchFailure`? | T-COL-10 (see Compared text batches; Delete and move batches) |
+| 18 | `inspect_conflict` | `1 conflict_change: oid`, `2 onto_revision: oid` | `1 paths: list<str>` | T-STK-08 |
 
 `Raced := struct {1 path: str, 2 displaced_digest: digest}`. A write success
 without tag 2 is `applied`; with tag 2 it applied while preserving the displaced
@@ -188,7 +189,7 @@ must prevent session admission, not grant access. `set_roster` is host-only.
 
 T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation. A peer with a different protocol is refused. Capture still flushes, snapshots, publishes and drains before stop.
 
-T-STK-08 adds optional native conflict inspection to status. With both retained change and onto revision, the daemon freezes broker writers with the fixed one-second deadline, flushes documents and inspects the same logical change under its mutation lock. A changed target is refused; every inspection outcome thaws. Field 9 is present even when its path list is empty. Missing field 9 is unavailable inspection, never successful Done. Ordinary status omits these arguments and remains observational. Older request/response bytes remain readable.
+T-STK-08 uses `inspect_conflict` (18) for native conflict inspection. With the required retained change and onto revision, the daemon freezes broker writers with the fixed one-second deadline, flushes documents and inspects the same logical change under its mutation lock. A changed target is refused; every inspection outcome thaws. Result field 1 `paths` is required even when empty; a missing result is never successful Done. `status()` remains observational and never enters this barrier.
 
 Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
 (`set_roster`) answers `not_ready`.

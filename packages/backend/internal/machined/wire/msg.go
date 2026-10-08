@@ -21,6 +21,7 @@ const (
 	AttachSession
 	SetRoster
 	WriteFiles
+	InspectConflict
 )
 
 // ErrorCode is an RPC refusal, distinct from a framing ProtocolError.

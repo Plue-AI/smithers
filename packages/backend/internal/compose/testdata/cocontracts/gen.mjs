@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=8;
+const protocol=9;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'5a3bf6b8cdc911f0e0b8b56b77fcb8313bb5c2910d9b51f52f76f440c26d84a2'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'d686bd784d6e1895c535d0e9444d0ed1e7db80443a19da25fbef382b9b797d8e'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bac5d878851f283f7a672a6e22d785c482fd07066ee6c0e00320c2ff8ec4de1a'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'32c5feebfe24c101a91548084ec88448b71d92192db84fe072018ede8c695b7c'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f2d4b2d45385f501dae86711a3fbb9439e21f6c4d2d98cc38245085bb8ae1536'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'278db3041dc10c7c84708f1e815d929f39a0f83070011d530fa776e21fa00775'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -92,6 +92,14 @@ emit('local_open_session',1,req(6,f(1,agent),f(2,[1])),0,'ok','host-to-daemon',t
 emit('local_open_session_admitted',1,req(6,f(1,agent),f(2,[1]),f(5,committed),f(6,str('run-1'))),0,'ok','host-to-daemon',true);
 // Protocol 4: kill_sessions result `killed`; 0 for an already reaped id.
 for(const [name,n] of [['res_kill_sessions',1],['res_kill_sessions_none',0]])emit(name,1,res(9,f(1,num(n,2))),0,'ok','daemon-to-host');
+emit('req_inspect_conflict',1,req(18,f(1,oid),f(2,oid2)));
+emit('req_inspect_conflict_missing_change',1,req(18,f(2,oid2)),0,'missing_field');
+emit('req_inspect_conflict_missing_onto',1,req(18,f(1,oid)),0,'missing_field');
+emit('req_status_conflict_args',1,req(1,f(1,oid),f(2,oid2)),0,'unknown_field');
+emit('res_inspect_conflict',1,res(18,f(1,list(str('src/a.ts')))),0,'ok','daemon-to-host');
+emit('res_inspect_conflict_resolved',1,res(18,f(1,list())),0,'ok','daemon-to-host');
+emit('res_inspect_conflict_missing_paths',1,res(18),0,'missing_field','daemon-to-host');
+emit('res_status_conflict_paths',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),f(9,list())),0,'unknown_field','daemon-to-host');
 emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
 // acked_head is optional: absent before the first acknowledged capture.
 emit('res_status_no_acked_head',1,res(1,f(1,[2]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(3,4)),f(6,num(0,2))),0,'ok','daemon-to-host');
