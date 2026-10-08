@@ -265,6 +265,81 @@ for label, target in (("prototype", "/opt/smithers/prototype"),
         INSTALL_MUTATIONS["install-" + label + "-" + mutation] = (target, mutation)
 
 
+# Fixed installed-only schedules after both artifacts are held and verified.
+INSTALL_RACES = {"install-race-positive": (None, None)}
+for label, target in (("opt", "/opt"), ("opt-parent", "/opt/smithers"),
+                      ("run", "/run"), ("run-parent", "/run/smithers"),
+                      ("prototype", "/opt/smithers/prototype"),
+                      ("state", "/run/smithers/trm06")):
+    for mutation in ("symlink", "clone", "held-leaves", "writable", "owner"):
+        INSTALL_RACES["install-race-" + label + "-" + mutation] = (target, mutation)
+for label, target in (("supervisor", "/opt/smithers/prototype/supervisor"),
+                      ("boot", "/run/smithers/trm06/boot.json")):
+    for mutation in ("canary", "fifo", "directory", "hardlink", "same-size", "writable", "owner"):
+        INSTALL_RACES["install-race-" + label + "-" + mutation] = (target, mutation)
+
+
+def arm_install_race(selector):
+    """Observe the real installer without replacing its validation or launch.
+
+    A separate process mutates only literal disposable-guest paths. The profile
+    return boundary holds the installer after boot.json verification until the
+    worker has finished. No callback is added to the production installer.
+    """
+    target, mutation = INSTALL_RACES[selector]
+    def boundary(frame, event, result):
+        if (event != "return" or frame.f_code.co_name != "verified_file"
+                or frame.f_code.co_filename != "<trm06-installed-installer>"
+                or frame.f_locals.get("name") != "boot.json" or type(result) is not int):
+            return
+        sys.setprofile(None)
+        held_ns = time.monotonic_ns()
+        before = fingerprint()
+        child = os.fork()
+        if child == 0:
+            try:
+                start = time.monotonic_ns()
+                if target is not None:
+                    mutate_startup(target, mutation)
+                end = time.monotonic_ns()
+                after = fingerprint()
+                record = {"selector": selector, "held_ns": held_ns,
+                          "mutation_start_ns": start, "mutation_end_ns": end,
+                          "before": before, "after": after, "worker_pid": os.getpid()}
+                fd = os.open("/var/tmp/trm06-install-race.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "w") as output:
+                    json.dump(record, output)
+                os._exit(0)
+            except BaseException:
+                os._exit(78)
+        pidfd = os.pidfd_open(child)
+        try:
+            if not select.select([pidfd], [], [], 5)[0]:
+                signal.pidfd_send_signal(pidfd, signal.SIGKILL)
+                os.waitpid(child, 0)
+                raise ValueError("installer mutation worker timed out")
+            _, status = os.waitpid(child, 0)
+            if status != 0:
+                raise ValueError("installer mutation worker failed")
+        finally:
+            os.close(pidfd)
+        record = install_race_result()
+        record["resumed_ns"] = time.monotonic_ns()
+        if record["before"] != record["after"] or fingerprint() != before:
+            raise ValueError("installer mutation changed outside sentinel")
+        print(json.dumps({"install_race": record}), file=sys.stderr, flush=True)
+    sys.setprofile(boundary)
+
+
+def install_race_result():
+    fd = os.open("/var/tmp/trm06-install-race.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 4096 or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
+            raise ValueError("untrusted installer race sample")
+        return json.loads(source.read(4097))
+
+
 def mutate_install(target, mutation):
     """Only fresh installed-fixture literal targets; no retained state repair."""
     path = Path(target)
@@ -398,6 +473,9 @@ def main():
         ctypes.set_errno(0)
         abi = kernel.syscall(ctypes.c_long(444), ctypes.c_void_p(0), ctypes.c_size_t(0), ctypes.c_uint(1))
         print(json.dumps({"abi": abi, "errno": ctypes.get_errno(), "kernel": os.uname().release, "outside": fingerprint()}))
+        return
+    if operation == "install-race-result":
+        print(json.dumps(install_race_result()))
         return
     if operation == "fingerprint":
         print(json.dumps({"outside": fingerprint()}))
@@ -596,7 +674,7 @@ def main():
             os.close(process)
         print(json.dumps({"killed": pid, "before": observed}))
         return
-    if operation not in INSTALL_MUTATIONS and operation not in ("positive", "race-parent", "poison-imports", "symlink-opt", "symlink-run", "existing-prototype"):
+    if operation not in INSTALL_MUTATIONS and operation not in ("positive", "poison-imports", "symlink-opt", "symlink-run", "existing-prototype"):
         raise ValueError("unknown fixture")
     # Fresh disposable VM only, before sessions exist. The fixture's permitted
     # outside write would succeed under Ben's Unix permissions; Landlock must
@@ -615,16 +693,6 @@ def main():
             with os.fdopen(fd, "wb") as output:
                 output.write(b"open('/var/tmp/trm06-outside','ab').write(b'canary')\n")
             os.chown(path, 20001, 20001)
-    if operation == "race-parent":
-        os.chmod("/opt/smithers", 0o777)
-        def drop():
-            os.setgroups([20000])
-            os.setresgid(20001, 20001, 20001)
-            os.setresuid(20001, 20001, 20001)
-            if os.getresuid() != (20001, 20001, 20001) or os.getresgid() != (20001, 20001, 20001) or os.getgroups() != [20000]:
-                os._exit(78)
-        race = "import os,time\nfor i in range(10000):\n try: os.unlink('/opt/smithers/prototype')\n except FileNotFoundError: pass\n os.symlink('/var/tmp','/opt/smithers/prototype')\n time.sleep(.001)\n"
-        subprocess.Popen(["/usr/bin/python3", "-I", "-S", "-c", race], preexec_fn=drop, env={"PATH": "/usr/bin:/bin"}, cwd="/", stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     if operation == "symlink-opt":
         # Keep the existing shared adapter install intact. Poison only the
         # prototype destination, a member/replaced entry the installer refuses.

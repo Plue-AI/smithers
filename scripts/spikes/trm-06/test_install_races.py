@@ -191,6 +191,71 @@ finally:
                     launch.assert_not_called()
                 self.assertEqual((outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode), before)
 
+    def test_installed_synchronized_matrix_through_real_installer(self):
+        fixture_spec = importlib.util.spec_from_file_location("installed_fixture", Path(__file__).with_name("validation.py"))
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture)
+        self.assertEqual(len(fixture.INSTALL_RACES), 45)
+        source = Path(__file__).with_name("install.py").read_text()
+        for selector, (target, mutation) in fixture.INSTALL_RACES.items():
+            if mutation == "owner":
+                # Native guest execution observes real UID changes. This lane
+                # must not simulate a forked worker's ownership receipt.
+                continue
+            with self.subTest(selector=selector), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for relative in ("opt", "opt/smithers", "run", "run/smithers", "var", "var/tmp"):
+                    (root / relative).mkdir(exist_ok=True)
+                    (root / relative).chmod(0o755)
+                outside = root / "outside"
+                outside.write_bytes(b"outside-fixture\0")
+                outside.chmod(0o640)
+                before = (outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode)
+                binary = b"literal-supervisor-fixture"
+                sha = hashlib.sha256(binary).hexdigest()
+                payload = {"supervisor": base64.b64encode(binary).decode(), "sha256": sha,
+                           "boot": {"revision": "a" * 40, "supervisor_sha256": sha,
+                                    "boot": [1] * 16, "secret": [2] * 32}}
+                real_open, real_fstat = os.open, os.fstat
+                def rooted_open(path, flags, mode=0o777, *, dir_fd=None):
+                    if dir_fd is None and str(path).startswith("/") and not str(path).startswith(str(root) + "/"):
+                        path = str(root / str(path).removeprefix("/"))
+                    return real_open(path, flags, mode, dir_fd=dir_fd)
+                def root_owned(fd):
+                    values = list(real_fstat(fd)); values[4] = 0
+                    return os.stat_result(values)
+                original_mutate = fixture.mutate_startup
+                def rooted_mutate(selected, kind):
+                    path = root / selected.removeprefix("/")
+                    mode = path.stat().st_mode & 0o777
+                    if kind == "same-size" and path.name == "boot.json": path.chmod(0o600)
+                    original_mutate(str(path), kind)
+                    if kind == "same-size" and path.name == "boot.json": path.chmod(mode)
+                def observed_sentinel():
+                    info = outside.stat()
+                    return {"sha256":hashlib.sha256(outside.read_bytes()).hexdigest(), "uid":20001,"mode":info.st_mode & 0o777}
+                namespace = {"__name__":"installed_test"}
+                exec(compile(source, "<trm06-installed-installer>", "exec"), namespace)
+                try:
+                    with patch.object(installer.os, "getuid", return_value=0), patch.object(installer.os, "geteuid", return_value=0), patch.object(installer.os, "open", side_effect=rooted_open), patch.object(installer.os, "fstat", side_effect=root_owned), patch.object(fixture, "mutate_startup", side_effect=rooted_mutate), patch.object(fixture, "fingerprint", side_effect=observed_sentinel), patch.object(installer.sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(json.dumps(payload).encode()))), patch.object(installer.subprocess, "Popen", return_value=types.SimpleNamespace(pid=123)) as launch, patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+                        fixture.arm_install_race(selector)
+                        if target is None:
+                            namespace["install"]()
+                            launch.assert_called_once()
+                        else:
+                            with self.assertRaises((ValueError, OSError)):
+                                namespace["install"]()
+                            launch.assert_not_called()
+                        record = fixture.install_race_result()
+                        self.assertEqual(record["selector"], selector)
+                        self.assertLessEqual(record["held_ns"], record["mutation_start_ns"])
+                        self.assertLessEqual(record["mutation_start_ns"], record["mutation_end_ns"])
+                        self.assertNotEqual(record["worker_pid"], os.getpid())
+                        self.assertEqual(record["before"], record["after"])
+                finally:
+                    os.sys.setprofile(None)
+                self.assertEqual((outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode), before)
+
 
 if __name__ == "__main__":
     unittest.main()

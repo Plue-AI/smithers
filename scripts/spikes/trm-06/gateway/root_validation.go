@@ -71,7 +71,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		}
 		receipt["host_startup_controls"] = "pass"
 	}
-	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
+	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
 		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-ancestor-replaced", "cgroup-ancestor-writable", "cgroup-ancestor-owner", "cgroup-parent-owner", "cgroup-child-owner", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-owner", "cgroup-live-child-owner", "cgroup-live-ancestor-owner"}
 	}
@@ -90,6 +90,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		scenarios = append(scenarios, "environment-all")
 		scenarios = append(scenarios, startupMutationScenarios()...)
 		scenarios = append(scenarios, installMutationScenarios()...)
+		scenarios = append(scenarios, installRaceScenarios()...)
 	}
 	var campaignErrors []error
 	type scenarioReceipt struct {
@@ -336,6 +337,9 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	}
 	environment, environmentFixture := startupEnvironmentFixture(scenario)
 	prepare := scenario
+	if installRaceFixture(scenario) {
+		prepare = "positive"
+	}
 	if environmentFixture {
 		prepare = "poison-imports"
 	}
@@ -372,6 +376,12 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		values, _ := json.Marshal(environment)
 		candidate.installer = append([]byte("import os\nos.environ.update("+string(values)+")\n"), a.installer...)
 	}
+	if installRaceFixture(scenario) {
+		source, _ := json.Marshal(fixture)
+		selector, _ := json.Marshal(scenario)
+		installer, _ := json.Marshal(string(a.installer))
+		candidate.installer = []byte("_fixture={'__name__':'installed_fixture'}\nexec(" + string(source) + ",_fixture)\n_fixture['arm_install_race'](" + string(selector) + ")\nexec(compile(" + string(installer) + ",'<trm06-installed-installer>','exec'))\n")
+	}
 	if scenario == "branch-supervisor" {
 		candidate.supervisor = []byte("#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
 	}
@@ -379,7 +389,31 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		candidate.supervisorSHA = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	err = installPrototype(ctx, &candidate, id, home, runtimeRoot, identity)
-	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && !cgroupLiveFixture(scenario) && !startupMutationFixture(scenario) {
+	if installRaceFixture(scenario) {
+		installErr := err
+		outcome := map[string]any{"operation": "installed-init-launch", "error": ""}
+		if installErr != nil {
+			outcome["error"] = installErr.Error()
+		}
+		raw, marshalErr := json.Marshal(outcome)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if saveErr := os.WriteFile(filepath.Join(evidence, "installed-init-launch.json"), raw, 0600); saveErr != nil {
+			return saveErr
+		}
+		sample, sampleErr := observe("install-race-result")
+		if sampleErr != nil {
+			return sampleErr
+		}
+		if sampleErr = requireInstallRaceSample(sample, scenario); sampleErr != nil {
+			return sampleErr
+		}
+		if scenario != "install-race-positive" && (installErr == nil || !strings.Contains(installErr.Error(), "prototype_authority_unavailable")) {
+			return errors.New("installed replacement lacked explicit installer refusal")
+		}
+	}
+	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "install-race-positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && !cgroupLiveFixture(scenario) && !startupMutationFixture(scenario) {
 		if err == nil {
 			return fmt.Errorf("installed destination fixture %s was accepted", scenario)
 		}
@@ -495,7 +529,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if !installMutationFixture(mode) && !cgroupRestartFixture(mode) && !cgroupLiveFixture(mode) && !startupMutationFixture(mode) && mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
+	if mode != "install-race-result" && !installMutationFixture(mode) && !cgroupRestartFixture(mode) && !cgroupLiveFixture(mode) && !startupMutationFixture(mode) && mode != "landlock-kernel" && mode != "positive" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or

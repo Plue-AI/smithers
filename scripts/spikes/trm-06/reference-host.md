@@ -327,3 +327,17 @@ install; local reply-classification tests are not confinement acceptance.
 These controls do not complete installed host artifact/destination replacement
 validation, the unsupported-Landlock execution, native steps/revocations, complete
 same-revision overlay or the second-Mac/security/protocol acceptance.
+
+Pass r3 installed destination schedules (reference execution pending):
+`check-install` now includes 45 additional fresh-VM schedules: a positive control,
+30 ancestor/destination cases and 14 supervisor/boot artifact cases. After the
+actual installer holds and verifies both artifacts, an installed observer waits
+for a separate mutation process to complete before resuming final validation.
+The production installer’s validation and init launch are unchanged. Literal
+selectors cover symlink, copied ancestor, preserved child inodes, writable and
+wrong-owner directories; executable canary, FIFO, directory, hardlink, same-size
+contents, writable and wrong-owner artifacts. Preserve worker PID, monotonic
+ordering, explicit installer refusal, and outside digest/owner/mode in each
+scenario. The earlier unsynchronized writable-parent loop is removed. This does
+not complete the native host launcher replacement matrix, execute the guest
+controls, grant acceptance, or supply a recording.
