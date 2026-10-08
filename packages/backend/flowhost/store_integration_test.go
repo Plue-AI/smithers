@@ -31,6 +31,46 @@ type stopFunc func(context.Context, Binding) error
 
 func (f stopFunc) StopFlowHost(ctx context.Context, b Binding) error { return f(ctx, b) }
 
+func TestPostgresCaptureStopsOnlySettledPinnedHosts(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := t.Context()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	owner, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	binding := owner.Binding()
+	require.NoError(t, owner.Close())
+	stops := 0
+	stop := stopFunc(func(_ context.Context, b Binding) error {
+		require.Equal(t, binding, b)
+		stops++
+		return nil
+	})
+	active := ActiveRunsFunc(func(_ context.Context, b Binding) (bool, error) {
+		require.Equal(t, binding, b)
+		return true, nil
+	})
+	require.ErrorContains(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, stop, active), "active flow run")
+	require.Zero(t, stops)
+	unknown := ActiveRunsFunc(func(context.Context, Binding) (bool, error) { return false, errors.New("observation failed") })
+	require.ErrorContains(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, stop, unknown), "observation failed")
+	require.Zero(t, stops)
+	settled := ActiveRunsFunc(func(context.Context, Binding) (bool, error) { return false, nil })
+	refused := stopFunc(func(context.Context, Binding) error { return errors.New("stop unconfirmed") })
+	require.ErrorContains(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, refused, settled), "stop unconfirmed")
+	require.NoError(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, stop, settled))
+	require.Equal(t, 1, stops)
+	retained, err := store.AcquireExisting(ctx, authority, catalog)
+	require.NoError(t, err)
+	require.Equal(t, binding, retained.Binding(), "capture preparation retains the pinned host identity")
+	require.NoError(t, retained.Close())
+	require.Error(t, store.PrepareWorkspaceCapture(ctx, authority.WorkspaceID, stop, nil))
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.ErrorIs(t, store.PrepareWorkspaceCapture(cancelled, authority.WorkspaceID, stop, settled), context.Canceled)
+}
+
 func hostTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)

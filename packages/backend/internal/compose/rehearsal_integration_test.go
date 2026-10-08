@@ -153,7 +153,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
-	realMicroVM := enable == pinnedMicroVMRehearsal || enable == "SMITHERS_J5_MICROVM_REHEARSAL" || enable == "SMITHERS_J6_MICROVM_REHEARSAL" || enable == "SMITHERS_TODO_REVIEW_CONTEXT_MICROVM_REHEARSAL"
+	realMicroVM := enable == pinnedMicroVMRehearsal || enable == "SMITHERS_J5_MICROVM_REHEARSAL" || enable == "SMITHERS_J6_MICROVM_REHEARSAL" || enable == "SMITHERS_TODO_REVIEW_CONTEXT_MICROVM_REHEARSAL" || enable == "SMITHERS_C_J8_04_REFERENCE_HOST"
 	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"), "rehearsal requires real PostgreSQL")
 	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
 	// Each run gets its own TMPDIR: the stack's scratch repositories live at
@@ -334,7 +334,11 @@ path = "lib.rs"
 		// actual request, credentials and disclosed commands pass unchanged.
 		r.provider = httptest.NewServer(httputil.NewSingleHostReverseProxy(origin))
 	} else {
-		r.provider = localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
+		if enable == "SMITHERS_C_J8_04_REFERENCE_HOST" {
+			r.provider = localChatProviderWithContext(make(chan string, 16), `[{"index":0,"reason":"Retry policy"}]`, "JOURNEY.md", "../../etc/passwd")
+		} else {
+			r.provider = localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
+		}
 	}
 	t.Cleanup(r.provider.Close)
 	bundle := filepath.Join(t.TempDir(), "model-host")
@@ -1834,12 +1838,31 @@ var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
 // context. The process runtime's direct filesystem helpers are never a fallback.
 func (r bindingProcessRuntime) CompareWriteFiles(ctx context.Context, workspaceID string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
 	return (machined.WorkspaceWriter{Client: r.daemons, EnsureReady: func(ctx context.Context, branch string) error {
+		observed, err := r.InspectWorkspace(ctx, branch)
+		if err != nil {
+			return err
+		}
+		if err := r.ensureDaemon(ctx, branch, observed.Root); err != nil {
+			return err
+		}
 		link, err := r.daemons.Current(branch)
 		if err != nil {
 			return err
 		}
 		return link.RequireReady(branch)
 	}}).CompareWriteFiles(ctx, workspaceID, changes)
+}
+
+func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string) error {
+	link, err := r.daemons.Current(id)
+	if err == nil && link.RequireReady(id) == nil {
+		return nil
+	}
+	item, err := machineItemBinding(ctx, r.pool, id)
+	if err != nil {
+		return err
+	}
+	return startRehearsalMachined(r.t, ctx, r.daemons, id, root, r.evidence, r.daemonBinary, &item)
 }
 
 func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {
@@ -1955,23 +1978,15 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 		}
 		return command, nil
 	})
-	// Complete daemon admission before any coding process or credential can
-	// be observed as ready.
-	if _, daemonErr := r.daemons.Current(workspaceID); daemonErr != nil {
-		item, daemonErr := machineItemBinding(ctx, r.pool, workspaceID)
-		if daemonErr != nil && !errors.Is(daemonErr, machined.ErrNotReady) {
-			return workspaceapi.ManagedHostConnection{}, daemonErr
-		}
-		// A newly admitted TODO has no persisted logical change until its
-		// first delivery. Do not invent a scratch/item binding or expose
-		// daemon operations for it. The native coding host can produce that
-		// change; daemon-dependent doors remain refused until it is bound.
-		if daemonErr == nil {
-			if daemonErr = startRehearsalMachined(r.t, ctx, r.daemons, workspaceID, observed.Root, r.evidence, r.daemonBinary, &item); daemonErr != nil {
-				return workspaceapi.ManagedHostConnection{}, daemonErr
-			}
-		}
+	// Host registration now uses the production daemon-backed filesystem.
+	// Reconcile its boot before waiting for gateway readiness, or registration
+	// and daemon startup wait on each other. A stopped boot must reconcile again.
+	if err := r.ensureDaemon(ctx, workspaceID, observed.Root); err != nil && !errors.Is(err, machined.ErrNotReady) {
+		return workspaceapi.ManagedHostConnection{}, err
 	}
+	// An unplanned TODO has no logical native change yet. It may plan or run
+	// a non-writing override, but daemon writes still refuse until the stack
+	// service reserves its change; CompareWriteFiles retries that real boot.
 	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
 	if err == nil && r.failNextTodoStart != nil && r.failNextTodoStart.Load() {
 		var todo bool

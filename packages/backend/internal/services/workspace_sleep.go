@@ -115,14 +115,35 @@ func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace
 }
 
 func (s *WorkspaceService) captureAndSleepLocked(ctx context.Context, row db.Workspace, sessionless bool) error {
+	if s.prepareFlowHostCapture != nil {
+		if err := s.prepareFlowHostCapture(ctx, row.ID); err != nil {
+			return err
+		}
+	}
 	if fence, ok := s.runtime.(interface {
 		WithCaptureWritersExcluded(context.Context, string, func(context.Context) error) error
 	}); ok {
+		// The trusted-process head publisher snapshots periodically. Stop that
+		// supervised writer before the final native capture; guest capture owns
+		// its daemon barrier instead. Resume provisions the publisher again.
+		operationCtx, err := s.workspaceRuntimeContext(ctx, row, row.UserID, workspaceLifecycleOperation(row, "capture"))
+		if err != nil {
+			return err
+		}
+		if err := s.runtime.StopService(operationCtx, row.ID, workspaceHeadReporterService); err != nil {
+			return err
+		}
 		return fence.WithCaptureWritersExcluded(ctx, row.ID, func(ctx context.Context) error {
 			return s.captureAndSleepExcluded(context.WithValue(ctx, branchWriterExclusionKey{}, true), row, sessionless)
 		})
 	}
 	return s.captureAndSleepExcluded(ctx, row, sessionless)
+}
+
+// SetFlowHostCapturePreparation stops only hosts whose pinned launches have
+// settled. The runtime's writer fence still verifies quiescence before capture.
+func (s *WorkspaceService) SetFlowHostCapturePreparation(prepare func(context.Context, string) error) {
+	s.prepareFlowHostCapture = prepare
 }
 
 type branchWriterExclusionKey struct{}

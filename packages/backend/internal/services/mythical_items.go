@@ -1021,7 +1021,7 @@ func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 	if update.Checkpoint.FailureMissingTool != nil {
 		return mythicalStopped + "user: missing_machine_tool"
 	}
-	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
+	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey/irreversible_retry_requires_idempotency_key") {
 		return mythicalInterrupted
 	}
 	// Tree-writing checks require a person's Retry, even when a retained

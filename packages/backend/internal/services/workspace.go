@@ -616,7 +616,8 @@ type WorkspaceService struct {
 	// egress proxy is created and resumed with (#2653).
 	egressAllowDomains EgressAllowDomainsSource
 	// flowJournals drops a deleted workspace's flow journal (#3172).
-	flowJournals FlowJournals
+	flowJournals           FlowJournals
+	prepareFlowHostCapture func(context.Context, string) error
 	// boxHostActivity is when each box's coding host last recorded activity.
 	boxHostActivity *sync.Map
 	// headReporterRetryAt spaces failed runtime publisher installs per workspace.

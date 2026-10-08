@@ -87,7 +87,7 @@ export default Flow.make("todo", {
 		require.NoError(t, err)
 		var card map[string]any
 		require.NoError(t, json.Unmarshal(raw, &card))
-		require.Equal(t, "interrupted", card["failure"].(map[string]any)["class"])
+		require.Equal(t, "interrupted", card["failure"].(map[string]any)["class"], string(raw))
 		// Activate D2 before Retry. Admission must still use D1, and reconnecting
 		// the same press must not create a third attempt.
 		changed := strings.Replace(source, "Hold a keyless crossing", "Changed active description", 1)
@@ -115,7 +115,8 @@ export default Flow.make("todo", {
 			}
 		}
 		require.True(t, preserved, "Retry must retain the original attempt's pin and source evidence")
-		require.NoError(t, r.drop(number))
+		// newRehearsal closes every owned runtime and worker at test cleanup.
+		// Dropping a live override separately requires stopped-writer capture.
 		fmt.Println(`CRASH-OBSERVATION {"point":"host-keyless-crossing","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1}`)
 	})
 }

@@ -474,6 +474,10 @@ func (b *lockedBuffer) String() string {
 // prompt lists, one per line. Given its tool results, it answers by quoting
 // them, so an answer shows what was read.
 func localChatProvider(receivedKey chan string, fileQuestions ...string) *httptest.Server {
+	return localChatProviderWithContext(receivedKey, "[]", fileQuestions...)
+}
+
+func localChatProviderWithContext(receivedKey chan string, selection string, fileQuestions ...string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case receivedKey <- r.Header.Get("Authorization"):
@@ -504,7 +508,7 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 		for _, message := range body.Messages {
 			var text string
 			if message.Role == "system" && json.Unmarshal(message.Content, &text) == nil && strings.Contains(text, "Choose relevant context") {
-				answer("[]")
+				answer(selection)
 				return
 			}
 		}

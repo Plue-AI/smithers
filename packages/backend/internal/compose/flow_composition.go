@@ -191,6 +191,13 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
+	if owner, ok := boxes.(interface {
+		SetFlowHostCapturePreparation(func(context.Context, string) error)
+	}); ok {
+		owner.SetFlowHostCapturePreparation(func(ctx context.Context, id string) error {
+			return bindings.PrepareWorkspaceCapture(ctx, id, stopper, activeRuns)
+		})
+	}
 	// Each run stays readable after its machine stops: lifecycle pages retain
 	// the live host's own answers for it (T-FLW-07).
 	archive := &runArchive{pool: pool}
