@@ -44,6 +44,9 @@ func (r *Runtime) BindMachineAgentActor(commit func(context.Context, string, str
 // and reconciles through the same private byte transport as other guest ports.
 // It is lazy: the source checkout must exist before the native daemon opens it.
 func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	ws, err := r.runningWorkspace(id)
 	if err != nil {
 		return err

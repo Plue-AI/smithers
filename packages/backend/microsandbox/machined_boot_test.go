@@ -1,11 +1,17 @@
 package microsandbox
 
 import (
-	"github.com/stretchr/testify/require"
+	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/smithersai/smithers/packages/backend/installbundle"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/stretchr/testify/require"
 )
 
 // Account/root/tmpfs observations and the broker launch are simulated. Actual
@@ -89,4 +95,73 @@ with tempfile.TemporaryDirectory() as root:
 `
 	out, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py")).CombinedOutput()
 	require.NoError(t, err, string(out))
+}
+
+// Supplemental startup inventory: remove each host provider independently on
+// fresh and retained boots. No guest CLI is installed, so reaching a helper,
+// planting a binary or starting a privileged process would panic.
+func TestMachinedStartupProvidersFailClosed(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		for _, missing := range []string{"bundle", "branch head", "item binding", "durable event consumer"} {
+			t.Run(fmt.Sprintf("retained=%t/%s", retained, missing), func(t *testing.T) {
+				r := &Runtime{config: Config{Bundle: &installbundle.Bundle{}}, workspaces: map[string]*workspace{"a": newWorkspace(metadata{ID: "a", Machine: "vm", State: "running"}, "")}}
+				r.BindMachinedHost(func(context.Context, string) (string, error) {
+					t.Fatal("head lookup before prerequisite checks")
+					return strings.Repeat("1", 40), nil
+				})
+				r.BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error) {
+					t.Fatal("item lookup before prerequisite checks")
+					return machined.ItemBinding{}, nil
+				})
+				if missing != "durable event consumer" {
+					stop, err := r.machined.ConsumeEvents(t.Context(), func(context.Context, *machined.Link, string, machined.Event) (machined.Acknowledgement, error) {
+						t.Fatal("event dispatch before admission")
+						return machined.Acknowledgement{}, nil
+					})
+					require.NoError(t, err)
+					t.Cleanup(stop)
+				}
+				switch missing {
+				case "bundle":
+					r.config.Bundle = nil
+				case "branch head":
+					r.machinedHead = nil
+				case "item binding":
+					r.machinedItem = nil
+				}
+				if retained {
+					authority, err := r.machined.MintBoot("a", "vm")
+					require.NoError(t, err)
+					r.workspaces["a"].daemonBoot = &authority
+				}
+				before := r.workspaces["a"].daemonBoot
+				err := r.EnsureMachined(t.Context(), "a")
+				require.ErrorIs(t, err, ErrUnavailable)
+				require.Equal(t, "microVM isolation is unavailable: installed machine host providers unavailable", err.Error())
+				require.Same(t, before, r.workspaces["a"].daemonBoot)
+				_, err = r.machined.Current("a")
+				require.Error(t, err)
+			})
+		}
+	}
+}
+
+func TestMachinedCancelledStartupDoesNotMintBoot(t *testing.T) {
+	for _, retained := range []bool{false, true} {
+		t.Run(fmt.Sprintf("retained=%t", retained), func(t *testing.T) {
+			r := &Runtime{workspaces: map[string]*workspace{"a": newWorkspace(metadata{ID: "a", Machine: "vm", State: "running"}, "")}}
+			if retained {
+				authority, err := r.machined.MintBoot("a", "vm")
+				require.NoError(t, err)
+				r.workspaces["a"].daemonBoot = &authority
+			}
+			before := r.workspaces["a"].daemonBoot
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			require.ErrorIs(t, r.EnsureMachined(ctx, "a"), context.Canceled)
+			require.Same(t, before, r.workspaces["a"].daemonBoot)
+			_, err := r.machined.Current("a")
+			require.Error(t, err)
+		})
+	}
 }
