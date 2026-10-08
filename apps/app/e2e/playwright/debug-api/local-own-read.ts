@@ -1,6 +1,6 @@
 // Bun owns the native install; Playwright's Node worker cannot run Bun.spawn.
 import { startLocalOwn } from "../../../scripts/mode-matrix/local-own"
-import { createDebugApiSeam, type OpenApiDocument } from "../../../src/mainview/state/seams/DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy, type OpenApiDocument } from "../../../src/mainview/state/seams/DebugApiSeam"
 import { createHash } from "node:crypto"
 import { readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
@@ -201,7 +201,7 @@ try {
       assert.equal(requests, 1)
       assert.equal(exchange.response?.status, fixtures.signout.status)
       assert.deepEqual(JSON.parse(exchange.response!.body), fixtures.signout.body)
-      assert.deepEqual(exchange.failure, { class: "permission", code: fixtures.signout.body.code, message: fixtures.signout.body.message, status: 401 })
+      assert.deepEqual(exchange.failure, { class: "permission", code: fixtures.signout.body.code, message: debugApiFailureCopy({ class: "permission", status: 401 }), status: 401 })
       assert.equal(seam.get().busy, false, "Typed failure settles Send without a crash")
       // Apply the cleared browser credential and the existing account lifecycle.
       activeCookie = ""
@@ -251,7 +251,7 @@ try {
       writeFileSync(join(outputDir, "write.role-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`)
       console.log(`C-UI-10 REAL WRITE OBSERVED: ${JSON.stringify(receipt)}`)
       assert.deepEqual(JSON.parse(benExchange.response!.body), fixtures.write.denied, "Ben's literal role refusal, rather than a transport refusal")
-      assert.deepEqual(benExchange.failure, { ...fixtures.write.denied, status: 403 })
+      assert.deepEqual(benExchange.failure, { ...fixtures.write.denied, message: debugApiFailureCopy({ class: fixtures.write.denied.class, status: 403 }), status: 403 })
       assert.equal(exchange.response?.status, 201, "Mia's real backend response")
       assert.equal(exchange.failure, undefined)
       const metadata = JSON.parse(exchange.response!.body)

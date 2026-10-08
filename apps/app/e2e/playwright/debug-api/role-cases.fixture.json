@@ -23,6 +23,7 @@
     "body": {
       "code": "unauthenticated",
       "class": "permission",
+      "fault": "user",
       "message": "Sign in again"
     }
   }

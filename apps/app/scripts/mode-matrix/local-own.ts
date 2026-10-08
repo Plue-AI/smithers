@@ -188,8 +188,9 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
         COMMIT;`)
     })
     if (seed.exitCode !== 0) throw new Error(`local-own owner seed failed: ${new TextDecoder().decode(seed.stderr)}`)
+    const csrf = randomBytes(32).toString("hex")
     await localOwnRequest(backendOrigin, origin, "/api/user/repos", {
-      method: "POST", headers: { "content-type": "application/json", authorization: `token ${token}` },
+      method: "POST", headers: { "content-type": "application/json", cookie: `smithers_session=${sessionCookie}; __csrf=${csrf}`, "X-CSRF-Token": csrf, origin },
       body: JSON.stringify({ name: repository, private: true, auto_init: true })
     })
     const secrets = join(dataRoot, "config", "secrets.json")
