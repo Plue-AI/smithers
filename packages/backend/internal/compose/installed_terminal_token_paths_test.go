@@ -104,3 +104,51 @@ func testInstalledTerminalTokenPaths(t *testing.T, writer microsandbox.MemberSes
 		})
 	}
 }
+
+// Equal bytes in distinct sessions deliberately make a digest-only ownership
+// check insufficient. Neither replacement nor cleanup may follow A into B.
+func testInstalledTerminalForeignTokenMutation(t *testing.T, writer microsandbox.MemberSessionCredentials, branch string, observer *rehearsalTerminal, phase string) {
+	t.Helper()
+	for _, component := range []string{"leaf", "session directory"} {
+		t.Run(phase+"/foreign token mutation/"+component, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+			a, b := uuid.NewString(), uuid.NewString()
+			token := []byte("smithers_equal_bytes_distinct_sessions")
+			digest := workspaceapi.SessionCredentialIdentity(token)
+			pa, err := writer.PutSessionToken(ctx, branch, a, token, "")
+			require.NoError(t, err)
+			pb, err := writer.PutSessionToken(ctx, branch, b, token, "")
+			require.NoError(t, err)
+			replacement := []byte("smithers_foreign_replacement_forbidden")
+			restore := fmt.Sprintf(`a=%q; b=%q; if test -L "$a"; then rm "$a"; mv "$a.saved" "$a"; fi; d=$(dirname "$a"); if test -L "$d"; then rm "$d"; mv "$d.saved" "$d"; fi`, pa, pb)
+			defer func() {
+				installedShell(t, observer, restore)
+				cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+				defer stop()
+				require.NoError(t, writer.DeleteSessionToken(cleanup, branch, a, digest))
+				require.NoError(t, writer.DeleteSessionToken(cleanup, branch, b, digest))
+			}()
+			mutation := `mv "$a" "$a.saved"; ln -s "$b" "$a"`
+			if component == "session directory" {
+				mutation = `d=$(dirname "$a"); mv "$d" "$d.saved"; ln -s "$(dirname "$b")" "$d"`
+			}
+			installedShell(t, observer, fmt.Sprintf(`a=%q; b=%q; `, pa, pb)+mutation)
+			_, err = writer.PutSessionToken(ctx, branch, a, replacement, digest)
+			require.Error(t, err, "replacement followed a foreign-session path")
+			require.Error(t, writer.DeleteSessionToken(ctx, branch, a, digest), "cleanup followed a foreign-session path")
+			// Assert locally in the guest: bearer bytes never enter the transcript.
+			installedShell(t, observer, fmt.Sprintf(`python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); assert p.read_bytes()==b"smithers_equal_bytes_distinct_sessions\n"; assert p.stat().st_uid==20001; assert p.stat().st_mode & 0o777==0o600' %q`, pb))
+			installedShell(t, observer, restore)
+			// Positive control proves validation did not revoke either valid session.
+			_, err = writer.PutSessionToken(ctx, branch, a, replacement, digest)
+			require.NoError(t, err)
+			_, err = writer.PutSessionToken(ctx, branch, a, token, workspaceapi.SessionCredentialIdentity(replacement))
+			require.NoError(t, err)
+			_, err = writer.PutSessionToken(ctx, branch, b, replacement, digest)
+			require.NoError(t, err)
+			_, err = writer.PutSessionToken(ctx, branch, b, token, workspaceapi.SessionCredentialIdentity(replacement))
+			require.NoError(t, err)
+		})
+	}
+}

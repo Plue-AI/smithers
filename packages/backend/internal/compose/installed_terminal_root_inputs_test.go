@@ -254,6 +254,7 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 	testInstalledTerminalEnvironmentBoundaries(t, writer, branch, observer, phase)
 	testInstalledTerminalOpeningReplacement(t, writer, branch, observer, phase)
 	testInstalledTerminalTokenPaths(t, writer, branch, observer, phase)
+	testInstalledTerminalForeignTokenMutation(t, writer, branch, observer, phase)
 }
 
 // A valid binding must execute on both sides of the refusal matrix; an
