@@ -164,7 +164,7 @@ pub(crate) fn serve_peer(
     let stream_groups = groups.clone();
     let stream_run = run.clone();
     let response = lock
-        .run_blocking("local_rpc", move |cx| {
+        .enqueue("local_rpc", move |cx| {
             // Recheck after queueing: revocation can happen while this request waits
             // behind a capture or rewrite. The original cgroup grants no lease.
             if !ready()
@@ -222,6 +222,17 @@ pub(crate) fn serve_peer(
                 _ => Ok(daemon::refused(id, Error::unsupported())),
             }
         })
+        .map_err(|_| io::Error::other("mutation executor stopped"))?;
+    // The reference-guest supervisor holds Return at freeze-start, then waits
+    // for this marker before releasing it. Admission and FIFO enqueue are real;
+    // the transport thread pauses, never the mutation executor. Release builds
+    // contain no hook and accept no branch-controlled synchronization input.
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    if matches!(method, 3 | 17) {
+        crate::events::killpoint("coding-queued");
+    }
+    let response = response
+        .wait()
         .map_err(|_| io::Error::other("mutation executor stopped"))?
         .map_err(io::Error::other)?;
     response.write(&mut socket)?;

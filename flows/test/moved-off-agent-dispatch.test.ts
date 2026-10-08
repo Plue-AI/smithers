@@ -18,7 +18,35 @@ import * as CodingFileSystem from "../coding/filesystem.ts"
 
 const guest = process.env.SMITHERS_COL05_GUEST === "1"
 const unbound = process.env.SMITHERS_COL05_UNBOUND === "1"
-const assertBindingsRefuse = async (expectedMessage: string) => {
+// A main-built supervisor forks this registered agent with Node IPC. It arms
+// qualification-freeze-start and qualification-coding-queued in daemon-private
+// state (killpoints debug build only), invokes the served person Return command,
+// and acknowledges return-held only after freeze-start.hit exists. On queued it
+// waits for coding-queued.hit, removes freeze-start.hit, waits for the real Return
+// receipt, removes coding-queued.hit, then sends returned. Before each case it
+// moves the fixture off the item again. No provider or transport is substituted.
+const coordinate = (phase: "hold-return" | "finish-return", tool: string) => new Promise<void>((resolve, reject) => {
+  assert.ok(process.send, "queued Return qualification requires the reference-guest IPC supervisor")
+  const expected = phase === "hold-return" ? "return-held" : "returned"
+  const timeout = setTimeout(() => finish(new Error(`Timed out waiting for ${expected}: ${tool}`)), 30_000)
+  const receive = (message: unknown) => {
+    if (typeof message !== "object" || message === null) return
+    const reply = message as { phase?: string; tool?: string; error?: string }
+    if (reply.tool !== tool) return
+    if (reply.error) finish(new Error(reply.error))
+    else if (reply.phase === expected) finish()
+  }
+  const finish = (error?: Error) => {
+    clearTimeout(timeout)
+    process.off("message", receive)
+    if (error) reject(error)
+    else resolve()
+  }
+  process.on("message", receive)
+  process.send!({ phase, tool }, error => { if (error) finish(error) })
+})
+
+const assertBindingsRefuse = async (expectedMessage: string, queuedReturn = false) => {
   assert.equal(process.getuid?.(), 19999)
   const path = "/workspace/t-col05-dispatch.txt"
   // Committed literal fixture, installed by the canary before the move.
@@ -49,7 +77,13 @@ const assertBindingsRefuse = async (expectedMessage: string) => {
       [Edit.name, { path, oldString: "hello", newString: "overwritten" }],
       [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${path}\n@@\n-hello\n+overwritten\n*** End Patch` }]
     ] as const) {
-      const refusal = yield* dispatch(name, input)
+      if (queuedReturn) yield* Effect.promise(() => coordinate("hold-return", name))
+      const refusal = queuedReturn
+        ? (yield* Effect.all([
+            dispatch(name, input),
+            Effect.promise(() => coordinate("finish-return", name))
+          ], { concurrency: "unbounded" }))[0]
+        : yield* dispatch(name, input)
       assert.equal(refusal.outcome, "failure", name)
       assert.equal(refusal.message, `Flow ${name} failed: ${expectedMessage}`, name)
       assert.equal(yield* fs.readFileString(path), "hello\n", name)
@@ -60,7 +94,8 @@ const assertBindingsRefuse = async (expectedMessage: string) => {
 test("TestMovedOffAgentDispatch", {
   skip: guest && !unbound ? false : "requires installed guest and broker-registered agent session",
   timeout: 120_000
-}, async () => {
+}, async (t) => {
+  t.after(() => { if (process.connected) process.disconnect?.() })
   await assertBindingsRefuse("Branch moved off the item")
   const path = "/workspace/t-col05-dispatch.txt"
   // The wire refusal is literal moved_off, independently of std's public text.
@@ -74,6 +109,11 @@ test("TestMovedOffAgentDispatch", {
     child.stdin!.end("overwritten\n")
   })
   assert.equal(result.error.code, "moved_off")
+  assert.deepEqual(await readFile(path), Buffer.from("hello\n"))
+  // Each mutation is admitted and queued behind a held production Return.
+  // Even though Return restores hello and clears moved_off, its stale admission
+  // must still refuse rather than overwrite the restored working copy.
+  await assertBindingsRefuse("Branch moved off the item", true)
   assert.deepEqual(await readFile(path), Buffer.from("hello\n"))
 })
 
