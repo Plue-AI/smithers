@@ -30,7 +30,11 @@ func TestForkAddToStackInstalledMicroVMBrowser(t *testing.T) {
 }
 
 func runForkAddToStackBrowser(t *testing.T, enable string) {
-	runPreparedGitHubBrowserRuntime(t, enable, "C-J7-02", "../fork-drop-install.spec.ts", "journey-fork-add-to-stack", func(r *rehearsal) {
+	scenario := "journey-fork-add-to-stack"
+	if os.Getenv("SMITHERS_FORK_DROP_BROWSER_PHASE") == "fork" {
+		scenario = "journey-fork-source"
+	}
+	runPreparedGitHubBrowserRuntime(t, enable, "C-J7-02", "../fork-drop-install.spec.ts", scenario, func(r *rehearsal) {
 		_, err := r.expect("PUT", "/api/install", `{"parallel":2}`, 200)
 		require.NoError(t, err)
 		first, err := r.file("Prefix", "[PR] [FILE prefix.md] Add the prefix note.")
@@ -43,6 +47,9 @@ func runForkAddToStackBrowser(t *testing.T, enable string) {
 		require.EqualValues(t, 2, second)
 		_, err = r.waitTodoWithin(second, 6*time.Minute, "in_review")
 		require.NoError(t, err)
+		if scenario == "journey-fork-source" {
+			return // The verified-item observation has no steer or terminal dependency.
+		}
 		// The composition ends at delivery (E-19), while the host retains
 		// its engine run for review input. Steer that run, not a new attempt.
 		var run string
