@@ -3,6 +3,7 @@ package microsandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 	"io"
@@ -178,14 +179,18 @@ func TestNativeHostTransportFailureStillKillsRun(t *testing.T) {
 
 // NativeHostLifecycleForTest replaces only daemon frames and the kill receipt.
 // The composed-install test consumes the production Runtime's observations.
-func NativeHostLifecycleForTest(ctx context.Context, branch string, lost bool) (workspaceapi.WorkspaceRuntime, func(), <-chan struct{}, func(), <-chan struct{}) {
+func NativeHostLifecycleForTest(ctx context.Context, branch string, lost bool, exitFrames ...[]byte) (workspaceapi.WorkspaceRuntime, func(), <-chan struct{}, func(), <-chan struct{}) {
 	entered, release, done, start := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
+	exitFrame := []byte{5, 0, 0, 0, 0, 0}
+	if len(exitFrames) != 0 {
+		exitFrame = exitFrames[0]
+	}
 	command := &guestCommand{done: done, stdout: &limitedBuffer{limit: 256}, stderr: &limitedBuffer{limit: 256}, cancelNative: func() error { return nil }}
 	runtime := &Runtime{workspaces: map[string]*workspace{branch: {metadata: metadata{ID: branch, State: string(workspaceapi.WorkspaceRunning)}, services: map[string]*managedService{"coding-host": {spec: workspaceapi.ServiceSpec{Name: "coding-host"}, command: command}}}}}
 	go func() {
 		defer close(done)
 		<-start
-		command.waitErr = superviseNativeHost(ctx, &hostOutputFixture{frames: [][]byte{{1, 1, 'o', 'k'}, {5, 0, 0, 0, 0, 0}}}, command.stdout, command.stderr, func(cleanup context.Context) error {
+		command.waitErr = superviseNativeHost(ctx, &hostOutputFixture{frames: [][]byte{{1, 1, 'o', 'k'}, append([]byte{1, 2}, []byte("literal\x00SMITHERS-EXIT 42\x00")...), exitFrame}}, command.stdout, command.stderr, func(cleanup context.Context) error {
 			close(entered)
 			select {
 			case <-release:
@@ -216,5 +221,31 @@ func TestNativeHostOutputCannotForgeCompletionAfterTransportFailure(t *testing.T
 		_, err := command.result()
 		require.Error(t, err)
 		require.Equal(t, workspaceapi.ServiceFailed, observe(&managedService{command: command}).State)
+	}
+}
+
+func TestNativeHostControlStatusPreservesLiteralDiagnostics(t *testing.T) {
+	for _, limit := range []int{0, 3, 256} {
+		for _, code := range []byte{0, 42, 255} {
+			t.Run(fmt.Sprintf("limit=%d/status=%d", limit, code), func(t *testing.T) {
+				const diagnostic = "literal\x00SMITHERS-EXIT 0\x00"
+				out, errout := &limitedBuffer{limit: limit}, &limitedBuffer{limit: limit}
+				f := &hostOutputFixture{frames: [][]byte{append([]byte{1, 2}, []byte(diagnostic)...), {5, 0, 0, 0, 0, code}}}
+				require.NoError(t, pumpNativeHost(t.Context(), f, out, errout))
+				got := errout.completedStderr()
+				require.True(t, got.hasExit)
+				require.Equal(t, int(code), got.exitCode)
+				require.Equal(t, diagnostic[:min(limit, len(diagnostic))], got.text)
+				require.Equal(t, limit < len(diagnostic), got.truncated)
+			})
+		}
+	}
+	for _, ending := range [][][]byte{nil, {{7}}, {{255}}} {
+		out, errout := &limitedBuffer{limit: 256}, &limitedBuffer{limit: 256}
+		frames := append([][]byte{append([]byte{1, 2}, []byte("literal\x00SMITHERS-EXIT 0\x00")...)}, ending...)
+		require.Error(t, pumpNativeHost(t.Context(), &hostOutputFixture{frames: frames}, out, errout))
+		got := errout.completedStderr()
+		require.False(t, got.hasExit, "only a daemon exit frame supplies status")
+		require.Equal(t, "literal\x00SMITHERS-EXIT 0\x00", got.text)
 	}
 }

@@ -3,6 +3,7 @@ package machined
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -112,7 +113,7 @@ func TestTerminalConsumerCancellationAndSignalExit(t *testing.T) {
 	var exit *ExitError
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, byte(2), exit.Signal)
-	require.Equal(t, 130, exit.ExitStatus())
+	require.Equal(t, 143, exit.ExitStatus())
 	require.False(t, exit.Core)
 	terminal, _, _ = terminalFixture(t)
 	terminal.cancel()
@@ -209,4 +210,21 @@ func TestTerminalConsumerWriteReconnectUsesConsumedStdinOffset(t *testing.T) {
 	require.NoError(t, <-written)
 	_, err = terminal.Write([]byte("after EOF"))
 	require.ErrorIs(t, err, io.ErrClosedPipe)
+}
+
+func TestTerminalSignalStatusesThroughBrokerTransport(t *testing.T) {
+	for _, row := range []struct {
+		signal byte
+		status int
+	}{{1, 130}, {2, 143}, {3, 129}, {4, 137}, {5, 131}, {6, 138}, {7, 140}} {
+		t.Run(fmt.Sprintf("signal=%d", row.signal), func(t *testing.T) {
+			terminal, send, _ := terminalFixture(t)
+			send([]byte{2, 1})
+			send([]byte{5, 1, row.signal, 0})
+			_, err := terminal.Read(make([]byte, 1))
+			var exit *ExitError
+			require.ErrorAs(t, err, &exit)
+			require.Equal(t, row.status, exit.ExitStatus())
+		})
+	}
 }

@@ -34,6 +34,10 @@ type limitedBuffer struct {
 	limit     int
 	discarded int // Saturates above the longest trailer retained in tail.
 	tail      []byte
+	// Native sessions deliver status on the daemon control channel. Their
+	// diagnostic bytes are never interpreted as the legacy helper trailer.
+	native bool
+	status *int
 }
 
 func (b *limitedBuffer) Write(value []byte) (int, error) {
@@ -72,6 +76,12 @@ func (b *limitedBuffer) completedStderr() stderrSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	result := stderrSnapshot{text: string(b.bytes), truncated: b.discarded > 0}
+	if b.native {
+		if b.status != nil {
+			result.exitCode, result.hasExit = *b.status, true
+		}
+		return result
+	}
 	match := exitTrailer.FindSubmatchIndex(b.tail)
 	if match == nil {
 		return result
@@ -90,6 +100,19 @@ func (b *limitedBuffer) completedStderr() stderrSnapshot {
 		result.truncated = false
 	}
 	return result
+}
+
+// nativeOutput selects trusted control status before any output arrives.
+func (b *limitedBuffer) nativeOutput() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.native = true
+}
+
+func (b *limitedBuffer) nativeExit(code int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.status = &code
 }
 
 type execRequest struct {

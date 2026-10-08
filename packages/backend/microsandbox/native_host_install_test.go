@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,8 +25,18 @@ import (
 // authentication, workspace service and native lifecycle projection are real.
 // This is not a real-microVM confinement receipt.
 func TestNativeHostCleanupThroughComposedInstall(t *testing.T) {
-	for _, lost := range []bool{false, true} {
-		t.Run(fmt.Sprintf("lost=%t", lost), func(t *testing.T) {
+	for _, row := range []struct {
+		name   string
+		lost   bool
+		frame  []byte
+		status int
+	}{
+		{"confirmed", false, []byte{5, 0, 0, 0, 0, 0}, 0},
+		{"lost", true, []byte{5, 0, 0, 0, 0, 0}, 0},
+		{"terminated", false, []byte{5, 1, 2, 0}, 143},
+	} {
+		lost := row.lost
+		t.Run(row.name, func(t *testing.T) {
 			pool, url := postgresfixture.NewProductDatabase(t)
 			q, ctx := db.New(pool), t.Context()
 			owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "terminal-owner", LowerUsername: "terminal-owner"})
@@ -54,7 +65,7 @@ func TestNativeHostCleanupThroughComposedInstall(t *testing.T) {
 			} {
 				t.Setenv(k, v)
 			}
-			runtime, begin, entered, release, finished := microsandbox.NativeHostLifecycleForTest(ctx, branch.ID, lost)
+			runtime, begin, entered, release, finished := microsandbox.NativeHostLifecycleForTest(ctx, branch.ID, lost, row.frame)
 			defer release()
 			serverCtx, cancel := context.WithCancel(ctx)
 			ready, stopped := make(chan http.Handler, 1), make(chan error, 1)
@@ -97,13 +108,20 @@ func TestNativeHostCleanupThroughComposedInstall(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(out.Body.Bytes(), &rows), out.Body.String())
 				require.Len(t, rows, 1)
+				observations, err := runtime.(workspaceapi.WorkspaceServiceCatalog).ListServices(ctx, branch.ID)
+				require.NoError(t, err)
+				require.Len(t, observations, 1)
+				require.Equal(t, "literal\x00SMITHERS-EXIT 42\x00", observations[0].Stderr)
+				if rows[0].State != "running" {
+					require.Equal(t, row.status, observations[0].ExitCode, "status comes from the daemon, never diagnostic text")
+				}
 				return rows[0].State
 			}
 			require.Equal(t, "running", read())
 			release()
 			<-finished
 			expected := "stopped"
-			if lost {
+			if lost || row.status != 0 {
 				expected = "failed"
 			}
 			require.Equal(t, expected, read())

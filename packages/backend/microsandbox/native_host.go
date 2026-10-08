@@ -215,6 +215,7 @@ func superviseNativeHost(ctx context.Context, stream nativeHostStream, stdout, s
 }
 
 func pumpNativeHost(ctx context.Context, stream nativeHostStream, stdout, stderr *limitedBuffer) error {
+	stderr.nativeOutput()
 	for {
 		frame, err := stream.Receive(ctx)
 		if err != nil {
@@ -256,9 +257,9 @@ func pumpNativeHost(ctx context.Context, stream nativeHostStream, stdout, stderr
 				}
 			} else {
 				// The daemon uses the protocol signal enum, not Linux signal numbers.
-				code = 128 + [...]int32{0, 2, 15, 1, 9, 3, 10, 12}[frame[2]]
+				code = int32((&machined.ExitError{Signal: frame[2]}).ExitStatus())
 			}
-			_, _ = fmt.Fprintf(stderr, "\x00SMITHERS-EXIT %d\x00", code)
+			stderr.nativeExit(int(code))
 			return nil
 		case 7:
 			return fmt.Errorf("coding host session closed without exit receipt")

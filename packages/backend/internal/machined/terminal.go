@@ -29,13 +29,19 @@ type Terminal struct {
 
 type ExitError struct {
 	Code   int32
-	Signal byte
+	Signal byte // ADR 0004 signal enum; use ExitStatus for the POSIX shell status.
 	Core   bool
 }
 
 func (e *ExitError) ExitStatus() int {
 	if e.Signal != 0 {
-		return 128 + int(e.Signal)
+		// The session wire enum is INT, TERM, HUP, KILL, QUIT, USR1,
+		// USR2, rather than the Linux signal number carried by shell statuses.
+		numbers := [...]int{0, 2, 15, 1, 9, 3, 10, 12}
+		if int(e.Signal) >= len(numbers) {
+			return 128
+		}
+		return 128 + numbers[e.Signal]
 	}
 	return int(e.Code)
 }
