@@ -101,15 +101,17 @@ describe("the CLI documentation contracts", () => {
     expect(readme).not.toContain("FLOWS_*")
   })
 
-  it("describes the manifest's direct Effect dependencies and its SQLite and optional PostgreSQL peers", () => {
+  it("describes the manifest's direct Effect dependency and private adapter and its SQLite and optional PostgreSQL peers", () => {
     const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
     const introduction = readme.split("**Documentation:**")[0]!.replace(/\s+/g, " ")
 
-    expect(manifest.dependencies.effect).toBe(manifest.dependencies["@effect/platform-node"])
+    expect(manifest.dependencies.effect).toBe(manifest.devDependencies["@effect/platform-node"])
+    expect(manifest.dependencies["@effect/platform-node"]).toBeUndefined()
+    expect(manifest.smthrs.privateEffectAdapters).toContain("@effect/platform-node")
     expect(Object.keys(manifest.peerDependencies)).toEqual(["@effect/sql-sqlite-node", "@effect/sql-pg"])
     expect(manifest.peerDependenciesMeta["@effect/sql-pg"].optional).toBe(true)
     expect(introduction).toContain(
-      `\`effect\` and \`@effect/platform-node\` as exact \`${manifest.dependencies.effect}\` direct dependencies`
+      `\`effect\` as an exact \`${manifest.dependencies.effect}\` direct dependency`
     )
     expect(introduction).toContain(
       `\`@effect/sql-sqlite-node\` is the required peer dependency, at \`${
@@ -120,13 +122,13 @@ describe("the CLI documentation contracts", () => {
 })
 
 const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-  exports: Record<string, string | null>
+  exports: Record<string, string | null | Record<string, string>>
   sideEffects: ReadonlyArray<string>
 }
 
 /** Export-map subpaths with a literal target, minus the leading `./`. */
 const subpaths = Object.entries(manifest.exports)
-  .filter(([key, target]) => !key.includes("*") && target !== null && key !== "." && key !== "./package.json")
+  .filter(([key, target]) => !key.includes("*") && typeof target === "string" && key !== "." && key !== "./package.json")
   .map(([key]) => key.slice(2))
 
 /** The README's subpath-only list: `- \`@smthrs/cli/<dir>/<Module>\`` lines under its heading. */
@@ -138,6 +140,15 @@ const subpathOnly = ((readme.split("### Subpath-only modules\n")[1] ?? "").split
   })
 
 describe("the export map", () => {
+  it("declares the conditional native runtime independently of source namespaces", () => {
+    expect(manifest.exports["./tui-native"]).toEqual({
+      types: "./vendor/opentui-native/runtime.d.ts",
+      bun: "./vendor/opentui-native/runtime.bun.mjs",
+      default: "./vendor/opentui-native/runtime.node.mjs"
+    })
+    expect(readme).toContain("`@smthrs/cli/tui-native`")
+  })
+
   it("makes every top-level subpath a barrel namespace, and every namespace a subpath", () => {
     // `bin` and `index` are the executable and the barrel itself, never namespaces.
     const topLevel = subpaths.filter((key) => !key.includes("/") && key !== "bin" && key !== "index")

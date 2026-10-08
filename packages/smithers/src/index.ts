@@ -180,3 +180,13 @@ export * as Version from "./Version.ts"
  * @since 1.0.0
  */
 export * as Cli from "./Cli.ts"
+/**
+ * @category catalog
+ * @since 1.0.0
+ */
+export * as Catalog from "./Catalog.ts"
+/**
+ * @category catalog
+ * @since 1.0.0
+ */
+export * as CatalogRequest from "./CatalogRequest.ts"
