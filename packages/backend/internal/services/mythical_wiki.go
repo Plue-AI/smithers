@@ -229,6 +229,9 @@ func (s *MythicalService) stepWiki(ctx context.Context, r *mythicalRun) error {
 			return err
 		}
 		next.State, next.Requested, next.Error = "off", false, ""
+		if err := settleWikiRun(ctx, s.store, r.row.RepositoryID, "cancelled"); err != nil {
+			return err
+		}
 		return s.saveWiki(ctx, r, next)
 	}
 	// A launch that never started leaves its bound workspace behind.
@@ -286,6 +289,13 @@ func (s *MythicalService) launchWiki(ctx context.Context, r *mythicalRun, row db
 		next.State, next.CommitID, next.Attempt, next.Error = "failed", r.row.LandedMain, attempt+1, reason
 		next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalWikiBackoff(attempt + 1)), Valid: true}
 		s.wakeWikiAt(r.row.RepositoryID, next.NextAttemptAt.Time)
+		// The failure is a refresh run on Home even though no flow started.
+		if _, err := openWikiRun(ctx, s.store, r.row.RepositoryID, nil); err != nil {
+			return err
+		}
+		if err := settleWikiRun(ctx, s.store, r.row.RepositoryID, "failure"); err != nil {
+			return err
+		}
 		return s.saveWiki(ctx, r, next)
 	}
 	// The wiki refresh reads and writes pages only: it runs on the
@@ -334,6 +344,9 @@ func (s *MythicalService) admitWiki(ctx context.Context, r *mythicalRun, next db
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	saved, err := db.New(tx).SaveMythicalWiki(ctx, next)
 	if err != nil {
+		return err
+	}
+	if _, err := openWikiRun(ctx, tx, r.row.RepositoryID, payload); err != nil {
 		return err
 	}
 	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(r.row.ActorUserID.Int64, 10)
@@ -388,7 +401,10 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 				if err := s.retireWikiWorkspace(ctx, r, &next); err != nil {
 					s.logger.Warn("mythical.wiki_retire_failed", "repository_id", r.row.RepositoryID, "error", err)
 				}
-				return s.saveWiki(ctx, r, next)
+				if err := s.saveWiki(ctx, r, next); err != nil {
+					return err
+				}
+				return settleWikiRun(ctx, s.store, r.row.RepositoryID, "success")
 			}
 			if delay, held := repohost.HeldRetryAfter(err); held {
 				next.Error = ""
@@ -427,6 +443,9 @@ func (s *MythicalService) settleWiki(ctx context.Context, r *mythicalRun, row db
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	if err := settleWikiRun(ctx, s.store, r.row.RepositoryID, "failure"); err != nil {
 		return err
 	}
 	if err := s.retireWikiWorkspace(ctx, r, &failed); err != nil {
@@ -702,6 +721,11 @@ func (s *MythicalService) projectWiki(ctx context.Context, update flowdispatch.P
 			continue
 		} else if err != nil {
 			return err
+		}
+		if row.RunID == "" && next.RunID != "" {
+			if err := settleWikiRun(ctx, s.store, projection.RepositoryID, "running"); err != nil {
+				return err
+			}
 		}
 		if next.Outcome != row.Outcome {
 			s.MainMoved(ctx, projection.RepositoryID)

@@ -77,6 +77,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	operation := admit("learning-one", target, 1)
 	_, err = q.EnsureMythicalWiki(ctx, repo)
 	require.NoError(t, err)
+	// The merge-refresh worker records each refresh as a flow-plane run.
+	wikiDefinition, err := q.EnsureWorkflowDefinitionReference(ctx, db.EnsureWorkflowDefinitionReferenceParams{RepositoryID: repo, Name: "Refresh wiki", Path: "flows/coding/wiki/flow.ts", Config: []byte(`{}`)})
+	require.NoError(t, err)
+	wikiRun, err := q.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{RepositoryID: repo, WorkflowDefinitionID: wikiDefinition.ID, Status: "queued", TriggerEvent: "main", TriggerRef: "main", DispatchInputs: []byte(`{}`), ExecutionPlane: "flow"})
+	require.NoError(t, err)
 	// A payload cannot borrow an item from a different tenant or TODO.
 	wrong := target
 	wrong.TenantID = "repository:999"
@@ -100,22 +105,23 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	})
 	server.Start()
 	for _, row := range []struct {
-		stored, visible, wikiStored, wikiVisible string
-		requested                                bool
+		stored, visible, wikiStored, wikiRun, wikiVisible string
 	}{
-		{"accepted", "queued", "idle", "queued", true},
-		{"dispatching", "queued", "off", "", false},
-		{"running", "running", "running", "running", false},
-		{"waiting", "waiting", "idle", "", false},
-		{"failed", "failed", "failed", "failed", false},
-		{"uncertain", "failed", "failed", "failed", false},
-		{"completed", "", "idle", "", false},
-		{"cancelled", "", "off", "", false},
+		{"accepted", "queued", "idle", "queued", "queued"},
+		{"dispatching", "queued", "off", "cancelled", ""},
+		{"running", "running", "running", "running", "running"},
+		{"waiting", "waiting", "idle", "success", ""},
+		{"failed", "failed", "failed", "failure", "failed"},
+		{"uncertain", "failed", "failed", "failure", "failed"},
+		{"completed", "", "idle", "success", ""},
+		{"cancelled", "", "off", "cancelled", ""},
 	} {
 		t.Run(row.stored, func(t *testing.T) {
 			_, err := pool.Exec(ctx, `UPDATE product_job_requests SET state=$2,terminal_receipt=CASE WHEN $2 IN ('failed','uncertain','completed','cancelled') THEN '{}'::jsonb ELSE NULL END WHERE id=$1`, operation, row.stored)
 			require.NoError(t, err)
-			_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET state=$2,requested=$3,run_id='wiki-run-1',error='Page review failed' WHERE repository_id=$1`, repo, row.wikiStored, row.requested)
+			_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET state=$2,run_id='wiki-run-1',error='Page review failed' WHERE repository_id=$1`, repo, row.wikiStored)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE workflow_runs SET status=$2 WHERE id=$1`, wikiRun.ID, row.wikiRun)
 			require.NoError(t, err)
 			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			defer done()
@@ -145,7 +151,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}})
 				}
 				if row.wikiVisible != "" {
-					wiki := map[string]any{"id": "wiki-run-1", "title": "Refresh wiki", "state": row.wikiVisible, "actions": []any{}}
+					wiki := map[string]any{"id": fmt.Sprint(wikiRun.ID), "title": "Refresh wiki", "state": row.wikiVisible, "actions": []any{}}
 					if row.wikiVisible == "failed" {
 						wiki["detail"] = "Page review failed"
 					}

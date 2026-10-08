@@ -13,6 +13,8 @@ test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async
     const owner = f.members.Will.page
     const member = f.members.Ben.page
     const wiki = () => f.sql("SELECT generation,state,run_id,commit_id,published_commit,pages,receipt FROM mythical_wikis")[0]
+    // Each refresh is a Home background run: the worker's workflow_runs record.
+    const refresh = () => f.sql("SELECT r.id,r.status,r.dispatch_inputs,r.dismissed_by FROM workflow_runs r JOIN workflow_definitions d ON d.id=r.workflow_definition_id WHERE d.path='flows/coding/wiki/flow.ts' AND r.execution_plane='flow' ORDER BY r.id DESC LIMIT 1")[0]
     const initial = wiki()
     expect(initial.published_commit).toMatch(/^[0-9a-f]{40}$/)
     expect(initial.pages.map((p: any) => p.id)).toEqual(["overview", "architecture", "package-api", "package-web"])
@@ -58,30 +60,32 @@ test("C-J8-06 merge refresh, shared retry and durable dismissal", journey, async
     const m2 = await merged(2)
     await expect.poll(() => wiki().state, { timeout: 180_000 }).toBe("failed")
     await visible("failed")
-    const failed = wiki()
-    const failedRun = await f.read("Ben", `/api/runs/${failed.run_id}`)
+    const failed = refresh()
+    expect(failed.status).toBe("failure")
+    await f.read("Ben", `/api/runs/${wiki().run_id}`)
     await journeyActivate(home(member).getByRole("button", { name: "Retry", exact: true }))
-    await expect.poll(() => wiki().run_id, { timeout: 60_000 }).not.toBe(failed.run_id)
-    const retried = await f.read("Ben", `/api/runs/${wiki().run_id}`)
-    expect(failedRun.flow_version).toBeTruthy()
-    expect(failedRun.input).toBeDefined()
-    expect(retried.flow_version).toEqual(failedRun.flow_version)
-    expect(retried.input).toEqual(failedRun.input)
+    await expect.poll(() => refresh().id, { timeout: 60_000 }).not.toBe(failed.id)
+    // The same packaged flow refreshes the same folded main.
+    await expect.poll(() => refresh().status, { timeout: 120_000 }).not.toBe("queued")
+    expect(refresh().dispatch_inputs.base.commitId).toBe(failed.dispatch_inputs.base.commitId)
     await published(m2, "readyCheck")
+    expect(f.sql(`SELECT status FROM workflow_runs WHERE id=${Number(failed.id)}`)[0].status).toBe("failure")
     await merged(3)
     await expect.poll(() => wiki().state, { timeout: 180_000 }).toBe("failed")
     await visible("failed")
-    const dismissed = wiki().run_id
+    const dismissed = refresh()
+    expect(dismissed.status).toBe("failure")
     await journeyActivate(home(owner).getByRole("button", { name: "Dismiss", exact: true }))
     for (const page of [owner, member]) {
       await page.reload()
       await runSlash(page, "/stack")
       await expect(home(page)).not.toContainText("Refresh wiki")
     }
-    const records = f.sql(`SELECT id,dismissed_by FROM workflow_runs WHERE id='${String(dismissed).replace(/'/g, "''")}'`)
+    const records = f.sql(`SELECT id,status,dismissed_by FROM workflow_runs WHERE id=${Number(dismissed.id)}`)
     expect(records).toHaveLength(1)
+    expect(records[0].status).toBe("failure")
     expect(records[0].dismissed_by).toBeTruthy()
     await attachJson(info, "dismissal", records)
-    await f.read("Will", `/api/runs/${dismissed}`)
+    await f.read("Will", `/api/runs/${wiki().run_id}`)
   })
 })

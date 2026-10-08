@@ -25,11 +25,15 @@ type HomeBackground struct {
 	Machine interface {
 		Isolation() workspace.IsolationLevel
 	}
+	// wiki retries the merge-refresh worker's runs (SetHomeBackground).
+	wiki *MythicalService
 }
 
 type HomeBackgroundReceipt struct {
 	State string `json:"state"`
 	RunID int64  `json:"run_id"`
+	// wiki wakes the refresh worker once the Retry commits.
+	wiki bool
 }
 
 func (s *HomeBackground) Control(ctx context.Context, repo, user, id int64, op, key string) (HomeBackgroundReceipt, error) {
@@ -53,6 +57,9 @@ func (s *HomeBackground) Control(ctx context.Context, repo, user, id int64, op, 
 			receipt, err = s.controlTx(ctx, tx, repo, user, id, op, key)
 			return err
 		})
+		if err == nil && receipt.wiki {
+			s.wiki.MainMoved(context.WithoutCancel(ctx), repo)
+		}
 		return receipt, err
 	}
 	return s.controlTx(ctx, nil, repo, user, id, op, key)
@@ -96,6 +103,25 @@ func (s *HomeBackground) controlTx(ctx context.Context, tx pgx.Tx, repo, user, i
 	}
 	if s.Invoker == nil || s.Invoker.dispatcher == nil || s.Billing == nil || s.Machine == nil || s.Machine.Isolation() != workspace.IsolationSandboxed {
 		return empty, homeBackgroundError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
+	}
+	// A generated-page refresh retries through its own worker, never the
+	// invoked-flow path: the worker refreshes main on a wiki machine.
+	var path string
+	if err = tx.QueryRow(ctx, `SELECT d.path FROM workflow_runs r JOIN workflow_definitions d ON d.id=r.workflow_definition_id WHERE r.id=$1`, id).Scan(&path); err != nil {
+		return empty, err
+	}
+	if path == mythicalWikiRunPath {
+		if !s.wiki.wikiRefreshes() {
+			return empty, homeBackgroundError(503, "background_retry_unavailable", "infra", "Isolated Retry unavailable")
+		}
+		next, err := s.wiki.retryWikiRun(ctx, tx, repo, id)
+		if err == nil {
+			err = commit()
+		}
+		if err != nil {
+			return empty, err
+		}
+		return HomeBackgroundReceipt{State: "accepted", RunID: next, wiki: true}, nil
 	}
 	// The source row lock serializes keys and duplicate requests across members.
 	var duplicate int64
@@ -178,15 +204,29 @@ func homeBackgroundPin(flow, source string, payload, checkpoint, input []byte) (
 }
 
 // BackgroundRuns reads retained workflow records; dismissal is shared, never deletion.
-func (s *MythicalService) SetHomeBackground(provider *HomeBackground) { s.homeBackground = provider }
+func (s *MythicalService) SetHomeBackground(provider *HomeBackground) {
+	s.homeBackground = provider
+	if provider != nil {
+		provider.wiki = s
+	}
+}
+
+// wikiRefreshes reports whether the merge-refresh worker can run a refresh.
+func (s *MythicalService) wikiRefreshes() bool {
+	return s != nil && s.launcher != nil && s.lanes != nil
+}
 
 func (s *MythicalService) BackgroundRuns(ctx context.Context, repository int64) ([]map[string]any, error) {
-	rows, err := s.store.Query(ctx, `SELECT r.id,d.name,r.status,COALESCE(i.flow_id,''),COALESCE(i.source_revision,''),r.dispatch_inputs,COALESCE(j.payload,'{}'),COALESCE(dispatch.external_receipt,'{}')
+	wikiDetail := s.wikiRunDetail(ctx, repository)
+	// A later generated-page refresh supersedes every earlier one.
+	rows, err := s.store.Query(ctx, `SELECT r.id,d.name,d.path,r.status,COALESCE(i.flow_id,''),COALESCE(i.source_revision,''),r.dispatch_inputs,COALESCE(j.payload,'{}'),COALESCE(dispatch.external_receipt,'{}')
  FROM workflow_runs r JOIN workflow_definitions d ON d.id=r.workflow_definition_id
  LEFT JOIN workflow_run_flow_invocations i ON i.workflow_run_id=r.id
  LEFT JOIN product_job_requests j ON j.id::text=i.operation_id AND j.operation='flow.runtime.launch'
  LEFT JOIN product_job_dispatches dispatch ON dispatch.operation_id=j.id
- WHERE r.repository_id=$1 AND r.execution_plane='flow' AND r.dismissed_at IS NULL AND r.status IN ('queued','running','failure') ORDER BY r.created_at,r.id`, repository)
+ WHERE r.repository_id=$1 AND r.execution_plane='flow' AND r.dismissed_at IS NULL AND r.status IN ('queued','running','failure')
+ AND (d.path<>$2 OR r.id=(SELECT max(l.id) FROM workflow_runs l WHERE l.repository_id=r.repository_id AND l.workflow_definition_id=r.workflow_definition_id))
+ ORDER BY r.created_at,r.id`, repository, mythicalWikiRunPath)
 	if err != nil {
 		return nil, err
 	}
@@ -194,23 +234,34 @@ func (s *MythicalService) BackgroundRuns(ctx context.Context, repository int64) 
 	result := []map[string]any{}
 	for rows.Next() {
 		var id int64
-		var title, state, flow, source string
+		var title, path, state, flow, source string
 		var input, payload, checkpoint []byte
-		if err := rows.Scan(&id, &title, &state, &flow, &source, &input, &payload, &checkpoint); err != nil {
+		if err := rows.Scan(&id, &title, &path, &state, &flow, &source, &input, &payload, &checkpoint); err != nil {
 			return nil, err
 		}
 		actions := []any{}
+		run := map[string]any{"id": fmt.Sprint(id), "title": title, "state": state, "actions": actions}
 		if state == "failure" {
-			state = "failed"
+			run["state"] = "failed"
 			provider := s.homeBackground
-			if _, pinErr := homeBackgroundPin(flow, source, payload, checkpoint, input); pinErr == nil && provider != nil && provider.Invoker != nil && provider.Invoker.dispatcher != nil && provider.Billing != nil && provider.Machine != nil && provider.Machine.Isolation() == workspace.IsolationSandboxed {
+			wiki := path == mythicalWikiRunPath
+			retryable := wiki && s.wikiRefreshes()
+			if !wiki {
+				_, pinErr := homeBackgroundPin(flow, source, payload, checkpoint, input)
+				retryable = pinErr == nil
+			}
+			if retryable && provider != nil && provider.Invoker != nil && provider.Invoker.dispatcher != nil && provider.Billing != nil && provider.Machine != nil && provider.Machine.Isolation() == workspace.IsolationSandboxed {
 				actions = append(actions, map[string]any{"tag": "background.retry", "label": "Retry"})
 			}
 			if provider != nil && provider.Pool != nil {
 				actions = append(actions, map[string]any{"tag": "background.dismiss", "label": "Dismiss"})
 			}
+			run["actions"] = actions
+			if wiki && wikiDetail != "" {
+				run["detail"] = wikiDetail
+			}
 		}
-		result = append(result, map[string]any{"id": fmt.Sprint(id), "title": title, "state": state, "actions": actions})
+		result = append(result, run)
 	}
 	return result, rows.Err()
 }
