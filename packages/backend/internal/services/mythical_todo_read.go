@@ -565,7 +565,7 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	// The review is of the pull request head that published this candidate
 	// (Candidate); a review recorded before Candidate existed names it as Head.
 	if review := checks.Review; review != nil && item.CandidateHead != "" && review.Verdict != "" &&
-		(review.Candidate == item.CandidateHead || review.Candidate == "" && review.Head == item.CandidateHead) {
+		(review.Candidate == item.CandidateHead || review.Candidate == "" && review.Head == item.CandidateHead || review.Rebase != nil && review.Rebase.Candidate == item.CandidateHead && review.Rebase.Base == item.CandidateBase && review.Rebase.PatchID != "") {
 		evidence.Items = append(evidence.Items, map[string]any{"kind": "review", "summary": checks.Review.Verdict})
 	}
 	if item.FlowDigest.Valid && item.FlowDigest.String != "" {

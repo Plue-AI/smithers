@@ -1840,7 +1840,7 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 			review := mythicalChecksOf(item).Review
 			// review() owns the coding-to-review machine handoff. Releasing
 			// before it claims the replacement lets a queued TODO take its slot.
-			if review == nil || review.Head != item.PRHead || review.Verdict == "" {
+			if review == nil || !mythicalReviewCurrent(review, item) || review.Verdict == "" {
 				return item
 			}
 		}
@@ -3377,9 +3377,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			}
 			rebound := item
 			rebound.WorkspaceID, rebound.Lane, rebound.LaneStartedAt = branch.ID, pgtype.Int4{}, pgtype.Timestamptz{}
-			checks := mythicalChecksOf(rebound)
-			checks.Review = nil
-			rebound.Checks = checks.encode()
+			// Keep the immutable review attestation when restoring the coding
+			// branch. Verification compares the old and rebased stable patches;
+			// a conflict or changed patch still discards this review.
 			return &rebound, false, nil
 		default:
 			return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
@@ -3523,6 +3523,11 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	// The rebase is done; its checks run (rechecking) until the new
 	// generation is verified and proposed (§10.5.3).
 	rebase := mythicalChecksOf(next)
+	retainedReview, err := st.cleanRebaseReview(ctx, item, onto, rebased)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the rebased patch identity could not be read: "+err.Error(), st.now), false, nil
+	}
+	rebase.Review = retainedReview
 	name := st.ontoName(onto)
 	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true, HeadChanged: item.CandidateHead != rebased}
 	if pending := mythicalChecksOf(item).Rebase; pending != nil {
@@ -3542,7 +3547,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	}
 	if native := mythicalChecksOf(item).Rebase; native != nil && native.Native != nil {
 		before = func(tx pgx.Tx) error { return st.lockNativeRebaseReceipt(ctx, tx, item, onto) }
-		rebase.Review, rebase.Land = nil, nil
+		rebase.Land = nil
 		if capture := rebase.Capture; capture != nil && capture.Head == rebased {
 			rebase.Capture = nil
 			also = func(tx pgx.Tx, saved db.MythicalItem) error {
@@ -4783,7 +4788,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 	switch review := checks.Review; {
 	case checks.ForeignHead != "":
 		return &item, false, nil
-	case review != nil && review.Head == item.PRHead && strings.HasPrefix(review.Verdict, mythicalOutage):
+	case review != nil && mythicalReviewCurrent(review, item) && strings.HasPrefix(review.Verdict, mythicalOutage):
 		checks.Outages++
 		if checks.Outages > mythicalOutageBound {
 			held := item
@@ -4796,7 +4801,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		retried := item
 		retried.Checks = checks.encode()
 		return st.review(ctx, retried)
-	case review == nil || review.Head != item.PRHead:
+	case review == nil || !mythicalReviewCurrent(review, item):
 		// Seam: Jev's needs-review tag decides here which changes are
 		// reviewed. Until it lands, every change is.
 		return st.review(ctx, item)
@@ -5469,7 +5474,7 @@ func mythicalReviewHeld(item db.MythicalItem) bool {
 		return true
 	}
 	review := checks.Review
-	if review == nil || review.Head != item.PRHead {
+	if review == nil || !mythicalReviewCurrent(review, item) {
 		return false
 	}
 	return review.Verdict == mythicalCancelled || strings.HasPrefix(review.Verdict, mythicalStopped) ||
@@ -5823,7 +5828,7 @@ func (s *MythicalService) completionBody(item db.MythicalItem, checks mythicalCh
 		commit = base + "/commit/" + item.PRMergeCommit
 	}
 	results := []string{"CI " + ci + " on " + short(item.PRHead)}
-	if checks.Review != nil && checks.Review.Head == item.PRHead && checks.Review.Verdict != "" {
+	if checks.Review != nil && mythicalReviewCurrent(checks.Review, item) && checks.Review.Verdict != "" {
 		results = append(results, "review "+checks.Review.Verdict)
 	}
 	if item.VerifyOutcome != "" {
@@ -6153,7 +6158,8 @@ func (c *mythicalChecks) notice(key, body string) {
 // mythicalReview is the review of one pull request head. Verdict is empty
 // while the review runs, then approve, request-changes or failed: <reason>.
 type mythicalReview struct {
-	Head string `json:"head"`
+	Rebase *mythicalReviewRebase `json:"rebase,omitempty"`
+	Head   string                `json:"head"`
 	// Candidate is the verified candidate Head publishes: the pull request
 	// head is a fresh commit of the candidate's tree on main (propose), so
 	// the TODO's evidence finds its review by this, never by Head.
@@ -6189,5 +6195,5 @@ func sameMythicalChecks(a, b db.MythicalItem) bool {
 
 // reviewing reports whether the review of the item's pull request head runs.
 func (c mythicalChecks) reviewing(item db.MythicalItem) bool {
-	return c.Review != nil && c.Review.Head == item.PRHead && c.Review.Verdict == ""
+	return c.Review != nil && mythicalReviewCurrent(c.Review, item) && c.Review.Verdict == ""
 }

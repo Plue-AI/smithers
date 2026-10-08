@@ -800,7 +800,7 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 		checks := mythicalChecksOf(next)
 		checks.PRBody = op.Desired
 		checks.PRBodyDeclined = ""
-		if checks.Review != nil && checks.Review.Head == next.PRHead {
+		if checks.Review != nil && mythicalReviewCurrent(checks.Review, next) {
 			shape, err := st.acceptedShape(ctx, item, checks.Branch)
 			if err == nil {
 				_, body, renderErr := shape.render()

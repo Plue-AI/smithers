@@ -42,7 +42,29 @@ func testRebaseNowRehearsal(t *testing.T, explicitOnly bool) {
 		return
 	}
 
-	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowBranch(n); return err }) {
+	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error {
+		if err := r.waitSQL(j10RunWait, `SELECT count(*) FROM mythical_items WHERE number=$1 AND checks->'review'->>'verdict' IN ('approve','request-changes') AND COALESCE(checks->'review'->>'runId','')<>''`, n); err != nil {
+			return err
+		}
+		var reviewed string
+		if err := r.pool.QueryRow(r.ctx, `SELECT checks->'review'->>'runId' FROM mythical_items WHERE number=$1`, n).Scan(&reviewed); err != nil {
+			return err
+		}
+		if reviewed == "" {
+			return fmt.Errorf("the original review has no bound run")
+		}
+		if _, err := r.rebaseNowBranch(n); err != nil {
+			return err
+		}
+		var accepted, originalHead, equivalentHead, patch string
+		if err := r.pool.QueryRow(r.ctx, `SELECT checks->'review'->>'runId',checks->'review'->>'head',checks->'review'->'rebase'->>'head',checks->'review'->'rebase'->>'patchId' FROM mythical_items WHERE number=$1`, n).Scan(&accepted, &originalHead, &equivalentHead, &patch); err != nil {
+			return err
+		}
+		if accepted != reviewed || originalHead == equivalentHead || patch == "" {
+			return fmt.Errorf("clean rebase did not retain its original review and separately bound equivalent patch")
+		}
+		return nil
+	}) {
 		return
 	}
 	if explicitOnly {

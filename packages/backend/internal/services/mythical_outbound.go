@@ -273,6 +273,11 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 	next := item
 	if op.Kind == "push" {
 		next.PRHead = op.Desired
+		checks := mythicalChecksOf(next)
+		if review := checks.Review; review != nil && review.Rebase != nil && review.Rebase.Candidate == next.CandidateHead && review.Rebase.Base == next.CandidateBase && review.Rebase.PatchID != "" {
+			review.Rebase.Head = op.Desired
+			next.Checks = checks.encode()
+		}
 	} else {
 		// Open binds the discovered PR; merge waits for main containment and its
 		// fenced inbound transaction; Drop records the outstanding close. None
@@ -344,7 +349,7 @@ func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem)
 	if op, err := decodeMythicalOutbound(item.PendingOp); err == nil {
 		checks.PRBodyDeclined = op.Desired
 	}
-	if checks.Review != nil && checks.Review.Head == next.PRHead {
+	if checks.Review != nil && mythicalReviewCurrent(checks.Review, next) {
 		checks.Review.Posted = true
 	}
 	next.Checks = checks.encode()

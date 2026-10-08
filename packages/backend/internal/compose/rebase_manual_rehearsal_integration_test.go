@@ -12,9 +12,14 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func TestRebaseManualConflictRehearsal(t *testing.T) {
+func TestRebaseManualConflictRehearsal(t *testing.T) { testRebaseManualConflictRehearsal(t, 1) }
+
+func TestRebaseZeroConflictAttemptsRehearsal(t *testing.T) { testRebaseManualConflictRehearsal(t, 0) }
+
+func testRebaseManualConflictRehearsal(t *testing.T, limit int) {
 	if os.Getenv("SMITHERS_REBASE_DONE_BROWSER") == "1" && os.Getenv("SMITHERS_REHEARSAL_SPA_DIR") == "" {
 		_, source, _, _ := runtime.Caller(0)
 		t.Setenv("SMITHERS_REHEARSAL_SPA_DIR", filepath.Join(filepath.Dir(source), "../../../../apps/app/dist"))
@@ -23,8 +28,11 @@ func TestRebaseManualConflictRehearsal(t *testing.T) {
 	if !r.setupSource() || !r.setupMachine() {
 		return
 	}
+	if err := db.New(r.pool).UpsertInstallSetting(r.ctx, db.UpsertInstallSettingParams{Key: services.InstallCodingProjectKey, Value: []byte(fmt.Sprintf(`{"conflictAttempts":%d}`, limit))}); err != nil {
+		t.Fatal(err)
+	}
 	var n int64
-	var rootRun string
+	var rootRun, initialReview string
 	var attempt int32
 	if !r.step("Reviewed TODO", "POST /api/todos", "In review with a PR", "T-STK-08", func() error {
 		if err := r.waitStackActive(); err != nil {
@@ -36,13 +44,17 @@ func TestRebaseManualConflictRehearsal(t *testing.T) {
 			return err
 		}
 		if _, err = r.waitTodoWithin(n, j10RunWait, "in_review"); err != nil {
+
 			return err
 		}
-		return r.pool.QueryRow(r.ctx, `SELECT request_run_id,attempt FROM mythical_items WHERE number=$1`, n).Scan(&rootRun, &attempt)
+		if err := r.waitSQL(j10RunWait, `SELECT count(*) FROM mythical_items WHERE number=$1 AND checks->'review'->>'verdict' IN ('approve','request-changes') AND COALESCE(checks->'review'->>'runId','')<>''`, n); err != nil {
+			return err
+		}
+		return r.pool.QueryRow(r.ctx, `SELECT request_run_id,attempt,checks->'review'->>'runId' FROM mythical_items WHERE number=$1`, n).Scan(&rootRun, &attempt, &initialReview)
 	}) {
 		return
 	}
-	r.step("A person resolves the retained conflict", "Rebase now; restart; file write; Branch Done", "one agent attempt; unresolved/stale Done 409; one continuation and the same PR", "T-STK-08", func() error {
+	r.step("A person resolves the retained conflict", "Rebase now; restart; file write; Branch Done", fmt.Sprintf("%d agent attempts; unresolved/stale Done 409; one continuation and the same PR", limit), "T-STK-08", func() error {
 		called := false
 		_, err := r.rebaseBranchWithMain(n, true, "JOURNEY.md", "Greeting from new main\n", func(card rehearsalTodo, onto string) error {
 			called = true
@@ -54,8 +66,8 @@ func TestRebaseManualConflictRehearsal(t *testing.T) {
 					return err
 				}
 				count := turns.Steps["conflict/resolve"] + turns.Steps["conflict/noresolve"]
-				if count != 1 {
-					return fmt.Errorf("conflict agent turns=%d, want one", count)
+				if count != limit {
+					return fmt.Errorf("conflict agent turns=%d, want %d", count, limit)
 				}
 				return nil
 			}
@@ -159,15 +171,21 @@ func TestRebaseManualConflictRehearsal(t *testing.T) {
 			return err
 		}
 		if !called {
-			return fmt.Errorf("the unresolved agent attempt never reached a person's conflict wait")
+			return fmt.Errorf("the retained conflict never reached a person's wait")
 		}
-		var continuedRun string
+		if err := r.waitSQL(j10RunWait, `SELECT count(*) FROM mythical_items WHERE number=$1 AND checks->'review'->>'verdict' IN ('approve','request-changes') AND COALESCE(checks->'review'->>'runId','')<>'' AND checks->'review'->>'runId'<>$2`, n, initialReview); err != nil {
+			return err
+		}
+		var continuedRun, continuedReview string
 		var continuedAttempt int32
-		if err := r.pool.QueryRow(r.ctx, `SELECT request_run_id,attempt FROM mythical_items WHERE number=$1`, n).Scan(&continuedRun, &continuedAttempt); err != nil {
+		if err := r.pool.QueryRow(r.ctx, `SELECT request_run_id,attempt,checks->'review'->>'runId' FROM mythical_items WHERE number=$1`, n).Scan(&continuedRun, &continuedAttempt, &continuedReview); err != nil {
 			return err
 		}
 		if continuedRun != rootRun || continuedAttempt != attempt {
 			return fmt.Errorf("manual resolution changed the pinned attempt: %s/%d -> %s/%d", rootRun, attempt, continuedRun, continuedAttempt)
+		}
+		if continuedReview == "" || continuedReview == initialReview {
+			return fmt.Errorf("resolved conflict did not receive a new review")
 		}
 		return nil
 	})

@@ -431,7 +431,7 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db
 		// Coding may release its machine before review is admitted. Keep
 		// that review in the same ordered queue until its verdict settles.
 		reviewPending := item.State == "proposed" && checks.ForeignHead == "" &&
-			(checks.Review == nil || checks.Review.Head != item.PRHead ||
+			(checks.Review == nil || !mythicalReviewCurrent(checks.Review, item) ||
 				strings.HasPrefix(checks.Review.Verdict, mythicalOutage) && checks.Outages <= mythicalOutageBound)
 		// A person-admitted Bring in must re-admit its released coding machine.
 		bringPending := checks.ForeignBring != nil

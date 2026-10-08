@@ -228,7 +228,7 @@ func mythicalSentence(reason string) string {
 func mythicalReviewFault(item db.MythicalItem) string {
 	review := mythicalChecksOf(item).Review
 	switch {
-	case review == nil || review.Head != item.PRHead:
+	case review == nil || !mythicalReviewCurrent(review, item):
 		return "infra"
 	case review.Verdict == mythicalCancelled:
 		return "user"
