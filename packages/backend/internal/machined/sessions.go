@@ -302,3 +302,22 @@ func (s *Sessions) CloseConnection() error {
 	}
 	return s.connection.Close()
 }
+
+// KillRunOnMachine obtains cleanup from the current authenticated connection
+// after stream reattachment. A stale transport cannot confirm termination, and
+// a replacement machine cannot be asked to clean up its predecessor's run.
+// Fence exactly the attempted connection when its receipt is unconfirmed.
+func (r *Registry) KillRunOnMachine(ctx context.Context, branch, machine, run string) error {
+	link, err := r.Current(branch)
+	if err != nil {
+		return err
+	}
+	if err = link.RequireMachine(branch, machine); err != nil {
+		return err
+	}
+	_, err = NewSessions(link.Connection, branch, r.Sessions(branch)).KillRun(ctx, run)
+	if err != nil {
+		_ = link.Close()
+	}
+	return err
+}

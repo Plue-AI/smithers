@@ -170,16 +170,7 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		defer cancel()
 		// A failed attempt fenced its transport. Retry against the current
 		// authenticated connection for this same machine, never the old socket.
-		current, err := r.machined.Current(ws.ID)
-		if err == nil {
-			err = current.RequireMachine(ws.ID, ws.Machine)
-		}
-		if err == nil {
-			_, err = machined.NewSessions(current.Connection, ws.ID, r.machined.Sessions(ws.ID)).KillRun(cleanup, binding)
-			if err != nil {
-				_ = current.Close()
-			}
-		}
+		err := r.machined.KillRunOnMachine(cleanup, ws.ID, ws.Machine, binding)
 		stop()
 		closeSession()
 		cleanupToken()
@@ -195,11 +186,7 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		defer stop()
 		defer cleanupToken()
 		command.waitErr = superviseNativeHost(pumpCtx, stream, command.stdout, command.stderr, func(ctx context.Context) error {
-			_, err := sessions.KillRun(ctx, binding)
-			if err != nil {
-				_ = sessions.CloseConnection()
-			}
-			return err
+			return r.machined.KillRunOnMachine(ctx, ws.ID, ws.Machine, binding)
 		})
 		closeSession()
 	}()
