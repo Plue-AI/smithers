@@ -78,7 +78,7 @@ jobs:
       - name: Install system packages
         shell: bash
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap' 'lsof'
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
