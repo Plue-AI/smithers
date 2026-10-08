@@ -417,7 +417,7 @@ func (s *MythicalService) todoBranch(ctx context.Context, item db.MythicalItem) 
 }
 
 // TodoBranch is item's branch, smithers/<slug> (spec §8.1.1): the one its
-// first publication recorded, or the unique one its title derives until then.
+// creation recorded, or the unique one its title derives for an older item.
 func TodoBranch(ctx context.Context, q *db.Queries, item db.MythicalItem) (string, error) {
 	if recorded := mythicalChecksOf(item).Branch; recorded != "" {
 		return recorded, nil
@@ -431,6 +431,23 @@ func TodoBranch(ctx context.Context, q *db.Queries, item db.MythicalItem) (strin
 		held[branch] = true
 	}
 	return mythicalUniqueBranch(mythicalTodoSlug(mythicalTodoTitle(item)), mythicalItemNumber(item), held), nil
+}
+
+// reserveTodoBranch records the name before a newly created TODO is visible.
+// Both creation doors hold the repository advisory lock in their transaction;
+// naming and insertion therefore share the numbering and version authority.
+func reserveTodoBranch(ctx context.Context, q *db.Queries, item db.MythicalItem) (db.MythicalItem, error) {
+	checks := mythicalChecksOf(item)
+	if checks.Branch != "" {
+		return item, nil
+	}
+	branch, err := TodoBranch(ctx, q, item)
+	if err != nil {
+		return db.MythicalItem{}, err
+	}
+	checks.Branch = branch
+	item.Checks = checks.encode()
+	return q.SaveMythicalItem(ctx, item)
 }
 
 // BranchName is the name people see and log in with for a branch machine.

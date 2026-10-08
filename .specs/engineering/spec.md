@@ -549,7 +549,7 @@ Terminals keep their existing WebSocket and are not on `/api/live` [S2]. Kind 4 
 
 ### 8.1 Identity
 
-8.1.1 A branch is identified by its name. An item branch is named `smithers/<todo-slug>`, where the slug is derived from the TODO title, is ≤ 48 characters and is unique. A scratch branch is named `scratch/<member>/<name>`.
+8.1.1 A branch is identified by its name. An item branch is named `smithers/<todo-slug>`, where the slug is derived from the TODO title, is ≤ 48 characters and is unique. Reserve it in `mythical_items.checks.branch` in the creation transaction; title edits retain it. TODO and Branch cards read that same name. A scratch branch is named `scratch/<member>/<name>`.
 
 8.1.2 [S2] Every member and the coding agent who join a branch use its single machine: the lane's workspace, joined through write grants in the existing `workspace_shares` (consumer `B/services/workspace_access.go:42-110`). No per-person or per-agent copy of a branch exists (M-17). S1 adds no `branches` or `machines` table. Branch locks are deleted.
 

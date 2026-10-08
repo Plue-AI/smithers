@@ -208,6 +208,9 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 		if err != nil {
 			return err
 		}
+		if item, err = reserveTodoBranch(ctx, q, item); err != nil {
+			return err
+		}
 		if before.StackPosition.Valid {
 			// Tn and every later TODO move one place later. Even if the
 			// new TODO has no verified head yet, their dependency order

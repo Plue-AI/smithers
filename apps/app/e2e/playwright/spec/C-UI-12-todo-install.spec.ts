@@ -38,7 +38,8 @@ test("C-UI-12 TODO: Fork and Open branch reach install providers from a REST-ser
   await say(page, "/todo T24")
   const todo = page.getByRole("article", { name: "TODO T24", exact: true })
   await expect(todo).toContainText("Retry from the install")
-  await expect(todo.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
+  await expect(todo).toContainText(model.branch.name)
+  await expect(todo.getByRole("button", { name: "Stop", exact: true })).toBeEnabled()
   const forks: unknown[] = []
   await page.route("**/api/branches", async route => {
     forks.push(route.request().postDataJSON())
@@ -49,7 +50,7 @@ test("C-UI-12 TODO: Fork and Open branch reach install providers from a REST-ser
   await expect(page.getByTestId("composer-input")).toBeEnabled()
   await todo.getByRole("button", { name: "Open branch", exact: true }).press("Enter")
   const branch = page.getByTestId("card-branch:b-live")
-  await expect(branch).toContainText("smithers/retry-webhooks")
+  await expect(branch).toContainText(model.branch.name)
   await expect(branch).toContainText("ssh -p 2222 retry-webhooks@localhost")
   await branch.getByRole("tab", { name: "Files", exact: true }).press("Enter")
   await expect(branch.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true")

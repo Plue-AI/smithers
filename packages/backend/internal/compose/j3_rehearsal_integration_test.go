@@ -250,15 +250,19 @@ func TestJ3Rehearsal(t *testing.T) {
 	}
 	// C-J3-01's setup: a working TODO's branch is smithers/<slug> on both
 	// cards, and the Branch card's SSH line logs in to it by its slug.
-	r.step("1 The Branch card names T2's branch", "GET /api/todos/{T2}; Ben's branch:<id>", "both cards name smithers/<slug>; the SSH line is ssh -p 2222 <slug>@<host>", "T-APP-10, T-STK-01", func() error {
+	r.step("1 The Branch card names T2's branch", "GET /api/todos/{T2}; Ben's branch:<id>", "both cards name the recorded smithers/<slug>; the SSH line is ssh -p 2222 <slug>@<host>", "T-APP-10, T-STK-01", func() error {
 		frame, err := benLive.latest(topic, 5*time.Second, func(frame liveFrame) bool { return decodeBranch(frame).ID == branch })
 		if err != nil {
 			return err
 		}
 		b := decodeBranch(frame)
-		r.actual = fmt.Sprintf("TODO card %q; Branch card %q; %q", todoBranch, b.Name, b.SSHLine)
+		var recorded string
+		if err := r.pool.QueryRow(r.ctx, `SELECT checks->>'branch' FROM mythical_items WHERE number=$1`, t2).Scan(&recorded); err != nil {
+			return err
+		}
+		r.actual = fmt.Sprintf("recorded %q; TODO card %q; Branch card %q; %q", recorded, todoBranch, b.Name, b.SSHLine)
 		slug, named := strings.CutPrefix(todoBranch, "smithers/")
-		if !named || slug == "" || b.Name != todoBranch || !strings.HasPrefix(b.SSHLine, "ssh -p 2222 "+slug+"@") {
+		if !named || slug == "" || recorded != todoBranch || b.Name != todoBranch || !strings.HasPrefix(b.SSHLine, "ssh -p 2222 "+slug+"@") {
 			return fmt.Errorf("T%d's branch is not smithers/<slug> on both cards with its SSH line", t2)
 		}
 		return nil

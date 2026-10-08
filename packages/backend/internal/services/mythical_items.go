@@ -247,6 +247,9 @@ func (s *MythicalService) observeIssueInTx(ctx context.Context, admission pgx.Tx
 		if !inserted {
 			return nil
 		}
+		if item, err = reserveTodoBranch(ctx, q, item); err != nil {
+			return err
+		}
 		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,
 			"from": "issue", "to": "queued", "issue": issue.Number, "label_event": applied.EventID, "by": applied.By})
 		if _, err = s.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.created", "queued", fact); err != nil {
@@ -3329,8 +3332,8 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	}
 	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
-	// The first intent records the slug branch: the TODO's GitHub identity
-	// from here on, whatever its title becomes.
+	// Retain the creation reservation (or record an older item's first
+	// publication), whatever its title becomes.
 	recorded := mythicalChecksOf(next)
 	recorded.Branch = branch
 	next.Checks = recorded.encode()
