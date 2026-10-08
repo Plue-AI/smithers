@@ -335,6 +335,9 @@ func queryOperation(ctx context.Context, q rowQuerier, scope Scope, operationID 
 // Upgrades leave it unset: cancellation is not a terminal run receipt.
 type ActiveReceiptFilter struct {
 	ExcludeCancelled bool
+	// WorkspaceID confines physical capture to this host's workspace. A
+	// retained launch without a workspace remains blocking evidence.
+	WorkspaceID string
 }
 
 // HasActiveWithReceipt reports whether an unsettled operation of this kind in
@@ -354,6 +357,10 @@ func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, opera
 		return false, errors.New("jobs: at most one active receipt filter is allowed")
 	}
 	excludeCancelled := len(filters) == 1 && filters[0].ExcludeCancelled
+	workspaceID := ""
+	if len(filters) == 1 {
+		workspaceID = filters[0].WorkspaceID
+	}
 	var active bool
 	err = store.pool.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM product_job_requests request
@@ -361,8 +368,9 @@ func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, opera
 		WHERE request.tenant_id=$1 AND request.principal_id=$2 AND request.operation=$3
 		  AND request.state IN ('accepted', 'dispatching', 'running', 'waiting')
 		  AND dispatch.external_receipt @> $4::jsonb
-		  AND (NOT $5 OR NOT request.cancellation_requested))`,
-		scope.TenantID, scope.PrincipalID, operation, canonical, excludeCancelled).Scan(&active)
+		  AND (NOT $5 OR NOT request.cancellation_requested)
+		  AND ($6='' OR COALESCE(request.payload->'target'->>'WorkspaceID','') IN ('',$6)))`,
+		scope.TenantID, scope.PrincipalID, operation, canonical, excludeCancelled, workspaceID).Scan(&active)
 	return active, err
 }
 

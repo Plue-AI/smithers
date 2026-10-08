@@ -470,8 +470,9 @@ func decodeCheckpoint(value json.RawMessage) (RuntimeCheckpoint, error) {
 // host with this artifact and source: an accepted run or an approval-parked
 // plan. A host upgrade waits for it (plue#538). The check spans the scope's
 // workspaces, so a sibling workspace pinned to the same host identity can
-// delay an upgrade. Captures may exclude durable cancellations only when
-// they confirm physical host shutdown before touching workspace bytes.
+// delay an upgrade. Captures select their authenticated WorkspaceID and may
+// exclude durable cancellations only when they confirm physical host shutdown
+// before touching workspace bytes. Unbound retained launches still block them.
 func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope, host flowruntime.Identity, filters ...jobs.ActiveReceiptFilter) (bool, error) {
 	if store == nil {
 		return false, errors.New("flow dispatch: jobs store is required")

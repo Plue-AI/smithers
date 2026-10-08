@@ -306,7 +306,9 @@ test("the TODO composition reuses the request and delivery children and no host 
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, ["coding/todo-boundary", "coding/Request", "coding/todo-boundary", "coding/todo-delivery", "coding/Vibe", "coding/todo-boundary", "todo"])
+  assert.deepEqual(calls, ["coding/todo-boundary", "coding/Request", "coding/todo-boundary", "coding/todo-delivery", "coding/Vibe", "coding/todo-boundary", "coding/todo-review", "todo"])
+  assert.equal(calls.includes("coding/Verify"), false, "verification remains an engine launch")
+  assert.equal(calls.includes("review/change"), false, "review remains an engine launch")
   const { repositoryPath, stateRoot } = await workspace(t)
   const started = await startup(repositoryPath, stateRoot, "host")
   assert.deepEqual(started.missing, [])

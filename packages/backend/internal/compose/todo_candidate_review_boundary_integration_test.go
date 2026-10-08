@@ -103,6 +103,7 @@ func runTodoFreshReviewerContext(t *testing.T, enable string) {
 		Review *struct {
 			RunID   string `json:"runId"`
 			Verdict string `json:"verdict"`
+			Lane    string `json:"lane"`
 		} `json:"review"`
 	}
 	require.NoError(t, json.Unmarshal(checks, &state))
@@ -141,4 +142,8 @@ func runTodoFreshReviewerContext(t *testing.T, enable string) {
 		}
 		return state.Review.Verdict == "approve"
 	}, 2*time.Minute, 100*time.Millisecond, "scripted reviewer must settle only after write and exec are refused: %s", checks)
+	require.Eventually(t, func() bool {
+		var retired bool
+		return r.pool.QueryRow(r.ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, state.Review.Lane).Scan(&retired) == nil && retired
+	}, time.Minute, 100*time.Millisecond, "a settled reviewer releases its own machine while the implementer remains held")
 }

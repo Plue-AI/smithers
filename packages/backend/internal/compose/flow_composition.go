@@ -197,9 +197,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// A durable cancellation authorizes stopping that host. Final capture
 		// still waits for StopFlowHost to confirm physical shutdown and for
 		// the writer fence; upgrades keep counting cancelled, unsettled runs.
+		// A held implementer on another machine cannot prevent its settled
+		// reviewer from releasing a slot; each capture stops only its own host.
 		captureRuns := flowhost.ActiveRunsFunc(func(ctx context.Context, host flowhost.Binding) (bool, error) {
 			return flowdispatch.HasPinnedLaunches(ctx, store, jobs.Scope{TenantID: host.TenantID, PrincipalID: host.PrincipalID},
-				flowruntime.Identity{RuntimeArtifactDigest: host.RuntimeArtifactDigest, SourceRevision: host.SourceRevision}, jobs.ActiveReceiptFilter{ExcludeCancelled: true})
+				flowruntime.Identity{RuntimeArtifactDigest: host.RuntimeArtifactDigest, SourceRevision: host.SourceRevision}, jobs.ActiveReceiptFilter{ExcludeCancelled: true, WorkspaceID: host.WorkspaceID})
 		})
 		owner.SetFlowHostCapturePreparation(func(ctx context.Context, id string) error {
 			return bindings.PrepareWorkspaceCapture(ctx, id, stopper, captureRuns)
