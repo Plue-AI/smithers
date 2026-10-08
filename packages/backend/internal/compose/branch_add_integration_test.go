@@ -578,6 +578,28 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	}
 	require.NoError(t, json.Unmarshal(pending.Body.Bytes(), &ask))
 	require.Equal(t, "pending", ask.State)
+	// Retrying this production catalog request reconnects the private card;
+	// the delegated requester cannot approve it or admit a TODO itself.
+	retry := agentRequest.Clone(ctx)
+	retry.Body = io.NopCloser(strings.NewReader(agentPayload))
+	repeated := httptest.NewRecorder()
+	handler.ServeHTTP(repeated, retry)
+	require.Equal(t, 202, repeated.Code, repeated.Body.String())
+	require.JSONEq(t, pending.Body.String(), repeated.Body.String())
+	selfPress := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/confirmations/"+ask.ID+"/approve", strings.NewReader(`{}`))
+	selfPress.RemoteAddr = "127.0.0.1:12345"
+	selfPress.Header.Set("Authorization", "Bearer "+token)
+	selfPress.Header.Set("Content-Type", "application/json")
+	denied := httptest.NewRecorder()
+	handler.ServeHTTP(denied, selfPress)
+	require.Equal(t, 403, denied.Code, denied.Body.String())
+	require.Contains(t, denied.Body.String(), `"code":"permission"`)
+	var selfApprovalState string
+	var confirmationCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, ask.ID).Scan(&selfApprovalState))
+	require.Equal(t, "pending", selfApprovalState)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals WHERE command='branch.add-to-stack'`).Scan(&confirmationCount))
+	require.Equal(t, 1, confirmationCount)
 	var beforeCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&beforeCount))
 	require.Equal(t, 1, beforeCount)

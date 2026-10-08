@@ -41,6 +41,9 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     expect(stack.map((item: any) => [item.n, item.state])).toEqual([[1, "in_review"], [2, "working"], [3, "queued"]])
     const [verified] = f.sql("SELECT number,COALESCE(NULLIF(candidate_base,''),base_commit) AS candidate_base FROM mythical_items WHERE number=2 AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active')")
     expect(verified.candidate_base).toMatch(/^[0-9a-f]{40}$/)
+    const [prefix] = f.sql("SELECT candidate_head FROM mythical_items WHERE number=1 AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active')")
+    expect(prefix.candidate_head).toMatch(/^[0-9a-f]{40}$/)
+    expect(verified.candidate_base).toBe(prefix.candidate_head)
     // Literal expected canary bytes come from the qualification operator, not
     // the production implementation or a spec parser. Retain actual bytes too.
     required("SMITHERS_FORK_VERIFIED_RETRY_BYTES")
@@ -95,7 +98,11 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     await runSlash(page, `/branch ${branch}`)
     await expect(page.locator('[data-flow="branch.add-to-stack"]').last()).toBeVisible()
     await expect(page.getByRole("button", { name: "Replace T2", exact: true })).toHaveCount(0)
+    const terminalResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/terminals" && r.request().method() === "POST")
     await journeyActivate(page.locator('[data-flow="terminal"]').last())
+    const opened = await terminalResponse
+    await attachJson(info, "fork-terminal-launch", { status: opened.status(), body: await opened.text() })
+    expect(opened.status(), "The installed microVM must admit the member terminal").toBe(202)
     const terminal = page.locator('.xterm-helper-textarea').last()
     await expect(terminal).toBeAttached()
     await journeyTerminalInput(page.locator(".terminal-view").last())
@@ -116,10 +123,11 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     await info.attach("scratch-uncommitted-source", { body: awakeEdit, contentType: "text/plain" })
     // The real delegated catalog HTTP door persists the private card. A model
     // answer or an in-memory app confirmation is not server admission evidence.
-    const pending = await page.context().request.post(new URL(`${path}/add-to-stack`, required("SMITHERS_REAL_BASE_URL")).toString(), {
+    const requestAdd = () => page.context().request.post(new URL(`${path}/add-to-stack`, required("SMITHERS_REAL_BASE_URL")).toString(), {
       headers: { Authorization: `Bearer ${required("SMITHERS_FORK_BEN_DELEGATED_TOKEN")}`, "Content-Type": "application/json",
         "Idempotency-Key": `fork-add-${scratch.machine.id}` }, data: { text: "Keep retry fork" }
     })
+    const pending = await requestAdd()
     expect(pending.status()).toBe(202)
     const ask = await pending.json()
     expect(ask.state).toBe("pending")
@@ -128,6 +136,22 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     expect(approvals()).toMatchObject([{ id: ask.confirmation, state: "pending", kind: "one_click", command: "branch.add-to-stack", member_id: member.id, decided_by: null }])
     expect((await f.read("Ben", "/api/todos")).map((item: any) => item.n)).toEqual([1, 2, 3])
     await attachJson(info, "fork-add-pending", { ask, approvals: approvals(), scratch, githubBranches })
+    // Reconnect/retry must retain one private request, and an agent cannot
+    // turn its own delegated request into the person's approval.
+    const repeated = await requestAdd()
+    const repeatedBody = await repeated.json()
+    await attachJson(info, "fork-add-repeated-request", { status: repeated.status(), body: repeatedBody })
+    expect(repeated.status()).toBe(202)
+    expect(repeatedBody).toMatchObject({ confirmation: ask.confirmation, state: "pending" })
+    const denied = await page.context().request.post(new URL(`/api/confirmations/${ask.confirmation}/approve`, required("SMITHERS_REAL_BASE_URL")).toString(), {
+      headers: { Authorization: `Bearer ${required("SMITHERS_FORK_BEN_DELEGATED_TOKEN")}`, "Content-Type": "application/json" }, data: {}
+    })
+    const deniedBody = await denied.json()
+    await attachJson(info, "fork-add-delegated-approval-refused", { status: denied.status(), body: deniedBody })
+    expect(denied.status()).toBe(403)
+    expect(deniedBody).toMatchObject({ class: "permission", code: "permission" })
+    expect(approvals()).toMatchObject([{ state: "pending", decided_by: null }])
+    expect((await f.read("Ben", "/api/todos")).map((item: any) => item.n)).toEqual([1, 2, 3])
     const card = page.locator(`[data-message-id="confirmation:${ask.confirmation}"]`)
     await expect(card).toBeVisible()
     await expect(f.members.Alice.page.locator(`[data-message-id="confirmation:${ask.confirmation}"]`)).toHaveCount(0)
@@ -143,6 +167,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     const itemBranch = await f.read("Ben", `/api/branches/${encodeURIComponent(added.branch.name)}`)
     expect(itemBranch.kind).toBe("item")
     expect(itemBranch.machine.id).toBe(scratch.machine.id)
+    expect(added.branch.id).toBe(scratch.machine.id)
     const [seed] = f.sql("SELECT workspace_id,checks,revisions FROM mythical_items WHERE number=4 AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active')")
     expect(seed.workspace_id).toBe(scratch.machine.id)
     expect(seed.checks.seed.base).toBe(verified.candidate_base)
