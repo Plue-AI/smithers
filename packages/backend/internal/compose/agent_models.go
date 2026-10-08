@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"io"
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // Factory roles use the install's existing model bindings; no separate store.
@@ -261,5 +263,62 @@ func resolveFactorySeat(q *db.Queries, sources workspaceapi.SourceFiles) func(co
 			return modelproxy.FactorySeat{}, errors.New("factory key is not offered")
 		}
 		return modelproxy.FactorySeat{Seat: seat.Provider + ":" + binding.ModelID, Protocol: binding.Protocol}, nil
+	}
+}
+
+// Snapshot committed delivery intents before the guest drains its existing queue.
+// The worker remains the sole delivery/authorization path; this read-only fence
+// neither renders input nor acknowledges it on the worker's behalf.
+func fenceTodoInputs(pool *pgxpool.Pool) func(context.Context, modelproxy.Caller, string) error {
+	return func(ctx context.Context, caller modelproxy.Caller, run string) error {
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		var bound bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mythical_items WHERE repository_id=$1 AND workspace_id=$2 AND request_run_id=$3 AND source='todo' AND state NOT IN ('landed','cancelled','rejected','declined'))`, caller.RepositoryID, caller.WorkspaceID, run).Scan(&bound); err != nil {
+			return err
+		}
+		if !bound || run == "" {
+			return modelproxy.ErrForbidden
+		}
+		rows, err := pool.Query(ctx, `SELECT id::text FROM product_job_requests WHERE tenant_id=$1 AND payload->>'runId'=$2 AND operation IN ('flow.runtime.steer','flow.runtime.signal') AND state NOT IN ('completed','failed','cancelled','uncertain')`, fmt.Sprintf("repository:%d", caller.RepositoryID), run)
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		timer := time.NewTicker(25 * time.Millisecond)
+		defer timer.Stop()
+		for {
+			var pending, refused int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE state NOT IN ('completed','failed','cancelled','uncertain')), count(*) FILTER (WHERE state IN ('failed','cancelled','uncertain')) FROM product_job_requests WHERE id::text=ANY($1)`, ids).Scan(&pending, &refused); err != nil {
+				return err
+			}
+			if refused > 0 {
+				return errors.New("TODO input delivery refused")
+			}
+			if pending == 0 {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
 	}
 }

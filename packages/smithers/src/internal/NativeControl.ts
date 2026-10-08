@@ -37,6 +37,7 @@ import type * as NodeFlowsRuntime from "@smthrs/flows/NodeRuntime"
 import type * as GatewayServer from "@smthrs/gateway/GatewayServer"
 import type * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 import * as GatewayProjections from "@smthrs/gateway/Projections"
+import type { HarnessError } from "@smthrs/harness/HarnessError"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
@@ -335,6 +336,8 @@ export interface Platform {
   /** Modules whose settled launches retain their run for subsequent input. */
   readonly reenterModules?: ReadonlyArray<string> | undefined
   readonly reentryCheckpoint?: AgentSession.Options["reentryCheckpoint"]
+  /** Wait for committed external inputs before the owning notification drain. */
+  readonly beforeSteeringDrain?: ((runId: string, flowId: string) => Effect.Effect<void, HarnessError>) | undefined
   /** Coding hosts require the registered daemon terminal; never use the native spawn binding. */
   readonly shellTerminal?: "agent" | undefined
   readonly agentLimits?: {
@@ -1484,6 +1487,7 @@ export const make = (
           yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, {
             controlJournal,
             reenterModules: native.reenterModules,
+            beforeSteeringDrain: native.beforeSteeringDrain,
             parks: askPolicy(environment) !== "refuse",
             weights: native.agentLimits?.weights
           })

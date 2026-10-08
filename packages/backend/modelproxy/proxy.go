@@ -60,6 +60,7 @@ type Handler struct {
 	OwnerPaid          bool
 	Owner              OwnerUsage
 	ResolveFactorySeat func(context.Context, Caller) (FactorySeat, error)
+	FenceInputs        func(context.Context, Caller, string) error
 }
 
 const (
@@ -77,6 +78,28 @@ var defaultClient = &http.Client{
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.Fast != nil && (r.URL.Path == FastPath || r.URL.Path == Path+"/fast/selected") {
 		h.serveFast(w, r)
+		return
+	}
+	if r.URL.Path == Path+"/input-fence" && r.Method == http.MethodGet {
+		caller, err := h.Callers.ResolveModelCaller(r)
+		if err != nil || caller.Source != SourceFlowHost || caller.FactoryRole != "implementer" {
+			WriteError(w, "", 403, "permission_error", "Implementing host required.")
+			return
+		}
+		if h.FenceInputs == nil {
+			WriteError(w, "", 503, "api_error", "TODO input delivery is unavailable.")
+			return
+		}
+		if err := h.FenceInputs(r.Context(), caller, r.URL.Query().Get("run")); err != nil {
+			if errors.Is(err, ErrForbidden) {
+				WriteError(w, "", 403, "permission_error", "TODO run binding required.")
+			} else {
+				WriteError(w, "", 503, "api_error", "TODO input delivery is unavailable.")
+			}
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.URL.Path == Path+"/factory-seat" && r.Method == http.MethodGet {

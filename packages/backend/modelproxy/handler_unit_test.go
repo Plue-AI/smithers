@@ -171,3 +171,46 @@ func TestHandlerUnitCredentialRevokedDuringBodyStartsNoCall(t *testing.T) {
 	require.Equal(t, 2, caller.calls)
 	require.Zero(t, keys.reads)
 }
+
+func TestHandlerInputFenceRequiresBoundImplementingHost(t *testing.T) {
+	for _, c := range []struct {
+		name, source, role string
+		missing            bool
+		failure            error
+		status, calls      int
+	}{
+		{"person", "app", "implementer", false, nil, 403, 0},
+		{"reviewer", SourceFlowHost, "reviewer", false, nil, 403, 0},
+		{"unbound role", SourceFlowHost, "", false, nil, 403, 0},
+		{"missing composition", SourceFlowHost, "implementer", true, nil, 503, 0},
+		{"wrong run", SourceFlowHost, "implementer", false, ErrForbidden, 403, 1},
+		{"delivery unavailable", SourceFlowHost, "implementer", false, errors.New("worker unavailable"), 503, 1},
+		{"delivered", SourceFlowHost, "implementer", false, nil, 204, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			caller := Caller{Source: c.source, FactoryRole: c.role, RepositoryID: 7, WorkspaceID: "w"}
+			h := &Handler{Callers: fixedCaller{caller: caller}}
+			calls := 0
+			if !c.missing {
+				h.FenceInputs = func(_ context.Context, received Caller, run string) error {
+					calls++
+					require.Equal(t, caller, received)
+					require.Equal(t, "run-1", run)
+					return c.failure
+				}
+			}
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, httptest.NewRequest("GET", Path+"/input-fence?run=run-1", nil))
+			require.Equal(t, c.status, response.Code)
+			require.Equal(t, c.calls, calls)
+			if c.status == 204 {
+				require.Empty(t, response.Body.String())
+				require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+			}
+		})
+	}
+	h := &Handler{Callers: &unitProxyCaller{failure: ErrUnauthenticated}}
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, httptest.NewRequest("GET", Path+"/input-fence?run=run-1", nil))
+	require.Equal(t, 403, response.Code)
+}

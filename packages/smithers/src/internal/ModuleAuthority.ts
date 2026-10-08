@@ -41,6 +41,7 @@ export const make = (
     /** Whether a refused `park` budget may ask an operator, as the session's `asks` says. */
     readonly parks: boolean
     readonly reenterModules?: ReadonlyArray<string> | undefined
+    readonly beforeSteeringDrain?: ((runId: string, flowId: string) => Effect.Effect<void, HarnessError>) | undefined
     readonly weights?: Budget.Weights | undefined
   }
 ) =>
@@ -269,9 +270,12 @@ export const make = (
             const handlerSteering = Steering.make({
               read: notificationsForRoot.read,
               drain: (input) =>
-                notificationsForRoot.drain({
-                  ...input,
-                  boundary: JSON.stringify([executionId, input.boundary])
+                Effect.gen(function*() {
+                  yield* budgetHost.beforeSteeringDrain?.(rootId, flowId) ?? Effect.void
+                  return yield* notificationsForRoot.drain({
+                    ...input,
+                    boundary: JSON.stringify([executionId, input.boundary])
+                  })
                 })
             })
             const { budget, envelope: spending } = yield* RcMap.get(budgets, rootId).pipe(Effect.orDie)

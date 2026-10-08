@@ -6,6 +6,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Action from "@smthrs/flow/Action"
 import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
+import { HarnessError } from "@smthrs/harness/HarnessError"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
@@ -632,6 +633,21 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       // Retained TODO attempts wait for stack signals after delivery. A
       // scratch Run owns no stack item and finishes with its module result.
       reenterModules: options.planning === undefined || options.draftVersion ? undefined : ["todo"],
+      beforeSteeringDrain: (runId, flowId) => {
+        if (flowId !== "todo" || options.planning === undefined) return Effect.void
+        return Effect.tryPromise({
+          try: async (signal) => {
+            const origin = process.env.SMITHERS_MODEL_PROXY_URL
+            const credential = process.env.SMITHERS_MODEL_ROLE_IMPLEMENTER_KEY
+            if (!origin || !credential) throw new Error("Missing input delivery fence")
+            const response = await fetch(`${origin.replace(/\/+$/, "")}/input-fence?run=${encodeURIComponent(runId)}`, {
+              headers: { Authorization: `Bearer ${credential}` }, signal
+            })
+            if (!response.ok) throw new Error("Input delivery unavailable")
+          },
+          catch: () => new HarnessError({ code: "assembly_failed", message: "TODO input delivery is unavailable" })
+        })
+      },
       reentryCheckpoint: (runId, flowId) => flowId === "todo" ? todoBringBoundary(runId) : Effect.void,
       agentLimits: options.planning?.limits,
       evaluator,

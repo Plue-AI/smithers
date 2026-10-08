@@ -141,25 +141,20 @@ func TestTodoWorkingAmendNextImplementModelCall(t *testing.T) {
 	})
 	require.NotEqual(t, -1, held, "a real implement turn is in flight")
 	const text = "Also log each retry and keep the max at 5"
-	for range 2 {
+	for replay := range 2 {
 		code, data, err := r.keyed("PATCH", fmt.Sprintf("/api/todos/%d", n), `{"prompt":"Also log each retry and keep the max at 5"}`, "implement-amend")
 		require.NoError(t, err)
 		require.Equal(t, 202, code, string(data))
+		if replay == 0 {
+			// Release immediately after admission, before observing worker delivery.
+			require.NoError(t, r.release("amend-turn"))
+		}
 	}
 	var count int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT jsonb_array_length(revisions) FROM mythical_items WHERE number=$1`, n).Scan(&count))
 	require.Equal(t, 2, count, "one amendment revision after replay")
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body' LIKE $1`, text+"%").Scan(&count))
 	require.Equal(t, 1, count, "one delivery intent after replay")
-	// HTTP 202 is admission, not guest delivery. Hold the current request until
-	// the durable worker has the real runtime acknowledgement, so the input is
-	// committed in the agent's context before its next implementing dispatch.
-	require.Eventually(t, func() bool {
-		var delivered int
-		err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body' LIKE $1 AND state='completed'`, text+"%").Scan(&delivered)
-		return err == nil && delivered == 1
-	}, time.Minute, 25*time.Millisecond, "amendment reaches the guest while implement is held")
-	require.NoError(t, r.release("amend-turn"))
 	require.Eventually(t, func() bool {
 		turns, err := r.modelTurns()
 		if err != nil || len(turns) <= len(prior) {
@@ -250,45 +245,59 @@ func TestTodoReviewSteerModelReentry(t *testing.T) {
 // model request itself, before waiting for another capture, PR push or review.
 func TestTodoRetainedReviewHTTPNextTurn(t *testing.T) {
 	t.Setenv("TRACE_MESSAGES", "1")
-	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-05", "retained-steer-")
+	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-06", "retained-steer-")
 	require.True(t, r.install("install"))
 	n, err := r.file("Retry delivery", "[FILE retry.ts] Add retries to webhook delivery in retry.ts")
 	require.NoError(t, err)
-	_, err = r.waitTodoWithin(n, 5*time.Minute, "in_review")
+	reviewed, err := r.waitTodoWithin(n, 5*time.Minute, "in_review")
 	require.NoError(t, err)
 	before, err := r.j3Lane(n)
 	require.NoError(t, err)
-	prior, err := r.modelTurns()
-	require.NoError(t, err)
-	const text = "Also log each retry attempt"
-	for range 2 {
-		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", n), `{"steer":"Also log each retry attempt"}`, "retained-review-steer")
+	for round := range 2 {
+		prior, err := r.modelTurns()
 		require.NoError(t, err)
-		require.Equal(t, 202, code, string(data))
+		text := fmt.Sprintf("Also log each retry attempt %d", round+1)
+		input, err := json.Marshal(map[string]string{"steer": text})
+		require.NoError(t, err)
+		for range 2 {
+			code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", n), string(input), fmt.Sprintf("retained-review-steer-%d", round))
+			require.NoError(t, err)
+			require.Equal(t, 202, code, string(data))
+		}
+		var first map[string]any
+		require.Eventually(t, func() bool {
+			turns, err := r.modelTurns()
+			if err != nil || len(turns) <= len(prior) {
+				return false
+			}
+			index := slices.IndexFunc(turns[len(prior):], func(turn map[string]any) bool {
+				step, _ := turn["step"].(string)
+				return turn["kind"] == "chat" && strings.HasPrefix(step, "coding/")
+			})
+			if index < 0 {
+				return false
+			}
+			first = turns[len(prior)+index]
+			return true
+		}, 3*time.Minute, 50*time.Millisecond, "accepted review steer must dispatch another model turn")
+		require.Contains(t, turnText(first), text, "spec §10.7.3: at most one model turn of latency")
+		require.Eventually(t, func() bool {
+			card, err := r.todo(n)
+			if err != nil || card.State != "in_review" || card.PR.Head == reviewed.PR.Head {
+				return false
+			}
+			require.Equal(t, reviewed.PR.Number, card.PR.Number, "review re-entry keeps the existing PR")
+			reviewed = card
+			return true
+		}, 5*time.Minute, 100*time.Millisecond, "each retained steer must return to In review with a new head")
+		after, err := r.j3Lane(n)
+		require.NoError(t, err)
+		require.Equal(t, before, after, "review steer retains run, attempt and working copy")
+		var inputs int
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items, jsonb_array_elements(checks->'steers') input WHERE number=$1 AND input->>'text'=$2`, n, text).Scan(&inputs))
+		require.Equal(t, 1, inputs, "duplicate HTTP admission stores one durable input")
 	}
-	var first map[string]any
-	require.Eventually(t, func() bool {
-		turns, err := r.modelTurns()
-		if err != nil || len(turns) <= len(prior) {
-			return false
-		}
-		index := slices.IndexFunc(turns[len(prior):], func(turn map[string]any) bool {
-			step, _ := turn["step"].(string)
-			return turn["kind"] == "chat" && strings.HasPrefix(step, "coding/")
-		})
-		if index < 0 {
-			return false
-		}
-		first = turns[len(prior)+index]
-		return true
-	}, 3*time.Minute, 50*time.Millisecond, "accepted review steer must dispatch another model turn")
-	require.Contains(t, turnText(first), text, "spec §10.7.3: at most one model turn of latency")
-	after, err := r.j3Lane(n)
-	require.NoError(t, err)
-	require.Equal(t, before, after, "review steer retains run, attempt and working copy")
-	var inputs int
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items, jsonb_array_elements(checks->'steers') input WHERE number=$1 AND input->>'text'=$2`, n, text).Scan(&inputs))
-	require.Equal(t, 1, inputs, "duplicate HTTP admission stores one durable input")
+
 }
 
 // Protocol fixtures pin the shipped composition, whose identity changes with

@@ -1942,6 +1942,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			proxy.Owner = modelproxy.OwnerMeter{DB: pool, DailyTokens: mythicalService.DailyTokenBudget}
 			proxy.ResolveFactorySeat = resolveFactorySeat(queries, repositorySourceFiles{client: repoHostClient})
 		}
+		proxy.FenceInputs = fenceTodoInputs(pool)
 		modelProxyHandler = proxy
 	}
 	var recommendationHandler *routes.RecommendationHandler

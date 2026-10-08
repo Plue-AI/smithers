@@ -2336,6 +2336,7 @@ func mountModelProxy(r chi.Router, queries *db.Queries, cfg *config.Config, hand
 		}))
 		r.Post(modelproxy.Path+"/*", handler.ServeHTTP)
 		r.Get(modelproxy.Path+"/factory-seat", handler.ServeHTTP)
+		r.Get(modelproxy.Path+"/input-fence", handler.ServeHTTP)
 		for _, seat := range modelproxy.Seats {
 			r.Post(modelproxy.APIPath+"/"+seat.Provider+"/*", handler.ServeHTTP)
 		}
