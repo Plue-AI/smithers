@@ -36,12 +36,42 @@ test("canonical merged archive remains inspectable through monitor and read-only
   await slider.press("Home")
   expect((await historical).status()).toBe(200)
   await expect(run.locator(".mvp-run-journal li")).toHaveCount(1)
+  // Exercise an interior position through the person's keyboard control,
+  // rather than qualifying only the two endpoints of the archive.
+  const interiorResponse = page.waitForResponse(r => {
+    const url = new URL(r.url())
+    return url.pathname.endsWith("/trace") && Number(url.searchParams.get("at")) > 0
+  })
+  await slider.press("PageUp")
+  const interior = await interiorResponse
+  expect(interior.status()).toBe(200)
+  const at = Number(new URL(interior.url()).searchParams.get("at"))
+  expect(at).toBeGreaterThan(0)
+  expect(at).toBeLessThan(Number(await slider.getAttribute("max")))
+  const replay = await interior.json()
+  expect(replay.journal).toEqual(archive.journal.slice(0, replay.journal.length))
+  expect(replay.journal.length).toBeGreaterThan(1)
+  expect(replay.journal.length).toBeLessThan(archive.journal.length)
+  await expect(run.locator(".mvp-run-journal li")).toHaveCount(replay.journal.length)
+  const repeated = await page.request.get(interior.url())
+  expect(repeated.status()).toBe(200)
+  const again = await repeated.json()
+  expect(again.journal).toEqual(replay.journal)
+  const labels = (snapshot: typeof replay) => snapshot.attempts.map((attempt: {
+    graph: unknown; phases: Array<{ id: string; title: string; cells: Array<{ id: string; label: string }> }>
+  }) => ({ graph: attempt.graph, phases: attempt.phases.map(phase => ({
+    id: phase.id, title: phase.title, cells: phase.cells.map(cell => ({ id: cell.id, label: cell.label }))
+  })) }))
+  expect(labels(again)).toEqual(labels(replay))
+  await writeFile(testInfo.outputPath("interior-replay.json"), JSON.stringify({ at, replay, repeated: again }, null, 2))
   await slider.press("End")
   await expect(run.locator(".mvp-run-journal")).toContainText("control.engine.event")
   expect(writes).toEqual([])
   const retained = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
   expect(retained.status()).toBe(200)
-  expect((await retained.json()).journal).toEqual(archive.journal)
+  const restoredArchive = await retained.json()
+  expect(restoredArchive.journal).toEqual(archive.journal)
+  expect(labels(restoredArchive)).toEqual(labels(archive))
   await page.screenshot({ path: testInfo.outputPath("completed-journal.png") })
   // A new browser document must rediscover the durable archive through the
   // production catalog and authenticated topic, without the old card state.
