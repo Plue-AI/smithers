@@ -43,10 +43,14 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	options := []any{routerExtras{GitHubAppSetup: h}}
 	options = append(options, extras...)
 	userHandler := &routes.UserHandler{}
+	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{}
 	var wikiService routes.WikiService
 	var metrics *routes.SmithersMetrics
 	for _, extra := range extras {
+		if auth, ok := extra.(*routes.AuthHandler); ok {
+			authHandler = auth
+		}
 		if value, ok := extra.(*routes.SmithersMetrics); ok {
 			metrics = value
 		}
@@ -62,7 +66,7 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	}
 	return buildRouterCompat(
 		cfg, db.New(pool), pool,
-		&routes.RepoHandler{}, &routes.AuthHandler{}, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+		&routes.RepoHandler{}, authHandler, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		wikiService, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,

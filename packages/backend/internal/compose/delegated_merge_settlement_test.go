@@ -106,6 +106,19 @@ func TestDelegatedMergeSettlementNativeInstall(t *testing.T) {
 	require.NoError(t, response.Body.Close())
 	require.Equal(t, 202, response.StatusCode)
 	require.Equal(t, "pending", admitted.State)
+	// The packaged CLI/skill reaches the same installed Merge confirmation.
+	// A full-scope guest credential still cannot merge, and replay keeps the
+	// original confirmation rather than creating another approval or effect.
+	invoke := packagedTerminalCLIInvoker(t, r.ctx, r.origin, token)
+	for range 2 {
+		code, receipt := invoke("merge", fmt.Sprintf("T%d", filed.Number), "--reviewed_head_sha", head, "--idempotencyKey", "settlement-request")
+		require.Equal(t, 3, code, receipt)
+		require.Equal(t, admitted.Confirmation, receipt["confirmation"])
+		require.Equal(t, "pending", receipt["state"])
+	}
+	for _, write := range r.fake.Writes() {
+		require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"), "a delegated CLI request cannot merge before the person's press")
+	}
 	before, err := q.GetMythicalItemByNumber(r.ctx, repository, filed.Number)
 	require.NoError(t, err)
 	t.Cleanup(func() {

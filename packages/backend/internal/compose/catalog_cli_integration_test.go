@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,7 +20,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -29,6 +33,12 @@ import (
 // C-CAT-02: the source CLI parser and production dispatcher cross a real HTTP
 // listener, delegated authorization, and PostgreSQL confirmation transactions.
 func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
+	for _, via := range []string{"cli", "claude-code", "codex"} {
+		t.Run(via, func(t *testing.T) { catalogCLIConfirmationsPostgres(t, via) })
+	}
+}
+
+func catalogCLIConfirmationsPostgres(t *testing.T, via string) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
@@ -47,6 +57,10 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo.ID, u.ID)
 		require.NoError(t, err)
 	}
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET github_id=199,github_login='maya' WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(user_id,provider,provider_user_id,profile_data) VALUES($1,'workos','199','{}')`, owner.ID)
+	require.NoError(t, err)
 	session := func(u db.User) string {
 		raw := u.Username + "-confirmation-session"
 		sum := sha256.Sum256([]byte(raw))
@@ -55,14 +69,10 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 		return raw
 	}
 	ownerCookie := session(owner)
-	token := "smithers_" + strings.Repeat("c", 40)
-	sum := sha256.Sum256([]byte(token))
-	hash := hex.EncodeToString(sum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "cli", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
+	cfg.Auth.SessionSecret = "catalog-fixture-secret"
 	server := httptest.NewUnstartedServer(nil)
 	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
@@ -83,10 +93,62 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	todos.SetLauncher(dispatcher)
 	approvals := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
-	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
+	github := &rosterGitHub{roles: map[string]string{"maya": "admin"}, login: "maya"}
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.URL.Path = strings.Replace(r.URL.Path, "/repos/maya/demo", "/repos/owner/app", 1)
+		github.serve(w, r)
+	}))
+	defer provider.Close()
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
+	issuer := services.NewAuthService(q, cfg.Auth, nil, auth.NewGitHubClient(ownerOAuthCredentials{"client", "secret"}, "", provider.URL, provider.URL))
+	issuer.Members = &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
+	issuer.InstallSetup = &services.InstallSetupSessions{Pool: pool}
+	router := githubAppSetupComposeRouter(cfg, pool, nil,
+		&routes.AuthHandler{Service: issuer, AuthConfig: cfg.Auth, InstallSetup: issuer.InstallSetup},
+		&routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: issuer},
+		routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
 	server.Config.Handler = router
 	server.Start()
 	defer server.Close()
+	// The real CLI OAuth callback independently issues each agent identity.
+	// Public token payloads cannot choose via, so header/payload variations on
+	// one generic CLI token would not qualify Claude Code or Codex minting.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	callbackState := strings.Repeat("c", 43)
+	start, err := client.Get(server.URL + "/api/auth/github/cli?callback_port=43210&callback_state=" + callbackState + "&agent=" + via)
+	require.NoError(t, err)
+	require.NoError(t, start.Body.Close())
+	require.Equal(t, http.StatusFound, start.StatusCode)
+	providerURL, err := url.Parse(start.Header.Get("Location"))
+	require.NoError(t, err)
+	callbackRequest, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/api/auth/github/callback?code=fixture-code&state="+providerURL.Query().Get("state"), nil)
+	require.NoError(t, err)
+	for _, cookie := range start.Cookies() {
+		callbackRequest.AddCookie(cookie)
+	}
+	callback, err := client.Do(callbackRequest)
+	require.NoError(t, err)
+	callbackBody, err := io.ReadAll(callback.Body)
+	require.NoError(t, err)
+	require.NoError(t, callback.Body.Close())
+	require.Equal(t, http.StatusFound, callback.StatusCode, string(callbackBody))
+	redirect, err := url.Parse(callback.Header.Get("Location"))
+	require.NoError(t, err)
+	issued, err := url.ParseQuery(redirect.Fragment)
+	require.NoError(t, err)
+	require.Equal(t, callbackState, issued.Get("callback_state"))
+	require.Equal(t, "delegated", issued.Get("kind"))
+	require.Equal(t, via, issued.Get("via"))
+	token := issued.Get("token")
+	require.NotEmpty(t, token)
+	sum := sha256.Sum256([]byte(token))
+	stored, err := q.GetAuthInfoByTokenHash(ctx, hex.EncodeToString(sum[:]))
+	require.NoError(t, err)
+	require.Equal(t, owner.ID, stored.ID)
+	require.True(t, stored.TokenSystemIssued)
+	require.Contains(t, stored.TokenScopes, "via:"+via)
+	require.NotContains(t, stored.TokenScopes, "profile:terminal_s1")
+	require.Equal(t, middleware.CredentialDelegated, middleware.TokenCredentialKind(stored.TokenSystemIssued, stored.TokenScopes, "person", true))
 	invoke := catalogCLIInvoker(t, ctx, server.URL, token)
 	code, receipt := invoke("todo", "new", "--text", "Keep the exact delegated request", "--title", "Retry", "--idempotencyKey", "catalog-new")
 	require.Equal(t, 3, code, receipt)
