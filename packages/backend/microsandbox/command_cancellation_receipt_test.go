@@ -185,3 +185,26 @@ func TestServiceStopRequiresConfirmedGuestTermination(t *testing.T) {
 		}
 	}
 }
+
+// Exercise the production host adapter with a real executable boundary. No
+// rejected selector may launch msb, so no guest/root signal can occur.
+func TestCleanupKillSelectorsRefusedBeforeMSB(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "invocations")
+	binary := filepath.Join(t.TempDir(), "msb")
+	require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf("#!/bin/sh\nprintf x >> %q\n", marker)), 0700))
+	r := &Runtime{cli: &cli{binary: binary, home: t.TempDir()}}
+	for _, operands := range [][]string{
+		{"kill"}, {"kill", "id", "extra"}, {"kill", ""},
+		{"kill", "../other"}, {"kill", "--all"}, {"kill", "/sys/fs/cgroup/smithers/other"},
+		{"kill", "other/../../root"}, {"kill", "nul\x00selector"}, {"kill", "é"}, {"kill", strings.Repeat("a", 97)},
+	} {
+		_, err := r.guest(t.Context(), "fixture-machine", nil, operands...)
+		require.ErrorContains(t, err, "invalid cleanup command identity", "%q", operands)
+		require.NoFileExists(t, marker, "invalid selector must not launch msb")
+	}
+	_, err := r.guest(t.Context(), "fixture-machine", nil, "kill", "fixture-command")
+	require.NoError(t, err)
+	got, err := os.ReadFile(marker)
+	require.NoError(t, err)
+	require.Equal(t, "x", string(got), "valid server handle must reach the executable")
+}

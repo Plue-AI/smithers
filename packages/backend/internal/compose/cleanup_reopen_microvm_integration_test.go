@@ -28,6 +28,17 @@ import (
 // composition, real guest capture and normal GitHub ingress. No capture
 // receipt, host object or replacement working copy is seeded by this test.
 func TestCleanupReopenInstalledMicroVM(t *testing.T) {
+	testCleanupReopenInstalledMicroVM(t)
+}
+
+// The named security qualification must cover capture, production cleanup and
+// normal PR-reopen together, rather than only adapter stop/remove calls.
+func TestCleanupRepositoryExecutionBoundary(t *testing.T) {
+	testCleanupReopenInstalledMicroVM(t)
+}
+
+func testCleanupReopenInstalledMicroVM(t *testing.T) {
+	t.Helper()
 	h, _, bundle, _, _ := startInstalledTerminalHarness(t, nil)
 	t.Logf("native cleanup provenance: bundle_revision=%s manifest_sha256=%s msb=%s", bundle.Revision(), bundle.ManifestSHA256(), os.Getenv("SMITHERS_MICROSANDBOX_BIN"))
 	state, message := h.runMachine(t, "cleanup-reopen")
@@ -88,6 +99,9 @@ func exerciseCleanupReopenInstalledMicroVM(t *testing.T, h *rootLayerHarness) {
 	require.DirExists(t, originalDisk, "record the actual msb disk directory before removal")
 	hostGit := filepath.Join(h.storage.StoragePath, "rehearsal-owner", "app", ".jj/repo/store/git")
 	canary := filepath.Join(t.TempDir(), "host-execution")
+	// Prove the host canary is writable before interpreting its absence.
+	require.NoError(t, os.WriteFile(canary, []byte("positive host control"), 0600))
+	require.NoError(t, os.Remove(canary))
 	hooks := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte("#!/bin/sh\nprintf hostile > "+canary+"\n"), 0755))
 	git := func(args ...string) string {

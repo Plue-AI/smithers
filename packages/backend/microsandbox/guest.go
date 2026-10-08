@@ -42,6 +42,11 @@ func guestArgs(machine string, _ map[string]string, stream bool, subcommand ...s
 
 // guest runs one short helper subcommand and returns its stdout.
 func (r *Runtime) guest(ctx context.Context, machine string, stdin []byte, subcommand ...string) ([]byte, error) {
+	// Cancellation consumes only an opaque installed command handle. Reject
+	// option-shaped and path selectors before launching the privileged helper.
+	if len(subcommand) > 0 && subcommand[0] == "kill" && (len(subcommand) != 2 || !guestPathSyntax.MatchString(subcommand[1]) || strings.HasPrefix(subcommand[1], "-")) {
+		return nil, fmt.Errorf("%w: invalid cleanup command identity", ErrUnavailable)
+	}
 	callCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	output, err := r.cli.run(callCtx, stdin, guestArgs(machine, nil, false, subcommand...)...)

@@ -44,6 +44,7 @@ func (r *cleanupProcessRuntime) WaitAdmission(ctx context.Context, p microsandbo
 type cleanupReopenProof struct {
 	id, root, head string
 	canary         string
+	diskMarker     string
 	number         int64
 	files          map[string][]byte
 	retained       func()
@@ -78,9 +79,14 @@ func prepareCleanupReopen(t *testing.T, r *rehearsal, n, repository, owner int64
 	git("-C", p.root, "-c", "user.name=Capture", "-c", "user.email=capture@example.test", "-c", "core.hooksPath=/dev/null", "commit", "-m", "final capture including untracked bytes")
 	p.head = git("-C", p.root, "rev-parse", "HEAD")
 	tree := git("-C", p.root, "rev-parse", "HEAD^{tree}")
+	// Deliberately absent from the captured tree: a reused disk must fail.
+	p.diskMarker = ".git/cleanup-original-disk"
+	require.NoError(t, os.WriteFile(filepath.Join(p.root, p.diskMarker), []byte("original disk only"), 0600))
 	hostGit := filepath.Join(r.repositoryRoot, "rehearsal-owner", "app", ".jj/repo/store/git")
 	git("-C", p.root, "push", hostGit, "HEAD:"+repohost.BranchHeadRef(p.id))
 	p.canary = filepath.Join(t.TempDir(), "host-execution")
+	require.NoError(t, os.WriteFile(p.canary, []byte("positive host control"), 0600))
+	require.NoError(t, os.Remove(p.canary))
 	hooks := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte("#!/bin/sh\nprintf executed > "+p.canary+"\n"), 0755))
 	git("--git-dir", hostGit, "config", "core.hooksPath", hooks)
@@ -176,6 +182,7 @@ func (p *cleanupReopenProof) reconstruct(t *testing.T, r *rehearsal) {
 	}
 	p.retained()
 	require.DirExists(t, restored.Root)
+	require.NoFileExists(t, filepath.Join(restored.Root, p.diskMarker), "reconstruction must not reuse the original working copy")
 	require.FileExists(t, filepath.Join(restored.Root, ".git/smithers-workspace-initialization.json"), "production reconstruction must leave its completed checkout receipt")
 	row, err := db.New(r.pool).GetWorkspace(r.ctx, p.id)
 	require.NoError(t, err)
