@@ -47,7 +47,15 @@ against the installed bundle at the commit under test.
 The fixture supplies `Commit`, `DatabaseURL`, `Bundle`, `Evidence`, five distinct
 random 40-byte `Sentinels` (`ALL`, `MAIN`, `BOUND`, `PROVIDER`, `PEM`), and exactly
 three `Machines`. Each machine supplies `Kind` (`item`, `scratch`, `main`),
-`Workspace`, the runtime-owned `Machine` name, `RunID`, and `RelayAudit`. Branch
+`Workspace`, the runtime-owned `Machine` name, `RunID`, `RelayAudit`, and
+`BoundRequest`. `RelayAudit` is a nonempty redacted audit with none of the five sentinel values. `BoundRequest` is the private raw
+HTTP request recorded independently by the trusted HTTPS destination fixture
+(`csec01-bound.example`, configured in the reference-host harness), after a
+guest request through the production relay. Every machine requests
+`GET /<Workspace>` with the bound secret placeholder; the destination must
+observe exactly one `Authorization: Bearer <BOUND sentinel>` header and none
+of the other sentinels. Keep these private destination records outside the
+published evidence; failures omit header values. Branch
 machines also supply complete materialized `CaptureTree` and `OperationLog`
 paths; the item supplies the observed `ModelCredentialKind` (`run`). Create the
 machines and sentinels through the production journey doors before writing this

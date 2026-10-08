@@ -1,12 +1,14 @@
 package services
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -41,6 +43,7 @@ func TestMachineSecretScanRealMicroVM(t *testing.T) {
 			Kind, Workspace, Machine              string
 			RunID                                 int64
 			CaptureTree, OperationLog, RelayAudit string
+			BoundRequest                          string
 			ModelCredentialKind                   string
 		}
 	}
@@ -131,9 +134,15 @@ func TestMachineSecretScanRealMicroVM(t *testing.T) {
 			}
 			audit, err := os.ReadFile(machine.RelayAudit)
 			require.NoError(t, err)
-			for _, label := range []string{"PROVIDER", "PEM", "MAIN"} {
+			require.NotEmpty(t, audit, "relay observation must not be empty")
+			for _, label := range []string{"ALL", "BOUND", "PROVIDER", "PEM", "MAIN"} {
 				require.NotContains(t, string(audit), fixture.Sentinels[label])
 			}
+			// The destination records the received HTTP request independently of
+			// the relay's redacted audit. A policy entry alone is no positive control.
+			received, err := os.ReadFile(machine.BoundRequest)
+			require.NoError(t, err)
+			require.NoError(t, validateBoundSecretRequest(received, machine.Workspace, fixture.Sentinels))
 			if machine.Kind == "item" {
 				require.Equal(t, "run", machine.ModelCredentialKind)
 				require.Positive(t, machine.RunID)
@@ -173,4 +182,26 @@ func assertNoFixtureSentinels(t *testing.T, path string, sentinels map[string]st
 			return err
 		}
 	}
+}
+
+// This is a trusted destination fixture's raw request, never guest-reported
+// success. Errors omit header values so failing receipts do not reveal secrets.
+func validateBoundSecretRequest(raw []byte, workspace string, sentinels map[string]string) error {
+	request, err := http.ReadRequest(bufio.NewReader(strings.NewReader(string(raw))))
+	if err != nil {
+		return fmt.Errorf("bound destination request is malformed")
+	}
+	defer request.Body.Close()
+	if workspace == "" || request.Method != "GET" || request.Host != "csec01-bound.example" || request.URL.RequestURI() != "/"+workspace {
+		return fmt.Errorf("bound destination request binding differs")
+	}
+	if sentinels["BOUND"] == "" || request.Header.Get("Authorization") != "Bearer "+sentinels["BOUND"] || len(request.Header.Values("Authorization")) != 1 {
+		return fmt.Errorf("bound destination did not receive the substituted credential")
+	}
+	for _, label := range []string{"ALL", "MAIN", "PROVIDER", "PEM"} {
+		if sentinels[label] == "" || strings.Contains(string(raw), sentinels[label]) {
+			return fmt.Errorf("bound destination leaked or lacks fixture %s", label)
+		}
+	}
+	return nil
 }
