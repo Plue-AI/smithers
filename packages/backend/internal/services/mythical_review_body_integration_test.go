@@ -128,6 +128,25 @@ func TestTodoPublicationNeverOverwritesAPersonsPullRequestBody(t *testing.T) {
 	assert.Empty(t, f.bodyWrites())
 }
 
+func TestTodoPublicationRefreshesTheReviewOnTheSamePullRequest(t *testing.T) {
+	f := newPublicationFixture(t, false)
+	item, opened := f.inReview()
+	f.reviewed(item.Number.Int64, "request-changes")
+	f.wake()
+	assert.Contains(t, f.pull(opened.Number).Body, "Review: request-changes")
+
+	f.reviewed(item.Number.Int64, "approve")
+	f.wake()
+	updated := f.pull(opened.Number)
+	assert.Contains(t, updated.Body, "Review: approve")
+	assert.NotContains(t, updated.Body, "Review: request-changes")
+	assert.Equal(t, opened.Head.SHA, updated.Head.SHA, "a review update changes only the body")
+	assert.Equal(t, opened.Number, f.item(item.Number.Int64).PRNumber.Int64)
+	assert.Len(t, f.bodyWrites(), 2, "one body update per changed review")
+	f.wake()
+	assert.Len(t, f.bodyWrites(), 2, "settled reviews are not posted twice")
+}
+
 // The body write is journaled (T-GH-09): a write GitHub accepted whose
 // answer was lost settles by lookup and is never sent twice; a write GitHub
 // refused is looked up, found unwritten, and sent again.

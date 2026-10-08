@@ -337,7 +337,7 @@
     },
     "C-J10-01": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/github-j10/pr-shape.spec.ts",
+      "reason": "Spec: apps/app/e2e/real/github-j10/pr-shape.spec.ts; composed driver: TestJ10PRShapeBrowser (SMITHERS_J10_BROWSER=1); reference-host qualification and executable mapping approval pending",
       "ticket": "T-GH-03"
     },
     "C-J10-02": {
@@ -357,8 +357,8 @@
     },
     "C-J10-05": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/github-j10/merge-on-github.spec.ts",
-      "ticket": "T-GH-05"
+      "reason": "Spec: apps/app/e2e/real/github-j10/merge-on-github.spec.ts; composed driver: TestJ10MergeOnGitHubBrowser (SMITHERS_J10_BROWSER=1); reference-host qualification and executable mapping approval pending",
+      "ticket": "T-GH-03"
     },
     "C-J10-06": {
       "status": "pending-owner",
