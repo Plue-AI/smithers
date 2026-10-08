@@ -414,7 +414,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			node, err := exec.LookPath("node")
 			require.NoError(t, err)
 			registry := buildRehearsalCodingHost(t, node, root)
-			exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+			exporter := rehearsalJJExport(t, root)
 			require.NotEmpty(t, exporter)
 			t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
 			runtime, err := process.New(process.Config{Root: t.TempDir()})

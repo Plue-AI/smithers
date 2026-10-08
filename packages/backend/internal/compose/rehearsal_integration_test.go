@@ -375,9 +375,8 @@ path = "lib.rs"
 		// still uses its real model host and registered /file dispatch.
 	} else if realMicroVM {
 		registry = pinnedMicroVMRegistry(t)
-	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
-		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
 	} else {
+		helper := rehearsalJJExport(t, r.root)
 		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
 		// A helper built with trusted-process-binding imports the stack's
 		// base and publishes the lane's result as a guest's does; any other
@@ -450,7 +449,7 @@ path = "lib.rs"
 		options.ComputeProvider = nil
 	}
 	if !realMicroVM && registry != nil && processDaemons != nil && workspace.Isolation() == workspaceapi.IsolationSandboxed {
-		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(r.root, library), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
+		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(t, r.root), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
 	}
 	if !realMicroVM {
 		if processDaemons != nil {
@@ -1708,19 +1707,22 @@ func buildRehearsalCodingHost(t *testing.T, node, root string, fixture ...bool) 
 	return flowmanifest.Registry{Coding: flowmanifest.Host{Executable: coding, SHA256: hex.EncodeToString(sum[:])}}
 }
 
-// rehearsalJJExport is the native source helper a lane's coding host binds
-// its checkout with: SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, else the one built
-// beside the repository engine's library.
-func rehearsalJJExport(root, library string) string {
-	for _, candidate := range []string{os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"), filepath.Join(filepath.Dir(library), "smithers-jj-export"), filepath.Join(root, "target/release/smithers-jj-export")} {
-		if !filepath.IsAbs(candidate) {
-			continue
-		}
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
-			return candidate
-		}
+// Build the helper from the same checkout as the coding host. A binary beside
+// an unrelated FFI library can predate the host's native operations (22743e7443
+// exposed this with stack.candidate). Cargo checks all source/dependency inputs
+// on each rehearsal; an executable's presence is not a freshness receipt.
+func rehearsalJJExport(t *testing.T, root string) string {
+	t.Helper()
+	if binary := os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"); binary != "" {
+		require.True(t, filepath.IsAbs(binary), "explicit native helper must be absolute")
+		return binary
 	}
-	return ""
+	target := filepath.Join(root, ".artifacts", "rehearsal-machined")
+	build := exec.Command("cargo", "build", "--locked", "-p", "smithers-ffi", "--bin", "smithers-jj-export", "--features", "trusted-process-binding", "--target-dir", target)
+	build.Dir = root
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, string(output))
+	return filepath.Join(target, "debug", "smithers-jj-export")
 }
 
 // rehearsalCodingModel is distribution/fake-todo-provider.mjs on a loopback

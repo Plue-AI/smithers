@@ -27,7 +27,7 @@ func TestTodoHostKillThroughInstall(t *testing.T) {
 	}
 	root, err := filepath.Abs("../../../..")
 	require.NoError(t, err)
-	helper := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+	helper := rehearsalJJExport(t, root)
 	require.NotEmpty(t, helper, "installed source-export helper required")
 	capabilities, err := exec.Command(helper, "--capabilities").Output()
 	require.NoError(t, err)

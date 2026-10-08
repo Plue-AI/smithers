@@ -259,7 +259,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
 	flowRegistry := buildRehearsalCodingHost(t, node, root)
-	exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+	exporter := rehearsalJJExport(t, root)
 	require.NotEmpty(t, exporter)
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
 	capture := sleepCaptureFunc(func(context.Context, string) (machined.CaptureResult, error) {
