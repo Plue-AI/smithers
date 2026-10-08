@@ -245,3 +245,25 @@ test("sleeping-run replay uses the canonical journal fold and never inherits fut
   expect(requests).toEqual(["/api/runs/native-run/trace?at=0", "/api/runs/native-run/trace?at=4"])
   stop(); seam.dispose()
 })
+
+
+test("Retry replay retains earlier attempts without lending their thrash flag to the current frame", async () => {
+  const earlier = { ...run.attempts[0]!, run_id: "earlier-run", phases: run.attempts[0]!.phases.map(phase => ({ ...phase, tone: "thrash", indicator: "Thrashing: unit failed 3×" })) }
+  const latest = { ...run.attempts[0]!, n: 2, steps: [], phases: [] }
+  const envelope = (seq: number, eventType: string, payload: unknown) => ({ seq, at: "2026-10-06T10:02:00Z", type: "control.engine.event",
+    text: JSON.stringify({ version: 1, executionId: "current", generation: 0, sequence: seq, eventId: `event-${seq}`, sourceId: "engine", sourceSequence: seq, emittedAtMs: seq * 1000, meta: {}, eventType, payload }) })
+  const seam = createRunMonitorSeam({ live: { subscribe: () => () => {}, getSnapshot: () => ({ topic: "run:native-run", data: run }) }, http: async () => Response.json({ ...run,
+    attempts: [earlier, latest], archive_replay: { run_id: "native-run" }, waits: [], replay: { at: 2, last: 2 },
+    journal: [envelope(1, "flows.engine.node-scheduled", { nodeId: "check", kind: "action", action: "coding/check-command", attempt: 1 }),
+      envelope(2, "flows.engine.node-settled", { nodeId: "check", action: "coding/check-command", outcome: "built", attempts: 1, result: { preview: '{"checkId":"unit","status":"failed","findings":[]}', truncated: false } })]
+  }) })
+  const stop = seam.snapshots.subscribe("native-run", () => {})
+  expect(await seam.trace("native-run", 2)).toBeUndefined()
+  const model = seam.snapshots.get("native-run").model!
+  expect(model.attempts.map(attempt => attempt.n)).toEqual([1, 2])
+  expect(model.attempts[0]!.phases[0]!.tone).toBe("thrash")
+  expect(model.attempts[1]!.phases).toHaveLength(1)
+  expect(model.attempts[1]!.phases[0]!.tone).not.toBe("thrash")
+  expect(model.attempts[1]!.steps[0]!.usage).toBeUndefined()
+  stop(); seam.dispose()
+})

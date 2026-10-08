@@ -177,8 +177,10 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.Park(ctx, claim, raw, time.Hour))
 	monitors := &runMonitors{pool: pool, reader: host}
+	callsBeforeRead := len(host.calls)
 	served, err := monitors.read(ctx, repo.ID, "lane-1:run-1", nil)
 	require.NoError(t, err)
+	require.Len(t, host.calls, callsBeforeRead, "terminal archives must not resolve a stopped or replacement host")
 	var monitor map[string]any
 	require.NoError(t, json.Unmarshal(served, &monitor))
 	require.Equal(t, "lane-1:run-1", monitor["id"])

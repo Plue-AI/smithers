@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -73,20 +74,85 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 	if len(cps) != 1 {
 		return nil, pgx.ErrNoRows
 	}
-	return m.readCheckpoint(ctx, repo, id, at, cps[0], len(withJournal) > 0 && withJournal[0])
+	raw, err := m.readCheckpoint(ctx, repo, id, at, cps[0], len(withJournal) > 0 && withJournal[0])
+	if err != nil {
+		return nil, err
+	}
+	var pin struct {
+		Kind    string `json:"kind"`
+		ItemID  string `json:"itemId"`
+		Attempt int    `json:"attempt"`
+	}
+	if json.Unmarshal(cps[0].Projection, &pin) != nil || pin.Kind != "mythical-item" || pin.ItemID == "" || pin.Attempt <= 1 || cps[0].FlowID != "todo" {
+		return raw, nil
+	}
+	// Retry starts a new native root. Retain the earlier roots' own monitor
+	// answers; never fold their steps into the current attempt or relaunch them.
+	all, err := m.checkpoints(ctx, repo, "")
+	if err != nil {
+		return nil, err
+	}
+	type prior struct {
+		n  int
+		cp flowdispatch.RuntimeCheckpoint
+	}
+	previous := []prior{}
+	for _, cp := range all {
+		var p struct {
+			Kind    string `json:"kind"`
+			ItemID  string `json:"itemId"`
+			Attempt int    `json:"attempt"`
+		}
+		if json.Unmarshal(cp.Projection, &p) == nil && cp.FlowID == "todo" && p.Kind == pin.Kind && p.ItemID == pin.ItemID && p.Attempt > 0 && p.Attempt < pin.Attempt {
+			previous = append(previous, prior{p.Attempt, cp})
+		}
+	}
+	sort.Slice(previous, func(i, j int) bool { return previous[i].n < previous[j].n })
+	var value map[string]any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	attempts := []any{}
+	for _, p := range previous {
+		retained, err := m.readCheckpoint(ctx, repo, p.cp.Target.WorkspaceID+":"+p.cp.RunID, nil, p.cp, false)
+		if err != nil {
+			return nil, err
+		}
+		var old map[string]any
+		if err := json.Unmarshal(retained, &old); err != nil {
+			return nil, err
+		}
+		rows, _ := old["attempts"].([]any)
+		attempts = append(attempts, rows...)
+		for _, key := range []string{"tokens", "cost_usd"} {
+			current, _ := value[key].(float64)
+			earlier, _ := old[key].(float64)
+			value[key] = current + earlier
+		}
+	}
+	rows, _ := value["attempts"].([]any)
+	value["attempts"] = append(attempts, rows...)
+	return json.Marshal(value)
 }
 
 func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint, withJournal ...bool) (json.RawMessage, error) {
-	raw, err := m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
+	var raw json.RawMessage
+	var err error
 	var archived *archivedRun
-	if err != nil {
-		// A sleeping branch is never woken by a read: its run is served from
-		// the host's own answers retained while it was live (runArchive).
-		found, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
-		if archiveErr != nil {
-			return nil, err
-		}
+	// A settled root has a retained answer. Prefer it without resolving a
+	// replacement host or waking a sleeping branch to answer a read.
+	if found, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID); archiveErr == nil && (found.Status == "completed" || found.Status == "failed" || found.Status == "cancelled" || found.Status == "interrupted") {
 		raw, archived = found.Monitor, &found
+	}
+	if archived == nil {
+		raw, err = m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
+		if err != nil {
+			found, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
+			if archiveErr != nil {
+				return nil, err
+			}
+			raw, archived = found.Monitor, &found
+		}
 	}
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || value["id"] != cp.RunID {
@@ -285,17 +351,37 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 
 func markMonitorThrash(value map[string]any, check string) {
 	attempts, _ := value["attempts"].([]any)
-	for _, a := range attempts {
-		attempt, _ := a.(map[string]any)
-		phases, _ := attempt["phases"].([]any)
-		for i := len(phases) - 1; i >= 0; i-- {
-			phase, _ := phases[i].(map[string]any)
-			title, _ := phase["title"].(string)
-			if title == "Ran checks" || strings.HasPrefix(title, "Ran checks · ") {
-				phase["tone"] = "thrash"
-				phase["indicator"] = "Thrashing: " + check + " failed 3×"
-				break
-			}
+	if len(attempts) == 0 {
+		return
+	}
+	attempt, _ := attempts[len(attempts)-1].(map[string]any)
+	steps, _ := attempt["steps"].([]any)
+	failed := map[string]bool{}
+	for _, raw := range steps {
+		step, _ := raw.(map[string]any)
+		output, _ := step["output"].(string)
+		var receipt struct {
+			Check  string `json:"checkId"`
+			Status string `json:"status"`
+		}
+		if json.Unmarshal([]byte(output), &receipt) == nil && receipt.Check == check && receipt.Status == "failed" {
+			key, _ := step["key"].(string)
+			failed[key] = true
+		}
+	}
+	phases, _ := attempt["phases"].([]any)
+	for i := len(phases) - 1; i >= 0; i-- {
+		phase, _ := phases[i].(map[string]any)
+		title, _ := phase["title"].(string)
+		step, _ := phase["step"].(string)
+		// Native receipts identify the actual failing step. Older journals with
+		// labels alone retain their last failing check phase.
+		tone, _ := phase["tone"].(string)
+		matches := failed[step] || (len(failed) == 0 && (title == "Ran checks" || strings.HasPrefix(title, "Ran checks · ")) && (tone == "fail" || strings.Contains(title, "failed")))
+		if matches {
+			phase["tone"] = "thrash"
+			phase["indicator"] = "Thrashing: " + check + " failed 3×"
+			return
 		}
 	}
 }

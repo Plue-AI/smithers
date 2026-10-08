@@ -19,13 +19,13 @@ const replayArchive = (model: z.infer<typeof TraceResponseSchema>, at: number): 
     kind: row.type, payload: JSON.parse(row.text)
   }))
   const frame = monitorFromJournal({ runId: model.archive_replay!.run_id, flowId: model.flow, status: model.state }, records, at)
-  const prices = new Map(model.attempts.flatMap(attempt => attempt.steps.map(step => [step.key, step] as const)))
+  const prices = new Map((model.attempts.at(-1)?.steps ?? []).map(step => [step.key, step] as const))
   const steps = frame.attempts[0]!.steps.map(step => {
     const metered = prices.get(step.key)
     return { ...step, ...((step.state === "completed" || step.state === "failed") && metered?.usage ? { usage: metered.usage } : {}) }
   })
   const phases = frame.attempts[0]!.phases
-  const flags = model.attempts.flatMap(attempt => attempt.phases.filter(phase => phase.tone === "thrash"))
+  const flags = model.attempts.at(-1)?.phases.filter(phase => phase.tone === "thrash") ?? []
   for (const flag of flags) {
     const phase = [...phases].reverse().find(phase => phase.title === "Ran checks" || phase.title.startsWith("Ran checks · "))
     if (phase) Object.assign(phase, { tone: "thrash", indicator: flag.indicator })
