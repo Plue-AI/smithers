@@ -168,7 +168,7 @@ const fixture = (
     ),
     ReceiveFeedback.toLayer(({ boundary, revision }) =>
       Effect.sync(() => {
-        events.push(`${boundary}:${revision}`)
+        events.push(`${boundary === "plan" ? "feedback-plan" : boundary}:${revision}`)
         return { boundary: JSON.stringify([boundary, revision]), messages: arrivals(boundary, revision).map(message) }
       })
     )
@@ -194,7 +194,7 @@ test("a stack request stands on the tip before it plans", { timeout: 60_000 }, a
   const base = { commitId: tip, ref: `refs/smithers/workspaces/11111111-1111-4111-a111-111111111111/sources/${tip}` }
   const result = await f.host.runPromise(InlineRequest.execute({ ...input, base }, { executionId: "request-stack" }))
   assert.equal(result.outcome.status, "validated")
-  assert.deepEqual(f.events.slice(0, 2), ["base:aaaa", "plan:0"])
+  assert.deepEqual(f.events.slice(0, 3), ["base:aaaa", "feedback-plan:0", "plan:0"])
 })
 
 test(
@@ -208,6 +208,7 @@ test(
     assert.equal(f.feedback[0], input.feedback)
     assert.equal(result.outcome.status, "validated")
     assert.deepEqual(f.events, [
+      "feedback-plan:0",
       "plan:0",
       "admit",
       "before-implementation:0",
