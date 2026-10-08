@@ -24,14 +24,15 @@ import (
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
 )
 
 // The W1-W4 preservation campaign enters the composed browser file door and
 // authenticated broker sessions on a production-created microVM. It covers the
-// fifty rewrites and ten Return cycles, including a real kernel frozen barrier. Timeout/swap barriers and the ACK
-// delay/timing campaign are separate requirements; this test does not claim them.
+// fifty rewrites and ten Return cycles, including a real kernel frozen barrier. It also queues W1/W2 stale and fresh saves. Freeze timeout, swap races and
+// ACK delay remain separate requirements; this test does not claim them.
 // The bundle is install-controlled; no checkout program executes as root.
 func TestMachinedMutationWriterPreservation(t *testing.T) {
 	if os.Getenv("SMITHERS_MACHINED_WRITER_REFERENCE") != "1" {
@@ -83,10 +84,12 @@ func TestMachinedMutationWriterPreservation(t *testing.T) {
 	// One stream per writer, kept alive across all rebase cycles. Agent input is
 	// held until register_run commits its production broker admission.
 	script := func(writer string) string {
-		return fmt.Sprintf(`import os,sys,time,json,hashlib,subprocess
+		return fmt.Sprintf(`import os,sys,time,json,hashlib,subprocess,select
 sys.stdin.buffer.readline()
 i=0
-while i<1200:
+while i<20000:
+ if select.select([sys.stdin],[],[],0)[0]:
+  sys.stdin.buffer.readline();break
  p='col03-%%s-%%04d.txt'%%(%q,i)
  b=('acknowledged '+p+'\n').encode()
  if %q=='W2':
@@ -159,20 +162,46 @@ while i<1200:
 		_, err = e.Write([]byte("start\n"))
 		require.NoError(t, err)
 	}
+	// The composed canary starts with JOURNEY.md, not README.md. Establish
+	// a fixed stale-save fixture through the browser door before the writers.
+	const originalReadme = "col03 original README\n"
+	initialBody, err := json.Marshal(map[string]string{"content": originalReadme, "base_digest": "absent"})
+	require.NoError(t, err)
+	initialCode, initialData, err := r.keyed("PUT", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/files/content?path=README.md", string(initialBody), uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, 200, initialCode, "%s", initialData)
+	_, err = registry.Capture(ctx, branch)
+	if err == machined.ErrNotReady {
+		require.Eventually(t, func() bool {
+			bursts, docs, err := registry.IdleSafety(ctx, branch)
+			return err == nil && bursts && docs
+		}, 10*time.Second, 10*time.Millisecond)
+		_, err = registry.Capture(ctx, branch)
+	}
+	require.NoError(t, err)
 	startWriter("W2", coding, machined.SessionUser{Login: "agent", UID: 19999})
 	// SessionExec is the same broker cgroup used by a member terminal/SSH
 	// process. W3 uses direct writes and W4 the editor's atomic replacement.
 	startWriter("W3", sessions, user)
 	startWriter("W4", sessions.WithPresenceVia("ssh"), user)
+	var browserOnItem sync.Mutex
+	stopWriters := make(chan struct{})
 	var httpWriters sync.WaitGroup
 	httpWriters.Add(1)
 	go func() {
 		defer httpWriters.Done()
-		for i := 0; i < 1200; i++ {
+		for i := 0; i < 20000; i++ {
+			select {
+			case <-stopWriters:
+				return
+			default:
+			}
 			p := fmt.Sprintf("col03-W1-%04d.txt", i)
 			content := "acknowledged " + p + "\n"
 			body, _ := json.Marshal(map[string]string{"content": content, "base_digest": "absent"})
+			browserOnItem.Lock()
 			code, data, err := r.keyed("PUT", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/files/content?path="+url.QueryEscape(p), string(body), uuid.NewString())
+			browserOnItem.Unlock()
 			if err != nil || code != 200 {
 				fail(fmt.Errorf("W1 HTTP %d: %v %s", code, err, data))
 				return
@@ -181,6 +210,8 @@ while i<1200:
 			appendWrite(logged{"W1", p, hex.EncodeToString(sum[:])})
 			select {
 			case <-ctx.Done():
+				return
+			case <-stopWriters:
 				return
 			case <-time.After(100 * time.Millisecond):
 			}
@@ -210,10 +241,82 @@ while i<1200:
 		require.NoError(t, err, "%s", out)
 		return out
 	}
+	// A registered local W2 sender must enqueue before its cgroup freezes.
+	// The pre-freeze barrier keeps rebase at the head of the same production FIFO.
+	readme, err := registry.ReadFile(ctx, branch, "README.md", "")
+	require.NoError(t, err)
+	require.Equal(t, originalReadme, string(readme.Content))
+	originalDigest := sha256.Sum256([]byte(originalReadme))
+	require.Equal(t, hex.EncodeToString(originalDigest[:]), readme.Digest)
+	newReadme := "col03 changed README before rewrite\n"
+	body, err := json.Marshal(map[string]string{"content": newReadme, "base_digest": readme.Digest})
+	require.NoError(t, err)
+	code, data, err := r.keyed("PUT", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/files/content?path=README.md", string(body), uuid.NewString())
+	require.NoError(t, err)
+	require.Equal(t, 200, code, "%s", data)
+	localFrame := func(path, base, content string) string {
+		t.Helper()
+		digest := wire.Union(2)
+		if base != "absent" {
+			bytes, err := hex.DecodeString(base)
+			require.NoError(t, err)
+			digest = wire.Union(1, wire.Field(1, bytes))
+		}
+		bytes, err := wire.EncodeLocal(wire.Frame{Kind: wire.Control, Payload: wire.Union(1,
+			wire.Field(1, wire.U32(1)), wire.Field(2, wire.Union(3,
+				wire.Field(1, wire.String(path)), wire.Field(2, digest), wire.Field(3, wire.Bytes([]byte(content))))))})
+		require.NoError(t, err)
+		return hex.EncodeToString(bytes)
+	}
+	queuedScript := fmt.Sprintf(`import sys,socket,struct
+sys.stdin.buffer.readline()
+sockets=[]
+for packet in [%q,%q]:
+ s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+ s.connect('/run/smithers/machined.sock')
+ s.sendall(bytes.fromhex(packet));sockets.append(s)
+print('sent',flush=True)
+def read(s,n):
+ b=b''
+ while len(b)<n:
+  part=s.recv(n-len(b))
+  if not part: raise RuntimeError('closed local response')
+  b+=part
+ return b
+for s in sockets:
+ header=read(s,9)
+ packet=header+read(s,struct.unpack('>I',header[:4])[0])
+ print(packet.hex(),flush=True)
+ s.close()
+`, localFrame("README.md", readme.Digest, "stale must never land\n"), localFrame("col03-queued-W2.txt", "absent", "queued W2 fresh\n"))
+	queued, err := coding.OpenExec(ctx, machined.SessionUser{Login: "agent", UID: 19999}, []string{"/usr/bin/python3", "-I", "-S", "-c", queuedScript})
+	require.NoError(t, err)
+	require.NoError(t, coding.RegisterRun(ctx, run, queued.ID()))
+	t.Cleanup(func() { _ = queued.Close() })
+	queuedReplies := make(chan string, 4)
+	go func() {
+		defer close(queuedReplies)
+		scanner := bufio.NewScanner(queued.Stdout())
+		for scanner.Scan() {
+			queuedReplies <- scanner.Text()
+		}
+	}()
+	control(`from pathlib import Path
+Path('/var/lib/smithers-machined/mutation-holds.jsonl').unlink(missing_ok=True)`)
+	control(`import os
+p='/var/lib/smithers-machined/qualification-freeze-start.arm'
+f=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
+os.fsync(f);os.close(f)`)
 	control(`import os
 p='/var/lib/smithers-machined/qualification-frozen.arm'
 f=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)
 os.fsync(f);os.close(f)`)
+	type queuedHTTPReply struct {
+		status int
+		data   []byte
+		err    error
+	}
+	queuedHTTP := make(chan queuedHTTPReply, 2)
 	var freezeEvidence json.RawMessage
 	var rewriteTimes []int64
 	for i := 0; i < 50; i++ {
@@ -222,11 +325,47 @@ os.fsync(f);os.close(f)`)
 		go func() { _, err := registry.Rebase(ctx, branch, person, r.mainCommit); done <- err }()
 		if i == 0 {
 			require.Eventually(t, func() bool {
+				return strings.TrimSpace(string(control(`from pathlib import Path
+p=Path('/var/lib/smithers-machined/qualification-freeze-start.hit')
+print(p.read_text() if p.exists() else '')`))) == "freeze-start"
+			}, 20*time.Second, 20*time.Millisecond)
+			_, err = queued.Write([]byte("send\n"))
+			require.NoError(t, err)
+			select {
+			case reply := <-queuedHTTP:
+				t.Fatalf("W1 returned during frozen hold: HTTP %d %s %v", reply.status, reply.data, reply.err)
+			default:
+			}
+			select {
+			case line := <-queuedReplies:
+				require.Equal(t, "sent", line)
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			control(`import os
+os.unlink('/var/lib/smithers-machined/qualification-freeze-start.hit')`)
+			require.Eventually(t, func() bool {
 				out := control(`from pathlib import Path
 p=Path('/var/lib/smithers-machined/qualification-frozen.hit')
 print(p.read_text() if p.exists() else '')`)
 				return strings.TrimSpace(string(out)) == "frozen"
 			}, 20*time.Second, 20*time.Millisecond)
+			// Browser saves enter the authenticated production file route while
+			// frozen. The local W2 sender entered before the kernel stopped it.
+			for _, save := range []struct{ path, base, content string }{
+				{"README.md", readme.Digest, "stale browser must never land\n"},
+				{"col03-queued-W1.txt", "absent", "queued W1 fresh\n"},
+			} {
+				go func(path, base, content string) {
+					body, err := json.Marshal(map[string]string{"content": content, "base_digest": base})
+					if err != nil {
+						queuedHTTP <- queuedHTTPReply{err: err}
+						return
+					}
+					code, data, err := r.keyed("PUT", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/files/content?path="+url.QueryEscape(path), string(body), uuid.NewString())
+					queuedHTTP <- queuedHTTPReply{code, data, err}
+				}(save.path, save.base, save.content)
+			}
 			// Observe actual inotify while W1 continues sending authenticated
 			// requests and the registered W2/W3/W4 processes remain alive. The
 			// observer is not frozen, so silence cannot be a frozen-reader artifact.
@@ -235,7 +374,12 @@ assert 'frozen 1' in open('/sys/fs/cgroup/smithers/sessions/cgroup.events').read
 lib=ctypes.CDLL(None,use_errno=True)
 fd=lib.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
 assert fd>=0
-assert lib.inotify_add_watch(fd,b'/workspace',0x100|0x2|0x8|0x80|0x200)>=0
+watches={}
+for directory,children,files in os.walk('/workspace',followlinks=False):
+ children[:]=[name for name in children if name not in ('.git','.jj') and not os.path.islink(os.path.join(directory,name))]
+ wd=lib.inotify_add_watch(fd,os.fsencode(directory),0x100|0x2|0x4|0x8|0x40|0x80|0x200|0x400|0x800|0x1000000|0x2000000)
+ assert wd>=0
+ watches[wd]=os.path.relpath(directory,'/workspace')
 start=time.monotonic_ns();events=[]
 while time.monotonic_ns()-start<500000000:
  if not select.select([fd],[],[],.02)[0]: continue
@@ -244,7 +388,7 @@ while time.monotonic_ns()-start<500000000:
   wd,mask,cookie,n=struct.unpack_from('iIII',data,offset)
   name=data[offset+16:offset+16+n].split(b'\0',1)[0].decode()
   offset+=16+n
-  if name.startswith('col03-'): events.append({'name':name,'mask':mask})
+  events.append({'directory':watches.get(wd,'unknown'),'name':name,'mask':mask})
 assert 'frozen 1' in open('/sys/fs/cgroup/smithers/sessions/cgroup.events').read().splitlines()
 print(json.dumps({'start_ns':start,'end_ns':time.monotonic_ns(),'events':events}))
 os.close(fd)`)
@@ -254,6 +398,16 @@ os.close(fd)`)
 			require.NoError(t, json.Unmarshal(freezeEvidence, &observed))
 			require.Empty(t, observed.Events, "a real session wrote during frozen 1")
 			select {
+			case reply := <-queuedHTTP:
+				t.Fatalf("W1 returned during frozen hold: HTTP %d %s %v", reply.status, reply.data, reply.err)
+			default:
+			}
+			select {
+			case line := <-queuedReplies:
+				t.Fatalf("W2 returned during frozen hold: %s", line)
+			default:
+			}
+			select {
 			case err := <-done:
 				t.Fatalf("rewrite completed inside frozen hold: %v", err)
 			default:
@@ -262,6 +416,59 @@ os.close(fd)`)
 os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 		}
 		require.NoError(t, <-done, "rebase %d", i)
+		if i == 0 {
+			statuses := map[int]int{}
+			for n := 0; n < 2; n++ {
+				select {
+				case reply := <-queuedHTTP:
+					require.NoError(t, reply.err)
+					statuses[reply.status]++
+					if reply.status == 409 {
+						require.Contains(t, string(reply.data), `"stale"`)
+					}
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+			}
+			require.Equal(t, map[int]int{200: 1, 409: 1}, statuses)
+			browser, err := registry.ReadFile(ctx, branch, "col03-queued-W1.txt", "")
+			require.NoError(t, err)
+			require.Equal(t, "queued W1 fresh\n", string(browser.Content))
+			for _, expected := range []byte{255, 3} {
+				var line string
+				select {
+				case line = <-queuedReplies:
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				}
+				bytes, err := hex.DecodeString(line)
+				require.NoError(t, err)
+				frame, err := wire.Decode(bytes)
+				require.NoError(t, err)
+				fields, err := wire.Fields("response", frame.Payload[1:])
+				require.NoError(t, err)
+				require.Equal(t, expected, fields[2][0])
+				if expected == 255 {
+					refusal, err := wire.Fields("error", fields[2][1:])
+					require.NoError(t, err)
+					require.Equal(t, []byte{4}, refusal[1], "local stale README save")
+					sum := sha256.Sum256([]byte(newReadme))
+					require.Equal(t, sum[:], refusal[3])
+				}
+			}
+			require.NoError(t, queued.CloseWrite())
+			require.NoError(t, queued.Wait())
+			stderr, err := io.ReadAll(queued.Stderr())
+			require.NoError(t, err)
+			require.Empty(t, stderr)
+			fresh, err := registry.ReadFile(ctx, branch, "col03-queued-W2.txt", "")
+			require.NoError(t, err)
+			require.Equal(t, "queued W2 fresh\n", string(fresh.Content))
+			stale, err := registry.ReadFile(ctx, branch, "README.md", "")
+			require.NoError(t, err)
+			require.Equal(t, newReadme, string(stale.Content))
+		}
+
 		rewriteTimes = append(rewriteTimes, time.Since(began).Nanoseconds())
 		select {
 		case <-ctx.Done():
@@ -276,14 +483,24 @@ os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 	require.NoError(t, err)
 	defer terminal.close()
 	for i := 0; i < 10; i++ {
-		status, out, err := terminal.capture("jj new main", "COL03MOVE", 30*time.Second)
-		require.NoError(t, err)
-		require.Equal(t, "0", status, "%s", out)
-		_, err = registry.ReturnToItem(ctx, branch, person)
-		require.NoError(t, err, "Return %d", i)
+		func() {
+			// The browser writer remains alive, but saves on the item only.
+			// Drain its last acknowledged save before the explicit off-item
+			// move. W2 still receives moved_off; W3/W4 continue outside writes.
+			browserOnItem.Lock()
+			defer browserOnItem.Unlock()
+			status, out, err := terminal.capture("jj new main", "COL03MOVE", 30*time.Second)
+			require.NoError(t, err)
+			require.Equal(t, "0", status, "%s", out)
+			_, err = registry.ReturnToItem(ctx, branch, person)
+			require.NoError(t, err, "Return %d", i)
+		}()
 	}
+	close(stopWriters)
 	httpWriters.Wait()
 	for _, e := range executions {
+		_, err := e.Write([]byte("stop\n"))
+		require.NoError(t, err)
 		require.NoError(t, e.CloseWrite())
 		require.NoError(t, e.Wait())
 		require.NoError(t, e.Close())
@@ -299,7 +516,18 @@ os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 		counts[w.Writer]++
 	}
 	for _, writer := range []string{"W1", "W2", "W3", "W4"} {
-		require.Equal(t, 1200, counts[writer], writer)
+		require.GreaterOrEqual(t, counts[writer], 60, writer)
+	}
+	// Include the explicit queued saves and the acknowledged README base in
+	// the same independent host-object preservation oracle after all Returns.
+	for _, save := range []struct{ writer, path, content string }{
+		{"W1", "README.md", originalReadme},
+		{"W1", "README.md", newReadme},
+		{"W1", "col03-queued-W1.txt", "queued W1 fresh\n"},
+		{"W2", "col03-queued-W2.txt", "queued W2 fresh\n"},
+	} {
+		sum := sha256.Sum256([]byte(save.content))
+		acknowledged = append(acknowledged, logged{save.writer, save.path, hex.EncodeToString(sum[:])})
 	}
 	captured, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
@@ -341,6 +569,36 @@ os.unlink('/var/lib/smithers-machined/qualification-frozen.hit')`)
 		}
 		return nil
 	}))
+	// Read the installed daemon's own guest-clock samples. Never substitute
+	// host request duration for lock hold, or claim a reference p95 from compile.
+	holdLog := control(`from pathlib import Path
+print(Path('/var/lib/smithers-machined/mutation-holds.jsonl').read_text(),end='')`)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "mutation-holds.jsonl"), holdLog, 0600))
+	var rebaseHolds, returnHolds int
+	for _, line := range strings.Split(strings.TrimSpace(string(holdLog)), "\n") {
+		var sample struct {
+			Event, Operation string
+			Start, End, Hold uint64
+		}
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(line), &fields))
+		require.NoError(t, json.Unmarshal(fields["event"], &sample.Event))
+		require.NoError(t, json.Unmarshal(fields["operation"], &sample.Operation))
+		require.NoError(t, json.Unmarshal(fields["start_ns"], &sample.Start))
+		require.NoError(t, json.Unmarshal(fields["end_ns"], &sample.End))
+		require.NoError(t, json.Unmarshal(fields["hold_ns"], &sample.Hold))
+		require.Equal(t, "mutation_hold", sample.Event)
+		require.GreaterOrEqual(t, sample.End, sample.Start)
+		require.Equal(t, sample.End-sample.Start, sample.Hold)
+		if sample.Operation == "rewrite" {
+			rebaseHolds++
+		}
+		if sample.Operation == "return_to_item" {
+			returnHolds++
+		}
+	}
+	require.GreaterOrEqual(t, rebaseHolds, 50)
+	require.GreaterOrEqual(t, returnHolds, 10)
 	for name, value := range map[string]any{"writers.json": acknowledged, "rewrite-rpc-nanoseconds.json": rewriteTimes, "captured.json": captured, "frozen-inotify.json": freezeEvidence} {
 		bytes, err := json.MarshalIndent(value, "", "  ")
 		require.NoError(t, err)

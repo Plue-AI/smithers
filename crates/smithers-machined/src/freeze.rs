@@ -45,10 +45,37 @@ fn freeze_for<T>(
     returning: bool,
     rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
 ) -> Result<T> {
+    // Log on the guest monotonic clock, independently of host RPC latency or
+    // outbox acknowledgements. The guard also records refused and panicked holds.
+    struct Hold(std::time::Instant, bool);
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+            let origin = *ORIGIN.get_or_init(|| self.0);
+            let end = std::time::Instant::now();
+            let record = serde_json::json!({
+                "event": "mutation_hold", "operation": if self.1 { "return_to_item" } else { "rewrite" },
+                "start_ns": self.0.saturating_duration_since(origin).as_nanos(),
+                "end_ns": end.saturating_duration_since(origin).as_nanos(),
+                "hold_ns": end.saturating_duration_since(self.0).as_nanos()
+            });
+            eprintln!("{record}");
+            // The installed broker has no inherited stderr sink. Retain bounded
+            // measurements in the daemon-owned state, never a repository path.
+            // Qualification reads these as machined through the approved guest.
+            let _ = append_hold(
+                std::path::Path::new("/var/lib/smithers-machined/mutation-holds.jsonl"),
+                &record.to_string(),
+            );
+        }
+    }
+    let _hold = Hold(std::time::Instant::now(), returning);
     if cx.rewrite_pending {
         return Err(pending_error());
     }
     let hooks = cx.hooks.clone();
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::killpoint("freeze-start");
     // Even a partial freeze must be unwound if no rewrite has begun.
     let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if let Some(session) = hooks.broker.freeze(Duration::from_secs(1))? {
@@ -113,5 +140,52 @@ pub fn inspect_then<T>(cx: &mut LockCx, inspect: impl FnOnce(&mut LockCx) -> Res
     match result {
         Ok(result) => { thawed?; result }
         Err(panic) => { let _ = thawed; std::panic::resume_unwind(panic) }
+    }
+}
+
+// This runs only as the daemon, in its private state directory. Opening a leaf
+// must not follow links or block on a special file; refusals preserve its bytes.
+fn append_hold(path: &std::path::Path, record: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    let mut file = std::fs::OpenOptions::new().append(true).create(true)
+        .mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
+    let info = file.metadata()?;
+    let limit = 1 << 20;
+    if !info.is_file() || info.uid() != unsafe { libc::geteuid() } || info.nlink() != 1
+        || info.mode() & 0o077 != 0 || info.len() + record.len() as u64 + 1 > limit {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsafe or full hold log"));
+    }
+    writeln!(file, "{record}")
+}
+
+#[cfg(test)]
+mod hold_tests {
+    use super::append_hold;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    #[test]
+    fn hold_receipts_append_and_refuse_unsafe_or_full_destinations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("holds");
+        append_hold(&path, "first").unwrap();
+        append_hold(&path, "second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"first\nsecond\n");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        let link = dir.path().join("alias");
+        symlink(&path, &link).unwrap();
+        assert!(append_hold(&link, "symlink must not write").is_err());
+        std::fs::remove_file(&link).unwrap();
+        std::fs::hard_link(&path, &link).unwrap();
+        assert!(append_hold(&path, "hardlink must not write").is_err());
+        std::fs::remove_file(&link).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(append_hold(&path, "shared must not write").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"first\nsecond\n");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(&path, vec![b'x'; (1 << 20)-2]).unwrap();
+        append_hold(&path, "x").unwrap();
+        assert!(append_hold(&path, "overflow").is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 1 << 20);
+        assert!(append_hold(dir.path(), "directory must not write").is_err());
     }
 }

@@ -190,14 +190,15 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		require.Equal(t, []byte(updated), git("-C", store, "show", captured.Head+":preconditions.txt"))
 		return
 	}
+	awaitIdle := func() {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			bursts, docs, err := registry.IdleSafety(ctx, branch)
+			return err == nil && bursts && docs
+		}, 10*time.Second, 10*time.Millisecond)
+
+	}
 	if mode == "race" {
-		awaitIdle := func() {
-			t.Helper()
-			require.Eventually(t, func() bool {
-				bursts, docs, err := registry.IdleSafety(ctx, branch)
-				return err == nil && bursts && docs
-			}, 10*time.Second, 10*time.Millisecond)
-		}
 		awaitIdle()
 		original := "original race bytes"
 		res := request("PUT", "race.txt", `{"content":"original race bytes","base_digest":"absent"}`)
@@ -313,6 +314,21 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		return
 	}
 	if mode == "pending" {
+		settledCapture := func() machined.CaptureResult {
+			t.Helper()
+			captured, err := registry.Capture(ctx, branch)
+			if err == machined.ErrNotReady {
+				// A capture can commit before its own jj metadata finishes the
+				// watcher debounce. The production sleep guard correctly keeps
+				// that machine awake. Re-enter capture after real quiet evidence;
+				// replay must still signal edited only once for the same tree.
+				awaitIdle()
+				captured, err = registry.Capture(ctx, branch)
+			}
+			require.NoError(t, err)
+			return captured
+		}
+
 		_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
 		require.NoError(t, err)
 		var itemID string
@@ -352,8 +368,8 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 			res := request("PUT", "pending.txt", string(body))
 			require.NoError(t, res.err)
 			require.Equal(t, 200, res.status, "%s", res.body)
-			captured, err := registry.Capture(ctx, branch)
-			require.NoError(t, err)
+			awaitIdle()
+			captured := settledCapture()
 			checks := read()
 			require.False(t, verified)
 			var record struct {
@@ -386,8 +402,8 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		res := request("PUT", "pending.txt", string(body))
 		require.NoError(t, res.err)
 		require.Equal(t, 200, res.status, "%s", res.body)
-		working, err := registry.Capture(ctx, branch)
-		require.NoError(t, err)
+		awaitIdle()
+		working := settledCapture()
 		var latest struct{ Capture struct{ Head, Tree string } }
 		require.NoError(t, json.Unmarshal(read(), &latest))
 		require.Equal(t, working.Head, latest.Capture.Head)
@@ -423,6 +439,30 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 	require.Equal(t, "hello", string(mustReadMutationFile(t, filepath.Join(root, "README.md"))))
 	require.NoError(t, os.Remove(filepath.Join(state, "qualification-frozen.hit")))
 	require.NoError(t, <-rewrite)
+	// The real daemon, rather than the HTTP harness, owns hold measurements.
+	// This is native component evidence; kernel-freeze qualification stays on VM.
+	log, err := os.ReadFile(filepath.Join(evidence, "machined-"+branch+".log"))
+	require.NoError(t, err)
+	var measured int
+	for _, line := range strings.Split(string(log), "\n") {
+		var sample struct {
+			Event     string `json:"event"`
+			Operation string `json:"operation"`
+			Start     uint64 `json:"start_ns"`
+			End       uint64 `json:"end_ns"`
+			Hold      uint64 `json:"hold_ns"`
+		}
+		if json.Unmarshal([]byte(line), &sample) != nil || sample.Event != "mutation_hold" {
+			continue
+		}
+		require.Equal(t, "rewrite", sample.Operation)
+		require.Greater(t, sample.Hold, uint64(0))
+		require.GreaterOrEqual(t, sample.End, sample.Start)
+		require.Equal(t, sample.End-sample.Start, sample.Hold)
+		measured++
+	}
+	require.Equal(t, 1, measured)
+
 	for i, w := range writes {
 		res := <-done[i]
 		require.NoError(t, res.err)
