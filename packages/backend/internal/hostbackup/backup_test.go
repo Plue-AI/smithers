@@ -166,7 +166,11 @@ func TestBackupSpaceRefusalPrecedesFreeze(t *testing.T) {
 }
 
 func TestBackupPreservesRunFilesWithoutTransientOwnerSocket(t *testing.T) {
-	state := t.TempDir()
+	// Darwin limits Unix socket paths to 104 bytes and t.TempDir includes the
+	// full test name, so this socket fixture takes a short directory.
+	state, err := os.MkdirTemp("", "run-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(state)) })
 	require.NoError(t, os.Mkdir(filepath.Join(state, "run"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(state, "run/request.json"), []byte("persisted request"), 0600))
 	listener, err := net.Listen("unix", filepath.Join(state, "run/host.sock"))

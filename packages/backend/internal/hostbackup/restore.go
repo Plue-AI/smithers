@@ -119,7 +119,7 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	}
 	// Check the cloned bytes against the pre-operation manifest before any live
 	// tree is moved. This also rejects a substituted source after verification.
-	files, err := inventoryRootContext(ctx, stage)
+	files, err := inventoryRootContext(ctx, stage, linksInRoot)
 	if err != nil {
 		return at, err
 	}
@@ -131,7 +131,7 @@ func Restore(ctx context.Context, cfg RestoreConfig) (at time.Time, err error) {
 	}
 	for _, file := range files {
 		want, ok := expected[file.Path]
-		if !ok || want.Size != file.Size || want.SHA256 != file.SHA256 {
+		if !ok || !want.same(file) {
 			return at, &Error{Code: HashMismatch, Path: file.Path}
 		}
 		delete(expected, file.Path)
@@ -259,7 +259,7 @@ func verifyRestoredBundle(ctx context.Context, stage *os.Root, manifest Manifest
 		return err
 	}
 	defer root.Close()
-	files, err := inventoryRootContext(ctx, root)
+	files, err := inventoryRootContext(ctx, root, linksInRoot)
 	if err != nil {
 		return err
 	}
@@ -271,7 +271,7 @@ func verifyRestoredBundle(ctx context.Context, stage *os.Root, manifest Manifest
 	}
 	for _, file := range files {
 		want, ok := expected[file.Path]
-		if !ok || want.Size != file.Size || want.SHA256 != file.SHA256 {
+		if !ok || !want.same(file) {
 			return &Error{Code: HashMismatch, Path: "bundle/" + file.Path}
 		}
 		delete(expected, file.Path)

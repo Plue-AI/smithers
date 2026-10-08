@@ -18,6 +18,11 @@ func syncTree(root *os.Root) error {
 			directories = append(directories, path)
 			return nil
 		}
+		// A link has no bytes of its own; syncing its directory persists it.
+		// It is never followed here: inventory confines it before publication.
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		if !entry.Type().IsRegular() {
 			return &Error{Code: UnsafePath, Path: path}
 		}

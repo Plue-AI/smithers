@@ -47,11 +47,21 @@ type Version struct {
 	Schema        int
 	PostgresMajor int
 }
+
+// File is one regular file, or one symbolic link when Link holds its target.
+// A link records no bytes: its size is zero and its digest is empty.
 type File struct {
 	Path   string `json:"path"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	Link   string `json:"link,omitempty"`
 }
+
+// same reports whether a recorded entry and an observed one are identical.
+func (f File) same(other File) bool {
+	return f.Size == other.Size && f.SHA256 == other.SHA256 && f.Link == other.Link
+}
+
 type Manifest struct {
 	Version       string          `json:"version"`
 	SchemaVersion int             `json:"schema_version"`
@@ -106,7 +116,7 @@ func writeManifestRoot(ctx context.Context, parent *os.Root, name string, m Mani
 	if err != nil || !os.SameFile(info, pinned) {
 		return &Error{Code: UnsafePath, Path: name}
 	}
-	files, err := inventoryRootContext(ctx, root)
+	files, err := inventoryRootContext(ctx, root, linksInTopLevel)
 	if err != nil {
 		return err
 	}
@@ -293,6 +303,76 @@ func openRegular(root *os.Root, path string) (*os.File, error) {
 	return f, nil
 }
 
+// linkScope names the directory a tree's symbolic links must resolve inside.
+type linkScope int
+
+const (
+	// linksInRoot confines every link to the inventoried tree: a bundle or a
+	// staged state tree, which restore publishes as one directory.
+	linksInRoot linkScope = iota
+	// linksInTopLevel confines every link to its first path component and
+	// allows none beside them: a snapshot's state/ and bundle/ are published
+	// separately, so a link from one into the other leaves its tree.
+	linksInTopLevel
+)
+
+// linkHops bounds link resolution, so a loop is refused instead of followed.
+const linkHops = 40
+
+// linkStaysInside reports whether name, a path under base, resolves inside
+// base when every link on the way is followed. A link is relative to the
+// directory holding it. Absolute targets, a climb above base and loops are
+// refused; a target that does not exist is not. A restored tree is published
+// into the live state root, so no link in it may lead outside: the backend
+// would read and write through it.
+func linkStaysInside(root *os.Root, base, name string) bool {
+	rest, current, hops := name, "", 0
+	for rest != "" {
+		var part string
+		part, rest, _ = strings.Cut(rest, "/")
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if current == "" {
+				return false
+			}
+			current = filepath.Dir(current)
+			if current == "." {
+				current = ""
+			}
+			continue
+		}
+		next := filepath.Join(current, part)
+		info, err := root.Lstat(filepath.Join(base, next))
+		if err != nil {
+			// A missing component is a dangling path that still stays inside.
+			// Any other failure cannot prove confinement.
+			if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, unix.ENOTDIR) {
+				return false
+			}
+			current = next
+			continue
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			current = next
+			continue
+		}
+		if hops++; hops > linkHops {
+			return false
+		}
+		target, err := root.Readlink(filepath.Join(base, next))
+		if err != nil || target == "" || filepath.IsAbs(target) || strings.ContainsRune(target, 0) {
+			return false
+		}
+		if rest != "" {
+			target += "/" + rest
+		}
+		rest = target
+	}
+	return true
+}
+
 // inventory streams SHA-256, including sparse holes, without following links.
 func inventory(dir string) ([]File, error) {
 	root, err := openSnapshot(dir)
@@ -304,10 +384,12 @@ func inventory(dir string) ([]File, error) {
 }
 
 func inventoryRoot(root *os.Root) ([]File, error) {
-	return inventoryRootContext(context.Background(), root)
+	return inventoryRootContext(context.Background(), root, linksInRoot)
 }
 
-func inventoryRootContext(ctx context.Context, root *os.Root) ([]File, error) {
+// inventoryRootContext records every regular file's bytes and every confined
+// link's target. Any other entry, and a link that leaves its tree, is refused.
+func inventoryRootContext(ctx context.Context, root *os.Root, scope linkScope) ([]File, error) {
 	var files []File
 	err := fs.WalkDir(root.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if err := context.Cause(ctx); err != nil {
@@ -324,6 +406,24 @@ func inventoryRootContext(ctx context.Context, root *os.Root) ([]File, error) {
 			return &Error{Code: UnsafePath, Path: rel}
 		}
 		if d.IsDir() {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			base, name := "", rel
+			if scope == linksInTopLevel {
+				var nested bool
+				if base, name, nested = strings.Cut(rel, "/"); !nested {
+					return &Error{Code: UnsafePath, Path: rel}
+				}
+			}
+			if !linkStaysInside(root, base, name) {
+				return &Error{Code: UnsafePath, Path: rel}
+			}
+			target, err := root.Readlink(path)
+			if err != nil {
+				return &Error{Code: UnsafePath, Path: rel}
+			}
+			files = append(files, File{Path: rel, Link: target})
 			return nil
 		}
 		if !d.Type().IsRegular() {
@@ -345,7 +445,7 @@ func inventoryRootContext(ctx context.Context, root *os.Root) ([]File, error) {
 		if closeErr != nil {
 			return closeErr
 		}
-		files = append(files, File{rel, size, hex.EncodeToString(hash.Sum(nil))})
+		files = append(files, File{Path: rel, Size: size, SHA256: hex.EncodeToString(hash.Sum(nil))})
 		return nil
 	})
 	return files, err
@@ -458,6 +558,11 @@ func verifyPinnedManifest(ctx context.Context, root *os.Root, name string, insta
 		if _, ok := expected[f.Path]; ok {
 			return m, &Error{Code: ExtraFile, Path: f.Path}
 		}
+		// A link records a target and no bytes; a recorded absolute target
+		// could never have been published.
+		if f.Link != "" && (f.Size != 0 || f.SHA256 != "" || filepath.IsAbs(f.Link)) {
+			return m, &Error{Code: UnsafePath, Path: f.Path}
+		}
 		expected[f.Path] = f
 	}
 	if !hasDump(m.Files) {
@@ -466,7 +571,7 @@ func verifyPinnedManifest(ctx context.Context, root *os.Root, name string, insta
 	if _, err = root.Lstat("postgres.dump"); os.IsNotExist(err) {
 		return m, &Error{Code: MissingDump, Path: "postgres.dump"}
 	}
-	actual, err := inventoryRootContext(ctx, root)
+	actual, err := inventoryRootContext(ctx, root, linksInTopLevel)
 	if err != nil {
 		return m, err
 	}
@@ -475,7 +580,7 @@ func verifyPinnedManifest(ctx context.Context, root *os.Root, name string, insta
 		if !ok {
 			return m, &Error{Code: ExtraFile, Path: f.Path}
 		}
-		if e.Size != f.Size || e.SHA256 != f.SHA256 {
+		if !e.same(f) {
 			return m, &Error{Code: HashMismatch, Path: f.Path}
 		}
 		delete(expected, f.Path)
