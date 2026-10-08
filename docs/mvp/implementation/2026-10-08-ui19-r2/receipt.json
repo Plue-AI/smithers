@@ -1,0 +1,80 @@
+{
+  "ticket": "T-UI-19",
+  "issue": 3589,
+  "tested_revision": "3ce39dc85cf4ad162a6ac0a4cd63715a372a921d",
+  "qualification": "development-only",
+  "production_changes": false,
+  "campaign": {
+    "command": "SMITHERS_CODE_LATENCY_CAMPAIGN=1 go test -C packages/backend -p 4 ./internal/compose -run '^TestCodeDocumentLatencyCampaign$' -count=1 -timeout 18m -v",
+    "passed": 1,
+    "failed": 0,
+    "original_artifacts": ".artifacts/checks/C-UI-14/2026-10-08T08-45-06.323Z"
+  },
+  "browser": {
+    "command": "pnpm exec playwright test view-stories.spec.ts spec/C-UI-14.spec.ts --grep 'every View story|File remote carets|mounted member carets|File.*(Reapply|Copy|recovery)'",
+    "environment": {
+      "SMITHERS_VIEW_STORIES": "1",
+      "SMITHERS_VIEW_STORY_FILTER": "CodeEditorView"
+    },
+    "passed": 5,
+    "failed": 0,
+    "flag_on": {
+      "command": "VITE_SMITHERS_REMOTE_CARETS=1 pnpm exec playwright test spec/C-UI-14.spec.ts",
+      "passed": 1,
+      "failed": 0
+    },
+    "story_observations": 90,
+    "screenshots": 90,
+    "original_artifacts": ".artifacts/checks/C-UI-12/fr14-ui19-r2"
+  },
+  "unit": {
+    "command": "bun test --isolate src/mainview/cards/views/Views.test.tsx -t 'File|CodeEditor'",
+    "passed": 50,
+    "failed": 0,
+    "filtered": 1157
+  },
+  "broader_views": {
+    "command": "bun test --isolate src/mainview/cards/views/Views.test.tsx",
+    "passed": 1206,
+    "failed": 1,
+    "failure": "Existing ConfirmView named cases > renders issue: expectedAskers.issue is undefined; no source changes were made."
+  },
+  "gate": {
+    "command": "bash ~/lanes/lane-gates.sh",
+    "exit_code": 0,
+    "result": "FAST GATE PASS: 1 checks, 0 failed, 0 deferred"
+  },
+  "environment": {
+    "LANE": "fr14-ui19-r2",
+    "SMITHERS_TEST_DATABASE_NAMESPACE": "fr14ui19r2",
+    "GOMAXPROCS": "8",
+    "setup": "source ~/lanes/env.sh"
+  },
+  "blocked_on": [
+    {
+      "requirement": "Reference Mac plus second Mac campaign on real branch machine; Linux/scripted guest does not qualify C-UI-14",
+      "source": ".specs/engineering/checks/C-UI-14.md:3"
+    },
+    {
+      "requirement": "smithers-06 per-screen visual/copy approve or fix in issue #3589",
+      "source": ".specs/engineering/tickets/T-UI-19.md:44"
+    }
+  ],
+  "limitations": [
+    "Campaign-specific mount uses production View, binding and provider with authenticated composed transport, not the full File command adapter.",
+    "File grows between trials; p95 differences are observations, not causal claims.",
+    "No confinement receipt, live-code activation, check mapping, qualification or issue close."
+  ],
+  "files": {
+    "campaign.log": "3625e8f4419c336e48ef974d2b5353f9e26c160a3b8621351522fdecc459bdcf",
+    "campaign.tar.gz": "be5e01c2430f2df0547ab3c2580e7e325ce8635797596bbbd0c2cfcaaede91bc",
+    "file-views.log": "f0a68b2cfe24db03347eac2e8ed5ac104f426d1477c2ad06d60ae814b8d371f1",
+    "flag-on.log": "8f5aa253aae9c8b95fe7459f98a7a3e79e970a979c9b907f6b2d2f71968c5c4c",
+    "gates.log": "eae927d6df4d56386697b02e66ae80a914d757879ed65dadd0d596461da065ae",
+    "stories.log": "3cf59f814e1329838967cb71344ffbd5114835b509bfd6f9fd3e9112d0f8652b",
+    "stories.tar.gz": "6e31d1400753262d4106f700f74d6088f9591d2e6662ad21567a01fd2cad6bcc",
+    "summary.json": "813740a2feae2ea31abc39cc682211ff519a30ae48578b5e4a7b4eeebaadd5f4",
+    "views.log": "ecd9b99a287b5e65d56215c059592d4147daed1e25eff40b12ad9641b684fdbc",
+    "landing-gate.log": "ee393bee7461ed869b7f91b23a087055e43162d9437f3ae3698ef2cf85c2c41f"
+  }
+}

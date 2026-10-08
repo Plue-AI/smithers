@@ -1,0 +1,20 @@
+[WebServer] (node:518266) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:521096) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:521096) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/lane/lanes/fr14-ui19-r2/apps/app/tailwind.config.js?id=1791449221887 is not specified and it doesn't parse as CommonJS.
+[WebServer] Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+[WebServer] To eliminate this warning, add "type": "module" to /home/lane/lanes/fr14-ui19-r2/apps/app/package.json.
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] src/mainview/runtime/ApplicationTransport.ts is dynamically imported by src/mainview/StartupWatchdog.ts but also statically imported by src/mainview/AppIsland.tsx, src/mainview/AppMount.tsx, src/mainview/ControllerBoot.client.ts, dynamic import will not move module into another chunk.
+[WebServer] 
+
+Running 1 test using 1 worker
+
+(node:513743) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:544556) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:544556) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+  ✓  1 [chromium] › e2e/playwright/spec/C-UI-14.spec.ts:8:5 › C-UI-14: mounted member carets and selections with the flag on (8.4s)
+
+  1 passed (18.6s)

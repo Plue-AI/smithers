@@ -1,0 +1,61 @@
+{
+  "sha": "3ce39dc85cf4ad162a6ac0a4cd63715a372a921d",
+  "dirty": false,
+  "sourceDigest": "974fa2fef66d1ca00b90096388e64f5f13c3a72ff86e1afaa104b43ef8bdfbe4",
+  "patchDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "comparison": [
+    {
+      "member": "ben",
+      "onP95": 196.4733899999992,
+      "offP95": 192.660370000056,
+      "delta": 3.813019999943208
+    },
+    {
+      "member": "alice",
+      "onP95": 195.16429399998742,
+      "offP95": 200.95689199998742,
+      "delta": -5.792597999999998
+    }
+  ],
+  "passed": true,
+  "qualification": "development-only",
+  "limitation": "Linux composed install with scripted native daemon; reference Mac and second Mac pending",
+  "host": "msb-lat-nyc-01",
+  "platform": "linux",
+  "arch": "x64",
+  "browser": "151.0.7922.34",
+  "duration": 300000,
+  "interval": 200,
+  "budget": 1000,
+  "summaries": [
+    {
+      "flag": "on",
+      "member": "ben",
+      "samples": 1379,
+      "p95": 196.4733899999992,
+      "elapsed": 300841.581062
+    },
+    {
+      "flag": "on",
+      "member": "alice",
+      "samples": 1322,
+      "p95": 195.16429399998742,
+      "elapsed": 300842.506164
+    },
+    {
+      "flag": "off",
+      "member": "ben",
+      "samples": 1457,
+      "p95": 192.660370000056,
+      "elapsed": 300714.998955
+    },
+    {
+      "flag": "off",
+      "member": "alice",
+      "samples": 1456,
+      "p95": 200.95689199998742,
+      "elapsed": 300715.379471
+    }
+  ],
+  "failure": null
+}

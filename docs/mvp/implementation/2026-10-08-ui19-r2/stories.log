@@ -1,0 +1,24 @@
+[WebServer] (node:64176) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:66687) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:66687) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/lane/lanes/fr14-ui19-r2/apps/app/tailwind.config.js?id=1791449057425 is not specified and it doesn't parse as CommonJS.
+[WebServer] Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+[WebServer] To eliminate this warning, add "type": "module" to /home/lane/lanes/fr14-ui19-r2/apps/app/package.json.
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] src/mainview/runtime/ApplicationTransport.ts is dynamically imported by src/mainview/StartupWatchdog.ts but also statically imported by src/mainview/AppIsland.tsx, src/mainview/AppMount.tsx, src/mainview/ControllerBoot.client.ts, dynamic import will not move module into another chunk.
+[WebServer] 
+
+Running 5 tests using 1 worker
+
+(node:59386) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:90406) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:90406) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+  ✓  1 [chromium] › e2e/playwright/spec/C-UI-14.spec.ts:8:5 › C-UI-14: mounted member carets and selections with the flag off (13.5s)
+  ✓  2 [chromium] › e2e/playwright/view-stories.spec.ts:119:5 › every View story: light/dark, desktop/mobile, axe and overflow (1.5m)
+  ✓  3 [chromium] › e2e/playwright/view-stories.spec.ts:755:5 › File recovery Copy and Reapply remain keyboard accessible (741ms)
+  ✓  4 [chromium] › e2e/playwright/view-stories.spec.ts:779:5 › File Copy failure remains visible and retains recovered text (714ms)
+  ✓  5 [chromium] › e2e/playwright/view-stories.spec.ts:1205:5 › File remote carets and selections follow the person colour only with the flag on (3.6s)
+
+  5 passed (2.0m)
