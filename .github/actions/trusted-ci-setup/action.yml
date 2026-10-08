@@ -1,0 +1,18 @@
+name: Trusted Ubuntu setup
+description: Main-pinned engineering runner setup before checkout
+runs:
+  using: composite
+  steps:
+    - name: Validate and dispatch trusted setup
+      env:
+        SMITHERS_TRUSTED_ACTION_REF: ${{ github.action_ref }}
+        SMITHERS_TRUSTED_ACTION_REPOSITORY: ${{ github.action_repository }}
+        SMITHERS_TRUSTED_ACTION_PATH: ${{ github.action_path }}
+        SMITHERS_TRUSTED_SETUP_INPUTS: ${{ toJSON(inputs) }}
+        SMITHERS_TRUSTED_INCOMING_PATH: ${{ env.PATH }}
+        PATH: /usr/sbin:/usr/bin:/sbin:/bin
+      shell: /usr/bin/python3 -I {0}
+      run: |
+        import os, runpy
+        from pathlib import Path
+        runpy.run_path(str(Path(os.environ['SMITHERS_TRUSTED_ACTION_PATH']) / 'setup.py'), run_name='__main__')

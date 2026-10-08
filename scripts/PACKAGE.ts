@@ -453,6 +453,9 @@ const driftJob = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/ci/drift-job.test.mjs")]),
   srcs: [
     ...sources,
+    Smithers.file("//.github/actions/trusted-ci-setup/action.yml"),
+    Smithers.file("//.github/actions/trusted-ci-setup/setup.py"),
+    Smithers.file("//.github/actions/trusted-ci-setup-campaign/action.yml"),
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//package.json"),
     Smithers.file("//scripts/PACKAGE.ts"),

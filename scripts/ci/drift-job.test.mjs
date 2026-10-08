@@ -6,9 +6,6 @@ import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import ts from 'typescript'
-import { apiSurface, withDeclarationBuild } from '../check-api-baseline.mjs'
-import YAML from 'yaml'
 
 const workflowPath = new URL('../../.github/workflows/drift.yml', import.meta.url)
 const ciPath = new URL('../../.github/workflows/ci.yml', import.meta.url)
@@ -33,6 +30,8 @@ const gateCommands = [
 ]
 
 test('drift job concurrency group includes github.sha and runs only drift gates', async () => {
+  const { default: YAML } = await import('yaml')
+  const { default: ts } = await import('typescript')
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'))
   const main = YAML.parse(await readFile(ciPath, 'utf8'))
   assert.equal(workflow.name, 'Drift')
@@ -78,6 +77,7 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
 })
 
 test('CI declares the retained document components using the moved native ABI adapter', async () => {
+  const { default: YAML } = await import('yaml')
   const workflow = YAML.parse(await readFile(ciPath, 'utf8'))
   const step = workflow.jobs.rust.steps.find((step) => step.name === 'Daemon document component tests')
   assert.ok(step)
@@ -146,6 +146,8 @@ const declarationFiles = async (root, prefix = '') => {
 const scratchOutputs = async () => (await readdir(tmpdir())).filter((name) => name.startsWith('smithers-api-declarations-')).sort()
 
 test('declaration build matches normal TypeScript release emit and cleans isolated output', async () => {
+  const { default: ts } = await import('typescript')
+  const { apiSurface, withDeclarationBuild } = await import('../check-api-baseline.mjs')
   const root = await mkdtemp(join(tmpdir(), 'smithers-api-fixture-'))
   const previousTmpdir = process.env.TMPDIR
   const previousTemp = process.env.TEMP
@@ -236,6 +238,8 @@ test('declaration build matches normal TypeScript release emit and cleans isolat
 })
 
 test('public build declarations match release-style tsc for all source files', async () => {
+  const { default: ts } = await import('typescript')
+  const { apiSurface, withDeclarationBuild } = await import('../check-api-baseline.mjs')
   const root = await mkdtemp(join(tmpdir(), 'smithers-api-build-parity-'))
   try {
     await write(root, 'pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n')
@@ -303,6 +307,7 @@ declare function getB(): B
 })
 
 test('CLI combines declaration build and baseline update from current source', async () => {
+  const { apiSurface, withDeclarationBuild } = await import('../check-api-baseline.mjs')
   const root = await realpath(await mkdtemp(join(tmpdir(), 'smithers-api-cli-fixture-')))
   const packageRoot = join(root, 'packages/example')
   const cli = join(root, 'scripts/check-api-baseline.mjs')
@@ -389,4 +394,165 @@ test('the Cloud drift check runs exactly the gates the generated drift workflow 
   assert.match(body, /flows: \[coding\/CommandCheck\]/)
   assert.match(body, /\{"argv":\["sh","scripts\/ci\/coding-check\.sh","drift"\]/)
   assert.ok(gates.every((gate) => !gate.startsWith('test ')), 'the drift check runs no test target')
+})
+
+const trustedSetupPath = fileURLToPath(new URL('../../.github/actions/trusted-ci-setup/setup.py', import.meta.url))
+const setupEnvironment = {
+  ...process.env,
+  RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_OS: 'Linux', ImageOS: 'ubuntu24',
+  PATH: '/usr/sbin:/usr/bin:/sbin:/bin',
+}
+for (const key of [
+  'GH_TOKEN', 'GITHUB_TOKEN', 'SMITHERS_GITHUB_PROXY', 'NODE_OPTIONS',
+  'BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'CDPATH', 'PYTHONPATH', 'PYTHONHOME',
+  'APT_CONFIG', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY',
+  'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy',
+]) delete setupEnvironment[key]
+for (const key of Object.keys(setupEnvironment)) {
+  if (['LD_', 'DYLD_', 'BASH_FUNC_', 'INPUT_'].some((prefix) => key.startsWith(prefix))) delete setupEnvironment[key]
+}
+
+// Refusals reach the actual action dispatcher and never replace sudo, apt or
+// the dispatch implementation. These run without privileges on every host.
+test('root-ci-setup-input-validation refuses hostile environment before privilege dispatch', async () => {
+  for (const [key, value] of [
+    ['SMITHERS_TRUSTED_SETUP_INPUTS', '{"packages":["bash"]}'],
+    ['SMITHERS_TRUSTED_SETUP_INPUTS', '{"shell":"/tmp/branch-shell"}'],
+    ['SMITHERS_TRUSTED_SETUP_INPUTS', 'invalid-json'],
+    ['INPUT_PACKAGES', 'bubblewrap; touch /run/smithers-hostile-root'],
+    ['INPUT_SETUP_ARGV', 'sudo /tmp/branch-setup'],
+    ['INPUT_WORKFLOW_SHELL', '/tmp/branch-shell'],
+    ['INPUT_SYSCTL', 'kernel.modprobe=/tmp/branch-root'],
+    ['BASH_ENV', '/tmp/branch-startup'], ['ENV', '/tmp/branch-startup'],
+    ['BASH_FUNC_setup%%', '() { touch /run/smithers-hostile-root; }'],
+    ['LD_PRELOAD', '/tmp/branch-loader.so'], ['PYTHONPATH', '/tmp/branch-import'],
+    ['NODE_OPTIONS', '--require=/tmp/branch-import'],
+    ['APT_CONFIG', '/tmp/branch-apt.conf'],
+    ['SMITHERS_TRUSTED_INCOMING_PATH', '/tmp/branch-bin:/usr/bin'],
+    ['PATH', '/tmp/branch-bin:/usr/bin'], ['PATH', ':/usr/bin'],
+    ['GH_TOKEN', 'root-fixture-token'], ['GITHUB_TOKEN', 'root-fixture-token'],
+    ['SMITHERS_GITHUB_PROXY', 'root-fixture-proxy'],
+  ]) {
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', trustedSetupPath], {
+      cwd: '/', env: { ...setupEnvironment, [key]: value },
+    }), (error) => {
+      assert.equal(error.code, 2, `${key}: ${error.stderr}`)
+      const expected = key === 'SMITHERS_TRUSTED_SETUP_INPUTS' ? 'action inputs'
+        : ['PATH', 'SMITHERS_TRUSTED_INCOMING_PATH'].includes(key) ? 'PATH' : `environment: ${key}`
+      assert.ok(error.stderr.includes(`trusted setup refused: ${expected}`), `${key}: ${error.stderr}`)
+      return true
+    })
+  }
+  for (const argv of [['--packages', 'bash'], ['--shell', '/tmp/branch-shell'], ['--enable'], ['--sysctl', 'kernel.modprobe']]) {
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', trustedSetupPath, ...argv], {
+      cwd: '/', env: setupEnvironment,
+    }), (error) => {
+      assert.equal(error.code, 2)
+      assert.match(error.stderr, /trusted setup refused: argv/)
+      return true
+    })
+  }
+})
+
+// Only the main-pinned campaign action selects this test, on a disposable
+// Ubuntu runner before checkout. No sudo is executed by local test runs.
+test('root-ci-setup-input-validation disposable Ubuntu positive and hostile controls', {
+  skip: process.env.SMITHERS_TRUSTED_SETUP_CAMPAIGN !== '1',
+}, async () => {
+  assert.equal(process.env.RUNNER_ENVIRONMENT, 'github-hosted')
+  assert.equal(process.env.ImageOS, 'ubuntu24')
+  const receipt = '/run/smithers-trusted-setup.receipt'
+  const canary = '/run/smithers-hostile-root'
+  await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+  await assert.rejects(readFile(canary), { code: 'ENOENT' })
+  const workspace = process.env.GITHUB_WORKSPACE
+  assert.deepEqual(await readdir(workspace), [], 'positive setup precedes branch checkout')
+  // Run the production dispatcher, with activation selected solely by this
+  // committed campaign program. Production CLI has no activation override.
+  const positive = `import runpy; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); m['dispatch'](activated=True)`
+  const log = await runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment, maxBuffer: 8 * 1024 * 1024 })
+  assert.match(log.stdout, /bubblewrap/)
+  const commands = JSON.parse(log.stdout.match(/^TRUSTED-SETUP-COMMANDS (.*)$/m)?.[1] ?? 'null')
+  const expectedCommands = [
+    ['/usr/bin/apt-get', 'update'],
+    ['/usr/bin/apt-get', 'install', '--yes', '--no-install-recommends', 'bubblewrap'],
+  ]
+  try {
+    await readFile('/proc/sys/kernel/apparmor_restrict_unprivileged_userns')
+    expectedCommands.push(['/usr/sbin/sysctl', '-w', 'kernel.apparmor_restrict_unprivileged_userns=0'])
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
+  assert.deepEqual(commands, expectedCommands)
+  assert.equal(await readFile(receipt, 'utf8'), 'smithers-main-pinned-setup-v1\n')
+  const rootOwner = await runFile('/usr/bin/stat', ['--format=%u', receipt])
+  assert.equal(rootOwner.stdout.trim(), '0')
+  // Clear the positive receipt before hostile controls, so a new setup is
+  // observable. Fixture mutations are trusted test code on this disposable host.
+  await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/rm', receipt])
+  const hostile = await mkdtemp(join(tmpdir(), 'smithers-hostile-setup-'))
+  const hook = '/etc/apt/apt.conf.d/99smithers-hostile-validation'
+  const savedApt = '/usr/bin/apt-get.smithers-validation-original'
+  try {
+    const originalSetup = await readFile(trustedSetupPath)
+    try {
+      await writeFile(trustedSetupPath, Buffer.concat([originalSetup, Buffer.from('\n# hostile branch setup bytes\n')]))
+      await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment }), (error) => {
+        assert.equal(error.code, 1)
+        assert.match(error.stderr, /trusted setup refused: main-pinned setup byte identity/)
+        return true
+      })
+    } finally { await writeFile(trustedSetupPath, originalSetup) }
+    await writeFile(join(hostile, 'apt.conf'), 'APT::Update::Pre-Invoke { "touch /run/smithers-hostile-root"; };\n')
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/ln', '-s', join(hostile, 'apt.conf'), hook])
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: untrusted runner path/)
+      return true
+    })
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/rm', hook])
+    // Replacing an executable with root-owned bytes must still fail its
+    // approved runner package identity; owner/mode checks alone are insufficient.
+    await writeFile(join(hostile, 'apt-get'), '#!/bin/sh\ntouch /run/smithers-hostile-root\n', { mode: 0o755 })
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/mv', '/usr/bin/apt-get', savedApt])
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/install', '-m', '755', join(hostile, 'apt-get'), '/usr/bin/apt-get'])
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: runner executable identity: \/usr\/bin\/apt-get/)
+      return true
+    })
+    await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+    await assert.rejects(readFile(canary), { code: 'ENOENT' })
+  } finally {
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/rm', '-f', hook])
+    try {
+      await readFile(savedApt)
+      await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/mv', savedApt, '/usr/bin/apt-get'])
+    } catch (error) { if (error.code !== 'ENOENT') throw error }
+    await rm(hostile, { recursive: true, force: true })
+  }
+  // No gate or publication entry point is invoked by this pre-checkout campaign.
+})
+
+test('trusted setup rejects branch-selected action inputs and pins its own context', async () => {
+  const { default: YAML } = await import('yaml')
+  for (const directory of ['trusted-ci-setup', 'trusted-ci-setup-campaign']) {
+    const action = YAML.parse(await readFile(new URL(`../../.github/actions/${directory}/action.yml`, import.meta.url), 'utf8'))
+    assert.equal(action.inputs, undefined)
+    assert.equal(action.runs.using, 'composite')
+    const step = action.runs.steps[0]
+    assert.equal(step.shell, '/usr/bin/python3 -I {0}')
+    assert.equal(step.env.PATH, '/usr/sbin:/usr/bin:/sbin:/bin')
+    assert.equal(step.env.SMITHERS_TRUSTED_ACTION_REF, '${{ github.action_ref }}')
+    assert.equal(step.env.SMITHERS_TRUSTED_ACTION_REPOSITORY, '${{ github.action_repository }}')
+    assert.equal(step.env.SMITHERS_TRUSTED_ACTION_PATH, '${{ github.action_path }}')
+    assert.equal(step.env.SMITHERS_TRUSTED_SETUP_INPUTS, '${{ toJSON(inputs) }}')
+  }
+  for (const inputs of ['{"packages":["bash"]}', '{"shell":"/tmp/branch-shell"}', '{"argv":["touch","/run/smithers-hostile-root"]}', 'invalid-json']) {
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', trustedSetupPath], {
+      cwd: '/', env: { ...setupEnvironment, SMITHERS_TRUSTED_SETUP_INPUTS: inputs },
+    }), (error) => {
+      assert.equal(error.code, 2)
+      assert.match(error.stderr, /trusted setup refused: action inputs/)
+      return true
+    })
+  }
 })

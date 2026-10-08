@@ -63432,6 +63432,18 @@
       },
       {
         "kind": "file",
+        "path": ".github/actions/trusted-ci-setup/action.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/actions/trusted-ci-setup/setup.py"
+      },
+      {
+        "kind": "file",
+        "path": ".github/actions/trusted-ci-setup-campaign/action.yml"
+      },
+      {
+        "kind": "file",
         "path": "PACKAGE.ts"
       },
       {

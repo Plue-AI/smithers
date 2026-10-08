@@ -438,7 +438,8 @@ describe("the declaration surface", () => {
         "runsOn",
         "steps",
         "timeoutMinutes",
-        "toolchain"
+        "toolchain",
+        "trustedSetupRevision"
       ])
   })
 
@@ -1774,7 +1775,8 @@ describe("a platform matrix", () => {
         "runsOn",
         "steps",
         "timeoutMinutes",
-        "toolchain"
+        "toolchain",
+        "trustedSetupRevision"
       ])
     expect(Object.keys(MatrixRow.fields).sort()).toEqual(["advisory", "os"])
   })
@@ -1884,5 +1886,40 @@ describe("system packages", () => {
   it("refuses a package name apt would not accept", () => {
     expect(() => CiToolchain.Apt({ packages: ["bubble wrap"] })).toThrow()
     expect(() => CiToolchain.Apt({ packages: [] })).toThrow()
+  })
+})
+
+describe("main-pinned Ubuntu setup", () => {
+  const revision = "0123456789abcdef0123456789abcdef01234567"
+  it("dispatches the fixed action before checkout and every branch dependency", () => {
+    const job = { ...goldenAttrs.jobs[0]!, runsOn: "ubuntu-latest", matrix: undefined, trustedSetupRevision: revision }
+    const steps = toolchainSteps(goldenAttrs, job)
+    expect(steps[0]).toEqual({
+      name: "Trusted Ubuntu setup",
+      uses: "smithersai/smithers/.github/actions/trusted-ci-setup@0123456789abcdef0123456789abcdef01234567"
+    })
+    expect(steps[1]?.uses).toBe("actions/checkout@11d5960a326750d5838078e36cf38b85af677262")
+    expect(steps[0]).not.toHaveProperty("with")
+    expect(steps[0]).not.toHaveProperty("env")
+  })
+  it("refuses moving refs, injected argv and unsupported runner images", () => {
+    for (const pin of ["main", "", "a".repeat(39), `${revision}; sudo true`, "A".repeat(40)]) {
+      expect(() =>
+        toolchainSteps(goldenAttrs, { ...goldenAttrs.jobs[0]!, runsOn: "ubuntu-latest", trustedSetupRevision: pin })
+      ).toThrow(/trusted setup/)
+    }
+    for (const runner of ["self-hosted", "macos-latest", "ubuntu-22.04"]) {
+      expect(() =>
+        toolchainSteps(goldenAttrs, { ...goldenAttrs.jobs[0]!, runsOn: runner, trustedSetupRevision: revision })
+      ).toThrow(/trusted setup/)
+    }
+    expect(() =>
+      toolchainSteps(goldenAttrs, {
+        ...goldenAttrs.jobs[0]!,
+        runsOn: "ubuntu-latest",
+        matrix: [{ os: "ubuntu-latest", advisory: false }],
+        trustedSetupRevision: revision
+      })
+    ).toThrow(/trusted setup/)
   })
 })

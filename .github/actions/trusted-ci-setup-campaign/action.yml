@@ -1,0 +1,35 @@
+name: Trusted setup validation campaign
+description: Disposable runner controls through production setup dispatch
+runs:
+  using: composite
+  steps:
+    - name: Production setup positive and hostile controls
+      env:
+        SMITHERS_TRUSTED_ACTION_REF: ${{ github.action_ref }}
+        SMITHERS_TRUSTED_ACTION_REPOSITORY: ${{ github.action_repository }}
+        SMITHERS_TRUSTED_ACTION_PATH: ${{ github.action_path }}
+        SMITHERS_TRUSTED_SETUP_INPUTS: ${{ toJSON(inputs) }}
+        SMITHERS_TRUSTED_INCOMING_PATH: ${{ env.PATH }}
+        PATH: /usr/sbin:/usr/bin:/sbin:/bin
+        SMITHERS_TRUSTED_SETUP_CAMPAIGN: "1"
+      shell: /usr/bin/python3 -I {0}
+      run: |
+        import datetime, hashlib, json, os, subprocess, sys
+        from pathlib import Path
+        root = Path(os.environ['SMITHERS_TRUSTED_ACTION_PATH']).parents[2]
+        command = ['/usr/bin/node', '--test', '--test-name-pattern=root-ci-setup-input-validation',
+                   str(root / 'scripts/ci/drift-job.test.mjs')]
+        started = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        result = subprocess.run(command, cwd='/', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sys.stdout.buffer.write(result.stdout)
+        output = Path(os.environ['RUNNER_TEMP']) / 'smithers-setup-campaign'
+        output.mkdir(mode=0o700)
+        (output / 'output.log').write_bytes(result.stdout)
+        receipt = {'version': 1, 'check': 'C-PRC-01/root-ci-setup-input-validation',
+                   'commit': os.environ['GITHUB_SHA'], 'layer': 'integration',
+                   'source_commit': os.environ['SMITHERS_TRUSTED_ACTION_REF'],
+                   'command': command, 'exit': result.returncode, 'started': started,
+                   'ended': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                   'log_digest': 'sha256:' + hashlib.sha256(result.stdout).hexdigest()}
+        (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+        sys.exit(result.returncode)

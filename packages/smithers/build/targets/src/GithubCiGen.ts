@@ -259,6 +259,8 @@ export const Job = Schema.Struct({
    * untrusted, writers are post-merge trunk jobs only. Absent means false.
    */
   publishesToCache: Schema.optional(Schema.Boolean),
+  /** Main commit containing the reviewed, fixed Ubuntu setup action. */
+  trustedSetupRevision: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/))),
   /** What the runner must provide before the first target runs. */
   toolchain: CiToolchain.Toolchain,
   steps: Schema.Array(TargetStep)
@@ -853,7 +855,19 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
     ...(needs.fetchDepth === undefined ? {} : { "fetch-depth": String(needs.fetchDepth) }),
     "persist-credentials": "false"
   }
-  const steps: Array<RenderedStep> = [{ uses: actions.checkout, with: checkoutWith }]
+  const steps: Array<RenderedStep> = []
+  if (job.trustedSetupRevision !== undefined) {
+    if (
+      !/^[a-f0-9]{40}$/.test(job.trustedSetupRevision) || job.runsOn !== "ubuntu-latest" || job.matrix !== undefined
+    ) {
+      throw new Error("GithubCiGen: trusted setup requires a main commit SHA and ubuntu-latest")
+    }
+    steps.push({
+      name: "Trusted Ubuntu setup",
+      uses: `smithersai/smithers/.github/actions/trusted-ci-setup@${job.trustedSetupRevision}`
+    })
+  }
+  steps.push({ uses: actions.checkout, with: checkoutWith })
   if (needs.workflowLint !== undefined) {
     steps.push({
       name: "Validate GitHub Actions workflows",
