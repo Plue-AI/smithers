@@ -49,10 +49,10 @@ print(open('/proc/self/cgroup').read().strip(),flush=True)
 s=socket.socket(socket.AF_UNIX)
 s.settimeout(5)
 s.connect('/run/smithers/machined.sock')
-s.sendall(bytes.fromhex('%s'))
 try:
+ s.sendall(bytes.fromhex('%s'))
  b=s.recv(9)
-except ConnectionResetError:
+except (BrokenPipeError,ConnectionResetError):
  b=b''
 print(b.hex() or 'closed',flush=True)
 `, hex.EncodeToString(request))
