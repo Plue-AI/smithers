@@ -2724,6 +2724,97 @@
       "status": "keep",
       "source": "flows/todo/flow.ts:14",
       "decision": "E-19: overridable route-to-deliver composition"
+    },
+    {
+      "id": "stack.candidate",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/stack.ts:50"
+    },
+    {
+      "id": "stack.propose",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/stack.ts:56"
+    },
+    {
+      "id": "coding/todo-delivery",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:39"
+    },
+    {
+      "id": "coding/todo-review-input",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:52"
+    },
+    {
+      "id": "coding/todo-review",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo.ts:97"
+    },
+    {
+      "id": "coding/todo-pause-requested",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo-pause.ts:10"
+    },
+    {
+      "id": "coding/todo-resume",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo-pause.ts:37"
+    },
+    {
+      "id": "coding/todo-boundary",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/todo-pause.ts:54"
+    },
+    {
+      "id": "coding/FlowLoad",
+      "kind": "flow",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/flow-load/flow.ts:12"
+    },
+    {
+      "id": "coding/load-flows",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "flows/coding/flow-load.ts:69"
+    },
+    {
+      "id": "system/human-task",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/flows/flow/src/HumanTask.ts:135"
+    },
+    {
+      "id": "system/wait-for",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/flows/flow/src/WaitFor.ts:66"
+    },
+    {
+      "id": "system/sleep",
+      "kind": "action",
+      "runtime": "machine",
+      "status": "keep",
+      "source": "packages/smithers/flows/flow/src/Sleep.ts:66"
     }
   ],
   "engineeringOverrides": {

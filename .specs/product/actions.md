@@ -106,7 +106,7 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `factory/route-todo` | action | flows/coding/todo.ts:45 | Jev picks implement, bug, feature or close | Machine | Keep | Chose how to start |
 | `factory/stamp-route` | action | flows/coding/todo.ts:57 | Fail a declined TODO with its route | Machine | Keep | Declined the TODO |
 | `factory/Todo` | flow | flows/coding/todo.ts:78 | Route a TODO, then plan it | Machine | Keep | Routed the TODO |
-| `coding/todo-delivery` | action | flows/coding/todo.ts:31 | Resolve the planned request for delivery | Machine | Keep | Prepared the delivery |
+| `coding/todo-delivery` | action | flows/coding/todo.ts:39 | Resolve the planned request for delivery | Machine | Keep | Prepared the delivery |
 | `coding/todo-pause-requested` | action | flows/coding/todo-pause.ts:10 | Read whether a person asked the TODO to pause | Machine | Keep | - |
 | `system/human-task` | action | packages/smithers/flows/flow/src/HumanTask.ts:135 | Wait for a person's answer | Machine | Keep | Waited for your answer |
 | `coding/todo-resume` | action | flows/coding/todo-pause.ts:37 | Read whether a person resumed a paused TODO | Machine | Keep | - |
@@ -162,6 +162,20 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/check` | action | flows/coding/workflow.ts:38 | Run a declared check on the change | Machine | Keep | Ran checks |
 | `coding/fast-gate` | action | flows/coding/workflow.ts:43 | Run quick checks before review | Machine | Keep | Ran quick checks |
 | `coding/assess` | action | flows/coding/workflow.ts:53 | Judge whether the change meets the plan | Machine | Keep | Assessed the change |
+
+### Current TODO composition controls (T-CAT-01, E-19)
+
+These machine-side steps use the attempt pin and existing install admission. A `-` rendering groups bookkeeping under Engine. `stack.candidate` and `stack.propose` retain their install-side credential and candidate guards (§10.4.4).
+
+| id | kind | source | what | runs in | MVP | renders as |
+| --- | --- | --- | --- | --- | --- | --- |
+| `stack.candidate` | action | flows/coding/stack.ts:50 | Submit the current attempt candidate | Machine | Keep | Saved the candidate |
+| `stack.propose` | action | flows/coding/stack.ts:56 | Submit the verified candidate for publication | Machine | Keep | Proposed the candidate |
+| `coding/todo-review-input` | action | flows/coding/todo.ts:52 | Await the next committed review or steer input | Machine | Keep | - |
+| `coding/todo-review` | flow | flows/coding/todo.ts:97 | Continue the same attempt after review input | Machine | Keep | - |
+| `coding/todo-boundary` | flow | flows/coding/todo-pause.ts:54 | Park and resume at a safe TODO boundary | Machine | Keep | - |
+| `coding/FlowLoad` | flow | flows/coding/flow-load/flow.ts:12 | Validate the pinned repository flow source | Machine | Keep | Validated the flows |
+| `coding/load-flows` | action | flows/coding/flow-load.ts:69 | Typecheck the immutable flow source without executing it | Machine | Keep | Validated the flows |
 
 ## C.2 review
 

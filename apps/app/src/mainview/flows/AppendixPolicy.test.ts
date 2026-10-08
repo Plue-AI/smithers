@@ -30,7 +30,7 @@ test("literal B.6 policy rejects unknown paths and forbidden groups", () => {
 })
 
 test("literal C rejects cut, replaced, unknown and misplaced registry entries", () => {
-  expect(c.rows).toHaveLength(389)
+  expect(c.rows).toHaveLength(402)
   for (const row of c.rows.filter(row => !row.id.includes("<"))) {
     const tags = [{ id: row.id, runtime: row.runtime as "install" | "machine", kind: row.kind }]
     const expected = row.status === "cut" ? "cut" : row.status === "replaced" && !(row.id in c.engineeringOverrides) ? "replaced" : null
@@ -75,4 +75,16 @@ test("engine-normalized registrations retain literal tag, source and placement c
   expect(auditRuntimeTags([{ id: "model/parked", runtime: "machine", kind: "registration", source: "packages/smithers/agent/src/Agent.ts" }])).toEqual([])
   expect(auditRuntimeTags([{ id: "model/parked", runtime: "machine", kind: "registration", source: "invented.ts" }])).toEqual([{ id: "model/parked", reason: "unlisted" }])
   expect(auditRuntimeTags([{ id: "coding/ReadNative", runtime: "machine", kind: "registration" }])).toEqual([{ id: "coding/ReadNative", reason: "runtime" }])
+})
+
+
+test("current TODO composition steps have exact Machine placement", () => {
+  // These are the current-attempt engine controls, not a namespace wildcard.
+  for (const id of ["stack.candidate", "stack.propose", "coding/todo-delivery",
+    "coding/todo-review-input", "coding/todo-review", "coding/todo-pause-requested",
+    "coding/todo-resume", "coding/todo-boundary", "coding/FlowLoad", "coding/load-flows",
+    "system/human-task", "system/wait-for", "system/sleep"]) {
+    expect(auditRuntimeTags([{ id, runtime: "machine", kind: "registration" }]), id).toEqual([])
+    expect(auditRuntimeTags([{ id, runtime: "install", kind: "registration" }]), id).toEqual([{ id, reason: "runtime" }])
+  }
 })

@@ -262,6 +262,34 @@ func TestJ1Rehearsal(t *testing.T) {
 	if !r.step("App agent lists TODOs", "POST "+"/api/conversations/main/prompt", "200; /stack and /todo answer TODO cards; /todo.new an author confirmation and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
 		return
 	}
+	if !r.step("TODO Inspect catalog", "GET /api/runs/{branch}:{run}", "delivery has its title; TODO waits and controls are grouped under Engine", "T-CAT-01", func() error {
+		card, err := r.todo(number)
+		if err != nil {
+			return err
+		}
+		if card.Branch == nil || card.Run == nil {
+			return fmt.Errorf("reviewed TODO has no branch/run binding")
+		}
+		monitor, err := r.inspect(card.Branch.ID, card.Run.ID)
+		if err != nil {
+			return err
+		}
+		labels := monitor.labels()
+		if !slices.Contains(labels, "Prepared the delivery") {
+			return fmt.Errorf("delivery title absent from %v", labels)
+		}
+		for _, raw := range []string{"coding/todo-review-input", "coding/todo-pause-requested", "coding/todo-resume"} {
+			if slices.Contains(labels, raw) {
+				return fmt.Errorf("TODO bookkeeping displays raw tag %q", raw)
+			}
+		}
+		if len(monitor.Engine) == 0 {
+			return fmt.Errorf("TODO has no Engine bookkeeping")
+		}
+		return nil
+	}) {
+		return
+	}
 	if !r.step("PR", "GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "head smithers/<slug>; base main; reviewed head", "T-STK-01", func() error {
 		_, err := r.checkPull(prNumber, head)
 		return err
