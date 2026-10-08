@@ -16,6 +16,15 @@ spec.loader.exec_module(launcher)
 
 
 class LauncherRaces(unittest.TestCase):
+    def setUp(self):
+        # These supplemental fixtures substitute release identities only; the
+        # installed shell-entry campaign embeds identities from built main.
+        gateway = hashlib.sha256(b"main-fixture:bin/trm06-gateway").hexdigest()
+        for name, value in [("PINNED_GATEWAY_SHA256", gateway), ("PINNED_REVISION", "a" * 40)]:
+            replacement = patch.object(launcher, name, value)
+            replacement.start()
+            self.addCleanup(replacement.stop)
+
     def fixture(self, root):
         files = []
         for name in ("share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):

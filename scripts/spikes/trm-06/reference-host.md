@@ -279,3 +279,23 @@ select publication bytes. The supplemental test uses a real Git repository,
 poisons its checkout with a host canary and publishes through `archive_overlay`;
 unlanded revisions refuse. This does not provide a complete real base/key
 reproducibility campaign or an installed root-validation receipt.
+
+## Shell-entry and admission matrix addition
+
+Rebuild the complete same-revision overlay: shell entries now carry loader and
+gateway digest pins embedded by `assemble.py`. Copying the checkout templates
+is not installation. Keep the outer bundle/OS verification receipt for the
+initially executing shell entry; the inline bootstrap cannot certify its own
+shell bytes before they execute.
+
+`check-install` first runs fourteen actual installed host startup controls,
+retaining child startup output, stderr and a separate OS UID/command sample.
+Execute the 48 startup selectors, including `startup-supervisor-writable`,
+`startup-supervisor-empty`, `startup-supervisor-same-size` and the four
+`startup-*-held-leaves` ancestor replacements. Execute all nine
+`cgroup-live-*-admission-race` session controls. Keep their
+`live-synchronized-admission.json`, `live-observations.jsonl` and held original
+cgroup drain samples. An admission that wins before mutation runs only sleep;
+post-mutation admission must explicitly refuse, and revocation must drain all
+Ben processes within five seconds. These installed controls are authored but
+unexecuted on the Linux lane. The campaign remains partial-pass/unaccepted.

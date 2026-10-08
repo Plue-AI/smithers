@@ -385,3 +385,43 @@ archive hashes and writes `reproducibility.json`. Without the approved base and
 reviewer key, `--build-only --verify-reproducible` checks release inputs only;
 its receipt explicitly remains unaccepted. Divergence preserves both build
 outputs and a NO receipt. Neither mode installs or grants activation authority.
+
+## Shell-entry startup and cgroup admission controls
+
+Main release assembly now embeds a bounded no-follow loader bootstrap in each
+shell entry. Its loader digest, gateway digest and revision come from the same
+archived main build. The bootstrap clears the interpreter environment and hashes
+held loader bytes before evaluating them; the loader also refuses a manifest
+that selects a different gateway digest or revision. Direct invocation of
+`launcher.py` lacks these embedded identities and refuses. `bootstrap.py` is
+build input, not an independently imported runtime authority. The outer bundle
+launcher/OS still owns trust in the initially executing shell entry.
+
+`run.sh startup-validation` validates the ordinary installed authority, prints
+one bounded startup sample and waits for the parent's stdin release. It starts
+no VM or listener. `check-install` invokes this actual shell entry for a positive
+control, twelve separate startup environment values and their combination. It
+retains `startup.raw`, `stderr.raw` and a separate `/bin/ps` UID/command sample
+per control. It does not issue acceptance or bypass signed R1–R3/prototype checks.
+A real installed native library/import canary campaign still needs the reviewed
+reference host; nonexistent poison paths alone do not prove canary isolation.
+
+The installed startup matrix now has 48 selectors (45 generated plus three
+original selectors). Seven additional selectors cover supervisor writable,
+empty and same-size changed bytes, and four replaced ancestors preserving every
+child inode. They use the existing init restart/refusal path. The session matrix
+adds nine `-admission-race` cases: release cgroup mutation and authenticated
+session admission together, retain both intervals and the admission reply, then
+require explicit post-mutation refusal and independent original-group drain.
+The initial raced admission may precede replacement and uses only a harmless
+sleep; revocation must leave no Ben process, including any new raced session.
+Nonoverlap, a failed mutation or an ambiguous admission response is NO.
+
+`test_bootstrap.py` exercises 91 controls through the real rendered shell entry,
+bootstrap and loader with actual no-follow opens, regular/FIFO/directory/symlink/
+hardlink mutations and an unchanged outside sentinel. Linux UID 0 is mapped
+solely to the unprivileged test caller in a private user/mount namespace. An OS
+`true` executable substitutes the native gateway boundary. These loader tests
+supply neither host root privilege nor installed/native-gateway acceptance.
+`TestInstalledHostStartupEnvironmentBoundary` requires an approved Apple Silicon
+install and executes the same production startup matrix as `check-install`.

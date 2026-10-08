@@ -120,6 +120,19 @@ func installedMain(ctx context.Context, operation string) error {
 	if err != nil {
 		return authorityError(err)
 	}
+	if operation == "check-startup" {
+		// The ordinary installed authority check remains mandatory. This control
+		// starts no VM or listener and grants no validation/activation authority.
+		if err = authority.recheck(); err != nil {
+			return err
+		}
+		if err = json.NewEncoder(os.Stdout).Encode(hostStartupSample{os.Getpid(), authority.bundle.Revision(), os.Environ()}); err != nil {
+			return err
+		}
+		var release [1]byte
+		_, err = io.ReadFull(os.Stdin, release[:])
+		return err
+	}
 	root, home, err := stateRoot()
 	if err != nil {
 		return err

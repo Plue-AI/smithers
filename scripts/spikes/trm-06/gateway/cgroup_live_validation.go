@@ -23,8 +23,8 @@ func cgroupLiveFixture(scenario string) bool {
 // Installed authenticated relay only. Mutation happens after enrollment, while
 // both foreground and lingering processes are independently observed. The
 // observer holds the original events descriptors before the path is changed.
-func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl, closeFirst, revokeRace bool) error {
-	if !cgroupLiveFixture(scenario) || (revokeRace && (!cgroupRevokeRaceFixture(scenario) || closeControl || closeFirst)) {
+func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl, closeFirst, revokeRace, admissionRace bool) error {
+	if (admissionRace && (revokeRace || closeControl || closeFirst)) || !cgroupLiveFixture(scenario) || (revokeRace && (!cgroupRevokeRaceFixture(scenario) || closeControl || closeFirst)) {
 		return errAuthority
 	}
 	// Retain every poll and failed mutation, not only the final sample at a path.
@@ -137,7 +137,38 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 	var invoked time.Time
 	var drained []byte
 	var observeErr error
-	if revokeRace {
+	if admissionRace {
+		var admission controlReply
+		race := synchronizedCgroupRevoke(
+			func() ([]byte, error) { return observe(scenario) },
+			func() error {
+				connection, err := control.connect(ctx)
+				if err != nil {
+					return err
+				}
+				defer connection.Close()
+				admission, err = controlExchange(connection, map[string]any{"type": "open_session", "kind": "exec", "argv": []string{"/bin/sleep", "100"}})
+				if err != nil && admission.Class == "invalid" && admission.Code == "session_refused" {
+					return nil
+				}
+				if err == nil && admission.Session == "" {
+					return errors.New("raced admission lacked owned session")
+				}
+				return err
+			},
+		)
+		mutation, mutationErr = race.Mutation.Raw, race.Mutation.err
+		body, marshalErr := json.Marshal(map[string]any{"released_utc": race.Released, "mutation": race.Mutation, "admission": race.Revocation, "reply": admission})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if err = retain("live-synchronized-admission", body); err != nil {
+			return err
+		}
+		if err = errors.Join(race.validateOverlap(), race.Revocation.err); err != nil {
+			return errors.Join(mutationErr, err)
+		}
+	} else if revokeRace {
 		race := synchronizedCgroupRevoke(
 			func() ([]byte, error) { return observe(scenario) },
 			func() error { return control.revoke(ctx) },

@@ -65,6 +65,12 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		body, _ := json.MarshalIndent(receipt, "", "  ")
 		_ = os.WriteFile(filepath.Join(evidence, "receipt.json"), body, 0600)
 	}()
+	if operation == "check-install" {
+		if err = validateInstalledHostStartup(ctx, a, evidence); err != nil {
+			return err
+		}
+		receipt["host_startup_controls"] = "pass"
+	}
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
 		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-ancestor-replaced", "cgroup-ancestor-writable", "cgroup-ancestor-owner", "cgroup-parent-owner", "cgroup-child-owner", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-owner", "cgroup-live-child-owner", "cgroup-live-ancestor-owner"}
@@ -95,7 +101,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	if operation == "check-session" {
 		for _, scenario := range append([]string(nil), scenarios...) {
 			if cgroupLiveFixture(scenario) {
-				scenarios = append(scenarios, scenario+"-close", scenario+"-close-first")
+				scenarios = append(scenarios, scenario+"-close", scenario+"-close-first", scenario+"-admission-race")
 				if cgroupRevokeRaceFixture(scenario) {
 					scenarios = append(scenarios, scenario+"-revoke-race")
 				}
@@ -132,7 +138,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	// This executable campaign does not pretend its current fixture subset covers
 	// the complete check. Preserve all samples; the reference lane must add/execute
 	// the remaining poison/race/SFTP/restart controls before issuing PASS.
-	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "installed host startup environment controls", "cgroup/path replacement races", "execution of installed unsupported-Landlock kernel variant"}
+	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "installed host startup library/import canary controls", "reference execution of synchronized cgroup admission/revocation and SFTP path controls", "execution of installed unsupported-Landlock kernel variant"}
 	fmt.Printf("{\"check\":%q,\"status\":\"partial-pass\",\"evidence\":%q}\n", check, evidence)
 	return errors.New("root validation incomplete: pending controls retained in receipt")
 }
@@ -231,8 +237,11 @@ func startupMutationScenarios() []string {
 			scenarios = append(scenarios, "startup-"+leaf+"-"+mutation)
 		}
 	}
+	for _, mutation := range []string{"writable", "empty", "same-size"} {
+		scenarios = append(scenarios, "startup-supervisor-"+mutation)
+	}
 	for _, parent := range []string{"boot-parent", "boot-ancestor", "supervisor-parent", "supervisor-ancestor"} {
-		for _, mutation := range []string{"symlink", "clone", "writable", "owner"} {
+		for _, mutation := range []string{"symlink", "clone", "held-leaves", "writable", "owner"} {
 			scenarios = append(scenarios, "startup-"+parent+"-"+mutation)
 		}
 	}
@@ -263,6 +272,14 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	closeControl := false
 	closeFirst := false
 	revokeRace := false
+	admissionRace := false
+	if strings.HasSuffix(scenario, "-admission-race") {
+		scenario = strings.TrimSuffix(scenario, "-admission-race")
+		if operation != "check-session" || !cgroupLiveFixture(scenario) {
+			return errAuthority
+		}
+		admissionRace = true
+	}
 	if strings.HasSuffix(scenario, "-revoke-race") {
 		scenario = strings.TrimSuffix(scenario, "-revoke-race")
 		if operation != "check-session" || !cgroupRevokeRaceFixture(scenario) {
@@ -412,7 +429,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return validateNoLandlockBoundary(ctx, control, observe, before, evidence)
 	}
 	if cgroupLiveFixture(scenario) {
-		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl, closeFirst, revokeRace)
+		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl, closeFirst, revokeRace, admissionRace)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {

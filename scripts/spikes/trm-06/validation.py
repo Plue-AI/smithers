@@ -241,6 +241,8 @@ for label, target in (("boot", "/run/smithers/trm06/boot.json"),
                       ("supervisor", "/opt/smithers/prototype/supervisor")):
     for mutation in ("hardlink", "fifo", "directory", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
+for mutation in ("writable", "empty", "same-size"):
+    STARTUP_MUTATIONS["startup-supervisor-" + mutation] = ("/opt/smithers/prototype/supervisor", mutation)
 STARTUP_MUTATIONS["startup-boot-identity"] = ("/run/smithers/trm06/boot.json", "identity")
 for mutation in ("empty", "oversized", "same-size", "duplicate", "secret", "revision", "digest", "unknown", "null", "zero-boot", "zero-secret", "wrong-type", "trailing"):
     STARTUP_MUTATIONS["startup-boot-" + mutation] = ("/run/smithers/trm06/boot.json", mutation)
@@ -248,7 +250,7 @@ for label, target in (("boot-parent", "/run/smithers/trm06"),
                       ("boot-ancestor", "/run/smithers"),
                       ("supervisor-parent", "/opt/smithers/prototype"),
                       ("supervisor-ancestor", "/opt/smithers")):
-    for mutation in ("symlink", "clone", "writable", "owner"):
+    for mutation in ("symlink", "clone", "held-leaves", "writable", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 
 
@@ -297,6 +299,14 @@ def mutate_startup(target, mutation):
             os.close(fd)
     elif mutation == "hardlink":
         os.link(path, path.with_name(path.name + "-original"), follow_symlinks=False)
+    elif path.name == "supervisor" and mutation in ("empty", "same-size"):
+        fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "r+b") as output:
+            original = output.read()
+            output.seek(0)
+            output.write(b"x" * len(original) if mutation == "same-size" else b"")
+            output.truncate()
+        return
     elif mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret", "revision", "digest", "unknown", "null", "zero-boot", "zero-secret", "wrong-type", "trailing"):
         # Valid but different authority at the same inode: restart must not
         # silently select a new boot id/secret even when modes remain trusted.
@@ -331,6 +341,12 @@ def mutate_startup(target, mutation):
             path.symlink_to(original, target_is_directory=original.is_dir())
         elif mutation == "clone":
             shutil.copytree(original, path, symlinks=True)
+        elif mutation == "held-leaves":
+            # Retain every child inode and byte while replacing only the
+            # validated parent. Leaf-only verification must not admit this.
+            path.mkdir(mode=original.stat().st_mode & 0o777)
+            for child in original.iterdir():
+                child.rename(path / child.name)
         elif mutation == "fifo":
             os.mkfifo(path, 0o400 if path.name == "boot.json" else 0o755)
         elif mutation == "directory":

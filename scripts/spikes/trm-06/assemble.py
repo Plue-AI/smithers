@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import stat
 import sys
 import struct
@@ -21,6 +22,23 @@ import tempfile
 SPIKE = Path("scripts/spikes/trm-06")
 FILES = {"launcher.py": 0o644, "install.py": 0o644, "validation.py": 0o644,
          "run.sh": 0o755, "revoke.sh": 0o755, "flow.sh": 0o755}
+
+
+def render_entry(source, name, gateway_sha, revision):
+    """Pin loader bytes from the archived main revision before Python startup."""
+    script = (source / SPIKE / name).read_text()
+    if "@TRM06_BOOTSTRAP@" not in script:
+        raise ValueError("shell entry lacks pinned bootstrap")
+    bootstrap = (source / SPIKE / "bootstrap.py").read_text()
+    if bootstrap.count("@TRM06_LAUNCHER_SHA256@") != 1:
+        raise ValueError("bootstrap digest marker missing or ambiguous")
+    bootstrap = bootstrap.replace("@TRM06_LAUNCHER_SHA256@", digest(source / SPIKE / "launcher.py"))
+    for marker, value, size in [("@TRM06_GATEWAY_SHA256@", gateway_sha, 64),
+                                ("@TRM06_REVISION@", revision, 40)]:
+        if bootstrap.count(marker) != 1 or len(value) != size or any(c not in "0123456789abcdef" for c in value):
+            raise ValueError("invalid main bootstrap identity")
+        bootstrap = bootstrap.replace(marker, value)
+    return script.replace("@TRM06_BOOTSTRAP@", shlex.quote(bootstrap)).encode()
 
 
 def unique(pairs):
@@ -300,7 +318,11 @@ def build_artifacts(repo, output, expected_revision=None):
             add_artifact(output, receipt, "bin/trm06-gateway", gateway, 0o755)
             add_artifact(output, receipt, "libexec/trm06-supervisor", supervisor, 0o755)
             for name, mode in FILES.items():
-                add_artifact(output, receipt, "share/trm06/" + name, source / SPIKE / name, mode)
+                artifact = source / SPIKE / name
+                if name.endswith(".sh"):
+                    artifact = build / name
+                    artifact.write_bytes(render_entry(source, name, digest(gateway), revision))
+                add_artifact(output, receipt, "share/trm06/" + name, artifact, mode)
             receipt["files"].sort(key=lambda entry: entry["path"])
             # Deliberately not manifest.json: these inputs lack the base release,
             # review key and signed receipts, and are never an installed bundle.

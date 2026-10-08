@@ -12,6 +12,8 @@ import stat
 import sys
 
 ROOT = Path("/usr/local/lib/smithers/current")
+PINNED_GATEWAY_SHA256 = globals().get("PINNED_GATEWAY_SHA256")
+PINNED_REVISION = globals().get("PINNED_REVISION")
 
 
 def unique(pairs):
@@ -118,6 +120,8 @@ def main():
         revision = manifest["revision"]
         if manifest["version"] != 1 or manifest["platform"] != "darwin-arm64" or len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
             raise ValueError("invalid manifest")
+        if revision != PINNED_REVISION:
+            raise ValueError("unpinned manifest revision")
         entries = {}
         for entry in manifest["files"]:
             relative = entry["path"]
@@ -127,6 +131,8 @@ def main():
         gateway = None
         for relative in ("share/trm06/launcher.py", "share/trm06/run.sh", "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway"):
             entry = entries[relative]
+            if relative == "bin/trm06-gateway" and entry["sha256"] != PINNED_GATEWAY_SHA256:
+                raise ValueError("unpinned gateway")
             ancestors.append([])
             fd = open_protected(root / relative, ancestors[-1])
             held.append(fd)
@@ -138,7 +144,7 @@ def main():
             if relative == "bin/trm06-gateway":
                 gateway = fd
         operation = sys.argv[1] if len(sys.argv) == 2 else ""
-        if operation not in ("run", "revoke", "flow", "measure", "check-install", "check-session", "check-no-landlock"):
+        if operation not in ("run", "revoke", "flow", "measure", "check-install", "check-session", "check-no-landlock", "check-startup"):
             raise ValueError("invalid operation")
         # Refuse replacements already visible before exec. The held executable
         # also prevents a final post-check replacement selecting other bytes.

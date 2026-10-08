@@ -14,7 +14,7 @@ spec.loader.exec_module(observer)
 
 class StartupMutations(unittest.TestCase):
     def test_every_installed_selector_changes_the_intended_object(self):
-        self.assertEqual(len(observer.STARTUP_MUTATIONS), 41)
+        self.assertEqual(len(observer.STARTUP_MUTATIONS), 48)
         for name, (target, mutation) in observer.STARTUP_MUTATIONS.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -32,6 +32,7 @@ class StartupMutations(unittest.TestCase):
                 else:
                     path.write_bytes(b"main-pinned")
                     path.chmod(0o755)
+                child_inode = (path / "boot.json").stat().st_ino if directory else None
                 original = path.stat()
                 contents = None if directory else path.read_bytes()
                 # Root can update the installed 0400 boot leaf. This ordinary
@@ -53,7 +54,11 @@ class StartupMutations(unittest.TestCase):
                     observer.mutate_startup(str(path), mutation)
                 if mutation in ("identity", "empty", "oversized", "same-size", "duplicate", "secret", "revision", "digest", "unknown", "null", "zero-boot", "zero-secret", "wrong-type", "trailing"):
                     path.chmod(original.st_mode & 0o777)
-                if mutation == "clone":
+                if mutation == "held-leaves":
+                    self.assertEqual((path / "boot.json").stat().st_ino, child_inode)
+                    self.assertNotEqual(path.stat().st_ino, original.st_ino)
+                    self.assertEqual((path / "boot.json").read_bytes(), b"main-pinned")
+                elif mutation == "clone":
                     self.assertNotEqual(path.stat().st_ino, original.st_ino)
                     self.assertEqual((path / "boot.json").read_bytes(), b"main-pinned")
                 elif mutation == "symlink":
