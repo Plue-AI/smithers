@@ -213,10 +213,12 @@ func (api *browserFlowAPI) prepare(w http.ResponseWriter, r *http.Request, provi
 		browserFlowTyped(w, http.StatusConflict, "workspace_gone", "This box is gone. Open a new one.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}
+	// Scratch machines are shared with repository members. Their working-copy
+	// runs use draft authority; other shared machines run through stack admission.
 	// A box the caller does not own is a TODO's lane: the stack runs it. Its
 	// person reads its runs here and acts on them through the TODO
 	// (/api/todos), never through the relay.
-	if !provision && workspace.UserID != user.ID && request.Procedure != "List" && request.Procedure != "Projection.Snapshot" {
+	if !provision && workspace.UserID != user.ID && !strings.HasPrefix(workspace.TargetBookmark, "scratch/") && request.Procedure != "List" && request.Procedure != "Projection.Snapshot" {
 		browserFlowTyped(w, http.StatusForbidden, "todo_requires_stack_admission", "This branch runs a TODO. Act on the TODO.")
 		return request, flowruntime.Target{}, db.Workspace{}, false
 	}

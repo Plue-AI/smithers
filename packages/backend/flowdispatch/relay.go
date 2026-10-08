@@ -116,14 +116,17 @@ func (service *Service) refuseRelayPlan(ctx context.Context, target flowruntime.
 // savePlan records the plan a relayed Plan answered with. A plan that cannot
 // be recorded cannot be run through the relay, so the Plan fails.
 func (service *Service) savePlan(ctx context.Context, target flowruntime.Target, answer json.RawMessage) error {
-	var card struct {
-		PlanID string `json:"planId"`
-		FlowID string `json:"flowId"`
+	var result struct {
+		OK      bool `json:"ok"`
+		Payload struct {
+			PlanID string `json:"planId"`
+			FlowID string `json:"flowId"`
+		} `json:"payload"`
 	}
-	if json.Unmarshal(answer, &card) != nil || card.PlanID == "" || service.relayPlans == nil {
+	if json.Unmarshal(answer, &result) != nil || !result.OK || result.Payload.PlanID == "" || result.Payload.FlowID == "" || service.relayPlans == nil {
 		return nil
 	}
-	return service.relayPlans.SaveRelayPlan(ctx, target, card.PlanID, card.FlowID)
+	return service.relayPlans.SaveRelayPlan(ctx, target, result.Payload.PlanID, result.Payload.FlowID)
 }
 
 // refuseTodoRun refuses a relayed run, resume or fork of a run of the todo

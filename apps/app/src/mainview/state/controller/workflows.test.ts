@@ -5,7 +5,7 @@ import { GATEWAY_REFUSED } from "./GatewayFailureCopy"
 import { scopedControllers } from "../ControllerTestScope"
 import { createAppStore } from "../AppStore"
 import type { AppServices } from "../AppController"
-import { json, loadBox, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
+import { json, loadBox, TEST_BOX, memoryStorage, scriptedToolAgent, settle, waitFor } from "../TestFixtures"
 
 const createAppController = scopedControllers()
 const repo = "owner/launch-test"
@@ -26,6 +26,10 @@ async function fixture(options: { sharedChat?: boolean; workflowPreparationTimeo
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "owner", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", ownerKind: "user", name: "launch-test", head: null }] }).isPersisted.promise
   await loadBox(store, repo)
+  if (options.sharedChat) {
+    await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "owner", open: true, selected_branch: "scratch/owner/flow", nodes: [] } }).isPersisted.promise
+    await store.dispatch({ type: "card.upsert", actor: "user", card: { id: `branch:${TEST_BOX}`, kind: "branch", title: "scratch/owner/flow", status: "active", createdAt: 1, ordinal: 1, payload: { id: TEST_BOX } } }).isPersisted.promise
+  }
   const calls: Array<{ procedure: string; payload: Record<string, unknown>; repo: string; workspaceId?: string }> = []
   let provision = async () => json(200, { status: "ready" })
   let provisions = 0
@@ -45,12 +49,12 @@ async function fixture(options: { sharedChat?: boolean; workflowPreparationTimeo
     if (path.endsWith("/api/user")) return session()
     // Chat admission is independent of the deliberately unresolved machine
     // launch. The install reads completed host output, never a browser model.
-    if (path.endsWith("/api/conversations/main/prompt") && init?.method === "POST") {
+    if (/\/api\/conversations\/[^/]+\/prompt$/.test(path) && init?.method === "POST") {
       chatRequests.push(JSON.parse(String(init.body)))
       return json(202, { turnId: `chat-${chatRequests.length}`, terminal: true })
     }
-    if (path.endsWith("/api/conversations/main")) return json(200, { id: "main", entries: chatRequests.map((request, i) => ({ id: `chat-${i + 1}`, author: 1, authorLogin: "owner", runId: `chat-run-${i + 1}`, prompt: request.prompt, state: "completed", frames: [{ runId: `chat-run-${i + 1}`, type: "delta", kind: "text", text: "Still here." }, { runId: `chat-run-${i + 1}`, type: "done", reason: "stop" }] })) })
-    if (path.endsWith("/api/conversations/main/view-state")) return json(200, {})
+    if (/\/api\/conversations\/[^/]+$/.test(path)) return json(200, { id: "main", entries: chatRequests.map((request, i) => ({ id: `chat-${i + 1}`, author: 1, authorLogin: "owner", runId: `chat-run-${i + 1}`, prompt: request.prompt, state: "completed", frames: [{ runId: `chat-run-${i + 1}`, type: "delta", kind: "text", text: "Still here." }, { runId: `chat-run-${i + 1}`, type: "done", reason: "stop" }] })) })
+    if (/\/api\/conversations\/[^/]+\/view-state$/.test(path)) return json(200, {})
     if (path.endsWith("/api/workflow/provision")) { provisions += 1; return provision() }
     const answered = options.answer?.(new URL(path, "http://app.test").pathname, init?.method ?? "GET")
     if (answered !== undefined) return answered
@@ -481,4 +485,34 @@ test("a persisted request launches its admitted input even if the caller later c
   gate.resolve(json(200, { status: "ready" }))
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
   expect(t.calls.find(call => call.procedure === "Plan")?.payload.input).toEqual({ args: "inspect", nested: { count: 1 }, _workflowLaunch: "flow-owned value" })
+})
+
+test("install Flow card Run asks for JSON and retains its scratch machine across navigation", async () => {
+  const t = await fixture({ sharedChat: true })
+  try {
+    await t.store.dispatch({ type: "card.upsert", actor: "user", card: { id: "flow-test", kind: "flow", title: "Review flow", status: "active", createdAt: 1, ordinal: 2, payload: { name: "review" } } }).isPersisted.promise
+    const asked = await t.controller.commands.submit({ name: "flow.run", payload: { name: "review", sourceCard: "flow-test" }, actor: "user" })
+    expect(asked.status).toBe("executed")
+    expect(t.calls).toEqual([])
+    const form = [...t.store.collections.cards.values()].find(card => card.kind === "flow-form")!
+    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "flow.run" } })
+    await t.controller.commands.run("form.set", `${form.id} input {}`)
+    const gate = deferred<Response>()
+    t.provision(() => gate.promise)
+    await t.controller.commands.run("form.submit", form.id)
+    expect(t.cards()).toHaveLength(1)
+    await t.store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "owner", open: true, selected_branch: "main", nodes: [] } }).isPersisted.promise
+    gate.resolve(json(200, { status: "ready" }))
+    await waitFor(() => t.calls.some(call => call.procedure === "Run"))
+    expect(t.calls.filter(call => call.procedure === "Run").map(call => call.workspaceId)).toEqual([TEST_BOX])
+    const refused = await t.controller.commands.submit({ name: "flow.plan", payload: { name: "review", input: {} }, actor: "user" })
+    expect(refused).toMatchObject({ status: "failed", error: "Open a branch first." })
+    await t.store.dispatch({ type: "card.upsert", actor: "user", card: { id: "branch-second", kind: "branch", title: "scratch/second", status: "active", createdAt: 2, ordinal: 3, payload: { id: "00000000-0000-4000-8000-000000000002" } } }).isPersisted.promise
+    await t.store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "owner", open: true, selected_branch: "scratch/second", nodes: [] } }).isPersisted.promise
+    await t.controller.commands.submit({ name: "flow.run", payload: { name: "review", sourceCard: "flow-test" }, actor: "user" })
+    const forms = [...t.store.collections.cards.values()].filter(card => card.kind === "flow-form")
+    expect(forms).toHaveLength(2)
+    expect(forms.find(card => card.id !== form.id)?.status).toBe("active")
+
+  } finally { await t.controller.dispose(); await t.store.dispose?.() }
 })

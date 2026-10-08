@@ -99,12 +99,13 @@ export const workflowCardFamily: CardFamily<"workflow-list"> = {
 /*
  * The `flow` kind (card-kinds.md L5, T-APP-05): the card names its flow; this
  * reads the model. On an install it is GET /api/flows (controller.flowCatalog),
- * where Edit, Source and agent navigation use install providers; Plan and Run await machine composition.
+ * where every action uses the install providers and the selected branch machine.
  * MOCK SEAM elsewhere: the seeded design world (state/seams/DesignWorld/run.ts),
  * whose Source and Edit are the design seam's presses.
  */
 const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit", "agent"])
-const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "flow.source", "agent"])
+const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "flow.source", "flow.plan", "flow.run", "agent"])
+const INSTALL_SYSTEM_FLOW_ACTIONS: ReadonlySet<CatalogTag> = DESIGN_FLOW_ACTIONS
 const UNAVAILABLE_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set()
 const NO_FLOWS: FlowsSnapshot = {}
 const noCatalog: FlowsSnapshots = { subscribe: () => () => {}, get: () => NO_FLOWS }
@@ -120,12 +121,12 @@ const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly
   const served = useSyncExternalStore(subscribe, catalog.get, catalog.get)
   const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
-    controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
+    controller.commands.submit({ name: tag, payload: { ...(input ?? {}), ...((tag === "flow.plan" || tag === "flow.run") ? { sourceCard: card.id } : {}) } as Record<string, unknown>, actor: "user", originCardId: card.id })
   if (model === undefined && controller.flowCatalog !== undefined) return served.error !== undefined
     ? <FailureNotice failure={unavailableFailure("FlowsUnavailable", "Flows unavailable", served.error)} />
     : served.flows === undefined ? <ViewSkeleton /> : <p role="alert">{`No flow ${card.payload.name}`}</p>
   const proposed = model === undefined || payload.proposal === undefined ? model : { ...model, proposal: payload.proposal }
-  return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
+  return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : model?.system === true ? INSTALL_SYSTEM_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
     view={{ maximized, tab: member === undefined || member === null ? undefined : payload.memberVersions?.[member] ?? payload.version }} onView={patch => {
       if (!member || patch.tab === undefined || !model?.versions.some(version => version.id === patch.tab)) return
       controller.setCardTab(card.id, patch.tab)

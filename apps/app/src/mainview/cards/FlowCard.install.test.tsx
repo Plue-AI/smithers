@@ -87,7 +87,7 @@ test("install /flow mounts the served versions through the production card rende
     expect(reads).toContain("/api/flows")
     expect(host.querySelector('.flow-path')?.textContent).toBe("flows/todo/flow.ts")
     expect(host.querySelector('.flow-steps')?.textContent).toContain("Build on this install")
-    expect([...host.querySelectorAll('[data-flow]')].map(node => node.textContent)).toEqual(["builder", "Source", "Edit"])
+    expect([...host.querySelectorAll('[data-flow]')].map(node => node.textContent)).toEqual(["builder", "Source", "Plan", "Run", "Edit"])
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
     expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Write the changelog")
     expect(host.querySelectorAll('[data-added="true"]')).toHaveLength(1)
@@ -106,7 +106,7 @@ test("install /flow mounts the served versions through the production card rende
     const versions = catalog[0]!.versions
     catalog[0]!.versions = versions.filter(version => version.state !== "proposed")
     await act(async () => { await controller!.flowCards() })
-    expect([...host.querySelectorAll("[data-flow]")].map(node => node.textContent)).toEqual(["builder", "Source", "Edit"])
+    expect([...host.querySelectorAll("[data-flow]")].map(node => node.textContent)).toEqual(["builder", "Source", "Plan", "Run", "Edit"])
     sourceUnavailable = true
     expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "failed" })
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)

@@ -35,7 +35,7 @@ func TestBrowserFlowDraftComposedAdmission(t *testing.T) {
 	} {
 		require.NoError(t, b.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
 	}
-	box := b.box(b.repo, b.owner, "running")
+	box := b.box(b.repo, b.machines, "running", b.owner)
 	b.exec(`UPDATE workspaces SET target_bookmark='scratch/owner/draft' WHERE id=$1`, box)
 	cookie := "draft-session-" + box
 	hash := sha256.Sum256([]byte(cookie))

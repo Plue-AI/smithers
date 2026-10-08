@@ -137,7 +137,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
     summary: "Run a flow with typed input",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "[sourceCard=id] <name> [owner/repo] [JSON object]",
     requires: ["signed-in"],
     input: Schema.Union([
@@ -166,7 +166,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
     summary: "See what a flow would run",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "[sourceCard=id] [against=runId] <name> [owner/repo] [JSON object]",
     requires: ["signed-in"],
     input: Schema.Struct({

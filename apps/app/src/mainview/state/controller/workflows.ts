@@ -738,11 +738,33 @@ export const createWorkflowController = (
     return authoring.request(description, repo, binding, ctx.commandActor)
   }
 
+  // On an install /branch selects the shared conversation, not a Cloud box.
+  // Its mounted card records the machine returned by the real branch provider.
+  // Bind once before persisting Plan/Run so later navigation cannot retarget it.
+  const selectedWorkflowBinding = (repo: string): GatewayBinding => {
+    if (!ctx.services.bootstrap?.capabilities.includes("install")) return gatewayBindingFor(store, repo)
+    const navigation = store.session().branchNavigation
+    if (!navigation || navigation.owner !== ctx.accountOwner() || !navigation.selected_branch || navigation.selected_branch === "main") {
+      return { error: "Open a branch first." }
+    }
+    const branch = [...store.collections.cards.values()].find(card =>
+      card.kind === "branch" && card.title === navigation.selected_branch)
+    return branch?.kind === "branch" && branch.payload.id
+      ? { workspaceId: branch.payload.id }
+      : { error: "Open the branch again." }
+  }
+
   /** A source card binds both catalog reads and launches to the retained host. */
   const workflowScope = (repoArg?: string, sourceCard?: string):
     { readonly repo: string; readonly binding: GatewayWorkspaceBinding } | { readonly error: string } => {
     if (sourceCard !== undefined) {
       const card = store.collections.cards.get(sourceCard)
+      if (card?.kind === "flow" && ctx.services.bootstrap?.capabilities.includes("install")) {
+        const target = workflowTargetRepo(repoArg)
+        if ("error" in target) return target
+        const binding = selectedWorkflowBinding(target.repo)
+        return "error" in binding ? binding : { repo: target.repo, binding }
+      }
       if (card?.kind !== "run-trace" && card?.kind !== "workflow-list" && card?.kind !== "flow-plan") return { error: "The source run or catalog card is unavailable." }
       if (repoArg !== undefined && repoArg !== card.payload.repo) return { error: "The source card belongs to another repository." }
       const binding = recordedRunBinding(card.payload, card.kind === "run-trace" ? undefined : "This card's box is gone.")
@@ -750,7 +772,7 @@ export const createWorkflowController = (
     }
     const target = workflowTargetRepo(repoArg)
     if ("error" in target) return target
-    const binding = gatewayBindingFor(store, target.repo)
+    const binding = selectedWorkflowBinding(target.repo)
     return "error" in binding ? binding : { repo: target.repo, binding }
   }
 
@@ -767,6 +789,7 @@ export const createWorkflowController = (
 
   /** A human reaches the existing box form before a box-bound flow can run. */
   const boxPrerequisite = (repo: string, binding: Extract<GatewayBinding, { readonly error: string }>, act: { readonly flow: string; readonly args?: string; readonly afterBox?: { readonly kind: "prs.triage"; readonly number: number } }, title: string): string | { readonly value: string } => {
+    if (ctx.services.bootstrap?.capabilities.includes("install")) return binding.error
     if (binding.choices !== undefined) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, ...act })
     if (ctx.commandActor === "user" && repositoryBoxOf(store, repo).kind === "none" && selectedBoxBinding(store, repo) === undefined) {
       const rendered = renderFlowForm?.({ name: "branch", args: flowArgs("branch", { repo, operation: "workspace-open" }), via: "user", title, cardId: "form-box.open",
@@ -780,7 +803,7 @@ export const createWorkflowController = (
   const requireBox: WorkflowController["requireBox"] = (repo, act, title) => {
     const guard = workflowIdentityGuard()
     if (guard !== undefined) return guard
-    const binding = gatewayBindingFor(store, repo)
+    const binding = selectedWorkflowBinding(repo)
     return "error" in binding ? boxPrerequisite(repo, binding, act, title) : undefined
   }
 
@@ -823,7 +846,7 @@ export const createWorkflowController = (
     if (guard !== undefined) return guard
     const target = workflowTargetRepo()
     if ("error" in target) return target.error
-    const binding = gatewayBindingFor(store, target.repo)
+    const binding = selectedWorkflowBinding(target.repo)
     if ("error" in binding) return boxPrerequisite(target.repo, binding, { flow: "flows" }, `Open a box to see flows in ${target.repo}`)
     const generation = ++flowsOpeningGeneration
     flowsOpening = true
@@ -859,7 +882,7 @@ export const createWorkflowController = (
     if (humanDoor && sourceCard === undefined && workspaceId === undefined) {
       const selected = workflowTargetRepo(repoArg)
       if ("error" in selected) return selected.error
-      const binding = gatewayBindingFor(store, selected.repo)
+      const binding = selectedWorkflowBinding(selected.repo)
       if ("error" in binding) return boxPrerequisite(selected.repo, binding, {
         flow: "flow.run", args: flowArgs("flow.run", { name, repo: selected.repo, input: inputArg })
       }, `Open a box to run ${name} in ${selected.repo}`)
@@ -873,12 +896,17 @@ export const createWorkflowController = (
     // A box executes with its own configured provider. Its gateway enforces
     // box access, capacity and provider setup.
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
+    if (source?.kind === "flow" && inputArg === undefined) {
+      const rendered = renderFlowForm?.({ name: "flow.run", args: flowArgs("flow.run", { name, repo, sourceCard }),
+        via: ctx.commandActor === "smithers" ? "agent" : "user", cardId: `form-flow-${sourceCard}-${binding.workspaceId}-${name}`, hints: { requires: () => ["input"], fields: { input: { label: "Input JSON" } } } })
+      if (rendered) return { value: formRenderedText(rendered.missing) }
+    }
     if (source?.kind === "flow-plan" && source.payload.flowId !== name) return "The plan belongs to another flow."
     const declaration = source?.kind === "workflow-list"
       ? source.payload.workflows.find(flow => flow.key === name)?.inputSchema
       : source?.kind === "flow-plan" && source.payload.flowId === name
         ? source.payload.inputSchema
-        : sourceCard === undefined ? store.collections.repositoryFlows.get(repo)?.flows.find(flow => flow.id === name)?.inputSchema : undefined
+        : sourceCard === undefined ? store.collections.repositoryFlows.get(repo)?.flows.find(flow => flow.id === name)?.inputSchema ?? workspaceFlowSchema(repo, binding.workspaceId, name) : undefined
     const schema = declaredInput(declaration)
     const fields = schema === undefined ? [] : formFieldsFor(schema, undefined)
     const askForInput = inputArg === undefined && fields.length > 0 && (source?.kind !== "flow-plan" || ctx.commandActor === "user")
@@ -924,6 +952,11 @@ export const createWorkflowController = (
     if ("error" in target) return target.error
     const { repo, binding } = target
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
+    if (source?.kind === "flow" && inputArg === undefined) {
+      const rendered = renderFlowForm?.({ name: "flow.plan", args: flowArgs("flow.plan", { name, repo, sourceCard }),
+        via: ctx.commandActor === "smithers" ? "agent" : "user", cardId: `form-plan-${sourceCard}-${binding.workspaceId}-${name}`, hints: { requires: () => ["input"], fields: { input: { label: "Input JSON" } } } })
+      if (rendered) return { value: formRenderedText(rendered.missing) }
+    }
     if (source?.kind === "flow-plan" && source.payload.flowId !== name) return "The plan belongs to another flow."
     const declaration = source?.kind === "workflow-list" && source.loading !== true && source.payload.catalogRequest === undefined
       ? source.payload.workflows.find(flow => flow.key === name)?.inputSchema

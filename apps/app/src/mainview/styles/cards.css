@@ -1021,6 +1021,10 @@
 	font: inherit;
 	font-size: var(--fs-small);
 }
+.flow-form:focus-visible, .flow-form .sui-button:focus-visible {
+	outline: 2px solid var(--ring-border);
+	outline-offset: 2px;
+}
 .flow-form-row > :is(input:not([type="checkbox"]), textarea, select):focus-visible {
 	outline: 2px solid var(--ring-border);
 	outline-offset: 2px;

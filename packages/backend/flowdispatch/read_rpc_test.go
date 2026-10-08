@@ -95,7 +95,7 @@ func (r *observedRuntime) CallRPC(ctx context.Context, procedure string, payload
 	if err := json.Unmarshal(payload, &plan); err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"planId": "plan-of-" + plan.FlowID, "flowId": plan.FlowID, "digest": "d"})
+	return json.Marshal(map[string]any{"ok": true, "payload": map[string]any{"planId": "plan-of-" + plan.FlowID, "flowId": plan.FlowID, "digest": "d"}})
 }
 
 // Fable round 2 N1, round 3 N2, Astra round 3 N1: the browser workflow relay
@@ -248,4 +248,15 @@ func TestMonitorNeverStartsAHost(t *testing.T) {
 	})
 	_, err = service.Monitor(context.Background(), flowruntime.Target{}, "recorded-run", nil)
 	require.ErrorContains(t, err, "read-only resolver")
+}
+
+func TestRelayOnlyRetainsSuccessfulGatewayPlans(t *testing.T) {
+	target := flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "scratch", BindingKind: DraftBindingKind}
+	for _, answer := range []string{`null`, `{`, `{"planId":"p","flowId":"todo"}`, `{"ok":false,"payload":{"planId":"p","flowId":"todo"}}`, `{"ok":true,"payload":{"planId":"p"}}`} {
+		service := &Service{relayPlans: memoryRelayPlans{}}
+		require.NoError(t, service.savePlan(t.Context(), target, json.RawMessage(answer)))
+		_, ok, err := service.relayPlans.RelayPlanFlow(t.Context(), target, "p")
+		require.NoError(t, err)
+		require.False(t, ok)
+	}
 }
