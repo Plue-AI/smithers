@@ -52,6 +52,11 @@ impl LockCx {
         if hooks.watcher.drain(self).is_err() {
             return;
         }
+        // Qualification requests an ordinary local capture while the host
+        // transport is absent. It closes real watcher bursts and pins/queues
+        // their real objects; it never fabricates a burst or an ACK.
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::qualification_capture(|| hooks.core.capture_local(self));
         let generation = hooks.events.burst_generation();
         if generation != self.burst_generation {
             self.cadence.burst_closed();

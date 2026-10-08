@@ -42,6 +42,9 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 // These options are test-only; the default rehearsal remains a single boot.
 type rehearsalRestart struct {
 	State, Run, KillAt string
+	// Attach lets a separately supervised host own the actual relay connection.
+	// The daemon remains owned and reaped by this test, including on host exit.
+	Attach func(context.Context, string) error
 	// HostHead comes from the production machineBranchHead provider.
 	HostHead string
 	Exited   chan error
@@ -152,6 +155,9 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 		return ctx.Err()
 	case <-time.After(30 * time.Second):
 		return fmt.Errorf("machined startup timeout")
+	}
+	if restart != nil && restart.Attach != nil {
+		return restart.Attach(ctx, address)
 	}
 	stream, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {

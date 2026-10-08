@@ -70,10 +70,21 @@ func (r *Registry) MintBoot(branch, machine string) (BootAuthority, error) {
 		}
 	}
 	a.Credential = hex.EncodeToString(credential[:])
-	if err := r.bindBoot(branch, machine, a.ID, []byte(a.Credential), a.Secret); err != nil {
+	if err := r.RegisterBoot(branch, machine, a); err != nil {
 		return BootAuthority{}, err
 	}
 	return a, nil
+}
+
+// RegisterBoot registers host-owned boot authority after a host process restart.
+// The caller supplies protected host state, never a daemon's claimed identity.
+// A live registry still rejects reuse and fences the previous branch boot.
+func (r *Registry) RegisterBoot(branch, machine string, a BootAuthority) error {
+	credential, err := hex.DecodeString(a.Credential)
+	if err != nil || len(credential) != 32 || a.Secret == ([32]byte{}) {
+		return ErrUnauthorized
+	}
+	return r.bindBoot(branch, machine, a.ID, []byte(a.Credential), a.Secret)
 }
 
 // File is consumed by W1's strict boot parser. The installer owns location,

@@ -623,6 +623,42 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
     }
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
+pub(crate) fn qualification_capture(capture: impl FnOnce() -> crate::hooks::Result<()>) {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let state = std::path::Path::new("/var/lib/smithers-machined");
+    if std::fs::remove_file(state.join("qualification-K4b-capture.arm")).is_err() {
+        return;
+    }
+    std::fs::write(state.join("qualification-K4b-capture.started"), b"started")
+        .expect("record local capture qualification entry");
+    let result = capture();
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(state.join("qualification-K4b-capture.tmp"))
+        .expect("create local capture qualification receipt");
+    file.write_all(if result.is_ok() {
+        b"captured"
+    } else {
+        b"failed"
+    })
+    .expect("write local capture qualification receipt");
+    file.sync_all()
+        .expect("sync local capture qualification receipt");
+    std::fs::rename(
+        state.join("qualification-K4b-capture.tmp"),
+        state.join("qualification-K4b-capture.hit"),
+    )
+    .expect("publish complete local capture qualification receipt");
+    std::fs::remove_file(state.join("qualification-K4b-capture.started"))
+        .expect("clear local capture qualification entry");
+    std::fs::File::open(state)
+        .and_then(|directory| directory.sync_all())
+        .expect("sync local capture qualification directory");
+}
+#[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) static DOCUMENT_EDITED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 #[cfg(all(feature = "killpoints", debug_assertions))]

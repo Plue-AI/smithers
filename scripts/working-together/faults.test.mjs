@@ -72,7 +72,7 @@ test('missing host fixture records a failure before starting either boundary sui
   const { run } = await import('./faults.mjs')
   const root = await mkdtemp(join(tmpdir(), 'wiki-fault-refusal-'))
   try {
-    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly', 'watcherOnly', 'sessionOnly', 'vmOnly']) {
+    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly', 'watcherOnly', 'watcherHostOnly', 'sessionOnly', 'vmOnly']) {
       assert.equal(await run({ root, [mode]: true }), 1)
       const parent = join(root, '.artifacts/checks/C-DUR-04')
       const directories = await readdir(parent)
@@ -80,8 +80,8 @@ test('missing host fixture records a failure before starting either boundary sui
       const summary = JSON.parse(await readFile(join(parent, directory, 'summary.json'), 'utf8'))
       assert.equal(summary.status, 'failed')
       assert.equal(summary.reason, 'host fixture unavailable')
-      assert.deepEqual(summary.tests, mode === 'sessionOnly' ? ['TestMachinedDaemonSessionFaultRecovery'] : mode === 'vmOnly' ? ['TestMachinedK6VMStop'] : mode === 'watcherOnly' ? watcherTests : mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
-      assert.deepEqual(summary.points.map(item => item.point), mode === 'sessionOnly' ? watcherPoints : mode === 'vmOnly' ? ['K6'] : mode === 'watcherOnly' ? watcherPoints : mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
+      assert.deepEqual(summary.tests, mode === 'watcherHostOnly' ? ['TestOutsideWatcherHostFaultRecovery', 'TestOutsideWatcherHostOutageRecovery'] : mode === 'sessionOnly' ? ['TestMachinedDaemonSessionFaultRecovery'] : mode === 'vmOnly' ? ['TestMachinedK6VMStop'] : mode === 'watcherOnly' ? watcherTests : mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
+      assert.deepEqual(summary.points.map(item => item.point), mode === 'watcherHostOnly' ? ['K4', 'K4b'] : mode === 'sessionOnly' ? watcherPoints : mode === 'vmOnly' ? ['K6'] : mode === 'watcherOnly' ? watcherPoints : mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
       assert.ok(summary.points.every(item => item.status === 'blocked'))
       assert.deepEqual((await readdir(join(parent, directory))).sort(), ['env.json', 'summary.json'])
     }
@@ -151,6 +151,7 @@ test('watcher preflight refuses an uninstrumented binary before running the camp
   await writeFile(binary,Buffer.from([0x7f,0x45,0x4c,0x46]),{mode:0o700})
   await assert.rejects(watcherEnvironment(config,directory,'commit',{}),/features killpoints/)
   await writeFile(binary,Buffer.concat([Buffer.from([0x7f,0x45,0x4c,0x46]),Buffer.from('SMITHERS_MACHINED_KILL_AT')]))
+  await assert.rejects(watcherEnvironment(config,directory,'commit',{},true),/local capture qualification hook required/)
   const result = await watcherEnvironment(config,directory,'commit',{LANE:'fr14-col04'})
   assert.match(result.binaryDigest,/^[0-9a-f]{64}$/)
   assert.equal(result.env.SMITHERS_REHEARSAL_COMMIT,'commit')
@@ -187,4 +188,19 @@ test('approved guest campaigns require all populated-session and VM lifecycles',
   }
   assert.equal(sessionLifecycles.length, 71)
   assert.equal(vmLifecycles.length, 21)
+})
+
+test('real watcher host campaign requires every process-exit recovery lifecycle', async () => {
+  const { watcherHostLifecycles, watcherHostVerdict } = await import('./faults.mjs')
+  const logs = receipt(watcherHostLifecycles, 1)
+  assert.equal(watcherHostVerdict(0, logs), 'boundary-passed')
+  assert.equal(watcherHostVerdict(1, logs), 'failed')
+  for (const name of watcherHostLifecycles) {
+    for (const replacement of ['', event('skip', name), event('fail', name)]) {
+      assert.equal(watcherHostVerdict(0, logs.replace(event('pass', name), replacement)), 'failed')
+    }
+    assert.equal(watcherHostVerdict(0, logs + '\n' + event('pass', name)), 'failed')
+  }
+  assert.equal(watcherHostLifecycles.length, 22)
+  assert.equal(watcherHostVerdict(0, logs.replaceAll(pkg, 'another/package')), 'failed')
 })

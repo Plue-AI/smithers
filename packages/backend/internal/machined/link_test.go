@@ -102,6 +102,35 @@ func TestHostLinkBootAuthority(t *testing.T) {
 	require.Contains(t, string(newer.File(9000)), "topology=bridge\nbridge_port=9000\n")
 	require.NotContains(t, string(newer.File(0)), "bridge_port")
 }
+
+func TestHostBootRegistrationAfterProcessRestart(t *testing.T) {
+	original := new(Registry)
+	a, err := original.MintBoot("branch", "machine")
+	require.NoError(t, err)
+	restarted := new(Registry)
+	require.NoError(t, restarted.RegisterBoot("branch", "machine", a))
+	link, _ := connectTest(t, restarted, "branch", a)
+	require.NoError(t, link.Reconciled())
+	require.ErrorIs(t, restarted.RegisterBoot("branch", "machine", a), ErrUnauthorized)
+	require.NoError(t, link.RequireReady("branch"))
+	for _, bad := range []BootAuthority{
+		{}, {ID: a.ID, Credential: a.Credential},
+		{ID: a.ID, Secret: a.Secret, Credential: "invalid"},
+		{ID: a.ID, Secret: a.Secret, Credential: a.Credential[:62]},
+		{ID: a.ID, Secret: a.Secret, Credential: a.Credential + "00"},
+		{Secret: a.Secret, Credential: a.Credential},
+	} {
+		require.ErrorIs(t, new(Registry).RegisterBoot("branch", "machine", bad), ErrUnauthorized)
+	}
+	require.ErrorIs(t, new(Registry).RegisterBoot("", "machine", a), ErrUnauthorized)
+	require.ErrorIs(t, new(Registry).RegisterBoot("branch", "", a), ErrUnauthorized)
+	_, err = restarted.MintBoot("branch", "machine")
+	require.NoError(t, err)
+	require.ErrorIs(t, link.RequireReady("branch"), ErrUnauthorized)
+	require.NoError(t, original.Close())
+	require.NoError(t, restarted.Close())
+	require.ErrorIs(t, restarted.RegisterBoot("branch", "machine", a), ErrNotReady)
+}
 func TestHostLinkDispatchAndEventsDuringCapture(t *testing.T) {
 	r := new(Registry)
 	a, err := r.MintBoot("a", "vm")

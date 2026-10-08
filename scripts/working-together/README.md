@@ -108,6 +108,25 @@ Its empty broker census cannot qualify member-session attribution, guest init
 supervision, K4/K4b host faults or K6 VM kills. The summary stays `incomplete`;
 successful daemon and host modes must never be combined into a full-check pass.
 
+`node scripts/working-together/faults.mjs --watcher-host-only` runs ten real
+watcher/host repetitions each of K4 and K4b using the same private fixture and
+digest-bound daemon as `--watcher-only`. K4 exits a separate host process after
+the production burst transaction commits, before its wire ACK; the daemon
+stays alive. A replacement host authenticates the retained host-owned boot,
+replays the real outbox and captures after it drains. K4b closes the transport
+for at least 30 seconds while fifty outside writes become fifty real bursts.
+The debug-only `qualification-K4b-capture.arm` marker in the daemon's protected
+state requests the ordinary local capture under the mutation lock, so each
+burst closes without waiting for an unavailable host RPC. It neither creates
+fixture events nor acknowledges anything. The same host process reconnects.
+Both cases verify acknowledged bytes, unique file rows, captured host trees,
+empty outboxes and every sleeping-branch diff through the composed HTTP router.
+Evidence includes writer logs, unacknowledged records, host and daemon logs,
+database exports and capture heads; K4b also records actual outage duration
+and the unchanged host PID. This is portable watcher/host evidence. Populated
+member cgroups, guest init and real VM force-stop still require the approved
+reference campaigns; the summary remains `incomplete`.
+
 
 On the reference Mac, `node scripts/working-together/faults.mjs --session-only`
 runs K1–K3b and K5a–c against the composed approved microVM install, ten times
