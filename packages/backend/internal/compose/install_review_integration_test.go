@@ -32,6 +32,12 @@ import (
 // integrations allocate nothing. The success/recovery portion uses explicitly
 // test-only machine and delivery ports; it does not qualify a real microVM.
 func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
+	testInstallReviewHTTPAdmission(t, false)
+}
+func TestSuccessfulTerminalBeforeReviewInstallBoundary(t *testing.T) {
+	testInstallReviewHTTPAdmission(t, true)
+}
+func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
@@ -191,6 +197,9 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	require.NoError(t, err)
 	seed.OAuthCode = "review-owner-code"
 	seed.Installations[0].ID = 93612
+	if successfulTerminal {
+		seed.Installations[0].ID = 93613 // Distinct fake installation: tokens are cached process-wide.
+	}
 	seed.Installations[0].Repositories[0].FullName = "review-owner/app"
 	upstream, err := githubfake.New(seed)
 	require.NoError(t, err)
@@ -347,7 +356,11 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	requestReview(403, "permission") // Missing sign-in identity fails closed.
 	newWrites := upstream.Writes()[writes:]
 	require.Len(t, newWrites, 1, "only a read-scoped token mint; no repository writes")
-	require.Equal(t, "/app/installations/93612/access_tokens", newWrites[0].Path)
+	expectedMintPath := "/app/installations/93612/access_tokens"
+	if successfulTerminal {
+		expectedMintPath = "/app/installations/93613/access_tokens"
+	}
+	require.Equal(t, expectedMintPath, newWrites[0].Path)
 	require.JSONEq(t, `{"repository_ids":[1],"permissions":{"pull_requests":"read"}}`, string(newWrites[0].Body))
 	var count int
 	for _, table := range []string{"workspaces", "product_job_dispatches", "mythical_items", "mythical_stacks", "approvals"} {
@@ -356,9 +369,12 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	}
 	t.Run("ephemeral machine adapter and real delivery", func(t *testing.T) {
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
-		exerciseReviewMachine(t, pool, service, chatStore, router, repo.ID, owner.ID)
+		exerciseReviewMachine(t, pool, service, chatStore, router, repo.ID, owner.ID, successfulTerminal)
 		service.SetReviewBackground(nil)
 	})
+	if successfulTerminal {
+		return
+	}
 	t.Run("durable admission and worker recovery", func(t *testing.T) {
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
 		machine := &reviewMachineFixture{runs: map[string]string{}}

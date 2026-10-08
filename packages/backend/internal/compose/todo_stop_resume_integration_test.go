@@ -532,6 +532,21 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 		require.Empty(t, receiver.signals, "Resume must wait for capacity before delivery")
 		require.EqualValues(t, 1, transport.starts.Load())
 		require.Zero(t, guest.queue.InUse())
+		// A reconnect retries the durable HTTP intent while admission remains
+		// unresolved. It cannot create a second signal, slot or current attempt.
+		replayStatus, replayReceipt := call("POST", `{"op":"resume"}`, "resume-1")
+		require.Equal(t, 202, replayStatus)
+		require.Equal(t, receipt, replayReceipt)
+		waiting, e := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, e)
+		var checks map[string]any
+		require.NoError(t, json.Unmarshal(waiting.Checks, &checks))
+		attached, _ := checks["run_attached"].(bool)
+		require.False(t, attached, "a resumed run with completed steps still needs current-attempt attachment")
+		require.EqualValues(t, 1, waiting.Attempt)
+		require.Equal(t, "run-1", waiting.RequestRunID)
+		require.Len(t, guest.queue.AdmissionSnapshot(), 1)
+		require.Empty(t, receiver.signals)
 		disk.Store(140 << 30)
 	}
 

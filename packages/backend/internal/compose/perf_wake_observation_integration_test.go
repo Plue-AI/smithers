@@ -463,6 +463,9 @@ func (r *terminalFIFOGuests) ExecuteCommand(ctx context.Context, id string, comm
 func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1, 1, false)
 }
+func TestSuccessfulScratchReplayInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "replay")
+}
 func TestSuccessfulFiftyTerminalInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 10, 5, 1, false)
 }
@@ -979,6 +982,17 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		_, err = f.pool.Exec(ctx, `ALTER TABLE product_job_requests DROP CONSTRAINT grant_receipt_refusal`)
 		require.NoError(t, err)
 	}
+	// Replace the live hub and store while successful demand remains queued.
+	// No memory cursor or seeded card is carried across this replacement.
+	var replayServer *httptest.Server
+	if constraint == "replay" {
+		freshStore, e := jobs.NewStore(f.pool)
+		require.NoError(t, e)
+		freshTopics := &liveTopics{queries: q, todos: stack, jobs: freshStore, presence: f.p, capacity: capacity}
+		freshLive := &routes.LiveHandler{Queries: q, Hub: live.NewHub(workerCtx, nil), Origins: liveHandler.Origins, Topics: freshTopics.resolver}
+		replayServer = httptest.NewServer(parallelInstallRouter(cfg, q, f.pool, handler, routerExtras{Live: freshLive}))
+		defer replayServer.Close()
+	}
 	for i, branch := range branches {
 		select {
 		case started := <-runtime.started:
@@ -1009,6 +1023,27 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 			}
 			require.Equal(t, branch.ID, fact.Branch.ID)
 			require.Greater(t, *frame.Cursor, cursors[i])
+			if replayServer != nil {
+				// The successful awake observation, including its exact durable
+				// envelope, must replay after the disconnected waiting cursor.
+				sockets[i].CloseNow()
+				replay, _, e := websocket.Dial(ctx, "ws"+strings.TrimPrefix(replayServer.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, Host: strings.TrimPrefix(cfg.Server.PublicURL, "http://"), HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"smithers_session=" + f.cookie}}})
+				require.NoError(t, e)
+				sendPresenceFrame(t, replay, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s","cursor":%d}`, branch.ID, cursors[i]))
+				previous := cursors[i]
+				for {
+					recorded := readPresenceFrame(t, replay)
+					require.Equal(t, "delta", recorded.T, "a fresh hub must use the committed source, never reset the card")
+					require.Greater(t, *recorded.Cursor, previous)
+					previous = *recorded.Cursor
+					if *recorded.Cursor == *frame.Cursor {
+						require.JSONEq(t, string(frame.Data), string(recorded.Data))
+						break
+					}
+					require.Less(t, *recorded.Cursor, *frame.Cursor)
+				}
+				replay.CloseNow()
+			}
 			break
 		}
 		require.Eventually(t, func() bool {

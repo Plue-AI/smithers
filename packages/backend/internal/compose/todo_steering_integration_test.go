@@ -389,6 +389,18 @@ func testTodoOrderedRecovery(t *testing.T, scheduled bool) {
 			require.Empty(t, receiver.entered, "delivery waits for a machine grant")
 			require.EqualValues(t, index+1, transport.starts.Load())
 			require.Zero(t, guest.queue.InUse())
+			beforeReplay, e := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, e)
+			if pair.answerFirst {
+				answer(pair.first)
+			} else {
+				steer(pair.first)
+			}
+			afterReplay, e := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, e)
+			require.Equal(t, beforeReplay, afterReplay, "an HTTP retry while released must retain the same durable input")
+			require.Len(t, guest.queue.AdmissionSnapshot(), 1)
+			require.Empty(t, receiver.entered)
 			disk.Store(140 << 30)
 		}
 		if pair.amendment {

@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -41,8 +42,23 @@ import (
 // These test-only dependency ports cannot qualify root inputs, pinned module
 // imports or microVM isolation. The machine adapter, worker, database, delivery,
 // GitHub client and HTTP admission/read doors are production implementations.
-func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.MythicalService, chatStore *chat.Store, router http.Handler, repository, user int64) {
+func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.MythicalService, chatStore *chat.Store, router http.Handler, repository, user int64, successfulTerminal bool) {
 	ctx := t.Context()
+	defer func() {
+		if !t.Failed() {
+			return
+		}
+		rows, e := pool.Query(context.Background(), `SELECT event_type,data::text FROM product_job_events WHERE event_type IN ('terminal.failed','branch.machine.failed')`)
+		if e != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var kind, body string
+			_ = rows.Scan(&kind, &body)
+			t.Log(kind, body)
+		}
+	}()
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	root := t.TempDir()
@@ -51,6 +67,10 @@ func exerciseReviewMachine(t *testing.T, pool *pgxpool.Pool, service *services.M
 	require.NoError(t, err)
 	personBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repository, UserID: machines, Name: "review-waiter", TargetBookmark: "scratch/review-owner/review-waiter", Kind: "container", Status: "suspended"})
 	require.NoError(t, err)
+	if successfulTerminal {
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET kind='vm' WHERE id=$1`, personBranch.ID)
+		require.NoError(t, err)
+	}
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, personBranch.ID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET unix_login='review-owner',unix_uid=20000 WHERE repository_id=$1 AND user_id=$2`, repository, user)
@@ -143,22 +163,48 @@ esac
 	cfg.Server.PublicURL = "http://" + terminalServer.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
-	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(queue), services.WithWorkspaceTransactions(pool),
-		services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), queue)),
+	auth.Members = &services.Members{Pool: pool}
+	var personRuntime workspace.WorkspaceRuntime = queue
+	registry := new(machined.Registry)
+	if successfulTerminal {
+		personBranch, err = q.GetWorkspace(ctx, personBranch.ID)
+		require.NoError(t, err)
+		reader, writer := io.Pipe()
+		guest := &releasedTodoGuest{perfWakeRuntime: &perfWakeRuntime{queue: queue, row: personBranch, state: workspace.WorkspaceStopped, mode: "warm", entered: make(chan struct{})}, source: perfWakeHead, clone: "http://127.0.0.1:4000/review-owner/app.git"}
+		guest.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: repository}, terminal: &echoOwnerTerminal{reader: reader, writer: writer}, branch: personBranch, member: microsandbox.MemberIdentity{Login: "review-owner", UID: 20000, Active: true}}
+		personRuntime = &successfulReviewPersonGuest{releasedTodoGuest: guest, machine: machineName}
+		registry = &guest.registry
+		link, _ := presenceTestLink(t, registry, personBranch.ID)
+		require.NoError(t, link.Reconciled())
+	}
+	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(personRuntime), services.WithWorkspaceTransactions(pool),
+		services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), personRuntime)),
 		services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"),
 		services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+	workspaces.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
 	workspaces.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
 	terminal := &routes.WorkspaceTerminalHandler{OwnerOnly: true, Service: workspaces, SessionCookieName: "session", AllowedOrigins: cfg.Server.AllowedOrigins}
 	manager := terminal.SharedTerminalSessions()
 	t.Cleanup(manager.Close)
-	provider := &installOwnerTerminals{queries: q, branches: workspaces, registry: new(machined.Registry)}
+	auth.TerminalSubject = manager.OwnsSubject
+	provider := &installOwnerTerminals{queries: q, branches: workspaces, registry: registry}
 	provider.Bind(manager)
 	terminal.OwnerTerminals = provider
 	bus := revocation.NewBus(pool, q)
 	require.NoError(t, bus.Start(ctx))
 	routes.SetRevocationSource(bus)
 	t.Cleanup(func() { routes.SetRevocationSource(nil) })
-	topics := &liveTopics{queries: q, presence: &branchPresence{queries: q, branches: workspaces}}
+	presence := &branchPresence{queries: q, branches: workspaces}
+	if successfulTerminal {
+		presence.hosts = bindings
+		presence.dispatcher, err = flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}})
+		require.NoError(t, err)
+		projector := services.NewMythicalService(pool, nil)
+		projector.SetInstallParallel(&services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }, InUse: queue.InUse})
+		projector.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(workspaces))
+		go projector.StartMachineQueueProjection(ctx)
+	}
+	topics := &liveTopics{queries: q, todos: service, jobs: store, presence: presence}
 	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
 	terminalServer.Config.Handler = parallelInstallRouter(cfg, q, pool, terminal, routerExtras{Live: liveHandler})
 	terminalServer.Start()
@@ -222,9 +268,20 @@ esac
 	readMachine := func(state string, position int) liveFrame {
 		for {
 			frame := readPresenceFrame(t, conn)
-			require.NotEqual(t, "err", frame.T)
-			if frame.T != "snap" {
+			require.NotEqual(t, "err", frame.T, "%+v", frame)
+			if frame.T != "snap" && frame.T != "delta" {
 				continue
+			}
+			data := frame.Data
+			if frame.T == "delta" {
+				var fact struct {
+					Data struct{ Branch json.RawMessage }
+				}
+				require.NoError(t, json.Unmarshal(data, &fact))
+				if len(fact.Data.Branch) == 0 {
+					continue
+				}
+				data = fact.Data.Branch
 			}
 			var card struct {
 				Machine struct {
@@ -232,7 +289,7 @@ esac
 					Position int    `json:"position"`
 				} `json:"machine"`
 			}
-			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			require.NoError(t, json.Unmarshal(data, &card))
 			if card.Machine.State == state && card.Machine.Position == position {
 				return frame
 			}
@@ -241,19 +298,46 @@ esac
 	waiting := readMachine("waiting", 1)
 	queue.ConfirmAdmissionStop("held", false) // initial occupied-slot observation
 	require.Eventually(t, func() bool { return queue.AdmissionHeld(personHolder) }, 5*time.Second, 10*time.Millisecond)
-	granted := readMachine("waking", 0)
+	grantedState := "waking"
+	if successfulTerminal {
+		require.Eventually(t, func() bool {
+			var count int
+			return pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, person.ID).Scan(&count) == nil && count == 1
+		}, 5*time.Second, 10*time.Millisecond)
+		grantedState = "awake"
+	}
+	granted := readMachine(grantedState, 0)
 	require.Greater(t, *granted.Cursor, *waiting.Cursor)
 	require.Equal(t, 1, queue.InUse())
 	runtime.mu.Lock()
 	require.Zero(t, runtime.creates, "a review cannot pass a terminal admitted through HTTP")
 	runtime.mu.Unlock()
-	// End the controlled failed boot. Runtime stop observation, rather than
-	// a fabricated scheduler release, makes the slot available to the review.
+	// Both variants retain the slot until the independent runtime stop
+	// observation. The successful variant closes a running terminal through
+	// the person's authenticated door; the original variant fails its boot.
 	require.NoError(t, os.WriteFile(stopPending, nil, 0600))
-	require.NoError(t, os.WriteFile(releaseBoot, nil, 0600))
-	require.Eventually(t, func() bool { _, err := os.Stat(stopAcknowledged); return err == nil }, 5*time.Second, 10*time.Millisecond)
-	// A successful stop command is only acknowledgment. The failed terminal
-	// wake owns capacity through ten seconds of independently observed running.
+	if successfulTerminal {
+		require.Eventually(t, func() bool {
+			var count int
+			return pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, person.ID).Scan(&count) == nil && count == 1
+		}, 5*time.Second, 10*time.Millisecond)
+		destroy, e := http.NewRequestWithContext(ctx, "POST", terminalServer.URL+"/api/repos/review-owner/app/workspace/sessions/"+person.ID+"/destroy", nil)
+		require.NoError(t, e)
+		destroy.Header = request.Header.Clone()
+		response, e := terminalServer.Client().Do(destroy)
+		require.NoError(t, e)
+		closedBody, e := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, e)
+		require.Equal(t, 204, response.StatusCode, string(closedBody))
+	} else {
+		require.NoError(t, os.WriteFile(releaseBoot, nil, 0600))
+	}
+	if !successfulTerminal {
+		require.Eventually(t, func() bool { _, err := os.Stat(stopAcknowledged); return err == nil }, 5*time.Second, 10*time.Millisecond)
+	}
+	// Neither a successful terminal close nor a stop acknowledgment frees
+	// capacity through ten seconds of independently observed running.
 	until := time.Now().Add(10 * time.Second)
 	for time.Now().Before(until) {
 		require.Equal(t, 1, queue.InUse())
@@ -264,6 +348,18 @@ esac
 		time.Sleep(50 * time.Millisecond)
 	}
 	require.NoError(t, os.Remove(stopPending))
+	if successfulTerminal {
+		// Inject the independent stopped observation after the successful
+		// terminal has closed. Closing alone is never a VM-stop receipt.
+		observed := personRuntime.(*successfulReviewPersonGuest)
+		observed.mu.Lock()
+		observed.state = workspace.WorkspaceStopped
+		observed.mu.Unlock()
+		queue.ConfirmAdmissionStop(personHolder, false)
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.failed' AND data->>'session'=$1`, person.ID).Scan(&count))
+		require.Zero(t, count, "a successful terminal closes without a failed-wake receipt")
+	}
 	require.NoError(t, workspaces.WaitForProvisioning(ctx))
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repository), PrincipalID: fmt.Sprintf("user:%d", user)}
 	require.Eventually(t, func() bool {
@@ -502,4 +598,34 @@ func (r *reviewRuntimeContract) CancelFailedAdmission(holder, actor string) {
 
 func (r *reviewRuntimeContract) AdmissionSnapshot() []microsandbox.AdmissionRequest {
 	return r.queue.AdmissionSnapshot()
+}
+
+// Only guest readiness and stop observations are controlled. The service still
+// owns initialization, member credentials, queue publication and terminal doors.
+type successfulReviewPersonGuest struct {
+	*releasedTodoGuest
+	machine string
+}
+
+func (r *successfulReviewPersonGuest) StartWorkspace(ctx context.Context, id string) (workspace.Workspace, error) {
+	if !r.queue.AdmissionHeld("workspace:" + id) {
+		return workspace.Workspace{}, errors.New("guest boot requires admission")
+	}
+	if err := r.queue.BindAdmissionMachine("workspace:"+id, r.machine); err != nil {
+		return workspace.Workspace{}, err
+	}
+	return r.perfWakeRuntime.StartWorkspace(ctx, id)
+}
+func (r *successfulReviewPersonGuest) EnsureMachined(ctx context.Context, id string) error {
+	return r.perfWakeRuntime.EnsureMachined(ctx, id)
+}
+
+func (r *successfulReviewPersonGuest) SyncTodoAdmission(scope string, holders []string, limit int) error {
+	return r.queue.SyncTodoAdmission(scope, holders, limit)
+}
+func (r *successfulReviewPersonGuest) TodoAdmissionEligible(holder string) bool {
+	return r.queue.TodoAdmissionEligible(holder)
+}
+func (r *successfulReviewPersonGuest) AdmissionOwnership(holder string) (bool, bool) {
+	return r.queue.AdmissionOwnership(holder)
 }

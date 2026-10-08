@@ -56,3 +56,17 @@ test("C-MCH-11: restart settles lost terminal requests and confirmed orphan stop
   const output = await runLiveInstall("^TestTerminalRestartOrphanInstallBoundary$")
   expect(output).toContain("--- PASS: TestTerminalRestartOrphanInstallBoundary")
 })
+
+
+test("C-MCH-11: successful scratch wakes replay from a disconnected cursor through a fresh hub", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestSuccessfulScratchReplayInstallBoundary$")
+  expect(output).toContain("--- PASS: TestSuccessfulScratchReplayInstallBoundary")
+})
+
+
+test("C-MCH-11: a successful person terminal holds background review until confirmed stop", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestSuccessfulTerminalBeforeReviewInstallBoundary$")
+  expect(output).toContain("--- PASS: TestSuccessfulTerminalBeforeReviewInstallBoundary")
+})
