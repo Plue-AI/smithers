@@ -23,7 +23,7 @@ const poll = async (predicate: () => boolean | Promise<boolean>, label: string) 
 }
 const exists = (file: string) => access(file).then(() => true, () => false)
 const database = <A>(root: string, name: string, f: (db: DatabaseSync) => A): A => {
-  const db = new DatabaseSync(join(root, ".flows", `${name}.db`))
+  const db = new DatabaseSync(join(root, ".flows", `${name}.db`), { timeout: 10_000 })
   try {
     return f(db)
   } finally {
@@ -81,29 +81,31 @@ it(
         owner_pid: original.pid
       })
 
-      // Freeze the live owner while injecting the split so its own recovery
-      // cannot reclaim the root before the peer observes it. PID probing still
-      // reports this stopped process as alive.
-      original.kill("SIGSTOP")
-      database(root, "control", (db) => {
-        db.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
-        db.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
+      // Reserve both writers before stopping the owner, so SIGSTOP cannot
+      // strand its SQLite transaction and lock out the fault injection.
+      // PID probing still reports the stopped owner as alive.
+      const rootOwner = database(root, "control", (controlDb) => database(root, "engine", (engineDb) => {
+        controlDb.exec("BEGIN IMMEDIATE")
+        engineDb.exec("BEGIN IMMEDIATE")
+        original.kill("SIGSTOP")
+        controlDb.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
+        controlDb.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
           Date.now() - 60_000,
           runId
         )
-      })
-
-      const rootOwner = rows(root).find((row) => row.run_id === runId)!
-      // Reproduce the durable split from #2958: budget suspension released the
-      // engine root while the original control fence and detached child live.
-      // SQL injects that inter-store fault; both recoverers are shipped hosts.
-      database(root, "engine", (db) => {
-        db.prepare(`UPDATE flows_runs SET status = 'suspended',
+        const owner = engineDb.prepare("SELECT * FROM flows_runs WHERE run_id = ?").get(runId) as unknown as Row
+        // Reproduce the durable split from #2958: budget suspension released the
+        // engine root while the original control fence and detached child live.
+        // SQL injects that inter-store fault; both recoverers are shipped hosts.
+        engineDb.prepare(`UPDATE flows_runs SET status = 'suspended',
       waiting_reason = 'released', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
       heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
       claimed_at_ms = NULL WHERE run_id = ?`).run(runId)
-        db.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
-      })
+        engineDb.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
+        engineDb.exec("COMMIT")
+        controlDb.exec("COMMIT")
+        return owner
+      }))
       // A real release also records its decision. Without that receipt the
       // injected row is unproven corruption, which recovery must not admit.
       await Effect.runPromise(
