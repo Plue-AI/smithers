@@ -27,10 +27,13 @@ func WithWorkspaceBurstVersions(pool *pgxpool.Pool, reader BurstVersionReader) W
 	return func(s *WorkspaceService) { s.burstPool = pool; s.burstVersions = reader }
 }
 
-// RestoreBranchFile selects only a retained version belonging to this branch,
-// then reuses the one guarded write service. Actor and base never come from
-// the file bytes, guest or request's supplied attribution.
-func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version, base string, deleted bool) (*WorkspaceFileWriteResult, error) {
+// RestoreBranchFile verifies a retained version belonging to this branch and
+// restores its before bytes or the last document text through one guarded
+// write service. Actor and base never come from supplied attribution.
+func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string, repositoryID, userID int64, filePath, version, base string, deleted bool, documentText ...*string) (*WorkspaceFileWriteResult, error) {
+	if len(documentText) > 1 || (len(documentText) == 1 && documentText[0] != nil && (!deleted || len(*documentText[0]) > MaxWorkspaceFileBytes)) {
+		return nil, pkgerrors.BadRequest("invalid document restore text")
+	}
 	if s.burstPool == nil || s.burstVersions == nil {
 		return nil, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "file versions unavailable")
 	}
@@ -42,7 +45,7 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	if s.installQueries != nil {
 		var command string
 		var err error
-		subject, command, err = InstallFileRestoreSubject(ctx, s.installQueries, repositoryID, branch, filePath, version, base, deleted)
+		subject, command, err = InstallFileRestoreSubject(ctx, s.installQueries, repositoryID, branch, filePath, version, base, deleted, documentText...)
 		if err != nil {
 			return nil, err
 		}
@@ -83,6 +86,12 @@ func (s *WorkspaceService) RestoreBranchFile(ctx context.Context, branch string,
 	content, err := s.readBurstBefore(ctx, repositoryID, filePath, version, before)
 	if err != nil {
 		return nil, err
+	}
+	// S3 restores the member's last document text as one attributed write;
+	// S2 keeps the verified before-version. Both require the retained deletion
+	// fact and use the same absent-base guarded mutation below.
+	if len(documentText) == 1 && documentText[0] != nil {
+		content = []byte(*documentText[0])
 	}
 	return s.writeWorkspaceFiles(ctx, row.ID, repositoryID, userID, []workspaceapi.FileMutation{{Path: filePath, BaseDigest: post, Content: content}}, false)
 }
@@ -177,7 +186,7 @@ func (s *WorkspaceService) compareBranchFile(ctx context.Context, branch string,
 
 // InstallFileRestoreSubject binds the retained version and validated request to
 // the stored branch before disclosure or mutation. It grants no membership.
-func InstallFileRestoreSubject(ctx context.Context, q *db.Queries, repository int64, branch, path, version, base string, deleted bool) (InstallSubject, string, error) {
+func InstallFileRestoreSubject(ctx context.Context, q *db.Queries, repository int64, branch, path, version, base string, deleted bool, documentText ...*string) (InstallSubject, string, error) {
 	command := "file.restore"
 	if deleted {
 		command = "file.restore-deleted"
@@ -205,7 +214,11 @@ func InstallFileRestoreSubject(ctx context.Context, q *db.Queries, repository in
 	if row.RepositoryID != repository || row.DeletedAt.Valid {
 		return InstallSubject{}, command, confirmationPermission()
 	}
-	raw, _ := json.Marshal([]any{branch, path, version, base, deleted})
+	payload := []any{branch, path, version, base, deleted}
+	if len(documentText) == 1 && documentText[0] != nil {
+		payload = append(payload, *documentText[0])
+	}
+	raw, _ := json.Marshal(payload)
 	digest := sha256.Sum256(raw)
 	return InstallSubject{RepositoryID: repository, WorkspaceID: row.ID, Source: version, Base: base, Resource: path, PayloadDigest: fmt.Sprintf("%x", digest)}, command, nil
 }

@@ -634,9 +634,10 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       const scope = scopeFor(file.branch, file.path, true)
       if ("error" in scope) return scope
       if (file.gone?.kind !== "deleted") return { error: "The file was not deleted." }
+      if (!file.outside?.version) return { error: "The file has no captured version." }
       try {
         const response = await ctx.http(url(file.branch, file.path), { method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "restore-deleted", text, base_digest: "absent" }) })
+          body: JSON.stringify({ action: "restore-deleted", version: file.outside.version, text, base_digest: "absent" }) })
         if (!current(scope)) return { error: "Branch access was removed." }
         if (!response.ok) return { error: await readErrorMessage(response, "Could not restore the file.") }
         return { ok: await response.json() }

@@ -203,7 +203,25 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
     await journeyActivate(cards[1]!.getByRole("button", { name: "Compare", exact: true }))
     await expect(cards[1]!.locator('.code-file-outside')).toContainText("MAYA_OVERLAP_CANARY")
     await expect(cards[1]!.locator('.code-file-current')).toContainText("ALICE_OVERLAP_CANARY")
-    const beforeRestart = await ssh("cat retry.ts")
+    // Compare renders snapshots. Reopen Alice's authenticated document before
+    // continuing the live controls; never type into the comparison snapshot.
+    const aliceAddress = pages[1]!.url()
+    await pages[1]!.reload(); await awaitBoot(pages[1]!)
+    await open(pages[1]!)
+    await expect(cards[1]!).toHaveAttribute("data-mode", "live")
+    expect(pages[1]!.url()).toBe(aliceAddress)
+    await journeyReach(cards[0]!.locator('.cm-content').first())
+    await pages[0]!.keyboard.press("ControlOrMeta+Home")
+    for (let line = 1; line < 50; line++) await pages[0]!.keyboard.press("ArrowDown")
+    await pages[0]!.keyboard.press("Home")
+    const restartMarker = "BEN_RESTART_20_CHARS"
+    expect(restartMarker).toHaveLength(20)
+    await pages[0]!.keyboard.insertText(restartMarker)
+    await expect(cards[0]!.locator('.code-saved')).toHaveText("Saved to the machine", { timeout: 1000 })
+    await expect.poll(() => text(cards[1]!)).toContain(restartMarker)
+    const beforeRestart = await text(cards[0]!)
+    expect(await text(cards[1]!)).toBe(beforeRestart)
+    expect(await ssh("cat retry.ts")).toBe(beforeRestart)
     const installSSH = process.env.SMITHERS_COL08_HOST_SSH
     if (installSSH) {
       if (installSSH.startsWith("-")) throw new Error("Invalid install host SSH target")
@@ -485,8 +503,16 @@ test("C-J3-04: forty delayed-watcher outside saves retain atomic and in-place ve
         retained = "version"
         outsideText = await card.locator('.code-file-outside').textContent() ?? undefined
       }
-      await expect(card.locator('.code-saved')).toHaveText("Saved to the machine", {timeout:5000})
+      // Compare has a read-only Current snapshot and hides the live Saved
+      // header. Prove actual disk equality, then reopen through the dispatcher
+      // before the next trial needs an editable document.
       await expect.poll(async () => (await ssh("cat retry.ts")) === (await text(card)), {timeout:5000}).toBe(true)
+      if (retained === "version") {
+        await page.reload(); await awaitBoot(page)
+        await runSlash(page, `/file ${JSON.stringify({branch,path:"retry.ts"})}`)
+        await expect(card).toHaveAttribute("data-mode", "live")
+      }
+      await expect(card.locator('.code-saved')).toHaveText("Saved to the machine", {timeout:5000})
       trials.push({mode,trial,elapsed,retained,outsideText,outsideDigest:createHash("sha256").update(outside.join("\n")).digest("hex")})
     }
     expect(trials).toHaveLength(40)

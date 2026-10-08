@@ -421,6 +421,9 @@ paths:
                 action: {type: string, enum: [restore, restore-deleted]}
                 version: {type: string}
                 base_digest: {type: string}
+                text:
+                  type: string
+                  description: Last live document text for restore-deleted, at most 1 MiB UTF-8. Omit to restore the retained before-version.
       responses:
         '200':
           description: File restored against its current digest

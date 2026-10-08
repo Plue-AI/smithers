@@ -50,11 +50,16 @@ const member = async (cookie: string, login: string) => {
   } })
   const branch = topic.split(":")[2]!
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const request: FetchLike = (input, init) => {
+  const requests: { path: string; method: string; status: number }[] = []
+  const request: FetchLike = async (input, init) => {
     const headers = new Headers(init?.headers)
-    headers.set("Cookie", `smithers_session=${cookie}`)
+    headers.set("Cookie", `smithers_session=${cookie}; __csrf=document-qualification`)
+    if (init?.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) headers.set("X-CSRF-Token", "document-qualification")
     headers.set("Origin", origin)
-    return NativeFetch(new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url, origin), { ...init, headers })
+    const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url, origin)
+    const response = await NativeFetch(url, { ...init, headers })
+    requests.push({ path: url.pathname, method: init?.method ?? "GET", status: response.status })
+    return response
   }
   const client = createApplicationClient(resolveApplicationTarget({ apiVersion: 1, mode: "web-selfhost", apiOrigin: "", auth: { kind: "session" }, cors: "same-origin", developerExternal: false }, origin), { fetchImpl: request, pageOrigin: origin })
   assert.equal((await client.identity.current(undefined, "/api/auth/session"))?.username, login)
@@ -79,7 +84,7 @@ const member = async (cookie: string, login: string) => {
     id: `epoch-${login}`, kind: "file", title: "retry.ts", status: "active", createdAt: 1, ordinal: 1,
     payload: { repo: "ben/demo", ref: branch, path: "retry.ts", content: "", truncated: false }
   })
-  return { channel, provider, controller, card, trace, synced: () => epoch !== undefined && synchronizedEpoch === epoch, text: () => provider.doc.getText("content") }
+  return { channel, provider, controller, card, trace, requests, synced: () => epoch !== undefined && synchronizedEpoch === epoch, text: () => provider.doc.getText("content") }
 }
 const wait = async (name: string, predicate: () => boolean) => {
   const end = performance.now()+10000
@@ -94,7 +99,37 @@ try {
   await wait("baseline saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved")
   assert.equal(ben.text().toString(), "")
   assert.equal(alice.text().toString(), "")
-  if (process.env.SMITHERS_CODE_DOCUMENT_PHASE === "compare") {
+  if (process.env.SMITHERS_CODE_DOCUMENT_PHASE === "gone") {
+    ben.card.insert(0, "RETAINED-GONE-TEXT")
+    await wait("gone baseline saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.card.text() === "RETAINED-GONE-TEXT")
+    const input = console[Symbol.asyncIterator]()
+    for (const [kind, label] of [["deleted", "Restore"], ["renamed", "Follow"]] as const) {
+      console.log(kind === "deleted" ? "DELETE_FILE" : "RENAME_FILE")
+      assert.equal((await input.next()).value?.trim(), "CAPTURED")
+      await wait(`real ${kind} projection`, () => ben.provider.file?.gone?.kind === kind && alice.provider.file?.gone?.kind === kind)
+      ben.card.readOnly(); alice.card.readOnly()
+      assert.equal(ben.card.text(), "RETAINED-GONE-TEXT")
+      assert.equal(alice.card.text(), "RETAINED-GONE-TEXT")
+      const requestCount = ben.requests.length
+      const result = await ben.card.activate(label)
+      assert.equal(result?.status, "failed", JSON.stringify(result))
+      const path = `/api/branches/${topic.split(":")[2]}/files/${kind === "deleted" ? "retry.ts" : "followed.ts"}`
+      assert.deepEqual(ben.requests.slice(requestCount).filter(request => request.path === path),
+        [{ path, method: kind === "deleted" ? "POST" : "GET", status: kind === "deleted" ? 503 : 409 }], "mounted command reaches the real reader/writer and refuses absent runtime admission")
+      assert.equal(ben.provider.file?.gone?.kind, kind, "refused recovery keeps the real gone state")
+      assert.equal(ben.provider.comparison, undefined)
+      if (kind === "renamed") {
+        const gone = ben.provider.file?.gone
+        assert.equal(gone?.kind, "renamed")
+        assert.ok(gone?.kind === "renamed")
+        assert.equal(gone.to, "followed.ts")
+        assert.equal(ben.controller.fileDocuments!.has("followed.ts", topic.split(":")[2]), false, "refused Follow cannot open a fabricated target")
+      }
+      console.log("REFUSED")
+      assert.equal((await input.next()).value?.trim(), "UNCHANGED")
+    }
+    console.log(JSON.stringify({ text: "RETAINED-GONE-TEXT", refused: ["Restore", "Follow"], requests: ben.requests.filter(request => request.path.includes("/files/")) }))
+  } else if (process.env.SMITHERS_CODE_DOCUMENT_PHASE === "compare") {
     ben.card.insert(0, "BEN-COMPARE")
     await wait("baseline Compare edit saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved" && alice.card.text() === "BEN-COMPARE")
     console.log("OUTSIDE_COMPARE")

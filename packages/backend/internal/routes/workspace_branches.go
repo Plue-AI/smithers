@@ -279,8 +279,8 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 		}
 		subject := services.InstallSubject{}
 		if command == "file.restore" || command == "file.restore-deleted" {
-			raw, err := io.ReadAll(io.LimitReader(r.Body, 8193))
-			if err != nil || len(raw) > 8192 {
+			raw, err := io.ReadAll(io.LimitReader(r.Body, MaxFileRestoreRequestBytes+1))
+			if err != nil || len(raw) > MaxFileRestoreRequestBytes {
 				return 0, 0, pkgerrors.BadRequest("invalid restore request")
 			}
 			input, resolved, err := DecodeFileRestore(bytes.NewReader(raw))
@@ -303,7 +303,7 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 			if err != nil {
 				return 0, 0, err
 			}
-			subject, _, err = services.InstallFileRestoreSubject(r.Context(), queries, repository, branch, path, input.Version, input.Base, input.Action == "restore-deleted")
+			subject, _, err = services.InstallFileRestoreSubject(r.Context(), queries, repository, branch, path, input.Version, input.Base, input.Action == "restore-deleted", input.Text)
 			if err != nil {
 				return 0, 0, err
 			}

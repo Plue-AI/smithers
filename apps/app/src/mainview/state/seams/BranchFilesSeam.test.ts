@@ -98,6 +98,16 @@ describe("dark branch file operations", () => {
     expect(await seam.restore(file("current"), { version: "versions-delete", post_digest: "one" }, true)).toEqual({ ok: file("recreated", "someone else's bytes\n") })
     expect(methods).toEqual(["POST", "GET"])
   })
+  test("document Restore supplies current text and the retained deletion version once", async () => {
+    const calls: unknown[] = []
+    const seam = fixture(async (_url, init) => { calls.push(JSON.parse(String(init?.body))); return json({ error: { message: "runtime unavailable" } }, 503) }, ready)
+    const deleted: FileCard = { ...file(), mode: "live", gone: { kind: "deleted", by: writer }, outside: { version: "delete-version", at: "" } }
+    expect(await seam.restoreDocument(deleted, "last live text\n")).toHaveProperty("error")
+    expect(calls).toEqual([{ action: "restore-deleted", version: "delete-version", text: "last live text\n", base_digest: "absent" }])
+    const { outside: _outside, ...uncaptured } = deleted
+    expect(await seam.restoreDocument(uncaptured, "last live text\n")).toEqual({ error: "The file has no captured version." })
+    expect(calls).toHaveLength(1)
+  })
   test("Follow reads the rename destination; hostile destinations refuse", async () => {
     const calls: string[] = []
     const seam = fixture(async url => { calls.push(url); return json({ ...file(), path: "src/shipped.ts" }) }, ready)

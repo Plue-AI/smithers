@@ -927,3 +927,97 @@ func TestLiveCodeDocumentRealMountedCompare(t *testing.T) {
 	require.Equal(t, result.Text, f.disk(t), "refusals cannot mutate the document or its durable file")
 	f.documentEvidence(t, "mounted-compare")
 }
+
+// Real watcher/capture facts reach the mounted recovery controls. This namespace
+// cannot admit a microVM: refused Restore/Follow must preserve retained bytes,
+// rather than manufacturing successful guest acceptance.
+func TestLiveCodeDocumentRealMountedGoneRefusal(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	// A capture that drains while a new editor activity arrives is deliberately
+	// refused. Advance only after a new capture has its real host receipt.
+	capture := func() {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			result, err := f.registry.Capture(t.Context(), f.branch)
+			if err == nil {
+				require.Len(t, result.Head, 40)
+				return
+			}
+			require.ErrorIs(t, err, machined.ErrNotReady)
+			require.True(t, time.Now().Before(deadline), "capture never reached an acknowledged quiet state")
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-epoch.fixture.ts")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "bun", "run", script)
+	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+f.origin,
+		"SMITHERS_CODE_DOCUMENT_TOPIC="+f.topic, "SMITHERS_CODE_DOCUMENT_PHASE=gone")
+	input, err := command.StdinPipe()
+	require.NoError(t, err)
+	output, err := command.StdoutPipe()
+	require.NoError(t, err)
+	stderr := &lockedBuffer{}
+	command.Stderr = stderr
+	require.NoError(t, command.Start())
+	t.Cleanup(func() { cancel(); _ = command.Process.Kill() })
+	scanner := bufio.NewScanner(output)
+	var last string
+	deleted, renamed, refused := 0, 0, 0
+	for scanner.Scan() {
+		switch scanner.Text() {
+		case "DELETE_FILE":
+			require.Equal(t, "RETAINED-GONE-TEXT", f.disk(t))
+			// First retain the saved browser state, then capture the real deletion.
+			capture()
+			require.NoError(t, os.Remove(filepath.Join(f.root, "retry.ts")))
+			capture()
+			deleted++
+			_, err = io.WriteString(input, "CAPTURED\n")
+			require.NoError(t, err)
+		case "RENAME_FILE":
+			// Restoring the stimulus is outside the UI and is never a Restore receipt.
+			require.NoError(t, os.WriteFile(filepath.Join(f.root, "retry.ts"), []byte("RETAINED-GONE-TEXT"), 0640))
+			capture()
+			require.NoError(t, os.Rename(filepath.Join(f.root, "retry.ts"), filepath.Join(f.root, "followed.ts")))
+			capture()
+			renamed++
+			_, err = io.WriteString(input, "CAPTURED\n")
+			require.NoError(t, err)
+		case "REFUSED":
+			require.NoFileExists(t, filepath.Join(f.root, "retry.ts"))
+			if renamed != 0 {
+				raw, err := os.ReadFile(filepath.Join(f.root, "followed.ts"))
+				require.NoError(t, err)
+				require.Equal(t, "RETAINED-GONE-TEXT", string(raw))
+			}
+			refused++
+			_, err = io.WriteString(input, "UNCHANGED\n")
+			require.NoError(t, err)
+		default:
+			last = scanner.Text()
+		}
+	}
+	require.NoError(t, scanner.Err())
+	require.NoError(t, command.Wait(), stderr.String())
+	require.Equal(t, 1, deleted)
+	require.Equal(t, 1, renamed)
+	require.Equal(t, 2, refused)
+	var result struct {
+		Text    string
+		Refused []string
+	}
+	require.NoError(t, json.Unmarshal([]byte(last), &result), last)
+	require.Equal(t, "RETAINED-GONE-TEXT", result.Text)
+	require.Equal(t, []string{"Restore", "Follow"}, result.Refused)
+	// The ordinary evidence helper reads retry.ts; keep the renamed file and
+	// result instead so evidence collection cannot undo the tested rename.
+	require.NoError(t, os.WriteFile(filepath.Join(f.evidence, "mounted-gone-refusal.json"), []byte(last), 0600))
+	raw, err := os.ReadFile(filepath.Join(f.root, "followed.ts"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(f.evidence, "followed.ts"), raw, 0600))
+	t.Logf("mounted deletion/rename refusals: %s", f.evidence)
+}

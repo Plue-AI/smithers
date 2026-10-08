@@ -2059,9 +2059,10 @@ type GetAPIBranchFileParams struct {
 
 // PostAPIBranchFileBody is generated from docs/api/openapi.yaml.
 type PostAPIBranchFileBody struct {
-	Action     string `json:"action"`
-	Version    string `json:"version"`
-	BaseDigest string `json:"base_digest"`
+	Action     string  `json:"action"`
+	Version    string  `json:"version"`
+	BaseDigest string  `json:"base_digest"`
+	Text       *string `json:"text,omitempty"`
 }
 
 // GetAPIBranchesBFilesParams is the query of GET /api/branches/{b}/files.

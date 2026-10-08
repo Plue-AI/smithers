@@ -16,7 +16,7 @@ import (
 )
 
 type BranchFileRestorer interface {
-	RestoreBranchFile(context.Context, string, int64, int64, string, string, string, bool) (*services.WorkspaceFileWriteResult, error)
+	RestoreBranchFile(context.Context, string, int64, int64, string, string, string, bool, ...*string) (*services.WorkspaceFileWriteResult, error)
 }
 
 type FileRestoreHandler struct {
@@ -24,10 +24,13 @@ type FileRestoreHandler struct {
 	Authorize func(*http.Request, string) (int64, int64, error)
 }
 
+const MaxFileRestoreRequestBytes = 6*services.MaxWorkspaceFileBytes + 8192
+
 type FileRestoreInput struct {
-	Action  string `json:"action"`
-	Version string `json:"version"`
-	Base    string `json:"base_digest"`
+	Action  string  `json:"action"`
+	Text    *string `json:"text,omitempty"`
+	Version string  `json:"version"`
+	Base    string  `json:"base_digest"`
 }
 
 // DecodeFileRestore resolves the concrete command before admission. Both the
@@ -42,6 +45,9 @@ func DecodeFileRestore(body io.Reader) (FileRestoreInput, string, error) {
 	if err := d.Decode(&struct{}{}); err != io.EOF {
 		return input, "", pkgerrors.BadRequest("invalid restore request")
 	}
+	if input.Text != nil && (input.Action != "restore-deleted" || len(*input.Text) > services.MaxWorkspaceFileBytes) {
+		return input, "", pkgerrors.BadRequest("invalid document restore text")
+	}
 	switch input.Action {
 	case "restore":
 		return input, "file.restore", nil
@@ -53,7 +59,7 @@ func DecodeFileRestore(body io.Reader) (FileRestoreInput, string, error) {
 }
 
 func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxFileRestoreRequestBytes))
 	if err != nil {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore request"))
 		return
@@ -87,7 +93,7 @@ func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid file path"))
 		return
 	}
-	result, err := h.Service.RestoreBranchFile(r.Context(), branch, repository, member, filePath, input.Version, input.Base, input.Action == "restore-deleted")
+	result, err := h.Service.RestoreBranchFile(r.Context(), branch, repository, member, filePath, input.Version, input.Base, input.Action == "restore-deleted", input.Text)
 	if err != nil {
 		var stale *workspaceapi.StaleFileError
 		if errors.As(err, &stale) {

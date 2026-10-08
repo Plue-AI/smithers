@@ -309,7 +309,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 	require.Equal(t, 3, provider.writes)
 	require.Empty(t, runtime.WorkspaceIDs(), "test-only provider did not start a host workspace")
 	t.Run("restore decision binds the complete request", func(t *testing.T) {
-		for _, field := range []string{"path", "version", "base", "deleted", "branch", "actor"} {
+		for _, field := range []string{"path", "version", "base", "deleted", "branch", "actor", "text"} {
 			t.Run(field, func(t *testing.T) {
 				decisions := 0
 				ctx := services.WithAuthorizationObserver(middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &f.user, SessionHash: fmt.Sprintf("%x", sha256.Sum256([]byte(f.cookie)))}), func(command string) { decisions++ })
@@ -319,6 +319,7 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 				require.NoError(t, err)
 				bound := services.WithInstallAuthorization(ctx, command, decision, subject)
 				branch, path, version, base, deleted, actor := f.row.ID, "src/a.ts", strings.Repeat("a", 40), "absent", true, f.user.ID
+				var documentText []*string
 				switch field {
 				case "path":
 					path = "src/b.ts"
@@ -332,9 +333,12 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 					branch = "main"
 				case "actor":
 					actor = member.ID
+				case "text":
+					changed := "different document text"
+					documentText = []*string{&changed}
 				}
 				beforeReads, beforeWrites := versions.calls, provider.writes
-				_, err = s.RestoreBranchFile(bound, branch, f.row.RepositoryID, actor, path, version, base, deleted)
+				_, err = s.RestoreBranchFile(bound, branch, f.row.RepositoryID, actor, path, version, base, deleted, documentText...)
 				var denied *services.AccessError
 				require.ErrorAs(t, err, &denied)
 				require.Equal(t, 403, denied.Status)
@@ -342,6 +346,32 @@ func TestFileRestoreCommandBoundary(t *testing.T) {
 				require.Equal(t, beforeReads, versions.calls)
 				require.Equal(t, beforeWrites, provider.writes)
 			})
+		}
+	})
+
+	// Supplemental write-provider evidence: the composed real-daemon mounted
+	// test separately proves this payload reaches production admission. This
+	// fixture checks byte selection, stale protection and actor stamping only.
+	t.Run("document Restore uses current text through the existing writer", func(t *testing.T) {
+		for _, text := range []string{"last live text differs from before\n", "", strings.Repeat("x", 9000)} {
+			delete(provider.files, "src/a.ts")
+			seed("deleted", "")
+			payload, err := json.Marshal(map[string]any{"action": "restore-deleted", "version": strings.Repeat("a", 40), "base_digest": "absent", "text": text})
+			require.NoError(t, err)
+			beforeReads, beforeWrites := versions.calls, provider.writes
+			require.Equal(t, 200, call("src/a.ts", string(payload), f.cookie))
+			require.Equal(t, text, string(provider.files["src/a.ts"]))
+			require.Equal(t, []byte("untouched\n"), provider.files["src/b.ts"])
+			require.Equal(t, fmt.Sprint(f.user.ID), provider.actor)
+			require.Equal(t, beforeWrites+1, provider.writes)
+			require.Greater(t, versions.calls, beforeReads, "retained deletion remains verified")
+			require.Equal(t, 409, call("src/a.ts", string(payload), f.cookie))
+			require.Equal(t, text, string(provider.files["src/a.ts"]))
+			require.Equal(t, beforeWrites+1, provider.writes)
+			beforeReads = versions.calls
+			require.Contains(t, []int{401, 403}, call("src/a.ts", string(payload), "w6-member-cookie"))
+			require.Equal(t, beforeReads, versions.calls)
+			require.Equal(t, beforeWrites+1, provider.writes)
 		}
 	})
 

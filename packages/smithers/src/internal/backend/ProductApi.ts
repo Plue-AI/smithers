@@ -1880,6 +1880,7 @@ export type PostApiBranchFileBody = {
   action: "restore" | "restore-deleted"
   version: string
   base_digest: string
+  text?: string
 }
 
 export type PostApiBranchFileResponse = AnyJSON
