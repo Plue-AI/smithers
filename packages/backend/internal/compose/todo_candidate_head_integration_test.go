@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -270,6 +271,101 @@ func testCandidateHeadReportComposedInstall(t *testing.T, installAuthority bool)
 	require.Equal(t, 200, response.Code, response.Body.String())
 	v, _, _ = state()
 	require.False(t, v, "a later equal report cannot restore verification")
+
+	if installAuthority {
+		t.Run("literal edited sources", func(t *testing.T) {
+			sources := []struct {
+				name, engine                               string
+				attached, paused, question, terminal, fact bool
+			}{
+				{"queued", "queued", true, false, false, false, false},
+				{"skipped", "skipped", true, false, false, false, false},
+				{"starting", "running", false, false, false, false, false},
+				{"working", "running", true, false, false, false, false},
+				{"needs_you", "running", true, false, true, false, false},
+				{"paused", "running", true, true, false, false, false},
+				{"failed", "blocked", true, false, false, false, false},
+				{"in_review", "proposed", true, false, false, false, true},
+				{"merged", "landed", true, false, false, true, false},
+				{"dropped", "cancelled", true, false, false, true, false},
+			}
+			cards := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: services.NewMythicalService(pool, nil)})
+			readCard := func(expected string) {
+				request := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/todos/1", nil)
+				request.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "candidate-cookie"})
+				response := httptest.NewRecorder()
+				cards.ServeHTTP(response, request)
+				require.Equal(t, 200, response.Code, response.Body.String())
+				var card map[string]any
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &card))
+				require.Equal(t, expected, card["state"])
+			}
+			facts := func() int {
+				var n int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.edited'`).Scan(&n))
+				return n
+			}
+			for _, source := range sources {
+				t.Run(source.name, func(t *testing.T) {
+					checks := map[string]any{"todo": true, "run_launched": true, "run_attached": source.attached}
+					if source.question {
+						checks["waits"] = []map[string]any{{"id": "question", "kind": "question", "prompt": "Choose", "since": "2026-10-02T12:00:00Z"}}
+					}
+					raw, err := json.Marshal(checks)
+					require.NoError(t, err)
+					_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,number=1,pr_state='',candidate_verified=true,checks=$3,paused_at=CASE WHEN $4 THEN now() ELSE NULL END WHERE id=$1`, itemID, source.engine, raw, source.paused)
+					require.NoError(t, err)
+					runtime.tree = strings.Repeat("f", 40)
+					expected := source.name
+					if expected == "skipped" {
+						expected = "queued"
+					}
+					readCard(expected)
+					before := facts()
+					response := report(runtime.head, true)
+					require.Equal(t, 200, response.Code, response.Body.String())
+					verified, _, _ := state()
+					require.Equal(t, source.terminal, verified, "terminal candidate evidence is immutable")
+					readCard(expected)
+					if source.fact {
+						require.Equal(t, before+1, facts())
+						var data []byte
+						require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.edited' ORDER BY sequence DESC LIMIT 1`).Scan(&data))
+						var fact map[string]any
+						require.NoError(t, json.Unmarshal(data, &fact))
+						require.Equal(t, "in_review", fact["from"])
+						require.Equal(t, "in_review", fact["to"])
+						require.Equal(t, map[string]any{"kind": "system", "id": "stack"}, fact["actor"])
+						require.Equal(t, "in_review", fact["card"].(map[string]any)["state"])
+					} else {
+						require.Equal(t, before, facts())
+					}
+					// A duplicate observation cannot invalidate or publish twice.
+					after := facts()
+					response = report(runtime.head, true)
+					require.Equal(t, 200, response.Code, response.Body.String())
+					require.Equal(t, after, facts())
+				})
+			}
+			t.Log("literal edited sources: 1 lifecycle self-loop, 7 non-review invalidations, 2 terminal no-ops")
+			// A failed lifecycle append must roll back candidate and head writes.
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',candidate_verified=true,checks='{}',paused_at=NULL WHERE id=$1`, itemID)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_edited_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.edited' THEN RAISE EXCEPTION 'edited fact fault'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_edited_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_edited_fact()`)
+			require.NoError(t, err)
+			before := facts()
+			_, beforeVersion, beforeHead := state()
+			response := report(runtime.head, true)
+			require.Equal(t, 500, response.Code, response.Body.String())
+			verified, afterVersion, afterHead := state()
+			require.True(t, verified)
+			require.Equal(t, beforeVersion, afterVersion)
+			require.Equal(t, beforeHead, afterHead)
+			require.Equal(t, before, facts())
+			_, err = pool.Exec(ctx, `DROP TRIGGER refuse_edited_fact ON product_job_events; DROP FUNCTION refuse_edited_fact()`)
+			require.NoError(t, err)
+		})
+	}
 
 	t.Run("unsnapshotted tracked edits reject the previous report", func(t *testing.T) {
 		// Real JJ and Git bytes through the same composed HTTP boundary. Only

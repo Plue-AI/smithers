@@ -963,7 +963,7 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 		if err != nil {
 			return err
 		}
-		liveTree := ""
+		liveTree, liveHead := "", ""
 		for _, item := range items {
 			if item.WorkspaceID != workspace.ID || !mythicalTodo(item) {
 				continue
@@ -980,7 +980,7 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 					return pkgerrors.BadRequest("invalid head report")
 				}
 				staleReport = ids != input.CommitID+" "+input.ChangeID
-				liveTree = tree
+				liveTree, liveHead = tree, strings.Fields(ids)[0]
 			}
 			if !item.CandidateVerified || item.CandidateHead == "" {
 				continue
@@ -1001,8 +1001,23 @@ func (s *WorkspaceService) persistWorkspaceHeadReport(ctx context.Context, works
 			checks := mythicalChecksOf(item)
 			checks.Land = nil
 			item.Checks = checks.encode()
-			if _, err := q.SaveMythicalItem(ctx, item); err != nil {
+			saved, err := q.SaveMythicalItem(ctx, item)
+			if err != nil {
 				return err
+			}
+			// The authoritative observation invalidates this generation once.
+			// Publish its In review self-loop with the candidate and head writes;
+			// replaying the report cannot emit another fact after invalidation.
+			if todoState(saved) == "in_review" && saved.Number.Valid {
+				fact, err := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64,
+					"attempt": saved.Attempt, "generation": saved.Generation, "from": "in_review", "to": "in_review",
+					"head": liveHead, "tree": liveTree, "actor": map[string]string{"kind": "system", "id": "stack"}})
+				if err != nil {
+					return err
+				}
+				if _, err := NewMythicalService(tx, nil).recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.edited", "in_review", fact); err != nil {
+					return err
+				}
 			}
 			if _, err := q.RequestMythicalStack(ctx, workspace.RepositoryID); err != nil {
 				return err
