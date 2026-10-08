@@ -43,7 +43,15 @@ fn request(method: u8, fields: &[Vec<u8>]) -> Frame {
     }
 }
 fn exchange(fixture: &Fixture, request: Frame, documents: Arc<dyn hooks::Documents>) -> Frame {
-    let files = Files::new(File::open(&fixture.0).unwrap(), Arc::new(hooks::Disabled)).unwrap();
+    // Unit admission is explicit; document refusal, not a missing coding
+    // binding, is the boundary this fixture exercises.
+    struct Admitted;
+    impl hooks::Core for Admitted {
+        fn validate_coding_write(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+    }
+    let files = Files::new(File::open(&fixture.0).unwrap(), Arc::new(Admitted)).unwrap();
     let mut cx = LockCx::new(Hooks {
         core: Arc::new(files),
         documents,

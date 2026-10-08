@@ -179,3 +179,27 @@ func TestDeleteAndEmptyWriteEncodeDistinctMutationsAndReceipts(t *testing.T) {
 		})
 	}
 }
+
+func TestBatchWriteOnlyValidatedPreflightCertifiesNoMutation(t *testing.T) {
+	for _, preflight := range []byte{0, 1} {
+		t.Run(string(rune('0'+preflight)), func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			type receipt struct {
+				result WriteResult
+				err    error
+			}
+			done := make(chan receipt, 1)
+			go func() {
+				result, err := r.WriteFiles(t.Context(), "a", []byte("actor"), []FileChange{{Path: "first", Content: []byte("a")}})
+				done <- receipt{result, err}
+			}()
+			answer(t, peer, wire.WriteFiles, wire.Field(1, wire.U16(0)), wire.Field(2, wire.Struct(wire.Field(1, wire.U16(0)), wire.Field(2, []byte{preflight}), wire.Field(3, wire.Struct(wire.Field(1, []byte{byte(wire.NotReady)}), wire.Field(2, wire.String("moved-off check required")))))))
+			got := <-done
+			var failure *SessionError
+			require.ErrorAs(t, got.err, &failure)
+			require.Equal(t, "not_ready", failure.Code)
+			require.Empty(t, got.result.Applied)
+			require.Equal(t, preflight == 1, got.result.Preflight)
+		})
+	}
+}

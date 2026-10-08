@@ -152,6 +152,10 @@ impl<V: Versions> LinuxDisk<V> {
     }
 }
 impl<V: Versions> Disk for LinuxDisk<V> {
+    fn admit_write(&mut self, path: &str, actor: &str) -> Result<()> {
+        self.versions.before_write(path, Some(actor))
+    }
+
     fn read(&mut self, path: &str) -> Result<Option<Vec<u8>>> {
         let (parent, name) = self.parent(path)?;
         match fs::openat2(

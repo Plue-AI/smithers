@@ -279,6 +279,8 @@ test.skipIf(existsSync("/opt/smithers/bin/smithers-machined"))(
       }))
       for (const [name, input, affected] of [
         [Write.name, { path: a, content: "bad" }, [a]],
+        [ApplyPatch.name, { input: `*** Begin Patch\n*** Delete File: ${b}\n*** End Patch` }, [b]],
+        [ApplyPatch.name, { input: `*** Begin Patch\n*** Delete File: ${a}\n*** Add File: ${dest}\n+bad\n*** End Patch` }, [a]],
         [Edit.name, { path: a, oldString: "hello", newString: "bad" }, [a]],
         [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${a}\n@@\n-hello\n+bad\n*** Delete File: ${b}\n*** End Patch` }, [a, b]],
         [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${a}\n*** Move to: ${dest}\n@@\n-hello\n+bad\n*** End Patch` }, [a]]
@@ -299,3 +301,68 @@ test.skipIf(existsSync("/opt/smithers/bin/smithers-machined"))(
     }).pipe(Effect.provide(NodeServices.layer)))
   }, 120_000
 )
+
+// Local preflight runs before the installed transport. Real dispatch and Node
+// bytes can qualify these refusals without inventing a successful daemon receipt.
+test("C-COL-01 production dispatcher stale batch/delete/move preflight", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "col10-preflight-"))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const a = join(root, "a"), b = join(root, "b"), dest = join(root, "dest")
+  await Effect.runPromise(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const path = yield* Path.Path
+    const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, "/workspace")
+    const bindings = yield* StandardFlows.filesystem(
+      Context.make(FileSystem.FileSystem, coding).pipe(Context.add(Path.Path, path))
+    ).bindings()
+    let ordinal = 0
+    const dispatch = (name: string, input: Cell.Call["input"], session: string) => bindings.find(
+      (entry) => entry.descriptor.name === name
+    )!.run(new Cell.Call({ flowName: name, input, capabilities: [],
+      effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+      placement: Option.none(), identity: new Cell.CallIdentity({ session,
+        frame: 0, cell: "coding/edit-atom", ordinal: ordinal++, declaration: "col10", layers: [] })
+    }))
+    const patch = (body: string) => ({ input: `*** Begin Patch\n${body}*** End Patch` })
+    const updateA = `*** Update File: ${a}\n@@\n-hello\n+bad\n`
+    // Each case has a separate run ledger. The later stale operation must leave
+    // the earlier update, source removal and absent destination unchanged.
+    const cases = [
+      { body: `${updateA}*** Delete File: ${b}\n`, read: [a, b], outside: b },
+      { body: `${updateA}*** Update File: ${b}\n@@\n-world\n+bad\n`, read: [a, b], outside: b },
+      { body: `${updateA}*** Add File: ${dest}\n+bad\n`, read: [a], outside: dest },
+      { body: `*** Update File: ${b}\n*** Move to: ${dest}\n@@\n-world\n+bad\n`, read: [b], outside: b },
+      { body: `*** Update File: ${a}\n*** Move to: ${dest}\n@@\n-hello\n+bad\n`, read: [a, dest], outside: dest },
+      { body: `*** Update File: ${a}\n*** Move to: ${b}\n@@\n-hello\n+bad\n`, read: [a], outside: undefined },
+      { body: `${updateA}*** Delete File: ${b}\n`, read: [a], outside: undefined }
+    ]
+    for (const [index, entry] of cases.entries()) {
+      const session = `preflight-${index}`
+      yield* Effect.promise(async () => {
+        await writeFile(a, "hello\n")
+        await writeFile(b, "world\n")
+        await rm(dest, { force: true })
+        if (entry.read.includes(dest)) await writeFile(dest, "hello\n")
+      })
+      for (const target of entry.read) {
+        assert.equal((yield* dispatch(Read.name, { path: target }, session)).outcome, "success")
+      }
+      if (entry.outside) yield* Effect.promise(() => writeFile(entry.outside!, "outside remains\n"))
+      const refused = yield* dispatch(ApplyPatch.name, patch(entry.body), session)
+      assert.equal(refused.outcome, "failure", `case ${index}`)
+      assert.match(refused.message!, /Re-read/, `case ${index}`)
+      assert.ok(refused.message!.includes(entry.outside ?? b), `case ${index} names the refused path`)
+      assert.equal(yield* fs.readFileString(a), "hello\n")
+      assert.equal(yield* fs.readFileString(b), entry.outside === b ? "outside remains\n" : "world\n")
+      assert.equal(yield* fs.exists(dest), entry.outside === dest)
+      if (entry.outside === dest) assert.equal(yield* fs.readFileString(dest), "outside remains\n")
+      // Repeat without refreshing any base: no refused patch may manufacture
+      // read authority or publish a successful mutation on retry.
+      const retry = yield* dispatch(ApplyPatch.name, patch(entry.body), session)
+      assert.equal(retry.outcome, "failure")
+      assert.match(retry.message!, /Re-read/)
+      assert.equal(yield* fs.readFileString(a), "hello\n")
+    }
+  }).pipe(Effect.provide(NodeServices.layer)))
+}, 120_000)

@@ -46,9 +46,11 @@ type StaleFile struct {
 	CurrentDigest *string // nil means the path is now absent
 }
 type WriteResult struct {
-	Applied []AppliedFile
-	Raced   []RacedFile // displaced bytes are retained; an applied write never rolls back
-	Stale   *StaleFile
+	// Preflight certifies that refusal preceded every batch mutation.
+	Preflight bool
+	Applied   []AppliedFile
+	Raced     []RacedFile // displaced bytes are retained; an applied write never rolls back
+	Stale     *StaleFile
 }
 type CaptureResult struct {
 	Head, Tree       string

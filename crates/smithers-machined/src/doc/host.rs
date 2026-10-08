@@ -208,6 +208,9 @@ impl<D: Disk> Host<D> {
             clients: BTreeMap::new(),
         }
     }
+    pub(super) fn admit_write(&mut self, path: &str, actor: &str) -> Result<()> {
+        self.disk.admit_write(path, actor)
+    }
     pub fn ready(&self) -> Result<()> {
         self.gates.check()?;
         if let Some(error) = &self.recovery_error {

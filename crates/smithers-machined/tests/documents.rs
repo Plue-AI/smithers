@@ -20,6 +20,7 @@ struct Model {
     log: Vec<&'static str>,
     saved_authors: Vec<Option<String>>,
     fail: Option<&'static str>,
+    fail_admit: Option<String>,
     next: u64,
     bases: BTreeMap<u64, Record>,
     swap_race: Option<Vec<u8>>,
@@ -54,6 +55,16 @@ impl Model {
     }
 }
 impl Disk for Model {
+    fn admit_write(&mut self, path: &str, _: &str) -> Result<()> {
+        if self.fail_admit.as_deref() == Some(path) {
+            return Err(Error::Provider(smithers_machined::hooks::Error {
+                code: 3,
+                detail: Some("moved-off check required".into()),
+                ..smithers_machined::hooks::Error::unsupported()
+            }));
+        }
+        Ok(())
+    }
     fn read(&mut self, path: &str) -> Result<Option<Vec<u8>>> {
         self.step("read")?;
         Ok(self.files.get(path).cloned())
@@ -906,6 +917,9 @@ mod dispatcher {
     #[derive(Clone)]
     struct Shared(Arc<Mutex<Model>>);
     impl Disk for Shared {
+        fn admit_write(&mut self, p: &str, actor: &str) -> Result<()> {
+            self.0.lock().unwrap().admit_write(p, actor)
+        }
         fn read(&mut self, p: &str) -> Result<Option<Vec<u8>>> {
             self.0.lock().unwrap().read(p)
         }
@@ -2088,6 +2102,47 @@ mod dispatcher {
         assert_eq!(model.saved_authors, vec![Some("616c696365".into()); 3]);
         assert!(model.displaced.is_empty());
     }
+    #[test]
+    fn batch_admission_refusal_never_activates_documents_or_later_saves() {
+        for blocked in ["a.rs", "new"] {
+            let disk = Shared(Arc::new(Mutex::new(Model {
+                fail_admit: Some(blocked.into()),
+                ..Model::with("before")
+            })));
+            let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+            let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+            let mut cx = LockCx::new(Default::default());
+            let result = service
+                .write_batch(
+                    &mut cx,
+                    &[
+                        change("a.rs", Some(b"before"), b"after"),
+                        change("new", None, b"created"),
+                    ],
+                    &hooks::Actor::Principal(b"alice".to_vec()),
+                )
+                .unwrap();
+            assert!(result.writes.is_empty());
+            let failure = result.failure.unwrap();
+            assert!(failure.preflight);
+            assert_eq!(failure.index, usize::from(blocked == "new"));
+            assert_eq!(failure.error.code, 3);
+            // Clearing admission must not let an abandoned document timer write
+            // the refused content. Recovery and fresh writes remain explicit.
+            disk.0.lock().unwrap().fail_admit = None;
+            for now in [200, 2000, 60_001] {
+                clock.0.store(now, Ordering::Relaxed);
+                service.poll(&mut cx).unwrap();
+            }
+            assert!(service.take_notices(&mut cx).unwrap().is_empty());
+            let disk = disk.0.lock().unwrap();
+            assert_eq!(disk.files["a.rs"], b"before");
+            assert!(!disk.files.contains_key("new"));
+            assert!(disk.records.is_empty());
+            assert!(disk.versions.is_empty());
+        }
+    }
+
     #[test]
     fn batch_stale_at_every_position_leaves_all_files_records_and_timers_unchanged() {
         for stale in 0..3 {

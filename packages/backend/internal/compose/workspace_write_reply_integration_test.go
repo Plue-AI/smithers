@@ -131,6 +131,36 @@ func workspaceFileInstallFixture(t *testing.T, wrap func(*writeReplyRuntime) wor
 	return server, provider, pool, id, cookie
 }
 
+// Retain the daemon's settlement cause when the HTTP boundary correctly hides
+// infrastructure details. This delegates to the real authenticated connection.
+type comparedWriteSettlement struct {
+	result machined.WriteResult
+	err    error
+}
+
+type comparedWriteEvidence struct {
+	registry *machined.Registry
+	t        *testing.T
+	prefix   chan comparedWriteSettlement
+	attempts chan comparedWriteSettlement
+}
+
+func (e comparedWriteEvidence) WriteFiles(ctx context.Context, branch string, actor []byte, changes []machined.FileChange) (machined.WriteResult, error) {
+	result, err := e.registry.WriteFiles(ctx, branch, actor, changes)
+	select {
+	case <-e.attempts:
+	default:
+	}
+	e.attempts <- comparedWriteSettlement{result, err}
+	if len(changes) == 2 && changes[0].Path == "batch-prefix" && len(result.Applied) != 0 {
+		e.prefix <- comparedWriteSettlement{result, err}
+	}
+	if err != nil {
+		e.t.Logf("daemon compared-write failure: %v; applied=%v", err, result.Applied)
+	}
+	return result, err
+}
+
 func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 	server, provider, pool, id, cookie := workspaceFileInstallFixture(t, nil)
 	origin := server.URL
@@ -387,7 +417,9 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			}
 			return file.Content, nil
 		}
-		provider.writer = machined.WorkspaceWriter{Client: registry, EnsureReady: func(ctx context.Context, branch string) error {
+		prefix := make(chan comparedWriteSettlement, 1)
+		attempts := make(chan comparedWriteSettlement, 1)
+		provider.writer = machined.WorkspaceWriter{Client: comparedWriteEvidence{registry, t, prefix, attempts}, EnsureReady: func(ctx context.Context, branch string) error {
 			link, err := registry.Current(branch)
 			if err != nil {
 				return err
@@ -407,22 +439,73 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		memberHash := sha256.Sum256([]byte(memberCookie))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
+		// Native capture changes jj metadata. During the position check, an
+		// authenticated write may refuse without applying anything. A person
+		// re-reads before retrying; never retry a partial/unknown settlement.
+		retryMetadata := func(t *testing.T, body string, status, actual, attempt int) bool {
+			t.Helper()
+			var settled comparedWriteSettlement
+			select {
+			case settled = <-attempts:
+			default:
+				return false
+			}
+			var refusal *machined.SessionError
+			if attempt >= 10 || (status == 503 && !strings.Contains(body, `"path":"batch-prefix"`)) || actual != 503 ||
+				!errors.As(settled.err, &refusal) || refusal.Code != "not_ready" ||
+				!strings.Contains(refusal.Detail, "moved-off check required") ||
+				!settled.result.Preflight || len(settled.result.Applied) != 0 || len(settled.result.Raced) != 0 || settled.result.Stale != nil {
+				return false
+			}
+			var envelope struct {
+				Base    string `json:"base_digest"`
+				Changes []struct {
+					Path string `json:"path"`
+					Base string `json:"base_digest"`
+				} `json:"changes"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(body), &envelope))
+			if len(envelope.Changes) == 0 {
+				envelope.Changes = append(envelope.Changes, struct {
+					Path string `json:"path"`
+					Base string `json:"base_digest"`
+				}{"real.txt", envelope.Base})
+			}
+			for _, change := range envelope.Changes {
+				bytes, err := os.ReadFile(filepath.Join(root, change.Path))
+				if change.Base == "absent" {
+					require.ErrorIs(t, err, os.ErrNotExist)
+				} else {
+					require.NoError(t, err)
+					digest := sha256.Sum256(bytes)
+					require.Equal(t, change.Base, hex.EncodeToString(digest[:]), "refused metadata check changed bytes")
+				}
+			}
+			t.Log("re-read unchanged bases after authenticated metadata refusal")
+			time.Sleep(250 * time.Millisecond)
+			return true
+		}
 		call := func(method, actorCookie, body string, status int) []byte {
 			t.Helper()
-			req, err := http.NewRequest(method, server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(body))
-			require.NoError(t, err)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Origin", origin)
-			req.Header.Set("X-CSRF-Token", "digest-csrf")
-			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
-			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: actorCookie})
-			res, err := server.Client().Do(req)
-			require.NoError(t, err)
-			data, err := io.ReadAll(res.Body)
-			require.NoError(t, err)
-			require.NoError(t, res.Body.Close())
-			require.Equal(t, status, res.StatusCode, string(data))
-			return data
+			for attempt := 0; ; attempt++ {
+				req, err := http.NewRequest(method, server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(body))
+				require.NoError(t, err)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", origin)
+				req.Header.Set("X-CSRF-Token", "digest-csrf")
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: actorCookie})
+				res, err := server.Client().Do(req)
+				require.NoError(t, err)
+				data, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				require.NoError(t, res.Body.Close())
+				if method == "PUT" && retryMetadata(t, body, status, res.StatusCode, attempt) {
+					continue
+				}
+				require.Equal(t, status, res.StatusCode, string(data))
+				return data
+			}
 		}
 		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 		const worldDigest = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
@@ -451,20 +534,25 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		t.Run("batch delete move and later stale through HTTP", func(t *testing.T) {
 			request := func(body string, status int) []byte {
 				t.Helper()
-				req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content", strings.NewReader(body))
-				require.NoError(t, err)
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Origin", origin)
-				req.Header.Set("X-CSRF-Token", "digest-csrf")
-				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
-				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
-				res, err := server.Client().Do(req)
-				require.NoError(t, err)
-				bodyBytes, err := io.ReadAll(res.Body)
-				require.NoError(t, err)
-				require.NoError(t, res.Body.Close())
-				require.Equal(t, status, res.StatusCode, string(bodyBytes))
-				return bodyBytes
+				for attempt := 0; ; attempt++ {
+					req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content", strings.NewReader(body))
+					require.NoError(t, err)
+					req.Header.Set("Content-Type", "application/json")
+					req.Header.Set("Origin", origin)
+					req.Header.Set("X-CSRF-Token", "digest-csrf")
+					req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+					res, err := server.Client().Do(req)
+					require.NoError(t, err)
+					bodyBytes, err := io.ReadAll(res.Body)
+					require.NoError(t, err)
+					require.NoError(t, res.Body.Close())
+					if retryMetadata(t, body, status, res.StatusCode, attempt) {
+						continue
+					}
+					require.Equal(t, status, res.StatusCode, string(bodyBytes))
+					return bodyBytes
+				}
 			}
 			bytesAt := func(path, want string) {
 				t.Helper()
@@ -557,7 +645,19 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, os.Chmod(locked, 0755)) })
 			request(`{"changes":[{"path":"batch-prefix","content":"world","base_digest":"`+helloDigest+`"},{"path":"batch-locked/new","content":"hello","base_digest":"absent"}]}`, 503)
 			bytesAt("batch-prefix", "world")
+			select {
+			case settlement := <-prefix:
+				require.Error(t, settlement.err)
+				require.Nil(t, settlement.result.Stale, "an applied prefix is never a stale no-op")
+				require.Equal(t, []machined.AppliedFile{{Path: "batch-prefix", PostDigest: worldDigest}}, settlement.result.Applied)
+			default:
+				t.Fatal("HTTP failure never reached the authenticated daemon batch")
+			}
 			missing("batch-locked/new")
+			// End the external I/O fault after proving failure and the durable
+			// prefix. Recovery/flush in the independent capture check must not
+			// remain blocked by this deliberately unwritable directory.
+			require.NoError(t, os.Chmod(locked, 0755))
 		})
 		// Restore the fixture through the same guarded door before running
 		// independent outside-replacement and provider-loss checks below.

@@ -25,6 +25,10 @@ pub struct Recovery {
 /// Calls which mutate disk must run inside T-COL-03r's LockCx job. The adapter
 /// is supplied by production confinement; absence refuses before any open.
 pub trait Disk: Send {
+    /// Admit an explicitly requested write before activating or editing a
+    /// document. Production reuses the watcher admission at the swap boundary.
+    fn admit_write(&mut self, path: &str, actor: &str) -> Result<()>;
+
     /// openat2 BENEATH|NO_MAGICLINKS|NO_XDEV, O_NONBLOCK, regular-file fstat.
     /// Return at most 1 MiB + 1; binary/oversize opens are read-only.
     fn read(&mut self, path: &str) -> Result<Option<Vec<u8>>>;

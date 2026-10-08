@@ -217,6 +217,7 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 		if err != nil {
 			return result, err
 		}
+		result.Preflight = preflight
 		if preflight && e[1][0] == byte(wire.Stale) {
 			result.Stale = &StaleFile{Path: changes[index].Path}
 			if current := e[3]; current != nil {

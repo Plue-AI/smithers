@@ -570,6 +570,18 @@ impl<D: Disk> Documents for Service<D> {
                 }
             }
         }
+        // A metadata refusal must precede document activation: a dirty document
+        // left by application can otherwise save later despite a failed RPC.
+        for (index, change) in changes.iter().enumerate() {
+            if let Err(e) = s.host.admit_write(&change.path, &by) {
+                result.failure = Some(BatchFailure {
+                    index,
+                    error: error(e),
+                    preflight: true,
+                });
+                return Ok(result);
+            }
+        }
         for (index, (snapshot, change)) in prepared.into_iter().zip(changes).enumerate() {
             let current = snapshot.current;
             let written = (|| {
