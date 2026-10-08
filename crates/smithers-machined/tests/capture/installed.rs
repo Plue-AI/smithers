@@ -879,6 +879,107 @@ fn production_cleanup_keeps_operation_log_readable_in_member_namespace() {
     );
 }
 
+// Exercise the early size trigger while a real capture remains unacknowledged.
+// The host withholds only the receipt; bundles still undergo independent Git
+// verification through the ordinary authenticated transport above.
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; installed size cleanup with pending capture"]
+fn production_size_cleanup_preserves_pending_capture_and_working_copy() {
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    let cleanup = guest.root.path().join("state/oplog.gc");
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    while !cleanup.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daily cleanup never ran"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let first = fs::read(&cleanup).unwrap();
+    let workspace = guest.root.path().join("workspace");
+    let expected = b"pending capture survives early gc";
+    fs::write(workspace.join("file"), expected).unwrap();
+    host.acknowledge = false;
+    let event = conn::Durable::decode(&exchange(&mut host, 4, &[], true)).unwrap();
+    let head = event.captured_head().unwrap();
+    let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
+    let id: String = event.id.iter().map(|b| format!("{b:02x}")).collect();
+    let pending = format!("refs/smithers/pending/{id}");
+    let git = |args: &[&str]| {
+        let result = Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(&workspace)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        result.stdout
+    };
+    assert_eq!(git(&["rev-parse", &pending]), format!("{hex}\n").as_bytes());
+    let acked = git(&["rev-parse", "refs/smithers/acked/head"]);
+    let operation = fs::read(workspace.join(".jj/working_copy/checkout")).unwrap();
+    // Sparse length crosses the production size threshold without allocating
+    // a GiB on this shared runner. It is metadata, never working-copy content.
+    let oversized = workspace.join(".jj/qualification-size");
+    fs::File::create(&oversized)
+        .unwrap()
+        .set_len(1 << 30)
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    while fs::read(&cleanup).unwrap() == first {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "size cleanup did not run before daily interval"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    fs::remove_file(oversized).unwrap();
+    assert_eq!(fs::read(workspace.join("file")).unwrap(), expected);
+    assert_eq!(
+        fs::read(workspace.join(".jj/working_copy/checkout")).unwrap(),
+        operation
+    );
+    assert_eq!(git(&["rev-parse", &pending]), format!("{hex}\n").as_bytes());
+    assert_eq!(git(&["rev-parse", "refs/smithers/acked/head"]), acked);
+    assert_eq!(git(&["show", &format!("{hex}:file")]), expected);
+    Frame {
+        kind: 2,
+        stream: 0,
+        payload: conn::tagged(
+            3,
+            &[conn::field(1, event.seq.to_be_bytes()), conn::field(2, [1])],
+        ),
+    }
+    .write(&mut host.stream)
+    .unwrap();
+    assert_eq!(receive_reply(&mut host, false).unwrap()[0], 4);
+    host.acknowledge = true;
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    assert_eq!(
+        git(&["rev-parse", "refs/smithers/acked/head"]),
+        format!("{hex}\n").as_bytes()
+    );
+    let refs = git(&[
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/smithers/pending/",
+    ]);
+    assert!(refs.is_empty(), "acknowledged pending refs remain");
+    let status = call(&mut host, 1, &[]);
+    let fields = conn::fields("result1", &status[1..]).unwrap();
+    assert_eq!(
+        fields.iter().find(|(tag, _)| *tag == 4).unwrap().1,
+        &[0, 0, 0, 0]
+    );
+}
+
 #[test]
 #[ignore = "requires SMITHERS_NAMESPACE_INIT; dispatched special-file write refusals"]
 fn production_write_refuses_special_files_without_side_effects() {
