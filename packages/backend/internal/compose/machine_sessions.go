@@ -150,3 +150,50 @@ func (h *machineHost) commitAgentActor(ctx context.Context, branch, machine, hos
 		return machined.ActorIdentity{Kind: "agent", MemberID: member, Run: host, AgentKind: "coding", Via: "agent"}, nil
 	})
 }
+
+// RecordRun persists only an acknowledged daemon registration tied to the
+// already authenticated spawn. It shares admitAgent's transaction on startup.
+func (h *machineHost) RecordRun(ctx context.Context, branch string, boot [16]byte, session uint32, run string) error {
+	if h == nil || h.pool == nil || session == 0 || boot == [16]byte{} || run == "" {
+		return machined.ErrNotReady
+	}
+	write := func(tx pgx.Tx) error {
+		key := branch + ":" + hex.EncodeToString(boot[:]) + ":" + strconv.FormatUint(uint64(session), 10)
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, key); err != nil {
+			return err
+		}
+		var prior string
+		err := tx.QueryRow(ctx, `SELECT data->>'run' FROM product_job_events WHERE principal_id=$1 AND event_type='branch.run_registered' AND data->>'boot'=$2 AND data->>'session'=$3`, "branch:"+branch, hex.EncodeToString(boot[:]), fmt.Sprint(session)).Scan(&prior)
+		if err == nil {
+			if prior != run {
+				return machined.ErrUnauthorized
+			}
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+
+		var tenant string
+		err = tx.QueryRow(ctx, `SELECT tenant_id FROM product_job_events WHERE principal_id=$1 AND event_type='branch.session_opened'
+   AND data->>'boot'=$2 AND data->>'session'=$3 AND data->>'login'='agent' AND data->>'uid'='19999' AND data->>'via'=$4`,
+			"branch:"+branch, hex.EncodeToString(boot[:]), fmt.Sprint(session), "agent:"+run).Scan(&tenant)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return machined.ErrUnauthorized
+		}
+		if err != nil {
+			return err
+		}
+		data, err := json.Marshal(map[string]any{"boot": hex.EncodeToString(boot[:]), "session": session, "run": run})
+		if err != nil {
+			return err
+		}
+		event := uuid.NewSHA1(uuid.UUID(boot), []byte(fmt.Sprintf("run:%d:%s", session, run))).String()
+		_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: tenant, PrincipalID: "branch:" + branch}, event, "branch.run_registered", "completed", data)
+		return err
+	}
+	if tx := machined.SessionAdmissionTransaction(ctx, branch); tx != nil {
+		return write(tx)
+	}
+	return pgx.BeginFunc(ctx, h.pool, write)
+}

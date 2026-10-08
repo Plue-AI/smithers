@@ -89,7 +89,11 @@ func TestNativeAgentAdmissionHoldsOwnerThroughSpawnSupplemental(t *testing.T) {
 			t.Fatalf("revocation crossed active spawn authorization: %v", err)
 		case <-time.After(100 * time.Millisecond):
 		}
-		return host.Record(spawnCtx, f.row.ID, boot, 42, machined.SessionUser{Login: "agent", UID: 19999}, "agent:"+binding)
+		require.ErrorIs(t, host.RecordRun(spawnCtx, f.row.ID, boot, 42, binding), machined.ErrUnauthorized)
+		require.NoError(t, host.Record(spawnCtx, f.row.ID, boot, 42, machined.SessionUser{Login: "agent", UID: 19999}, "agent:"+binding))
+		require.ErrorIs(t, host.RecordRun(spawnCtx, f.row.ID, boot, 42, "another-run"), machined.ErrUnauthorized)
+		require.NoError(t, host.RecordRun(spawnCtx, f.row.ID, boot, 42, binding))
+		return host.RecordRun(spawnCtx, f.row.ID, boot, 42, binding)
 	}))
 	select {
 	case err := <-revoked:
@@ -100,6 +104,9 @@ func TestNativeAgentAdmissionHoldsOwnerThroughSpawnSupplemental(t *testing.T) {
 	calls := 0
 	require.ErrorIs(t, host.admitAgent(ctx, f.row.ID, binding, func(spawnCtx context.Context) error { calls++; return nil }), machined.ErrUnauthorized)
 	require.Zero(t, calls)
+	var registrations int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.run_registered' AND principal_id=$1`, "branch:"+f.row.ID).Scan(&registrations))
+	require.Equal(t, 1, registrations, "lost registration acknowledgement is idempotent")
 	actor, err := host.agentActor(ctx, f.row.ID, boot, binding)
 	require.NoError(t, err)
 	require.Contains(t, string(actor), `"kind": "agent"`)

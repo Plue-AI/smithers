@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ import (
 
 type noteHostContractFixture struct{}
 
-func (noteHostContractFixture) CodingNoteParticipant(_ context.Context, _ string, run string, _ flowruntime.Pin) (string, string, error) {
+func (noteHostContractFixture) CodingNoteParticipant(_ context.Context, _ pgx.Tx, _ string, run string, _ flowruntime.Pin) (string, string, error) {
 	return "agent:own", run, nil
 }
 
@@ -117,5 +118,27 @@ func TestOutsideNotesMachineEventsProductionLiveBinding(t *testing.T) {
 		// identity on transport replay or insert a second note.
 		_, err := f.pool.Exec(t.Context(), `UPDATE users SET display_name='Bob' WHERE id=$1`, f.user.ID)
 		require.NoError(t, err)
+	})
+}
+
+// The production qualifier is mounted even before an authenticated coding
+// registration exists. Live watcher cards keep advancing; no signal is queued.
+func TestOutsideNotesUnqualifiedHostKeepsLiveBoundary(t *testing.T) {
+	testMachineEventsProductionLiveBinding(t, func(f presenceInstallFixture) *machined.OutsideChangeNotes {
+		_, err := f.pool.Exec(t.Context(), `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'unqualified-run',$4,$5)`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`)
+		require.NoError(t, err)
+		store, err := jobs.NewStore(f.pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Error("watcher must not launch coding")
+			return nil, machined.ErrNotReady
+		})})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			var n int
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&n))
+			require.Zero(t, n)
+		})
+		return &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: &machined.RegisteredCodingNoteHost{ArtifactDigest: strings.Repeat("a", 64)}}, Dispatcher: dispatcher}
 	})
 }

@@ -183,7 +183,7 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 			return ErrNotReady
 		}
 		var applyErr error
-		ack, applyErr = s.commitBurst(ctx, tx, objects, branch, scope, event, b, actor, multipart)
+		ack, applyErr = s.commitBurst(context.WithValue(ctx, noteConnectionKey{}, connection), tx, objects, branch, scope, event, b, actor, multipart)
 		return applyErr
 	})
 	if err == nil && ack.Outcome == AckApplied && s.ObserveCommitted != nil {

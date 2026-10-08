@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strconv"
 
@@ -62,7 +63,15 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 	// can establish an earlier actor after close, revocation or counter reuse.
 	burst := &machined.BurstIngest{Pool: pool, Objects: machineBurstStore{host}, ObserveCommitted: observeCommitted}
 	if notes != nil {
-		burst.OutsideChanges = notes.Admit
+		burst.OutsideChanges = func(ctx context.Context, tx pgx.Tx, branch, burst string, actor json.RawMessage, files []string) error {
+			err := notes.Admit(ctx, tx, branch, burst, actor, files)
+			// An unqualified coding host leaves notification delivery dark,
+			// not the ordinary committed watcher projections.
+			if errors.Is(err, machined.ErrNotReady) {
+				return nil
+			}
+			return err
+		}
 	}
 	return registry.ConsumeEvents(ctx, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) (machined.Acknowledgement, error) {
 		colors := map[string]int{}

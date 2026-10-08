@@ -153,7 +153,7 @@ func TestOutsideChangePinnedSelectionAtIngest(t *testing.T) {
 
 type codingNoteHostFixture func(context.Context, string, string, flowruntime.Pin) (string, string, error)
 
-func (f codingNoteHostFixture) CodingNoteParticipant(ctx context.Context, branch, run string, pin flowruntime.Pin) (string, string, error) {
+func (f codingNoteHostFixture) CodingNoteParticipant(ctx context.Context, _ pgx.Tx, branch, run string, pin flowruntime.Pin) (string, string, error) {
 	return f(ctx, branch, run, pin)
 }
 

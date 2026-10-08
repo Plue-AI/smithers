@@ -392,6 +392,11 @@ func (s registrySessions) CallSession(ctx context.Context, call SessionCall) (Se
 		}
 		return SessionResult{Received: received}, nil
 	case wire.RegisterRun:
+		if receipts, ok := l.identities.(RunRegistrationReceipts); ok {
+			if err := receipts.RecordRun(ctx, s.branch, l.BootID(), call.Session, call.Run); err != nil {
+				return SessionResult{}, err
+			}
+		}
 		l.mu.Lock()
 		peer := l.sessions[call.Session]
 		l.mu.Unlock()

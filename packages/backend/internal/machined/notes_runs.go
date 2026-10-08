@@ -16,7 +16,7 @@ import (
 // registration receipts. It performs no wake, network call or tool dispatch.
 // A missing capability returns ErrNotReady; it never substitutes another run.
 type CodingNoteHost interface {
-	CodingNoteParticipant(context.Context, string, string, flowruntime.Pin) (participant, lineage string, err error)
+	CodingNoteParticipant(context.Context, pgx.Tx, string, string, flowruntime.Pin) (participant, lineage string, err error)
 }
 
 // PinnedCodingNoteRuns reads the existing stack's current attempt under the
@@ -64,7 +64,7 @@ func (s *PinnedCodingNoteRuns) ResolveCodingNoteRun(ctx context.Context, tx pgx.
 	if run == nil {
 		return nil, nil
 	}
-	run.ParticipantID, run.LineageID, err = s.Host.CodingNoteParticipant(ctx, branch, run.RunID, pin)
+	run.ParticipantID, run.LineageID, err = s.Host.CodingNoteParticipant(ctx, tx, branch, run.RunID, pin)
 	if err != nil {
 		return nil, err
 	}

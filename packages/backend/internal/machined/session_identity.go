@@ -80,3 +80,10 @@ func (l *Link) BootID() [16]byte {
 	}
 	return l.boot.id
 }
+
+// RunRegistrationReceipts extends the existing session fact store with the
+// daemon's successful register_run acknowledgement. Reconnects read that fact
+// rather than guessing registration from a session-open receipt.
+type RunRegistrationReceipts interface {
+	RecordRun(context.Context, string, [16]byte, uint32, string) error
+}

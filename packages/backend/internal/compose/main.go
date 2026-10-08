@@ -2060,7 +2060,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			// The same machine host must authenticate pinned notification delivery
 			// and daemon stale-write enforcement. Missing qualification keeps the
 			// ordinary watcher projection running without admitting notes.
-			if host, ok := options.Workspace.(machined.CodingNoteHost); ok {
+			if options.Machined != nil && options.FlowHostRegistry != nil {
+				host := &machined.RegisteredCodingNoteHost{ArtifactDigest: options.FlowHostRegistry.Coding.SHA256}
 				outsideNotes = &machined.OutsideChangeNotes{
 					Runs: &machined.PinnedCodingNoteRuns{Host: host}, Dispatcher: flow.dispatcher,
 				}
