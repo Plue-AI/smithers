@@ -314,6 +314,29 @@ def main():
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
         return
+    if operation in ("cgroup-live-child-replaced", "cgroup-live-child-writable"):
+        parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            names = sorted(os.listdir(parent))
+            if not names or any(len(name) != 18 or not name.startswith("s-") or any(c not in "0123456789abcdef" for c in name[2:]) for name in names):
+                raise ValueError("invalid live cgroup children")
+            for name in names:
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                try:
+                    info = os.fstat(child)
+                    if info.st_uid != 0 or info.st_mode & 0o022:
+                        raise ValueError("untrusted initial live cgroup")
+                    if operation == "cgroup-live-child-writable":
+                        os.fchmod(child, 0o777)
+                    else:
+                        os.rename(name, "trm06-original-" + name, src_dir_fd=parent, dst_dir_fd=parent)
+                        os.mkdir(name, 0o755, dir_fd=parent)
+                finally:
+                    os.close(child)
+        finally:
+            os.close(parent)
+        print(json.dumps({"cgroup_replaced": operation, "outside": fingerprint()}))
+        return
     if operation in ("cgroup-writable", "cgroup-live-parent-writable"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

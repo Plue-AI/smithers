@@ -73,6 +73,47 @@ class ObserverReceipt(unittest.TestCase):
                 self.assertEqual(outside.read_bytes(), b"outside-fixture\0")
                 self.assertEqual((outside.stat().st_ino, outside.stat().st_uid, outside.stat().st_mode), (before.st_ino, before.st_uid, before.st_mode))
 
+    def test_live_child_mutations_hold_original_groups_and_refuse_foreign_names(self):
+        for mode in ("cgroup-live-child-replaced", "cgroup-live-child-writable"):
+            for invalid in (False, True):
+                with self.subTest(mode=mode, invalid=invalid), tempfile.TemporaryDirectory() as temporary:
+                    parent = Path(temporary)
+                    names = ["s-0000000000000001", "s-0000000000000002"]
+                    for name in names:
+                        (parent / name).mkdir(mode=0o755)
+                    originals = {name: (parent / name).stat().st_ino for name in names}
+                    if invalid:
+                        (parent / "foreign").mkdir()
+                    original_open, original_stat = os.open, os.fstat
+                    def own_open(path, flags, *args, **kwargs):
+                        self.assertTrue(flags & os.O_NOFOLLOW)
+                        if path == "/sys/fs/cgroup/smithers/sessions":
+                            path = parent
+                        else:
+                            self.assertIn(path, names)
+                            self.assertIn("dir_fd", kwargs)
+                        return original_open(path, flags, *args, **kwargs)
+                    def own_stat(fd):
+                        values = list(original_stat(fd))
+                        values[4] = 0
+                        return os.stat_result(values)
+                    with patch.object(fixture.sys, "argv", ["installed-fixture", mode]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=own_open), patch.object(fixture.os, "fstat", side_effect=own_stat), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()) as output:
+                        if invalid:
+                            with self.assertRaises(ValueError):
+                                fixture.main()
+                        else:
+                            fixture.main()
+                            self.assertEqual(json.loads(output.getvalue())["cgroup_replaced"], mode)
+                    for name in names:
+                        child = parent / name
+                        if not invalid and mode == "cgroup-live-child-replaced":
+                            self.assertEqual((parent / ("trm06-original-" + name)).stat().st_ino, originals[name])
+                            self.assertNotEqual(child.stat().st_ino, originals[name])
+                            self.assertEqual(child.stat().st_mode & 0o777, 0o755)
+                        else:
+                            self.assertEqual(child.stat().st_ino, originals[name])
+                            self.assertEqual(child.stat().st_mode & 0o777, 0o777 if not invalid else 0o755)
+
     def test_reader_waits_for_complete_locked_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "observer.json"

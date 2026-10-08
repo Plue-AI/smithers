@@ -268,3 +268,12 @@ Run the supplemental launcher matrix directly with
 `python3 scripts/spikes/trm-06/test_launcher_races.py`; its executable entrypoint
 now runs the eight tests (including actual fd exec/environment observations).
 These Linux results do not replace installed Darwin launcher evidence.
+
+The installed live-cgroup campaign also covers replacement and writable modes
+of each existing session child, after foreground/background enrollment. These
+selectors preserve the original child inodes for the already-armed independent
+events observer, require explicit new-admission refusal, and use authenticated
+revocation with the same five-second raw populated-zero evidence gate. Empty or
+foreign child sets refuse fixture mutation. Local filesystem tests substitute
+UID/path observations only; they do not supply native cgroup acceptance. The
+full installed host matrix and native reference-host receipts remain required.

@@ -11,7 +11,12 @@ import (
 )
 
 func cgroupLiveFixture(scenario string) bool {
-	return scenario == "cgroup-live-parent-replaced" || scenario == "cgroup-live-parent-writable"
+	switch scenario {
+	case "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable":
+		return true
+	default:
+		return false
+	}
 }
 
 // Installed authenticated relay only. Mutation happens after enrollment, while
