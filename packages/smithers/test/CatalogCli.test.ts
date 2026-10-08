@@ -522,7 +522,12 @@ describe("person card CLI doors", () => {
         })
         expect(code, stdout).toBe(0)
         expect(await readFile(receipt, "utf8")).toBe(`${f.origin}/?card=${name}\n`)
-        expect(f.seen).toEqual([])
+        // Destination discovery may probe health before opening the card.
+        // The door must never dispatch an operation or mutation.
+        expect(f.seen.length).toBeLessThanOrEqual(1)
+        for (const request of f.seen) {
+          expect(request).toEqual({ method: "GET", path: "/health", body: undefined, via: undefined })
+        }
         expect(stdout).not.toContain("PRIVATE_TOKEN")
       } finally {
         await f.close()

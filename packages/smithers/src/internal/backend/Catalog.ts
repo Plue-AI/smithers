@@ -82,13 +82,6 @@ export const dispatchCatalog = async (
   row: typeof catalogCommands[number],
   values: Record<string, unknown>
 ): Promise<unknown> => {
-  const schema = httpPayloadSchema(row)
-  const fields: Record<string, any> = schema.properties ?? {}
-  const supplied: Record<string, unknown> = {
-    ...values,
-    ...(row.name === "todo.answer" && values.todo !== undefined
-      ? { n: Number(String(values.todo).replace(/^T/, "")) } : {})
-  }
   if (row.agent === "never" && row.name !== "ssh") {
     throw new Refused({
       fault: "policy",
@@ -96,6 +89,13 @@ export const dispatchCatalog = async (
       class: "never",
       message: "Only a person can do this in the app"
     })
+  }
+  const schema = httpPayloadSchema(row)
+  const fields: Record<string, any> = schema.properties ?? {}
+  const supplied: Record<string, unknown> = {
+    ...values,
+    ...(row.name === "todo.answer" && values.todo !== undefined
+      ? { n: Number(String(values.todo).replace(/^T/, "")) } : {})
   }
   if (row.http === null && row.client === undefined) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })

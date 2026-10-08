@@ -6,7 +6,57 @@ import { targetsInstall } from "../src/internal/backend/Destination.ts"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, it } from "vitest"
-import { mountCatalog } from "../src/internal/backend/Catalog.ts"
+import { catalogCommands, dispatchCatalog, mountCatalog } from "../src/internal/backend/Catalog.ts"
+import { Client } from "../src/internal/backend/Client.ts"
+import * as Presentation from "../src/cli/Presentation.ts"
+
+it.each(["missing binding", "ambiguous binding", "invalid payload"])(
+  "refuses a person-only CLI action before %s can mask never",
+  async (boundary) => {
+    const requests: string[] = []
+    const server = createServer((request, response) => {
+      requests.push(request.url!)
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end("{}")
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    try {
+      // Exercise the production dispatcher through incur's command boundary.
+      // Presentation metadata is deliberately broken; it cannot change policy.
+      const { client: _client, ...descriptor } = catalogCommands.find(row => row.name === "todo.new")!
+      const row = {
+        ...descriptor,
+        agent: "never" as const,
+        ...(boundary === "missing binding" ? { http: null } : {}),
+        ...(boundary === "ambiguous binding" ? {
+          payload: { dialect: "draft-2020-12", schema: { anyOf: [] }, definitions: {} }
+        } : {})
+      }
+      const client = new Client({ environment: {
+        SMITHERS_API_ORIGIN: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        SMITHERS_TOKEN: "test-token"
+      } })
+      const cli = Cli.create("smthrs").command("new", {
+        run: context => Presentation.guard(context, async () => {
+          try {
+            return await dispatchCatalog(client, row, { text: 42 })
+          } catch (error) {
+            throw client.failure(error)
+          }
+        })
+      })
+      let stdout = "", exit = 0
+      await Presentation.withErrorEnvelope(text => { stdout += text }, stdout =>
+        cli.serve(["new", "--json"], { stdout, exit: code => { exit = code } }))
+      expect(exit).not.toBe(0)
+      expect(JSON.parse(stdout)).toMatchObject({ code: "never", class: "never", message: "Only a person can do this in the app" })
+      expect(requests).toEqual([])
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  }
+)
 
 it("keeps a local verb executable while mounting an install-only door", async () => {
   const calls: string[] = []
