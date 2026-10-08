@@ -12,7 +12,7 @@ with tempfile.TemporaryDirectory() as directory:
  root=pathlib.Path(directory); groups=root/'groups'; groups.mkdir()
  g.PROTECTED_BASE=directory; g.ROOT_UID=os.getuid()
  workspace=root/'workspace'; workspace.mkdir()
- target=workspace/'file'
+ target=workspace/'egress-ca.pem'; g.STATE_DIR=str(workspace)
  g.CGROUP_ROOT=str(groups)
  real_uid=os.getuid(); identity=[0]; admitted=[]; cleaned=[]
  g.os.geteuid=lambda:identity[0]
@@ -50,13 +50,13 @@ with tempfile.TemporaryDirectory() as directory:
    return super().__getitem__(index)
  def call(operation, extra=(), expected=0):
   before={s:signal.getsignal(s) for s in (signal.SIGTERM,signal.SIGHUP,signal.SIGINT)}
-  try:g.main(Operands(['fs','agent',operation,str(workspace),'file',*extra]))
+  try:g.main(Operands(['fs','agent',operation,str(workspace),target.name,*extra]))
   except SystemExit as result:assert result.code==expected,(operation,result.code)
   else:raise AssertionError('parent ignored child status')
   assert before=={s:signal.getsignal(s) for s in before}
   assert len(admitted)==len(cleaned) and list(groups.iterdir())==[]
  target.write_bytes(b'original\n')
- # fs_write uses safe_directory, which is unrelated to command admission.
+ # fs_write_fixed uses safe_directory, which is unrelated to command admission.
  original_safe=g.safe_directory
  def directories(path,**kwargs):
   if kwargs.get('trusted'):return original_safe(path,**kwargs)
@@ -64,9 +64,9 @@ with tempfile.TemporaryDirectory() as directory:
   return os.open(path,os.O_RDONLY|os.O_DIRECTORY)
  g.safe_directory=directories
  g.sys.stdin=io.TextIOWrapper(io.BytesIO(b'replacement\n'))
- call('write',['644'])
+ call('state-write')
  assert target.read_bytes()==b'replacement\n'
- call('read',['1024'])
+ call('state-read')
  call('compare-write',['644','absent','1024'],125)
  assert target.read_bytes()==b'replacement\n'
  call('remove')

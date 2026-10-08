@@ -28,7 +28,7 @@ spec=importlib.util.spec_from_file_location('guest',%s)
 g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
 # Substitute privileged ownership, credential drop, cgroup files and cleanup.
 # The real managed-child fork, filesystem operation and returned status remain.
-g.PROTECTED_BASE=os.path.dirname(%s);g.ROOT_UID=os.getuid()
+g.PROTECTED_BASE=os.path.dirname(%s);g.ROOT_UID=os.getuid();g.STATE_DIR=g.PROTECTED_BASE
 g.CGROUP_ROOT=os.path.join(g.PROTECTED_BASE,'groups');os.mkdir(g.CGROUP_ROOT)
 def group(path,**kwargs):
  assert os.path.dirname(path)==g.CGROUP_ROOT
@@ -48,15 +48,15 @@ g.main(sys.argv[sys.argv.index('run')+1:])
 `, python, strconv.Quote(helper), strconv.Quote(log), strconv.Quote(log), strconv.Quote(filepath.Join(dir, "identity")))
 	require.NoError(t, os.WriteFile(binary, []byte(harness), 0700))
 	r := &Runtime{cli: &cli{binary: binary, home: dir}, workspaces: map[string]*workspace{"fixture": newWorkspace(metadata{ID: "fixture", Machine: "machine", State: "running"}, "")}}
-	_, err = r.fileOperation(t.Context(), "fixture", dir, []byte("bytes"), "write", "file", "600")
+	_, err = r.fileOperation(t.Context(), "fixture", dir, []byte("bytes"), "state-write", egressCAFile)
 	require.NoError(t, err)
 	args, err := os.ReadFile(log)
 	require.NoError(t, err)
-	require.Contains(t, string(args), "fs\nagent\nwrite\n")
+	require.Contains(t, string(args), "fs\nagent\nstate-write\n")
 	identity, err := os.ReadFile(filepath.Join(dir, "identity"))
 	require.NoError(t, err)
 	require.Equal(t, guestUser, string(identity))
-	content, err := os.ReadFile(filepath.Join(dir, "file"))
+	content, err := os.ReadFile(filepath.Join(dir, egressCAFile))
 	require.NoError(t, err)
 	require.Equal(t, "bytes", string(content))
 	boundaryPython(t, `
@@ -74,12 +74,12 @@ def managed(exec_id,action):
  action(None)
  return 0
 g.run_managed_child=managed
-g.fs_write=lambda root,path,mode: calls.append((root,path,mode))
-try:g.main(['fs','agent','write','/workspace','file','600'])
+g.fs_write_fixed=lambda root,path,mode,name: calls.append((root,path,mode))
+try:g.main(['fs','agent','state-write',g.STATE_DIR,'egress-ca.pem'])
 except SystemExit as error:assert error.code==0,error.code
-assert calls==['agent',('/workspace','file',0o600)],calls
+assert calls==['agent',(g.STATE_DIR,'egress-ca.pem',0o644)],calls
 for user in ('root','other','1500'):
- try: g.main(['fs',user,'write','/workspace','file','600'])
+ try: g.main(['fs',user,'state-write',g.STATE_DIR,'egress-ca.pem'])
  except SystemExit as error: assert error.code==125 and messages[-1]=='invalid fs identity',messages
  else: raise AssertionError('accepted '+user)
 `)

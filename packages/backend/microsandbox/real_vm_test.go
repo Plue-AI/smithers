@@ -269,9 +269,11 @@ func TestRealMicroVMServicePreviewAndRestart(t *testing.T) {
 	require.Equal(t, workspaceapi.WorkspaceStopped, observed.State)
 	_, err = restarted.StartWorkspace(ctx, "microvm-service")
 	require.NoError(t, err)
-	content, err := restarted.ReadFile(ctx, "microvm-service", "index.html")
+	// Runtime.ReadFile needs the composed daemon this fixture does not start;
+	// an unprivileged session reads the retained file, as writeGuestFixture wrote it.
+	content, err := restarted.ExecuteCommand(ctx, "microvm-service", workspaceapi.Command{Args: []string{"cat", "index.html"}})
 	require.NoError(t, err)
-	require.Equal(t, "hello from the guest\n", string(content))
+	require.Equal(t, "hello from the guest\n", content.Stdout)
 	require.NoError(t, restarted.DeleteWorkspace(ctx, "microvm-service"))
 }
 
