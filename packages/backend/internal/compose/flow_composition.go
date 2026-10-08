@@ -348,15 +348,35 @@ func flowTargetResolver(agents, repositoryJobs flowhost.TargetResolver, browserT
 	})
 }
 
+// Retain both projection and installed failure certification when composing
+// product consumers. A ProjectorFunc erases the optional certifier interface.
+type composedFlowProjector struct{ projectors []flowdispatch.Projector }
+
 func flowProjector(projectors ...flowdispatch.Projector) flowdispatch.Projector {
-	return flowdispatch.ProjectorFunc(func(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
-		var failures []error
-		for _, projector := range projectors {
-			failures = append(failures, projector.ProjectFlowRuntime(ctx, update))
-		}
-		return errors.Join(failures...)
-	})
+	return composedFlowProjector{projectors: projectors}
 }
+
+func (p composedFlowProjector) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
+	var failures []error
+	for _, projector := range p.projectors {
+		failures = append(failures, projector.ProjectFlowRuntime(ctx, update))
+	}
+	return errors.Join(failures...)
+}
+
+func (p composedFlowProjector) CertifyFlowFailure(ctx context.Context, update flowdispatch.ProjectionUpdate) (*flowdispatch.CertifiedMissingTool, error) {
+	for _, projector := range p.projectors {
+		if certifier, ok := projector.(flowdispatch.FailureCertifier); ok {
+			receipt, err := certifier.CertifyFlowFailure(ctx, update)
+			if err != nil || receipt != nil {
+				return receipt, err
+			}
+		}
+	}
+	return nil, nil
+}
+
+var _ flowdispatch.FailureCertifier = composedFlowProjector{}
 
 func (flow *flowComposition) maintainRetired(ctx context.Context) {
 	ticker := time.NewTicker(time.Minute)

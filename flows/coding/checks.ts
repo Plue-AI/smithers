@@ -78,6 +78,8 @@ export const checkDelegate = Flow.make("coding/CommandCheck", {
 })
 
 export type CheckHostOptions = ImmutableSourceOptions & {
+  /** Installed host audit, outside repository output and its immutable export. */
+  readonly commandReceipts?: import("./command-receipts.ts").CommandReceipts | undefined
   /** Optional deployment resource limit; ordinary checks may run concurrently. */
   readonly concurrency?: number
 }
@@ -135,6 +137,7 @@ export const checkLayers = (options: CheckHostOptions) => {
         if (path.isAbsolute(command.cwd) || command.cwd.split(/[\\/]/).includes("..")) {
           return yield* invalid("Check cwd must remain inside the exported source tree")
         }
+        const complete = yield* (options.commandReceipts?.begin(command.argv) ?? Effect.succeed(undefined))
         return yield* withImmutableSource(options, implementation.head, (tree, root) =>
           Effect.gen(function*() {
             const cwd = yield* fs.realPath(path.resolve(root, command.cwd))
@@ -182,6 +185,7 @@ export const checkLayers = (options: CheckHostOptions) => {
             const finishedAt = yield* Clock.currentTimeMillis
             const passed = result.exitCode === 0
             const fault = command.infraExitCodes?.includes(result.exitCode) ? "infra" as const : "factory" as const
+            if (complete !== undefined) yield* complete({ ...result, ...(passed ? {} : { fault }) })
             return {
               checkId: check.id,
               target: check.target,

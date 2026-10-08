@@ -12,10 +12,11 @@
  * Only re-exports belong here: `host-modules-build.mjs` composes this barrel
  * from the bundled modules it names.
  */
+export { CheckCommand } from "./checks.ts"
+export { ReadNative } from "./native.ts"
 export { default as Request } from "./request-flow.ts"
-export { RequestInput, StackBase } from "./schema.ts"
+export { CodingError, RequestInput, StackBase } from "./schema.ts"
+export { TodoBoundary } from "./todo-pause.ts"
 export { TodoDelivery, TodoReview } from "./todo.ts"
 export { default as Vibe, VibeError } from "./vibe-flow.ts"
 export { VibeDelivered } from "./vibe-schema.ts"
-export { TodoBoundary } from "./todo-pause.ts"
-export { CheckCommand } from "./checks.ts"

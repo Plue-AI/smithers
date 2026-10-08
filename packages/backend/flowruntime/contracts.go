@@ -183,15 +183,28 @@ type Event struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
+// CommandReceipt is read from installed host equipment, outside flow output.
+// Running includes interrupted or failed launches; it invalidates an older exit.
+type CommandReceipt struct {
+	RunID       string   `json:"runId"`
+	OperationID string   `json:"operationId"`
+	Status      string   `json:"status"`
+	Fault       string   `json:"fault,omitempty"`
+	Args        []string `json:"argv"`
+	ExitCode    *int     `json:"exitCode,omitempty"`
+	Stderr      string   `json:"stderr,omitempty"`
+}
+
 type Run struct {
-	RunID                string `json:"runId"`
-	FlowID               string `json:"flowId"`
-	Status               string `json:"status"`
-	PlanID               string `json:"planId,omitempty"`
-	PlanDigest           string `json:"planDigest,omitempty"`
-	OwnerID              string `json:"ownerId,omitempty"`
-	WaitingReason        string `json:"waitingReason,omitempty"`
-	ExecutionObservation string `json:"executionObservation,omitempty"`
+	CommandReceipt       *CommandReceipt `json:"commandReceipt,omitempty"`
+	RunID                string          `json:"runId"`
+	FlowID               string          `json:"flowId"`
+	Status               string          `json:"status"`
+	PlanID               string          `json:"planId,omitempty"`
+	PlanDigest           string          `json:"planDigest,omitempty"`
+	OwnerID              string          `json:"ownerId,omitempty"`
+	WaitingReason        string          `json:"waitingReason,omitempty"`
+	ExecutionObservation string          `json:"executionObservation,omitempty"`
 	// FinalOutput is the canonical committed root projection, when observed.
 	// Absence on a terminal run must never be interpreted as a successful result.
 	FinalOutput *string `json:"finalOutput,omitempty"`

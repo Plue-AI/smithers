@@ -9,8 +9,8 @@
  */
 
 import { Control } from "@smthrs/control/Control"
-import { ControlExecutor, type Service as ControlExecutorService } from "@smthrs/control/ControlExecutor"
 import * as ControlError from "@smthrs/control/ControlError"
+import { ControlExecutor, type Service as ControlExecutorService } from "@smthrs/control/ControlExecutor"
 import type { Principal, WatchCursor } from "@smthrs/control/ControlSchema"
 import {
   ApprovalPayload,
@@ -196,6 +196,27 @@ export const ObserveRequest = Schema.Struct({
 export type ObserveRequest = typeof ObserveRequest.Type
 
 /**
+ * A process result recorded by installed host equipment, never by a flow result.
+ * @since 1.0.0
+ * @category models
+ */
+export const CommandReceipt = Schema.Struct({
+  runId: Schema.NonEmptyString,
+  operationId: Schema.NonEmptyString,
+  status: Schema.Literals(["running", "completed"]),
+  argv: Schema.NonEmptyArray(Schema.String),
+  exitCode: Schema.optionalKey(Schema.Int),
+  stderr: Schema.optionalKey(Schema.String),
+  fault: Schema.optionalKey(Schema.Literals(["factory", "infra"]))
+})
+/**
+ * A process result recorded by installed host equipment.
+ * @since 1.0.0
+ * @category models
+ */
+export type CommandReceipt = typeof CommandReceipt.Type
+
+/**
  * Host identity fixed for the lifetime of one owning process.
  * @since 1.0.0
  * @category models
@@ -206,6 +227,8 @@ export interface Config {
   /** Captured and verified by native catalog registration, never decoded from a request or environment. */
   readonly verifiedCatalogSourceRevision?: string | undefined
   readonly ownerGeneration: number
+  /** Private installed-host receipt reader; never accepted on the command wire. */
+  readonly commandReceipt?: ((runId: string) => Effect.Effect<CommandReceipt | undefined, unknown>) | undefined
   /** Native host port, captured from the executor rather than from a request. */
   readonly requestComplete?: ControlExecutorService["requestComplete"]
   readonly authenticate: (
@@ -396,9 +419,16 @@ export const execute = (
       // its retained parent to settle from that child's committed result.
       case "complete": {
         const executor = yield* Effect.serviceOption(ControlExecutor)
-        const complete = config.requestComplete ?? (executor._tag === "Some" ? executor.value.requestComplete : undefined)
+        const complete = config.requestComplete ??
+          (executor._tag === "Some" ? executor.value.requestComplete : undefined)
         if (complete === undefined) {
-          return yield* Effect.fail(new BridgeError({ code: "unavailable", message: "Completed-module settlement is unavailable", retryable: true }))
+          return yield* Effect.fail(
+            new BridgeError({
+              code: "unavailable",
+              message: "Completed-module settlement is unavailable",
+              retryable: true
+            })
+          )
         }
         const receipt = yield* complete({ runId: input.runId, receiptId: idempotencyKey(input, "complete") })
         return { operation: input.operation, applicationRequestId: input.applicationRequestId, receipt } as const
@@ -442,7 +472,7 @@ const encodedCursor = (cursor: WatchCursor): string =>
  * @since 1.0.0
  * @category constructors
  */
-export const observe = (control: Control["Service"], input: ObserveRequest) =>
+export const observe = (control: Control["Service"], input: ObserveRequest, receipts?: Config["commandReceipt"]) =>
   Effect.gen(function*() {
     const after = yield* cursorPosition(input.afterCursor)
     const limit = Math.min(input.limit ?? defaultEventLimit, maximumEventLimit)
@@ -492,8 +522,21 @@ export const observe = (control: Control["Service"], input: ObserveRequest) =>
         ...(row.failureTag === undefined ? {} : { failureTag: row.failureTag })
       }
     }
+    // Keep the private receipt out of every repository-controlled projection.
+    const hostSummary = yield* Schema.decodeUnknownEffect(RunSummary)(summary)
+    const commandReceipt = receipts === undefined ? undefined : yield* receipts(input.runId)
+    if (commandReceipt !== undefined && commandReceipt.runId !== input.runId) {
+      return yield* Effect.fail(
+        new BridgeError({ code: "internal", message: "Host command receipt names another run", retryable: false })
+      )
+    }
     return {
-      run: { ...summary, ...(finalOutput === undefined ? {} : { finalOutput }), ...failure },
+      run: {
+        ...hostSummary,
+        ...(commandReceipt === undefined ? {} : { commandReceipt }),
+        ...(finalOutput === undefined ? {} : { finalOutput }),
+        ...failure
+      },
       events: page,
       nextCursor: last === undefined
         ? input.afterCursor ?? ""
@@ -637,7 +680,8 @@ export const ObserveResponse = Schema.Struct({
       ...RunSummary.fields,
       finalOutput: Schema.optional(Schema.String),
       failureFault: Schema.optional(Fault.Class),
-      failureTag: Schema.optional(Schema.String)
+      failureTag: Schema.optional(Schema.String),
+      commandReceipt: Schema.optionalKey(CommandReceipt)
     }),
     events: Schema.Array(ControlEvent),
     nextCursor: Schema.String,
@@ -752,7 +796,7 @@ export const layer = (config: Config) => {
         })
       ))
       const control = yield* Control
-      const value = yield* observe(control, input)
+      const value = yield* observe(control, input, config.commandReceipt)
       return HttpServerResponse.jsonUnsafe({ protocol, ok: true, value })
     })).pipe(
       Effect.catch(respondToFailure("runtime-bridge.observe")),

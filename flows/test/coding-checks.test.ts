@@ -14,8 +14,10 @@ import { test } from "node:test"
 import { CapabilityPattern } from "../../packages/smithers/flows/capability/src/Capability.ts"
 import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
+import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { catalogLayers } from "../coding/catalog.ts"
 import { checkDelegate, checkLayers } from "../coding/checks.ts"
+import { commandReceipts } from "../coding/command-receipts.ts"
 import { type Check, type Implementation, Receipt, receiptMatches, type Revision } from "../coding/schema.ts"
 import { RunCheck } from "../coding/workflow.ts"
 
@@ -131,6 +133,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
         })
       ))
   }
+  const audit = commandReceipts(fs, join(temporary, "private-audit"))
   const runtime = () =>
     nativeRuntime.layerHost(
       {
@@ -149,6 +152,15 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
       },
       Layer.mergeAll(
         checkLayers({
+          // This engine-only test has no Control module owner; the composed
+          // install test supplies it through production ModuleAuthority.
+          commandReceipts: {
+            ...audit,
+            begin: (argv) =>
+              audit.begin(argv).pipe(
+                Effect.provideService(ModuleOwner, { rootId: "check-audit-root", flowId: "todo" })
+              )
+          },
           repositoryPath: root,
           exporterPath: exporter,
           fs: recordingFs,
@@ -168,7 +180,10 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   disposeHost = () => host.dispose()
   const run = (check: Check, executionId: string, source: Implementation = implementation) =>
     host.runPromise(
-      CheckRun.execute({ implementation: source, check }, { executionId }).pipe(Effect.scoped),
+      CheckRun.execute({ implementation: source, check }, { executionId }).pipe(
+        Effect.provideService(ModuleOwner, { rootId: executionId, flowId: "todo" }),
+        Effect.scoped
+      ),
       { signal: t.signal }
     )
   const first = run(check, "check-original-source")
@@ -189,12 +204,14 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     assert.ok(Date.now() < deadline, "checker must start within the host acquisition budget")
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
+  assert.equal((await Effect.runPromise(audit.read("check-audit-root")))?.status, "running")
   await writeFile(join(root, "value.txt"), "new live source")
   jj("status")
   const afterEdit = JSON.parse(jj("op", "log", "-n", "1", "--no-graph", "-T", "json(self)")).id
   await writeFile(release, "continue")
   const passed = await first
   assert.equal(passed.status, "passed")
+  assert.equal((await Effect.runPromise(audit.read("check-audit-root")))?.exitCode, 0)
   assert.equal(passed.fault, undefined)
   assert.ok(receiptMatches(implementation, check, passed))
   assert.ok(
@@ -224,6 +241,9 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
   assert.equal(failed.status, "failed")
   assert.equal(failed.fault, "factory", "an unconfigured nonzero exit is a real check failure")
   assert.equal(JSON.parse(failed.evidence).exitCode, 7)
+  const privateFailure = await Effect.runPromise(audit.read("check-audit-root"))
+  assert.equal(privateFailure?.exitCode, 7)
+  assert.equal(privateFailure?.runId, "check-audit-root")
   assert.equal(
     JSON.parse(failed.evidence).argv[0],
     basename(process.execPath),
@@ -320,6 +340,28 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     "an external source link must refuse before the check process starts"
   )
   assert.equal(directories.length, 5)
+  await host.dispose()
+  await writeFile(
+    definition,
+    "---\ndescription: Missing executable.\nflows: [coding/CommandCheck]\ncapabilities: ['*']\n---\n" +
+      JSON.stringify({ argv: ["/bin/sh", "-c", "figlet"], cwd: ".", timeoutMs: 10_000 }) + "\n"
+  )
+  executable = await loadExecutable()
+  host = ManagedRuntime.make(runtime())
+  const missing = await run(
+    { ...check, flowDigest: Descriptor.executionDigest(executable.descriptor)! },
+    "check-real-missing"
+  )
+  assert.equal(missing.status, "failed")
+  const missingAudit = await Effect.runPromise(audit.read("check-audit-root"))
+  assert.equal(missingAudit?.exitCode, 127)
+  assert.match(missingAudit?.stderr ?? "", /figlet: (command )?not found/)
+  // A replacement reader must recover the host result without replaying a process.
+  assert.deepEqual(
+    await Effect.runPromise(commandReceipts(fs, join(temporary, "private-audit")).read("check-audit-root")),
+    missingAudit
+  )
+  assert.equal(await Effect.runPromise(audit.read("unknown-root")), undefined)
   for (const directory of directories) {
     await assert.rejects(access(directory), "temporary exports must be cleaned after process release")
   }

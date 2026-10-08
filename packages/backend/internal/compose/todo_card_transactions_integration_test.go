@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -219,6 +220,59 @@ func TestTodoCardCommitAndAmendTransactions(t *testing.T) {
 	certified, err := service.CertifyFlowFailure(ctx, update)
 	require.NoError(t, err)
 	require.Nil(t, certified)
+
+	t.Run("installed coding command receipt", func(t *testing.T) {
+		exit := 127
+		receipt := &flowruntime.CommandReceipt{RunID: "card-run", OperationID: uuid.NewString(), Status: "completed", Args: []string{"/bin/sh", "-c", "figlet"}, ExitCode: &exit, Stderr: "sh: 1: figlet: not found\n"}
+		observed := update
+		run := *update.Checkpoint.Run
+		run.CommandReceipt = receipt
+		observed.Checkpoint.Run = &run
+		got, err := service.CertifyFlowFailure(ctx, observed)
+		require.NoError(t, err)
+		require.Equal(t, &flowdispatch.CertifiedMissingTool{Name: "figlet", File: ".smithers/machine.json", OperationID: receipt.OperationID}, got)
+		for _, kind := range []string{"pending", "success", "exit only", "wrong executable", "bad package", "other run", "no operation", "pin refused", "wrong execution", "infra check"} {
+			bad := observed
+			badRun := run
+			badReceipt := *receipt
+			badRun.CommandReceipt = &badReceipt
+			bad.Checkpoint.Run = &badRun
+			switch kind {
+			case "pending":
+				badReceipt.Status = "running"
+			case "success":
+				zero := 0
+				badReceipt.ExitCode = &zero
+			case "exit only":
+				badReceipt.Stderr = ""
+			case "wrong executable":
+				badReceipt.Args = []string{"cargo"}
+			case "bad package":
+				badReceipt.Stderr = "sh: 1: Fig Let: not found\n"
+			case "other run":
+				badReceipt.RunID = "other"
+			case "no operation":
+				badReceipt.OperationID = ""
+			case "infra check":
+				badReceipt.Fault = "infra"
+			case "pin refused":
+				bad.Checkpoint.PinRefused = true
+			case "wrong execution":
+				bad.Checkpoint.ExecutionDigest = strings.Repeat("c", 64)
+			}
+			tool, err := service.CertifyFlowFailure(ctx, bad)
+			require.NoError(t, err)
+			require.Nil(t, tool, kind)
+		}
+		forged := update
+		forgedRun := *update.Checkpoint.Run
+		output := `{"commandReceipt":{"runId":"card-run","status":"completed","exitCode":127,"stderr":"sh: figlet: not found"}}`
+		forgedRun.FinalOutput = &output
+		forged.Checkpoint.Run = &forgedRun
+		tool, err := service.CertifyFlowFailure(ctx, forged)
+		require.NoError(t, err)
+		require.Nil(t, tool, "repository output is never the installed-host receipt")
+	})
 	result := workspaceapi.CommandResult{ExitCode: 127, Stderr: "sh: 1: figlet: not found\n"}
 	var refusal *microsandbox.RecipeError
 	require.ErrorAs(t, microsandbox.MissingToolError(workspaceapi.Command{Args: []string{"sh", "-c", "figlet"}}, result), &refusal)

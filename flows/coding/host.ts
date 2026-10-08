@@ -43,6 +43,7 @@ import { ReviewPage } from "../wiki/workflow.ts"
 import { atomOperations, EditAtom } from "./atoms.ts"
 import { repositoryCheckEnvironment } from "./check-environment.ts"
 import * as HostRegistry from "./host-registry.ts"
+import { commandReceipts } from "./command-receipts.ts"
 import { checkDelegate, checkLayers } from "./checks.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
@@ -656,6 +657,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // Host-owned immutable wiki publication and scratch cleanup use the trusted
         // FS. Model actions and check processes retain the native host's guards.
         const fs = yield* FileSystem.FileSystem
+        const checkReceipts = CodingState.inside(options.repositoryPath, stateRoot)
+          ? undefined : commandReceipts(fs, join(stateRoot, "command-receipts"))
         const wikiEnabled = options.planning?.wiki === true
         const reviewerPolicy = !wikiEnabled ? undefined : yield* runningWikiPolicy
         const wikiOutput = !wikiEnabled
@@ -835,6 +838,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           dispatchRegistration(),
           dispatchModels,
           checkLayers({
+            commandReceipts: checkReceipts,
             repositoryPath: options.repositoryPath,
             fs,
             concurrency: 1,
@@ -980,7 +984,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 runtimeBridge: {
                   runtimeArtifactDigest: options.runtimeArtifactDigest,
                   sourceRevision: options.runtimeSourceRevision!,
-                  ownerGeneration: options.ownerGeneration ?? 1
+                  ownerGeneration: options.ownerGeneration ?? 1,
+                  commandReceipt: checkReceipts?.read
                 }
               })
             }, root)

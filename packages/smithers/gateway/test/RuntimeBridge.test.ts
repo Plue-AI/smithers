@@ -1,8 +1,8 @@
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer"
 import { describe, expect, it } from "@effect/vitest"
 import * as Control from "@smthrs/control/Control"
-import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlError from "@smthrs/control/ControlError"
+import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import type { PlanCard, Principal, RunSummary } from "@smthrs/control/ControlSchema"
 import { Effect, Layer, Logger, Schema, Stream } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
@@ -384,19 +384,40 @@ describe("RuntimeBridge", () => {
 
   it.effect("requires the current owner and a native executor for retained completion", () =>
     Effect.gen(function*() {
-      const command = { protocol: RuntimeBridge.protocol, operation: "complete", applicationRequestId: "merged-1", ownerGeneration: 7, runId: "run-1" } as const
+      const command = {
+        protocol: RuntimeBridge.protocol,
+        operation: "complete",
+        applicationRequestId: "merged-1",
+        ownerGeneration: 7,
+        runId: "run-1"
+      } as const
       const unavailable = yield* Effect.flip(RuntimeBridge.execute(config, service(), principal, command))
       expect(unavailable).toMatchObject({ code: "unavailable" })
       const calls: unknown[] = []
-      const executor = ControlExecutor.make({ ...ControlExecutor.makeNoop(), requestComplete: input => Effect.sync(() => { calls.push(input); return accepted }) })
-      const invoke = (ownerGeneration: number) => RuntimeBridge.execute(config, service(), principal, { ...command, ownerGeneration }).pipe(Effect.provideService(ControlExecutor.ControlExecutor, executor))
+      const executor = ControlExecutor.make({
+        ...ControlExecutor.makeNoop(),
+        requestComplete: (input) =>
+          Effect.sync(() => {
+            calls.push(input)
+            return accepted
+          })
+      })
+      const invoke = (ownerGeneration: number) =>
+        RuntimeBridge.execute(config, service(), principal, { ...command, ownerGeneration }).pipe(
+          Effect.provideService(ControlExecutor.ControlExecutor, executor)
+        )
       const stale = yield* Effect.flip(invoke(6))
       expect(stale).toMatchObject({ code: "stale_owner" })
       expect(calls).toHaveLength(0)
       const completed = yield* invoke(7)
       expect(completed).toMatchObject({ operation: "complete", receipt: accepted })
       expect(calls).toEqual([{ runId: "run-1", receiptId: "bridge:v1:merged-1:complete" }])
-      const captured = yield* RuntimeBridge.execute({ ...config, requestComplete: executor.requestComplete }, service(), principal, command)
+      const captured = yield* RuntimeBridge.execute(
+        { ...config, requestComplete: executor.requestComplete },
+        service(),
+        principal,
+        command
+      )
       expect(captured).toMatchObject({ operation: "complete", receipt: accepted })
       expect(calls).toHaveLength(2)
     }))
@@ -595,6 +616,45 @@ describe("RuntimeBridge", () => {
       const completed = yield* RuntimeBridge.observe(service(), { protocol: RuntimeBridge.protocol, runId: "run-1" })
       expect(completed.run).not.toHaveProperty("failureFault")
       expect(completed.run).not.toHaveProperty("failureTag")
+    }))
+
+  it.effect("reads only installed host command receipts and refuses a foreign run", () =>
+    Effect.gen(function*() {
+      const input = { protocol: RuntimeBridge.protocol, runId: "run-1" } as const
+      const receipt = {
+        runId: "run-1",
+        operationId: "host-command-1",
+        status: "completed",
+        argv: ["sh", "-c", "figlet"],
+        exitCode: 127,
+        stderr: "sh: figlet: not found\n"
+      } as const
+      const plain = yield* RuntimeBridge.observe(service(), input)
+      expect(plain.run).not.toHaveProperty("commandReceipt")
+      const forged = service({
+        list: () => Effect.succeed({ _tag: "runs" as const, items: [{ ...summary, commandReceipt: receipt }] })
+      })
+      expect((yield* RuntimeBridge.observe(forged, input)).run).not.toHaveProperty("commandReceipt")
+      const result = yield* RuntimeBridge.observe(service(), input, () => Effect.succeed(receipt))
+      expect(result.run.commandReceipt).toEqual(receipt)
+      const decoded = Schema.decodeUnknownSync(RuntimeBridge.ObserveResponse)({
+        protocol: RuntimeBridge.protocol,
+        ok: true,
+        value: result
+      })
+      expect(decoded.value.run.commandReceipt).toEqual(receipt)
+      const foreign = yield* Effect.flip(
+        RuntimeBridge.observe(service(), input, () => Effect.succeed({ ...receipt, runId: "another-run" }))
+      )
+      expect(foreign).toMatchObject({ code: "internal" })
+      const pending = yield* RuntimeBridge.observe(service(), input, () =>
+        Effect.succeed({
+          runId: receipt.runId,
+          operationId: receipt.operationId,
+          argv: receipt.argv,
+          status: "running"
+        }))
+      expect(pending.run.commandReceipt?.status).toBe("running")
     }))
 
   it.effect("does not invent a result for a terminal run without committed output", () =>

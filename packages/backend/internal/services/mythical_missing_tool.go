@@ -43,6 +43,24 @@ func (s *MythicalService) CertifyFlowFailure(ctx context.Context, update flowdis
 	if !pinned || projection.Attempt != item.Attempt || item.RequestRunID != run.RunID || item.WorkspaceID == "" || item.WorkspaceID != update.Checkpoint.Target.WorkspaceID || !item.LaneStartedAt.Valid || projection.FlowDigest != pin.ExecutionDigest || projection.FlowSource != pin.SourceCommit {
 		return nil, nil
 	}
+	// Coding checks use an immutable export, not workspace.command. Only the
+	// authenticated installed runtime's private audit crosses this boundary;
+	// FinalOutput, findings and engine event payloads are never certification.
+	if receipt := run.CommandReceipt; receipt != nil {
+		if receipt.RunID != run.RunID || receipt.Status != "completed" || receipt.Fault == "infra" || receipt.ExitCode == nil || *receipt.ExitCode != 127 || len(receipt.Args) == 0 || len(receipt.Stderr) > 128*1024 || update.Checkpoint.ExecutionDigest != pin.ExecutionDigest || update.Checkpoint.PinRefused {
+			return nil, nil
+		}
+		operation, err := uuid.Parse(receipt.OperationID)
+		if err != nil || operation == uuid.Nil {
+			return nil, nil
+		}
+		diagnostic := microsandbox.MissingToolError(workspaceapi.Command{Args: receipt.Args}, workspaceapi.CommandResult{ExitCode: *receipt.ExitCode, Stderr: receipt.Stderr})
+		var verified *microsandbox.RecipeError
+		if !errors.As(diagnostic, &verified) || verified.MissingTool == nil {
+			return nil, nil
+		}
+		return &flowdispatch.CertifiedMissingTool{Name: verified.MissingTool.Name, File: verified.MissingTool.File, OperationID: operation.String()}, nil
+	}
 	var operation string
 	var raw []byte
 	// The latest command wins even when it is still running or failed at the
