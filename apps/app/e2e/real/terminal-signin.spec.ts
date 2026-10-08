@@ -12,7 +12,8 @@ const required = (key: string) => {
 }
 
 for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stage} installed Claude skill and person confirmation`, scenario("journey.terminal-signin", { capabilities: ["install"], coverage: ["host:production", "host:local", "action:terminal", "door:slash", "path:success", "path:permission", "evidence:terminal-signin"] }), async ({ browser }, info) => {
-  test.setTimeout(600_000)
+  // S2 observes the production 45-minute renewal; no shortened test clock.
+  test.setTimeout(stage === "S2" ? 3_600_000 : 600_000)
   // Each phase has its own install and literal T1/T2 fixture. Never reuse S2
   // authority to qualify S1. Missing reference-host inputs fail the test.
   const fixture = (key: string) => required(`SMITHERS_TERMINAL_${stage}_${key}`)
@@ -108,21 +109,108 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     }
     expect(await order()).toEqual([1, 2])
     expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
+    const closeAndVerify = async () => {
+      // A second real terminal holds A's delegated bytes only in test-process
+      // memory before close, to exercise server revocation without recording a
+      // bearer or creating a credential alias. B then uses its own packaged CLI.
+      const beforeClose = await order()
+      const second = await context.newPage()
+      let secondOutput = ""
+      second.on("websocket", socket => {
+        if (socket.url().includes("/terminal")) socket.on("framereceived", frame => {
+          secondOutput += typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8")
+        })
+      })
+      await second.goto(fixture("ORIGIN"))
+      await command(second, `/terminal ${fixture("BRANCH")}`)
+      await journeyTerminalInput(second.locator(".terminal-view").last())
+      const reuse = [
+        "import json,os,time,urllib.request,urllib.error",
+        `assert os.environ['SMITHERS_TOKEN_FILE'] != ${JSON.stringify(tokenPath)}`,
+        "bound=os.environ['SMITHERS_TOKEN_FILE']",
+        "own=open(bound).read()",
+        ...(stage === "S2" ? [
+          "deadline=time.monotonic()+46*60",
+          "while open(bound).read()==own:",
+          " assert time.monotonic()<deadline, 'Production B renewal did not rotate'",
+          " time.sleep(0.1)",
+          "request=urllib.request.Request(os.environ['SMITHERS_URL'].rstrip('/')+'/api/user',headers={'Authorization':'Bearer '+own.strip()})",
+          "try: response=urllib.request.urlopen(request)",
+          "except urllib.error.HTTPError as error: response=error",
+          "result=json.load(response)",
+          "assert response.status==401 and result.get('class')=='permission' and result.get('code')=='unauthenticated', (response.status,result)",
+          "own=open(bound).read()",
+          "print('J6'+'ROTATION=retired-401',flush=True)"
+        ] : []),
+        `token=open(${JSON.stringify(tokenPath)}).read().strip()`,
+        "print('J6'+'REUSE=ready',flush=True)",
+        "input()",
+        "request=urllib.request.Request(os.environ['SMITHERS_URL'].rstrip('/')+'/api/todos',data=json.dumps({'title':'Revoked terminal mutation','prompt':'Must never be created','place':{'mode':'append'}}).encode(),method='POST',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Idempotency-Key':'j6-revoked-'+os.path.basename(os.path.dirname(os.environ['SMITHERS_TOKEN_FILE']))})",
+        "try: response=urllib.request.urlopen(request)",
+        "except urllib.error.HTTPError as error: response=error",
+        "result=json.load(response)",
+        "assert response.status==401, (response.status,result)",
+        "assert result.get('class')=='permission' and result.get('code')=='unauthenticated', result",
+        "assert open(bound).read()==own, 'Closing A replaced B credential'",
+        "deadline=time.monotonic()+4",
+        `while os.path.exists(${JSON.stringify(tokenPath)}):`,
+        " assert time.monotonic()<deadline, 'Closing A retained its file'",
+        " assert open(bound).read()==own, 'Cleanup changed B credential'",
+        " time.sleep(0.01)",
+        "print('J6'+'REVOKED=401',flush=True)"
+      ].join("\n")
+      await second.keyboard.type(`/usr/bin/python3 -c ${quote(reuse)}`)
+      await second.keyboard.press("Enter")
+      await expect.poll(() => secondOutput, { timeout: stage === "S2" ? 2_800_000 : 180_000 }).toMatch(/^J6REUSE=ready\r?$/m)
+      if (stage === "S2") {
+        expect(secondOutput).toMatch(/^J6ROTATION=retired-401\r?$/m)
+        const currentA = await run("smthrs auth status --json")
+        expect(currentA).toMatch(/"credential_kind":\s*"delegated"/)
+        expect(currentA).toMatch(/"(?:username|login)":\s*"ben"/)
+      }
+      await journeyTerminalInput(page.locator(".terminal-view").last())
+      const closingAt = Date.now()
+      await page.keyboard.type("exit")
+      await page.keyboard.press("Enter")
+      await journeyTerminalInput(second.locator(".terminal-view").last())
+      await second.keyboard.press("Enter")
+      await expect.poll(() => secondOutput, { timeout: 5000 }).toMatch(/^J6REVOKED=401\r?$/m)
+      expect(Date.now() - closingAt).toBeLessThanOrEqual(5000)
+      await second.keyboard.type(`test ! -e ${quote(tokenPath!)} && smthrs auth status --json && printf 'J6''SECOND=valid\\n'`)
+      await second.keyboard.press("Enter")
+      await expect.poll(() => secondOutput).toMatch(/^J6SECOND=valid\r?$/m)
+      expect(secondOutput).toMatch(/"username":\s*"ben"/)
+      expect(secondOutput).toMatch(/"credential_kind":\s*"delegated"/)
+      expect(await order()).toEqual(beforeClose)
+      expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
+      await second.keyboard.type("exit")
+      await second.keyboard.press("Enter")
+      await second.close()
+    }
+    const runClaude = async (prompt: string, expected: readonly string[]) => {
+      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); print('J6'+'SKILL=executed')`
+      const result = await run(`claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`)
+      expect(result).toMatch(/^J6SKILL=executed\r?$/m)
+      return result
+    }
     if (stage === "S1_NO_CONFIRM") {
+      await runClaude("Use the installed Smithers skill to append one TODO titled No consumer skill append. Report the permission refusal; do not retry or approve it.", ["todo new"])
+      expect(await order()).toEqual([1, 2])
+      expect(await confirmations()).toEqual([])
       const refusal = await guestRequest("POST", "/api/todos", { title: "No consumer append", prompt: "No consumer append", place: { mode: "append" } }, 403, "confirm_in_app")
       expect(refusal).toContain("Confirm in the app")
       expect(await order()).toEqual([1, 2])
       expect(await confirmations()).toEqual([])
       await info.attach("s1-missing-consumer", { body: JSON.stringify({ stage, stack: await stack(), confirmations: await confirmations() }), contentType: "application/json" })
+      await closeAndVerify()
       return
     }
     const title = `J6 ${stage} skill follow-up`
     // Invoke Claude itself, with its installed skill and the member's existing
     // model login. CLI success text alone cannot prove persisted effects.
-    const prompt = `Use the installed Smithers skill. Read the repository wiki. Answer T1's question ${fixture("WAIT")} with exactly Use backoff. Steer T1 with exactly Use the retry helper. Create one TODO titled ${title} with text Keep the terminal request private ${stage === "S1" ? "at Append" : "directly after T1"}. Do not approve anything. Report the structured command results.`
-    const toolProof = "import json,sys; commands=[block.get('input',{}).get('command','') for line in sys.stdin for message in [json.loads(line)] for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ['wiki','todo answer','todo steer','todo new']); print('J6'+'SKILL=executed')"
+    const prompt = `Use the installed Smithers skill. Read the repository wiki. Answer T1's question ${fixture("WAIT")} with exactly Use backoff. Steer T1 with exactly Use the retry helper. Create one TODO titled ${title} with text Keep the terminal request private ${stage === "S1" ? "at Append" : "directly after T1 (before T2)"}. Do not approve anything. Report the structured command results.`
     const [agent] = await Promise.all([
-      run(`claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`),
+      runClaude(prompt, ["wiki", "todo answer", "todo steer", "todo new"]),
       (async () => {
         if (stage !== "S2") return
         const onBranch = page.getByRole("list", { name: "On this branch", exact: true }).last()
@@ -152,6 +240,15 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       const privateRead = await alice.request.get(`${origin}/api/confirmations`)
       expect(privateRead.status()).toBe(200)
       expect(JSON.stringify(await privateRead.json())).not.toContain(pending.id)
+      const aliceCSRF = (await alice.cookies(origin)).find(cookie => cookie.name === "__csrf")?.value
+      expect(aliceCSRF).toBeTruthy()
+      const privateApproval = await alice.request.post(`${origin}/api/confirmations/${pending.id}/approve`, {
+        data: {}, headers: { Origin: origin, "X-CSRF-Token": aliceCSRF!, "Idempotency-Key": `j6-alice-${pending.id}` }
+      })
+      expect(privateApproval.status()).toBe(403)
+      expect(await privateApproval.json()).toMatchObject({ class: "permission", code: "permission" })
+      expect(await order()).toEqual([1, 2])
+      expect((await confirmations()).find(row => row.id === pending.id)?.state).toBe("pending")
       if (stage === "S2") {
         let otherOutput = ""
         other.on("websocket", socket => {
@@ -169,8 +266,13 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     } finally { await alice.close() }
     const approval = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${pending.id}/approve`) && response.request().method() === "POST")
     await card.locator('[data-flow="approval.approve"]').press("Enter")
-    expect((await approval).status()).toBeGreaterThanOrEqual(200)
-    expect((await approval).status()).toBeLessThan(300)
+    const approved = await approval
+    expect(approved.ok()).toBe(true)
+    // Repeat the exact person press with its original idempotency identity.
+    const press = approved.request()
+    expect(press.headers()["idempotency-key"]).toBeTruthy()
+    const repeated = await context.request.fetch(press.url(), { method: press.method(), headers: press.headers(), data: press.postData() ?? undefined })
+    expect(repeated.ok()).toBe(true)
     await expect.poll(async () => (await stack()).items.filter(item => item.title === title).length).toBe(1)
     const created = (await stack()).items.find(item => item.title === title)!.number
     expect(await order()).toEqual(stage === "S1" ? [1, 2, created] : [1, created, 2])
@@ -199,8 +301,12 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
         expect(await order()).toEqual([1, 2, created])
         expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
       }
+      for (const mode of ["after", "before", "amend"] as const) {
+        await guestRequest("POST", "/api/todos", { title: "Forbidden placement", prompt: "Forbidden placement", place: { mode, n: 1 } }, 403, "permission")
+        expect(await order()).toEqual([1, 2, created])
+        expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
+      }
       for (const forbidden of [
-        "smthrs todo new --text forbidden --after T1",
         "smthrs stack move T1 down",
         "smthrs todo drop T1",
         `smthrs merge T1 --reviewed_head_sha ${quote(fixture("REVIEWED_SHA"))}`,
@@ -223,6 +329,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(mergeRows[0]!.revision).toBe(fixture("REVIEWED_SHA"))
       expect(mergeRows[0]!.payload.effect).toBeUndefined()
       const before = await stack()
+      expect(before.landedMain).toMatch(/^[a-f0-9]{40}$/)
       const deny = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${mergeRows[0]!.id}/deny`) && response.request().method() === "POST")
       await mergeCard.locator('[data-flow="approval.deny"]').press("Enter")
       expect((await deny).ok()).toBe(true)
@@ -242,56 +349,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(claude!.avatar_url).not.toBe(coding!.avatar_url)
       await info.attach("s2-review-merge", { body: JSON.stringify({ mergeRows, before, after: await stack() }), contentType: "application/json" })
     }
-    // A second real terminal holds A's delegated bytes only in test-process
-    // memory before close, to exercise server revocation without recording a
-    // bearer or creating a credential alias. B then uses its own packaged CLI.
-    const second = await context.newPage()
-    let secondOutput = ""
-    second.on("websocket", socket => {
-      if (socket.url().includes("/terminal")) socket.on("framereceived", frame => {
-        secondOutput += typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8")
-      })
-    })
-    await second.goto(fixture("ORIGIN"))
-    await command(second, `/terminal ${fixture("BRANCH")}`)
-    await journeyTerminalInput(second.locator(".terminal-view").last())
-    const reuse = [
-      "import json,os,time,urllib.request,urllib.error",
-      `token=open(${JSON.stringify(tokenPath)}).read().strip()`,
-      "print('J6'+'REUSE=ready',flush=True)",
-      "input()",
-      "deadline=time.monotonic()+5",
-      "while True:",
-      " request=urllib.request.Request(os.environ['SMITHERS_URL'].rstrip('/')+'/api/user',headers={'Authorization':'Bearer '+token})",
-      " try: response=urllib.request.urlopen(request)",
-      " except urllib.error.HTTPError as error: response=error",
-      " result=json.load(response)",
-      " if response.status==401:",
-      "  assert result.get('class')=='permission' and result.get('code')=='unauthenticated', result",
-      "  print('J6'+'REVOKED=401',flush=True)",
-      "  break",
-      " assert time.monotonic()<deadline, 'Closed credential remained valid'",
-      " time.sleep(0.1)"
-    ].join("\n")
-    await second.keyboard.type(`/usr/bin/python3 -c ${quote(reuse)}`)
-    await second.keyboard.press("Enter")
-    await expect.poll(() => secondOutput).toMatch(/^J6REUSE=ready\r?$/m)
-    await journeyTerminalInput(page.locator(".terminal-view").last())
-    const closingAt = Date.now()
-    await page.keyboard.type("exit")
-    await page.keyboard.press("Enter")
-    await journeyTerminalInput(second.locator(".terminal-view").last())
-    await second.keyboard.press("Enter")
-    await expect.poll(() => secondOutput, { timeout: 5000 }).toMatch(/^J6REVOKED=401\r?$/m)
-    expect(Date.now() - closingAt).toBeLessThanOrEqual(5000)
-    await second.keyboard.type(`test ! -e ${quote(tokenPath!)} && smthrs auth status --json && printf 'J6''SECOND=valid\\n'`)
-    await second.keyboard.press("Enter")
-    await expect.poll(() => secondOutput).toMatch(/^J6SECOND=valid\r?$/m)
-    expect(secondOutput).toMatch(/"username":\s*"ben"/)
-    expect(secondOutput).toMatch(/"credential_kind":\s*"delegated"/)
-    await second.keyboard.type("exit")
-    await second.keyboard.press("Enter")
-    await second.close()
+    await closeAndVerify()
     await info.attach(`${stage.toLowerCase()}-terminal-acceptance`, { body: JSON.stringify({ stage, stack: await stack(), confirmations: await confirmations(), activity: facts, presence }), contentType: "application/json" })
     await info.attach("redacted-guest-signin", { body: signIn, contentType: "text/plain" })
     await keys?.observe()
