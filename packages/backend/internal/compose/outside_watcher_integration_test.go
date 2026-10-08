@@ -20,10 +20,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +63,19 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 		return store, nil
 	}))
 	t.Cleanup(func() { require.NoError(t, registry.Close()) })
-	stop, err := bindMachineEvents(ctx, registry, f.pool, client, nil, nil)
+	// Keep the host capability registration explicit: this exercises real
+	// watcher-to-durable-note admission, not a running agent's transcript.
+	var item string
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'pinned-notes-run',$4,$5) RETURNING id`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`).Scan(&item))
+	jobStore, err := jobs.NewStore(f.pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: jobStore, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("watcher admission must not synchronously launch a coding host")
+		return nil, machined.ErrNotReady
+	})})
+	require.NoError(t, err)
+	notes := &machined.OutsideChangeNotes{Runs: &machined.PinnedCodingNoteRuns{Host: noteHostContractFixture{}}, Dispatcher: dispatcher}
+	stop, err := bindMachineEvents(ctx, registry, f.pool, client, nil, notes)
 	require.NoError(t, err)
 	t.Cleanup(stop)
 	root := t.TempDir()
@@ -201,6 +216,54 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 		}
 	}
 	require.Positive(t, hints, "the open File-card subscription must receive real write hints")
+	// Join notes to committed facts rather than deriving expected file names
+	// from a note or codec. Each real burst must have one atomic durable signal;
+	// ignored and byte paths must never leak into the agent's notification.
+	rows, err := f.pool.Query(ctx, `SELECT e.data->>'id',r.payload FROM product_job_events e LEFT JOIN product_job_requests r ON r.request_id='outside-change:' || $1 || ':' || (e.data->>'id') WHERE e.event_type='branch.burst' ORDER BY e.sequence`, f.row.ID)
+	require.NoError(t, err)
+	noteCount := 0
+	for rows.Next() {
+		var burst string
+		var raw []byte
+		require.NoError(t, rows.Scan(&burst, &raw))
+		var saved struct {
+			Target  flowruntime.Target `json:"target"`
+			RunID   string             `json:"runId"`
+			Payload struct {
+				ID    string `json:"id"`
+				Kind  string `json:"kind"`
+				Actor struct {
+					Kind string `json:"kind"`
+				} `json:"actor"`
+				Files []string `json:"files"`
+			} `json:"payload"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &saved))
+		require.Equal(t, "pinned-notes-run", saved.RunID)
+		require.Equal(t, item, saved.Target.BindingID)
+		require.Equal(t, f.row.ID, saved.Target.WorkspaceID)
+		require.Equal(t, burst, saved.Payload.ID)
+		require.Equal(t, "outside_change", saved.Payload.Kind)
+		require.Equal(t, "outside", saved.Payload.Actor.Kind)
+		expected := []string{".gitignore"}
+		if burst == entries[0].ID {
+			expected = nil
+			for i := 0; i < 12; i++ {
+				expected = append(expected, fmt.Sprintf("outside-%02d.ts", i))
+			}
+		} else if burst == laterEntry {
+			expected = []string{"outside-00.ts", "outside-01.ts", "outside-02.ts"}
+		}
+		require.ElementsMatch(t, expected, saved.Payload.Files)
+		noteCount++
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	require.Equal(t, baselineBursts+2, noteCount)
+	var signalCount int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&signalCount))
+	require.Equal(t, noteCount, signalCount)
+
 	require.NoError(t, registry.Close()) // retained objects require no live machine
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
