@@ -5,7 +5,8 @@
 
 /**
  * Preserve a parked timer's earliest durable wake when an engine poll arrives
- * before a control resume. An approval stays classified as an approval even
+ * before a control resume. A named event retains its own gate when a child
+ * question rolls up the control status. An approval stays an approval even
  * when a stale clock row remains, and a reason the park declared itself, such
  * as `budget` or `quota`, stays with its token rather than decaying into the
  * derived `event`. The token keeps its declared question, a decoded JSON
@@ -23,7 +24,11 @@ export const waitingAnnotation = (
     | undefined
 ): { readonly reason: string; readonly wakeAt?: number; readonly token?: string; readonly request?: string } => {
   const declared = prior === undefined || prior.reason === "released" ? undefined : prior
-  const reason = status === "waiting-approval"
+  // A child question rolls the control status up to waiting-approval.
+  // Retain the root's named event gate; it is an independent checkpoint.
+  const reason = declared?.reason === "event" && declared.token != null
+    ? "event"
+    : status === "waiting-approval"
     ? "approval"
     : declared?.reason ?? (clocks.length > 0 ? "timer" : "event")
   return {

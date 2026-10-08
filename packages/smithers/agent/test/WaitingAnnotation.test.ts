@@ -40,4 +40,10 @@ describe("waiting annotation", () => {
     expect(waitingAnnotation("waiting-approval", [])).toEqual({ reason: "approval" })
     expect(waitingAnnotation("parked", [])).toEqual({ reason: "event" })
   })
+
+  it("preserves a named root checkpoint while a child question remains open", () => {
+    const request = { kind: "bring_in", sha: "a".repeat(40), wait: "push-1" }
+    expect(waitingAnnotation("waiting-approval", [], { reason: "event", token: "bring-token", request }))
+      .toEqual({ reason: "event", token: "bring-token", request: JSON.stringify(request) })
+  })
 })

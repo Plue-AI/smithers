@@ -176,7 +176,7 @@ export type SandboxOpener = (session: string) => Effect.Effect<SandboxedRun, unk
 export interface Options {
   /** Host-owned module launches that retain their control run for later input. */
   readonly reenterModules?: ReadonlyArray<string> | undefined
-  /** Host-owned controls at the boundary after a retained module settles. */
+  /** Host-owned controls before entering or resuming a retained module. */
   readonly reentryCheckpoint?: ((runId: string, flowId: string) => Effect.Effect<void, unknown, ControlRuntime | FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance>) | undefined
   /**
    * The host's sandbox providers: the opener for a flow's `sandbox:`
@@ -2533,7 +2533,8 @@ export const deliverSignal = (
       ((payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 && Option.isSome(control)) {
       const run = yield* control.value.getRun(input.runId).pipe(Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined)))
       if (run?.flowId === "todo") {
-        if (open.length === 0 || open.some((row) => row.reason === "event" && row.request !== undefined &&
+        if (open.length === 0 || open.some((row) => row.reason === ControlExecutor.humanWaitReason ||
+          row.reason === "event" && row.request !== undefined &&
           typeof row.request === "object" && row.request !== null &&
           (row.request as Readonly<Record<string, unknown>>).kind === "stack")) {
           yield* recordAnswerResume
@@ -3530,11 +3531,6 @@ export const make = (
                 return yield* Exit.isSuccess(result.value.exit) ? Effect.succeed(result.value.exit.value) : Effect.failCause(result.value.exit.cause)
               }
               if (Option.isSome(previous) && previous.value.status === "completed") {
-                if (options.reentryCheckpoint !== undefined) yield* options.reentryCheckpoint(payload.runId, card.flowId).pipe(
-                  Effect.provideService(ControlRuntime, runtime),
-                  Effect.provideService(FlowRuntime.FlowRuntime, engine),
-                  Effect.provideService(FlowRuntime.FlowInstance, instance)
-                )
                 if ((yield* queue.pending(payload.runId)).length === 0) {
                   moduleHolds.add(instance)
                   yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) }).pipe(
@@ -4437,7 +4433,24 @@ export const make = (
                 (yield* runtime.codeDrift(payload.runId)) === undefined &&
                 (yield* hostsPark(payload.runId, { _tag: "delegated" })) &&
                 (yield* queue.pending(payload.runId)).length > 0
-              if (!queuedStack) {
+              // Claiming a polling round clears its prior engine wait. A
+              // still-admitted Bring in must rebuild its checkpoint even when
+              // a child's question is the remaining observed wait.
+              const signals = controlRun.flowId === "todo" && options.reenterModules?.includes(controlRun.flowId) === true &&
+                options.reentryCheckpoint !== undefined &&
+                (yield* runtime.codeDrift(payload.runId)) === undefined &&
+                (yield* hostsPark(payload.runId, { _tag: "delegated" }))
+                ? yield* runtime.deliveredSignals(payload.runId)
+                : []
+              const queuedCheckpoint = signals.some((signal) => signal.name === "bring_in" &&
+                typeof signal.payload === "object" && signal.payload !== null && !Array.isArray(signal.payload) &&
+                typeof (signal.payload as Readonly<Record<string, unknown>>).sha === "string" &&
+                /^[a-f0-9]{40}$/.test((signal.payload as Readonly<Record<string, unknown>>).sha as string) &&
+                typeof (signal.payload as Readonly<Record<string, unknown>>).wait === "string" &&
+                ((signal.payload as Readonly<Record<string, unknown>>).wait as string).length > 0 &&
+                ((signal.payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 &&
+                !signals.some((completion) => completion.name === `bring_in_complete#${(signal.payload as Readonly<Record<string, unknown>>).wait}`))
+              if (!queuedStack && !queuedCheckpoint) {
                 yield* FlowRuntime.annotateWaiting(annotation)
                 return yield* Flow.suspend(instance)
               }
@@ -4468,7 +4481,20 @@ export const make = (
           }
           bodyStarted = true
           const fiber = yield* Effect.forkChild(
-            body(payload, instance).pipe(
+            Effect.gen(function*() {
+              // Checkpoint before re-entering any retained module, including
+              // an unfinished child holding a question. The child keeps its
+              // own wait while the root parks for the admitted Bring in.
+              if (controlRun !== undefined && options.reenterModules?.includes(controlRun.flowId) === true &&
+                options.reentryCheckpoint !== undefined && (yield* runtime.codeDrift(payload.runId)) === undefined) {
+                yield* options.reentryCheckpoint(payload.runId, controlRun.flowId).pipe(
+                  Effect.provideService(ControlRuntime, runtime),
+                  Effect.provideService(FlowRuntime.FlowRuntime, engine),
+                  Effect.provideService(FlowRuntime.FlowInstance, instance)
+                )
+              }
+              return yield* body(payload, instance)
+            }).pipe(
               Deadline.within(deadline, agentFlow._tag),
               Effect.withSpan("smithers.run", {
                 parent: runTraceParent(payload.runId),

@@ -1906,9 +1906,10 @@ describe("AgentSession", () => {
       )
       if (timing === "transient wait") expect(completionReads).toBeGreaterThanOrEqual(6)
       expect(outcome.run.status).toBe("completed")
-      if (timing === "code drift") expect(checkpoints).toEqual([])
-      else expect(checkpoints[0]).toEqual({ runId: retainedRunId, flowId: "agents/module", completed: 1 })
-      expect(checkpoints.every((entry) => entry.runId === retainedRunId && entry.flowId === "agents/module" && entry.completed >= 1)).toBe(true)
+      expect(checkpoints[0]).toEqual({ runId: retainedRunId, flowId: "agents/module", completed: 0 })
+      if (timing === "code drift") expect(checkpoints).toHaveLength(1)
+      else expect(checkpoints.some((entry) => entry.completed === 1)).toBe(true)
+      expect(checkpoints.every((entry) => entry.runId === retainedRunId && entry.flowId === "agents/module" && entry.completed >= 0)).toBe(true)
       expect(outcome.launches.map((e) => e.payload)).toEqual(timing === "code drift" ? [expect.objectContaining({ ordinal: 0 })] : [
         expect.objectContaining({ ordinal: 0 }),
         expect.objectContaining({ ordinal: 1 })
