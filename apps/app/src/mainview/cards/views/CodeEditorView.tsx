@@ -1,5 +1,5 @@
 import { CodeEditorView as Editor, type EditorBinding } from "@smthrs/ui/adapters/code-editor"
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { copyText } from "@smthrs/ui/copy"
 import { coEditingVisuals } from "./coEditingVisuals"
 import type { CodeEditorViewProps as FileEditorProps } from "@smthrs/rpc/FileCard"
@@ -10,10 +10,10 @@ import { formatBytes } from "./formatBytes"
 
 /** App-only snapshot bytes; the container loads and binds the named revision. */
 export type FileComparison = { readonly version: string; readonly text: string }
-export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison; readonly onCopy?: () => Promise<boolean> }
+export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison; readonly onCopy?: () => Promise<boolean>; readonly header?: ReactNode }
 
 /** File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
-export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison, onCopy }: CodeEditorViewProps) => {
+export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison, onCopy, header }: CodeEditorViewProps) => {
   const comparing = !!view.compare && !model.gone && model.content.kind === "text" && ((!!model.outside && comparison?.version === model.outside.version) || (!!model.unsaved && comparison?.version === "unsaved"))
   const live = !comparing && !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
   const visualBinding = useMemo<EditorBinding | undefined>(() => live && binding ? {
@@ -23,11 +23,11 @@ export const CodeEditorView = ({ model, view, actions, gestures, onAction, onVie
   const buttons = actions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)
   const controls = actions.length ? <div className="code-actions">{buttons}</div> : null
   return <section className="smithers-card code-file-view" data-kind="file" data-keyboard-pane="File" data-digest={model.digest || undefined} data-mode={live ? "live" : "read_only"} aria-label={model.path}>
-    <header className="smithers-card-header"><h2 className="smithers-card-title">{model.path}</h2><span className="mvp-branch-chip">{model.branch}</span>
+    {header === undefined ? <header className="smithers-card-header"><h2 className="smithers-card-title">{model.path}</h2><span className="mvp-branch-chip">{model.branch}</span>
       {model.last_writer && !model.gone ? <span className="code-writer" title={actorName(model.last_writer)}><ActorChip actor={model.last_writer} size="s" /></span> : null}
       {live ? <span className="code-live-head"><span className="code-avatar-stack" aria-label={model.editors.map(editor => actorName(editor.actor)).join(", ")}>{model.editors.slice(0, 4).map((editor, i) => <ActorChip key={i} actor={editor.actor} size="s" />)}{model.editors.length > 4 ? <span>+{model.editors.length - 4}</span> : null}</span>{model.saved ? <span className="code-saved" data-saving={model.saved === "saving" || undefined}>{model.saved === "saving" ? "Saving…" : <><Check size={13} aria-hidden="true" />Saved to the machine</>}</span> : null}</span> : null}
       {model.gone ? <span className="code-file-state">{model.gone.kind === "deleted" ? <FileX size={13} aria-hidden="true" /> : <FileSymlink size={13} aria-hidden="true" />}{model.gone.kind === "deleted" ? "Deleted" : "Renamed"}</span> : null}
-    </header>
+    </header> : header}
     <div className="smithers-card-body">
       {model.gone ? <>
         <div className="code-file-notice"><TriangleAlert size={14} aria-hidden="true" /><span>{model.gone.kind === "deleted" ? <>Deleted by {actorName(model.gone.by)}</> : <>Renamed to <code title={model.gone.to}>{model.gone.to.split("/").at(-1)}</code> by {actorName(model.gone.by)}</>}</span>{controls}</div>

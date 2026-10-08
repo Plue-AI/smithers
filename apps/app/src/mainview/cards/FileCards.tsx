@@ -296,11 +296,13 @@ const FileContent = ({ card, model, binding, provider, onRunCommand }: { provide
     if (tag === "code.hover" || tag === "code.definition") intelligence.onAction(tag, input)
     else recovery.onAction(tag, input)
   } }
+  const legacyHeader = model.mode === "read_only" && (payload.address !== undefined || payload.readAt !== undefined)
   return <div className="world-card-panel" data-line={payload.line}>
+    {legacyHeader ? <FileCardHeader repo={payload.repo} path={payload.path} address={payload.address} readAt={payload.readAt} localRepoId={payload.localRepoId} refreshCommand="file" onRunCommand={onRunCommand} /> : null}
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
         <div role={provider?.comparison ? "group" : undefined} aria-label={provider?.comparison ? "Live and outside versions" : undefined} data-version={provider?.comparison?.version}>
-        <CodeSurface binding={binding} onCopy={provider ? () => provider.copy() : undefined} comparison={provider?.comparison ?? payload.comparison} model={model} view={{ maximized: false, compare: !!provider?.comparison || payload.compare }} {...bindings} onView={({ line }) => { if (provider) { const actor = ActorSchema.safeParse(provider.resolveActor(provider.doc.getMap("authors").get(String(provider.doc.clientID)))); provider.setLine(line ?? 1, actor.success ? actorColour(actor.data) : "var(--lane-0)") } }} />
+        <CodeSurface header={legacyHeader ? null : undefined} binding={binding} onCopy={provider ? () => provider.copy() : undefined} comparison={provider?.comparison ?? payload.comparison} model={model} view={{ maximized: false, compare: !!provider?.comparison || payload.compare }} {...bindings} onView={({ line }) => { if (provider) { const actor = ActorSchema.safeParse(provider.resolveActor(provider.doc.getMap("authors").get(String(provider.doc.clientID)))); provider.setLine(line ?? 1, actor.success ? actorColour(actor.data) : "var(--lane-0)") } }} />
         </div>
       </Suspense>
     </LazyViewerBoundary>

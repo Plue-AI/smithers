@@ -412,3 +412,28 @@ test("production file command and mounted document share one branch-files projec
   expect(provider.file?.outside).toBeUndefined()
   expect(host.textContent).not.toContain("Saved to the machine")
 })
+
+for (const hasProvider of [false, true]) test(`a pinned read keeps its address through the read-only provider and rerender: ${hasProvider}`, async () => {
+  const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
+  const { liveBinding } = await import("./liveDoc")
+  const card = fileCard("README.md", "# Retained source")
+  Object.assign(card.payload, { address: "/org/repo/README.md", readAt: { changeId: "kxyzqrpv", commitId: "a".repeat(40), source: "head" } })
+  const provider = hasProvider ? new LiveDocProvider("doc:code:main:README.md", {
+    subscribeDocument() { throw new Error("A read-only snapshot must not open a live channel") }
+  }, { contract: false, actor: false, file: false, recovery: false, catalog: false, machine: false }) : undefined
+  const binding = provider ? liveBinding(provider.doc) : undefined
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  mounted.push({ root, host, dispose: async () => { binding?.dispose(); provider?.dispose() } })
+  const body = <FileCardBody card={card} live={provider && binding ? { provider, binding } : undefined} onRunCommand={() => {}} />
+  flushSync(() => root.render(body))
+  expect(host.querySelector("p.world-card-path")?.textContent).toContain("/org/repo/README.md")
+  expect(host.querySelector("p.world-card-path")?.textContent).toContain("kxyzqrpv")
+  await loaded(host)
+  const editor = host.querySelector(".cm-content")
+  expect(editor?.textContent).toBe("# Retained source")
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  flushSync(() => root.render(<FileCardBody card={card} live={provider && binding ? { provider, binding } : undefined} onRunCommand={() => {}} />))
+  expect(host.querySelector(".cm-content")).toBe(editor)
+  expect(host.querySelector("p.world-card-path")?.textContent).toContain("kxyzqrpv")
+})

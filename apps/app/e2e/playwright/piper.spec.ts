@@ -5,7 +5,7 @@ import { installCloudFixture } from "./cloudFixture.ts"
 
 /*
  * Lane piper T1 (ADR 0001): repositories
- * share one address space, and /files.read README.md renders the card whose
+ * share one address space, and /file README.md renders the card whose
  * header carries the global address and the position the read was taken at.
  * Local checkouts no longer join it: ac9e0cccfd retired the local repository
  * list, so the read is the Cloud contents route at the head the inventory
@@ -24,7 +24,7 @@ const json = (body: unknown, status = 200) => ({
 
 /** Install the server double: signed in to a cloud that inventories smithersai/smithers. */
 const serve = async (page: Page): Promise<void> => {
-  await installCloudFixture(page)
+  await installCloudFixture(page, { repos: [{ owner: "smithersai", name: "smithers", full_name: "smithersai/smithers", default_bookmark: "main", owner_type: "Organization", default_bookmark_head: { change_id: "kxyzqrpv", commit_id: "c0ffee123456" } }] })
   await page.route((url) => url.pathname === "/api/repos/smithersai/smithers/contents/README.md", (route) =>
     route.fulfill(json({ type: "file", name: "README.md", path: "README.md", size: 11, encoding: "utf-8", content: "# Smithers\n" })))
 }
@@ -40,18 +40,18 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test("T1: /files.read's card header shows the global address and readAt", async ({ page }) => {
+test("T1: /file's card header shows the global address and readAt", async ({ page }) => {
   await serve(page)
   await page.goto("/")
 
-  // /files.read renders the file card; its header carries the global address
+  // /file renders the file card; its header carries the global address
   // and the change id the read was taken at.
-  await fillComposer(page, "/files.read README.md")
+  await fillComposer(page, "/file README.md")
   await page.getByTestId("composer-send").click()
   const card = page.getByTestId("card-file-smithersai/smithers-README.md")
   await expect(card).toBeVisible({ timeout: 15_000 })
-  await expect(card.locator(".world-card-path")).toContainText("/smithersai/smithers/README.md")
-  await expect(card.locator(".world-card-path")).toContainText("kxyzqrpv")
+  await expect(card.locator("p.world-card-path")).toContainText("/smithersai/smithers/README.md")
+  await expect(card.locator("p.world-card-path")).toContainText("kxyzqrpv")
   // Markdown renders through the read-only editor: the heading text, not the raw fence.
   await expect(card).toContainText("Smithers")
 })
