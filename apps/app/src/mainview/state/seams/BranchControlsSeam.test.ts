@@ -234,3 +234,24 @@ test("Rebase retries a lost receipt read without launching another rewrite", asy
     expect(writes).toBe(1); expect(reads).toBe(2); expect(h.row()?.key).toBe(key)
   } finally { h.seam.dispose() }
 })
+
+test("reload restores a failed Rebase notice without repeating admission or receipt reads", async () => {
+  const first = await boot(async (_url, init) => init?.method === "POST" ? rebaseAdmission() : rebaseReceipt("failed"))
+  await first.seam.request("rebase", "smithers/retry")
+  await until(() => first.row()?.state === "failed" && first.errors.length === 1)
+  const key = first.row()!.key
+  first.seam.dispose()
+  let calls = 0
+  const foreign = await boot(async () => { calls++; throw new Error("Foreign recovery must not request execution") }, first.storage, "http://other.lan:4000")
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect(foreign.errors).toEqual([])
+  foreign.seam.dispose()
+  const second = await boot(async () => { calls++; throw new Error("Recovery must not request execution") }, first.storage)
+  try {
+    await until(() => second.errors.length === 1)
+    expect(second.errors).toEqual(["Rebase failed"])
+    expect(second.done).toEqual([`branch.request.${key}`])
+    expect(second.row()?.state).toBe("failed")
+    expect(calls).toBe(0)
+  } finally { second.seam.dispose() }
+})

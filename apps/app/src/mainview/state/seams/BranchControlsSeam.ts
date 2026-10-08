@@ -25,6 +25,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
   const active = new Map<string, { abort: AbortController; epoch: number | undefined }>()
   const identity = () => ctx.store.collections.identitySessions.get("identity")
   const rows = () => ctx.store.session().branchControlRequests ?? []
+  const recoverableFailures = new Set(rows().filter(row => row.state === "failed").map(row => row.key))
   const repository = () => activeRepositoryId(ctx.store) ?? ctx.store.session().repositoryEntry?.repo
   const available = (operation: BranchControl) => !disposed && !ctx.isDisposed?.() && options.ready(operation)
   const save = (request: Request, actor: "user" | "smithers" | "system" = "system") => ctx.dispatch({
@@ -116,7 +117,22 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
         abort.abort(); active.delete(key)
       }
     }
-    for (const request of rows()) send(request)
+    for (const request of rows()) {
+      send(request)
+      if (request.state !== "failed" || active.has(request.key) || !recoverableFailures.has(request.key)
+        || !available(request.operation) || request.origin !== ctx.baseUrl || identity()?.state !== "signed-in"
+        || request.owner !== identity()?.login || !ctx.withToast
+        || ctx.store.collections.toasts.get(`toast-branch.request.${request.key}`)) continue
+      recoverableFailures.delete(request.key)
+      const epoch = identity()?.ownerRevision ?? identity()?.revision
+      const current = () => !disposed && !ctx.isDisposed?.() && identity()?.state === "signed-in"
+        && identity()?.login === request.owner && (identity()?.ownerRevision ?? identity()?.revision) === epoch
+        && rows().some(row => row.key === request.key && row.state === "failed")
+      const title = request.operation === "sleep" ? "Sleep" : request.operation === "wake" ? "Wake" : "Rebase"
+      void ctx.withToast(`branch.request.${request.key}`, title, title,
+        async () => request.error ?? "Branch unavailable", false, current)
+        .catch(error => ctx.report?.("branch.request", error))
+    }
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(resume)
   queueMicrotask(resume)

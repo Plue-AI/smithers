@@ -197,4 +197,30 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
   state = outcome
   await expect(page.locator(`.notice[data-tone="${outcome === "completed" ? "done" : "failed"}"]`).filter({ hasText: "Rebase" })).toBeVisible()
   await expect(running).toHaveCount(0)
+  if (scenario === "failed") {
+    // A terminal execution failure survives reload and never replays its POST.
+    await page.reload()
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+    await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: "Rebase" })).toBeVisible()
+    await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toBeVisible()
+    expect(writes).toEqual([key])
+    const observed = receiptKeys.length
+    state = "running"
+    await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
+    await expect.poll(() => writes.length).toBe(2)
+    const retryKey = writes[1]!
+    expect(retryKey).not.toBe(key)
+    // Hold the new execution running: the failed attempt cannot settle it.
+    await expect(running).toBeVisible()
+    await say(page, "/branch.rebase smithers/retry")
+    expect(writes).toEqual([key, retryKey])
+    await expect.poll(() => receiptKeys.slice(observed).includes(retryKey)).toBe(true)
+    await page.reload()
+    await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+    await expect(running).toBeVisible()
+    expect(writes).toEqual([key, retryKey])
+    state = "completed"
+    await expect(page.locator('.notice[data-tone="done"]').filter({ hasText: "Rebase" })).toBeVisible()
+    await expect(running).toHaveCount(0)
+  }
 })
