@@ -229,3 +229,31 @@ func TestTodoPreHostFailureTransitionLiteralCases(t *testing.T) {
 	require.Equal(t, 26, refused)
 	t.Logf("literal pre-host failure: %d accepted, %d refused", accepted, refused)
 }
+
+// A resolver refusal before a run exists retains its provisioning cause on
+// the card served by the composed install, rather than a generic start fault.
+func TestTodoFailedLaneCardThroughComposedInstall(t *testing.T) {
+	var service *services.MythicalService
+	h := newTodoLiteralInstall(t, func(s *services.MythicalService, _ *pgxpool.Pool) { service = s })
+	ctx := t.Context()
+	const digest = "11d0beb616ada0375414dffa11c9d9f1feb52a4b196f0db64d3d79bf33ed407e"
+	const source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	checks, err := json.Marshal(map[string]any{"todo": true, "run_launched": true, "run_attached": false, "flowSource": source})
+	require.NoError(t, err)
+	_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state='queued',checks=$2,attempt=1,request_run_id='',request_outcome='',flow_digest=$3 WHERE id=$1`, h.item.ID, checks, digest)
+	require.NoError(t, err)
+	before, err := h.q.GetMythicalItem(ctx, h.item.ID)
+	require.NoError(t, err)
+	projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": uuid.UUID(h.item.ID.Bytes).String(), "generation": before.Generation, "attempt": 1, "phase": "todo", "flowDigest": digest, "flowSource": source})
+	require.NoError(t, err)
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", FailureCode: "runtime_workspace_failed"}}
+	require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+	status, card := h.call(t, "GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "failed", card["state"])
+	require.Equal(t, map[string]any{"step": "provisioning", "class": "infra", "message": "Smithers could not set up a lane", "retryable": true}, card["failure"])
+	require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+	status, repeated := h.call(t, "GET", "", "")
+	require.Equal(t, 200, status, repeated)
+	require.Equal(t, card["failure"], repeated["failure"])
+}

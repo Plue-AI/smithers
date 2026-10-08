@@ -205,7 +205,7 @@ func todoFailure(item db.MythicalItem) map[string]any {
 	if recorded := checks.FailureStep; recorded != nil && recorded.Attempt == item.Attempt && recorded.Run == item.RequestRunID && checks.Fault != nil && recorded.Tag == checks.Fault.Tag {
 		step = recorded.Action
 	}
-	if checks := mythicalChecksOf(item); checks.RunLaunched && !checks.RunAttached {
+	if checks := mythicalChecksOf(item); checks.RunLaunched && !checks.RunAttached && failure.Kind != mythicalFailProvisioning {
 		// The host never attached: no coding step started, even when the
 		// underlying interruption is classified as a runtime failure.
 		step = "start"

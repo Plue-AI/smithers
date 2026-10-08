@@ -756,12 +756,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				fault := mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}
 				message := "interrupted"
 				if outcome != mythicalInterrupted {
-					parts := strings.SplitN(strings.TrimPrefix(outcome, mythicalStopped), ": ", 2)
-					fault.Class, fault.Tag = parts[0], parts[0]
-					if len(parts) == 2 {
-						fault.Tag = parts[1]
-					}
-					fault.Kind = fault.kind()
+					// Preserve the outcome's typed step, including a lane that
+					// failed before the runtime could attach.
+					fault = mythicalOutcomeFault(mythicalFailRuntime, outcome)
 					message = strings.TrimPrefix(outcome, mythicalStopped)
 				}
 				next = *mythicalStop(next, fault, message)
