@@ -17,7 +17,7 @@ func TestHostSizingSpecColumnsAndEdges(t *testing.T) {
 	}{
 		{24, 8, 200, 8, 4, 2, 48, "memory"}, {32, 10, 400, 8, 4, 3, 48, "memory"}, {64, 12, 1024, 8, 4, 6, 48, "cores"},
 		{16, 8, 200, 6, 4, 1, 48, "memory"}, {23, 8, 200, 6, 4, 2, 48, "memory"}, {64, 12, 136, 8, 4, 3, 34, "disk"},
-		{128, 4, 2000, 8, 2, 2, 48, "cores"}, {32, 10, 60, 8, 4, 0, 15, "disk"}, {32, 10, 100, 8, 4, 1, 25, "disk"},
+		{128, 4, 2000, 8, 2, 2, 48, "cores"}, {32, 10, 60, 8, 4, 1, 15, "disk"}, {32, 10, 100, 8, 4, 2, 25, "disk"},
 		{13, 8, 200, 6, 4, 0, 48, "memory"}, {16, 1, 200, 6, 2, 0, 48, "cores"},
 	} {
 		t.Run(fmt.Sprintf("%d/%d/%d", r.mem, r.cores, r.disk), func(t *testing.T) {
@@ -35,14 +35,14 @@ func TestHostSizingIndependentFormulaSweep(t *testing.T) {
 	// spec §8.2.1: floor, GiB, reserve 8; negative physical resources grant zero.
 	for memory := 8.0; memory <= 192; memory += .5 {
 		for cores := 2; cores <= 16; cores++ {
-			for _, disk := range []float64{0, 39.9, 40, 71.9, 72, 100, 136, 191.9, 192, 192.1, 400, 1024, 2000} {
+			for _, disk := range []float64{0, 11.9, 12, 43.9, 44, 75.9, 76, 100, 136, 191.9, 192, 192.1, 400, 1024, 2000} {
 				mem := 8.0
 				if memory < 24 {
 					mem = 6
 				}
 				m := max(0, int(math.Floor((memory-8)/mem)))
 				c := cores / 2
-				d := max(0, int(math.Floor((disk-40)/32)))
+				d := max(0, int(math.Floor((disk-12)/32)))
 				p := HostProfile{MemoryBytes: int64(memory * (1 << 30)), PerfCores: cores, DiskFreeBytes: int64(disk * (1 << 30))}
 				s := ComputeSizing(p)
 				require.Equal(t, int(mem*1024), s.MemoryMiB)
@@ -98,7 +98,7 @@ func TestCapacityZeroFreshRefusesExistingStarts(t *testing.T) {
 	}{
 		{HostProfile{MemoryBytes: 139 << 30 / 10, PerfCores: 8, DiskFreeBytes: 200 << 30}, "memory", "needs 14 GiB of memory", (14 << 30) - (139 << 30 / 10)},
 		{HostProfile{MemoryBytes: 16 << 30, PerfCores: 1, DiskFreeBytes: 200 << 30}, "cores", "needs 2 performance cores", 1},
-		{HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 719 << 30 / 10}, "disk", "free 1 GiB on the state volume", (72 << 30) - (719 << 30 / 10)},
+		{HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 439 << 30 / 10}, "disk", "free 1 GiB on the state volume", (44 << 30) - (439 << 30 / 10)},
 	} {
 		s := ComputeSizing(r.p)
 		require.Zero(t, s.Capacity)
@@ -118,7 +118,7 @@ func TestCapacityZeroFreshRefusesExistingStarts(t *testing.T) {
 		}
 		require.Equal(t, "host_capacity_zero", typed.Code)
 		if r.term == "disk" {
-			require.Contains(t, err.Error(), "71.90 GiB free on the state volume; 72 GiB required")
+			require.Contains(t, err.Error(), "43.90 GiB free on the state volume; 44 GiB required")
 		} else {
 			require.Contains(t, err.Error(), r.fix)
 		}
@@ -172,4 +172,28 @@ func TestHostDetectionUsesOnlyRequiredFieldsAndStateVolume(t *testing.T) {
 	require.Error(t, err)
 	_, err = detectProfile("/state", "darwin", probe, func(string) (int64, error) { return -1, nil })
 	require.Error(t, err)
+}
+
+func TestHostSizingDiskFloorBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		free     int64
+		capacity int
+		fix      string
+	}{
+		{"44GiB_capacity1", 44 << 30, 1, ""},
+		{"43_9GiB_capacity0_free1GiB", 439 << 30 / 10, 0, "free 1 GiB on the state volume"},
+		{"76GiB_capacity2", 76 << 30, 2, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := ComputeSizing(HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: tc.free})
+			require.Equal(t, tc.capacity, s.Capacity)
+			require.Equal(t, tc.fix, s.Fix)
+			if tc.capacity == 0 {
+				require.EqualError(t, s.ValidateStart(false), "cannot start a fresh install: disk: 43.90 GiB free on the state volume; 44 GiB required")
+			} else {
+				require.NoError(t, s.ValidateStart(false))
+			}
+		})
+	}
 }

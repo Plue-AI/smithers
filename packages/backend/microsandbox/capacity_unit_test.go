@@ -1320,7 +1320,7 @@ func TestAdmissionIdleDoesNotReleaseWithSpareCapacity(t *testing.T) {
 	require.Zero(t, prepared)
 	// The owner lowering capacity changes release pressure without preempting a
 	// working step, and disk is reread rather than cached from host startup.
-	idle.FreeDisk = func(context.Context) (int64, error) { return 100 << 30, nil }
+	idle.FreeDisk = func(context.Context) (int64, error) { return 75 << 30, nil }
 	require.NoError(t, r.ReconcileAdmissionIdle(t.Context(), now, now.Add(-time.Hour), idle))
 	require.Equal(t, 1, prepared)
 	require.Equal(t, 1, r.InUse())

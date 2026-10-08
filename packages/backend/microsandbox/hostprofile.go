@@ -20,7 +20,7 @@ const (
 	MachineMemoryBytes      int64 = 8 << 30
 	SmallMachineMemoryBytes int64 = 6 << 30
 	MachineDiskBytes        int64 = 32 << 30
-	MinFreeDiskBytes        int64 = 40 << 30
+	MinFreeDiskBytes        int64 = 12 << 30
 )
 
 type HostProfile struct {

@@ -271,7 +271,7 @@ esac
 				Machines services.MachineCapacity `json:"machines"`
 			}
 			require.NoError(t, json.Unmarshal(frame.Data, &home))
-			require.Equal(t, services.MachineCapacity{InUse: want, Capacity: 3}, home.Machines)
+			require.Equal(t, services.MachineCapacity{InUse: want, Capacity: 4}, home.Machines)
 			break
 		}
 	}

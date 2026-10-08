@@ -67,21 +67,21 @@ describe("restored launchd service", () => {
     for (const field of ["UserName", "GroupName", "RootDirectory"]) expect(text).not.toContain(`<key>${field}</key>`)
   })
 
-  it.each([71.99, 72, 72.01])("starts through the CLI host adapter with %s GiB free", async (free) => {
+  it.each([43.99, 44, 44.01])("starts through the CLI host adapter with %s GiB free", async (free) => {
     const f = fixture()
     const handoff = vi.fn(async () => ({ code: "setup_ready", setup_urls: ["http://localhost/setup?token=fixture"], exitCode: 0 }))
     const probe = async () => {
       // Stand-in for the bundled backend's authoritative ValidateStart result.
-      if (free < 72) writeFileSync(join(f.options.stateDir, "start-refusal.json"), JSON.stringify({
-        code: "host_capacity_zero", message: `cannot start a fresh install: disk: ${free.toFixed(2)} GiB free on the state volume; 72 GiB required`
+      if (free < 44) writeFileSync(join(f.options.stateDir, "start-refusal.json"), JSON.stringify({
+        code: "host_capacity_zero", message: `cannot start a fresh install: disk: ${free.toFixed(2)} GiB free on the state volume; 44 GiB required`
       }))
       return true
     }
-    if (free < 72) {
-      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).rejects.toThrow("host_capacity_zero: cannot start a fresh install: disk: 71.99 GiB free on the state volume; 72 GiB required")
+    if (free < 44) {
+      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).rejects.toThrow("host_capacity_zero: cannot start a fresh install: disk: 43.99 GiB free on the state volume; 44 GiB required")
       expect(Host.loaded(f.system)).toBe(false)
       expect(Host.startRefusal(f.options.stateDir)?.code).toBe("host_capacity_zero")
-      await expect(Host.status(f.system, f.options.stateDir)).rejects.toThrow("71.99 GiB free on the state volume; 72 GiB required")
+      await expect(Host.status(f.system, f.options.stateDir)).rejects.toThrow("43.99 GiB free on the state volume; 44 GiB required")
       expect(handoff).not.toHaveBeenCalled()
       await expect(Host.startInstalled(f.options, f.system, async () => true, handoff)).resolves.toMatchObject({ code: "setup_ready" })
       expect(Host.startRefusal(f.options.stateDir)).toBeUndefined()

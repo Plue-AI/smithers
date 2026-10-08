@@ -16,7 +16,7 @@ Dry run       NOT GREEN. Run 37837413419 stopped at the changelog gate.
 
 Ships         npm packages under `next`, plus the Apple Silicon server bundle
               as a download. No Homebrew.
-To try it     Apple Silicon Mac, macOS 15 or later, and 72 GiB free on the state
+To try it     Apple Silicon Mac, macOS 15 or later, and 44 GiB free on the state
               volume (your home volume) until the owner has signed in. With
               less, a fresh install refuses to start (`host_capacity_zero`).
               Unpack the bundle, then: ./bin/smthrs host start --bundle .

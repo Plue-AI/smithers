@@ -6,8 +6,8 @@ E2E and live-check scripts. Unless a section says otherwise, run them from
 ## Stage-1 service
 
 Requires Apple Silicon, macOS 15 or later, Homebrew, and a browser. Use a fresh
-macOS account with no Smithers state and at least 72 GiB free on the home volume
-(40 GiB floor plus one 32 GiB machine). Have GitHub repository admin access,
+macOS account with no Smithers state and at least 44 GiB free on the home volume
+(12 GiB floor plus one 32 GiB machine). Have GitHub repository admin access,
 a provider key and an AI Gateway key ready. Run as the logged-in user; no sudo.
 
 Unpack `smithers-server.tar.gz` into an empty directory and open a terminal there.

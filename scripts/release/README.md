@@ -112,7 +112,7 @@ C-REL-06's remaining command checks have explicit stages. Run
 they clone it into the private evidence directory and damage only that copy,
 assert the literal installed-command refusal and compare independent live
 digests afterward. Run `refuse-space` after the owner prepares the disposable
-low-space volume; it checks the actual 40 GiB floor and database size before
+low-space volume; it checks the actual 12 GiB floor and database size before
 calling backup. It never fills a volume itself. After restoring normal free
 space, `retention` takes four backups and verifies that exactly the newest three
 remain. These stages require the composed maintenance providers and have not

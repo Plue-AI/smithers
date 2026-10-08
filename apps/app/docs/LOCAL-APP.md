@@ -478,7 +478,7 @@ Model experiment cards, request composers, model CRUD/tests, per-run model/effor
 
 ## Setup without a GitHub account
 
-On an Apple Silicon Mac with at least **72 GiB free disk**, build the server
+On an Apple Silicon Mac with at least **44 GiB free disk**, build the server
 bundle at the checkout's HEAD, then start a disposable local install:
 
 ```bash

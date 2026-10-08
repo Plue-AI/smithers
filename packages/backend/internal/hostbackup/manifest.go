@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -648,8 +650,8 @@ func Prune(dir string, keep int) error {
 	return directory.Sync()
 }
 
-// FreeSpaceFloor reserves 40 GiB on the state volume.
-const FreeSpaceFloor uint64 = 40 << 30
+// FreeSpaceFloor reserves the shared host disk floor on the state volume.
+const FreeSpaceFloor uint64 = uint64(microsandbox.MinFreeDiskBytes)
 
 // CheckFreeSpace checks caller-available bytes against the requested size and floor.
 func CheckFreeSpace(dir string, need uint64, floor uint64) error {

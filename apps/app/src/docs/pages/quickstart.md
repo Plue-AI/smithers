@@ -5,7 +5,7 @@ summary: "Set up the install, merge your first TODO and invite your team."
 
 ## Install and setup
 
-Use the [install page](https://smithers.sh/docs/installation/) on an Apple Silicon Mac with macOS 15 or later and Homebrew. Prepare a GitHub repository whose default branch is `main`, with squash merging enabled, a coding-model provider key or ChatGPT sign-in, and an AI Gateway key.
+Use the [install page](https://smithers.sh/docs/installation/) on an Apple Silicon Mac with macOS 15 or later, Homebrew, and at least 44 GiB free on the state volume. Prepare a GitHub repository whose default branch is `main`, with squash merging enabled, a coding-model provider key or ChatGPT sign-in, and an AI Gateway key.
 
 Install and start the host on the Mac:
 

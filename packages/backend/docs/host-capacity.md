@@ -16,12 +16,12 @@ machine memory = 8; 6 below 24 GiB of host memory
 vCPUs          = clamp(performance cores / 2, 2, 4)
 capacity       = min(floor((memory - 8) / machine memory),
                      floor(performance cores / 2),
-                     floor((free disk - 40) / 32))
+                     floor((free disk - 12) / 32))
 layer budget   = min(48, free disk / 4)
 ```
 
 Negative capacity terms become zero. Every machine has a 32 GiB disk; the
-free-space floor is 40 GiB. A prepare or verification machine uses the same
+free-space floor is 12 GiB. A prepare or verification machine uses the same
 shape and counts against capacity until its stop or deletion is confirmed.
 Runtime configuration requires explicit sizes.
 

@@ -1099,7 +1099,7 @@ describe("local host service commands", () => {
     const f = await homeFixture((_req, res) => res.end("{}"))
     const stateDir = join(f.home, "state")
     await mkdir(stateDir)
-    const message = "cannot start a fresh install: disk: 71.99 GiB free on the state volume; 72 GiB required"
+    const message = "cannot start a fresh install: disk: 43.99 GiB free on the state volume; 44 GiB required"
     await writeFile(join(stateDir, "start-refusal.json"), JSON.stringify({ code: "host_capacity_zero", message }))
     vi.spyOn(HostService, command).mockImplementation(async () => { throw HostService.startRefusal(stateDir)! })
     try {

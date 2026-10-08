@@ -16,9 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testFreeSpaceFloor replaces the production 40 GiB floor so fixtures run on
+// testFreeSpaceFloor replaces the production 12 GiB floor so fixtures run on
 // hosts with less free disk, such as CI runners.
-// TestBackupDefaultFloorReservesFortyGiB covers the production value.
+// TestBackupDefaultFloorReservesTwelveGiB covers the production value.
 const testFreeSpaceFloor uint64 = 1 << 20
 
 type backupAuthorityFixture struct {
@@ -188,10 +188,10 @@ func TestBackupPreservesRunFilesWithoutTransientOwnerSocket(t *testing.T) {
 	require.Equal(t, "persisted request", string(bytes))
 }
 
-// TestBackupDefaultFloorReservesFortyGiB proves a config without a floor
-// reserves the production 40 GiB. A fake volume stands in for the real disk.
-func TestBackupDefaultFloorReservesFortyGiB(t *testing.T) {
-	require.Equal(t, uint64(40<<30), FreeSpaceFloor)
+// TestBackupDefaultFloorReservesTwelveGiB proves a config without a floor
+// reserves the production 12 GiB. A fake volume stands in for the real disk.
+func TestBackupDefaultFloorReservesTwelveGiB(t *testing.T) {
+	require.Equal(t, uint64(12<<30), FreeSpaceFloor)
 	for _, tc := range []struct {
 		name    string
 		free    uint64
