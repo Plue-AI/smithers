@@ -162,7 +162,7 @@ func (s *WorkspaceService) getBranch(ctx context.Context, branch string, reposit
 	if _, parseErr := uuid.Parse(branch); parseErr == nil {
 		row, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: branch, RepositoryID: repositoryID})
 	} else {
-		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+		row, err = branchWorkspaceByName(ctx, tx, q, repositoryID, branch)
 	}
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -197,7 +197,7 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return BranchMachineResponse{}, err
 		}
-		if err == nil && (!lane.RetiredAt.Valid || row.BranchArchivedAt.Valid) {
+		if err == nil {
 			item, err := q.GetMythicalItem(ctx, lane.ItemID)
 			if err != nil {
 				return BranchMachineResponse{}, err
@@ -207,7 +207,11 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 					branch.State = "closed"
 				}
 			}
-			if item.WorkspaceID == row.ID {
+			workspace, err := q.GetMythicalTodoBranchWorkspace(ctx, item)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return BranchMachineResponse{}, err
+			}
+			if err == nil && workspace.ID == row.ID {
 				branch.TodoID = uuidString(item.ID)
 				if branch.Name, err = BranchName(ctx, q, row); err != nil {
 					return BranchMachineResponse{}, err

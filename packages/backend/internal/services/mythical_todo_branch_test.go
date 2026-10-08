@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -89,6 +90,17 @@ func TestTodoCardKeepsItsBranchAfterReleaseRealPostgres(t *testing.T) {
 	require.NoError(t, err)
 	want := map[string]any{"id": coding, "name": "smithers/add-a-greeting", "machine": map[string]any{"state": "asleep"}}
 	require.Equal(t, want, branch(1))
+	require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		read := db.New(tx)
+		selected, err := branchWorkspaceByName(ctx, tx, read, repoID, "smithers/add-a-greeting")
+		require.NoError(t, err)
+		require.Equal(t, coding, selected.ID, "the public name resolves the same retained coding branch as the TODO card")
+		_, err = branchWorkspaceByName(ctx, tx, read, repoID+1, "smithers/add-a-greeting")
+		require.ErrorIs(t, err, pgx.ErrNoRows, "a public name cannot cross repositories")
+		_, err = branchWorkspaceByName(ctx, tx, read, repoID, "smithers/unknown")
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+		return nil
+	}))
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='landed' WHERE id=$1`, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, want, branch(1), "a merged TODO keeps naming its branch")

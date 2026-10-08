@@ -28,6 +28,14 @@ func (s *WorkspaceService) branchFileWorkspace(ctx context.Context, branch strin
 		return db.Workspace{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch store unavailable")
 	}
 	row, err := lookup.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	if errors.Is(err, pgx.ErrNoRows) && s.installQueries != nil && s.transactions != nil {
+		tx, beginErr := s.transactions.Begin(ctx)
+		if beginErr != nil {
+			return row, beginErr
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+		row, err = branchWorkspaceByName(ctx, tx, db.New(tx), repositoryID, branch)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return row, pkgerrors.NotFound("branch not found")
 	}

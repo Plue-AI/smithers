@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -245,7 +246,11 @@ func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, target
 		}
 	}
 	departed := time.Now()
-	if press {
+	if press && os.Getenv("SMITHERS_REBASE_BROWSER_PRESS") == "1" {
+		if err := r.pressRebaseInBrowser(n); err != nil {
+			return "", err
+		}
+	} else if press {
 		path := "/api/branches/" + url.PathEscape(before.Branch.Name)
 		for range 2 {
 			code, data, err := r.keyed("POST", path, `{"rebase":true}`, r.keyPrefix+"rebase-press")
