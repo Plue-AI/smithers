@@ -6,7 +6,7 @@ import { useId,useRef,useState } from "react"
 import { useController } from "./ControllerContext"
 import * as PromptQueue from "@smthrs/rpc/PromptQueue"
 import { promptQueueScope } from "./state/PromptQueue"
-import { flowAction, flowProps } from "./flows/FlowAction"
+import { flowAction, flowProps, flowSelector } from "./flows/FlowAction"
 import { actionForKey } from "./flows/SearchQuery"
 import type { PaletteDecision,PaletteRow } from "./SearchPalette"
 import { paletteKey,PaletteOverlay,paletteRows } from "./SearchPalette"
@@ -92,7 +92,7 @@ export function Composer({
         // Slash submission closes the overlay too. Return focus during that
         // commit, unless the command already handed it to its form or card.
         if (doc.activeElement === doc.body || doc.activeElement?.closest(".composer-wrap")) {
-          restoreComposerFocus(doc, doc.querySelector<HTMLButtonElement>('.app-chat-controls [data-flow="chat.open"]'))
+          restoreComposerFocus(doc, doc.querySelector<HTMLButtonElement>(`.app-chat-controls ${flowSelector("chat.open")}`))
         }
       }
       focusedOpen.current = false
