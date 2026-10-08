@@ -352,14 +352,17 @@ test("recorded coding-account doors open Settings without enrolling or reorderin
   } finally { await h.controller.dispose() }
 })
 
-test("recorded GitHub and repository-choice doors use the install cards", async () => {
+test("recorded GitHub status retains admission and repository-choice doors use Setup", async () => {
   const h = await harness()
   try {
     expect((await h.controller.commands.run("github.app")).status).toBe("unknown-command")
     const saved = MessageSchema.shape.action.parse({ flow: "github.app", args: "old/repository", label: "Settings" })!
-    expect(saved.flow).toBe("settings")
-    expect((await h.controller.commands.run(saved.flow, saved.args)).status).toBe("executed"); await tick()
-    expect(h.store.collections.cards.has("settings")).toBe(true)
+    expect(saved.flow).toBe("github")
+    expect(JSON.parse(saved.args!)).toEqual({ operation: "app-status" })
+    // d72c762b27: a recorded setup door uses GitHub's existing admission,
+    // rather than silently opening owner Settings for a signed-out reader.
+    expect(await h.controller.commands.run(saved.flow, saved.args)).toMatchObject({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
+    expect(h.store.collections.cards.has("settings")).toBe(false)
     for (const name of ["repo.choose", "repo.create"]) {
       expect((await h.controller.commands.run(name)).status).toBe("executed"); await tick()
       expect(h.store.collections.cards.has("setup")).toBe(true)
