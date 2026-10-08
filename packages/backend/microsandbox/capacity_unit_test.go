@@ -47,7 +47,7 @@ func TestMachineSizingMustBeExplicitIncludingPrepare(t *testing.T) {
 	c.HostProfile = &p
 	c.MaxRunningVMs = 0
 	require.NoError(t, validateSizing(c))
-	e := EnvironmentConfig{PrepareCPUs: 2, PrepareMemoryMiB: 6144, PrepareDiskMiB: 32768, MinFreeBytes: 40 << 30}
+	e := EnvironmentConfig{PrepareCPUs: 2, PrepareMemoryMiB: 6144, PrepareDiskMiB: 32768, MinFreeBytes: MinFreeDiskBytes}
 	require.NoError(t, e.validate(c))
 	c.HostProfile = nil
 	require.Error(t, e.validate(c))
