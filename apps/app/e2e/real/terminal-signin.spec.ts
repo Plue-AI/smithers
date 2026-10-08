@@ -34,9 +34,9 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     // Split marker defeats PTY input echo; check completion from actual output.
     await page.keyboard.type(`{ ${script}; }; j6_status=$?; printf '\\nJ6_${stage}_%s exit=%s\\n' ${sequence} "$j6_status"`)
     await page.keyboard.press("Enter")
-    await expect.poll(() => output.slice(start), { timeout: 180_000 }).toMatch(new RegExp(`^${marker} exit=[0-9]+\\r?$`, "m"))
+    await expect.poll(() => output.slice(start), { timeout: 180_000 }).toMatch(new RegExp(`^${marker} exit=[0-9]+\r?$`, "m"))
     const result = output.slice(start)
-    expect(result).toMatch(new RegExp(`^${marker} exit=${expectedExit}\\r?$`, "m"))
+    expect(result).toMatch(new RegExp(`^${marker} exit=${expectedExit}\r?$`, "m"))
     return result
   }
   const repository = fixture("REPOSITORY")
@@ -109,7 +109,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     expect(signIn).toMatch(/"via":\s*"terminal"/)
     if (stage === "S2") {
       const privateDirectory = await run('stat -c "%a %u" "/run/smithers/$(id -u)/token"')
-      expect(privateDirectory).toMatch(new RegExp(`^700 ${uid}\\r?$`, "m"))
+      expect(privateDirectory).toMatch(new RegExp(`^700 ${uid}\r?$`, "m"))
     }
     expect(await order()).toEqual([1, 2])
     expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
@@ -192,8 +192,10 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       await second.close()
     }
     const runClaude = async (prompt: string, expected: readonly string[], refusal?: { code: string; message: string }) => {
-      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); tool_results=[block for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_result']; refusal=${refusal ? JSON.stringify(refusal) : "None"}; assert refusal is None or any(all(value in json.dumps(block) for value in ['permission',refusal['code'],refusal['message']]) for block in tool_results), 'Claude skill did not receive the literal refusal'; print('J6'+'SKILL=executed')`
-      const result = await run(`claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`, 0)
+      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); tool_results=[block for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_result']; refusal=${refusal ? JSON.stringify(refusal) : "None"}; assert tool_results, 'Claude produced no tool results'; assert refusal is not None or all(not block.get('is_error') for block in tool_results), 'Claude skill tool failed'; assert refusal is None or any(all(value in json.dumps(block) for value in ['permission',refusal['code'],refusal['message']]) for block in tool_results), 'Claude skill did not receive the literal refusal'; print('J6'+'SKILL=executed')`
+      // A successful transcript parser must not hide a failed Claude process.
+      const pipeline = `claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`
+      const result = await run(`/bin/bash -o pipefail -c ${quote(pipeline)}`, 0)
       expect(result).toMatch(/^J6SKILL=executed\r?$/m)
       return result
     }
