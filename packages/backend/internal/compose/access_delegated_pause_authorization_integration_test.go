@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,6 +58,7 @@ func TestAccessDelegatedStopResumeEffectsComposedPostgres(t *testing.T) {
 		return n
 	}
 	cells := 0
+	var receipts []map[string]any
 	for _, user := range users {
 		for _, via := range []string{"cli", "codex", "claude-code", "smithers"} {
 			token := ""
@@ -67,59 +71,77 @@ func TestAccessDelegatedStopResumeEffectsComposedPostgres(t *testing.T) {
 				require.NoError(t, err)
 				token = issued.Token
 			}
-			for _, op := range []string{"stop", "resume"} {
-				t.Run(user.Username+"/"+via+"/"+op, func(t *testing.T) {
-					facts := map[string]any{"todo": true, "run_launched": true, "run_attached": true, "flowSource": strings.Repeat("a", 40)}
-					if op == "resume" {
-						facts["pause"] = map[string]any{"generation": 1, "run": "run-1", "requested": true, "at": "2026-10-02T12:00:00Z", "wait": services.TodoWaitSignal{Scope: scope, Target: target, Flow: "todo", Run: "run-1", Name: "resume#1"}}
+			for _, ownership := range []string{"own", "other-member"} {
+				for _, state := range []string{"running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying", "proposed"} {
+					for _, op := range []string{"stop", "resume"} {
+						t.Run(user.Username+"/"+via+"/"+ownership+"/"+state+"/"+op, func(t *testing.T) {
+							holder := user.ID
+							if ownership == "other-member" {
+								holder = owner.ID
+								if holder == user.ID {
+									holder = users[1].ID
+								}
+							}
+							facts := map[string]any{"todo": true, "run_launched": true, "run_attached": true, "flowSource": strings.Repeat("a", 40)}
+							if op == "resume" {
+								facts["pause"] = map[string]any{"generation": 1, "run": "run-1", "requested": true, "at": "2026-10-02T12:00:00Z", "wait": services.TodoWaitSignal{Scope: scope, Target: target, Flow: "todo", Run: "run-1", Name: "resume#1"}}
+							}
+							raw, err := json.Marshal(facts)
+							require.NoError(t, err)
+							_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$6,owner_id=$7,checks=$2,attempt=1,request_run_id='run-1',request_outcome='',workspace_id=$3,flow_digest=$4,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, raw, target.WorkspaceID, digest, op == "resume", state, holder)
+							require.NoError(t, err)
+							before := count()
+							key := fmt.Sprintf("pause-matrix-%s-%s-%s-%s-%s", user.Username, via, ownership, state, op)
+							call := func() *httptest.ResponseRecorder {
+								req := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/todos/1", strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
+								req.RemoteAddr = "127.0.0.1:51900"
+								req.Header.Set("Origin", cfg.Server.PublicURL)
+								req.Header.Set("Content-Type", "application/json")
+								req.Header.Set("Authorization", "Bearer "+token)
+								req.Header.Set("Idempotency-Key", key)
+								req.Header.Set("Smithers-Actor", "person")
+								req.Header.Set("Smithers-Via", "terminal")
+								var decisions []string
+								req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+								out := httptest.NewRecorder()
+								router.ServeHTTP(out, req)
+								require.Equal(t, http.StatusAccepted, out.Code, out.Body.String())
+								require.Equal(t, []string{"todo." + op}, decisions)
+								require.NotContains(t, out.Body.String(), "confirmation")
+								return out
+							}
+							out := call()
+							require.Equal(t, before+1, count())
+							saved, err := h.q.GetMythicalItem(ctx, h.item.ID)
+							require.NoError(t, err)
+							require.Equal(t, holder, saved.OwnerID.Int64)
+							require.Equal(t, state, saved.State)
+							var factsAfter struct {
+								Pause    struct{ Requested, Resuming bool }
+								Attached bool `json:"run_attached"`
+							}
+							require.NoError(t, json.Unmarshal(saved.Checks, &factsAfter))
+							require.True(t, factsAfter.Pause.Requested)
+							require.Equal(t, op == "resume", factsAfter.Pause.Resuming)
+							require.False(t, saved.PausedAt.Valid)
+							replay := call()
+							require.JSONEq(t, out.Body.String(), replay.Body.String())
+							require.Equal(t, before+1, count())
+							again, err := h.q.GetMythicalItem(ctx, h.item.ID)
+							require.NoError(t, err)
+							require.Equal(t, saved, again)
+							receipts = append(receipts, map[string]any{"member": user.ID, "via": via, "subject": ownership, "owner": holder, "state": state, "command": "todo." + op, "status": out.Code, "decisions": []string{"todo." + op}, "durable_signal_effects": 1, "replay_effects": 0})
+							cells++
+						})
 					}
-					raw, err := json.Marshal(facts)
-					require.NoError(t, err)
-					_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state='running',checks=$2,attempt=1,request_run_id='run-1',request_outcome='',workspace_id=$3,flow_digest=$4,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, raw, target.WorkspaceID, digest, op == "resume")
-					require.NoError(t, err)
-					before := count()
-					key := fmt.Sprintf("pause-matrix-%s-%s-%s", user.Username, via, op)
-					call := func() *httptest.ResponseRecorder {
-						req := httptest.NewRequest("POST", cfg.Server.PublicURL+"/api/todos/1", strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
-						req.RemoteAddr = "127.0.0.1:51900"
-						req.Header.Set("Origin", cfg.Server.PublicURL)
-						req.Header.Set("Content-Type", "application/json")
-						req.Header.Set("Authorization", "Bearer "+token)
-						req.Header.Set("Idempotency-Key", key)
-						req.Header.Set("Smithers-Actor", "person")
-						req.Header.Set("Smithers-Via", "terminal")
-						var decisions []string
-						req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
-						out := httptest.NewRecorder()
-						router.ServeHTTP(out, req)
-						require.Equal(t, http.StatusAccepted, out.Code, out.Body.String())
-						require.Equal(t, []string{"todo." + op}, decisions)
-						require.NotContains(t, out.Body.String(), "confirmation")
-						return out
-					}
-					out := call()
-					require.Equal(t, before+1, count())
-					saved, err := h.q.GetMythicalItem(ctx, h.item.ID)
-					require.NoError(t, err)
-					var factsAfter struct {
-						Pause    struct{ Requested, Resuming bool }
-						Attached bool `json:"run_attached"`
-					}
-					require.NoError(t, json.Unmarshal(saved.Checks, &factsAfter))
-					require.True(t, factsAfter.Pause.Requested)
-					require.Equal(t, op == "resume", factsAfter.Pause.Resuming)
-					require.False(t, saved.PausedAt.Valid)
-					replay := call()
-					require.JSONEq(t, out.Body.String(), replay.Body.String())
-					require.Equal(t, before+1, count())
-					again, err := h.q.GetMythicalItem(ctx, h.item.ID)
-					require.NoError(t, err)
-					require.Equal(t, saved, again)
-					cells++
-				})
+				}
 			}
 		}
 	}
-	require.Equal(t, 24, cells)
+	require.Equal(t, 384, cells)
+	require.Len(t, receipts, 384)
+	output := filepath.Join("../../../../.artifacts/checks/C-ACC-01", time.Now().UTC().Format("20060102T150405.000000000Z"))
+	require.NoError(t, os.MkdirAll(output, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(output, "stop-resume-effects.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed HTTP and durable production signal dispatcher", "cells": receipts, "guest_execution_qualified": false, "full_live_effect_matrix_complete": false, "test_passed": !t.Failed()}), 0600))
 	t.Logf("delegated Stop/Resume: %d admitted effect cells, %d replays", cells, cells)
 }
