@@ -473,6 +473,8 @@ func mythicalMergeReady(item db.MythicalItem, before int64, head string, fenced 
 		return mythicalMergeConflict("rechecking", "Waiting for the rebased change's checks")
 	case len(item.PendingOp) > 0 && !mythicalMergeFenced(item):
 		return mythicalMergeConflict("rechecking", "Waiting for the TODO's pull request push to settle")
+	case todoRunAwaitsProposal(item):
+		return mythicalMergeConflict("pending_work", "Waiting for the run")
 	case mythicalChecksOf(item).Capture != nil:
 		return mythicalMergeConflict("pending_work", "Waiting for captured edits to be checked")
 	case !item.CandidateVerified || item.PRHead == "":

@@ -4708,9 +4708,20 @@ export const make = (
       readExecution: (runId) => Effect.provide(readExecution(runId), services),
       launch: Effect.fn("AgentSession.launch")(launch),
       requestComplete: Effect.fn("AgentSession.requestComplete")((input) => Effect.gen(function*() {
-        const run = yield* runtime.getRun(input.runId)
+        let run = yield* runtime.getRun(input.runId)
+        let waiting = yield* engineState.waiting(input.runId)
+        // Native polling briefly clears the wait while the control projection
+        // still says parked. A periodic stack poll must not synchronize with
+        // that window forever. Observe an eligible wait; never synthesize it.
+        for (let poll = 0; poll < 100; poll++) {
+          if (["completed", "failed", "cancelled"].includes(run.status)) return { _tag: "Terminal", runId: input.runId, status: run.status } as const
+          if (run.status === "parked" && Option.isSome(waiting) && waiting.value.reason === "event") break
+          if (!options.reenterModules?.includes(run.flowId) || !["parked", "running"].includes(run.status) || Option.isSome(waiting) && waiting.value.reason !== "event") break
+          yield* Effect.sleep("10 millis")
+          run = yield* runtime.getRun(input.runId)
+          waiting = yield* engineState.waiting(input.runId)
+        }
         if (["completed", "failed", "cancelled"].includes(run.status)) return { _tag: "Terminal", runId: input.runId, status: run.status } as const
-        const waiting = yield* engineState.waiting(input.runId)
         if (run.status !== "parked" || Option.isNone(waiting) || waiting.value.reason !== "event" || !options.reenterModules?.includes(run.flowId)) {
           return yield* Effect.fail(new Error(`Only a retained module event wait can complete: ${run.status}/${Option.isSome(waiting) ? waiting.value.reason : "none"}/${run.flowId}`))
         }

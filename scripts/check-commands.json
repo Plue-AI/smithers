@@ -382,7 +382,7 @@
     },
     "C-J11-01": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/conversation_summaries_test.go",
+      "reason": "Automation present: apps/app/e2e/playwright/spec/C-J11-01.spec.ts, packages/backend/internal/services/run_summaries_test.go and packages/backend/internal/compose/run_monitor_summaries_integration_test.go; reference actors/host and authenticated owner-approved argv/host pending",
       "ticket": "T-FLW-07"
     },
     "C-J11-02": {
@@ -397,7 +397,7 @@
     },
     "C-J11-04": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/run_thrash_integration_test.go",
+      "reason": "Automation present: packages/backend/internal/compose/live_run_thrash_integration_test.go and apps/app/e2e/playwright/spec/C-J11-04.spec.ts; authenticated owner-approved argv/host and CI check-run provenance pending",
       "ticket": "T-FLW-07"
     },
     "C-J2-01": {

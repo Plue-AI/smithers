@@ -18,7 +18,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlError, ControlExecutor, ControlLive, ControlRuntime, ControlSchema } from "@smthrs/control"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
-import { DurableEngineState } from "@smthrs/engine-store/DurableEngineState"
+import { DurableEngineState, type Service as EngineStateService } from "@smthrs/engine-store/DurableEngineState"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, Flow, FlowRuntime, HumanTask, Interpreter, Sleep } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -290,12 +290,13 @@ const principal: ControlSchema.Principal = { id: "operator", kind: "test", stamp
 const steerBody = "steer: mention the weather"
 
 interface StackOptions {
+  readonly wrapEngineState?: ((state: EngineStateService) => EngineStateService) | undefined
   readonly reenterModules?: ReadonlyArray<string>
   readonly reentryCheckpoint?: AgentSession.Options["reentryCheckpoint"]
 
   readonly modules?: {
     readonly catalog: Executable.Catalog
-    readonly layer: Layer.Layer<never, never, Executable.Registration>
+    readonly layer: Layer.Layer<never, never, Executable.Registration | NotificationQueue.NotificationQueue>
   } | undefined
   /** The scripted resolver installed as the composition's `SeatResolver`. */
   readonly resolve: SeatResolver.Service["resolve"]
@@ -387,6 +388,7 @@ const stack = (options: StackOptions) => {
     asks: options.asks,
     memory: options.memory
   }).pipe(
+    Layer.provide(options.wrapEngineState === undefined ? Layer.empty : Layer.effect(DurableEngineState)(Effect.map(DurableEngineState, options.wrapEngineState))),
     Layer.provideMerge(Action.layerImplementations),
     Layer.provide(
       options.modules === undefined ? Layer.empty : Layer.merge(
@@ -1743,12 +1745,14 @@ describe("AgentSession", () => {
     expect(result.status).toBe("failed")
   })
 
-  it.each(["after settlement", "before settlement", "live parked host", "concurrent park", "code drift"] as const)(
+  it.each(["after settlement", "before settlement", "live parked host", "concurrent park", "code drift", "transient wait"] as const)(
     "re-enters settled module launches on the same control run: %s",
     async (timing) => {
       const seen: Array<unknown> = []
       const checkpoints: Array<{ runId: string; flowId: string; completed: number }> = []
       let retainedRunId = ""
+      let completing = false
+      let completionReads = 0
       const gate = Deferred.makeUnsafe<void>()
       const Read = Action.make("test/Reentry", { payload: {}, success: Schema.Json, error: Schema.Never })
       const flow = Flow.make("agents/module", {
@@ -1772,7 +1776,7 @@ describe("AgentSession", () => {
             seen.push(drained)
             if (seen.length === 1 && timing === "before settlement") yield* Deferred.await(gate)
             return seen.length
-          })
+          }).pipe(Effect.orDie)
         )
       ))
       const executable: Executable.Executable = {
@@ -1861,8 +1865,9 @@ describe("AgentSession", () => {
             yield* Effect.sleep("50 millis")
             const executor = yield* ControlExecutor.ControlExecutor
             expect(executor.requestComplete).toBeDefined()
+            completing = true
             yield* executor.requestComplete!({ runId, receiptId: "owner-merged" }).pipe(Effect.retry({
-              schedule: Schedule.spaced("10 millis"), times: 100,
+              schedule: Schedule.spaced("10 millis"), times: timing === "transient wait" ? 0 : 100,
               // A trampoline poll temporarily clears the root's event row.
               // Completed-child and pin refusals remain failures.
               while: (error) => error.cause instanceof Error &&
@@ -1880,6 +1885,7 @@ describe("AgentSession", () => {
             gate,
             notes: [],
             reenterModules: ["agents/module"],
+            wrapEngineState: timing === "transient wait" ? state => ({ ...state, waiting: id => completing && completionReads++ < 5 ? Effect.succeed(Option.none()) : state.waiting(id) }) : undefined,
             wrapRuntime: timing === "code drift" ? (runtime) => ({
               ...runtime,
               codeDrift: (runId) => seen.length > 0 ? Effect.succeed(new ControlError.CodeDrift({ runId, flowId: "agents/module", recorded: "old", current: "new" })) : runtime.codeDrift(runId)
@@ -1898,6 +1904,7 @@ describe("AgentSession", () => {
           })))
         }).pipe(Effect.scoped)
       )
+      if (timing === "transient wait") expect(completionReads).toBeGreaterThanOrEqual(6)
       expect(outcome.run.status).toBe("completed")
       if (timing === "code drift") expect(checkpoints).toEqual([])
       else expect(checkpoints[0]).toEqual({ runId: retainedRunId, flowId: "agents/module", completed: 1 })

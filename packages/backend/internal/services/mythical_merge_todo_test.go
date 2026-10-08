@@ -2552,3 +2552,18 @@ func TestMythicalMergeTodoPressRefusesRequiredChecks(t *testing.T) {
 		})
 	}
 }
+
+func TestMythicalMergeTodoWaitsForNativeProposal(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Native acknowledgment")
+	h.exec(`UPDATE mythical_items SET workspace_id='11111111-1111-4111-8111-111111111111', request_run_id='native-run', request_outcome='', flow_digest=$2, checks=checks || jsonb_build_object('flowSource',$3::text,'run_attached',true,'proposal_run','native-run') WHERE number=$1`, n, strings.Repeat("a", 64), h.main)
+	require.Equal(t, "pending_work", refusalOf(t, h.press(h.ctx, n, head)).Code)
+	require.Nil(t, h.land(n), "a premature press must not fence its pending proposal")
+	require.Empty(t, h.merges())
+	_, card := h.mergeCard(n)
+	require.Equal(t, "waiting", card["state"])
+	require.Equal(t, "pending_work", card["reason"])
+	h.exec(`UPDATE mythical_items SET checks=checks - 'proposal_run' WHERE number=$1`, n)
+	require.NoError(t, h.press(h.ctx, n, head))
+	require.NotNil(t, h.land(n))
+}
