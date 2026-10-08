@@ -1,5 +1,5 @@
 import { Cli } from "incur"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -119,121 +119,21 @@ describe("unified historical command dispatch", () => {
     expect(JSON.parse(result.stdout)).toEqual(projection)
   })
 
-  it("forks from sequence zero without dropping the exact lineage or caller signal", async () => {
-    const controller = new AbortController()
-    const result = await invoke([
-      "fork",
-      "run-1",
-      "--root",
-      directory,
-      "--at",
-      "0",
-      "--lineage",
-      "lineage/root",
-      "--limit",
-      "12"
-    ], { environment: {}, signal: controller.signal })
-    expect(ports.mutate).toHaveBeenCalledExactlyOnceWith(
-      directory,
-      "run-1",
-      {
-        root: directory,
-        quiet: false,
-        at: 0,
-        lineage: "lineage/root",
-        limit: 12,
-        sequence: 0
-      },
-      "fork",
-      controller.signal
-    )
-    expect(JSON.parse(result.stdout)).toEqual(mutation)
-    expect(result.codes).toEqual([])
-  })
-
-  it("confirms rewind explicitly and preserves the mutation's audit receipt", async () => {
-    const controller = new AbortController()
-    const result = await invoke(["rewind", "run-1", "--root", directory, "--at", "7", "--yes"], {
-      environment: {},
-      signal: controller.signal
-    })
-    expect(ports.mutate).toHaveBeenCalledExactlyOnceWith(
-      directory,
-      "run-1",
-      {
-        root: directory,
-        quiet: false,
-        at: 7,
-        limit: 10_000,
-        sequence: 7,
-        preview: false,
-        yes: true,
-        wholeRepo: false
-      },
-      "rewind",
-      controller.signal
-    )
-    expect(JSON.parse(result.stdout)).toEqual(mutation)
-    expect(ports.preview).not.toHaveBeenCalled()
-  })
-
-  it("forwards --whole-repo to the rewind mutation", async () => {
-    const controller = new AbortController()
-    await invoke(["rewind", "run-1", "--root", directory, "--at", "7", "--yes", "--whole-repo"], {
-      environment: {},
-      signal: controller.signal
-    })
-    expect(ports.mutate).toHaveBeenCalledExactlyOnceWith(
-      directory,
-      "run-1",
-      expect.objectContaining({ sequence: 7, yes: true, wholeRepo: true }),
-      "rewind",
-      controller.signal
-    )
-  })
-
-  it.each([false, true])("keeps preview read-only even when confirmation is also present (%s)", async (yes) => {
-    const controller = new AbortController()
-    const result = await invoke([
-      "rewind",
-      "run-1",
-      "--root",
-      directory,
-      "--at",
-      "7",
-      "--preview",
-      ...(yes ? ["--yes"] : [])
-    ], { environment: {}, signal: controller.signal })
-    expect(ports.preview).toHaveBeenCalledExactlyOnceWith(directory, "run-1", {
-      root: directory,
-      quiet: false,
-      at: 7,
-      limit: 10_000,
-      sequence: 7,
-      preview: true,
-      yes,
-      wholeRepo: false
-    }, controller.signal)
-    expect(JSON.parse(result.stdout)).toEqual(preview)
-    expect(ports.mutate).not.toHaveBeenCalled()
-  })
-
-  it("requires confirmation before resolving or changing any history", async () => {
-    const result = await invoke(["rewind", "run-1", "--root", directory, "--at", "7"])
-    expect(result.codes).toEqual([2])
-    expect(JSON.parse(result.stdout)).toEqual({
-      code: "confirmation_required",
-      message: "Use --preview to inspect the rewind, then --yes to apply it"
-    })
-    for (const port of Object.values(ports)) expect(port).not.toHaveBeenCalled()
+  // M-12 removes historical fork/rewind from the customer command surface.
+  // Recovery and replay remain available through the retained library and reads.
+  it.each(["fork", "rewind"])("refuses retired %s before any history work", async (command) => {
+    for (const flags of [[], ["--at", "0"], ["--yes"], ["--preview"], ["--whole-repo"],
+      ["--step", "d1", "--result", "1"], ["--remote", "https://control.invalid"]]) {
+      const result = await invoke([command, "run-1", ...flags], { environment: {} })
+      expect(result.codes).toEqual([1])
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND", message: `'${command}' is not a command for 'runs'.` })
+      for (const port of Object.values(ports)) expect(port).not.toHaveBeenCalled()
+    }
   })
 
   it.each([
     ["inspect", []],
-    ["replay", []],
-    ["fork", ["--at", "0"]],
-    ["rewind", ["--at", "0", "--yes"]],
-    ["rewind", ["--at", "0", "--preview"]]
+    ["replay", []]
   ])("renders failures from %s %j without successful partial results", async (command, flags) => {
     for (const port of [ports.read, ports.mutate, ports.preview]) {
       port.mockRejectedValue(new Error("Authorization: Bearer private-fixture"))
@@ -264,67 +164,12 @@ describe("unified historical command dispatch", () => {
     expect(result.stdout).not.toContain("private-fixture")
   })
 
-  it("forks with one step result edited from inline JSON or a file", async () => {
-    const file = join(directory, "result.json")
-    writeFileSync(file, JSON.stringify({ text: "from file" }))
-    for (const [result, expected] of [["\"inline\"", "inline"], [`@${file}`, { text: "from file" }]] as const) {
-      ports.mutate.mockClear()
-      const run = await invoke(
-        ["fork", "run-1", "--root", directory, "--at", "4", "--step", "d1", "--result", result],
-        {
-          environment: {}
-        }
-      )
-      expect(run.codes).toEqual([])
-      expect(ports.mutate).toHaveBeenCalledExactlyOnceWith(
-        directory,
-        "run-1",
-        {
-          root: directory,
-          quiet: false,
-          at: 4,
-          limit: 10_000,
-          sequence: 4,
-          override: { stepKeyDigest: "d1", result: expected }
-        },
-        "fork",
-        undefined
-      )
-    }
-  })
-
-  it.each([
-    [["--step", "d1"], "--step and --result edit a step together"],
-    [["--result", "1"], "--step and --result edit a step together"],
-    [["--step", "d1", "--result", "{not json"], "--result must be JSON"]
-  ])("refuses an incomplete or malformed step edit %j before forking", async (flags, message) => {
-    const result = await invoke(["fork", "run-1", "--root", directory, "--at", "4", ...flags], { environment: {} })
-    expect(result.codes).toEqual([2])
-    expect(result.stdout).toContain(message)
-    expect(ports.mutate).not.toHaveBeenCalled()
-  })
-
-  it.each(["fork", "rewind"])(
-    "honors the host's remote selection for %s without a runtime override",
-    async (command) => {
-      vi.stubEnv("SMITHERS_REMOTE", "https://control.invalid")
-      const result = await invoke([command, "run-1", "--at", "0", ...(command === "rewind" ? ["--yes"] : [])])
-      expect(result.codes).toEqual([1])
-      expect(result.stdout).toContain("--remote is not supported")
-      expect(ports.mutate).not.toHaveBeenCalled()
-    }
-  )
-
   it.each([
     ["flag", ["--remote", "https://control.invalid"], {}],
     ["environment", [], { SMITHERS_REMOTE: "https://control.invalid" }]
   ])("refuses all remote history commands before local work (%s)", async (_source, connection, environment) => {
     for (
-      const [command, flags] of [["inspect", []], ["replay", []], ["fork", ["--at", "0"]], ["rewind", [
-        "--at",
-        "0",
-        "--yes"
-      ]]] as const
+      const [command, flags] of [["inspect", []], ["replay", []]] as const
     ) {
       const result = await invoke([command, "run-1", ...connection, ...flags], { environment })
       expect(result.codes).toEqual([1])
@@ -334,8 +179,6 @@ describe("unified historical command dispatch", () => {
   })
 
   it.each([
-    ["fork", []],
-    ["rewind", ["--yes"]],
     ["inspect", ["--at=-1"]],
     ["replay", ["--at=1.5"]],
     ["inspect", ["--limit=0"]],
