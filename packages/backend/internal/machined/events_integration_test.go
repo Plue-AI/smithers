@@ -391,3 +391,78 @@ func TestBurstAttributionDoesNotHoldSpawnReceiptLock(t *testing.T) {
 	_, err = ingest.Apply(t.Context(), link.Connection, jobs.Scope{}, Event{Seq: 1, EventID: [16]byte{1}, Payload: burstPayload([16]byte{2}, "file")})
 	require.ErrorIs(t, err, ErrNotReady)
 }
+
+// Initial watcher output must commit while native admission retains workspace
+// identity. The authentic link still verifies scope before publishing anything.
+func TestBurstAdmissionWorkspaceIdentityLock(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	ctx := t.Context()
+	var repository int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository))
+	admission, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer admission.Rollback(ctx)
+	_, err = admission.Exec(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch)
+	require.NoError(t, err)
+	registry := new(Registry)
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, authority)
+	objects := &burstObjectFixture{}
+	ingest := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"id":"outside","kind":"outside"}`), nil
+	}}
+	event := Event{Seq: 1, EventID: [16]byte{31}, Payload: burstPayload([16]byte{32}, "ready.ts")}
+	bounded, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ack, err := ingest.Apply(bounded, link.Connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch}, event)
+	require.NoError(t, err, "publication must settle before the admission releases identity")
+	require.Equal(t, AckApplied, ack.Outcome)
+	require.Equal(t, 1, objects.publications)
+	var receipts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+	require.Equal(t, 1, receipts)
+}
+
+func TestBurstWaitingForWorkspaceLeavesRosterUsable(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var repository int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository))
+	roster, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer roster.Rollback(t.Context())
+	_, err = roster.Exec(ctx, `SELECT 1 FROM workspaces WHERE id=$1 FOR SHARE`, branch)
+	require.NoError(t, err)
+	registry := new(Registry)
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, peer := connectTest(t, registry, branch, authority)
+	ingest := &BurstIngest{Pool: pool, Objects: &burstObjectFixture{}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"id":"outside","kind":"outside"}`), nil
+	}}
+	done := make(chan error, 1)
+	go func() {
+		ack, err := ingest.Apply(ctx, link.Connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch},
+			Event{Seq: 1, EventID: [16]byte{41}, Payload: burstPayload([16]byte{42}, "ready.ts")})
+		if err == nil && ack.Outcome != AckApplied {
+			err = fmt.Errorf("unexpected acknowledgement %d", ack.Outcome)
+		}
+		done <- err
+	}()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT repository_id FROM workspaces WHERE id=%')`).Scan(&blocked)
+		return err == nil && blocked
+	}, 3*time.Second, 10*time.Millisecond)
+	// The roster's control request must complete before its workspace lock is
+	// released, despite the pending burst's publication transaction.
+	rosterDone := make(chan error, 1)
+	go func() { rosterDone <- registry.SetRoster(ctx, branch, nil) }()
+	require.NoError(t, peer.SetReadDeadline(time.Now().Add(3*time.Second)))
+	answer(t, peer, wire.SetRoster)
+	require.NoError(t, <-rosterDone)
+	require.NoError(t, roster.Commit(ctx))
+	require.NoError(t, <-done)
+}
