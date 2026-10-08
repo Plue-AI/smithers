@@ -118,7 +118,16 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	poolURL := codingHostAccountPoolURL(cfg, "http://localhost:4000")
 	require.Equal(t, "http://localhost:4000/provider-pool", poolURL)
 	require.Equal(t, 403, request("GET", "/api/user/provider-connections", good, "").Code)
-	require.Equal(t, 403, request("POST", "/provider-pool/chatgpt/codex/responses", good, `{}`).Code)
+	// Pool authentication precedes the feature gate (#3492). A browser
+	// session cannot spend an account, even while the pool is disabled.
+	assertPoolAuthentication := func(cookie string) {
+		t.Helper()
+		response := request("POST", "/provider-pool/chatgpt/codex/responses", cookie, `{}`)
+		require.Equal(t, http.StatusUnauthorized, response.Code, response.Body.String())
+		require.Contains(t, response.Body.String(), `"type":"authentication_error"`)
+	}
+	assertPoolAuthentication(good)
+	assertPoolAuthentication("")
 	for _, body := range []string{`{"chatgpt":true}`, `{"chatgpt":false}`} {
 		denied := request("PUT", "/api/install", other, body)
 		require.Equal(t, 403, denied.Code)
@@ -127,13 +136,12 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 		require.Contains(t, updated.Body.String(), body[1:len(body)-1])
 		// Toggle through Settings without rebuilding the router or host catalog.
 		connectionResponse := request("GET", "/api/user/provider-connections", good, "")
-		poolResponse := request("POST", "/provider-pool/chatgpt/codex/responses", "", `{}`)
+		assertPoolAuthentication(good)
+		assertPoolAuthentication("")
 		if strings.Contains(body, "true") {
 			require.Equal(t, 200, connectionResponse.Code, connectionResponse.Body.String())
-			require.Equal(t, 401, poolResponse.Code, "enabled pool still requires a bound credential")
 		} else {
 			require.Equal(t, 403, connectionResponse.Code)
-			require.Equal(t, 403, poolResponse.Code)
 		}
 		require.Equal(t, poolURL, codingHostAccountPoolURL(cfg, "http://localhost:4000"))
 		restarted := &services.InstallSetupService{Pool: pool, Capacity: capacity}
