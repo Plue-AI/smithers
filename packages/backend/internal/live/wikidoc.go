@@ -10,6 +10,7 @@ import (
 	"io"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -27,6 +28,7 @@ type WikiHost struct {
 	ctx     context.Context
 	mu      sync.Mutex
 	pages   map[int64]*wikiDocument
+	paused  atomic.Bool
 }
 type wikiDocument struct {
 	idle            *time.Timer
@@ -100,6 +102,9 @@ func (h *WikiHost) Resolve(ctx context.Context, topic string, repository, member
 	return Source{Key: topic, Document: &DocumentSource{Actor: []byte(strconv.FormatInt(member, 10)), Ready: ready, Sequenced: true, OpenClient: func(ctx context.Context, requested uint32) (DocumentStream, error) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		if h.paused.Load() {
+			return nil, errors.New("wiki persistence paused")
+		}
 		p := h.pages[page]
 		if p == nil {
 			var release func()
@@ -250,6 +255,9 @@ func (s *wikiStream) Send(ctx context.Context, raw []byte) error {
 	p := s.page
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.host.paused.Load() {
+		return errors.New("wiki persistence paused")
+	}
 	if p.closed || s.ctx.Err() != nil {
 		return io.EOF
 	}
@@ -319,32 +327,41 @@ func (p *wikiDocument) flush(generation uint64) {
 	if generation != p.timerGeneration || p.closed || p.oldest.IsZero() {
 		return
 	}
+	ctx, cancel := context.WithTimeout(p.host.ctx, 10*time.Second)
+	defer cancel()
+	if err := p.flushLocked(ctx); err != nil {
+		p.scheduleFlush(time.Second)
+	}
+}
+
+// Caller holds p.mu; both debounce and maintenance use the same receipt path.
+func (p *wikiDocument) flushLocked(ctx context.Context) error {
+	if p.closed || p.oldest.IsZero() {
+		return nil
+	}
 	state, err := p.doc.State()
 	if err != nil {
-		return
+		return err
 	}
 	if len(state) > 8<<20 {
-		return
+		return errors.New("wiki state exceeds 8 MiB")
 	}
 	vector, err := p.doc.Sync1()
 	if err != nil {
-		return
+		return err
 	}
 	text, err := p.doc.Text("markdown")
 	if err != nil {
-		return
+		return err
 	}
-	ctx, cancel := context.WithTimeout(p.host.ctx, 10*time.Second)
-	defer cancel()
 	row, err := p.host.Commit(ctx, p.actor, p.row, state, vector, text)
 	if err != nil {
-		p.scheduleFlush(time.Second)
-		return
+		return err
 	}
 	// A CAS conflict can add persisted concurrent operations. Merge them while
 	// input is fenced by this mutex, then fan out the winning state.
 	if _, err = p.doc.Peer(row.CrdtState); err != nil {
-		return
+		return err
 	}
 	p.row = row
 	p.oldest = time.Time{}
@@ -353,4 +370,57 @@ func (p *wikiDocument) flush(generation uint64) {
 		s.saved = s.seq
 		s.emit(wire.Document{Msg: wire.DocumentSaved, AtMS: uint64(time.Now().UnixMilli()), ThroughSeq: s.saved, Data: row.CrdtVector})
 	}
+	return nil
+}
+
+// Check is read-only; a missing native document or persistence authority refuses.
+func (h *WikiHost) Check(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if h == nil || h.Library == nil || h.Open == nil || h.Commit == nil {
+		return errors.New("wiki persistence unavailable")
+	}
+	return nil
+}
+
+// Drain fences existing websocket writers as well as new subscriptions, then
+// waits for PostgreSQL receipts for every dirty page. Failure keeps the fence
+// until the coordinator resumes the install.
+func (h *WikiHost) Drain(ctx context.Context) error {
+	if err := h.Check(ctx); err != nil {
+		return err
+	}
+	h.paused.Store(true)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, p := range h.pages {
+		p.mu.Lock()
+		p.timerGeneration++
+		if p.timer != nil {
+			p.timer.Stop()
+		}
+		err := p.flushLocked(ctx)
+		p.mu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+func (h *WikiHost) Resume(ctx context.Context) error {
+	if err := h.Check(ctx); err != nil {
+		return err
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, p := range h.pages {
+		p.mu.Lock()
+		if !p.closed && !p.oldest.IsZero() {
+			p.scheduleFlush(time.Second)
+		}
+		p.mu.Unlock()
+	}
+	h.paused.Store(false)
+	return nil
 }

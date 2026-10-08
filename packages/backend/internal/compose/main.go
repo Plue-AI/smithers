@@ -1985,13 +1985,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if err := authService.InstallSetup.Mint(ctx, installAddress.Origins(), setupOutput); err != nil {
 			return fmt.Errorf("mint setup authority: %w", err)
 		}
-		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
-			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit, options.InstallMaintenanceDatabase, installBackupSummary{pool: pool, captures: options.InstallCaptureSummary, runs: options.InstallRunSummary}, installQuiesce)
-			if err != nil {
-				return fmt.Errorf("start setup handoff: %w", err)
-			}
-			defer closeHandoff()
-		}
 	}
 	var gitHubAppSetup *routes.GitHubAppSetupHandler
 	var appManifestService *services.GitHubAppManifestService
@@ -2130,8 +2123,19 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer wikiLibrary.Close()
 		topics.wikiDocuments = composeWikiHost(ctx, wikiLibrary, queries, wikiService)
 		defer topics.wikiDocuments.Close()
+		installQuiesce.Barriers = map[string]services.QuiesceBarrier{"T-COL-09": topics.wikiDocuments}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}
+	if config.IsSingleOwner(cfg.Auth) {
+		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
+			closeHandoff, err := startInstallMaintenanceHandoff(ctx, stateDir, pool, authService.InstallSetup.Emit, options.InstallMaintenanceDatabase, installBackupSummary{pool: pool, captures: options.InstallCaptureSummary, runs: options.InstallRunSummary}, installQuiesce)
+			if err != nil {
+				return fmt.Errorf("start setup handoff: %w", err)
+			}
+			defer closeHandoff()
+		}
+	}
+
 	router := buildRouter(
 		cfg,
 		queries,

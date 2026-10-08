@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -220,7 +221,52 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	b.receive(t, func(raw []byte) bool { return len(raw) > 5 && raw[0] == 1 && raw[5] == 2 })
 	_, bobUpdate := yjsWiki(t, b.state, b.client, "Bob")
 	send(b, bobUpdate)
+	// Apply the echoed operations independently; native canonicalization need
+	// not preserve the browser update's byte encoding.
+	observedState, err := base64.StdEncoding.DecodeString(b.state)
+	require.NoError(t, err)
+	observed, err := library.Open(livedocument.Wiki, observedState)
+	require.NoError(t, err)
+	defer observed.Close()
+	a.receive(t, func(raw []byte) bool {
+		if len(raw) <= 6 || raw[0] != 1 || raw[5] != 2 {
+			return false
+		}
+		_, n := binary.Uvarint(raw[6:])
+		if n <= 0 {
+			return false
+		}
+		if _, err := observed.Peer(raw[6+n:]); err != nil {
+			return false
+		}
+		text, err := observed.Text("markdown")
+		return err == nil && strings.Contains(text, "Bob")
+	})
+	// Backup's owner boundary must wait for the same durable wiki receipt as
+	// a browser. Other provider fixtures isolate this barrier's acceptance.
+	calls := []string{}
+	step := installMaintenancePreflightFixture{calls: &calls}
+	maintenance := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: t.TempDir()})
+	maintenance.Machines, maintenance.Admission, maintenance.Host = step, step, step
+	maintenance.Barriers = map[string]services.QuiesceBarrier{}
+	for _, ticket := range []string{"T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+		maintenance.Barriers[ticket] = step
+	}
+	maintenance.Barriers["T-COL-09"] = host
+	maintenanceHandler := &routes.InstallQuiesceHandler{Owners: q, Service: maintenance}
+	frozen := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		maintenanceHandler.HandleInstallingOwner(w, httptest.NewRequest("POST", "/maintenance/quiesce", bytes.NewBufferString(`{"op":"wiki-backup"}`)).WithContext(ctx))
+		frozen <- w
+	}()
 	time.Sleep(2300 * time.Millisecond)
+	select {
+	case <-frozen:
+		t.Fatal("backup acknowledged before wiki committed")
+	default:
+	}
+
 	var revision int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT revision FROM wiki_pages WHERE id=$1`, page.ID).Scan(&revision))
 	require.Equal(t, page.Revision, revision)
@@ -233,6 +279,15 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 		}
 	}
 	require.NoError(t, tx.Commit(ctx))
+	select {
+	case w := <-frozen:
+		require.Equal(t, 200, w.Code, w.Body.String())
+	case <-ctx.Done():
+		t.Fatal("wiki drain did not complete")
+	}
+	reopen := httptest.NewRecorder()
+	maintenanceHandler.HandleInstallingOwner(reopen, httptest.NewRequest("DELETE", "/maintenance/quiesce?op=wiki-backup", nil).WithContext(ctx))
+	require.Equal(t, 204, reopen.Code, reopen.Body.String())
 	raw := a.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
 	var receipt struct{ Seq uint64 }
 	require.NoError(t, json.Unmarshal(raw, &receipt))
