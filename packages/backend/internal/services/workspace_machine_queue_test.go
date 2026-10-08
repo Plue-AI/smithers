@@ -388,3 +388,34 @@ func TestIssueTodoSharesOrderedRuntimeAdmission(t *testing.T) {
 	require.False(t, lanes.TodoMachineEligible(issue))
 	require.True(t, lanes.TodoMachineEligible(manual), "pausing the issue releases its demand")
 }
+
+func TestTodoReviewRetainsOrderedAdmissionAfterCodingStops(t *testing.T) {
+	svc, _ := machineQueueService(t)
+	lanes := &workspaceMythicalLanes{workspaces: svc}
+	item := db.MythicalItem{Source: "todo", State: "proposed", WorkspaceID: "stopped-coding", PRHead: "head"}
+	item.StackPosition.Int64, item.StackPosition.Valid = 1, true
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+	require.True(t, lanes.TodoMachineEligible(item), "the review needs admission even after coding released its machine")
+	item.Checks = mythicalChecks{Review: &mythicalReview{Head: "head", Verdict: "approve"}}.encode()
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+	require.False(t, lanes.TodoMachineEligible(item), "a settled review consumes no machine demand")
+	for _, c := range []struct {
+		name    string
+		review  *mythicalReview
+		foreign string
+		outages int
+		want    bool
+	}{
+		{"new head", &mythicalReview{Head: "old", Verdict: "approve"}, "", 0, true},
+		{"outage retry", &mythicalReview{Head: "head", Verdict: mythicalOutage + "offline"}, "", 0, true},
+		{"exhausted outage", &mythicalReview{Head: "head", Verdict: mythicalOutage + "offline"}, "", mythicalOutageBound + 1, false},
+		{"foreign head", nil, "foreign", 0, false},
+		{"failed review", &mythicalReview{Head: "head", Verdict: "failed"}, "", 0, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			item.Checks = mythicalChecks{Review: c.review, ForeignHead: c.foreign, Outages: c.outages}.encode()
+			require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+			require.Equal(t, c.want, lanes.TodoMachineEligible(item))
+		})
+	}
+}

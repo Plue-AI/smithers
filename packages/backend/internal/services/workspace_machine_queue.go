@@ -427,7 +427,13 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db
 		}
 		holder := todoMachineHolder(item)
 		held, _ := runtime.AdmissionOwnership(holder)
-		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying") && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
+		checks := mythicalChecksOf(item)
+		// Coding may release its machine before review is admitted. Keep
+		// that review in the same ordered queue until its verdict settles.
+		reviewPending := item.State == "proposed" && checks.ForeignHead == "" &&
+			(checks.Review == nil || checks.Review.Head != item.PRHead ||
+				strings.HasPrefix(checks.Review.Verdict, mythicalOutage) && checks.Outages <= mythicalOutageBound)
+		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying" || reviewPending) && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
 		starting := item.WorkspaceID != "" && !item.PausedAt.Valid && mythicalHoldsLane(item)
 		if held || eligible || starting {
 			holders = append(holders, holder)
