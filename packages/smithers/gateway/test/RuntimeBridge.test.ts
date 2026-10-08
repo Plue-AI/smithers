@@ -887,6 +887,7 @@ it.effect("leaves an unknown USD total to the metering install rather than repor
     )
     expect(result.tokens).toBe(8)
     expect("cost_usd" in result).toBe(false)
+    expect(result.unmetered_tokens).toBe(8)
   }))
 
 it.effect("refuses monitor lookups that return no matching run", () =>

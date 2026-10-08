@@ -76,17 +76,6 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 }
 
 func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint) (json.RawMessage, error) {
-	// Legacy flow-host usage rows name only a workspace. They cannot prove
-	// which native run or step incurred the spend, even if its journal carries
-	// no model event (foreign coding harnesses can call the proxy directly).
-	// Refuse an unknown total until native attribution is available.
-	var unboundUsage bool
-	if err := m.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM model_usage WHERE repository_id=$1 AND workspace_id=$2 AND source='flow_host')`, repo, cp.Target.WorkspaceID).Scan(&unboundUsage); err != nil {
-		return nil, err
-	}
-	if unboundUsage {
-		return nil, errors.New("native run metering unavailable")
-	}
 	raw, err := m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
 	if err != nil {
 		return nil, err
@@ -94,6 +83,10 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || value["id"] != cp.RunID {
 		return nil, errors.New("invalid monitor")
+	}
+	// Each step's spend is priced from the proxy rows its dispatches name.
+	if err := m.priceRunMonitor(ctx, cp.Target.WorkspaceID, value); err != nil {
+		return nil, err
 	}
 	// Only the admitted version is authoritative; the journal does not name a
 	// mutable registry's current version.

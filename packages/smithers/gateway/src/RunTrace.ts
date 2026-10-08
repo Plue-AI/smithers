@@ -2504,7 +2504,12 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
         deps: [...new Set(node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([node.id]))))] }
     })
   })
-  const tokens = trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0)
+  const usageOf = (row: TraceSpan) => (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0)
+  const tokens = trace.rows.reduce((total, row) => total + usageOf(row), 0)
+  // Model calls no native dispatch recorded (a legacy agent journal) can
+  // never be joined to metered rows; the install refuses to price them.
+  const unmetered = trace.rows.filter(row => row.kind === "model" && asRecord(row.detail.fields).step === undefined)
+    .reduce((total, row) => total + usageOf(row), 0)
   const approvalWaits = trace.rows.filter(row => row.kind === "approval").map(row => ({
     id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
     ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
@@ -2521,6 +2526,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     // Spend is priced where model calls are metered. The host never publishes
     // an unknown total as zero: a run with model tokens leaves cost to the install.
     time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, ...(tokens === 0 ? { cost_usd: 0 } : {}),
+    ...(unmetered === 0 ? {} : { unmetered_tokens: unmetered }),
     engine: trace.rows.filter(row => row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)).map(row => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
     journal: journal.map(row => ({ seq: row.sequence ?? 0, at: new Date(row.occurredAt ?? 0).toISOString(), type: row.kind ?? "event", text: JSON.stringify(row.payload) ?? "null" })),
     ...(at === undefined ? {} : { replay: { at: Math.min(at, last), last } })

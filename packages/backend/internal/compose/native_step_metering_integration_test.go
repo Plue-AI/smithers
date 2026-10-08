@@ -3,10 +3,12 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -112,4 +114,55 @@ func TestNativeStepMeteringPostgres(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM model_usage`).Scan(&count))
 	require.Equal(t, 4, count)
+
+	// The monitor prices each step from the rows its dispatches name: the
+	// host's journaled tokens never set spend, and the run total is the sum.
+	monitors := &runMonitors{pool: pool}
+	monitor := func(raw string) (map[string]any, error) {
+		var value map[string]any
+		require.NoError(t, json.Unmarshal([]byte(raw), &value))
+		return value, monitors.priceRunMonitor(ctx, workspaceID, value)
+	}
+	unused := "run-1:" + strings.Repeat("9", 64)
+	priced, err := monitor(`{"tokens":999,"attempts":[{"steps":[
+		{"key":"review#1","meter":["` + review + `","` + unused + `"],"model_calls":2,"tokens":7},
+		{"key":"edit#1","meter":["` + edit + `"],"model_calls":1,"tokens":7},
+		{"key":"check#1","meter":["` + unused + `"]},
+		{"key":"call-1#1"}]}]}`)
+	require.NoError(t, err)
+	steps := priced["attempts"].([]any)[0].(map[string]any)["steps"].([]any)
+	require.Equal(t, map[string]any{"tokens": int64(400), "cost_usd": 0.00022}, steps[0].(map[string]any)["usage"])
+	require.Equal(t, map[string]any{"tokens": int64(200), "cost_usd": 0.00011}, steps[1].(map[string]any)["usage"])
+	for _, step := range steps {
+		for _, hidden := range []string{"meter", "model_calls", "tokens"} {
+			require.NotContains(t, step, hidden)
+		}
+	}
+	require.NotContains(t, steps[2], "usage", "a step with no model call shows no cost")
+	require.NotContains(t, steps[3], "usage")
+	require.Equal(t, int64(600), priced["tokens"])
+	require.Equal(t, 0.00033, priced["cost_usd"])
+	encoded, err := json.Marshal(priced)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), `"cost_usd":0.00033`)
+
+	// Spend that cannot be priced refuses the monitor rather than showing zero.
+	_, err = monitor(`{"attempts":[{"steps":[{"key":"plan#1","meter":["` + unused + `"],"model_calls":1}]}]}`)
+	require.ErrorIs(t, err, errRunMeteringUnavailable)
+	_, err = monitor(`{"tokens":8,"unmetered_tokens":8,"attempts":[]}`)
+	require.ErrorIs(t, err, errRunMeteringUnavailable)
+	// The unattributed call above was metered now: a journal written around
+	// it refuses, one written before it does not.
+	window := func(from, to time.Time) string {
+		return `,"journal":[{"seq":1,"at":"` + from.UTC().Format(time.RFC3339Nano) + `"},{"seq":2,"at":"` + to.UTC().Format(time.RFC3339Nano) + `"}]`
+	}
+	now := time.Now()
+	_, err = monitor(`{"attempts":[]` + window(now.Add(-time.Hour), now.Add(time.Hour)) + `}`)
+	require.ErrorIs(t, err, errRunMeteringUnavailable)
+	_, err = monitor(`{"attempts":[]` + window(now.Add(-2*time.Hour), now.Add(-time.Hour)) + `}`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE model_usage SET outcome='unknown', cost_nanos=NULL WHERE native_step=$1`, edit)
+	require.NoError(t, err)
+	_, err = monitor(`{"attempts":[{"steps":[{"key":"edit#1","meter":["` + edit + `"],"model_calls":1}]}]}`)
+	require.ErrorIs(t, err, errRunMeteringUnavailable)
 }

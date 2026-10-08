@@ -1642,6 +1642,7 @@ describe("native step transcripts and metered dispatches", () => {
     const model = monitorFromJournal(run, journal)
     expect(model.tokens).toBe(200)
     expect(model).not.toHaveProperty("cost_usd")
+    expect(model).not.toHaveProperty("unmetered_tokens")
     expect(monitorFromJournal(run, journal.filter(row => row.sequence !== 3))).toMatchObject({ tokens: 0, cost_usd: 0 })
   })
 
