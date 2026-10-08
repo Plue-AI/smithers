@@ -58,9 +58,14 @@ type DocumentSource struct {
 	Ready      func() error
 }
 
-// DocRelay admits code documents to the shared host mirror.
+// errDocumentGap ends one subscription whose stream fell behind its budget.
+var errDocumentGap = machined.ErrDocumentGap
+
+// DocRelay relays code documents between each subscriber and the branch
+// daemon, which alone holds, saves and acknowledges them (ADR 0003). The host
+// authenticates the subscriber, stamps its actor on every frame and passes
+// document payloads through unparsed. It keeps no document replica.
 type DocRelay struct {
-	Host       *CodeDocuments
 	Authorize  func(context.Context, DocumentTopic, int64, int64) ([]byte, string)
 	Connection func(context.Context, string) (*machined.Connection, DocumentRPC)
 }
@@ -70,7 +75,7 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 	if !ok {
 		return Source{}, UnknownTopic
 	}
-	if r == nil || r.Host == nil || r.Host.Library == nil || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
+	if r == nil || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
 		return Source{}, Unsupported
 	}
 	actor, refusal := r.Authorize(ctx, doc, repository, member)
@@ -84,39 +89,31 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 	if connection == nil || rpc == nil {
 		return Source{}, Unsupported
 	}
-	ready := func() error {
-		current, code := r.Authorize(ctx, doc, repository, member)
-		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
-			return machined.ErrUnauthorized
-		}
-		return nil
-	}
-	scope, err := connection.PresenceScope(doc.Branch)
-	if err != nil {
+	if err := connection.RequireReady(doc.Branch); err != nil {
 		if errors.Is(err, machined.ErrNotReady) {
 			return Source{}, Unsupported
 		}
 		return Source{}, Forbidden
 	}
 	actor = append([]byte(nil), actor...)
-	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Open: func(ctx context.Context) (DocumentStream, error) {
+	// Each check repeats admission: membership, write share, lane and machine
+	// can change while the subscription is open.
+	ready := func() error {
+		current, code := r.Authorize(ctx, doc, repository, member)
+		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
+			return machined.ErrUnauthorized
+		}
+		return connection.RequireReady(doc.Branch)
+	}
+	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Sequenced: true, Open: func(ctx context.Context) (DocumentStream, error) {
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		return r.Host.open(ctx, topic+":"+scope, func(peer context.Context) (DocumentStream, error) {
-			current, transport := r.Connection(peer, doc.Branch)
-			if current == nil || transport == nil {
-				return nil, machined.ErrNotReady
-			}
-			currentScope, err := current.PresenceScope(doc.Branch)
-			if err != nil {
-				return nil, err
-			}
-			if currentScope != scope {
-				return nil, errDocumentGap
-			}
-			return transport.OpenDocument(peer, doc.Path, actor)
-		}, actor)
+		// One daemon stream per subscription, on the admitted connection only.
+		if current, _ := r.Connection(ctx, doc.Branch); current != connection {
+			return nil, machined.ErrNotReady
+		}
+		return rpc.OpenDocument(ctx, doc.Path, actor)
 	}}}, ""
 }
 

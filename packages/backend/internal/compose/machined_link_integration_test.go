@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -254,19 +255,15 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	require.Equal(t, wire.Union(1, wire.Field(1, wire.Bytes(principal))), fields[2])
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(13, wire.Field(1, wire.U32(5)))))}))
 
-	// The host mirror first asks the daemon for its persisted state. Complete
-	// that sync before expecting a browser snapshot, then accept real native
-	// updates and return sequence-bound durability receipts from the fake peer.
-	syncRequest, err := wire.Read(guest)
-	require.NoError(t, err)
-	initial, err := wire.DecodeDocumentV2(syncRequest.Payload)
-	require.NoError(t, err)
-	require.Equal(t, principal, initial.Actor)
+	// The daemon holds the document: it assigns the epoch and client id, then
+	// receipts each sequenced browser update the host relays unparsed.
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: docGolden(t, "epoch")}))
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 1, 2, 0, 0}}))
-	daemonDocument, err := f.relay.Host.Library.Open(livedocument.Code, nil)
+	library, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 	require.NoError(t, err)
-	t.Cleanup(func() { daemonDocument.Close() })
+	daemonDocument, err := library.Open(livedocument.Code, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { daemonDocument.Close(); library.Close() })
 	finished := make(chan error, 1)
 	go func() {
 		for {
@@ -286,24 +283,21 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 					return
 				}
 				text, err := daemonDocument.Text("content")
-				if err != nil {
-					finished <- err
-					return
+				if err == nil && text != "hello" {
+					err = fmt.Errorf("daemon text = %q", text)
 				}
-				if text != "hello" {
-					finished <- fmt.Errorf("daemon text = %q", text)
-					return
+				if err == nil {
+					err = wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(closeID)), wire.Field(2, wire.Union(14)))})
 				}
-				finished <- wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(closeID)), wire.Field(2, wire.Union(14)))})
-				return
-			}
-			msg, err := wire.DecodeDocumentV2(frame.Payload)
-			if err != nil {
 				finished <- err
 				return
 			}
-			if frame.Kind != wire.Documents || frame.Stream != 5 || msg.Msg != wire.DocumentInput {
-				finished <- wire.BadValue
+			msg, err := wire.DecodeDocumentV2(frame.Payload)
+			if err == nil && (frame.Kind != wire.Documents || frame.Stream != 5 || msg.Msg != wire.DocumentInput || !bytes.Equal(msg.Actor, principal)) {
+				err = wire.BadValue
+			}
+			if err != nil {
+				finished <- err
 				return
 			}
 			_, update := codeDecode(t, msg.Data)
@@ -317,11 +311,10 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 				return
 			}
 			saved, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: vector})
-			if err != nil {
-				finished <- err
-				return
+			if err == nil {
+				err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: saved})
 			}
-			if err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: saved}); err != nil {
+			if err != nil {
 				finished <- err
 				return
 			}

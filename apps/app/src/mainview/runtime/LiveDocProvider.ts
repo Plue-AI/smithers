@@ -16,7 +16,6 @@ export type DocumentEvent =
   | { kind: "awareness"; payload: Uint8Array }
   | { kind: "saved"; vector: Uint8Array; seq: number }
   | { kind: "offline" }
-  | { kind: "restart" }
   | { kind: "refused" }
 
 /** Existing-channel port. T-COL-08b owns the wire decoder; no implementation opens a socket here. */
@@ -210,7 +209,6 @@ export class LiveDocProvider {
       this.assigned = true; this.synced = false; this.durable(); this.restart(); return
     }
     if (!this.assigned) return
-    if (event.kind === "restart") { this.restart(); return }
     if (event.kind === "saved") {
       if (!Number.isSafeInteger(event.seq) || event.seq < 0 || event.seq > this.sentSeq) return
       try {

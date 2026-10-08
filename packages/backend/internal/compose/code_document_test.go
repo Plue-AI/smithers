@@ -3,13 +3,11 @@ package compose
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -39,17 +37,11 @@ func TestComposeCodeDocumentAuthority(t *testing.T) {
 	require.NoError(t, err)
 	runtime := guestMicroVM{isolatedRuntime{isolation: workspace.IsolationSandboxed}}
 	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(ownerOnly{owner.ID}, runtime)))
-	library, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
-	require.NoError(t, err)
-	host := &live.CodeDocuments{Library: library}
-	t.Cleanup(func() { host.Close(); require.NoError(t, library.Close()) })
 	registry := new(machined.Registry)
 	t.Cleanup(func() { require.NoError(t, registry.Close()) })
-	require.Nil(t, composeCodeDocumentRelay(nil, service, registry))
-	require.Nil(t, composeCodeDocumentRelay(&live.CodeDocuments{}, service, registry))
-	require.Nil(t, composeCodeDocumentRelay(host, nil, registry))
-	require.Nil(t, composeCodeDocumentRelay(host, service, nil))
-	relay := composeCodeDocumentRelay(host, service, registry)
+	require.Nil(t, composeCodeDocumentRelay(nil, registry))
+	require.Nil(t, composeCodeDocumentRelay(service, nil))
+	relay := composeCodeDocumentRelay(service, registry)
 	require.NotNil(t, relay)
 	topic := fmt.Sprintf("doc:code:%s:src/main.ts", row.ID)
 	_, code := relay.Resolve(ctx, topic, repo.ID, owner.ID)

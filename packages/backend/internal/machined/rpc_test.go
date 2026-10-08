@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -207,6 +208,88 @@ func TestRegistryDocumentRPC(t *testing.T) {
 	_, err = openedDoc.document.Receive(t.Context())
 	require.Error(t, err)
 	require.NoError(t, openedDoc.document.Close())
+}
+
+// Spec §7.1.1: a document reader that falls behind gaps its own stream. The
+// machine link, its other documents and its RPCs continue.
+func TestRegistryDocumentOverflowGapsOnlyItsStream(t *testing.T) {
+	for _, overflow := range []string{"frames", "bytes"} {
+		t.Run(overflow, func(t *testing.T) {
+			r, link, peer := rpcFixture(t)
+			open := func(stream uint32) DocumentStream {
+				result := make(chan DocumentStream, 1)
+				go func() {
+					doc, err := r.OpenDocument(t.Context(), "a", "retry.ts", []byte("actor"))
+					assert.NoError(t, err)
+					result <- doc
+				}()
+				answer(t, peer, wire.OpenDoc, wire.Field(1, wire.U32(stream)))
+				return <-result
+			}
+			slow, other := open(5), open(7)
+			// The slow subscriber never reads while the daemon keeps sending.
+			count, size := 300, 16
+			if overflow == "bytes" {
+				count, size = 40, 64<<10
+			}
+			for i := 0; i < count; i++ {
+				require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: append([]byte{3}, make([]byte, size)...)}))
+			}
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Documents, Stream: 7, Payload: []byte{3, 0, 1, 0}}))
+			got, err := other.Receive(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, []byte{3, 0, 1, 0}, got)
+			for {
+				_, err = slow.Receive(t.Context())
+				if err != nil {
+					break
+				}
+			}
+			require.ErrorIs(t, err, ErrDocumentGap)
+			select {
+			case <-link.Done():
+				t.Fatal("a slow document reader closed the machine link")
+			default:
+			}
+			require.NoError(t, link.RequireReady("a"))
+			// Later frames for the gapped stream are dropped, not fatal.
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 0, 1, 0}}))
+			closed := make(chan error, 1)
+			go func() { closed <- slow.Close() }()
+			answer(t, peer, wire.CloseDoc)
+			require.NoError(t, <-closed)
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Documents, Stream: 7, Payload: []byte{3, 0, 1, 1}}))
+			got, err = other.Receive(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, []byte{3, 0, 1, 1}, got)
+		})
+	}
+}
+
+// A daemon refusal names one document. It is not a protocol failure, so the
+// link stays open for every other stream and session.
+func TestRegistryDocumentRefusalKeepsLink(t *testing.T) {
+	r, link, peer := rpcFixture(t)
+	result := make(chan error, 1)
+	go func() {
+		_, err := r.OpenDocument(t.Context(), "a", "logo.png", []byte("actor"))
+		result <- err
+	}()
+	f, err := wire.Read(peer)
+	require.NoError(t, err)
+	id, _, _, err := f.Request()
+	require.NoError(t, err)
+	refused := wire.Union(255, wire.Field(1, []byte{2}))
+	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, refused))}))
+	var refusal *SessionError
+	require.ErrorAs(t, <-result, &refusal)
+	require.Equal(t, "unsupported", refusal.Code)
+	select {
+	case <-link.Done():
+		t.Fatal("a refused document closed the machine link")
+	default:
+	}
+	require.NoError(t, link.RequireReady("a"))
 }
 func TestRegistrySessionRPC(t *testing.T) {
 	r, _, peer := rpcFixture(t)

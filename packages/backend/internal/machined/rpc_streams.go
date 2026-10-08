@@ -5,12 +5,51 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 )
 
 var _ Client = (*Registry)(nil)
+
+// ErrDocumentGap ends one document stream whose reader fell behind its 2 MiB
+// budget (spec §7.1.1). The subscriber resubscribes and restarts sync step 1;
+// the machine link and its other streams stay open.
+var ErrDocumentGap = errors.New("document stream gap")
+
+const documentQueueBytes = 2 << 20
+
+// documentQueue buffers one daemon document stream for its reader. The link
+// reader never blocks on it and never closes the link for it.
+type documentQueue struct {
+	frames chan []byte
+	gapped chan struct{}
+	once   sync.Once
+	bytes  atomic.Int64
+}
+
+func newDocumentQueue() *documentQueue {
+	return &documentQueue{frames: make(chan []byte, 256), gapped: make(chan struct{})}
+}
+func (q *documentQueue) push(b []byte) {
+	select {
+	case <-q.gapped:
+		return
+	default:
+	}
+	if q.bytes.Add(int64(len(b))) > documentQueueBytes {
+		q.gap()
+		return
+	}
+	select {
+	case q.frames <- b:
+	default:
+		q.gap()
+	}
+}
+func (q *documentQueue) gap() { q.once.Do(func() { close(q.gapped) }) }
 
 func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor []byte) (DocumentStream, error) {
 	l, err := r.Current(branch)
@@ -35,7 +74,12 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 	defer func() { l.mu.Lock(); l.openingDocuments--; l.mu.Unlock() }()
 	fields, err := l.call(ctx, branch, wire.OpenDoc, wire.Field(1, wire.String(path)), wire.Field(2, principal(actor)))
 	if err != nil {
-		_ = l.Close()
+		// A refused open allocated no stream. Any other failure may leave an
+		// unregistered stream, so the link is fenced.
+		var refusal *SessionError
+		if !errors.As(err, &refusal) {
+			_ = l.Close()
+		}
 		return nil, err
 	}
 	id := binary.BigEndian.Uint32(fields[1])
@@ -45,7 +89,7 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 	l.mu.Lock()
 	queue := l.documents[id]
 	if queue == nil && len(l.documents) < 16 {
-		queue = make(chan []byte, 8)
+		queue = newDocumentQueue()
 		l.documents[id] = queue
 	}
 	l.mu.Unlock()
@@ -60,7 +104,7 @@ type documentPeer struct {
 	link   *Link
 	branch string
 	id     uint32
-	queue  chan []byte
+	queue  *documentQueue
 	done   chan struct{}
 }
 
@@ -86,7 +130,10 @@ func (d *documentPeer) Receive(ctx context.Context) ([]byte, error) {
 		return nil, io.ErrClosedPipe
 	case <-d.link.done:
 		return nil, io.ErrClosedPipe
-	case bytes := <-d.queue:
+	case <-d.queue.gapped:
+		return nil, ErrDocumentGap
+	case bytes := <-d.queue.frames:
+		d.queue.bytes.Add(-int64(len(bytes)))
 		if err := d.link.RequireReady(d.branch); err != nil {
 			return nil, err
 		}
@@ -107,14 +154,16 @@ func (d *documentPeer) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err := d.link.call(ctx, d.branch, wire.CloseDoc, wire.Field(1, wire.U32(d.id)))
-	if err != nil {
+	var refusal *SessionError
+	if err != nil && !errors.As(err, &refusal) {
 		_ = d.link.Close()
 		return err
 	}
+	// A refused close names a stream the daemon no longer holds.
 	d.link.mu.Lock()
 	delete(d.link.documents, d.id)
 	d.link.mu.Unlock()
-	return nil
+	return err
 }
 func (r *Registry) Sessions(branch string) SessionRPC {
 	return registrySessions{registry: r, branch: branch}

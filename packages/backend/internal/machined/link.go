@@ -177,7 +177,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		_ = lease.Close()
 		return nil, err
 	}
-	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), presence: make(chan wire.Frame, 1), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte), sessions: make(map[uint32]*SessionStream)}
+	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), presence: make(chan wire.Frame, 1), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]*documentQueue), sessions: make(map[uint32]*SessionStream)}
 	r.mu.Lock()
 	if !lease.current() {
 		r.mu.Unlock()
@@ -220,7 +220,7 @@ type Link struct {
 	writeMu          sync.Mutex
 	mu               sync.Mutex
 	pending          map[uint32]chan wire.Frame
-	documents        map[uint32]chan []byte
+	documents        map[uint32]*documentQueue
 	openingDocuments int
 	protocol         uint16
 	next             uint32
@@ -356,18 +356,15 @@ func (l *Link) read() {
 			l.mu.Lock()
 			queue := l.documents[f.Stream]
 			if queue == nil && l.openingDocuments > 0 && len(l.documents) < 16 {
-				queue = make(chan []byte, 8)
+				queue = newDocumentQueue()
 				l.documents[f.Stream] = queue
 			}
 			l.mu.Unlock()
 			if queue == nil {
 				return
 			}
-			select {
-			case queue <- append([]byte(nil), f.Payload...):
-			default:
-				return
-			}
+			// A slow subscriber gaps only its own stream (spec §7.1.1).
+			queue.push(append([]byte(nil), f.Payload...))
 		case wire.Sessions:
 			if !l.receiveSession(f) {
 				return

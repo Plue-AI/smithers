@@ -3,7 +3,6 @@ package live
 import (
 	"bytes"
 	"context"
-	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"strings"
 	"testing"
@@ -78,13 +77,12 @@ func TestDocumentAdmissionProviders(t *testing.T) {
 		r    DocRelay
 		want string
 	}{
-		{DocRelay{Host: &CodeDocuments{}, Authorize: auth, Connection: connection}, Unsupported},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Connection: connection}, Unsupported},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: auth}, Unsupported},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: auth, Connection: connection}, Unsupported},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, Forbidden }, Connection: connection}, Forbidden},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, "" }, Connection: connection}, Forbidden},
-		{DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return make([]byte, 1025), "" }, Connection: connection}, Forbidden},
+		{DocRelay{Connection: connection}, Unsupported},
+		{DocRelay{Authorize: auth}, Unsupported},
+		{DocRelay{Authorize: auth, Connection: connection}, Unsupported},
+		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, Forbidden }, Connection: connection}, Forbidden},
+		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, "" }, Connection: connection}, Forbidden},
+		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return make([]byte, 1025), "" }, Connection: connection}, Forbidden},
 	} {
 		_, code := tc.r.Resolve(context.Background(), "doc:code:b:a", 1, 1)
 		if code != tc.want {
@@ -93,7 +91,7 @@ func TestDocumentAdmissionProviders(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	r := DocRelay{Host: &CodeDocuments{Library: &livedocument.Library{}}, Authorize: auth, Connection: connection}
+	r := DocRelay{Authorize: auth, Connection: connection}
 	_, code = r.Resolve(ctx, "doc:code:b:a", 1, 1)
 	if code != Forbidden {
 		t.Fatal(code)

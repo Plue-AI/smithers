@@ -11,15 +11,14 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// An install supplies its qualified document host, never its own member
-// policy or daemon connection. A nil host remains dark pending the real-machine
-// document activation checks; no boolean or alternate file writer bypasses it.
-func composeCodeDocumentRelay(host *live.CodeDocuments, workspaces *services.WorkspaceService, registry *machined.Registry) *live.DocRelay {
-	if host == nil || host.Library == nil || workspaces == nil || registry == nil {
+// composeCodeDocumentRelay binds the relay to member admission and the
+// authenticated daemon link. Documents live in the daemon (ADR 0003); the host
+// runs no document core for code and has no alternate file writer.
+func composeCodeDocumentRelay(workspaces *services.WorkspaceService, registry *machined.Registry) *live.DocRelay {
+	if workspaces == nil || registry == nil {
 		return nil
 	}
 	return &live.DocRelay{
-		Host: host,
 		Authorize: func(ctx context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
 			actor, err := workspaces.AdmitCodeDocument(ctx, topic.Branch, topic.Path, repository, member)
 			if err != nil {

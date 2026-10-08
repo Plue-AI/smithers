@@ -14,10 +14,10 @@ class Socket implements LiveSocket {
   drop() { this.readyState = 3; this.onclose?.() }
   receive(frame: unknown) { this.onmessage?.({ data: JSON.stringify(frame) }) }
 }
-const harness = (project?: (topic: string, previous: unknown, delta: unknown) => unknown) => {
+const harness = (project?: (topic: string, previous: unknown, delta: unknown) => unknown, documentFrames = false) => {
   const sockets: Socket[] = []
   const timers: { run: () => void; ms: number; cancelled: boolean }[] = []
-  const channel = new LiveChannel({
+  const channel = new LiveChannel({ documentFrames,
     socket: () => { const socket = new Socket(); sockets.push(socket); return socket },
     random: () => 1, project,
     schedule: (run, ms) => { const timer = { run, ms, cancelled: false }; timers.push(timer); return timer },
@@ -27,6 +27,30 @@ const harness = (project?: (topic: string, previous: unknown, delta: unknown) =>
 }
 
 describe("live channel", () => {
+  // Spec §7.1.1: a gap ends only this document's stream. The channel stops
+  // edits, resubscribes, and the fresh assignment restarts sync step 1.
+  test("a document gap resubscribes instead of reusing the closed stream", () => {
+    const { channel, sockets } = harness(undefined, true)
+    const events: string[] = []
+    const doc = channel.subscribeDocument("doc:code:12:retry.ts", event => events.push(event.kind))
+    const home = channel.subscribe("home", () => {})
+    sockets[0]!.open()
+    expect(sockets[0]!.frames).toEqual([{ t: "sub", id: 1, topic: "doc:code:12:retry.ts" }, { t: "sub", id: 2, topic: "home" }])
+    const epoch = "00112233445566778899aabbccddeeff"
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 0, data: { epoch, client_id: 42 } })
+    expect(events).toEqual(["assigned"])
+    sockets[0]!.receive({ t: "gap", id: 1 })
+    expect(events).toEqual(["assigned", "refused"])
+    expect(sockets[0]!.frames.at(-1)).toEqual({ t: "sub", id: 1, topic: "doc:code:12:retry.ts", client_id: 42 })
+    doc.send(1, new Uint8Array([2, 0]))
+    expect(sockets[0]!.frames).toHaveLength(3)
+    sockets[0]!.receive({ t: "gap", id: 1 })
+    expect(sockets[0]!.frames).toHaveLength(3)
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 0, data: { epoch, client_id: 43 } })
+    expect(events).toEqual(["assigned", "refused", "assigned"])
+    expect(channel.getSnapshot("home")).toEqual({ topic: "home" })
+    doc.release(); home(); channel.dispose()
+  })
   test("private confirmations disappear on disconnect and await a fresh authorized snapshot", () => {
     const { channel, sockets, timers } = harness()
     const release = channel.subscribe("confirmations:17", () => {})

@@ -57,7 +57,7 @@ test("revocation stops sending and failed clipboard preserves retained text", as
   const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
   f.provider.doc.getText("content").insert(0, "unsaved")
   f.event({ kind: "refused" }); const count = f.sent.length
-  f.event({ kind: "restart" }); f.event({ kind: "saved", seq: 1, vector: Y.encodeStateVector(f.provider.doc) })
+  f.event({ kind: "saved", seq: 1, vector: Y.encodeStateVector(f.provider.doc) })
   expect(f.sent.length).toBe(count); expect(f.provider.editable).toBe(false)
   await expect(f.provider.copy(async () => { throw new Error("clipboard refused") })).rejects.toThrow("clipboard refused")
   expect(f.provider.unsaved).toEqual({ count: 1, text: "unsaved" })
@@ -107,7 +107,7 @@ test("two protocol clients converge over 1000 interleaved edits and restart", ()
     a.doc.getText("content").insert(a.doc.getText("content").length, "A")
     b.doc.getText("content").insert(b.doc.getText("content").length, "B")
   }
-  receivers[0]!({ kind: "restart" })
+  receivers[0]!({ kind: "assigned", epoch, clientId: 7 })
   receivers[1]!({ kind: "assigned", epoch, clientId: 8 })
   const expected = "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
   expect(a.doc.getText("content").toString()).toBe(expected)

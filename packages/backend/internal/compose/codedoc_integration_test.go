@@ -11,7 +11,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,8 +78,8 @@ func (f *docFixture) update(t *testing.T, update []byte) {
 	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{1, 0, 0, 0, 7}, codeSync(2, update)...)))
 }
 
-// A daemon peer backed by the same native core, with explicitly controlled
-// durability receipts. This does not claim guest disk durability.
+// A fake daemon on the native core with immediate, sequence-bound receipts.
+// The relay under test never parses its document; this proves no durability.
 type codePeer struct {
 	mu   sync.Mutex
 	doc  *livedocument.Document
@@ -95,15 +94,17 @@ func peerFor(t *testing.T, f *docFixture) *codePeer {
 	doc, err := lib.Open(livedocument.Code, nil)
 	require.NoError(t, err)
 	p := &codePeer{doc: doc, save: true}
-	t.Cleanup(func() { f.relay.Host.Close(); doc.Close(); require.NoError(t, lib.Close()) })
+	t.Cleanup(func() { doc.Close(); require.NoError(t, lib.Close()) })
 	f.daemon.Reply = func(raw []byte) [][]byte {
 		p.mu.Lock()
 		defer p.mu.Unlock()
 		msg, e := wire.DecodeDocumentV2(raw)
 		require.NoError(t, e)
-		require.Equal(t, wire.DocumentInput, msg.Msg)
+		if msg.Msg != wire.DocumentInput {
+			return nil
+		}
 		k, update := codeDecode(t, msg.Data)
-		if k == 0 {
+		if k != 2 {
 			return nil
 		}
 		_, e = p.doc.Peer(update)
@@ -142,14 +143,19 @@ func readSaved(t *testing.T, f *docFixture, want uint64) {
 	}
 }
 
+var docActor = []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}
+
+// The host forwards the browser's sync bytes unparsed, stamped with the
+// admitted actor and a per-subscription sequence the daemon receipts.
 func TestDocRelayWireContract(t *testing.T) {
 	f := newDocFixture(t)
 	p := peerFor(t, f)
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	client := f.assigned(t)
-	f.update(t, codeInsert(client, "hello"))
+	insert, deletion := codeInsert(client, "hello"), codeDelete(client, 5)
+	f.update(t, insert)
 	readSaved(t, f, 1)
-	f.update(t, codeDelete(client, 5))
+	f.update(t, deletion)
 	readSaved(t, f, 2)
 	p.mu.Lock()
 	text, err := p.doc.Text("content")
@@ -158,101 +164,48 @@ func TestDocRelayWireContract(t *testing.T) {
 	require.Empty(t, text)
 	opened, sent, _ := f.daemon.Recorded()
 	require.Len(t, opened, 1)
-	require.Equal(t, []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}, opened[0].Actor)
-	require.GreaterOrEqual(t, len(sent), 3)
-	for _, b := range sent {
-		msg, e := wire.DecodeDocumentV2(b)
+	require.Equal(t, docActor, opened[0].Actor)
+	require.Len(t, sent, 2)
+	for i, update := range [][]byte{insert, deletion} {
+		msg, e := wire.DecodeDocumentV2(sent[i])
 		require.NoError(t, e)
 		require.Equal(t, wire.DocumentInput, msg.Msg)
-		require.Equal(t, opened[0].Actor, msg.Actor, "initial sync and edits retain the admitted opaque actor")
+		require.Equal(t, docActor, msg.Actor)
+		require.Equal(t, uint64(i+1), msg.Seq)
+		require.Equal(t, codeSync(2, update), msg.Data, "document bytes pass through unparsed")
 	}
-	p.mu.Lock()
-	sameAuthor, authorErr := p.doc.SetAuthor(uint64(client), "00ff800102030405060708090a0b0c0d")
-	p.mu.Unlock()
-	require.NoError(t, authorErr)
-	require.Equal(t, []byte{0, 0}, sameAuthor, "the saved CRDT stores a lossless key for the original binary reference")
 }
+
+// The host authenticates and stamps; the daemon refuses a forged client id
+// (ADR 0003) and that refusal ends only this subscription.
 func TestDocRelayAuthorization(t *testing.T) {
-	for _, attack := range []string{"foreign client", "authors map"} {
-		t.Run(attack, func(t *testing.T) {
-			f := newDocFixture(t)
-			peerFor(t, f)
-			for _, topic := range []string{"doc:code:branch-b:retry.ts", "doc:code:branch-a:secret"} {
-				f.sub(t, topic)
-				f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
-			}
-			f.sub(t, "doc:code:branch-a:retry.ts")
-			client := f.assigned(t)
-			var update []byte
-			if attack == "foreign client" {
-				update = codeInsert(client^1, "forged")
-			} else {
-				// Obtain a valid authors-map insertion under the admitted client's id.
-				// Yjs: map key "x", any value string "forged".
-				update = []byte{1, 1}
-				update = binary.AppendUvarint(update, uint64(client))
-				update = append(update, 0, 40, 1, 7)
-				update = append(update, []byte("authors")...)
-				update = append(update, 1, 'x', 1, 119, 6)
-				update = append(update, []byte("forged")...)
-				update = append(update, 0)
-			}
-			f.update(t, update)
-			f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
-			_, sent, _ := f.daemon.Recorded()
-			for _, raw := range sent {
-				msg, e := wire.DecodeDocumentV2(raw)
-				require.NoError(t, e)
-				require.NotContains(t, string(msg.Data), "forged")
-			}
-		})
-	}
-}
-func TestDocRelayMirrorRecovery(t *testing.T) {
 	f := newDocFixture(t)
-	p := peerFor(t, f)
+	for _, topic := range []string{"doc:code:branch-b:retry.ts", "doc:code:branch-a:secret"} {
+		f.sub(t, topic)
+		f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+	}
+	opened, _, _ := f.daemon.Recorded()
+	require.Empty(t, opened, "a refused subscription opens no daemon stream")
+	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{docGolden(t, "spoof")} }
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	client := f.assigned(t)
-	f.update(t, codeInsert(client, "deleted"))
-	readSaved(t, f, 1)
-	f.update(t, codeDelete(client, 7))
-	readSaved(t, f, 2)
-	p.mu.Lock()
-	state, err := p.doc.State()
-	p.mu.Unlock()
+	forged := codeInsert(client^1, "forged")
+	f.update(t, forged)
+	f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+	_, sent, _ := f.daemon.Recorded()
+	require.Len(t, sent, 1)
+	msg, err := wire.DecodeDocumentV2(sent[0])
 	require.NoError(t, err)
-	f.relay.Host.Close()
-	f.text(t, `{"t":"err","id":7,"code":"unsupported"}`)
-	require.Eventually(t, func() bool { _, _, n := f.daemon.Recorded(); return n == 1 }, time.Second, time.Millisecond)
-	// Restart rebuilds the mirror from the daemon state record, including the
-	// delete set. No saved receipt exists in this handshake.
-	f.daemon.Script = [][]byte{docGolden(t, "epoch"), append([]byte{3}, codeSync(1, state)...)}
-	f.daemon.Reply = nil
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	kind, raw := f.read(t)
-	require.Equal(t, websocket.MessageText, kind)
-	require.Contains(t, string(raw), `"t":"snap"`)
-	kind, raw = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	_, snapshot := codeDecode(t, raw[5:])
-	lib, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
-	require.NoError(t, err)
-	defer lib.Close()
-	doc, err := lib.Open(livedocument.Code, snapshot)
-	require.NoError(t, err)
-	defer doc.Close()
-	text, err := doc.Text("content")
-	require.NoError(t, err)
-	require.Empty(t, text)
+	require.Equal(t, docActor, msg.Actor, "the browser cannot choose the actor the daemon checks")
+	require.Equal(t, codeSync(2, forged), msg.Data)
 }
+
 func TestDocRelayDarkLanding(t *testing.T) {
-	for _, missing := range []string{"host", "authorizer", "connection", "daemon", "wiki"} {
+	for _, missing := range []string{"authorizer", "connection", "daemon", "wiki"} {
 		t.Run(missing, func(t *testing.T) {
 			f := newDocFixture(t)
 			topic := "doc:code:branch-a:retry.ts"
 			switch missing {
-			case "host":
-				f.relay.Host = nil
 			case "authorizer":
 				f.relay.Authorize = nil
 			case "connection":
@@ -317,29 +270,56 @@ func TestDocRelayRevocation(t *testing.T) {
 					break
 				}
 			}
+			if when == "startup" {
+				opened, _, _ := f.daemon.Recorded()
+				require.Empty(t, opened)
+			} else {
+				require.Eventually(t, func() bool { _, _, n := f.daemon.Recorded(); return n == 1 }, time.Second, time.Millisecond)
+			}
 		})
 	}
 }
 
+// Spec §7.1.1: over the 2 MiB budget, in either direction, only this
+// subscription gets gap; resubscribing opens a fresh daemon stream.
 func TestDocRelayBackpressure(t *testing.T) {
-	f := newDocFixture(t)
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	f.assigned(t)
-	raw := make([]byte, (2<<20)+1)
-	copy(raw, []byte{1, 0, 0, 0, 7})
-	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, raw))
-	f.text(t, `{"t":"gap","id":7}`)
-	require.Eventually(t, func() bool { _, _, closed := f.daemon.Recorded(); return closed == 1 }, time.Second, time.Millisecond)
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	f.assigned(t)
+	for _, direction := range []string{"browser", "daemon"} {
+		t.Run(direction, func(t *testing.T) {
+			var f *docFixture
+			if direction == "daemon" {
+				f = newDocFixture(t, docGolden(t, "epoch"), append([]byte{3}, make([]byte, 2<<20)...))
+				f.sub(t, "doc:code:branch-a:retry.ts")
+				for {
+					kind, b := f.read(t)
+					require.Equal(t, websocket.MessageText, kind, "an oversized document frame never reaches the browser")
+					if string(b) == `{"t":"gap","id":7}` {
+						break
+					}
+					require.Contains(t, string(b), `"t":"snap"`)
+				}
+			} else {
+				f = newDocFixture(t)
+				f.sub(t, "doc:code:branch-a:retry.ts")
+				f.assigned(t)
+				raw := make([]byte, (2<<20)+1)
+				copy(raw, []byte{1, 0, 0, 0, 7})
+				require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, raw))
+				f.text(t, `{"t":"gap","id":7}`)
+			}
+			require.Eventually(t, func() bool { _, _, closed := f.daemon.Recorded(); return closed == 1 }, time.Second, time.Millisecond)
+			f.daemon.Script = [][]byte{docGolden(t, "epoch"), {3, 1, 2, 0, 0}}
+			f.sub(t, "doc:code:branch-a:retry.ts")
+			f.assigned(t)
+			opened, _, _ := f.daemon.Recorded()
+			require.Len(t, opened, 2)
+		})
+	}
 }
 
-func TestDocRelaySharedMirror(t *testing.T) {
+// Every subscription is its own daemon stream; the daemon fans out. Frames
+// from one subscription never reach another's stream.
+func TestDocRelayStreamPerSubscription(t *testing.T) {
 	f := newDocFixture(t)
-	p := peerFor(t, f)
-	p.mu.Lock()
-	p.save = false
-	p.mu.Unlock()
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	a := f.assigned(t)
 	origin := f.server.URL
@@ -349,257 +329,46 @@ func TestDocRelaySharedMirror(t *testing.T) {
 	other := &docFixture{conn: second}
 	other.sub(t, "doc:code:branch-a:retry.ts")
 	b := other.assigned(t)
-	require.NotEqual(t, a, b)
-	kind, raw := f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind) // host-owned authors delta
 	f.update(t, codeInsert(a, "A"))
-	kind, raw = other.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	_, update := codeDecode(t, raw[5:])
-	require.Contains(t, string(update), "A")
 	other.update(t, codeInsert(b, "B"))
-	kind, raw = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	_, update = codeDecode(t, raw[5:])
-	require.Contains(t, string(update), "B")
-	require.Eventually(t, func() bool {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		text, _ := p.doc.Text("content")
-		return text == "AB" || text == "BA"
-	}, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { _, sent, _ := f.daemon.Recorded(); return len(sent) == 2 }, time.Second, time.Millisecond)
 	opened, _, _ := f.daemon.Recorded()
-	require.Len(t, opened, 1, "tabs must share the daemon peer")
-	// A later receipt covers both clients independently, including A's deletion.
-	p.mu.Lock()
-	p.save = true
-	p.mu.Unlock()
-	f.update(t, codeDelete(a, 1))
-	readSaved(t, f, 2)
-	// B sees A's deletion before the receipt for its own edit.
-	kind, _ = other.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	readSaved(t, other, 1)
-}
-
-func TestDocRelayRebuildBarrier(t *testing.T) {
-	f := newDocFixture(t, docGolden(t, "epoch"))
-	release := make(chan struct{})
-	var once sync.Once
-	t.Cleanup(func() { once.Do(func() { close(release) }) })
-	f.daemon.Reply = func([]byte) [][]byte { <-release; return [][]byte{{3, 1, 2, 0, 0}} }
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	type result struct {
-		kind websocket.MessageType
-		raw  []byte
-		err  error
-	}
-	frames := make(chan result, 1)
-	go func() { k, b, e := f.conn.Read(t.Context()); frames <- result{k, b, e} }()
-	select {
-	case got := <-frames:
-		t.Fatalf("snapshot before daemon rebuild: %s (%v)", got.raw, got.err)
-	case <-time.After(100 * time.Millisecond):
-	}
-	once.Do(func() { close(release) })
-	select {
-	case got := <-frames:
-		require.NoError(t, got.err)
-		require.Equal(t, websocket.MessageText, got.kind)
-		require.Contains(t, string(got.raw), `"t":"snap"`)
-	case <-time.After(5 * time.Second):
-		t.Fatal("no rebuilt snapshot")
-	}
-	kind, _ := f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-}
-
-type codeRPC func(context.Context, string, []byte) (machined.DocumentStream, error)
-
-func (f codeRPC) OpenDocument(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
-	return f(ctx, path, actor)
-}
-
-type interruptedDocument struct {
-	machined.DocumentStream
-	link context.Context
-}
-
-func (s interruptedDocument) Receive(ctx context.Context) ([]byte, error) {
-	read, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stop := context.AfterFunc(s.link, cancel)
-	defer stop()
-	return s.DocumentStream.Receive(read)
-}
-func (s interruptedDocument) Send(ctx context.Context, b []byte) error {
-	if s.link.Err() != nil {
-		return s.link.Err()
-	}
-	return s.DocumentStream.Send(ctx, b)
-}
-
-func TestDocRelayReconnectUnreceipted(t *testing.T) {
-	f := newDocFixture(t)
-	p := peerFor(t, f)
-	original := f.relay.Connection
-	link, drop := context.WithCancel(t.Context())
-	defer drop()
-	var offline atomic.Bool
-	var opens atomic.Int32
-	f.relay.Connection = func(ctx context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
-		if offline.Load() {
-			return nil, nil
-		}
-		binding, rpc := original(ctx, branch)
-		return binding, codeRPC(func(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
-			number := opens.Add(1)
-			if number > 1 {
-				p.mu.Lock()
-				state, err := p.doc.State()
-				p.last = 0
-				p.mu.Unlock()
-				require.NoError(t, err)
-				f.daemon.Script = [][]byte{docGolden(t, "epoch"), append([]byte{3}, codeSync(1, state)...)}
-			}
-			stream, err := rpc.OpenDocument(ctx, path, actor)
-			if number == 1 && err == nil {
-				return interruptedDocument{stream, link}, nil
-			}
-			return stream, err
-		})
-	}
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	client := f.assigned(t)
-	readSaved(t, f, 0) // Untouched text is saved only after the daemon says so.
-	offline.Store(true)
-	drop()
-	f.update(t, codeInsert(client, "offline"))
-	// Request the live host snapshot while no daemon link can be opened.
-	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, []byte{1, 0, 0, 0, 7, 0, 1, 0}))
-	kind, raw := f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	require.Contains(t, string(raw), "offline")
-	require.Equal(t, int32(1), opens.Load())
-	offline.Store(false)
-	kind, _ = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind) // peer resync delta
-	readSaved(t, f, 1)
-	require.Equal(t, int32(2), opens.Load())
-	p.mu.Lock()
-	text, err := p.doc.Text("content")
-	p.mu.Unlock()
-	require.NoError(t, err)
-	require.Equal(t, "offline", text)
-}
-
-func TestDocRelayAuthorizationAwareness(t *testing.T) {
-	f := newDocFixture(t)
-	observed := make(chan wire.Document, 1)
-	f.daemon.Reply = func(raw []byte) [][]byte {
-		msg, err := wire.DecodeDocumentV2(raw)
+	require.Len(t, opened, 2)
+	require.NotEqual(t, opened[0].Stream, opened[1].Stream)
+	frames, _ := f.daemon.RecordedWire()
+	streams := map[string]uint32{}
+	for _, raw := range frames {
+		frame, err := wire.Decode(raw)
 		require.NoError(t, err)
-		if msg.Msg == wire.DocumentAwarenessInput {
-			observed <- msg
-		}
-		return nil
+		msg, err := wire.DecodeDocumentV2(frame.Payload)
+		require.NoError(t, err)
+		_, update := codeDecode(t, msg.Data)
+		streams[string(update[len(update)-2:len(update)-1])] = frame.Stream
 	}
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	client := f.assigned(t)
-	awareness := func(id uint32) []byte {
-		data := []byte(`{"actor":{"id":"Mallory"},"colour":"red","line":3,"permission":"admin"}`)
-		raw := binary.AppendUvarint([]byte{1}, uint64(id))
-		raw = append(raw, 1)
-		raw = binary.AppendUvarint(raw, uint64(len(data)))
-		return append(raw, data...)
-	}
-	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{2, 0, 0, 0, 7}, awareness(client)...)))
-	select {
-	case msg := <-observed:
-		require.Equal(t, []byte{0x00, 0xff, 0x80, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d}, msg.Actor)
-		raw := msg.Data
-		for i := 0; i < 4; i++ {
-			_, n := binary.Uvarint(raw)
-			require.Positive(t, n)
-			raw = raw[n:]
-		}
-		var value map[string]any
-		require.NoError(t, json.Unmarshal(raw, &value))
-		require.Equal(t, "00ff800102030405060708090a0b0c0d", value["actor"].(map[string]any)["id"])
-		require.NotEqual(t, "red", value["colour"])
-		require.Equal(t, float64(3), value["line"])
-		require.NotContains(t, value, "permission")
-	case <-time.After(time.Second):
-		t.Fatal("awareness not forwarded")
-	}
-	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{2, 0, 0, 0, 7}, awareness(client^1)...)))
-	f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+	require.NotEqual(t, streams["A"], streams["B"])
 }
 
-func TestDocRelayEpochResync(t *testing.T) {
+// A daemon epoch change reaches the browser as a fresh assignment.
+func TestDocRelayEpochChange(t *testing.T) {
 	f := newDocFixture(t)
 	epoch := docGolden(t, "epoch")
 	epoch[1] = 0xff
-	f.daemon.Reply = func(raw []byte) [][]byte {
-		msg, err := wire.DecodeDocumentV2(raw)
-		require.NoError(t, err)
-		if msg.Seq > 0 {
-			return [][]byte{epoch}
-		}
-		return nil
-	}
+	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{epoch} }
 	f.sub(t, "doc:code:branch-a:retry.ts")
-	f.assigned(t)
-	f.text(t, `{"t":"gap","id":7}`)
-	require.Eventually(t, func() bool { _, _, n := f.daemon.Recorded(); return n == 1 }, time.Second, time.Millisecond)
-	f.daemon.Reply = nil
-	f.daemon.Script = [][]byte{epoch, {3, 1, 2, 0, 0}}
-	f.sub(t, "doc:code:branch-a:retry.ts")
+	client := f.assigned(t)
+	f.update(t, codeInsert(client, "x"))
 	kind, raw := f.read(t)
 	require.Equal(t, websocket.MessageText, kind)
 	require.Contains(t, string(raw), `"epoch":"ff112233445566778899aabbccddeeff"`)
-	kind, _ = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
 }
 
-func TestDocRelayReplacementBootDiscardsOldActorCache(t *testing.T) {
+// A subscription admitted on one machine connection never opens a stream on
+// its replacement; the browser resubscribes and is admitted again.
+func TestDocRelayReplacementConnection(t *testing.T) {
 	f := newDocFixture(t)
-	original := f.relay.Connection
-	originalAuthorize := f.relay.Authorize
-	var readmit atomic.Bool
-	f.relay.Authorize = func(ctx context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
-		actor, refusal := originalAuthorize(ctx, topic, repository, member)
-		if refusal == "" && readmit.Load() {
-			actor = []byte{1, 0xfe, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
-		}
-		return actor, refusal
-	}
-	link, drop := context.WithCancel(t.Context())
-	defer drop()
-	var replacement atomic.Pointer[machined.Connection]
-	f.relay.Connection = func(ctx context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
-		if current := replacement.Load(); current != nil {
-			return current, f.daemon
-		}
-		binding, rpc := original(ctx, branch)
-		return binding, codeRPC(func(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
-			stream, err := rpc.OpenDocument(ctx, path, actor)
-			return interruptedDocument{stream, link}, err
-		})
-	}
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	client := f.assigned(t)
-	f.update(t, codeInsert(client, "old machine"))
-	require.Eventually(t, func() bool {
-		_, sent, _ := f.daemon.Recorded()
-		for _, raw := range sent {
-			msg, err := wire.DecodeDocumentV2(raw)
-			if err == nil && msg.Seq > 0 && strings.Contains(string(msg.Data), "old machine") {
-				return true
-			}
-		}
-		return false
-	}, time.Second, time.Millisecond)
+	f.relay.Authorize = func(context.Context, live.DocumentTopic, int64, int64) ([]byte, string) { return docActor, "" }
+	source, code := f.relay.Resolve(t.Context(), "doc:code:branch-a:retry.ts", 1, 1)
+	require.Empty(t, code)
 	registry := new(machined.Registry)
 	var boot [16]byte
 	boot[0] = 2
@@ -608,22 +377,11 @@ func TestDocRelayReplacementBootDiscardsOldActorCache(t *testing.T) {
 	require.NoError(t, err)
 	defer binding.Close()
 	require.NoError(t, binding.Reconciled())
-	replacement.Store(binding)
-	drop()
-	f.text(t, `{"t":"gap","id":7}`)
-	opened, sent, _ := f.daemon.Recorded()
-	require.Len(t, opened, 1, "old pending edits must never open a replacement machine")
-	oldSent := len(sent)
-	readmit.Store(true)
-	f.sub(t, "doc:code:branch-a:retry.ts")
-	f.assigned(t)
-	opened, sent, _ = f.daemon.Recorded()
-	require.Len(t, opened, 2)
-	require.Equal(t, []byte{1, 0xfe, 0x80, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, opened[1].Actor)
-	for _, raw := range sent[oldSent:] {
-		msg, err := wire.DecodeDocumentV2(raw)
-		require.NoError(t, err)
-		require.Equal(t, opened[1].Actor, msg.Actor)
-		require.NotContains(t, string(msg.Data), "old machine")
+	f.relay.Connection = func(context.Context, string) (*machined.Connection, live.DocumentRPC) {
+		return binding, f.daemon
 	}
+	_, err = source.Document.Open(t.Context())
+	require.ErrorIs(t, err, machined.ErrNotReady)
+	opened, _, _ := f.daemon.Recorded()
+	require.Empty(t, opened)
 }

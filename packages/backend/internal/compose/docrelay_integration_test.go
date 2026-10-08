@@ -20,7 +20,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
-	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -86,14 +85,7 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 		}
 		return daemon.OpenDocument(ctx, path, actor)
 	}}
-	library, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
-	require.NoError(t, err)
-	host := &live.CodeDocuments{Library: library}
-	t.Cleanup(func() {
-		host.Close()
-		require.Eventually(t, func() bool { return library.Close() == nil }, time.Second, time.Millisecond)
-	})
-	relay := &live.DocRelay{Host: host, Authorize: func(_ context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
+	relay := &live.DocRelay{Authorize: func(_ context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
 		if member != owner.ID || repository != repo.ID || topic.Path == "secret" {
 			return nil, live.Forbidden
 		}

@@ -187,10 +187,11 @@ type Options struct {
 	Machined      *machined.Registry
 	BranchCapture services.BranchCapture
 	// LiveCodeDocuments admits two people typing in one code file (T-COL-08).
-	// Composition builds the document host on the install's verified native
-	// library and owns member admission and the authenticated daemon link; a
-	// daemon exists only after its guest kernel probes pass. Unset, every code
-	// document is refused `unsupported` and File cards stay read-only.
+	// Composition relays each subscription to the branch daemon, which holds
+	// the document (ADR 0003), and owns member admission and the authenticated
+	// link; a daemon exists only after its guest kernel probes pass. Unset,
+	// every code document is refused `unsupported` and File cards stay
+	// read-only.
 	LiveCodeDocuments bool
 	HostProfile       *microsandbox.HostProfile
 	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
@@ -2074,6 +2075,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			topics.viewState = conversationLiveViewState(queries, chatService.runtime.Handler.Store, workspaceService)
 		}
 
+		if options.LiveCodeDocuments {
+			topics.documents = composeCodeDocumentRelay(workspaceService, options.Machined)
+		}
 		ffiPath, ffiErr := repohostserver.FFILibraryPath()
 		if ffiErr != nil {
 			return fmt.Errorf("wiki native library configuration: %w", ffiErr)
@@ -2083,14 +2087,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			return ffiErr
 		}
 		defer wikiLibrary.Close()
-		// Code and wiki documents share one native core. The host holds caches
-		// only; it closes before the library and never closes daemon state.
-		var codeDocuments *live.CodeDocuments
-		if options.LiveCodeDocuments {
-			codeDocuments = &live.CodeDocuments{Library: wikiLibrary}
-			defer codeDocuments.Close()
-		}
-		topics.documents = composeCodeDocumentRelay(codeDocuments, workspaceService, options.Machined)
 		topics.wikiDocuments = composeWikiHost(ctx, wikiLibrary, queries, wikiService)
 		defer topics.wikiDocuments.Close()
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}

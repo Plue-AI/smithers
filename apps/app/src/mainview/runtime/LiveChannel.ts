@@ -221,8 +221,15 @@ export class LiveChannel {
         return
       }
       if (reply.t === "gap") {
+        // The server ended this subscription's stream (spec §7.1.1). Stop
+        // editing, then resubscribe; the fresh assignment restarts sync step 1.
+        if (entry.awaitingSnapshot || entry.snapshot.error) return
+        entry.awaitingSnapshot = true
+        this.documentEvent(topic, { kind: topic.startsWith("doc:wiki:") ? "offline" : "refused" })
+        // The closed stream's assignment must not be announced again.
+        entry.snapshot = { topic }
         this.notifyContinuityLoss()
-        if (!entry.awaitingSnapshot && !entry.snapshot.error) this.documentEvent(topic, { kind: "restart" })
+        this.sub(topic, entry)
         return
       }
     }

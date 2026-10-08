@@ -31,12 +31,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The composed install, PostgreSQL, member admission, /api/live, the native
-// document host and the authenticated daemon link are production code. The
-// guest end of the link is a scripted daemon on the same native core with
-// immediate receipts: this proves routing, attribution and receipts through
-// the install, not guest disk durability (C-DUR-04 K7 and C-J3-04 run on the
-// reference host).
+// The composed install, PostgreSQL, member admission, /api/live, the relay and
+// the authenticated daemon link are production code. The guest end of the
+// link is a scripted daemon on the native core with immediate receipts: this
+// proves routing, attribution and receipts through the install, not the
+// daemon's checks, disk durability or latency (C-DUR-04 K7, C-J3-04 and
+// C-PERF-03 run on the reference host).
 func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 	t.Run("dark without activation", func(t *testing.T) {
 		install := startCodeDocumentInstall(t, false)
@@ -53,7 +53,7 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 		alice.sub(t, install.topic)
 		aliceClient := alice.assigned(t)
 		require.NotEqual(t, benClient, aliceClient)
-		require.Equal(t, 1, install.daemon.opened(), "one daemon stream serves every subscriber")
+		require.Equal(t, 2, install.daemon.opened(), "each subscription is its own daemon stream")
 
 		started := time.Now()
 		ben.edit(t, codeInsert(benClient, "ben types "))
@@ -74,11 +74,12 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 		require.Equal(t, install.ben, authors["ben types "])
 		require.Equal(t, install.alice, authors["alice types "])
 
-		// Ben's socket cannot extend Alice's client: her next clock is refused
-		// before the daemon sees its bytes.
+		// Ben's socket cannot speak as Alice: the host stamps Ben's actor on a
+		// frame that extends Alice's client, so the daemon's check refuses it.
 		ben.edit(t, codeInsertAt(aliceClient, uint64(len("alice types ")), "forged"))
-		ben.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
-		require.NotContains(t, install.daemon.text(t), "forged")
+		ben.saved(t, 2)
+		forged := install.daemon.authors(t, install)
+		require.Equal(t, install.ben, forged["forged"])
 
 		// Suspending Alice's membership ends her document within 5 s.
 		_, err := install.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, install.alice)
@@ -300,18 +301,24 @@ func (b *codeDocumentBrowser) assigned(t *testing.T) uint32 {
 	require.Equal(t, "snap", snap.T, string(raw))
 	require.Len(t, snap.Data.Epoch, 32)
 	require.NotZero(t, snap.Data.ClientID)
-	kind, raw = b.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	b.apply(t, raw)
-	return snap.Data.ClientID
+	// Like the browser provider, ask the daemon for its state (sync step 1).
+	require.NoError(t, b.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{1, 0, 0, 0, 7}, codeSync(0, []byte{0})...)))
+	for {
+		kind, raw = b.read(t)
+		require.Equal(t, websocket.MessageBinary, kind, string(raw))
+		if b.apply(t, raw) == 1 {
+			return snap.Data.ClientID
+		}
+	}
 }
 
-func (b *codeDocumentBrowser) apply(t *testing.T, raw []byte) {
+func (b *codeDocumentBrowser) apply(t *testing.T, raw []byte) byte {
 	t.Helper()
 	require.Equal(t, []byte{1, 0, 0, 0, 7}, raw[:5])
-	_, update := codeDecode(t, raw[5:])
+	kind, update := codeDecode(t, raw[5:])
 	_, err := b.doc.Peer(update)
 	require.NoError(t, err)
+	return kind
 }
 
 func (b *codeDocumentBrowser) edit(t *testing.T, update []byte) {
@@ -363,16 +370,26 @@ func (b *codeDocumentBrowser) converge(t *testing.T, want string) {
 	}
 }
 
-// scriptedDocumentDaemon answers the daemon's document RPCs on the guest end
-// of an authenticated link and acknowledges each update immediately.
+// scriptedDocumentDaemon stands in for the branch daemon on the guest end
+// of the authenticated link: one stream per subscription, a daemon-allocated
+// client id, fan-out to the other streams and an immediate receipt per update.
+// It does not enforce the daemon's actor checks or touch a disk.
 type scriptedDocumentDaemon struct {
-	mu     sync.Mutex
-	doc    *livedocument.Document
-	opens  int
-	inputs []scriptedDocumentInput
+	mu      sync.Mutex
+	doc     *livedocument.Document
+	guest   net.Conn
+	next    uint32
+	streams map[uint32]*scriptedStream
+	opens   int
+	inputs  []scriptedDocumentInput
 	// unhandled records other control requests for a failing run's report.
 	unhandled []string
 	failed    error
+}
+
+type scriptedStream struct {
+	actor  []byte
+	client uint32
 }
 
 type scriptedDocumentInput struct {
@@ -387,91 +404,21 @@ func serveScriptedDocumentDaemon(t *testing.T, guest net.Conn) *scriptedDocument
 	require.NoError(t, err)
 	doc, err := library.Open(livedocument.Code, nil)
 	require.NoError(t, err)
-	d := &scriptedDocumentDaemon{doc: doc}
-	epoch := docGolden(t, "epoch")
+	d := &scriptedDocumentDaemon{doc: doc, guest: guest, streams: map[uint32]*scriptedStream{}, next: 5}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		var writeMu sync.Mutex
-		write := func(frame wire.Frame) error { writeMu.Lock(); defer writeMu.Unlock(); return wire.Write(guest, frame) }
-		var stream uint32 = 5
 		for {
 			frame, err := wire.Read(guest)
 			if err != nil {
 				return
 			}
-			if frame.Kind == wire.Control {
-				id, method, _, err := frame.Request()
-				if err != nil {
-					continue
-				}
-				switch method {
-				case byte(wire.OpenDoc):
-					d.mu.Lock()
-					d.opens++
-					stream += 2
-					d.mu.Unlock()
-					err = write(wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(13, wire.Field(1, wire.U32(stream)))))})
-				case byte(wire.CloseDoc), byte(wire.SetRoster):
-					err = write(wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(method)))})
-				default:
-					d.mu.Lock()
-					d.unhandled = append(d.unhandled, fmt.Sprintf("%s method %d", time.Now().Format("15:04:05.000"), method))
-					d.mu.Unlock()
-				}
-				if err != nil {
-					d.fail(err)
-					return
-				}
-				continue
-			}
-			if frame.Kind != wire.Documents {
-				continue
-			}
-			msg, err := wire.DecodeDocumentV2(frame.Payload)
-			if err != nil || msg.Msg != wire.DocumentInput {
-				if err != nil {
-					d.fail(err)
-				}
-				continue
-			}
-			kind, payload, err := codeSyncParts(msg.Data)
-			if err != nil {
-				d.fail(err)
-				continue
-			}
 			d.mu.Lock()
-			var replies [][]byte
-			switch kind {
-			case 0:
-				var state []byte
-				state, err = d.doc.Sync2(payload)
-				if err == nil {
-					var sync []byte
-					sync, err = wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSync, Data: codeSync(1, state)})
-					replies = [][]byte{epoch, sync}
-				}
-			default:
-				if _, err = d.doc.Peer(payload); err == nil && kind == 2 {
-					d.inputs = append(d.inputs, scriptedDocumentInput{actor: append([]byte(nil), msg.Actor...), seq: msg.Seq, update: append([]byte(nil), payload...)})
-					var sv, saved []byte
-					sv, err = d.doc.Sync1()
-					if err == nil {
-						saved, err = wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: uint64(time.Now().UnixMilli()), ThroughSeq: msg.Seq, Data: sv})
-						replies = [][]byte{saved}
-					}
-				}
-			}
+			err = d.handle(frame)
 			d.mu.Unlock()
 			if err != nil {
 				d.fail(err)
-				continue
-			}
-			for _, reply := range replies {
-				if err := write(wire.Frame{Kind: wire.Documents, Stream: frame.Stream, Payload: reply}); err != nil {
-					d.fail(err)
-					return
-				}
+				return
 			}
 		}
 	}()
@@ -488,6 +435,111 @@ func serveScriptedDocumentDaemon(t *testing.T, guest net.Conn) *scriptedDocument
 		library.Close()
 	})
 	return d
+}
+
+func (d *scriptedDocumentDaemon) write(stream uint32, msg wire.Document) error {
+	payload, err := wire.EncodeDocumentV2(msg)
+	if err != nil {
+		return err
+	}
+	return wire.Write(d.guest, wire.Frame{Kind: wire.Documents, Stream: stream, Payload: payload})
+}
+
+// fanOut is the daemon's job under relay: other streams receive each update.
+func (d *scriptedDocumentDaemon) fanOut(from uint32, update []byte) error {
+	for stream := range d.streams {
+		if stream != from {
+			if err := d.write(stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(2, update)}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
+	if frame.Kind == wire.Control {
+		id, method, args, err := frame.Request()
+		if err != nil {
+			return err
+		}
+		result := wire.Union(method)
+		switch method {
+		case byte(wire.OpenDoc):
+			fields, err := wire.Fields("args13", args)
+			if err != nil {
+				return err
+			}
+			// principal: variant 1, struct length, field 1, actor length, actor.
+			principal := fields[2]
+			if len(principal) < 10 || principal[0] != 1 || principal[5] != 1 || int(binary.BigEndian.Uint32(principal[6:10])) != len(principal)-10 {
+				return wire.BadValue
+			}
+			actor := append([]byte(nil), principal[10:]...)
+			stream, client := d.next, 7000+d.next
+			d.next += 2
+			d.opens++
+			result = wire.Union(13, wire.Field(1, wire.U32(stream)))
+			if err := wire.Write(d.guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, result))}); err != nil {
+				return err
+			}
+			if err := d.write(stream, wire.Document{Msg: wire.DocumentEpoch, Epoch: [16]byte{0x0c, 0x0d, 0xe0, 0x08}, ClientID: client}); err != nil {
+				return err
+			}
+			d.streams[stream] = &scriptedStream{actor: actor, client: client}
+			author, err := d.doc.SetAuthor(uint64(client), hex.EncodeToString(actor))
+			if err != nil {
+				return err
+			}
+			return d.fanOut(stream, author)
+		case byte(wire.CloseDoc):
+			fields, err := wire.Fields("args14", args)
+			if err == nil && len(fields[1]) == 4 {
+				delete(d.streams, binary.BigEndian.Uint32(fields[1]))
+			}
+		case byte(wire.SetRoster):
+		default:
+			d.unhandled = append(d.unhandled, fmt.Sprintf("%s method %d", time.Now().Format("15:04:05.000"), method))
+			return nil
+		}
+		return wire.Write(d.guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, result))})
+	}
+	if frame.Kind != wire.Documents {
+		return nil
+	}
+	if d.streams[frame.Stream] == nil {
+		return fmt.Errorf("input on unopened stream %d", frame.Stream)
+	}
+	msg, err := wire.DecodeDocumentV2(frame.Payload)
+	if err != nil || msg.Msg != wire.DocumentInput {
+		return err
+	}
+	kind, payload, err := codeSyncParts(msg.Data)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case 0:
+		state, err := d.doc.Sync2(payload)
+		if err != nil {
+			return err
+		}
+		return d.write(frame.Stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(1, state)})
+	case 2:
+		if _, err := d.doc.Peer(payload); err != nil {
+			return err
+		}
+		d.inputs = append(d.inputs, scriptedDocumentInput{actor: append([]byte(nil), msg.Actor...), seq: msg.Seq, update: append([]byte(nil), payload...)})
+		sv, err := d.doc.Sync1()
+		if err != nil {
+			return err
+		}
+		if err := d.write(frame.Stream, wire.Document{Msg: wire.DocumentSaved, AtMS: uint64(time.Now().UnixMilli()), ThroughSeq: msg.Seq, Data: sv}); err != nil {
+			return err
+		}
+		return d.fanOut(frame.Stream, payload)
+	}
+	return nil
 }
 
 func (d *scriptedDocumentDaemon) fail(err error) {
@@ -528,7 +580,7 @@ func (d *scriptedDocumentDaemon) authors(t *testing.T, install *codeDocumentInst
 		actor, err := machined.ResolveActorInTx(t.Context(), tx, install.branch, "machine", input.actor)
 		require.NoError(t, err)
 		require.Equal(t, "person", actor.Kind)
-		for _, literal := range []string{"ben types ", "alice types "} {
+		for _, literal := range []string{"ben types ", "alice types ", "forged"} {
 			if strings.Contains(string(input.update), literal) {
 				out[literal] = actor.MemberID
 			}
