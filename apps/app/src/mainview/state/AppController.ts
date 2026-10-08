@@ -953,6 +953,9 @@ export const createAppController = (
   const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   const installSignedIn = () => store.collections.identitySessions.get("identity")?.state === "signed-in"
   if (installHost && setupEntry) void installSeam.showSetup()
+  // The setup token exchange redirects to /. Probe once without opening a card
+  // on refusal; a setup session's unfinished steps are presented by the subscriber.
+  else if (installHost && !installSignedIn()) void installSeam.readInstall()
   const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
   const runMonitorSeam = createRunMonitorSeam({ owner: () => `${ctx.accountOwner()}:${ctx.accountEpoch}`, view: id => {
     const card = store.collections.cards.get(`run:${id}`)

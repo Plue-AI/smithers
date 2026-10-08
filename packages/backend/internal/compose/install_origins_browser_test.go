@@ -60,8 +60,9 @@ import (
 
 // installOriginsHost is what the spec reads from SMITHERS_JOURNEY_COMPOSED_HOST.
 type installOriginsHost struct {
-	Install string `json:"install"`
-	Commit  string `json:"commit"`
+	SetupURL string `json:"setupURL"`
+	Install  string `json:"install"`
+	Commit   string `json:"commit"`
 	// PID is the process that owns every listener of this install.
 	PID int `json:"pid"`
 	// Loopback is the origin on the Mac. OwnerSet are the origins the owner
@@ -221,16 +222,16 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	require.NoError(t, credentials.SetInstallation(ctx, 91))
 	require.NoError(t, credentials.SaveCallbackURLs(ctx, callbacks))
 
-	// The owner, claimed and bound to the repository with an active stack.
-	// Every session in this check comes from a GitHub sign-in in the browser.
+	// Prepare the repository and account; claim the owner only after the
+	// setup-token browser has exercised the unclaimed install.
 	q := db.New(pool)
+
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "will", LowerUsername: "will", DisplayName: "Will"})
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "canary", LowerName: "canary", DefaultBookmark: "main"})
 	require.NoError(t, err)
 	for _, statement := range []string{
 		`UPDATE users SET is_active=true WHERE id=$1`,
-		`INSERT INTO self_host_owners(user_id) VALUES($1)`,
 		`INSERT INTO oauth_accounts(user_id,provider,provider_user_id,profile_data) VALUES($1,'workos','7','{"login":"will"}')`,
 	} {
 		_, err = pool.Exec(ctx, statement, owner.ID)
@@ -325,12 +326,30 @@ func TestInstallOriginsBrowser(t *testing.T) {
 		t.FailNow()
 	}
 
+	// Use the URL printed by the running install, including its freshly minted
+	// token; pre-seeding a token would bypass the launcher's rotation.
+	bootLog, err := os.ReadFile(backendLog.Name())
+	require.NoError(t, err)
+	for _, line := range strings.Split(string(bootLog), "\n") {
+		var printed struct {
+			URLs []string `json:"setup_urls"`
+		}
+		if json.Unmarshal([]byte(line), &printed) == nil {
+			for _, link := range printed.URLs {
+				if strings.HasPrefix(link, loopback+"/setup?") {
+					host.SetupURL = link
+				}
+			}
+		}
+	}
+	require.NotEmpty(t, host.SetupURL, "the fresh install prints its setup URL")
+
 	descriptor, err := json.Marshal(host)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(host.Evidence, "install.json"), descriptor, 0o600))
 	hostFile := filepath.Join(t.TempDir(), "install-origins-host.json")
 	require.NoError(t, os.WriteFile(hostFile, descriptor, 0o600))
-	playwright := exec.CommandContext(ctx, filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/install-origins.spec.ts")
+	playwright := exec.CommandContext(ctx, filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/install-origins.spec.ts", "--grep", "C-INS-01")
 	playwright.Dir = app
 	environment := slices.DeleteFunc(os.Environ(), func(variable string) bool {
 		return strings.HasPrefix(variable, "SMITHERS_REAL_") || strings.HasPrefix(variable, "SMITHERS_JOURNEY") || strings.HasPrefix(variable, "CI=")
@@ -339,6 +358,18 @@ func TestInstallOriginsBrowser(t *testing.T) {
 		"SMITHERS_JOURNEY=install-origins.spec.ts", "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile, "SMITHERS_REAL_E2E_REVISION="+host.Commit,
 		"SMITHERS_REAL_TEST_GREP=@real-scenario:"+regexp.QuoteMeta("journey-install-origins")+`(?:\s|$)`,
 		"SMITHERS_REAL_E2E_REPORT="+filepath.Join(host.Evidence, "results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(host.Evidence, "artifacts"))
+	// Exercise the printed setup URL before an owner is claimed. Then continue
+	// the origin checks with their configured owner and a fresh browser profile.
+	setupBrowser := exec.CommandContext(ctx, filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/install-origins.spec.ts", "--grep", "setup token redirects")
+	setupBrowser.Dir = app
+	setupBrowser.Env = append(append([]string{}, playwright.Env...),
+		"SMITHERS_REAL_E2E_REPORT="+filepath.Join(host.Evidence, "setup-results.json"),
+		"SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(host.Evidence, "setup-artifacts"))
+	setupOutput, setupErr := setupBrowser.CombinedOutput()
+	fmt.Print(string(setupOutput))
+	require.NoError(t, setupErr, "setup redirect browser")
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	require.NoError(t, err)
 	var output bytes.Buffer
 	playwright.Stdout, playwright.Stderr = &output, &output
 	err = playwright.Run()

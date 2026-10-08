@@ -35,6 +35,39 @@ test("the install capability opens Setup with a usable composer and no demo worl
   } finally { flushSync(() => root.unmount()); host.remove() }
 })
 
+for (const setupSession of [true, false]) test(`install boot at / with setup session=${setupSession} probes once`, async () => {
+  window.history.replaceState({}, "", "/")
+  const { installFixture } = await import("./seams/InstallFixtures.test-support")
+  const model = installFixture()
+  model.github = { signed_in: false, app_installed: false }
+  delete model.repository; delete model.repositories
+  model.steps = model.steps.map(step => ({ id: step.id, state: "pending" }))
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity", "install"] },
+    applicationIdentity: { current: async () => null },
+    fetchImpl: async input => {
+      requests.push(String(input))
+      return setupSession && String(input).endsWith("/api/install") ? Response.json(model)
+        : Response.json({ code: "unauthenticated", class: "permission", message: "Sign in required" }, { status: 401 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await controller.loadSession()
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await settled()
+    expect(host.querySelectorAll('.setup-view[data-kind="setup"]')).toHaveLength(setupSession ? 1 : 0)
+    if (setupSession) expect(host.querySelectorAll('[data-step][data-state="pending"]')).toHaveLength(7)
+    else expect(host.textContent).toContain("Sign in with GitHub")
+    await settled(); await settled()
+    expect(requests.filter(path => path.endsWith("/api/install"))).toHaveLength(1)
+    expect(requests.filter(path => !path.endsWith("/api/install"))).toEqual([])
+  } finally { window.history.replaceState({}, "", "/setup"); flushSync(() => root.unmount()); host.remove() }
+})
+
 test("a reload while the GitHub App step runs shows Setup and stays on the page; only the person's press goes to GitHub (#3455)", async () => {
   const { installFixture } = await import("./seams/InstallFixtures.test-support")
   const model = installFixture()

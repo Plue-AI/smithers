@@ -557,13 +557,13 @@ test("the expanded empty wiki carries the current repository through Create Wiki
   expect(store.session().pendingCommand).toMatchObject({ name: "wiki.create", args: "smithersai/smithers" })
 })
 
-test("a signed-out install visitor gets the GitHub flow door without protected startup reads", async () => {
+test("a signed-out install visitor gets the GitHub flow door with only one setup probe", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: string[] = []
   const controller = createAppController(store, silentAgent, {
     bootstrap: { ...WEB, capabilities: [...WEB.capabilities, "install"] },
     applicationIdentity: { current: async () => null },
-    fetchImpl: async input => { requests.push(String(input)); return json(200, {}) }
+    fetchImpl: async input => { requests.push(String(input)); return json(401, { code: "unauthenticated", class: "permission", message: "Sign in required" }) }
   })
   await controller.loadSession()
   await settled()
@@ -572,5 +572,6 @@ test("a signed-out install visitor gets the GitHub flow door without protected s
   const door = host.querySelector<HTMLButtonElement>('.smithers-chat-message [data-flow="sign-in"]')
   expect(door?.textContent).toBe("Sign in with GitHub")
   expect(host.querySelector('[data-testid="login-email"]')).toBeNull()
-  expect(requests).toEqual([])
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toEndWith("/api/install")
 })

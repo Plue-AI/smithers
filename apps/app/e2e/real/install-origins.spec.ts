@@ -28,6 +28,7 @@ import { connect, exchange, listenerReport, listeners, loopbackOnly, processTree
  */
 
 type Install = {
+  readonly setupURL?: string
   readonly install: "composed" | "reference"
   readonly commit: string
   /** Root of the install's process tree, when this runner is on the install's Mac. */
@@ -148,9 +149,13 @@ const signIn = async (browser: Browser, install: Install, origin: string): Promi
   await awaitBoot(page)
   const here = (path: string) => (response: Response) => { const url = new URL(response.url()); return url.origin === origin && url.pathname === path }
   await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last()).toBeVisible()
-  expect(lines, `${origin}: no console errors before sign-in`).toEqual([])
+  await expect(page.locator('[data-kind="setup"]')).toHaveCount(0)
+  await page.waitForTimeout(1500)
+  expect(anonymousRequests.filter(path => path === "/api/install"), `${origin}: exactly one quiet setup probe`).toHaveLength(1)
+  expect(lines.filter(line => !line.url.endsWith("/api/install")), `${origin}: no other console errors before sign-in`).toEqual([])
+  expect(lines.filter(line => line.url.endsWith("/api/install")).length).toBeLessThanOrEqual(1)
   expect(sockets, `${origin}: no authenticated live connection before sign-in`).toEqual([])
-  expect(anonymousRequests.filter(path => !["/api/bootstrap", "/api/auth/session"].includes(path)), `${origin}: no protected requests before sign-in`).toEqual([])
+  expect(anonymousRequests.filter(path => !["/api/bootstrap", "/api/auth/session", "/api/install"].includes(path)), `${origin}: no protected requests before sign-in`).toEqual([])
   const started = page.waitForResponse(here("/api/auth/github"), { timeout: 60_000 })
   const returned = page.waitForResponse(here("/api/auth/github/callback"), { timeout: 180_000 })
   await page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last().click()
@@ -223,6 +228,42 @@ const execCommands = (page: Page): Promise<Array<[string, boolean]>> =>
 const failedResources = (visitor: Visitor, at: ConsoleLine["at"]): string[] =>
   [...new Set(visitor.lines.filter(line => line.at === at && line.kind === "console" && /^Failed to load resource: the server responded with a status of \d+/.test(line.text))
     .map(line => `${/status of (\d+)/.exec(line.text)![1]} ${new URL(line.url).pathname}`))].sort()
+
+test("setup token redirects to the unfinished Setup card at /", scenario("journey-install-origins", {
+  capabilities: ["install"], coverage: ["host:local", "door:button", "path:success", "dimension:setup"]
+}), async ({ browser }) => {
+  test.skip(!described?.setupURL, "The reference host uses setup.spec.ts and its printed setup URL")
+  const install = described!
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    const exchange = page.waitForResponse(response => new URL(response.url()).pathname === "/setup")
+    await page.goto(install.setupURL!)
+    const redirect = await exchange
+    expect(redirect.status()).toBe(303)
+    expect(await redirect.headerValue("location")).toBe("/")
+    expect(new URL(page.url()).pathname).toBe("/")
+    expect((await context.cookies()).find(cookie => cookie.name === "smithers_setup_session")?.httpOnly).toBe(true)
+    await expect(page.locator('.setup-view[data-kind="setup"]')).toBeVisible()
+    await expect(page.locator('[data-kind="setup"] [data-step]')).toHaveCount(7)
+    expect(await page.locator('[data-kind="setup"] [data-step]:not([data-state="done"])').count()).toBeGreaterThan(0)
+  } finally { await context.close() }
+  const teammate = await browser.newContext()
+  try {
+    const page = await teammate.newPage()
+    const probes: number[] = []
+    const errors: string[] = []
+    page.on("response", response => { if (new URL(response.url()).pathname === "/api/install") probes.push(response.status()) })
+    page.on("console", message => { if (message.type() === "error" && /401/.test(message.text())) errors.push(message.text()) })
+    await page.goto(install.loopback)
+    await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last()).toBeVisible()
+    await page.waitForTimeout(1500)
+    await expect(page.locator('[data-kind="setup"]')).toHaveCount(0)
+    expect(probes).toHaveLength(1)
+    expect([401, 403]).toContain(probes[0])
+    expect(errors.length).toBeLessThanOrEqual(1)
+  } finally { await teammate.close() }
+})
 
 test("C-INS-01 the install works at loopback and at each origin the owner sets, and refuses any other", scenario("journey-install-origins", {
   capabilities: ["install", "identity"],
@@ -538,8 +579,9 @@ test("C-INS-01 the install works at loopback and at each origin the owner sets, 
         // The removed origin's page was refused on purpose, after its slice passed; its 421s are that refusal.
         const lines = visitor.lines.filter(line => !(origin === removed && /status of 421|Unexpected response code: 421/.test(line.text)))
         expect(lines.filter(line => line.kind !== "console"), `${origin}: page errors and unhandled rejections`).toEqual([])
-        // The signed-out door makes only public bootstrap and session reads.
-        expect(lines.filter(line => line.at === "signed-out"), `${origin}: errors before sign-in`).toEqual([])
+        // The signed-out door makes one setup probe, which may be refused.
+        expect(lines.filter(line => line.at === "signed-out" && !line.url.endsWith("/api/install")), `${origin}: errors before sign-in`).toEqual([])
+        expect(lines.filter(line => line.at === "signed-out" && line.url.endsWith("/api/install")).length).toBeLessThanOrEqual(1)
         expect(lines.filter(line => line.at === "signed-in"), `${origin}: console errors after sign-in`).toEqual([])
       }
       // An HTTP answer the app logs as failed must not depend on the origin: nothing fails at an owner-set origin that works on loopback.
