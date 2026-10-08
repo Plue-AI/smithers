@@ -79,16 +79,17 @@ func testTodoLiveDrop(t *testing.T, enable string, retainedCapture, ended bool) 
 		require.NoError(t, err)
 		require.Equal(t, 202, code, string(body))
 	}
-	require.Less(t, time.Since(started), 2*time.Second, "acknowledgment must not wait for the writer")
+	require.Less(t, time.Since(started), time.Second, "acknowledgment must not wait for the writer")
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		card, err := r.todo(number)
 		require.NoError(c, err)
 		require.Equal(c, "dropped", card.State)
-		var status string
+		var status, boundWorkspace string
 		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT status FROM workspaces WHERE id=$1`, branch).Scan(&status))
 		require.Contains(c, []string{"suspended", "stopped"}, status)
-	}, time.Minute, 250*time.Millisecond)
-	require.NoError(t, r.waitSQL(time.Minute, `SELECT count(*) FROM mythical_items WHERE number=$1 AND workspace_id=''`, number), "Drop must release its lane as well as stop the machine")
+		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1`, number).Scan(&boundWorkspace))
+		require.Empty(c, boundWorkspace, "Drop must release its lane as well as stop the machine")
+	}, time.Until(started.Add(time.Minute)), 250*time.Millisecond)
 	var captures, drops, requests int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.final_capture' AND principal_id=$1`, "branch:"+branch).Scan(&captures))
 	require.Positive(t, captures)
