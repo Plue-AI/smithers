@@ -5,7 +5,7 @@ import { withReference, createTodo, openTodo, todoCard, runSlash, realApi, expec
 
 // Run three times against separate prepared scratch repositories and fresh install
 // state, with real coding/fast models. The runner refuses a development fallback.
-// Set SMITHERS_WIKI_DECISION_RUN=1|2|3 and retain all three passing artifacts.
+// Aggregate with scripts/wiki-decision-campaign.ts against three prepared installs.
 // Setup: both helpers exist, deliver.ts has no retry, and the authored page is r1.
 const slug = "decisions/webhook-retries"
 const original = "Decision: webhook redelivery uses `retryExponential()`. Reason: provider rate limits."
@@ -42,7 +42,9 @@ test("C-J8-04/05 next real plan follows the exact edited decision revision", jou
     const waitPlan = async (n: number, revision: number, digest: string, helper: string) => {
       let receipt: any
       await expect.poll(() => {
-        receipt = plan(n)
+        const current = f.sql(`SELECT plan, attempt, request_run_id, checks->'planReceipt' AS receipt FROM mythical_items WHERE number=${n}`)[0]
+        if (!current?.receipt || current.receipt.attempt !== current.attempt || current.receipt.runId !== current.request_run_id) return undefined
+        receipt = current.plan
         return receipt?.wikiCitations
       }, { timeout: 720_000, intervals: [1000, 2000] }).toEqual(expect.arrayContaining([
         expect.objectContaining({ slug, revision, digest, pageID: String(first.page.id) })

@@ -1,6 +1,6 @@
 import { expect, test } from "../browserTest"
 import { say } from "./j1-fixtures"
-import { ISSUE_REPO, issueTodoInstall } from "./issue-todo-fixture"
+import { ISSUE_REPO, issueTodoInstall, openIssueTodoInstall } from "./issue-todo-fixture"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
@@ -29,7 +29,8 @@ test("C-J8-04: Retry preserves old citations and opens captured history after re
       await route.fulfill({ status: 202, json: { state: "accepted", attempt: 2 } })
     } else await route.fulfill({ json: model })
   })
-  await page.goto(`/${ISSUE_REPO}`)
+  await openIssueTodoInstall(page)
+  if (!await page.getByTestId("composer-input").isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).press("Enter")
   await say(page, "/todo T12")
   const card = page.getByRole("article", { name: "TODO T12", exact: true }).last()
   await expect(card.getByRole("link", { name: "retry-policy · r3", exact: true })).toHaveAttribute("href", `/api/repos/${ISSUE_REPO}/wiki/history/42/3/content?visibility=public`)

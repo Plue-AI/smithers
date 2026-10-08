@@ -8,7 +8,9 @@ export const ISSUE_REPO = "smithers-mvp-canary/node"
 export const snapshotDigest = "a".repeat(64)
 export async function issueTodoInstall(page: Page, label = false) {
   await installCloudFixture(page, { capabilities: ["identity", "install"], repos: [{ owner: "smithers-mvp-canary", name: "node", full_name: ISSUE_REPO, default_bookmark: "main", owner_type: "User" }] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  for (const path of ["/api/user", "/api/auth/session"]) {
+    await page.route(`**${path}`, route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  }
   await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), repository: { owner: "smithers-mvp-canary", name: "node" }, repositories: [ISSUE_REPO] } }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Canary owner", avatar_url: "https://example.com/owner.png", color_index: 0,
