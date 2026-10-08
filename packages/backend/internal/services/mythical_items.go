@@ -5625,6 +5625,7 @@ func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.Mythi
 		}
 	}
 	checks.DropRequested = nil
+	checks.Pause = nil
 	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
 	item.Checks = checks.encode()
 	return settleTodoAttemptEvidence(item, "merged")

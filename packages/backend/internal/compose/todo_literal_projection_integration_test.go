@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -223,7 +224,11 @@ func TestTodoLiteralProjectionComposedInstall(t *testing.T) {
 			for p := 0; p < 2; p++ {
 				for w, wait := range waits {
 					t.Run(fmt.Sprintf("%s/%s/paused=%d/%s", c.engine, mode.name, p, wait.name), func(t *testing.T) {
-						checks, err := json.Marshal(map[string]any{"todo": true, "run_launched": mode.launched, "run_attached": mode.attached, "waits": wait.rows})
+						facts := map[string]any{"todo": true, "run_launched": mode.launched, "run_attached": mode.attached, "waits": wait.rows}
+						if p == 1 {
+							facts["pause"] = map[string]any{"requested": true, "at": "2026-10-02T12:00:00Z", "failure": "Resume failed", "failureOp": "resume"}
+						}
+						checks, err := json.Marshal(facts)
 						require.NoError(t, err)
 						_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_state=$4,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, item.ID, c.engine, checks, mode.pr, p == 1)
 						require.NoError(t, err)
@@ -238,6 +243,9 @@ func TestTodoLiteralProjectionComposedInstall(t *testing.T) {
 						}
 						if c.expected[m][p*4+w] == "merged" || c.expected[m][p*4+w] == "dropped" {
 							require.Empty(t, ids, "terminal cards expose no waits")
+							require.NotContains(t, card, "pause")
+							require.NotContains(t, card, "stop")
+							require.NotContains(t, card, "control_failure")
 						} else {
 							require.Equal(t, wait.ids, ids, "primary branch wait precedes the older question")
 						}
@@ -306,7 +314,11 @@ func TestTodoTransitionLiteralCases(t *testing.T) {
 	for _, c := range cases {
 		for m, mode := range modes {
 			t.Run(c.engine+"/drop/"+mode.name, func(t *testing.T) {
-				checks, err := json.Marshal(map[string]any{"todo": true, "waits": mode.waits})
+				facts := map[string]any{"todo": true, "waits": mode.waits}
+				if mode.paused {
+					facts["pause"] = map[string]any{"requested": true, "at": "2026-10-02T12:00:00Z", "run": "old-run"}
+				}
+				checks, err := json.Marshal(facts)
 				require.NoError(t, err)
 				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,pr_state='',paused_at=CASE WHEN $4 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, mode.paused)
 				require.NoError(t, err)
@@ -353,6 +365,11 @@ func TestTodoTransitionLiteralCases(t *testing.T) {
 				status, card = h.call(t, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, "dropped", card["state"])
+				require.NotContains(t, card, "pause")
+				require.NotContains(t, card, "stop")
+				var settled map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(after.Checks, &settled))
+				require.NotContains(t, settled, "pause")
 				require.Empty(t, card["waits"])
 				replayStatus, replay := h.call(t, "POST", `{"op":"drop"}`, key)
 				require.Equal(t, 202, replayStatus, replay)
@@ -376,28 +393,46 @@ func TestTodoTransitionLiteralCases(t *testing.T) {
 // masks Failed. The public command must not reuse the broader engine helper's
 // historical rejected/declined retry permissions for a dropped TODO.
 func TestTodoRetryTransitionLiteralCases(t *testing.T) {
-	h := newTodoLiteralInstall(t)
+	testTodoRetrySourceMatrix(t, "retry")
+}
+
+func TestTodoRetryCurrentFlowTransitionLiteralCases(t *testing.T) {
+	testTodoRetrySourceMatrix(t, "retry-current-flow")
+}
+
+func testTodoRetrySourceMatrix(t *testing.T, op string) {
+	activeReads := 0
+	h := newTodoLiteralInstall(t, func(s *services.MythicalService, pool *pgxpool.Pool) {
+		s.SetTodoFlow(func(ctx context.Context, repository int64, source string) (string, error) {
+			activeReads++
+			return services.ActiveFlowDigest(ctx, db.New(pool), repository, "todo")
+		})
+	})
+	activeSource, activeDigest := strings.Repeat("d", 40), strings.Repeat("e", 64)
+	_, err := h.pool.Exec(t.Context(), `INSERT INTO workflow_definitions(repository_id,name,path,config,is_active,source_commit,digest,status) VALUES($1,'todo','flows/todo/flow.ts','{}',true,$2,$3,'loaded')`, h.item.RepositoryID, activeSource, activeDigest)
+	require.NoError(t, err)
+	body := fmt.Sprintf(`{"op":%q}`, op)
 	ctx := t.Context()
 	cases := []struct {
 		engine string
-		from   [3]string
+		from   [4]string
 		status int
 	}{
-		{"queued", [3]string{"queued", "paused", "needs_you"}, 409},
-		{"skipped", [3]string{"queued", "paused", "needs_you"}, 409},
-		{"running", [3]string{"working", "paused", "needs_you"}, 409},
-		{"delivering", [3]string{"working", "paused", "needs_you"}, 409},
-		{"integrating", [3]string{"working", "paused", "needs_you"}, 409},
-		{"verifying", [3]string{"working", "paused", "needs_you"}, 409},
-		{"proposing", [3]string{"working", "paused", "needs_you"}, 409},
-		{"waiting", [3]string{"working", "paused", "needs_you"}, 409},
-		{"retrying", [3]string{"working", "paused", "needs_you"}, 409},
-		{"proposed", [3]string{"in_review", "paused", "needs_you"}, 409},
-		{"blocked", [3]string{"failed", "paused", "needs_you"}, 202},
-		{"landed", [3]string{"merged", "merged", "merged"}, 409},
-		{"cancelled", [3]string{"dropped", "dropped", "dropped"}, 409},
-		{"rejected", [3]string{"dropped", "dropped", "dropped"}, 409},
-		{"declined", [3]string{"dropped", "dropped", "dropped"}, 409},
+		{"queued", [4]string{"queued", "paused", "needs_you", "starting"}, 409},
+		{"skipped", [4]string{"queued", "paused", "needs_you", "queued"}, 409},
+		{"running", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"delivering", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"integrating", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"verifying", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"proposing", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"waiting", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"retrying", [4]string{"working", "paused", "needs_you", "starting"}, 409},
+		{"proposed", [4]string{"in_review", "paused", "needs_you", "in_review"}, 409},
+		{"blocked", [4]string{"failed", "paused", "needs_you", "failed"}, 202},
+		{"landed", [4]string{"merged", "merged", "merged", "merged"}, 409},
+		{"cancelled", [4]string{"dropped", "dropped", "dropped", "dropped"}, 409},
+		{"rejected", [4]string{"dropped", "dropped", "dropped", "dropped"}, 409},
+		{"declined", [4]string{"dropped", "dropped", "dropped", "dropped"}, 409},
 	}
 	modes := []struct {
 		name   string
@@ -408,6 +443,7 @@ func TestTodoRetryTransitionLiteralCases(t *testing.T) {
 		{"plain", false, []map[string]any{}, "queued"},
 		{"paused", true, []map[string]any{}, "queued"},
 		{"branch-wait", true, []map[string]any{{"id": "f", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:01Z"}}, "needs_you"},
+		{"unattached", false, []map[string]any{}, "queued"},
 	}
 	eventCount := func() int {
 		t.Helper()
@@ -418,9 +454,9 @@ func TestTodoRetryTransitionLiteralCases(t *testing.T) {
 	accepted, refused := 0, 0
 	for _, c := range cases {
 		for m, mode := range modes {
-			t.Run(c.engine+"/retry/"+mode.name, func(t *testing.T) {
+			t.Run(c.engine+"/"+op+"/"+mode.name, func(t *testing.T) {
 				retained := []map[string]any{{"attempt": 1, "revision": "old-head", "items": []any{}, "run_id": "old-run", "outcome": "failed"}}
-				checks, err := json.Marshal(map[string]any{"todo": true, "waits": mode.waits, "attempts": retained})
+				checks, err := json.Marshal(map[string]any{"todo": true, "waits": mode.waits, "attempts": retained, "run_launched": mode.name == "unattached", "run_attached": false})
 				require.NoError(t, err)
 				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,pr_state='',paused_at=CASE WHEN $4 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, mode.paused)
 				require.NoError(t, err)
@@ -430,20 +466,23 @@ func TestTodoRetryTransitionLiteralCases(t *testing.T) {
 				require.Equal(t, 200, status, card)
 				require.Equal(t, c.from[m], card["state"])
 				events := eventCount()
-				key := "literal-retry-" + c.engine + "-" + mode.name
-				status, receipt := h.call(t, "POST", `{"op":"retry"}`, key)
+				reads := activeReads
+				key := "literal-" + op + "-" + c.engine + "-" + mode.name
+				status, receipt := h.call(t, "POST", body, key)
 				require.Equal(t, c.status, status, receipt)
 				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
 				require.NoError(t, err)
 				if c.status == 409 {
 					require.Equal(t, "todo_transition_refused", receipt["code"])
 					require.Equal(t, c.from[m], receipt["from"])
-					require.Equal(t, "retry", receipt["trigger"])
+					require.Equal(t, op, receipt["trigger"])
 					require.Equal(t, before, after)
 					require.Equal(t, events, eventCount())
+					require.Equal(t, reads, activeReads, "refusal must precede Active resolution")
 					refused++
 					return
 				}
+				require.Equal(t, reads+boolQuestionInt(op == "retry-current-flow"), activeReads)
 				require.Equal(t, "queued", after.State)
 				require.False(t, after.PausedAt.Valid)
 				require.EqualValues(t, 1, after.Attempt, "admission, rather than the request, advances the attempt")
@@ -452,6 +491,21 @@ func TestTodoRetryTransitionLiteralCases(t *testing.T) {
 				require.NoError(t, json.Unmarshal(after.Checks, &saved))
 				require.NoError(t, json.Unmarshal(before.Checks, &original))
 				require.JSONEq(t, string(original["attempts"]), string(saved["attempts"]), "Retry preserves the ended attempt")
+				var retries []struct {
+					Pin *struct {
+						Source string `json:"sourceCommit"`
+						Digest string `json:"executionDigest"`
+					} `json:"pin"`
+				}
+				require.NoError(t, json.Unmarshal(saved["retries"], &retries))
+				require.Len(t, retries, 1)
+				if op == "retry-current-flow" {
+					require.NotNil(t, retries[0].Pin)
+					require.Equal(t, activeSource, retries[0].Pin.Source)
+					require.Equal(t, activeDigest, retries[0].Pin.Digest)
+				} else {
+					require.Nil(t, retries[0].Pin)
+				}
 				if len(mode.waits) > 0 {
 					require.JSONEq(t, string(original["waits"]), string(saved["waits"]), "Retry settles no independent branch wait")
 				} else {
@@ -475,20 +529,21 @@ func TestTodoRetryTransitionLiteralCases(t *testing.T) {
 				status, card = h.call(t, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, mode.after, card["state"])
-				replayStatus, replay := h.call(t, "POST", `{"op":"retry"}`, key)
+				replayStatus, replay := h.call(t, "POST", body, key)
 				require.Equal(t, 202, replayStatus, replay)
 				require.Equal(t, receipt, replay)
 				require.Equal(t, events+1, eventCount())
-				status, refusal := h.call(t, "POST", `{"op":"retry"}`, key+"-again")
+				status, refusal := h.call(t, "POST", body, key+"-again")
 				require.Equal(t, 409, status, refusal)
 				require.Equal(t, "todo_transition_refused", refusal["code"])
 				require.Equal(t, mode.after, refusal["from"])
 				require.Equal(t, events+1, eventCount())
+				require.Equal(t, reads+boolQuestionInt(op == "retry-current-flow"), activeReads, "replay and second request do not resolve Active")
 				accepted++
 			})
 		}
 	}
-	require.Equal(t, 3, accepted)
-	require.Equal(t, 42, refused)
+	require.Equal(t, 4, accepted)
+	require.Equal(t, 56, refused)
 	t.Logf("literal Retry cases: %d accepted, %d refused", accepted, refused)
 }

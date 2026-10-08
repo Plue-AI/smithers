@@ -245,6 +245,7 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 		}
 	}
 	checks.DropRequested = nil
+	checks.Pause = nil
 	checks.Dropped = &drop
 	checks.GitHubDropRead = nil
 	checks.GitHubClosedAt = &drop.At

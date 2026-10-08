@@ -233,11 +233,25 @@ func TestTodoFoldedGitHubMergeSequences(t *testing.T) {
 	}{
 		{"6-merge-during-steer", "proposed", false, false, true},
 		{"7-merge-with-question", "running", true, false, false},
-		{"8-merge-while-paused", "running", true, true, false},
+		{"8-merge-while-paused", "running", false, true, false},
+		{"8-merge-while-question-masks-pause", "running", true, true, false},
 	} {
 		t.Run(sequence.name, func(t *testing.T) {
 			f := newTodoSourceCycle(t)
 			item := f.item(t, 1, sequence.engine, map[string]any{"run_launched": true, "run_attached": true, "attempts": []map[string]any{{"attempt": 1, "run_id": "run-1"}}}, false)
+			fact := func(kind, from, to string) {
+				t.Helper()
+				var count int
+				require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type=$1`, kind).Scan(&count))
+				require.Equal(t, 1, count, kind)
+				var raw []byte
+				require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data FROM product_job_events WHERE event_type=$1`, kind).Scan(&raw))
+				var event map[string]any
+				require.NoError(t, json.Unmarshal(raw, &event))
+				require.Equal(t, from, event["from"], kind)
+				require.Equal(t, to, event["to"], kind)
+				require.NotEmpty(t, event["actor"], kind)
+			}
 			stop := f.start(t)
 			defer stop()
 			if sequence.steer {
@@ -246,6 +260,7 @@ func TestTodoFoldedGitHubMergeSequences(t *testing.T) {
 				status, card := f.call(t, 1, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, "working", card["state"])
+				fact("todo.steer_received", "in_review", "working")
 			}
 			if sequence.paused {
 				status, receipt := f.call(t, 1, "POST", `{"op":"stop"}`, "")
@@ -271,12 +286,34 @@ func TestTodoFoldedGitHubMergeSequences(t *testing.T) {
 					require.Equal(t, before, after)
 				}
 			}
+			if sequence.paused && !sequence.question {
+				f.ingest(t, item, nil, true)
+				status, card := f.call(t, 1, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, "paused", card["state"])
+				require.Empty(t, card["waits"])
+			}
 			if sequence.paused {
+				fact("todo.stop.requested", "working", "working")
+				to := "paused"
+				if sequence.question {
+					to = "needs_you"
+				}
+				fact("todo.run_updated", "working", to)
 				row, err := f.q.GetMythicalItem(t.Context(), item.ID)
 				require.NoError(t, err)
 				require.True(t, row.PausedAt.Valid, "runtime park owns the pause fact")
 			}
 
+			if sequence.question && !sequence.paused {
+				fact("todo.run_updated", "working", "needs_you")
+			}
+			mergeFrom := "working"
+			if sequence.question {
+				mergeFrom = "needs_you"
+			} else if sequence.paused {
+				mergeFrom = "paused"
+			}
 			f.upstream.MergeAsPerson("acme/app", item.PRNumber.Int64)
 			f.refs(t)
 			f.cycle(t)
@@ -288,9 +325,21 @@ func TestTodoFoldedGitHubMergeSequences(t *testing.T) {
 			require.Equal(t, 200, status, card)
 			require.Equal(t, "merged", card["state"])
 			require.Empty(t, card["waits"])
+			require.NotContains(t, card, "pause")
+			require.NotContains(t, card, "needs_you")
+			fact("todo.github_merged", mergeFrom, "merged")
 			row, err := f.q.GetMythicalItem(t.Context(), item.ID)
 			require.NoError(t, err)
 			require.False(t, row.PausedAt.Valid)
+			var settled struct {
+				Waits   []services.TodoWait `json:"waits"`
+				Merging json.RawMessage     `json:"merging"`
+			}
+			require.NoError(t, json.Unmarshal(row.Checks, &settled))
+			for _, wait := range settled.Waits {
+				require.NotNil(t, wait.SettledAt)
+			}
+			require.True(t, len(settled.Merging) == 0 || string(settled.Merging) == "null")
 			var merged int
 			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_merged'`).Scan(&merged))
 			require.Equal(t, 1, merged)
@@ -725,7 +774,9 @@ func TestTodoGitHubSourceGuardVariants(t *testing.T) {
 	t.Run("merge-fact-rollback", func(t *testing.T) {
 		f := newTodoSourceCycle(t)
 		item := f.item(t, 1, "running", map[string]any{"run_launched": true, "run_attached": true}, false)
-		f.ingest(t, item, json.RawMessage(`{"kind":"ask","prompt":"Choose"}`))
+		status, reply := f.call(t, 1, "POST", `{"op":"stop"}`, "")
+		require.Equal(t, 202, status, reply)
+		f.ingest(t, item, json.RawMessage(`{"kind":"ask","prompt":"Choose"}`), true)
 		before, err := f.q.GetMythicalItem(t.Context(), item.ID)
 		require.NoError(t, err)
 		_, err = f.pool.Exec(t.Context(), `CREATE SEQUENCE terminal_fault_hits;
@@ -821,4 +872,60 @@ func TestTodoGitHubSourceGuardVariants(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A GitHub close settles the runtime pause too: reopening preserves the PR
+// candidate and never resurrects the cancelled run's Resume control.
+func TestTodoGitHubCloseAndReopenClearsPauseComposedInstall(t *testing.T) {
+	f := newTodoSourceCycle(t)
+	item := f.item(t, 1, "running", map[string]any{"run_launched": true, "run_attached": true, "attempts": []map[string]any{{"attempt": 1, "run_id": "run-1"}}}, false)
+	stop := f.start(t)
+	defer stop()
+	status, reply := f.call(t, 1, "POST", `{"op":"stop"}`, "")
+	require.Equal(t, 202, status, reply)
+	f.ingest(t, item, nil, true)
+	status, card := f.call(t, 1, "GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "paused", card["state"])
+	require.Contains(t, card, "pause")
+	f.upstream.UpdatePull("acme/app", item.PRNumber.Int64, func(p *githubfake.Pull) { p.State = "closed" })
+	f.cycle(t)
+	require.Eventually(t, func() bool {
+		row, err := f.q.GetMythicalItem(t.Context(), item.ID)
+		return err == nil && row.State == "rejected"
+	}, 10*time.Second, 20*time.Millisecond)
+	closed, err := f.q.GetMythicalItem(t.Context(), item.ID)
+	require.NoError(t, err)
+	require.False(t, closed.PausedAt.Valid)
+	require.NotContains(t, string(closed.Checks), `"pause":`)
+	status, card = f.call(t, 1, "GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "dropped", card["state"])
+	require.NotContains(t, card, "pause")
+	require.NotContains(t, card, "stop")
+	var cancelled bool
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT cancellation_requested FROM product_job_requests WHERE request_id='literal-launch-1' AND operation='flow.runtime.launch'`).Scan(&cancelled))
+	require.True(t, cancelled)
+	var raw []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data FROM product_job_events WHERE event_type='todo.github_dropped'`).Scan(&raw))
+	var fact map[string]any
+	require.NoError(t, json.Unmarshal(raw, &fact))
+	require.Equal(t, "paused", fact["from"])
+	require.Equal(t, "dropped", fact["to"])
+	f.upstream.UpdatePull("acme/app", item.PRNumber.Int64, func(p *githubfake.Pull) { p.State = "open" })
+	f.cycle(t)
+	require.Eventually(t, func() bool {
+		row, err := f.q.GetMythicalItem(t.Context(), item.ID)
+		return err == nil && row.State == "proposed"
+	}, 10*time.Second, 20*time.Millisecond)
+	status, card = f.call(t, 1, "GET", "", "")
+	require.Equal(t, 200, status, card)
+	require.Equal(t, "in_review", card["state"])
+	require.NotContains(t, card, "pause")
+	require.NotContains(t, card, "stop")
+	reopened, err := f.q.GetMythicalItem(t.Context(), item.ID)
+	require.NoError(t, err)
+	require.Equal(t, closed.Attempt, reopened.Attempt)
+	require.Equal(t, closed.CandidateHead, reopened.CandidateHead)
+	require.Empty(t, reopened.RequestRunID)
 }

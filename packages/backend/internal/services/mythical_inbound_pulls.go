@@ -192,6 +192,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				if payload.ClosedAt != nil {
 					at = *payload.ClosedAt
 				}
+				checks.Pause = nil
 				checks.GitHubClosedAt = &at
 				checks.GitHubClosedPosition = item.StackPosition.Int64
 				for i := range checks.Waits {

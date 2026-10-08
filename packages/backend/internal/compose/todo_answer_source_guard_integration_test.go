@@ -63,3 +63,69 @@ func TestTodoAnswerWithoutWaitSourceLiteralCases(t *testing.T) {
 		})
 	}
 }
+
+// Branch and approval actions have their own doors. An Answer naming one of
+// them must not fall through to an independently open, answerable question.
+func TestTodoAnswerWrongWaitKindSourceLiteralCases(t *testing.T) {
+	h := newTodoSignalLiteralInstall(t)
+	sources := []struct {
+		name, engine               string
+		launched, attached, paused bool
+	}{
+		{"queued", "queued", false, false, false},
+		{"starting", "running", true, false, false},
+		{"working", "running", true, true, false},
+		{"needs_you", "running", true, true, false},
+		{"paused", "running", true, true, true},
+		{"failed", "blocked", true, true, false},
+		{"in_review", "proposed", true, true, false},
+		{"merged", "landed", true, true, false},
+		{"dropped", "cancelled", true, true, false},
+	}
+	refused := 0
+	for _, source := range sources {
+		for _, kind := range []string{"foreign_push", "moved_off", "approval"} {
+			t.Run(source.name+"/"+kind, func(t *testing.T) {
+				waits := []map[string]any{
+					{"id": "other", "kind": kind, "prompt": "Separate action", "since": "2026-10-02T12:00:00Z"},
+					{"id": "question", "kind": "question", "prompt": "Choose", "since": "2026-10-02T12:00:01Z"},
+				}
+				raw, err := json.Marshal(map[string]any{"todo": true, "run_launched": source.launched, "run_attached": source.attached, "waits": waits})
+				require.NoError(t, err)
+				_, err = h.pool.Exec(t.Context(), `UPDATE mythical_items SET state=$2,checks=$3,pr_state='',paused_at=CASE WHEN $4 THEN now() ELSE NULL END WHERE id=$1`, h.item.ID, source.engine, raw, source.paused)
+				require.NoError(t, err)
+				before, err := h.q.GetMythicalItem(t.Context(), h.item.ID)
+				require.NoError(t, err)
+				count := func(table string) int {
+					var n int
+					require.NoError(t, h.pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&n))
+					return n
+				}
+				events, requests := count("product_job_events"), count("product_job_requests")
+				status, initial := h.call(t, "GET", "", "")
+				require.Equal(t, 200, status, initial)
+				expected := "needs_you"
+				if source.name == "merged" || source.name == "dropped" {
+					expected = source.name
+				}
+				require.Equal(t, expected, initial["state"])
+				for _, answer := range []string{"Continue", "done", "bring-in", "discard-foreign"} {
+					status, reply := h.call(t, "POST", fmt.Sprintf(`{"wait":"other","answer":%q}`, answer), source.name+kind+answer, "answer")
+					require.Equal(t, 404, status, reply)
+					require.Equal(t, "wait_not_found", reply["code"])
+					after, err := h.q.GetMythicalItem(t.Context(), h.item.ID)
+					require.NoError(t, err)
+					require.Equal(t, before, after, "neither the named wait nor the independent question settles")
+					require.Equal(t, events, count("product_job_events"))
+					require.Equal(t, requests, count("product_job_requests"))
+					status, card := h.call(t, "GET", "", "")
+					require.Equal(t, 200, status, card)
+					require.Equal(t, initial, card)
+					refused++
+				}
+			})
+		}
+	}
+	require.Equal(t, 108, refused)
+	t.Logf("literal wrong-kind Answer guards: %d refused requests, no facts or signals", refused)
+}
