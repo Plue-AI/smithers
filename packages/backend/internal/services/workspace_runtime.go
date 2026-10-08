@@ -446,6 +446,24 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		return row, err
 	}
 
+	if _, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); installed {
+		// The authenticated registry resolves this binding during reconciliation.
+		// Store starting, never running, until the daemon admits the boot.
+		if row.VmID == "" {
+			updated, err := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: observed.ID, Status: "starting"})
+			if err != nil {
+				return row, err
+			}
+			row = updated
+		}
+		row, err = s.admitRuntimeMachined(ctx, row)
+		if err != nil {
+			return row, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "machine daemon unavailable").WithCause(err)
+		}
+	}
+
 	if row.Status != "running" || row.VmID == "" {
 		// Persist the verified runtime binding only after start and repository
 		// materialization succeed. Sleep and capture fence on this identity.
@@ -462,7 +480,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		s.meterWorkspaceUsage(ctx, row, "running")
 		s.notifyWorkspace(ctx, row.ID, "running")
 	}
-	row = s.ensureRuntimeWorkspaceHeadReporter(ctx, row, requesterID, observed)
+	if _, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	}); !installed {
+		row = s.ensureRuntimeWorkspaceHeadReporter(ctx, row, requesterID, observed)
+	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
 }

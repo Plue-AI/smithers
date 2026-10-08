@@ -642,6 +642,14 @@ impl<D: Disk> Host<D> {
         if !disk::valid_path(path) {
             return Err(Error::Invalid);
         }
+        // A file save leaves a short-lived document for durable receipts. With
+        // no editor and no unsaved edits, its cached text is not the base of a
+        // later save: observe a completed outside save before comparing.
+        if self.docs.get(path).is_some_and(|doc| {
+            doc.subscribers.is_empty() && doc.dirty_since.is_none() && doc.gone.is_none()
+        }) {
+            self.completed_write(path, "outside", now)?;
+        }
         if let Some(current) = self.current_digest(path) {
             let physical = if self.docs[path].gone.is_some() {
                 let bytes = self.disk.read(path)?;
@@ -1025,8 +1033,17 @@ impl<D: Disk> Host<D> {
                 by: actor.into(),
             });
         }
-        doc.save_author.add(actor);
-        Self::dirty(doc, now);
+        if doc.subscribers.is_empty() && doc.dirty_since.is_none() && merged.text == theirs {
+            // A closed, clean file already contains these bytes. Observing an
+            // outside save must not schedule another swap that can overwrite
+            // the following outside save before the watcher delivers it.
+            doc.last_disk = digest(bytes);
+            doc.disk_present = true;
+            doc.base = theirs.into();
+        } else {
+            doc.save_author.add(actor);
+            Self::dirty(doc, now);
+        }
         Ok(())
     }
     /// Only completed-write events call this; IN_MODIFY is not an admission.

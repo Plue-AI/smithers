@@ -461,6 +461,29 @@ type workspaceHeadSwapStore interface {
 	SwapWorkspaceHeadPushTokenID(ctx context.Context, id string, userID int64, expected, next pgtype.Int8) (bool, error)
 }
 
+// admitRuntimeMachined retires the previous publisher before admitting the
+// installed daemon. Failures remain failures: an awake row is published only
+// after the authenticated boot has reconciled.
+func (s *WorkspaceService) admitRuntimeMachined(ctx context.Context, row db.Workspace) (db.Workspace, error) {
+	daemon, installed := s.runtime.(interface {
+		EnsureMachined(context.Context, string) error
+	})
+	if !installed {
+		return row, nil
+	}
+	if err := s.runtime.StopService(ctx, row.ID, workspaceHeadReporterService); err != nil {
+		return row, err
+	}
+	if err := s.retireInstalledHeadCredential(ctx, row); err != nil {
+		return row, err
+	}
+	row.HeadPushTokenID = pgtype.Int8{}
+	if err := daemon.EnsureMachined(ctx, row.ID); err != nil {
+		return row, err
+	}
+	return row, nil
+}
+
 // ensureRuntimeWorkspaceHeadReporter gives a runtime workspace the same
 // publisher as a sandbox workspace: a workspace-bound repository credential in
 // the guest's in-memory Git cache and the RFD-004 head reports. The probe runs
@@ -468,25 +491,6 @@ type workspaceHeadSwapStore interface {
 // revoked, expiring or superseded publisher. Failures degrade head visibility
 // and repository access; they never block the workspace from running.
 func (s *WorkspaceService) ensureRuntimeWorkspaceHeadReporter(ctx context.Context, row db.Workspace, requesterID int64, observed workspaceapi.Workspace) db.Workspace {
-	if daemon, installed := s.runtime.(interface {
-		EnsureMachined(context.Context, string) error
-	}); installed {
-		// Remove the replaced publisher and its credential before admitting the
-		// native daemon. A failed daemon admission never restarts the reporter.
-		if err := s.runtime.StopService(ctx, row.ID, workspaceHeadReporterService); err != nil {
-			slog.Warn("retire workspace head publisher", "workspace_id", row.ID, "error", err)
-			return row
-		}
-		if err := s.retireInstalledHeadCredential(ctx, row); err != nil {
-			slog.Warn("retire workspace head credential", "workspace_id", row.ID, "error", err)
-			return row
-		}
-		row.HeadPushTokenID = pgtype.Int8{}
-		if err := daemon.EnsureMachined(ctx, row.ID); err != nil {
-			slog.Warn("admit workspace daemon", "workspace_id", row.ID, "error", err)
-		}
-		return row
-	}
 	store, ok := s.q.(workspaceHeadSwapStore)
 	if !ok || !s.runtime.Capabilities().ManagedServices || strings.TrimSpace(observed.Home) == "" || strings.TrimSpace(observed.Root) == "" {
 		return row

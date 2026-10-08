@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
@@ -89,7 +90,8 @@ func (r *writeReplyRuntime) CompareWriteFiles(ctx context.Context, id string, ch
 	return result, nil
 }
 
-func TestWorkspaceWriteReplyInstall(t *testing.T) {
+func workspaceFileInstallFixture(t *testing.T, wrap func(*writeReplyRuntime) workspaceapi.WorkspaceRuntime) (*httptest.Server, *writeReplyRuntime, *pgxpool.Pool, string, string) {
+	t.Helper()
 	_, _, pool := splitProcessDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
@@ -116,9 +118,23 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
 	provider := &writeReplyRuntime{Runtime: runtime, repo: repo.ID, clone: origin + "/digestowner/demo.git"}
-	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: provider, ChatHost: unusedChatHost{}})
+	var composed workspaceapi.WorkspaceRuntime = provider
+	if wrap != nil {
+		composed = wrap(provider)
+	}
+	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: composed, ChatHost: unusedChatHost{}})
 	server.Start()
-	defer server.Close()
+	t.Cleanup(server.Close)
+	return server, provider, pool, id, cookie
+}
+
+func TestWorkspaceWriteReplyInstall(t *testing.T) {
+	server, provider, pool, id, cookie := workspaceFileInstallFixture(t, nil)
+	origin := server.URL
+	ctx := t.Context()
+	row, err := db.New(pool).GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	ownerID := row.UserID
 
 	t.Run("authenticated daemon reads", func(t *testing.T) {
 		registry := new(machined.Registry)
@@ -236,7 +252,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.Equal(t, id, branch)
 			op, ok := workspaceapi.OperationFromContext(ctx)
 			require.True(t, ok)
-			require.Equal(t, fmt.Sprint(owner.ID), op.PrincipalID)
+			require.Equal(t, fmt.Sprint(ownerID), op.PrincipalID)
 			if unavailable {
 				return machined.ErrNotReady
 			}
@@ -245,7 +261,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			calls++
 			require.Equal(t, calls, readyCalls, "readiness must precede each write")
 			require.Equal(t, id, branch)
-			require.Equal(t, fmt.Sprint(owner.ID), string(actor))
+			require.Equal(t, fmt.Sprint(ownerID), string(actor))
 			require.Len(t, changes, 1)
 			require.Equal(t, "daemon.txt", changes[0].Path)
 			if string(changes[0].Content) == "offline" {
@@ -318,7 +334,16 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		init := exec.Command(jj, "git", "init", root)
 		output, err := init.CombinedOutput()
 		require.NoError(t, err, string(output))
+		hostRepo := t.TempDir()
+		output, err = exec.Command("/usr/bin/git", "init", "--bare", hostRepo).CombinedOutput()
+		require.NoError(t, err, string(output))
 		registry := new(machined.Registry)
+		registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
+			if branch != id {
+				return "", machined.ErrUnauthorized
+			}
+			return hostRepo, nil
+		}))
 		t.Cleanup(func() { require.NoError(t, registry.Close()) })
 		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, t.TempDir(), binary, &machined.ItemBinding{}))
 		previous, previousReader := provider.writer, provider.reader
@@ -339,12 +364,20 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		}}
 		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 		for _, check := range []struct {
-			body   string
-			status int
+			body         string
+			status       int
+			outside      bool
+			want, digest string
 		}{
-			{`{"content":"hello","base_digest":"absent"}`, 200},
-			{`{"content":"must not land","base_digest":"absent"}`, 409},
+			{`{"content":"hello","base_digest":"absent"}`, 200, false, "hello", helloDigest},
+			{`{"content":"must not land","base_digest":"absent"}`, 409, false, "hello", helloDigest},
+			{`{"content":"must not replace outside","base_digest":"` + helloDigest + `"}`, 409, true, "world", "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"},
 		} {
+			if check.outside {
+				temp := filepath.Join(root, "outside-save")
+				require.NoError(t, os.WriteFile(temp, []byte(check.want), 0600))
+				require.NoError(t, os.Rename(temp, filepath.Join(root, "real.txt")))
+			}
 			request, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(check.body))
 			require.NoError(t, err)
 			request.Header.Set("Content-Type", "application/json")
@@ -358,10 +391,10 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, response.Body.Close())
 			require.Equal(t, check.status, response.StatusCode, string(body))
-			require.Contains(t, string(body), helloDigest)
+			require.Contains(t, string(body), check.digest)
 			disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
 			require.NoError(t, err)
-			require.Equal(t, "hello", string(disk))
+			require.Equal(t, check.want, string(disk))
 		}
 		// A host edit is deliberately outside Smithers. The served File door
 		// must observe it through the real daemon, with its new digest.
@@ -406,4 +439,83 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		require.Equal(t, "outside", string(disk))
 	})
 
+}
+
+// The guest admission result is injected; router, authority, retirement and
+// state publication are production code with real PostgreSQL. This is host
+// boundary evidence, not the fresh/retained real-VM prerequisite campaign.
+type refusedAdmissionRuntime struct {
+	*writeReplyRuntime
+	admissionErr, retirementErr error
+	admissions, retirements     int
+}
+
+func (r *refusedAdmissionRuntime) EnsureMachined(context.Context, string) error {
+	r.admissions++
+	return r.admissionErr
+}
+func (r *refusedAdmissionRuntime) StopService(context.Context, string, string) error {
+	r.retirements++
+	return r.retirementErr
+}
+
+func TestMachinedProductionBoundaryFailClosed(t *testing.T) {
+	for _, phase := range []string{"retire publisher", "reconcile boot", "admitted"} {
+		t.Run(phase, func(t *testing.T) {
+			var runtime *refusedAdmissionRuntime
+			server, _, pool, id, cookie := workspaceFileInstallFixture(t, func(base *writeReplyRuntime) workspaceapi.WorkspaceRuntime {
+				runtime = &refusedAdmissionRuntime{writeReplyRuntime: base}
+				if phase == "retire publisher" {
+					runtime.retirementErr = errors.New("retirement refused")
+				}
+				if phase == "reconcile boot" {
+					runtime.admissionErr = errors.New("reconciliation refused")
+				}
+				return runtime
+			})
+			q := db.New(pool)
+			row, err := q.GetWorkspace(t.Context(), id)
+			require.NoError(t, err)
+			oldToken, err := q.CreateAccessToken(t.Context(), db.CreateAccessTokenParams{UserID: row.UserID, Name: "retired reporter", TokenHash: strings.Repeat("d", 64), TokenLastEight: "dddddddd", Scopes: "write:repository", SystemIssued: true})
+			require.NoError(t, err)
+			_, err = pool.Exec(t.Context(), "UPDATE workspaces SET status='starting',head_push_token_id=$2 WHERE id=$1", id, oldToken.ID)
+			require.NoError(t, err)
+			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=a", strings.NewReader(`{"content":"new","base_digest":"absent"}`))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", server.URL)
+			req.Header.Set("X-CSRF-Token", "admission-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "admission-csrf"})
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			var status, head string
+			var sessions int
+			require.NoError(t, pool.QueryRow(t.Context(), "SELECT status,head_commit_id FROM workspaces WHERE id=$1", id).Scan(&status, &head))
+			require.NoError(t, pool.QueryRow(t.Context(), "SELECT count(*) FROM workspace_sessions WHERE workspace_id=$1", id).Scan(&sessions))
+			require.Empty(t, head)
+			require.Zero(t, sessions)
+			require.Equal(t, 1, runtime.retirements)
+			var live bool
+			require.NoError(t, pool.QueryRow(t.Context(), "SELECT EXISTS(SELECT 1 FROM access_tokens WHERE id=$1)", oldToken.ID).Scan(&live))
+			require.Equal(t, phase == "retire publisher", live, "retirement must precede daemon admission, including failed admission")
+			if phase == "admitted" {
+				require.Equal(t, 200, response.StatusCode, string(body))
+				require.Equal(t, "running", status)
+				require.Equal(t, 1, runtime.admissions)
+			} else {
+				require.Equal(t, 503, response.StatusCode, string(body))
+				require.JSONEq(t, `{"code":"service_unavailable","class":"infra","fault":"infra","message":"service unavailable"}`, string(body))
+				require.Equal(t, "starting", status)
+				if phase == "retire publisher" {
+					require.Zero(t, runtime.admissions)
+				} else {
+					require.Equal(t, 1, runtime.admissions)
+				}
+			}
+		})
+	}
 }

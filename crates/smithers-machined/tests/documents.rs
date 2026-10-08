@@ -2016,6 +2016,70 @@ mod dispatcher {
         }
     }
     #[test]
+    fn closed_file_save_compares_completed_outside_bytes_before_cached_text() {
+        let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
+        let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
+        let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock.clone());
+        let mut cx = LockCx::new(Default::default());
+        let first = service
+            .write_batch(
+                &mut cx,
+                &[change("a.rs", Some(b"before"), b"saved")],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(first.failure.is_none());
+        assert_eq!(first.writes[0].digest, Some(digest(b"saved")));
+        // No open_doc and no watcher delivery: a completed outside save is
+        // already authoritative for the next file request's compare.
+        disk.0
+            .lock()
+            .unwrap()
+            .files
+            .insert("a.rs".into(), b"outside".to_vec());
+        let stale = service
+            .write_batch(
+                &mut cx,
+                &[change("a.rs", Some(b"saved"), b"must not land")],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(stale.writes.is_empty());
+        let failure = stale.failure.unwrap();
+        assert!(failure.preflight);
+        assert_eq!(failure.error.code, 4);
+        assert_eq!(failure.error.current_digest, Some(digest(b"outside")));
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"outside");
+        // A stale compare observes an outside save; it must not enqueue an
+        // automatic swap which clobbers the next completed outside edit.
+        disk.0
+            .lock()
+            .unwrap()
+            .files
+            .insert("a.rs".into(), b"next outside".to_vec());
+        clock.0.store(1000, Ordering::Relaxed);
+        service.tick(&mut cx).unwrap();
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"next outside");
+        disk.0
+            .lock()
+            .unwrap()
+            .files
+            .insert("a.rs".into(), b"outside".to_vec());
+        let retry = service
+            .write_batch(
+                &mut cx,
+                &[change("a.rs", Some(b"outside"), b"retry")],
+                &hooks::Actor::Outside,
+            )
+            .unwrap();
+        assert!(retry.failure.is_none());
+        assert_eq!(retry.writes[0].digest, Some(digest(b"retry")));
+        let disk = disk.0.lock().unwrap();
+        assert_eq!(disk.files["a.rs"], b"retry");
+        assert!(disk.versions.iter().any(|bytes| bytes == b"outside"));
+    }
+
+    #[test]
     fn batch_validation_finishes_before_preparing_any_file() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("before"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
