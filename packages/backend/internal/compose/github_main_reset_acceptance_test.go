@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -122,6 +123,103 @@ func runMainResetProductionInstall(t *testing.T, enable string) {
 	require.NoError(t, err)
 	require.Equal(t, old, observed.TargetCommitID)
 	body, _ = json.Marshal(map[string]string{"old": old, "new": latest})
+	// Stop a real HTTP reset at the upstream recheck inside the locked
+	// expected-old write, after Prepare has committed its durable intent.
+	// The first advertisement fetches objects; the second verifies the bound
+	// upstream tip while the native mirror write lock is held.
+	entered, release := make(chan struct{}), make(chan struct{})
+	var released bool
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+	advertisement := "/rehearsal-owner/app.git/info/refs"
+	r.fake.OnNextRequest("GET", advertisement, func() {
+		r.fake.OnNextRequest("GET", advertisement, func() {
+			close(entered)
+			<-release
+		})
+	})
+	requestCtx, cancelRequest := context.WithCancel(t.Context())
+	defer cancelRequest()
+	resetRequest, err := http.NewRequestWithContext(requestCtx, "POST", r.origin+"/api/stack/attention/"+attention.ID, strings.NewReader(string(body)))
+	require.NoError(t, err)
+	resetRequest.Header.Set("Content-Type", "application/json")
+	resetRequest.Header.Set("Origin", r.origin)
+	resetRequest.Header.Set("Idempotency-Key", r.keyPrefix+"interrupted-reset")
+	for _, cookie := range r.jar.Cookies(resetRequest.URL) {
+		if cookie.Name == "__csrf" {
+			resetRequest.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	resetDone := make(chan error, 1)
+	go func() {
+		response, err := (&http.Client{Jar: r.jar}).Do(resetRequest)
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		resetDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("reset did not reach locked upstream recheck")
+	}
+	var prepared bool
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT reset_intent->>'id'=$2 AND reset_intent->>'settled' IS DISTINCT FROM 'true' FROM github_main_pulls WHERE repository_id=$1`, repository, attention.ID).Scan(&prepared))
+	require.True(t, prepared)
+	var overtook bool
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('github_main_operation:' || $1::text,0))`, fmt.Sprint(repository)).Scan(&overtook))
+	require.False(t, overtook, "reset retains its repository claim through the locked write")
+	// Retry acknowledges while reset owns the repository operation fence.
+	// The admitted poll cannot overtake the reset or load the rewritten code.
+	_, err = r.expect("POST", "/api/github/sync", `{}`, 202)
+	require.NoError(t, err)
+	mergeDone := make(chan error, 1)
+	mergeRequest, err := http.NewRequestWithContext(t.Context(), "POST", r.origin+"/api/todos/1/merge", strings.NewReader(fmt.Sprintf(`{"reviewed_head_sha":%q}`, old)))
+	require.NoError(t, err)
+	mergeRequest.Header = resetRequest.Header.Clone()
+	mergeRequest.Header.Set("Idempotency-Key", r.keyPrefix+"reset-racing-merge")
+	go func() {
+		response, err := (&http.Client{Jar: r.jar, Timeout: 30 * time.Second}).Do(mergeRequest)
+		if response != nil {
+			if response.StatusCode != 409 {
+				err = fmt.Errorf("racing merge returned HTTP %d", response.StatusCode)
+			}
+			_ = response.Body.Close()
+		}
+		mergeDone <- err
+	}()
+	var prematureLoads int
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE request_id LIKE $1`, fmt.Sprintf("flow-load:%d:%%:%s", repository, latest)).Scan(&prematureLoads))
+	require.Zero(t, prematureLoads)
+	cancelRequest()
+	require.Error(t, <-resetDone)
+	require.Eventually(t, func() bool {
+		var unlocked bool
+		err := r.pool.QueryRow(t.Context(), `SELECT pg_try_advisory_xact_lock(hashtextextended('github_main_operation:' || $1::text,0))`, fmt.Sprint(repository)).Scan(&unlocked)
+		return err == nil && unlocked
+	}, 10*time.Second, 20*time.Millisecond, "cancelled HTTP reset releases its repository claim before upstream replies")
+	close(release)
+	released = true
+	require.NoError(t, <-mergeDone)
+	r.stopBackend()
+	// The interrupted locked write must not move main. Recomposition folds
+	// the actual production intent at old, retaining the owner's attention.
+	observed, err = r.repoClient.GetBookmark(t.Context(), "rehearsal-owner", "app", "main")
+	require.NoError(t, err)
+	require.Equal(t, old, observed.TargetCommitID)
+	r.restartBackend()
+	ctx = r.ctx
+	require.Eventually(t, func() bool {
+		var retired bool
+		err := r.pool.QueryRow(ctx, `SELECT reset_intent IS NULL FROM github_main_pulls WHERE repository_id=$1`, repository).Scan(&retired)
+		return err == nil && retired
+	}, 30*time.Second, 100*time.Millisecond)
+	var stillOpen bool
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT a->>'settled_at' IS NULL FROM mythical_stacks,jsonb_array_elements(attention) a WHERE repository_id=$1 AND a->>'id'=$2`, repository, attention.ID).Scan(&stillOpen))
+	require.True(t, stillOpen)
 	// Fail the settlement transaction after the real locked ref write. The
 	// committed intent must be enough for an independently composed worker.
 	_, err = r.pool.Exec(ctx, `CREATE FUNCTION fail_main_reset_settlement() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.reset_intent->>'settled'='true' THEN RAISE EXCEPTION 'reset settlement fault'; END IF; RETURN NEW; END $$; CREATE TRIGGER fail_main_reset_settlement BEFORE UPDATE ON github_main_pulls FOR EACH ROW EXECUTE FUNCTION fail_main_reset_settlement()`)
@@ -137,6 +235,10 @@ func runMainResetProductionInstall(t *testing.T, enable string) {
 	r.stopBackend()
 	_, err = r.pool.Exec(t.Context(), `DROP TRIGGER fail_main_reset_settlement ON github_main_pulls; DROP FUNCTION fail_main_reset_settlement()`)
 	require.NoError(t, err)
+	// Pause only the existing stack consumer's scheduling, so recovery can
+	// commit settlement before a second shutdown loses all in-memory wakes.
+	_, err = r.pool.Exec(t.Context(), `CREATE FUNCTION hold_reset_consumer() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.requested_generation > OLD.requested_generation THEN NEW.next_attempt_at := now()+interval '1 hour'; END IF; RETURN NEW; END $$; CREATE TRIGGER hold_reset_consumer BEFORE UPDATE ON mythical_stacks FOR EACH ROW EXECUTE FUNCTION hold_reset_consumer()`)
+	require.NoError(t, err)
 	r.restartBackend()
 	ctx = r.ctx
 	require.Eventually(t, func() bool {
@@ -144,6 +246,21 @@ func runMainResetProductionInstall(t *testing.T, enable string) {
 		err := r.pool.QueryRow(ctx, `SELECT COALESCE((reset_intent->>'settled')::bool,false) FROM github_main_pulls WHERE repository_id=$1`, repository).Scan(&settled)
 		return err == nil && settled
 	}, 30*time.Second, 100*time.Millisecond)
+	var pendingGeneration int64
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1 AND processed_generation < requested_generation`, repository).Scan(&pendingGeneration))
+	var undispatched int
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE request_id LIKE $1`, fmt.Sprintf("flow-load:%d:%%:%s", repository, latest)).Scan(&undispatched))
+	require.Zero(t, undispatched)
+	r.stopBackend()
+	_, err = r.pool.Exec(t.Context(), `DROP TRIGGER hold_reset_consumer ON mythical_stacks; DROP FUNCTION hold_reset_consumer()`)
+	require.NoError(t, err)
+	_, err = r.pool.Exec(t.Context(), `UPDATE mythical_stacks SET next_attempt_at=now() WHERE repository_id=$1`, repository)
+	require.NoError(t, err)
+	r.restartBackend()
+	ctx = r.ctx
+	var recoveredGeneration int64
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&recoveredGeneration))
+	require.Equal(t, pendingGeneration, recoveredGeneration, "settled reset must not enqueue a second generation")
 
 	observed, err = r.repoClient.GetBookmark(ctx, "rehearsal-owner", "app", "main")
 	require.NoError(t, err)
