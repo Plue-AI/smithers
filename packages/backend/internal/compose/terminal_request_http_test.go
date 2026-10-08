@@ -46,8 +46,10 @@ func TestTerminalRequestThroughComposedInstallHTTP(t *testing.T) {
 }
 
 // This host receipt proves HTTP validation before the asynchronous launch door.
-// Real broker uid/drop, descriptors and token-path races require the mini.
+// The native subtest also checks uid/drop, descriptors and token-path races;
+// it requires an approved bundle and never substitutes the fixture runtime.
 func TestTerminalRootInputsValidatedBeforeUse(t *testing.T) {
+	t.Run("approved bundle real broker", TestInstalledMemberTerminalAndSSHChain)
 	testTerminalRequestHTTP(t, true)
 }
 
