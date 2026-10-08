@@ -75,17 +75,25 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 		return rejected, nil
 	}
 	var repository int64
-	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&repository); err != nil {
+	var target string
+	if err = tx.QueryRow(ctx, `SELECT repository_id,target_bookmark FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&repository, &target); err != nil {
 		return ack, err
 	}
 	if repository != binding.Scope.RepositoryID {
 		return rejected, nil
 	}
+	// Entries go where members read and write that machine's conversation:
+	// the branch's own, or main's for a machine on main. This is the rule the
+	// history and prompt routes resolve a branch by (conversationBranchResolver).
+	conversation := branch
+	if target == "main" {
+		conversation = "main"
+	}
 	// Reuse the store's membership fence before exposing bytes to an adapter.
 	// The held row locks keep revocation serialized through receipt commit,
 	// including bookkeeping records that produce no conversation entries.
 	// A removed owner's records are never imported; what was shared stays.
-	if err = s.Store.ImportExternalTx(ctx, tx, binding.Scope, branch, nil); errors.Is(err, chat.ErrForbidden) {
+	if err = s.Store.ImportExternalTx(ctx, tx, binding.Scope, conversation, nil); errors.Is(err, chat.ErrForbidden) {
 		return rejected, nil
 	} else if err != nil {
 		return ack, err
@@ -114,7 +122,7 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 			return ack, chat.ErrInvalidFrame
 		}
 	}
-	if err = s.Store.ImportExternalTx(ctx, tx, binding.Scope, branch, drafts); err != nil {
+	if err = s.Store.ImportExternalTx(ctx, tx, binding.Scope, conversation, drafts); err != nil {
 		return ack, err
 	}
 	ack.Outcome = machined.AckApplied

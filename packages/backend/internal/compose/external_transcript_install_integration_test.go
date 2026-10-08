@@ -268,6 +268,44 @@ func TestInstallTranscriptPumpImportsMembersOwnSessions(t *testing.T) {
 	require.Equal(t, "alice", entries[len(entries)-1].Actor.ForMember.Login)
 	require.Equal(t, imported, count(`SELECT count(*) FROM machine_event_receipts WHERE outcome='applied'`))
 
+	// A machine on main has no conversation of its own: what an agent says
+	// there is read where members read and write main's.
+	var machines int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM users WHERE username='smithers-machines'`).Scan(&machines))
+	onMain, err := db.New(pool).CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: fixture.repo.ID, UserID: machines, Name: "main-machine", TargetBookmark: "main", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	mainBoot, err := fixture.registry.MintBoot(onMain.ID, "vm-main")
+	require.NoError(t, err)
+	mainLink, mainPeer := externalTranscriptLink(t, fixture.registry, onMain.ID, mainBoot)
+	require.NoError(t, mainPeer.SetDeadline(time.Now().Add(60*time.Second)))
+	var uid uint32
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, fixture.ben.ID).Scan(&uid))
+	require.NoError(t, sessions.Record(ctx, onMain.ID, mainLink.BootID(), 1, machined.SessionUser{Login: "ben", UID: uid}, "terminal"))
+	mainClaude := &process{session: 1, participant: [16]byte{0xb9}, source: [16]byte{0xc9}, profile: "claude-code/2.1", generation: 1}
+	for index, record := range recordedTranscript(t, "claude-code-signed-out-2.1", "session.jsonl") {
+		outcome, err := deliver(mainPeer, mainClaude, record)
+		require.NoError(t, err, "record %d", index+1)
+		require.Equal(t, machined.AckApplied, outcome, "record %d", index+1)
+	}
+	imported += 19
+	var onMainEntries []externalMessage
+	var read struct {
+		Entries []externalMessage `json:"entries"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(fixture.call("GET", "/api/conversations/main", "", fixture.aliceCookie, 200)), &read))
+	for _, entry := range read.Entries {
+		if entry.Origin == "external" {
+			onMainEntries = append(onMainEntries, entry)
+		}
+	}
+	require.Len(t, onMainEntries, 2)
+	require.Equal(t, "Create sample.txt containing the word alpha, then print it.", onMainEntries[0].Text)
+	require.Equal(t, id(mainClaude.participant), onMainEntries[1].Participant)
+	require.Equal(t, "ben", onMainEntries[1].Actor.ForMember.Login)
+	// The branch's own conversation did not gain them.
+	require.Len(t, external(fixture.benCookie), len(entries))
+	entries = append(entries, onMainEntries...)
+
 	// Importing queued no turn, ran nothing, and left every entry terminal and
 	// refused to both members' mutations.
 	select {

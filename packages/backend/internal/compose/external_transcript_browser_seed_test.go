@@ -18,9 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// browserSeed is the file the app's C-AGT-01 browser check serves as the
-// branch conversation. It is this install's real answer for the recorded
-// captures, so the browser renders what a member's browser would receive.
+// browserSeed is the recorded response the app-tier C-AGT-01 test serves in
+// place of an install. This test keeps it equal to what the import pipeline
+// answers for the recorded captures. The check that reads a real composed
+// install is TestExternalTranscriptBrowserPostgres.
 const browserSeed = "apps/app/src/mainview/state/testdata/external-recorded-conversation.json"
 
 // The conversation a signed-in member reads after the install imports the
