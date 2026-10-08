@@ -24,10 +24,14 @@ import (
 // (Darwin allows a socket path 104 bytes), with the install state inside.
 func ownerHome(t *testing.T) (home, state string) {
 	t.Helper()
-	home, err := os.MkdirTemp("/tmp", "ins07-")
+	base, err := os.UserHomeDir()
+	require.NoError(t, err)
+	home, err = os.MkdirTemp(base, ".ins07-")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(home)) })
 	home, err = filepath.EvalSymlinks(home)
+	require.NoError(t, err)
+	_, err = installbundle.ProtectedDirectory("owner home", home)
 	require.NoError(t, err)
 	t.Setenv("HOME", home)
 	state = filepath.Join(home, "Library/Application Support/Smithers")

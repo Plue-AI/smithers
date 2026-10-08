@@ -67,15 +67,7 @@ func TestMaintenanceDispatchCoordinatorsRefuseMissingProviders(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("installing user required")
 	}
-	// The owner socket is HOME/Library/Application Support/Smithers/run/host.sock,
-	// 51 bytes below HOME, and Darwin allows a socket path 104. The default
-	// temporary directory alone is 49 bytes there, so HOME takes a short one.
-	home, err := os.MkdirTemp("/tmp", "ins07-")
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, os.RemoveAll(home)) })
-	t.Setenv("HOME", home)
-	state := filepath.Join(home, "Library/Application Support/Smithers")
-	require.NoError(t, os.MkdirAll(state, 0700))
+	_, state := ownerHome(t)
 	sentinel := filepath.Join(state, "sentinel")
 	require.NoError(t, os.WriteFile(sentinel, []byte("unchanged-live-state"), 0640))
 	var checks atomic.Int32

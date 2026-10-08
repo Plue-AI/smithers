@@ -221,6 +221,15 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 							default:
 								service.Barriers[missing] = absent
 							}
+							// Backup preflight must reject the same missing authority
+							// before the CLI can stage files or request a freeze.
+							response, err := client.Get("http://install/maintenance/backup/check")
+							require.NoError(t, err)
+							refusal, err := io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 503, response.StatusCode, missing)
+							require.Contains(t, string(refusal), "quiesce unavailable: "+want+" required")
 							status, body = post(`{"op":"missing-provider"}`)
 							require.Equal(t, 503, status, missing)
 							require.Contains(t, string(body), "quiesce unavailable: "+want+" required")
