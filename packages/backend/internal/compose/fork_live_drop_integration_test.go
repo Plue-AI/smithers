@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -15,7 +16,19 @@ import (
 // worker compose Fork/Add with live Drop. The process rehearsal does not
 // qualify member terminals, SSH continuity or microVM isolation.
 func TestForkAddLiveDropComposedInstall(t *testing.T) {
-	r := newRehearsal(t, "SMITHERS_TODO_DROP_REHEARSAL", "C-J7-02", "fork-live-drop-")
+	testForkAddLiveDrop(t, "SMITHERS_TODO_DROP_REHEARSAL")
+}
+
+func TestForkAddLiveDropInstalledMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_TODO_DROP_MICROVM") != "1" {
+		t.Skip("set SMITHERS_TODO_DROP_MICROVM=1 and SMITHERS_CHECK_BUNDLE")
+	}
+	t.Setenv(pinnedMicroVMRehearsal, "1")
+	testForkAddLiveDrop(t, pinnedMicroVMRehearsal)
+}
+
+func testForkAddLiveDrop(t *testing.T, enable string) {
+	r := newRehearsal(t, enable, "C-J7-02", "fork-live-drop-")
 	if !r.install("Install through Machine ready") {
 		return
 	}

@@ -118,6 +118,12 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     await attachJson(info, "adopted-source-before-drop", adoptedBytes)
     expect(adoptedBytes.content).toEqual(scratchBytes.content)
     expect(closed).toBe(false)
+    // An attached DOM node or an unclosed socket alone cannot prove that
+    // adoption preserved the guest's live member session.
+    await terminal.locator(".xterm-helper-textarea").focus()
+    await page.keyboard.type("printf '\\nJ7_SESSION_%s\\n' ADOPTED")
+    await page.keyboard.press("Enter")
+    await expect.poll(() => output, { timeout: 30_000 }).toMatch(/\r?\nJ7_SESSION_ADOPTED\r?\n/)
     await runSlash(page, "/todo.drop T2")
     await page.getByRole("button", { name: "Drop", exact: true }).last().press("Enter")
     await expect.poll(async () => (await f.read("Ben", "/api/todos/2")).state, { timeout: 180_000 }).toBe("dropped")
@@ -134,6 +140,10 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     await attachJson(info, "adopted-source-after-drop", afterDropBytes)
     expect(afterDropBytes.content).toEqual(scratchBytes.content)
     expect(closed).toBe(false)
+    await terminal.locator(".xterm-helper-textarea").focus()
+    await page.keyboard.type("printf '\\nJ7_SESSION_%s\\n' DROPPED_SOURCE")
+    await page.keyboard.press("Enter")
+    await expect.poll(() => output, { timeout: 30_000 }).toMatch(/\r?\nJ7_SESSION_DROPPED_SOURCE\r?\n/)
     await expect(page.getByRole("button", { name: "Replace T2", exact: true })).toHaveCount(0)
     await expect.poll(async () => (await f.read("Ben", "/api/todos/4")).state, { timeout: 120_000 }).toBe("working")
     await attachJson(info, "dispatch", requests)
