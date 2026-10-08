@@ -204,16 +204,31 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							// The retained caller must observe stack.propose's settled
 							// receipt before a person can merge. Use the original run's
 							// authenticated production door, never clear proposal_run in SQL.
-							request, err := http.NewRequest("POST", r.origin+path, strings.NewReader(body))
-							require.NoError(t, err)
-							request.Header.Set("Authorization", bearer)
-							request.Header.Set("Content-Type", "application/json")
-							response, err := http.DefaultClient.Do(request)
-							require.NoError(t, err)
-							receipt, err := io.ReadAll(response.Body)
-							require.NoError(t, err)
-							require.NoError(t, response.Body.Close())
-							require.Equal(t, http.StatusOK, response.StatusCode, string(receipt))
+							ackCtx, cancelAck := context.WithTimeout(t.Context(), 60*time.Second)
+							defer cancelAck()
+							var ackStatus int
+							var receipt []byte
+							var ackErr error
+							require.Eventually(t, func() bool {
+								request, err := http.NewRequestWithContext(ackCtx, "POST", r.origin+path, strings.NewReader(body))
+								if err != nil {
+									ackErr = err
+									return false
+								}
+								request.Header.Set("Authorization", bearer)
+								request.Header.Set("Content-Type", "application/json")
+								response, err := http.DefaultClient.Do(request)
+								if err != nil {
+									ackErr = err
+									return false
+								}
+								ackStatus = response.StatusCode
+								receipt, ackErr = io.ReadAll(response.Body)
+								closeErr := response.Body.Close()
+								return ackErr == nil && closeErr == nil && ackStatus == http.StatusOK
+							}, 60*time.Second, 20*time.Millisecond, "the published proposal must settle before Merge")
+							require.NoError(t, ackErr)
+							require.Equal(t, http.StatusOK, ackStatus, string(receipt))
 							require.JSONEq(t, fmt.Sprintf(`{"generation":%d,"head":%q}`, generation, published), string(receipt))
 							card, err := r.todo(number)
 							require.NoError(t, err)
