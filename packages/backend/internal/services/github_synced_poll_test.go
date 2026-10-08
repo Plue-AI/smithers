@@ -318,6 +318,7 @@ func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "proposed"})
 	require.NoError(t, err)
 	item.PRNumber = pgtype.Int8{Int64: 7, Valid: true}
+	item.NextAttemptAt = pgtype.Timestamptz{Time: s.now().Add(45 * time.Second), Valid: true}
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	main := NewGitHubMainPullService(q, nil, nil, nil)
@@ -358,7 +359,27 @@ func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
 	streams, err := s.RequiredStreams(ctx)
 	require.NoError(t, err)
 	require.Len(t, streams, 6)
-	require.Equal(t, "stale", aggregateGitHubSyncHealth(streams, s.now()).State, "unread TODO must not appear fresh")
+	health := aggregateGitHubSyncHealth(streams, s.now())
+	require.Equal(t, "fresh", health.State, "new TODO has one first-poll interval")
+	require.Equal(t, s.now(), *health.LastSuccessAt, "new stream retains the repository receipt")
+	require.WithinDuration(t, time.Unix(1045, 1), health.staleAt, 0, "timer must expire the first-poll grace")
+	f.clock.Store(1045)
+	streams, err = s.RequiredStreams(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "fresh", aggregateGitHubSyncHealth(streams, s.now()).State, "deadline is inclusive")
+	f.clock.Store(1046)
+	streams, err = s.RequiredStreams(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(streams, s.now()).State, "late unread TODO is stale")
+	f.clock.Store(1000)
+	for _, resource := range []string{"checks", "reviews"} {
+		facts, err := stack.requiredInstallPullResources(ctx, f.row, resource)
+		require.NoError(t, err)
+		require.Len(t, facts, 1)
+		withReceipt := append(facts, GitHubSyncStream{LastSuccessAt: health.LastSuccessAt})
+		require.Equal(t, "fresh", aggregateGitHubSyncHealth(withReceipt, s.now()).State, resource)
+		require.Equal(t, "stale", aggregateGitHubSyncHealth(withReceipt, s.now().Add(46*time.Second)).State, resource)
+	}
 	for _, stream := range streams[:5] {
 		require.NotNil(t, stream.LastSuccessAt)
 	}

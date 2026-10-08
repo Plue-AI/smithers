@@ -26,6 +26,7 @@ type GitHubSyncHealth struct {
 // A transport failure leaves LastSuccessAt intact; only permission and
 // not_installed are refusals. RetryAt includes the shared budget pause.
 type GitHubSyncStream struct {
+	FirstPollDue  time.Time
 	Background    bool
 	Target        time.Duration
 	LastSuccessAt *time.Time
@@ -342,8 +343,15 @@ func aggregateGitHubSyncHealth(streams []GitHubSyncStream, now time.Time) GitHub
 	stale := false
 	for _, stream := range streams {
 		if !stream.Background && stream.LastSuccessAt == nil {
-			missing = true
-		} else if !stream.Background && (health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt)) {
+			if stream.Cause != "" || stream.FirstPollDue.IsZero() || now.After(stream.FirstPollDue) {
+				missing = true
+			} else {
+				boundary := stream.FirstPollDue.Add(time.Nanosecond)
+				if health.staleAt.IsZero() || boundary.Before(health.staleAt) {
+					health.staleAt = boundary
+				}
+			}
+		} else if !stream.Background && stream.LastSuccessAt != nil && (health.LastSuccessAt == nil || stream.LastSuccessAt.Before(*health.LastSuccessAt)) {
 			at := *stream.LastSuccessAt
 			health.LastSuccessAt = &at
 		}

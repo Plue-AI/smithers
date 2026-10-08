@@ -37,6 +37,11 @@ func TestGitHubSyncHealth(t *testing.T) {
 		{"network", []GitHubSyncStream{{LastSuccessAt: at(121 * time.Second), Cause: "network"}}, "stale", "", at(121 * time.Second), nil},
 		{"no streams", nil, "stale", "", nil, nil},
 		{"missing success", []GitHubSyncStream{{}, {LastSuccessAt: at(time.Second)}}, "stale", "", nil, nil},
+		{"new stream", []GitHubSyncStream{{FirstPollDue: future}, {LastSuccessAt: at(time.Second)}}, "fresh", "", at(time.Second), nil},
+		{"first poll due", []GitHubSyncStream{{FirstPollDue: now}, {LastSuccessAt: at(time.Second)}}, "fresh", "", at(time.Second), nil},
+		{"first poll late", []GitHubSyncStream{{FirstPollDue: expired}, {LastSuccessAt: at(time.Second)}}, "stale", "", nil, nil},
+		{"new stream cannot hide late receipt", []GitHubSyncStream{{FirstPollDue: future}, {LastSuccessAt: at(121 * time.Second)}}, "stale", "", at(121 * time.Second), nil},
+		{"failed first poll", []GitHubSyncStream{{FirstPollDue: future, Cause: "network"}, {LastSuccessAt: at(time.Second)}}, "stale", "", nil, nil},
 		{"future clock", []GitHubSyncStream{{LastSuccessAt: &future}}, "fresh", "", &future, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

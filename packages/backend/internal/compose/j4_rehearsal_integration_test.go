@@ -953,30 +953,19 @@ func TestJ4Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("T%d alone ready; PR #%d head %s rebased onto %s, changes %v, one ready-for-review write", t2, pr2, pull.Head.SHA, main, files)
 		return nil
 	})
-	r.step("18 main row synced", "GET /api/github/sync each 1 s up to one poll; GET /api/live (home) main row; GET /api/github/sync", "fresh within one poll (60 s); Home's main row carries a last_success_at the sync served, within one poll, so 'synced N s ago' is that age and not gold", "T-GH-02", func() error {
+	r.step("18 main row synced", "GET /api/github/sync immediately; GET /api/live (home) main row; GET /api/github/sync", "fresh immediately; Home's main row carries a last_success_at the sync served, without waiting for a poll, so 'synced N s ago' is that age and not gold", "T-GH-02", func() error {
 		if liveErr != nil {
 			return liveErr
 		}
-		// A PR the stack just opened or moved is a required stream GitHub has
-		// not been read for yet: the sync reads stale, with no last success,
-		// until its next poll. The row records that wait.
 		began := time.Now()
-		var health map[string]any
-		var before time.Time
-		for {
-			var err error
-			if health, before, err = r.syncHealth(); err != nil {
-				return err
-			}
-			if health["state"] == "fresh" && !before.IsZero() && time.Since(before) <= time.Minute {
-				break
-			}
-			if time.Since(began) > time.Minute {
-				return fmt.Errorf("sync %v, last success %v, not fresh within one poll", health["state"], health["last_success_at"])
-			}
-			time.Sleep(time.Second)
+		health, before, err := r.syncHealth()
+		waited := time.Since(began) // Keep request latency as a diagnostic, with no poll wait.
+		if err != nil {
+			return err
 		}
-		waited := time.Since(began)
+		if health["state"] != "fresh" || before.IsZero() || time.Since(before) > 2*time.Minute {
+			return fmt.Errorf("sync %v, last success %v, want fresh immediately", health["state"], health["last_success_at"])
+		}
 		type mainRow struct {
 			LastSuccessAt string `json:"last_success_at"`
 			Health        string `json:"health"`
@@ -1065,4 +1054,51 @@ type j4Receipt struct {
 type j4Merge struct {
 	N   int64 `json:"n"`
 	Seq int64 `json:"seq"`
+}
+
+// Exercise the served install status without depending on a coding run reaching
+// review. The PR binding and first-read deadline are durable stack facts.
+func TestJ4SyncFirstPollGrace(t *testing.T) {
+	r := newRehearsal(t, "SMITHERS_J4_REHEARSAL", "C-J4-sync", "j4-sync-")
+	if !r.install("0 Install through Machine ready") {
+		return
+	}
+	deadline := time.Now().Add(time.Minute)
+	for {
+		health, success, err := r.syncHealth()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if health["state"] == "fresh" && !success.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("initial repository sync did not finish: %v", health)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	number, err := r.file("First poll", "[ASK] Wait for the owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET state='proposed', pr_number=999, pr_state='open', paused_at=now(), next_attempt_at=now()+interval '45 seconds' WHERE number=$1`, number); err != nil {
+		t.Fatal(err)
+	}
+	health, success, err := r.syncHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health["state"] != "fresh" || success.IsZero() {
+		t.Fatalf("new PR must retain fresh receipt immediately: %v", health)
+	}
+	if _, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET next_attempt_at=now()-interval '1 second' WHERE number=$1`, number); err != nil {
+		t.Fatal(err)
+	}
+	health, _, err = r.syncHealth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if health["state"] != "stale" {
+		t.Fatalf("late first PR poll must be stale: %v", health)
+	}
 }

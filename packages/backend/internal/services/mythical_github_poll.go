@@ -271,7 +271,15 @@ func (s *MythicalService) requiredInstallPullResources(ctx context.Context, row 
 			return nil, err
 		}
 		for _, item := range items {
-			streams = append(streams, s.installGitHubSync.syncStreamObservation(row, resource+"/"+strconv.FormatInt(item.PRNumber.Int64, 10), resource))
+			stream := s.installGitHubSync.syncStreamObservation(row, resource+"/"+strconv.FormatInt(item.PRNumber.Int64, 10), resource)
+			// Publication schedules the first read on the existing follow loop.
+			// Use its durable deadline, never the time health was requested.
+			if item.NextAttemptAt.Valid {
+				stream.FirstPollDue = item.NextAttemptAt.Time
+			} else if item.CreatedAt.Valid {
+				stream.FirstPollDue = item.CreatedAt.Time.Add(s.pullPollEvery())
+			}
+			streams = append(streams, stream)
 		}
 	}
 	return streams, nil
