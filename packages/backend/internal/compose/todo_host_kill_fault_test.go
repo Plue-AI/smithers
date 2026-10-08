@@ -36,10 +36,11 @@ func TestTodoHostKillThroughInstall(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_TODO_HOST_KILL", "C-DUR-01", "host-kill-", 25)
 	require.True(t, r.install("Install through Machine ready"))
 	t.Run("host-keyless-crossing", func(t *testing.T) {
-		counter := filepath.Join(t.TempDir(), "crossings")
+		counter := ".smithers-host-fault-crossings"
 		source := fmt.Sprintf(`import { Action, Flow } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
 import { appendFileSync } from "node:fs"
+const marker = process.argv[process.argv.indexOf("--root") + 1] + "/" + %q
 const Step = Action.make("fault/host-crossing", {
  payload: {}, success: Schema.String, error: Action.IrreversibleRetryRequiresIdempotencyKey,
  tier: "sealed", idempotencyKey: "host-crossing/v1", implementationVersion: "1"
@@ -47,11 +48,11 @@ const Step = Action.make("fault/host-crossing", {
 export const layer = Step.toLayer(() => Effect.gen(function*() {
  yield* Action.make({ name: "fault/completed", success: Schema.String,
   tier: "sealed", idempotencyKey: "completed/v1", implementationVersion: "1",
-  execute: Effect.sync(() => { appendFileSync(%q, "completed\n"); return "done" }) })
+  execute: Effect.sync(() => { appendFileSync(marker, "completed\n"); return "done" }) })
  return yield* Action.make({ name: "fault/keyless", success: Schema.String,
   error: Action.IrreversibleRetryRequiresIdempotencyKey,
   tier: "irreversible", idempotencyKey: undefined, implementationVersion: "1",
-  execute: Effect.sync(() => { appendFileSync(%q, "keyless\n") }).pipe(Effect.andThen(Effect.never)) })
+  execute: Effect.sync(() => { appendFileSync(marker, "keyless\n") }).pipe(Effect.andThen(Effect.never)) })
 }), { implementationVersion: "1" })
 export default Flow.make("todo", {
  description: "Hold a keyless crossing", capabilities: ["*"], modelInvocable: false,
@@ -59,11 +60,26 @@ export default Flow.make("todo", {
  payload: {}, success: Schema.String, error: Action.IrreversibleRetryRequiresIdempotencyKey,
  body: () => Step.call({})
 })
-`, counter, counter)
+`, counter)
 		_, digest := activateWatchdogOverride(t, r, source)
 		number, err := r.file("Recover a killed host", "Hold at a recorded crossing.")
 		require.NoError(t, err)
-		readCrossings := func() string { raw, _ := os.ReadFile(counter); return string(raw) }
+		t.Cleanup(func() {
+			if t.Failed() {
+				status, card, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
+				t.Logf("host fault TODO: HTTP %d %s; error: %v", status, card, err)
+			}
+		})
+		currentWorkspace := func() string {
+			var workspace string
+			_ = r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1 AND repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')`, number).Scan(&workspace)
+			return workspace
+		}
+		readWorkspaceCrossings := func(workspace string) string {
+			raw, _ := r.processRuntime.ReadFile(r.ctx, workspace, counter)
+			return string(raw)
+		}
+		readCrossings := func() string { return readWorkspaceCrossings(currentWorkspace()) }
 		require.Eventually(t, func() bool { return readCrossings() == "completed\nkeyless\n" }, 3*time.Minute, 100*time.Millisecond)
 		before, err := r.todo(number)
 		require.NoError(t, err)
@@ -75,9 +91,10 @@ export default Flow.make("todo", {
 		host, err := r.processRuntime.InspectService(r.ctx, workspace, service)
 		require.NoError(t, err)
 		require.Positive(t, host.PID)
-		// This PID is the service started by this rehearsal, never a host-wide search.
-		require.NoError(t, syscall.Kill(host.PID, syscall.SIGKILL))
+		// Kill the owned service group, including its namespace wrapper and host.
+		require.NoError(t, syscall.Kill(-host.PID, syscall.SIGKILL))
 		t.Log("CRASH-POINT host-keyless-crossing subject todo")
+		r.restartBackend()
 		failed, err := r.waitTodoWithin(number, 3*time.Minute, "failed")
 		require.NoError(t, err)
 		require.NotNil(t, failed.FlowVersion)
@@ -100,7 +117,12 @@ export default Flow.make("todo", {
 			require.NoError(t, err)
 			require.Equal(t, 202, status, string(receipt))
 		}
-		require.Eventually(t, func() bool { return readCrossings() == "completed\nkeyless\ncompleted\nkeyless\n" }, 3*time.Minute, 100*time.Millisecond)
+		// Retry creates a fresh branch machine. Count the new attempt's writes
+		// on its own disk rather than expecting it to append to the old disk.
+		require.Eventually(t, func() bool {
+			return currentWorkspace() != workspace && readCrossings() == "completed\nkeyless\n"
+		}, 3*time.Minute, 100*time.Millisecond)
+		require.Equal(t, "completed\nkeyless\n", readWorkspaceCrossings(workspace), "the first attempt's writes must remain unchanged")
 		retried, err := r.todo(number)
 		require.NoError(t, err)
 		require.NotNil(t, retried.Run)
