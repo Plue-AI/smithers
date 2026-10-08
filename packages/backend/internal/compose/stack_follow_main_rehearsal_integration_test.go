@@ -31,6 +31,15 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	card, err := r.j10Card(second)
 	require.NoError(t, err)
 	pr, oldHead := card.PR.Number, card.PR.Head
+	var reviewedRun, verdict string
+	var launches int64
+	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT COALESCE(checks->'review'->>'runId',''),COALESCE(checks->'review'->>'verdict',''),COALESCE((checks->>'launches')::bigint,0) FROM mythical_items WHERE number=$1`, second).Scan(&reviewedRun, &verdict, &launches))
+		if verdict == "approve" && reviewedRun != "" {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "second TODO has no settled review")
+	}
 	// Review releases the coding lane after its durable native capture. The
 	// retained branch remains the item's authority while its machine sleeps.
 	var workspace string
@@ -103,6 +112,19 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 			require.Equal(t, before.Verifies+1, after.Verifies)
 			require.True(t, after.Verified)
 			require.Equal(t, pr, card.PR.Number)
+			var reusedRun, reviewedHead, reviewedCandidate, patchID string
+			var afterLaunches int64
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT COALESCE(checks->'review'->>'runId',''),COALESCE(checks->'review'->'rebase'->>'head',checks->'review'->>'head',''),COALESCE(checks->'review'->'rebase'->>'candidate',checks->'review'->>'candidate',''),COALESCE(checks->'review'->'rebase'->>'patchId',''),COALESCE((checks->>'launches')::bigint,0) FROM mythical_items WHERE number=$1`, second).Scan(&reusedRun, &reviewedHead, &reviewedCandidate, &patchID, &afterLaunches))
+			if reusedRun == "" {
+				require.True(t, time.Now().Before(deadline), "rebased PR has no settled review evidence")
+				time.Sleep(time.Second)
+				continue
+			}
+			require.Equal(t, reviewedRun, reusedRun, "clean rebase reuses the same reviewed own diff")
+			require.Equal(t, launches+1, afterLaunches, "only verification launches after a clean rebase")
+			require.Equal(t, pull.Head.SHA, reviewedHead)
+			require.Equal(t, after.Head, reviewedCandidate)
+			require.Regexp(t, "^[0-9a-f]{40}$", patchID)
 			require.NotContains(t, pull.Body, fmt.Sprintf("[T%d]", first))
 			paths, err := r.githubGit("diff", "--name-only", main, pull.Head.SHA)
 			require.NoError(t, err)

@@ -1,6 +1,8 @@
 package services
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -91,4 +93,20 @@ func TestCleanRebaseRetainsOnlyTheSameReviewedPatch(t *testing.T) {
 	empty, err := f.git.stablePatchID(t.Context(), base, base)
 	require.NoError(t, err)
 	require.Equal(t, "empty", empty)
+}
+
+func TestStableRebasePatchNeverExecutesRepositoryTextconv(t *testing.T) {
+	f := newMythicalFixture(t)
+	sentinel := filepath.Join(t.TempDir(), "outside-sentinel")
+	t.Setenv("SMITHERS_TEST_TEXTCONV_SENTINEL", sentinel)
+	driver := filepath.Join(t.TempDir(), "textconv")
+	require.NoError(t, os.WriteFile(driver, []byte("#!/bin/sh\n: > \"$SMITHERS_TEST_TEXTCONV_SENTINEL\"\ncat \"$1\"\n"), 0700))
+	f.run("config", "core.worktree", f.root)
+	f.run("config", "diff.branch.textconv", driver)
+	base := f.commit("base", map[string]string{".gitattributes": "*.txt diff=branch\n", "code.txt": "before\n"})
+	head := f.commit("candidate", map[string]string{"code.txt": "after\n"})
+	patch, err := f.git.stablePatchID(t.Context(), base, head)
+	require.NoError(t, err)
+	require.Regexp(t, "^[0-9a-f]{40}$", patch)
+	require.NoFileExists(t, sentinel, "host patch identity must not execute a branch-selected helper")
 }
