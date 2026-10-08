@@ -327,12 +327,12 @@ type Handler = (req: IncomingMessage, res: ServerResponse, body: string) => void
 const serve = async (handler: Handler) => {
   const home = await mkdtemp(join(tmpdir(), "smithers-history-"))
   dirs.push(home)
-  const requests: Array<{ method: string; url: string; body: string }> = []
+  const requests: Array<{ method: string; url: string; body: string; request: string | undefined }> = []
   const server = createServer((req, res) => {
     let body = ""
     req.on("data", (chunk) => body += chunk)
     req.on("end", () => {
-      requests.push({ method: req.method!, url: req.url!, body })
+      requests.push({ method: req.method!, url: req.url!, body, request: req.headers["idempotency-key"] as string | undefined })
       handler(req, res, body)
     })
   })
@@ -367,7 +367,7 @@ const serve = async (handler: Handler) => {
       const signals = new EventEmitter()
       started?.(signals)
       await main({
-        argv: [...args, "--repo", "owner/repo", "--audience", "human"],
+        argv: [...args, ...(["stack", "todo"].includes(args[0]!) ? [] : ["--repo", "owner/repo"]), "--audience", "human"],
         env: { ...env },
         stdout: { isTTY: true, columns: 100, write: (text) => void (output += text) },
         stderr: { isTTY: false, columns: 100, write: (text) => void (error += text) },
@@ -556,14 +556,15 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     const snapshot = stack([item("proposed", { pullRequest: { number: 5, url: "https://x.test/5", state: "open" } })])
     const f = await serve((_req, res) => json(res, snapshot))
     try {
-      const shown = await f.run(["history", "show"])
+      const shown = await f.run(["stack"])
       expect(shown.code, shown.error).toBe(0)
-      expect(shown.output).toContain("active · 1/2 lanes\n◆ Needs you 1\n  #12 Fix login · PR open · https://x.test/5")
-      const raw = await f.run(["history", "show", "--json"])
+      expect(shown.output.startsWith("stack\n")).toBe(true)
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("active · 1/2 lanes\n◆ Needs you 1\n  #12 Fix login · PR open · https://x.test/5")
+      const raw = await f.run(["stack", "--json"])
       expect(JSON.parse(raw.output)).toEqual(snapshot)
       expect(f.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
-        "GET /api/repos/owner/repo/mythical",
-        "GET /api/repos/owner/repo/mythical"
+        "GET /api/stack",
+        "GET /api/stack"
       ])
     } finally {
       await f.close()
@@ -589,13 +590,14 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       reason: "The model provider did not answer",
       failure: { kind: "model", fault: "dependency" }
     })
-    const f = await serve((req, res) => items(req, res, [blocked, model]))
+    const f = await serve((req, res) => req.url === "/api/stack" ? json(res, stack([blocked, model])) : void items(req, res, [blocked, model]))
     try {
-      const shown = await f.run(["history", "show"])
+      const shown = await f.run(["stack"])
       expect(shown.code, shown.error).toBe(0)
-      expect(shown.output).toContain("#12 Fix login · blocked · Smithers could not set up a lane after repeated tries")
-      expect(shown.output).toContain("#13 Flaky model · retrying · The model provider did not answer")
-      const raw = await f.run(["history", "show", "--json"])
+      expect(shown.output.startsWith("stack\n")).toBe(true)
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("#12 Fix login · blocked · Smithers could not set up a lane after repeated tries")
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("#13 Flaky model · retrying · The model provider did not answer")
+      const raw = await f.run(["stack", "--json"])
       expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason, failure })
     } finally {
       await f.close()
@@ -604,7 +606,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
 
   it("files a TODO under a request id, and resends the given id so a retry files it once", async () => {
     const f = await serve((req, res) => {
-      if (req.method === "POST" && req.url === "/api/repos/owner/repo/mythical/todos") {
+      if (req.method === "POST" && req.url === "/api/todos") {
         return json(
           res,
           item("queued", { issue: { number: 40, title: "Add dark mode", url: "https://x.test/40" } }),
@@ -614,22 +616,27 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       json(res, { message: "only a maintainer the factory's policy names files a TODO" }, 403)
     })
     try {
-      const filed = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
+      const filed = await f.run(["todo", "new", "--title", "Add dark mode", "--text", "Follow the system theme"])
       expect(filed.code, filed.error).toBe(0)
-      expect(filed.output).toContain("#40 Add dark mode · queued")
-      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
-      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
-      expect((await f.run(["history", "todo", "  "])).code).toBe(2)
-      expect((await f.run(["history", "todo", "x", "--request", "bad id!"])).code).toBe(2)
-      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; body: string; request: string })
-      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(
+      expect(filed.output.startsWith("todo new\n")).toBe(true)
+      expect(itemLine(JSON.parse(filed.output.slice(filed.output.indexOf("\n") + 1)))).toBe("#40 Add dark mode · queued")
+      expect((await f.run(["todo", "new", "--title", "Add dark mode", "--idempotencyKey", "abc-1"])).code).toBe(0)
+      expect((await f.run(["todo", "new", "--title", "Add dark mode", "--idempotencyKey", "abc-1"])).code).toBe(0)
+      const invalidTitle = await f.run(["todo", "new", "--title", "", "--json"])
+      expect(invalidTitle.code, invalidTitle.output).toBe(1)
+      expect(invalidTitle.output).toContain("title")
+      const invalidRequest = await f.run(["todo", "new", "--title", "x", "--idempotencyKey", "", "--json"])
+      expect(invalidRequest.code, invalidRequest.output).toBe(1)
+      expect(invalidRequest.output).toContain("idempotencyKey")
+      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; prompt: string; place: { mode: string } })
+      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/todos")).toBe(
         true
       )
       expect(sent).toHaveLength(3)
-      expect(sent[0]).toMatchObject({ title: "Add dark mode", body: "Follow the system theme" })
-      expect(sent[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
-      expect(sent[1]!.request).toBe("abc-1")
-      expect(sent[2]!.request).toBe("abc-1")
+      expect(sent[0]).toMatchObject({ title: "Add dark mode", prompt: "Follow the system theme", place: { mode: "append" } })
+      expect(f.requests[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
+      expect(f.requests[1]!.request).toBe("abc-1")
+      expect(f.requests[2]!.request).toBe("abc-1")
     } finally {
       await f.close()
     }
@@ -664,7 +671,7 @@ describe("backend text in structured formats (#3052)", () => {
       json(res, stack([item("blocked", { issue: { number: 12, title, url: "https://x.test/12" } })]))
     })
     try {
-      for (const args of [["issue", "view", "12"], ["history", "show"]]) {
+      for (const args of [["issue", "view", "12"], ["stack"]]) {
         const result = await f.run([...args, "--format", format])
         expect(result.code, result.error).toBe(0)
         if (args[0] === "issue") expect(result.output).toContain("Fix login")
