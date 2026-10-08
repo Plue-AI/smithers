@@ -13,7 +13,8 @@ import (
 // (distribution/fake-todo-turns.mjs [HOLD t1]), and the owner opens a
 // terminal session on that branch; T2 asks a question, and Claude Code in a
 // terminal on T2's branch answers it with that terminal's delegated
-// credential (delegatedRows). The app door, egress, skill, Confirm and Ben's
+// credential, then asks for a follow-up TODO that waits for the member's
+// Confirm in the app (delegatedRows). The app door, egress, skill and Ben's
 // session rows wait on their lanes and are listed as pending.
 func TestJ6Rehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J6_REHEARSAL", "C-J6", "j6-")
@@ -44,7 +45,7 @@ func TestJ6Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	// T2 asks a question for the delegated rows (11-14); filed now, it
+	// T2 asks a question for the delegated rows (11-16); filed now, it
 	// reaches Needs you while the terminal rows run.
 	t2, filed := r.file("T2 asks", "[ASK] [FILE t2.md] Add a greeting to t2.md")
 	sessionID := ""
@@ -72,7 +73,5 @@ func TestJ6Rehearsal(t *testing.T) {
 	r.terminalRows(branch, sessionID)
 	r.pending("10 Skill discoverable", "guest smthrs --version; SKILL.md files", "the CLI runs and the skill is installed", "T-TRM-02", "guest-cli-skill")
 	r.delegatedRows(t1, t2, filed)
-	r.pending("15 Delegated follow-up", "delegated TODO draft", "202; one private Confirm row; no TODO yet; 403 for anyone else", "T-APP-04", "delegated-confirm")
-	r.pending("16 Ben confirms", "Confirm press", "one TODO at the end of the stack by Claude Code for Ben; a second press creates nothing", "T-APP-04", "delegated-confirm")
 	r.pending("17 Ben's branch session", "POST /api/repos/{o}/{r}/workspace/sessions as maintainer Ben", "201 for Ben; 403 for a non-member", "T-ACC-02", "members")
 }
