@@ -1,8 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { chromium, type BrowserContext, type Page } from "@playwright/test"
-import { awaitBoot } from "../support"
+import { awaitBoot, command, expect } from "../support"
 import { observeAt } from "./reference"
+import { registerKeyboardJourney } from "../support/keyboard-journey-input"
 
 export type ComposedActor = "Will" | "Ben"
 
@@ -35,9 +36,13 @@ export const withComposedInstall = async (body: (install: ComposedInstall) => Pr
   const path = process.env.SMITHERS_JOURNEY_COMPOSED_HOST
   if (!path) throw new Error("SMITHERS_JOURNEY_COMPOSED_HOST names the composed install; run this from its backend driver")
   const host = JSON.parse(readFileSync(path, "utf8")) as Descriptor
+  const theme = process.env.SMITHERS_JOURNEY_THEME
+  if (theme !== undefined && theme !== "light" && theme !== "dark") throw new Error("SMITHERS_JOURNEY_THEME must be light or dark")
   mkdirSync(host.evidence, { recursive: true })
   const browser = await chromium.launch({ headless: true })
   const contexts: BrowserContext[] = []
+  const keyboard = new Map<ComposedActor, ReturnType<typeof registerKeyboardJourney>>()
+  const keep = (name: string, value: unknown) => writeFileSync(join(host.evidence, `${name}.json`), JSON.stringify(value, null, 2))
   try {
     const pages = {} as Record<ComposedActor, Page>
     for (const actor of ["Will", "Ben"] as const) {
@@ -45,17 +50,27 @@ export const withComposedInstall = async (body: (install: ComposedInstall) => Pr
       contexts.push(context)
       await context.addCookies(host.members[actor].map(cookie => ({ ...cookie, url: host.origin, httpOnly: cookie.name !== "__csrf" })))
       const page = await context.newPage()
+      // Supplemental composed-install proof; never reference-host qualification.
+      if (process.env.SMITHERS_JOURNEY_KEYBOARD === "1") {
+        const keys = registerKeyboardJourney(page, host.origin)
+        keyboard.set(actor, keys)
+        await keys.ready()
+      }
       await page.goto(`${host.origin}/${host.repository}`)
       await awaitBoot(page)
+      if (theme && await page.locator("html").getAttribute("data-theme") !== theme) await command(page, "/theme")
+      if (theme) await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
       pages[actor] = page
     }
     await body({
       origin: host.origin, repository: host.repository, pages,
       sql: query => observeAt(host.database, query),
-      keep: (name, value) => writeFileSync(join(host.evidence, `${name}.json`), JSON.stringify(value, null, 2)),
+      keep,
       snapshot: async (name, page) => { await page.screenshot({ path: join(host.evidence, `${name}.png`) }) }
     })
+    for (const keys of keyboard.values()) if (keys.snapshot().inputs.length) keys.finish()
   } finally {
+    for (const [actor, keys] of keyboard) keep(`keyboard-${actor}`, keys.snapshot())
     for (const context of contexts) await context.close()
     await browser.close()
   }

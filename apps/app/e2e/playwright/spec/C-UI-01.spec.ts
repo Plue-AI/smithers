@@ -169,6 +169,8 @@ for (const dismissal of ["Escape", "Control+k"]) test(`C-UI-01: Home order menu 
   await expect(order).toBeFocused()
   await page.keyboard.press("Control+k")
   await expect(page.getByTestId("composer-input")).toBeFocused()
+  expect(await page.getByTestId("composer-input").evaluate(element => getComputedStyle(element).outlineStyle)).toBe("solid")
+  expect(await page.getByTestId("composer-input").evaluate(element => getComputedStyle(element).outlineWidth)).toBe("2px")
   await page.keyboard.press(dismissal)
   await expect(page.getByTestId("composer-input")).toBeHidden()
   await expect(order).toBeFocused()

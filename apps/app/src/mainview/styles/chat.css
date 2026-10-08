@@ -333,6 +333,11 @@
 	box-shadow: var(--shadow-2);
 }
 
+.app-shell .smithers-composer .sui-chat-composer-input:focus-visible {
+	outline: 2px solid var(--ring-border);
+	outline-offset: -2px;
+}
+
 .app-shell .smithers-composer .sui-chat-composer-input {
 	padding: 0 0 6px;
 	color: var(--text);

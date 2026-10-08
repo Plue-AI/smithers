@@ -10,6 +10,7 @@ import { flowAction, flowProps } from "./flows/FlowAction"
 import { actionForKey } from "./flows/SearchQuery"
 import type { PaletteDecision,PaletteRow } from "./SearchPalette"
 import { paletteKey,PaletteOverlay,paletteRows } from "./SearchPalette"
+import { restoreComposerFocus } from "./runtime/ComposerFocus"
 
 /** Stable Playwright handle; spread past ChatComposer's excess-property check. */
 const COMPOSER_INPUT_TEST_ID: Record<string, string> = { "data-testid": "composer-input" }
@@ -85,7 +86,17 @@ export function Composer({
   const focusedOpen = useRef(false)
   const bindInput = (node: HTMLTextAreaElement | null) => {
     inputRef.current = node
-    if (!paletteOpen) focusedOpen.current = false
+    if (!paletteOpen && node) {
+      if (focusedOpen.current) {
+        const doc = node.ownerDocument
+        // Slash submission closes the overlay too. Return focus during that
+        // commit, unless the command already handed it to its form or card.
+        if (doc.activeElement === doc.body || doc.activeElement?.closest(".composer-wrap")) {
+          restoreComposerFocus(doc, doc.querySelector<HTMLButtonElement>('.app-chat-controls [data-flow="chat.open"]'))
+        }
+      }
+      focusedOpen.current = false
+    }
     else if (node && !focusedOpen.current) {
       focusedOpen.current = true
       node.focus()

@@ -128,7 +128,8 @@ C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
 ordered steps, Address admission, product words and reload. The full install check remains fixme.
 
 C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
-Escape and Control+K now restore the originating Home control; these two
+Escape and Control+K restore the originating Home control and check the
+composer's visible outline; these two
 Chromium cases are supplemental. The full journey fixme and reference-host
 qualification remain pending.
 

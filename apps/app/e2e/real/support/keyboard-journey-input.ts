@@ -4,6 +4,12 @@ import { assertKeyboardFocus, assertKeyboardOnly, installKeyboardOnly, installNa
 /** Placement labels include the live TODO title. Match its numbered prefix at
  * a word boundary, never Before T2 against Before T20. Exact labels win. */
 const optionLabel = async (target: Locator, label: string): Promise<string> => {
+  // The served placement options can arrive after the Draft first renders.
+  // Match the numbered boundary while waiting, as selectOption does itself.
+  const prefix = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  try {
+    await target.locator("option").filter({ hasText: new RegExp(`^${prefix}(?:$| )`) }).first().waitFor({ state: "attached", timeout: 5_000 })
+  } catch { throw new Error("Journey option is absent or ambiguous") }
   const options = (await target.locator("option").allTextContents()).map(value => value.trim())
   const exact = options.filter(value => value === label)
   const matches = exact.length ? exact : options.filter(value => value.startsWith(`${label} `))
@@ -23,7 +29,7 @@ export function keyboardJourneyInput(page: Page, origin: string, capture?: () =>
     await ready()
     await target.waitFor({ state: "visible" })
     for (let count = 0; count < 200; count++) {
-      if (await target.evaluate(element => element === document.activeElement)) { await capture?.(); return }
+      if (await target.evaluate(element => element === document.activeElement)) { await observe(); return }
       await page.keyboard.press(process.platform === "darwin" && page.context().browser()?.browserType().name() === "webkit" ? "Alt+Tab" : "Tab")
     }
     throw new Error("C-UI-01 required control is unreachable by Tab")
@@ -40,8 +46,8 @@ export function keyboardJourneyInput(page: Page, origin: string, capture?: () =>
     await observe()
   }
   const select = async (target: Locator, label: string) => {
-    await reach(target)
     const resolved = await optionLabel(target, label)
+    await reach(target)
     // Native select typeahead works on macOS, where Home does not select the first option.
     await page.keyboard.type(resolved)
     const selected = await target.locator("option:checked").textContent()

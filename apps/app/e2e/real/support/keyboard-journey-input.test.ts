@@ -44,8 +44,27 @@ test("Tab traversal types, selects and activates native controls without a point
     expect(await page.getByLabel("Place").inputValue()).toBe("Append")
     const evidence = keys.finish()
     expect(evidence.inputs.every(input => input.result === "allowed")).toBe(true)
-    expect(evidence.focus).toHaveLength(3)
+    expect(evidence.focus).toHaveLength(6)
     expect(JSON.stringify(evidence)).not.toContain("First TODO")
+  } finally { await browser.close(); server.stop(true) }
+}, 30_000)
+
+test("reaching an editor checks its ring before typing and retains a caught failure", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(`
+    <style>:root{--ring-border:rgb(12,34,56)}:focus-visible{outline:2px solid var(--ring-border)}
+      textarea:focus-visible{outline:none}</style>
+    <input aria-label="Chat"><textarea aria-label="File">Original</textarea>
+  `, { headers: { "Content-Type": "text/html" } }) })
+  const browser = await chromium.launch()
+  try {
+    const page = await browser.newPage(), origin = `http://127.0.0.1:${server.port}`
+    await page.goto(origin)
+    const keys = registerKeyboardJourney(page, origin)
+    await journeyEnter(page.getByLabel("Chat"), "Keep focus")
+    await expect(journeyReach(page.getByLabel("File"))).rejects.toThrow("focus is missing")
+    expect(await page.getByLabel("File").inputValue()).toBe("Original")
+    expect(keys.snapshot().focus.at(-1)).toMatchObject({ element: "textarea", outlineStyle: "none" })
+    expect(() => keys.finish()).toThrow("focus is missing")
   } finally { await browser.close(); server.stop(true) }
 }, 30_000)
 

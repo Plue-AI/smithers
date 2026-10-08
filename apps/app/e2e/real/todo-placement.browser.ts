@@ -12,6 +12,7 @@ import { marker, memberRequest, readStack, seedStack } from "./support/seed-stac
 import { runSlash } from "./todo/reference"
 import { withComposedInstall } from "./todo/composed-install"
 import { engineOrder, homeOrder, quote } from "./todo/stack-journey"
+import { journeyActivate, journeyEnter, journeySelect, keyboardInputFor } from "./support/keyboard-journey-input"
 
 const JITTER = "Add a jitter helper"
 
@@ -32,13 +33,12 @@ await withComposedInstall(async f => {
   // A field's accessible name includes its value; find each by its caption.
   const field = (caption: string) => draft.locator("label").filter({ has: ben.locator("span", { hasText: new RegExp(`^${caption}$`) }) })
   const prompt = field("Prompt").locator("textarea")
-  await prompt.fill(JITTER)
-  await prompt.blur()
-  await field("Place").locator("select").selectOption(JSON.stringify({ mode: "before", n: t3 }))
+  await journeyEnter(prompt, JITTER)
+  await journeySelect(field("Place").locator("select"), `Before T${t3}`)
   await expect(field("Place").locator("select")).toHaveValue(JSON.stringify({ mode: "before", n: t3 }))
   expect((await readStack(ben)).map(card => card.n)).not.toContain(expected)
   const filed = ben.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/todos")
-  await draft.getByRole("button", { name: "Commit", exact: true }).click()
+  await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
   const response = await filed
   const receipt = await response.json()
   expect(response.status(), JSON.stringify(receipt)).toBe(202)
@@ -69,5 +69,6 @@ await withComposedInstall(async f => {
     return placed.queue?.position !== undefined && third.queue?.position !== undefined && placed.queue.position < third.queue.position ? "queued ahead" : "pending"
   }, { timeout: 60_000, intervals: [250, 500, 1000] }).not.toBe("pending")
   f.keep("admission-order", admission)
+  await keyboardInputFor(ben)?.observe()
 })
 console.log("PLACEMENT_BROWSER_PASS private Draft placed Before T3 by Ben; Home, API and engine order T1, T2, TN, T3; one todo.created by Ben; TN queued ahead of T3")
