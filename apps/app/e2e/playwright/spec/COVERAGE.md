@@ -53,12 +53,12 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
 | C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | composed-install Chromium: close, reopen, merge and reload; reference guest qualification pending | T-GH-03, T-STK-05, T-MCH-14 |
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts), [review host-contract UI](../review-background.spec.ts) | partial UI contract; named scenario still fixme pending host execution and agent conversation | T-FLW-13, T-MCH-06, T-REL-02 |
-| C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
+| C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | passing-ui-contract; reference-host-pending | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 | C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts); [reference outside-change](../../real/branch-outside-change.spec.ts) | reference execution pending; retained burst Diff and Restore mounted through the real seam; Compare read available; Mac/member/run-trace receipts pending | T-COL-04, T-COL-12, T-APP-10 |
 | C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | Browser contract: 1,000 interleaved edits in two member contexts, real boot and /file dispatcher, shared channel, carets, author colours and durable reload/Reapply; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
 | C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | browser-pass real seam HTTP fixture; composed two-worker Answer/Steer ordering and delegated Amend confirmation pass separately; guest model-turn timing pending reference host | T-STK-06 |
-| C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
+| C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | passing-ui-contract; reference-host-pending | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
@@ -465,3 +465,5 @@ T-APP-04 wave 3 (2026-10-07): `SMITHERS_CONFIRMATION_SETTLEMENT=1 go test ./inte
 T-APP-16 retirement follow-up (#3446): the parity cutover supersedes the temporary private-route restoration above. Shared prompt admission, author-owned Stop and durable replay are the sole reply path; legacy admission returns 404. Chromium Send/Stop button proofs pass shared admission, cancellation and reload without legacy writes. Reference-Mac, microVM and live-model qualification remain pending.
 
 T-APP-10 activity: the composed PostgreSQL sleeping-branch rehearsal opens through the production slash dispatcher, submits Steer and bound Answer from the mounted Branch card, and verifies both authored entries arrive through LiveChannel and render in order. J3’s full rehearsal still refuses the earlier running-branch topic with unsupported; its roster qualification remains separate.
+
+T-COL-06 pass 3: C-J3-01 and C-J3-06 now run through the production install app seam with controlled HTTP/live snapshots (2 Chromium cases passed). They cover participant names/avatars and locations, terminal watching, external-agent departure with the shell retained, clean roster replacement and reload, owner-set SSH clipboard text, remote-save attribution and awake/presence transitions. Real lease timing, authentication, terminal/agent sessions, SSH transports, saved-burst diff and reference-host campaigns remain separate acceptance; these fixture projections do not qualify them. The real SSH journey additionally authors SFTP round-trip and loopback port-forward assertions, not an executed reference receipt.
