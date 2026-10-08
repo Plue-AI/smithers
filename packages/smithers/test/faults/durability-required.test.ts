@@ -8,6 +8,7 @@ import { requireReachedGoFaultMatrix } from "./harness/durability.ts"
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
 const backend = `${root}packages/backend`
 const cases = [
+  ["C-DUR-01", "internal/compose/todo_pause_delivery_fault_test.go", "TestTodoStopResumeDeliveryCrashComposed", ["stop-pre-delivery", "stop-delivery", "resume-pre-delivery", "resume-delivery"]],
   ["C-DUR-01", "internal/compose/todo_pause_fault_test.go", "TestTodoStartCrashThroughRoute", ["start"]],
   ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],

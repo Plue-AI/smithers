@@ -8,8 +8,9 @@ fail the matrix. The PostgreSQL transition and three merge boundaries are implem
 remaining required production cases stay fail-closed. The composed Start admission
 case uses the production dispatcher and workspace rows with a test-only VM
 qualification contract; it proves the pinned launch survives SIGKILL before
-any step, not machine or run recovery. Stop/Resume remain a separate required
-case until their handlers land.
+any step, not machine or run recovery. Stop/Resume engine recovery remains a separate required case. The composed
+Stop/Resume handlers have landed; the protocol-peer delivery controls below
+cannot qualify engine parking or completed-step replay.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
@@ -169,3 +170,26 @@ The existing `engine/case39-kill-crossing.test.ts` is the keyed/sealed/keyless
 engine control, not the five-kind composed GitHub acceptance. The matrix
 continues to require `compose/github_outbound_kill_test.go`; the service fault
 fixture cannot replace its production propose/merge/drop admission coverage.
+
+### Stop/Resume delivery crossings
+
+`compose/todo_pause_delivery_fault_test.go` drives the composed install HTTP
+router with a live owner session and real PostgreSQL. For Stop and Resume it
+kills the dispatcher child immediately before its signal effect, or after the
+protocol peer persists the effect and before acknowledgment. Every kill needs
+its exact child marker. A fresh dispatcher reconciles the existing request;
+a repeated HTTP press keeps one admission fact, one intent, one effect, the
+same run, attempt and pinned flow. The test checks the visible flow version
+after recovery and refuses any Active-flow lookup.
+
+These four crossings use a durable test protocol peer. They prove route and
+delivery recovery, not the TODO engine's paused wait or completed-step replay.
+The nightly matrix runs them in addition to the still-required
+`TestTodoStartPauseResumeCrashThroughRoutes`; it never substitutes them for
+that acceptance case. The child environment is the shared fault harness's
+credential-free environment. No root process or real GitHub write is involved.
+
+```sh
+cd packages/backend
+go test -p 4 ./internal/compose -run '^TestTodoStopResumeDeliveryCrashComposed$' -count=1
+```
