@@ -15,7 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-func admitInstallWorkspaceVisibility(w http.ResponseWriter, r *http.Request, q *db.Queries, command string, next http.Handler) {
+func admitInstallWorkspaceServices(w http.ResponseWriter, r *http.Request, q *db.Queries, command string, next http.Handler) {
 	subject := services.InstallSubject{}
 	refuse := func(failure error) {
 		if _, err := services.Authorize(r.Context(), q, command, subject); err != nil {
@@ -28,7 +28,7 @@ func admitInstallWorkspaceVisibility(w http.ResponseWriter, r *http.Request, q *
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) != 9 || parts[4] != "workspaces" || parts[6] != "services" {
+	if (command == "workspace.services.list" && len(parts) != 7) || (command != "workspace.services.list" && len(parts) != 9) || parts[4] != "workspaces" || parts[6] != "services" {
 		refuse(pkgerrors.BadRequest("invalid preview"))
 		return
 	}
@@ -41,12 +41,17 @@ func admitInstallWorkspaceVisibility(w http.ResponseWriter, r *http.Request, q *
 		}
 		return
 	}
-	port, err := strconv.ParseUint(parts[7], 10, 16)
-	if err != nil || port == 0 {
-		refuse(pkgerrors.BadRequest("invalid preview port"))
-		return
+	var port uint64
+	if command == "workspace.services.list" {
+		subject = services.InstallWorkspaceServicesSubject(repository.ID, parts[5])
+	} else {
+		port, err = strconv.ParseUint(parts[7], 10, 16)
+		if err != nil || port == 0 {
+			refuse(pkgerrors.BadRequest("invalid preview port"))
+			return
+		}
+		subject = services.InstallWorkspaceVisibilitySubject(repository.ID, parts[5], uint16(port))
 	}
-	subject = services.InstallWorkspaceVisibilitySubject(repository.ID, parts[5], uint16(port))
 	if command == "workspace.preview.update" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1024))
 		if err != nil {

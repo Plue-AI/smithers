@@ -35,6 +35,7 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ operation({name:"workspace.services.list",input:NoInput,summary:"List private branch services",hidden:true,visibility:"hidden",slash:null,cli:null,http:{method:"GET",path:"/api/repos/{owner}/{repo}/workspaces/{id}/services"},minimumRole:"member",agent:"run",credentialScope:"read:repository",actors:["person","app_agent"]}),
  repositoryAdmin("cache.tokens.list", "GET", "/api/repos/{owner}/{repo}/build-cache/tokens", NoInput),
  repositoryAdmin("cache.tokens.create", "POST", "/api/repos/{owner}/{repo}/build-cache/tokens", Schema.Struct({name:optionalText,namespace_prefix:optionalText})),
  repositoryAdmin("cache.tokens.revoke", "DELETE", "/api/repos/{owner}/{repo}/build-cache/tokens/{id}", NoInput),

@@ -399,6 +399,14 @@ func (s *WorkspaceService) writeWorkspaceFiles(ctx context.Context, workspaceID 
 // declarations are regular unit files in /etc/systemd/system, while package
 // units live below /usr and aliases in this directory are symlinks.
 func (s *WorkspaceService) ListWorkspaceServices(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]WorkspaceManagedService, error) {
+	return withInstallWorkspaceMetadata(ctx, s, "workspace.services.list", repositoryID, userID, true, func(ctx context.Context, scoped *WorkspaceService) ([]WorkspaceManagedService, error) {
+		return scoped.listWorkspaceServices(ctx, workspaceID, repositoryID, userID)
+	}, InstallWorkspaceServicesSubject(repositoryID, workspaceID))
+}
+func InstallWorkspaceServicesSubject(repository int64, workspace string) InstallSubject {
+	return InstallSubject{RepositoryID: repository, WorkspaceID: strings.TrimSpace(workspace), Resource: "services"}
+}
+func (s *WorkspaceService) listWorkspaceServices(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]WorkspaceManagedService, error) {
 	if s.runtime != nil {
 		row, _, err := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead, "")
 		if err != nil {

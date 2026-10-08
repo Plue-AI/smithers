@@ -282,8 +282,8 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
-			if command == "workspace.preview.update" || command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
-				admitInstallWorkspaceVisibility(w, r, queries, command, next)
+			if command == "workspace.services.list" || command == "workspace.preview.update" || command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
+				admitInstallWorkspaceServices(w, r, queries, command, next)
 				return
 			}
 			if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {

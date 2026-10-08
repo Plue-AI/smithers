@@ -320,3 +320,7 @@ test("cache token management retains owner person authority", () => {
  expect(Schema.decodeUnknownSync(create.input)({name:"build",namespace_prefix:"main/"})).toEqual({name:"build",namespace_prefix:"main/"})
  expect(()=>Schema.decodeUnknownSync(create.input)({namespace_prefix:3})).toThrow()
 })
+
+test("private service metadata has no external or system actor door", () => {
+ expect(httpProjections.find(row=>row.name==="workspace.services.list")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"read:repository",visibility:"hidden",slash:null,cli:null,http:{method:"GET",path:"/api/repos/{owner}/{repo}/workspaces/{id}/services"}})
+})

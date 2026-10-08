@@ -12,6 +12,7 @@ import (
 // map to their command; anything else is the owner's alone.
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
+		{http.MethodGet, "/api/repos/local-owner/demo/workspaces/owned/services", "workspace.services.list"},
 		{http.MethodPost, "/api/repos/local-owner/demo/labels", "labels.create"},
 		{http.MethodPatch, "/api/repos/local-owner/demo/labels/12", "labels.update"},
 		{http.MethodDelete, "/api/repos/local-owner/demo/labels/12", "labels.delete"},

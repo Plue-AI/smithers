@@ -15,6 +15,12 @@ type workspaceMetadataPage[T any] struct {
 // The scoped reader uses the transaction's connection, including with pool size
 // one. No connection or authority lock survives into a streaming response.
 func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceService, command string, repository, actor int64, read func(context.Context, *WorkspaceService) (T, error), subjects ...InstallSubject) (T, error) {
+	return withInstallWorkspaceMetadata(ctx, s, command, repository, actor, false, read, subjects...)
+}
+
+// Some runtime reads record entry recency. Commit those writes only after the
+// same final credential fence that protects the returned private data.
+func withInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceService, command string, repository, actor int64, commit bool, read func(context.Context, *WorkspaceService) (T, error), subjects ...InstallSubject) (T, error) {
 	var zero T
 	if s == nil {
 		return zero, pkgerrors.Internal("workspace store unavailable")
@@ -48,6 +54,11 @@ func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceServic
 	}
 	if err = guardInstallMemberCredential(ctx, tx, repository, actor, false); err != nil {
 		return zero, err
+	}
+	if commit {
+		if err = tx.Commit(ctx); err != nil {
+			return zero, err
+		}
 	}
 	return result, nil
 }
