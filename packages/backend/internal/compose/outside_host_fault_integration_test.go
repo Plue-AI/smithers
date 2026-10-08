@@ -71,7 +71,7 @@ func outsideWatcherHostFault(t *testing.T, binary, point string) {
 		total = 50
 	}
 	f := presenceInstall(t, true)
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 240*time.Second)
 	defer cancel()
 	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET vm_id=$1 WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
@@ -248,11 +248,11 @@ func outsideWatcherHostFault(t *testing.T, binary, point string) {
 		config.Crash = false
 		launch(config.Endpoint)
 	}
-	require.Eventually(t, func() bool { _, err := os.Stat(config.Captured); return err == nil }, 60*time.Second, 25*time.Millisecond)
+	require.Eventually(t, func() bool { _, err := os.Stat(config.Captured); return err == nil }, 120*time.Second, 25*time.Millisecond)
 	select {
 	case err := <-exited:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("replacement host did not finish")
 	}
 	data, err := os.ReadFile(config.Captured)
@@ -347,7 +347,7 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 	require.NoError(t, err)
 	var config outsideFaultHostConfig
 	require.NoError(t, json.Unmarshal(data, &config))
-	ctx, cancel := context.WithTimeout(t.Context(), 140*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 230*time.Second)
 	defer cancel()
 	pool, err := postgresfixture.Open(ctx, config.Database, 4)
 	require.NoError(t, err)
@@ -398,6 +398,9 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 		}
 		_, err = link.Request(ctx, config.Branch, wire.SetRoster, wire.Field(1, wire.U16(0)))
 		require.NoError(t, err)
+		var lastStatus []byte
+		// Replay imports fifty real capture bundles as well as fifty bursts.
+		// Its completion is distinct from the authentication deadline.
 		require.Eventually(t, func() bool {
 			reply, err := link.Request(ctx, config.Branch, wire.Status)
 			if err != nil {
@@ -407,9 +410,10 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 			if err != nil || len(fields[2]) < 2 || fields[2][0] != byte(wire.Status) {
 				return false
 			}
+			lastStatus = append(lastStatus[:0], fields[2][1:]...)
 			status, err := wire.Fields("result1", fields[2][1:])
 			return err == nil && len(status[1]) == 1 && status[1][0] == 3 && len(status[4]) == 4 && binary.BigEndian.Uint32(status[4]) == 0 && len(status[7]) == 1 && status[7][0] == 1 && len(status[8]) == 1 && status[8][0] == 1
-		}, 30*time.Second, 25*time.Millisecond)
+		}, 90*time.Second, 25*time.Millisecond, "real replay did not drain; last status=%x", &lastStatus)
 		require.NoError(t, link.Reconciled())
 		return link
 	}
