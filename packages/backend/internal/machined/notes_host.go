@@ -51,6 +51,8 @@ func (h *RegisteredCodingNoteHost) CodingNoteParticipant(ctx context.Context, tx
  JOIN product_job_dispatches d ON d.operation_id=r.id
  WHERE w.id=$1 AND w.vm_id=$2 AND w.kind='vm' AND w.status='running' AND w.deleted_at IS NULL
  AND i.state='running' AND i.request_run_id=$3 AND i.request_outcome=''
+ AND h.binding_kind='mythical-item' AND h.binding_id=i.id::text
+ AND h.tenant_id='repository:' || i.repository_id::text AND h.principal_id='user:' || i.owner_id::text
  AND h.catalog_key='coding' AND h.state='running' AND h.runtime_artifact_digest=$4
  AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000
  AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL

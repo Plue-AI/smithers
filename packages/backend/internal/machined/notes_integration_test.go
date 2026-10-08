@@ -136,6 +136,23 @@ func TestRegisteredCodingNotesAuthenticatedIngest(t *testing.T) {
 			save()
 		})
 	}
+	// A valid checkpoint and daemon receipt cannot grant a host bound to
+	// another TODO authority over this attempt, even on the same branch.
+	for _, binding := range []struct{ kind, id string }{
+		{"mythical-item", uuid.NewString()},
+		{"workspace", item},
+	} {
+		t.Run("foreign host binding "+binding.kind, func(t *testing.T) {
+			_, e := pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET binding_kind=$2,binding_id=$3 WHERE id=$1`, host, binding.kind, binding.id)
+			require.NoError(t, e)
+			t.Cleanup(func() {
+				_, e := pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET binding_kind='mythical-item',binding_id=$2 WHERE id=$1`, host, item)
+				require.NoError(t, e)
+			})
+			require.ErrorIs(t, apply(5), ErrNotReady)
+			require.Equal(t, 3, count(), "foreign host queues no signal")
+		})
+	}
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repository, member)
 	require.NoError(t, err)
 	require.ErrorIs(t, apply(5), ErrNotReady)
