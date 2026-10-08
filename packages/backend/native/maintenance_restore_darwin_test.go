@@ -575,3 +575,116 @@ func TestDispatchedRestoreRefusesBeforeMovingLiveData(t *testing.T) {
 		})
 	}
 }
+
+// previousRelease is the old release's upgrade: its backup comes from the
+// supervised database, and Homebrew, the bundle swap and the continuation
+// are the production adapters.
+type previousRelease struct {
+	*liveDatabase
+	*upgradeAuthority
+}
+
+// A failed upgrade rolls back. The old release backs up with its bundle and
+// writes the marker; Homebrew (a stand-in that repoints the link and deletes
+// the old keg, as `brew cleanup` does) installs the next release; that
+// release cannot finish and refuses. The command exits with the marker in
+// place and one restore command. Running it returns the rows to the backup's
+// and starts the previous release from the bundle the backup kept, although
+// its keg is gone. PostgreSQL 18 and the kernel clone are real.
+func TestRealFailedUpgradeRestoresThePreviousRelease(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	bin, major := testdb.Tools(t)
+	require.Equal(t, 18, major)
+	release(t, "1.3.0")
+	_, state := ownerHome(t)
+	install := realInstall{t: t, bin: bin, state: state}
+	const seeded = "a=one\nb=two\nc=three"
+	live := install.start(state)
+	stopped := false
+	t.Cleanup(func() {
+		if !stopped {
+			install.stop(live)
+		}
+	})
+	install.query(live, "CREATE TABLE backup_proof(key text PRIMARY KEY, value text NOT NULL); INSERT INTO backup_proof VALUES ('a','one'),('b','two'),('c','three')")
+	write(t, filepath.Join(state, "config/secrets.json"), "install key", 0600)
+
+	wrappers := func(programs map[string]string) map[string]string {
+		for _, program := range postgresPrograms {
+			programs["postgres/root/bin/"+program] = "#!/bin/sh\nexec '" + filepath.Join(bin, program) + "' \"$@\"\n"
+		}
+		return programs
+	}
+	const previousBackend = "#!/bin/sh\n# release 1.2.3\nexit 0\n"
+	previous := newMaintenanceBundle(t, wrappers(map[string]string{"bin/smithers-backend": previousBackend}))
+	record := filepath.Join(t.TempDir(), "record")
+	next := newMaintenanceBundle(t, wrappers(map[string]string{
+		"bin/smithers-backend": "#!/bin/sh\n# release 1.3.0\nexit 0\n",
+		"bin/smthrs":           "#!/bin/sh\nprintf 'start %s\\n' \"$*\" >> '" + record + "'\nexit 3\n",
+	}))
+	homebrew := t.TempDir()
+	keg, brew := filepath.Join(homebrew, "opt/smithers/libexec"), filepath.Join(homebrew, "bin/brew")
+	require.NoError(t, os.MkdirAll(filepath.Dir(keg), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(brew), 0755))
+	require.NoError(t, os.Symlink(previous.root, keg))
+	require.NoError(t, os.WriteFile(brew, []byte("#!/bin/sh\n[ \"$*\" = 'upgrade smithers' ] || exit 64\n/bin/rm '"+keg+"' && /bin/ln -s '"+next.root+"' '"+keg+"' && /bin/rm -rf '"+previous.root+"'\n"), 0755))
+
+	host, err := openMaintenanceHost(previous.executable, state)
+	require.NoError(t, err)
+	at := time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)
+	authority := previousRelease{
+		liveDatabase: &liveDatabase{database: live, at: at},
+		upgradeAuthority: &upgradeAuthority{host: host, brew: brew, keg: keg, healthWake: func(context.Context, string) error { return nil },
+			// execve would replace this test; the upgraded backend's command
+			// is dispatched in its place.
+			replace: func(program string, args, _ []string) error {
+				require.Equal(t, next.path("bin/smithers-backend"), program)
+				_, err := DispatchMaintenance(t.Context(), args[1:], next.executable)
+				return err
+			}},
+	}
+	backup, err := hostbackup.Upgrade(t.Context(), hostbackup.UpgradeConfig{
+		BackupConfig: hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: state, Bundle: previous.root, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Cloner: hostbackup.APFSCloner{}},
+		Upgrade:      authority,
+	})
+	require.Equal(t, filepath.Join(state, "backups", "1.2.3-20261007T010203.000000000Z"), backup)
+	// The refusal and its restore command appear twice only because the
+	// upgraded backend's command returned here instead of replacing the
+	// process: each release wraps the failure once.
+	require.EqualError(t, err, "upgrade incomplete: upgrade incomplete: host_maintenance_unavailable: upgrade health wake requires machine admission (T-MCH-06); restore with smthrs host restore '"+backup+"'; restore with smthrs host restore '"+backup+"'")
+	marker, err := os.ReadFile(filepath.Join(state, ".upgrade-incomplete"))
+	require.NoError(t, err)
+	require.Equal(t, backup+"\n", string(marker))
+	require.NoDirExists(t, previous.root, "Homebrew removed the previous keg")
+	linked, err := filepath.EvalSymlinks(keg)
+	require.NoError(t, err)
+	require.Equal(t, next.root, linked)
+	require.Error(t, requireStartAllowed(state), "the next plain start refuses")
+	require.NoFileExists(t, record, "the upgraded release started nothing")
+
+	// Work after the backup is lost by the restore, and kept aside.
+	install.query(live, "INSERT INTO backup_proof VALUES ('d','four')")
+	install.stop(live)
+	stopped = true
+
+	handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", backup}, next.executable)
+	require.True(t, handled)
+	require.NoError(t, err)
+	recorded, err := os.ReadFile(record)
+	require.NoError(t, err)
+	require.Equal(t, "start host start --bundle "+filepath.Join(state, "bundle")+"\n", string(recorded), "the previous release starts from the bundle the backup kept")
+	kept, err := os.ReadFile(filepath.Join(state, "bundle/bin/smithers-backend"))
+	require.NoError(t, err)
+	require.Equal(t, previousBackend, string(kept))
+	require.NoFileExists(t, filepath.Join(state, ".upgrade-incomplete"))
+	require.NoFileExists(t, filepath.Join(state, recoveryGrantPath))
+	require.NoError(t, requireStartAllowed(state))
+	restored := install.start(state)
+	defer install.stop(restored)
+	require.Equal(t, seeded, install.rows(restored))
+	aside, err := filepath.Glob(filepath.Join(state, "backups/pre-restore-*/postgres/data/PG_VERSION"))
+	require.NoError(t, err)
+	require.Len(t, aside, 1, "the later database is kept aside")
+}

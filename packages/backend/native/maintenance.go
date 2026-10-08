@@ -48,6 +48,12 @@ func DispatchMaintenance(ctx context.Context, args []string, executable func() (
 			}
 			return true, errors.New("host_maintenance_unavailable: restore requires a versioned release binary and composed recovery providers")
 		}
+	case "upgrade-continue":
+		// Not an owner command: the previous release's upgrade becomes this
+		// one after Homebrew replaced the bundle (upgradeAuthority.Continue).
+		if len(args) != 3 || !filepath.IsAbs(args[2]) || filepath.Clean(args[2]) != args[2] {
+			return true, errors.New("invalid_backup: upgrade-continue requires the upgrade's backup directory")
+		}
 
 	default:
 		return true, fmt.Errorf("invalid_command: unknown maintenance operation %q", args[1])
@@ -73,10 +79,19 @@ func DispatchMaintenance(ctx context.Context, args []string, executable func() (
 		}
 		return true, err
 	case "upgrade":
-		// Lifecycle, retained-disk isolation and new-binary continuation have not
-		// qualified on the reference Mac. The coordinator refuses before a freeze.
-		_, err := hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup})
+		host, err := openMaintenanceHost(executable, state)
+		if err != nil {
+			// No installed bundle to save or to upgrade. The coordinator
+			// refuses before a freeze.
+			_, err := hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup})
+			return true, err
+		}
+		backup.Bundle = host.bundle.Root()
+		upgrade := &upgradeAuthority{maintenanceAuthority: authority, host: host, brew: homebrewProgram, keg: homebrewKeg, healthWake: composedHealthWake}
+		_, err = hostbackup.Upgrade(ctx, hostbackup.UpgradeConfig{BackupConfig: backup, Upgrade: upgrade})
 		return true, err
+	case "upgrade-continue":
+		return true, continueUpgrade(ctx, executable, state, args[2], version, composedHealthWake)
 	case "restore":
 		source := filepath.Clean(args[2])
 		at, err := hostbackup.Restore(ctx, hostbackup.RestoreConfig{State: state, Backup: source, Version: version, Authority: installedRestoreAuthority(executable, state, source), Cloner: hostbackup.APFSCloner{}})
@@ -87,6 +102,12 @@ func DispatchMaintenance(ctx context.Context, args []string, executable func() (
 	}
 	return true, errors.New("invalid_command: maintenance operation required")
 }
+
+// composedHealthWake is the upgrade health check's isolated wake: one machine
+// wakes as the freeze's only grant after the new release migrated (spec §16.4
+// step 6). Machine admission (T-MCH-06) owns that grant and has not composed
+// it, so it is nil and `smthrs host upgrade` refuses before it freezes.
+var composedHealthWake func(ctx context.Context, op string) error
 
 // installedRestoreAuthority composes restore from the installed bundle: its
 // PostgreSQL programs load the dump, its microVM doctor proves isolation and

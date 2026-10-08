@@ -76,6 +76,32 @@ removes the grant when step 4 returns. Writes stay refused until step 5.
 A development binary, and a backend that is not its bundle's
 `bin/smithers-backend`, cannot restore.
 
+## Upgrade
+
+`smthrs host upgrade` is composed from the installed bundle and refuses today,
+before it asks the install anything, with `host_maintenance_unavailable:
+upgrade health wake requires machine admission (T-MCH-06)`. The health check
+wakes one machine as the freeze's only grant, and machine admission has not
+composed that grant. When it does, the command runs in this order:
+
+1. It refuses unless the install runs the bundle Homebrew links at
+   `/opt/homebrew/opt/smithers/libexec` and `/opt/homebrew/bin/brew` exists.
+2. It quiesces and backs up, with the running bundle in `bundle/`.
+3. It writes `.upgrade-incomplete`, then runs `brew upgrade smithers` with
+   `HOME` and `PATH` alone.
+4. It becomes the upgraded bundle's backend (`execve`), after checking that
+   backend against the upgraded bundle's manifest. It refuses if Homebrew's
+   link did not move.
+5. The upgraded backend starts the install on its bundle under the restore
+   grant, which applies the forward migrations, and requires `version.env` to
+   show the new release.
+6. It wakes one machine, removes `.upgrade-incomplete` and reopens.
+
+A failure after step 3 keeps `.upgrade-incomplete`, removes the grant and
+prints `smthrs host restore <directory>`. That restore starts the previous
+release from the backup's `bundle/`, so it works after `brew cleanup` removed
+the previous keg.
+
 The install enforces persisted freezes even when maintenance execution is
 disabled. Reads stay available. Reopen and lease recovery preserve the freeze
 when complete resume providers are unavailable.
