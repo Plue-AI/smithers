@@ -428,7 +428,7 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
-	if !realMicroVM && check == "C-J10" && registry != nil && processDaemons != nil {
+	if !realMicroVM && registry != nil && processDaemons != nil {
 		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(r.root, library), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
 	}
 	if !realMicroVM {
@@ -1756,7 +1756,7 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 type rehearsalAdmissionRuntime struct {
 	*process.Runtime
 	admissionMu    sync.Mutex
-	daemonMu       sync.Mutex // one authenticated boot per retained process checkout
+	daemonLocks    sync.Map // one authenticated boot per retained process checkout
 	eligible       map[string]bool
 	released       map[string]bool
 	aliases        map[string]string
@@ -1912,8 +1912,10 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 	// Gateway registration and a person's request can reach the same retained
 	// checkout concurrently. A second MintBoot must not fence the first boot
 	// while its real object transfer and reconciliation are still in progress.
-	r.daemonMu.Lock()
-	defer r.daemonMu.Unlock()
+	lock, _ := r.daemonLocks.LoadOrStore(id, new(sync.Mutex))
+	boot := lock.(*sync.Mutex)
+	boot.Lock()
+	defer boot.Unlock()
 
 	link, err := r.daemons.Current(id)
 	if err == nil && link.RequireReady(id) == nil {
