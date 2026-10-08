@@ -17,6 +17,9 @@ func TestBranchConversationUnavailableProviders(t *testing.T) {
 		t.Run(missing, func(t *testing.T) {
 			f := workingConversationWithContext(t, nil, func(local *localChat, options *chat.RuntimeOptions) {
 				if missing == "delegated-issuer" {
+					// Do not refill the intentionally missing issuer with the
+					// local fixture's normal command API.
+					local.omitCommandAPI = true
 					options.API = nil
 				}
 				if missing == "live-topics" {

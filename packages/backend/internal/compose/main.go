@@ -1276,6 +1276,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService := services.NewMythicalService(pool, repoHostClient, services.WithMythicalInstallAuthorization(config.IsSingleOwner(cfg.Auth)))
 	if config.IsSingleOwner(cfg.Auth) {
 		bindConflictValidator(mythicalService, workspaceService, nil)
+		mythicalService.SetConversationEntryPublisher(publishConversationSubject)
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
 		mythicalService.SetMovedOffReturn(machineReturn{registry: options.Machined, pool: pool})

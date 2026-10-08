@@ -1,7 +1,7 @@
 import { Data } from "effect"
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
-import { ContextItemSchema, ToneSchema, PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
+import { ContextItemSchema, ToneSchema, TodoStateSchema, PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { ContextPreflightResultSchema } from "@smthrs/rpc/ContextPreflight"
 import { isUiInstructionCommand } from "@smthrs/rpc/UiInstruction"
 import { MessageSchema } from "../AppState"
@@ -14,6 +14,7 @@ export class SharedConversationFailure extends Data.TaggedError("SharedConversat
 
 // Imports reuse the durable message decoder and cannot decode as executable turns.
 const SharedTurnSchema = z.object({
+  subject: z.object({ n: z.number().int().positive(), title: z.string(), state: TodoStateSchema, tone: ToneSchema }).optional(),
   origin: z.literal("smithers").optional(),
   entry_sequences: z.record(z.string(), z.number().int().positive().safe()).optional(), summary: z.string().optional(), summary_rev: z.number().int().nonnegative().optional(), sequence: z.number().int().positive().optional(), id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),

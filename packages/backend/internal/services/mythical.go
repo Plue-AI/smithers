@@ -61,19 +61,20 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
-	movedReturn             MovedOffReturn
-	installAuthorization    bool
-	homeBackground          *HomeBackground
-	conflictValidator       ConflictValidator
-	rebasePresence          func(context.Context, int64, string) (RebasePresence, error)
-	installParallel         *InstallCapacityService
-	installParallelRequired bool
-	todoLogs                blob.Store
-	store                   MythicalStore
-	host                    mythicalRepoHost
-	scratchRoot             string
-	logger                  *slog.Logger
-	now                     func() time.Time
+	conversationEntryPublisher func(context.Context, pgx.Tx, db.MythicalItem, jobs.Event, map[string]any) error
+	movedReturn                MovedOffReturn
+	installAuthorization       bool
+	homeBackground             *HomeBackground
+	conflictValidator          ConflictValidator
+	rebasePresence             func(context.Context, int64, string) (RebasePresence, error)
+	installParallel            *InstallCapacityService
+	installParallelRequired    bool
+	todoLogs                   blob.Store
+	store                      MythicalStore
+	host                       mythicalRepoHost
+	scratchRoot                string
+	logger                     *slog.Logger
+	now                        func() time.Time
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.

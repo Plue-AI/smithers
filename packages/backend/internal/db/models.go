@@ -441,6 +441,7 @@ type ChatTurn struct {
 	Summary                pgtype.Text        `json:"summary"`
 	SummaryRev             int64              `json:"summary_rev"`
 	SummaryPendingSince    pgtype.Timestamptz `json:"summary_pending_since"`
+	EntrySubject           []byte             `json:"entry_subject"`
 }
 
 type ChatTurnBatch struct {

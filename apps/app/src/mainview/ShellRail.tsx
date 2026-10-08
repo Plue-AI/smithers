@@ -134,6 +134,9 @@ export const sharedRailLines = (conversation: SharedConversation | undefined, vi
   const frames = turn.frames.filter(frame => frame.runId === turn.runId)
   const text = frames.flatMap(frame => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
   const tone = turn.tone ?? (turn.state === "accepted" || turn.state === "running" ? "live" : turn.state === "failed" ? "failed" : turn.state === "completed" ? "done" : "quiet")
+  if (turn.subject) return frames.flatMap(frame => frame.type === "card"
+    ? railLines([{ kind: "card", card: frame.card }], viewer).map(row => ({ ...row, title: turn.subject!.title, tone: turn.subject!.tone, glyph: { state: turn.subject!.state }, fresh: sharedFresh(positions, row.entry_id, lastSeen) }))
+    : [])
   const rows: TimelineLine[] = [
     { entry_id: `${turn.id}:prompt`, kind: "prompt", fresh: sharedFresh(positions, `${turn.id}:prompt`, lastSeen), title: turn.title ?? firstLine(turn.prompt), tone: "quiet", glyph: { actor: { kind: "person", ...person, color_index } } },
     { entry_id: `${turn.id}:answer`, kind: "answer", ...(turn.summary === undefined ? {} : { summary: turn.summary }), fresh: sharedFresh(positions, `${turn.id}:answer`, lastSeen), title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,

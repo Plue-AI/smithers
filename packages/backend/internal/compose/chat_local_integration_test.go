@@ -170,6 +170,8 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
+	// Negative provider fixtures may omit the command API after configuration.
+	omitCommandAPI  bool
 	models          *httptest.Server
 	nodeBinary      string
 	hostBundle      string
@@ -280,7 +282,7 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(user_id,username,session_key,expires_at) VALUES($1,'chatowner',$2,$3) ON CONFLICT DO NOTHING`, local.ownerID, strings.Repeat("a", 64), time.Now().Add(time.Hour))
 	require.NoError(t, err)
-	if runtimeOptions.API == nil {
+	if runtimeOptions.API == nil && !local.omitCommandAPI {
 		auth := services.NewAuthService(db.New(pool), config.AuthConfig{Mode: "selfhost"}, nil, nil)
 		auth.Members = &services.Members{Pool: pool}
 		runtimeOptions.API = services.InstallAPI{Auth: auth}

@@ -23,6 +23,7 @@ type SharedContextPreflight struct {
 
 type SharedTurn struct {
 	*ExternalDraft
+	Subject         *SubjectEntry           `json:"subject,omitempty"`
 	EntrySequences  map[string]int64        `json:"entry_sequences,omitempty"`
 	Summary         *string                 `json:"summary,omitempty"`
 	SummaryRevision int64                   `json:"summary_rev,omitempty"`
@@ -106,6 +107,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			return result, e
 		}
 		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, Title: entryTitle(prompt), Tone: entryTone(turn.State), State: turn.State, Frames: []json.RawMessage{}}
+
 		if externalTurn(turn) {
 			var request struct {
 				External ExternalDraft `json:"external"`
@@ -184,6 +186,26 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 				break
 			}
 			cursor = page.Next
+		}
+		var subjectBytes []byte
+		if err := tx.QueryRow(ctx, `SELECT entry_subject FROM chat_turns WHERE id=$1`, turn.ID).Scan(&subjectBytes); err != nil {
+			return result, err
+		}
+		if len(subjectBytes) > 0 {
+			var subject struct {
+				SubjectEntry
+				Card json.RawMessage `json:"card"`
+			}
+			if json.Unmarshal(subjectBytes, &subject) != nil {
+				return result, ErrCorrupt
+			}
+			entry.Subject = &subject.SubjectEntry
+			entry.Title, entry.Tone = subject.Title, subject.Tone
+			frame, err := json.Marshal(map[string]any{"runId": entry.RunID, "type": "card", "card": subject.Card})
+			if err != nil {
+				return result, err
+			}
+			entry.Frames = []json.RawMessage{frame}
 		}
 		result.Entries = append(result.Entries, entry)
 	}

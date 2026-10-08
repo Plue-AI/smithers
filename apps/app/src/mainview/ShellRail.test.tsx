@@ -450,3 +450,16 @@ test("a card added after the answer was viewed pins by its first committed addre
  expect(railEdges(rows,["turn:answer","turn:answer"]).below.map(row=>row.entry_id)).toEqual(["new-card"])
  expect(railEdges(sharedRailLines(model,{role:"member"},1_000_006),["turn:answer","turn:answer"]).below).toEqual([])
 })
+
+test("shared subject facts produce one line with host tone and a role-bound action", () => {
+  const model = { ...todoFixtures.failed.model, n: 24, title: "Shared entry" }
+  const card = { id: "todo:24", kind: "todo" as const, title: "Shared entry", status: "active" as const, createdAt: 1, ordinal: 1, payload: { n: 24, model, requests: [] } }
+  const subject = { n: 24, title: "Shared entry", state: "failed" as const, tone: "failed" as const }
+  const conversation = { id: "main", entries: [{ id: "subject", author: 1, authorLogin: "maya", runId: "subject", prompt: "", state: "completed" as const, title: "Shared entry", tone: "failed" as const, subject,
+    sequence: 1, entry_sequences: { "todo:24": 1_000_002 }, frames: [{ type: "card" as const, runId: "subject", card }] }] }
+  const lines = sharedRailLines(conversation, { role: "member" })
+  expect(lines).toHaveLength(1)
+  expect(lines[0]).toMatchObject({ entry_id: "todo:24", title: "Shared entry", tone: "failed", glyph: { state: "failed" }, action: { tag: "todo.retry", args: { n: "24" } } })
+  // The host can put an otherwise live subject under stack attention.
+  expect(sharedRailLines({ ...conversation, entries: [{ ...conversation.entries[0]!, subject: { ...subject, tone: "attention" } }] }, { role: "member" })[0]?.tone).toBe("attention")
+})

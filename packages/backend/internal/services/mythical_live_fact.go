@@ -69,6 +69,11 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 			return jobs.Event{}, err
 		}
 	}
+	if s.conversationEntryPublisher != nil {
+		if err := s.conversationEntryPublisher(ctx, tx, item, event, card); err != nil {
+			return jobs.Event{}, err
+		}
+	}
 	return event, nil
 }
 
@@ -91,4 +96,10 @@ func (s *MythicalService) todoHomeFact(ctx context.Context, repository int64) (j
 		return nil, err
 	}
 	return projection, nil
+}
+
+// SetConversationEntryPublisher composes shared journal publication into the
+// existing subject transaction. It never commits or creates a second writer.
+func (s *MythicalService) SetConversationEntryPublisher(publish func(context.Context, pgx.Tx, db.MythicalItem, jobs.Event, map[string]any) error) {
+	s.conversationEntryPublisher = publish
 }

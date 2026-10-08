@@ -7,6 +7,20 @@ import (
 	"testing"
 )
 
+func TestSubjectEntryToneLiteralCases(t *testing.T) {
+	for _, c := range []struct{ state, tone string }{
+		{"queued", "quiet"}, {"starting", "live"}, {"working", "live"}, {"needs_you", "attention"},
+		{"paused", "quiet"}, {"failed", "failed"}, {"in_review", "quiet"}, {"merged", "done"}, {"dropped", "done"},
+	} {
+		if got := SubjectTone(c.state, false); got != c.tone {
+			t.Errorf("%s: %s, want %s", c.state, got, c.tone)
+		}
+		if got := SubjectTone(c.state, true); got != "attention" {
+			t.Errorf("stack attention %s: %s", c.state, got)
+		}
+	}
+}
+
 func TestConversationMetadataOnlyRestoresUserVisiblePrompt(t *testing.T) {
 	cases := []struct {
 		name, request, id, text string

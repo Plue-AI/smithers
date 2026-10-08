@@ -13,31 +13,37 @@ const installOwner = async (page: Page) => {
 
 // UI projection of .specs/engineering/checks/C-UI-04.md.
 // Integration and reference-host evidence remains required separately.
-// Written before implementation: mvp.md §6.4, M-08, M-14; lands with T-APP-07
-test("C-UI-04: Edge map and timeline: shared entries, per-viewer actions, live summaries, toasts", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.4, M-08, M-14; lands with T-APP-07")
-  // Required seed: shared Maya/Alice conversation with timed live events,
-  // ASK, FAIL and PR entries; owner/propmter-specific notices and summaries.
-  // Real summary-worker timing and transaction checks remain separate.
+test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump and a narrow live pill", async ({ page }) => {
   await installOwner(page)
   await page.setViewportSize({ width: 1440, height: 1000 })
+  const model = { n: 24, title: "Starting entry", state: "starting",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits: [],
+    merge: { state: "waiting", reason: "state", on_github: false } }
+  const card = { id: "todo:24", kind: "todo", title: "Starting entry", status: "active", createdAt: 1, ordinal: 1, payload: { n: 24, model, requests: [] } }
+  await page.route("**/api/todos", route => route.fulfill({ json: [] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [
+    { id: "subject", author: 1, authorLogin: "canary-owner", runId: "subject", prompt: "", state: "completed", sequence: 1,
+      title: "Starting entry", tone: "live", subject: { n: 24, title: "Starting entry", state: "starting", tone: "live" },
+      entry_sequences: { "todo:24": 1000002 }, frames: [{ runId: "subject", type: "card", card }] },
+    { id: "answer", author: 1, authorLogin: "canary-owner", runId: "answer", prompt: "Read the notes", state: "completed", sequence: 2,
+      title: "Read the notes", tone: "done", frames: [{ runId: "answer", type: "delta", kind: "text", text: Array.from({ length: 50 }, (_, i) => `Note ${i}.`).join("\n\n") }] }
+  ] } }))
   await page.goto("/")
-  await say(page, "/todo T9")
   const timeline = page.getByRole("navigation", { name: "Timeline", exact: true })
-  await expect(timeline).toBeVisible()
-  const question = timeline.getByRole("button", { name: /retry-webhooks/ })
-  await expect(question).toContainText("Asks: backoff or timeout?")
-  await question.press("Enter")
-  await expect(page.locator(".smithers-card", { hasText: "T9" }).last()).toBeInViewport()
-  await expect(page.getByRole("button", { name: "Answer", exact: true }).first()).toBeVisible()
-  await page.getByRole("button", { name: "Hide", exact: true }).first().press("Enter")
-  await expect(question).toBeVisible()
-  await page.setViewportSize({ width: 390, height: 844 })
+  const line = timeline.locator('[data-entry="todo:24"]')
+  await expect(line).toHaveCount(1)
+  await expect(line).toContainText("Starting entry")
+  await expect(line).toHaveAttribute("data-tone", "live")
+  await expect(timeline.locator('[data-entry="subject:prompt"], [data-entry="subject:answer"]')).toHaveCount(0)
+  await line.getByRole("button").first().press("Enter")
+  await expect(page.locator('[data-message-id="todo:24"]')).toBeInViewport()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await timeline.locator('[data-entry="answer:answer"]').getByRole("button").first().press("Enter")
+  await page.setViewportSize({ width: 900, height: 1000 })
   await expect(timeline).toBeHidden()
-  await page.keyboard.press("End")
   await expect(page.getByRole("button", { name: "↑ 1 live above", exact: true })).toBeVisible()
-  await page.reload()
-  await expect(page.getByRole("button", { name: "Hide", exact: true })).toHaveCount(0)
 })
 
 // The served TODO path is independent of the pending shared-entry/summary journey.
