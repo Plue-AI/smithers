@@ -122,7 +122,10 @@ describe("the generated product API client", () => {
     // Includes installed model sign-in (#3564), bound execution trace facts
     // and repository access doors (#3492) in the current OpenAPI inventory.
     // Includes confirmed, attributed install issue comments (d5618796c7, #3492).
-    expect(expected).toHaveLength(564)
+    // Includes the public install sign-in session probe (48fbb67655, #3492).
+    expect(expected).toHaveLength(565)
+    expect(spec.paths["/api/auth/session"]).toHaveProperty("get.operationId", "get_api_auth_session")
+    expect(spec.paths["/api/auth/session"]).toHaveProperty("get.security", [{}, { sessionCookie: [] }, { bearerAuth: [] }])
     expect(spec.paths["/api/issues/{number}/comments"]).toHaveProperty("post.operationId", "post_api_issues_number_comments")
     expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
     // Retained branch activity is served without waking its machine (#3568).
