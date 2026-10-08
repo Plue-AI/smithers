@@ -1,7 +1,10 @@
 package compose
 
 import (
+	"bufio"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"path"
@@ -13,12 +16,14 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // Every assertion enters the install's HTTP/WebSocket doors and observes the
 // approved guest shell. In particular, the watcher transport is not an echo PTY.
-func testInstalledTerminalOwnerWatch(t *testing.T, h *rootLayerHarness, branch string, ben, alice http.CookieJar) {
+func testInstalledTerminalOwnerWatch(t *testing.T, h *rootLayerHarness, branch string, ben, alice http.CookieJar, sshAddress, sshLogin string) {
 	t.Helper()
 	owner := installedMemberTerminal(t, h, branch, ben)
 	code, tokenPath, err := owner.capture(`printf '%s' "$SMITHERS_TOKEN_FILE"`, "TRMSESSION", 30*time.Second)
@@ -70,20 +75,113 @@ func testInstalledTerminalOwnerWatch(t *testing.T, h *rootLayerHarness, branch s
 	require.LessOrEqual(t, len(strings.TrimSuffix(data, `{"type":"replay-complete"}`)), 512*1024)
 	aliceOwner := installedMemberTerminal(t, h, branch, alice)
 	installedShell(t, aliceOwner, `test "$(id -u)" = 20002 && test "$HOME" = /home/alice`)
+	// Include a detached descendant, not just the foreground PTY. Record its
+	// kernel cgroup before revocation so another member can inspect drainage.
+	code, group, err := aliceOwner.capture(`nohup sleep 120 >/dev/null 2>&1 </dev/null & cat /proc/self/cgroup`, "TRMDRAIN", 30*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, "0", code)
+	cgroup := strings.TrimSpace(strings.TrimPrefix(string(group), "0::"))
+	require.Regexp(t, `^/smithers/sessions/s[1-9][0-9]*$`, cgroup)
+	// Keep a real gateway exec channel and another detached descendant open
+	// under the same member; terminal-only cancellation is insufficient.
+	var aliceID int64
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT id FROM users WHERE username='alice'`).Scan(&aliceID))
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := gossh.NewSignerFromKey(private)
+	require.NoError(t, err)
+	_, err = db.New(h.pool).CreateSSHKey(t.Context(), db.CreateSSHKeyParams{UserID: aliceID, Name: "native-revocation", PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
+	require.NoError(t, err)
+	sshClient, err := gossh.Dial("tcp", sshAddress, &gossh.ClientConfig{User: sshLogin, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second})
+	require.NoError(t, err)
+	defer sshClient.Close()
+	sshSession, err := sshClient.NewSession()
+	require.NoError(t, err)
+	defer sshSession.Close()
+	stdout, err := sshSession.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, sshSession.Start("nohup sleep 120 >/dev/null 2>&1 </dev/null & id -u; cat /proc/self/cgroup; exec sleep 120"))
+	reader := bufio.NewReader(stdout)
+	type sshObservation struct {
+		identity, group string
+		err             error
+	}
+	observed := make(chan sshObservation, 1)
+	go func() {
+		identity, err := reader.ReadString('\n')
+		group := ""
+		if err == nil {
+			group, err = reader.ReadString('\n')
+		}
+		observed <- sshObservation{identity, group, err}
+	}()
+	var observation sshObservation
+	select {
+	case observation = <-observed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("SSH revocation fixture did not reach the installed member process")
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	require.NoError(t, observation.err)
+	require.Equal(t, "20002\n", observation.identity)
+	sshGroup := strings.TrimSpace(strings.TrimPrefix(observation.group, "0::"))
+	require.Regexp(t, `^/smithers/sessions/s[1-9][0-9]*$`, sshGroup)
+	require.NotEqual(t, cgroup, sshGroup)
+	sshClosed := make(chan error, 1)
+	go func() { sshClosed <- sshSession.Wait() }()
+	installedShell(t, owner, `pgrep -u 20002 >/dev/null`)
 	// Removing Alice must close both her watching attachment and her own PTY;
 	// Ben's session must continue with the same identity.
-	removedAt := time.Now()
-	deadline := time.NewTimer(5 * time.Second)
+	started := time.Now()
 	h.expect("DELETE", "/api/members/alice", "", 204)
+	remaining := 5*time.Second - time.Since(started)
+	require.Positive(t, remaining, "member removal itself exceeded five seconds")
+	deadline := time.NewTimer(remaining)
 	defer deadline.Stop()
 	for _, term := range []*rehearsalTerminal{replay, aliceOwner} {
 		select {
 		case <-term.closed:
-			require.LessOrEqual(t, time.Since(removedAt), 5*time.Second)
+			require.LessOrEqual(t, time.Since(started), 5*time.Second)
 		case <-deadline.C:
 			t.Fatal("member removal failed to revoke terminal within 5 seconds")
 		}
 	}
+	select {
+	case err := <-sshClosed:
+		require.Error(t, err, "revoked sleeping SSH process must not exit successfully")
+	case <-deadline.C:
+		t.Fatal("member removal failed to revoke SSH within five seconds")
+	}
+	// The request, both socket closures, and the independent guest observation
+	// share one deadline. A fresh five-second timer after HTTP would hide a slow
+	// revocation. Check all uid processes, including reparented descendants.
+	remaining = 5*time.Second - time.Since(started)
+	require.Positive(t, remaining)
+	code, drained, err := owner.capture(fmt.Sprintf(`python3 -c 'import pathlib, subprocess, time
+end=time.monotonic()+%.6f
+events=[pathlib.Path("/sys/fs/cgroup"+g+"/cgroup.events") for g in ("%s","%s")]
+while True:
+ p=subprocess.run(["pgrep","-u","20002"],stdout=subprocess.PIPE)
+ assert p.returncode in (0,1), p.returncode
+ if p.returncode==1 and all(not e.exists() or "populated 0" in e.read_text().splitlines() for e in events):
+  print("drained"); break
+ assert time.monotonic()<end, "revoked uid or populated cgroup remains"
+ time.sleep(.01)'`, remaining.Seconds(), cgroup, sshGroup), "TRMREVOKED", remaining)
+	require.NoError(t, err)
+	require.Equal(t, "0", code)
+	require.Equal(t, "drained", strings.TrimSpace(string(drained)))
+	require.Less(t, time.Since(started), 5*time.Second)
+	late, err := sshClient.NewSession()
+	if late != nil {
+		_ = late.Close()
+	}
+	require.Error(t, err, "retained SSH transport cannot open after removal")
+	reconnect, err := gossh.Dial("tcp", sshAddress, &gossh.ClientConfig{User: sshLogin, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second})
+	if reconnect != nil {
+		_ = reconnect.Close()
+	}
+	require.Error(t, err, "same previously admitted key cannot reconnect after removal")
 	installedShell(t, owner, `test "$(id -u)" = 20001 && test ! -e /workspace/trm-watcher-created`)
 }
 

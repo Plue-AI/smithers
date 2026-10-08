@@ -213,6 +213,11 @@ func TestSessionProductionDispatchAcceptance(t *testing.T) {
 
 func TestSessionRootInputsValidatedNative(t *testing.T) {
 	h := nativeSessions(t)
+	t.Run("production RPC matrix", func(t *testing.T) {
+		copy := *h
+		copy.t = t
+		testSessionNativeRPCMatrix(t, &copy)
+	})
 	for _, user := range []SessionUser{{"root", 0}, {"ben", 19999}, {"alice", 20001}, {"../ben", 20001}, {"ben", 20002}} {
 		t.Run(fmt.Sprintf("rpc/%s/%d", user.Login, user.UID), func(t *testing.T) {
 			hcopy := *h
@@ -227,7 +232,10 @@ func TestSessionRootInputsValidatedNative(t *testing.T) {
 			require.Error(t, err)
 			var refusal *SessionError
 			require.ErrorAs(t, err, &refusal)
-			require.Equal(t, "unauthorized", refusal.Code)
+			// This bypasses the Go validator. The installed broker's typed
+			// identity/roster refusal is malformed, not the host adapter's
+			// unauthorized error. Keep the literal production expectation.
+			require.Equal(t, "malformed", refusal.Code)
 		})
 	}
 	// Keep a real process alive across each hostile request. Refusal must not
@@ -527,11 +535,7 @@ func TestSessionAdmissionFailsClosedNative(t *testing.T) {
 			require.Error(t, err)
 			var refusal *SessionError
 			require.ErrorAs(t, err, &refusal)
-			expected := "unauthorized"
-			if cell.name == "missing attribution" {
-				expected = "malformed"
-			}
-			require.Equal(t, expected, refusal.Code)
+			require.Equal(t, "malformed", refusal.Code)
 		})
 	}
 }

@@ -292,7 +292,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	}
 	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser, aliceBrowser)
 	testInstalledTerminalRootInputs(t, h, branch, benBrowser)
-	testInstalledTerminalOwnerWatch(t, h, branch, benBrowser, aliceBrowser)
+	testInstalledTerminalOwnerWatch(t, h, branch, benBrowser, aliceBrowser, sshAddress, login)
 	eventScan.assertClean(t)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }

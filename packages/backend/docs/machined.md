@@ -301,9 +301,35 @@ hostile branch executable/import/environment payloads; mismatched identity RPCs;
 PTY resize and INT delivery; and real member/registered-agent local socket admission. The RSS bound is a
 harness acceptance ceiling, not a published benchmark claim.
 
+The named root-input test also sends raw malformed controls over the real
+authenticated link, bypassing host codec rejection: unknown method/field/kind,
+missing user, empty exec, SFTP executable override, zero PTY dimensions,
+dimensions on exec, NUL/invalid UTF-8/oversized executable, zero TCP port,
+invalid close/kill selectors, a forged cgroup-path field, empty run selectors,
+member-to-run registration and a future replay offset. A held member process
+must echo byte-equal after these refusals. Drained IDs cannot close, attach or
+register again; repeated kill returns zero. `TestSessionProductionExpiredReattach`
+checks that a 31-second disconnect cannot refresh grace through repeated
+attachment, and an explicit kill still drains any lingering owned cgroup.
+`TestSessionProductionRunDrainIsolation` refuses rebinding a live agent session,
+drains its registered run with a detached child, checks the kernel cgroup after
+the reply, and proves another run and a member's held process remain usable.
+
+`internal/compose/installed_terminal_chain_integration_test.go` now reaches the
+approved native broker through the composed HTTP/WebSocket and SSH doors.
+Its existing retained-home/startup and install-recomposition canaries remain
+part of that chain. Member removal includes a live SSH exec and detached
+`nohup` children in both terminal and SSH cgroups; HTTP removal, affected
+terminal/socket and SSH closures, independent `pgrep -u 20002` and both kernel
+cgroup drainage observations share one five-second deadline starting before DELETE.
+Run `TestInstalledMemberTerminalAndSSHChain` in approved reference-host mode;
+its preflight requires the reviewed helper and install bundle. A skip is no
+proof of this boundary or its deadline.
+
 Without authority configuration the native tests explicitly skip. Skips are
 not C-COL-04 or C-J3-06 receipts. Retained/restart provenance, missing installed
-provider matrices, unregistered-agent socket admission, full malformed broker
-envelopes, full signal/resize refusal matrices and reference-host revocation through the
-composed gateway remain required. C-J3-06 additionally needs the second Mac,
+provider matrices, unregistered-agent socket admission, direct malformed broker
+socketpair envelopes, full signal/resize refusal matrices and passing reference-host
+revocation receipts remain required. The composed chain is authored, not a passing
+native receipt. C-J3-06 additionally needs the second Mac,
 GitHub key/account exercise and owner-recorded VS Code session.
