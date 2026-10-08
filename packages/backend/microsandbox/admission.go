@@ -67,6 +67,9 @@ func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest
 }
 
 func (r *Runtime) requestLocked(class, holder, actor, reason string) (AdmissionRequest, error) {
+	if r.admissionFrozen {
+		return AdmissionRequest{}, ErrAdmissionFrozen
+	}
 	if r.closed {
 		return AdmissionRequest{}, errors.New("microsandbox runtime is closed")
 	}
@@ -259,7 +262,11 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	}
 	r.mu.Lock()
 	parallelReader := r.todoParallelReader
+	frozen := r.admissionFrozen
 	r.mu.Unlock()
+	if frozen {
+		return AdmissionRequest{}, ErrAdmissionFrozen
+	}
 	parallel := -1
 	if parallelReader != nil {
 		value, err := parallelReader(ctx)
@@ -311,6 +318,9 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.admissionFrozen {
+		return AdmissionRequest{}, ErrAdmissionFrozen
+	}
 	if r.closed {
 		return AdmissionRequest{}, errors.New("microsandbox runtime is closed")
 	}
@@ -620,6 +630,9 @@ func WithAdmissionHolder(ctx context.Context, holder string) context.Context {
 }
 
 func (r *Runtime) admitMachineLocked(ctx context.Context, maximum int, machine string) error {
+	if r.admissionFrozen {
+		return ErrAdmissionFrozen
+	}
 	holder, _ := ctx.Value(admissionContextKey{}).(string)
 	if holder == "" {
 		return r.admitRunningLocked(maximum)
@@ -696,8 +709,12 @@ func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class
 		}
 		r.mu.Lock()
 		h := r.admission[holder]
+		frozen := r.admissionFrozen
 		cancelled := r.closed || h == nil || h.rows[actor] == nil || h.rows[actor].State == "cancelled" || h.rows[actor].State == "released"
 		r.mu.Unlock()
+		if frozen {
+			return ctx, ErrAdmissionFrozen
+		}
 		if cancelled {
 			return ctx, context.Canceled
 		}
@@ -789,7 +806,7 @@ func (r *Runtime) admissionGranted(holder, actor string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.admission[holder]
-	return h != nil && h.held && h.releasing.IsZero() && !h.idlePreparing && h.rows[actor] != nil && h.rows[actor].State == "granted"
+	return !r.admissionFrozen && h != nil && h.held && h.releasing.IsZero() && !h.idlePreparing && h.rows[actor] != nil && h.rows[actor].State == "granted"
 }
 
 // CancelFailedAdmission cancels the actor after a failed wake. A bound VM keeps

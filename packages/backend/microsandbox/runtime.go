@@ -195,6 +195,7 @@ type Runtime struct {
 	auxCleanup                map[string]struct{}
 	capacityReader            func(context.Context) (int, error)
 	admission                 map[string]*admissionHolder
+	admissionFrozen           bool
 	admissionSequence         uint64
 	admissionChanged          chan struct{}
 	admissionCancel           context.CancelFunc

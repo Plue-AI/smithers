@@ -233,6 +233,30 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 								delete(service.Barriers, missing)
 							}
 						}
+						t.Run("composed machine admission", func(t *testing.T) {
+							runtime := new(microsandbox.Runtime)
+							require.NoError(t, composeInstallAdmission(ctx, service, runtime, nil))
+							status, body := post(`{"op":"admission-maintenance"}`)
+							require.Equal(t, 200, status, string(body))
+							_, err := runtime.Request("person", "workspace:one", "member", "terminal")
+							require.ErrorIs(t, err, microsandbox.ErrAdmissionFrozen)
+							// Restart reuses the durable freeze, fencing the new runtime
+							// before any request or periodic scheduler can grant a wake.
+							restarted := new(microsandbox.Runtime)
+							require.NoError(t, composeInstallAdmission(ctx, service, restarted, nil))
+							_, err = restarted.Request("background", "wiki", "refresh", "wiki")
+							require.ErrorIs(t, err, microsandbox.ErrAdmissionFrozen)
+							request, err := http.NewRequest("DELETE", "http://install/maintenance/quiesce?op=admission-maintenance", nil)
+							require.NoError(t, err)
+							response, err := client.Do(request)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 204, response.StatusCode)
+							demand, err := restarted.Request("person", "workspace:one", "member", "terminal")
+							require.NoError(t, err)
+							require.Equal(t, "waiting", demand.State)
+							service.Admission = steps
+						})
 						for _, lost := range []string{"reopened", "expired", "replaced"} {
 							t.Run("drain returns after "+lost, func(t *testing.T) {
 								calls = nil

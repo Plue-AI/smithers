@@ -50,6 +50,9 @@ func (r *Runtime) SyncTodoAdmission(scope string, holders []string, limit int) e
 }
 
 func (r *Runtime) grantableAdmissionLocked() []*AdmissionRequest {
+	if r.admissionFrozen {
+		return nil
+	}
 	heads := r.rankAdmissionLocked()
 	return slices.DeleteFunc(heads, func(row *AdmissionRequest) bool {
 		h := r.admission[row.Holder]
