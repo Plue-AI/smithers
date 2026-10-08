@@ -103,8 +103,17 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     await page.keyboard.type("printf 'export const forkBackoff = 2;\\n' >> src/retry.ts && jj commit -m 'try exponential backoff' && printf '\\nFORK_EDIT_%s\\n' COMMITTED")
     await page.keyboard.press("Enter")
     await expect(page.locator(".xterm-rows").last().getByText("FORK_EDIT_COMMITTED", { exact: true })).toBeVisible()
-    // Add captures this committed guest edit; no host working-copy substitute.
+    // Keep a second edit uncommitted: Add must capture the awake guest's
+    // working copy as well as the revision committed through the terminal.
+    const awakeEdit = "export const forkAwakeCapture = true;\n"
+    await page.keyboard.type("printf 'export const forkAwakeCapture = true;\\n' >> src/retry.ts && printf '\\nFORK_AWAKE_%s\\n' READY")
+    await page.keyboard.press("Enter")
+    await expect(page.locator(".xterm-rows").last().getByText("FORK_AWAKE_READY", { exact: true })).toBeVisible()
+    const scratchBytes = await f.read("Ben", `${path}/files/src/retry.ts`)
+    await attachJson(info, "scratch-before-add-source", scratchBytes)
+    expect(scratchBytes.content).toEqual({ kind: "text", text: expected + edit + awakeEdit })
     await info.attach("scratch-edit-source", { body: edit, contentType: "text/plain" })
+    await info.attach("scratch-uncommitted-source", { body: awakeEdit, contentType: "text/plain" })
     // The real delegated catalog HTTP door persists the private card. A model
     // answer or an in-memory app confirmation is not server admission evidence.
     const pending = await page.context().request.post(new URL(`${path}/add-to-stack`, required("SMITHERS_REAL_BASE_URL")).toString(), {
@@ -138,8 +147,10 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     expect(seed.workspace_id).toBe(scratch.machine.id)
     expect(seed.checks.seed.base).toBe(verified.candidate_base)
     const retained = await f.read("Ben", `/api/branches/${encodeURIComponent(added.branch.name)}/files/src/retry.ts`)
-    expect(retained.content).toEqual({ kind: "text", text: expected + edit })
+    await attachJson(info, "adopted-retry-source", retained)
+    expect(retained.content).toEqual({ kind: "text", text: expected + edit + awakeEdit })
     expect(seed.checks.seed.diff).toContain("+export const forkBackoff = 2;")
+    expect(seed.checks.seed.diff).toContain("+export const forkAwakeCapture = true;")
     await expect(terminal).toBeAttached()
     await terminal.focus()
     await page.keyboard.type("printf '\\nFORK_TERMINAL_%s\\n' RETAINED")
@@ -179,7 +190,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
       return files
     }
     const beforeDrop = await tree()
-    expect(beforeDrop["src/retry.ts"]).toMatchObject({ content: { kind: "text", text: expected + edit } })
+    expect(beforeDrop["src/retry.ts"]).toMatchObject({ content: { kind: "text", text: expected + edit + awakeEdit } })
     // Persist the evidence before Drop: a refusal or timeout must retain the
     // successful Fork/Add observations and the bytes it was meant to preserve.
     await attachJson(info, "fork-add-before-drop", { beforeDrop, seed, itemBranch, approvals: approvals(), events, afterAdd })
@@ -205,6 +216,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     const foldedDiff = await f.read("Ben", `${itemPath}/diff`)
     expect(foldedDiff.files.map((file: any) => file.path)).toContain("src/retry.ts")
     expect(JSON.stringify(foldedDiff)).toContain("export const forkBackoff = 2;")
+    expect(JSON.stringify(foldedDiff)).toContain("export const forkAwakeCapture = true;")
     await attachJson(info, "drop-retained-tree", { beforeDrop, afterDrop, foldedDiff, closedPR, comments })
     await page.reload()
     await runSlash(page, "/branch T4")
