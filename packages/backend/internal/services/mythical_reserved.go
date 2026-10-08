@@ -143,7 +143,21 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	}
 	step := mythicalItemStep{s: s, q: q, r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: items}
 	prefix := step.prefix(item)
-	if !codingCommitID.MatchString(prefix) || item.CandidateHead == "" && mythicalAttemptPrefix(item) != prefix || item.CandidateHead != "" && item.CandidateBase != prefix {
+	initialBase := mythicalAttemptPrefix(item)
+	initialMoved := command == "stack.candidate" && item.CandidateHead == "" && codingCommitID.MatchString(initialBase) && initialBase != prefix
+	if !codingCommitID.MatchString(prefix) || !initialMoved && (item.CandidateHead == "" && initialBase != prefix || item.CandidateHead != "" && item.CandidateBase != prefix) {
+		checks := mythicalChecksOf(item)
+		if command == "stack.candidate" && input.Source != nil && checks.Capture != nil &&
+			checks.ProposalRun == item.RequestRunID && checks.ProposalHead == input.Source.CommitID &&
+			checks.Capture.Head == input.Source.CommitID && checks.Capture.Tree == input.Source.TreeID &&
+			!checks.Capture.Stale && !checks.Capture.Conflict && codingCommitID.MatchString(prefix) {
+			// The sealed invocation is waiting for its own fenced rebase. It
+			// cannot republish old bytes or allocate obsolete-prefix checks.
+			if _, err := q.RequestMythicalStack(live, repository); err != nil {
+				return empty, 0, err
+			}
+			return empty, 202, tx.Commit(live)
+		}
 		return empty, 0, pkgerrors.Conflict("rebase pending")
 	}
 	lanes, ok := s.lanes.(*workspaceMythicalLanes)
@@ -264,6 +278,14 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		}
 		item.CandidateBase, item.CandidateVerified = prefix, false
 		item.State, item.Reason = "integrating", ""
+		if initialMoved {
+			// The first sealed result may arrive after its predecessor publishes.
+			// Retain its actual old base; the worker's existing native rebase must
+			// advance it before allocating verification or accepting a proposal.
+			captured.Base = initialBase
+			item.CandidateBase, item.CandidateHead = initialBase, captured.Head
+			item = *step.invalidatePrefix(item)
+		}
 		checks := mythicalChecksOf(item)
 		checks.Capture, checks.Land, checks.Review = &captured, nil, nil
 		// This run now waits on stack.propose for its acceptance.

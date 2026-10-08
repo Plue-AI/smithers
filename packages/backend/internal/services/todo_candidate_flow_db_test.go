@@ -246,29 +246,37 @@ func (h hostWorkspaceSources) ReadWorkspaceSource(_ context.Context, _, _ string
 // Git, JJ guest checkout, stack worker and GitHub fake. The microVM and the
 // native helper's HTTP hop are the only substitutions.
 func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, false, false, false)
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, false, false)
 }
 
 func TestReservedCandidateWithoutProposeReleasesLane(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, true, false, false, false)
+	testReservedCandidateProposesVerifiedTree(t, true, false, false, false, false)
 }
 
 func TestReservedCandidateBindsExistingCapture(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, true, false, false)
+	testReservedCandidateProposesVerifiedTree(t, false, true, false, false, false)
 }
 
 func TestReservedCandidateVerifiesUnderForeignHold(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, false, true, false)
+	testReservedCandidateProposesVerifiedTree(t, false, false, true, false, false)
 }
 
 func TestReservedCandidateSteerBeforeProposalAcknowledgment(t *testing.T) {
-	testReservedCandidateProposesVerifiedTree(t, false, false, false, true)
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, true, false)
 }
 
-func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold, earlySteer bool) {
+func TestReservedFirstCandidateRetainsMovedPrefix(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, false, true)
+}
+
+func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold, earlySteer, movedPrefix bool) {
 	f := newRebaseFixture(t)
 	ctx := context.Background()
 	q := db.New(f.pool)
+	var predecessor db.MythicalItem
+	if movedPrefix {
+		predecessor = f.candidate("Earlier publication", f.main, "FIRST.md", "earlier work\n")
+	}
 	item := f.candidate("Reserved positive", f.main, "AGENT.md", "agent work\n")
 	guest := &reservedGuest{dir: filepath.Join(t.TempDir(), "guest")}
 	f.git(f.root, "clone", "-q", f.hostDir, guest.dir)
@@ -353,6 +361,24 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	pending := f.item(item.Number.Int64)
 	require.Equal(t, generation, pending.Generation, "admission allocates no generation")
 	require.NotNil(t, mythicalChecksOf(pending).Capture)
+	if movedPrefix {
+		require.Equal(t, f.main, pending.CandidateBase, "retains the original delta base")
+		require.Equal(t, head, pending.CandidateHead, "unverified source becomes native rebase input")
+		require.False(t, pending.CandidateVerified)
+		require.Equal(t, f.main, mythicalChecksOf(pending).Capture.Base)
+		require.Equal(t, "rebase_pending", pending.Reason)
+		require.Equal(t, predecessor.CandidateHead, mythicalChecksOf(pending).Rebase.Onto)
+		require.Zero(t, f.verifies(pending), "no checks on the obsolete prefix")
+		_, status = call("stack.candidate", capture)
+		require.Equal(t, 202, status, "the exact sealed invocation polls through its rebase")
+		changed := source
+		changed.CommitID = strings.Repeat("f", 40)
+		_, status = call("stack.candidate", ReservedStackInput{RequestID: capture.RequestID, Source: &changed})
+		require.Equal(t, 409, status, "another source cannot consume this pending invocation")
+		_, status = call("stack.propose", ReservedStackInput{RequestID: "22222222-2222-4222-8222-222222222222", Generation: generation})
+		require.Equal(t, 409, status, "old-prefix work cannot publish")
+		return
+	}
 	require.Zero(t, f.verifies(pending))
 	_, status = call("stack.candidate", capture)
 	require.Equal(t, 202, status)
