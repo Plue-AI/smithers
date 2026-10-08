@@ -272,7 +272,9 @@ test.each(["contract", "actor", "file", "recovery", "catalog", "machine"] as con
   expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
 })
 
-test("a closed authorized socket disables the registered File editor and retains pending text", async () => {
+// ADR 0003 ruling (8a, 2026-10-07): a closed socket (a host restart) is like
+// a gap. Typing stays pending; the same assignment resends it, with no Reapply.
+test("a closed socket keeps typing pending and the same assignment resends it without recovery", async () => {
   const { LiveChannel } = await import("../runtime/LiveChannel")
   const { LiveDocProvider } = await import("../runtime/LiveDocProvider")
   const { LiveFileContext, fileDocument } = await import("./liveDoc")
@@ -319,29 +321,28 @@ test("a closed authorized socket disables the registered File editor and retains
   expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
   socket.readyState = 3; socket.onclose!()
   paint()
-  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
-  expect(host.querySelector('.cm-content[contenteditable="true"]')).toBeNull()
-  expect(provider.unsaved).toEqual({ count: 1, text: "const retry = 1!" })
-  expect(host.textContent).toContain("const retry = 1!")
+  expect(provider.unsaved).toBeUndefined()
   expect(host.textContent).not.toContain("Saved to the machine")
   const writes = sent.length
-  flushSync(() => editor.dispatch({ changes: { from: 0, insert: "forged" } }))
-  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!")
+  flushSync(() => editor.dispatch({ changes: { from: 16, insert: "?" } }))
+  expect(provider.doc.getText("content").toString()).toBe("const retry = 1!?")
   expect(sent.length).toBe(writes)
   timers[0]!()
   const reconnected = sockets[1]!
   reconnected.readyState = 1; reconnected.onopen!()
+  expect(sent.at(-1)).toBe(JSON.stringify({ t: "sub", id: 1, topic: "doc:code:T12:retry.ts", client_id: 7 }))
   // A frame from the old socket cannot restore authority.
   socket.onmessage!({ data: JSON.stringify(assignment) })
-  expect(provider.editable).toBe(false)
+  expect(sent.length).toBe(writes + 1)
   reconnected.onmessage!({ data: JSON.stringify(assignment) })
   reconnected.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
-  expect(provider.unsaved?.text).toBe("const retry = 1!")
-  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, seq: 1, sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
+  expect(provider.unsaved).toBeUndefined()
+  expect(sent.length).toBe(writes + 4)
+  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, seq: 2, sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
   paint()
   expect(provider.unsaved).toBeUndefined()
   expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
-  expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1!")
+  expect(host.querySelector(".cm-content")?.textContent).toBe("const retry = 1!?")
   expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
 })
 

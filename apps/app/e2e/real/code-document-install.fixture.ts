@@ -96,8 +96,35 @@ const benActor = authors.get(String(ben.provider.doc.clientID)), aliceActor = au
 assert.ok(benActor && aliceActor, JSON.stringify([...authors]))
 assert.notEqual(JSON.stringify(benActor), JSON.stringify(aliceActor))
 
+// Host restart while Ben types (ADR 0003 ruling, 8a 2026-10-07): typing stays
+// pending, both reconnect with their client ids, and nothing offers Reapply.
+const aliceClient = alice.provider.doc.clientID
+const RESTART = " typed across a host restart"
+let restarted = false
+const stdin = console[Symbol.asyncIterator]()
+console.log("RESTART")
+const typing = (async () => {
+  for (const char of RESTART) {
+    ben.text().insert(ben.text().length, char)
+    await new Promise(resolve => setTimeout(resolve, restarted ? 10 : 150))
+  }
+})()
+const answer = await stdin.next()
+assert.equal(answer.value, "RESTARTED")
+restarted = true
+await typing
+await waitFor("Alice sees typing across the restart", () => alice.text().toString().endsWith(RESTART), 30000).catch(diagnose)
+await waitFor("both pages saved after the restart", () => ben.provider.saved === "saved" && alice.provider.saved === "saved", 30000).catch(diagnose)
+assert.ok(ben.frames.some(frame => frame.startsWith("close")), "the restart closed Ben's socket")
+assert.equal(ben.provider.doc.clientID, benClient, "the restart kept Ben's client id")
+assert.equal(alice.provider.doc.clientID, aliceClient, "the restart kept Alice's client id")
+assert.equal(ben.provider.unsaved, undefined, "a host restart offers no Reapply")
+assert.equal(alice.provider.unsaved, undefined, "a host restart offers no Reapply")
+assert.equal(ben.text().toString(), alice.text().toString())
+
 samples.sort((a, b) => a - b)
 const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!
 assert.ok(p95 < 1000, `keystroke p95 ${p95} ms`)
 ben.provider.dispose(); alice.provider.dispose(); ben.channel.dispose(); alice.channel.dispose()
 console.log(JSON.stringify({ text: ben.text().toString(), ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, samples: samples.length, p95 }))
+process.exit(0)

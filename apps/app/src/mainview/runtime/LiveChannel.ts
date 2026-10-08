@@ -169,6 +169,8 @@ export class LiveChannel {
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
+        // A closed socket's document assignments must not be announced again.
+        for (const [topic, entry] of this.topics) if (topic.startsWith("doc:")) entry.snapshot = { topic }
         this.notifyContinuityLoss()
         for (const [topic, entry] of this.topics) {
           if (topic.startsWith("confirmations:")) {
@@ -177,9 +179,11 @@ export class LiveChannel {
           }
           if (topic.startsWith("doc:") || (topic === "members" || topic === "secrets")) entry.awaitingSnapshot = true
           if (topic.startsWith("doc:")) {
-            // The closed socket no longer holds branch authority. Retain pending
-            // text, but stop local editing until a fresh authenticated assignment.
-            this.documentEvent(topic, { kind: topic.startsWith("doc:wiki:") ? "offline" : "refused" })
+            // Like a gap: typing stays pending and is sent only after a fresh
+            // authenticated assignment. The resubscription carries the client
+            // id, which the host admits again when the daemon's authors map
+            // assigns it to this member, so a host restart needs no recovery.
+            this.documentEvent(topic, { kind: "offline" })
           }
         }
         this.retry()

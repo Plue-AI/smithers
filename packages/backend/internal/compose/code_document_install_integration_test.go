@@ -1,20 +1,25 @@
 package compose
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,18 +116,42 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 		install := startCodeDocumentInstall(t, true)
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-install.fixture.ts")
 		require.NoError(t, err)
-		command := exec.CommandContext(t.Context(), "bun", "run", script)
+		run, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+		defer cancel()
+		command := exec.CommandContext(run, "bun", "run", script)
 		command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+install.origin, "SMITHERS_CODE_DOCUMENT_TOPIC="+install.topic)
-		output, err := command.CombinedOutput()
-		require.NoError(t, err, string(output))
-		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		stdin, err := command.StdinPipe()
+		require.NoError(t, err)
+		stdout, err := command.StdoutPipe()
+		require.NoError(t, err)
+		stderr := &lockedBuffer{}
+		command.Stderr = stderr
+		require.NoError(t, command.Start())
+		// The fixture asks for a host restart while Ben is typing.
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 1<<20), 1<<20)
+		var last string
+		restarts := 0
+		for scanner.Scan() {
+			if scanner.Text() == "RESTART" {
+				install.restart(t)
+				restarts++
+				_, err = io.WriteString(stdin, "RESTARTED\n")
+				require.NoError(t, err)
+				require.NoError(t, stdin.Close())
+				continue
+			}
+			last = scanner.Text()
+		}
+		require.NoError(t, command.Wait(), stderr.String())
+		require.Equal(t, 1, restarts)
 		var result struct {
 			Text       string
 			Ben, Alice uint32
 			Samples    int
 			P95        float64
 		}
-		require.NoError(t, json.Unmarshal([]byte(lines[len(lines)-1]), &result), string(output))
+		require.NoError(t, json.Unmarshal([]byte(last), &result), last)
 		t.Logf("%d keystrokes, p95 %.1f ms", result.Samples, result.P95)
 		require.Equal(t, 41, result.Samples)
 		require.Equal(t, result.Text, install.daemon.text(t), "the daemon holds what both pages show")
@@ -137,6 +166,29 @@ type codeDocumentInstall struct {
 	ben, alice            int64
 	pool                  *pgxpool.Pool
 	daemon                *scriptedDocumentDaemon
+	options               Options
+	handler               atomic.Value
+	stop                  func()
+}
+
+// restart stops the composed host and starts a new one on the same database
+// with a fresh link registry, as an install restart does. The daemon keeps
+// running with its documents and authors map; the browsers reconnect.
+func (install *codeDocumentInstall) restart(t *testing.T) {
+	t.Helper()
+	install.handler.Store(http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "restarting", http.StatusServiceUnavailable)
+	})))
+	install.stop()
+	registry := new(machined.Registry)
+	options := install.options
+	options.Machined = registry
+	handler, stop := startCodeDocumentProcess(t, options)
+	install.stop = stop
+	link, guest := presenceTestLink(t, registry, install.branch)
+	require.NoError(t, link.Connection.Reconciled())
+	install.daemon.serve(t, guest)
+	install.handler.Store(handler)
 }
 
 func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall {
@@ -188,7 +240,7 @@ func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall 
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
-	handler := startCodeDocumentProcess(t, Options{
+	options := Options{
 		Repository:        repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryURL}, "split-process-repo"),
 		ChatHost:          unusedChatHost{},
 		Workspace:         runtime,
@@ -197,20 +249,26 @@ func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall 
 		LiveCodeDocuments: activate,
 		// The install requires a product origin for Flow hosts; none run here.
 		FlowHostProductAPIURL: origin,
+	}
+	handler, stop := startCodeDocumentProcess(t, options)
+	install := &codeDocumentInstall{origin: origin, branch: branch.ID, topic: "doc:code:" + branch.ID + ":retry.ts", ben: ben, alice: alice, pool: pool, options: options, stop: stop}
+	install.handler.Store(handler)
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		install.handler.Load().(http.Handler).ServeHTTP(w, r)
 	})
-	server.Config.Handler = handler
 	server.Start()
 	t.Cleanup(server.Close)
 
 	link, guest := presenceTestLink(t, registry, branch.ID)
 	require.NoError(t, link.Connection.Reconciled())
-	daemon := serveScriptedDocumentDaemon(t, guest)
-	return &codeDocumentInstall{origin: origin, branch: branch.ID, topic: "doc:code:" + branch.ID + ":retry.ts", ben: ben, alice: alice, pool: pool, daemon: daemon}
+	install.daemon = newScriptedDocumentDaemon(t)
+	install.daemon.serve(t, guest)
+	return install
 }
 
 // startCodeDocumentProcess is startSplitProcess with the product's log kept
 // for a failing test's report.
-func startCodeDocumentProcess(t *testing.T, options Options) http.Handler {
+func startCodeDocumentProcess(t *testing.T, options Options) (http.Handler, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	ready := make(chan http.Handler, 1)
@@ -221,31 +279,35 @@ func startCodeDocumentProcess(t *testing.T, options Options) http.Handler {
 		runErr = StartWithOptions(ctx, nil, logs, logs, options, func(handler http.Handler) { ready <- handler })
 		close(finished)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-finished:
-			require.NoError(t, runErr)
-		case <-time.After(30 * time.Second):
-			t.Error("composition did not stop")
-		}
-		if t.Failed() {
-			for _, line := range strings.Split(logs.String(), "\n") {
-				if !strings.Contains(line, "INFO") {
-					t.Log(line)
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case <-finished:
+				require.NoError(t, runErr)
+			case <-time.After(30 * time.Second):
+				t.Error("composition did not stop")
+			}
+			if t.Failed() {
+				for _, line := range strings.Split(logs.String(), "\n") {
+					if !strings.Contains(line, "INFO") {
+						t.Log(line)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
+	t.Cleanup(stop)
 	select {
 	case handler := <-ready:
-		return handler
+		return handler, stop
 	case <-finished:
 		t.Fatalf("composition stopped before ready: %v", runErr)
 	case <-time.After(60 * time.Second):
 		t.Fatal("composition did not become ready")
 	}
-	return nil
+	return nil, stop
 }
 
 type codeDocumentBrowser struct {
@@ -402,6 +464,9 @@ type scriptedDocumentDaemon struct {
 	guest   net.Conn
 	next    uint32
 	streams map[uint32]*scriptedStream
+	// owners mirrors the document's durable authors map: client → actor key.
+	owners  map[uint32]string
+	serving sync.WaitGroup
 	opens   int
 	inputs  []scriptedDocumentInput
 	// unhandled records other control requests for a failing run's report.
@@ -420,33 +485,21 @@ type scriptedDocumentInput struct {
 	update []byte
 }
 
-func serveScriptedDocumentDaemon(t *testing.T, guest net.Conn) *scriptedDocumentDaemon {
+func newScriptedDocumentDaemon(t *testing.T) *scriptedDocumentDaemon {
 	t.Helper()
 	library, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 	require.NoError(t, err)
 	doc, err := library.Open(livedocument.Code, nil)
 	require.NoError(t, err)
-	d := &scriptedDocumentDaemon{doc: doc, guest: guest, streams: map[uint32]*scriptedStream{}, next: 5}
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			frame, err := wire.Read(guest)
-			if err != nil {
-				return
-			}
-			d.mu.Lock()
-			err = d.handle(frame)
-			d.mu.Unlock()
-			if err != nil {
-				d.fail(err)
-				return
-			}
-		}
-	}()
+	d := &scriptedDocumentDaemon{doc: doc, streams: map[uint32]*scriptedStream{}, owners: map[uint32]string{}, next: 5}
 	t.Cleanup(func() {
-		guest.Close()
-		<-done
+		d.mu.Lock()
+		guest := d.guest
+		d.mu.Unlock()
+		if guest != nil {
+			guest.Close()
+		}
+		d.serving.Wait()
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		if t.Failed() {
@@ -457,6 +510,45 @@ func serveScriptedDocumentDaemon(t *testing.T, guest net.Conn) *scriptedDocument
 		library.Close()
 	})
 	return d
+}
+
+// serve answers one authenticated host link. A new link (a host restart)
+// starts with no open streams; documents and authors persist.
+func (d *scriptedDocumentDaemon) serve(t *testing.T, guest net.Conn) {
+	t.Helper()
+	d.mu.Lock()
+	if d.guest != nil {
+		// The previous host is gone; its connection ends with it.
+		d.guest.Close()
+	}
+	d.guest = guest
+	d.streams = map[uint32]*scriptedStream{}
+	d.mu.Unlock()
+	d.serving.Add(1)
+	go func() {
+		defer d.serving.Done()
+		for {
+			frame, err := wire.Read(guest)
+			if err != nil {
+				return
+			}
+			d.mu.Lock()
+			if d.guest != guest {
+				d.mu.Unlock()
+				return
+			}
+			err = d.handle(frame)
+			d.mu.Unlock()
+			if errors.Is(err, io.ErrClosedPipe) {
+				// The host closed this link mid-reply (its shutdown or restart).
+				return
+			}
+			if err != nil {
+				d.fail(err)
+				return
+			}
+		}
+	}()
 }
 
 func (d *scriptedDocumentDaemon) write(stream uint32, msg wire.Document) error {
@@ -497,6 +589,7 @@ func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 				return err
 			}
 			d.streams[stream] = &scriptedStream{actor: actor, client: client}
+			d.owners[client] = hex.EncodeToString(actor)
 			_, err = d.doc.SetAuthor(uint64(client), hex.EncodeToString(actor))
 			return err
 		case byte(wire.CloseDoc):
@@ -522,6 +615,12 @@ func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 		return err
 	}
 	if msg.Msg == wire.DocumentAwarenessInput {
+		// Like peer_awareness: a client's notice is echoed only when the
+		// authors map assigns that client to the envelope's actor.
+		client, n := binary.Uvarint(msg.Data[1:])
+		if n <= 0 || d.owners[uint32(client)] != hex.EncodeToString(msg.Actor) {
+			return d.write(frame.Stream, wire.Document{Msg: 255, Refusal: 11})
+		}
 		return d.write(frame.Stream, wire.Document{Msg: wire.DocumentAwareness, Data: msg.Data})
 	}
 	if msg.Msg != wire.DocumentInput {
@@ -540,6 +639,9 @@ func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 	}
 	if _, err := d.doc.Peer(payload); err != nil {
 		return err
+	}
+	if client, key, ok := parseRegistration(payload); ok && key == hex.EncodeToString(msg.Actor) {
+		d.owners[client] = key
 	}
 	d.inputs = append(d.inputs, scriptedDocumentInput{actor: append([]byte(nil), msg.Actor...), seq: msg.Seq, update: append([]byte(nil), payload...)})
 	if err := d.write(frame.Stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(2, payload)}); err != nil {
@@ -660,6 +762,51 @@ func codeInsertAt(client uint32, clock uint64, text string) []byte {
 	b = binary.AppendUvarint(b, uint64(len(text)))
 	b = append(b, []byte(text)...)
 	return append(b, 0)
+}
+
+// parseRegistration reads the host's one-item authors registration:
+// authors[client] = key, as ADR 0004 S3 describes.
+func parseRegistration(update []byte) (uint32, string, bool) {
+	read := func() (uint64, bool) {
+		v, n := binary.Uvarint(update)
+		if n <= 0 {
+			return 0, false
+		}
+		update = update[n:]
+		return v, true
+	}
+	str := func() (string, bool) {
+		n, ok := read()
+		if !ok || n > uint64(len(update)) {
+			return "", false
+		}
+		v := string(update[:n])
+		update = update[n:]
+		return v, true
+	}
+	for _, want := range []uint64{1, 1} {
+		if v, ok := read(); !ok || v != want {
+			return 0, "", false
+		}
+	}
+	if _, ok := read(); !ok || len(update) < 3 || update[0] != 0 || update[1] != 0x28 || update[2] != 1 {
+		return 0, "", false
+	}
+	update = update[3:]
+	if root, ok := str(); !ok || root != "authors" {
+		return 0, "", false
+	}
+	id, ok := str()
+	if !ok || len(update) < 2 || update[0] != 1 || update[1] != 119 {
+		return 0, "", false
+	}
+	update = update[2:]
+	key, ok := str()
+	client, err := strconv.ParseUint(id, 10, 32)
+	if !ok || err != nil || len(update) != 1 || update[0] != 0 {
+		return 0, "", false
+	}
+	return uint32(client), key, true
 }
 
 func codeSyncParts(b []byte) (byte, []byte, error) {

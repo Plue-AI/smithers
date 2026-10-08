@@ -200,8 +200,9 @@ authority. Documents live in the daemon (ADR 0003). The host opens one daemon
 stream per open file, stamps each subscriber's actor and a sequence on its
 frames, relays document bytes unparsed and fans the daemon's replies out; it
 runs no document core for code. It assigns each subscriber a client id bound
-to its actor (ADR 0004 S3), which survives a gap, so unsaved typing resends
-without Reapply. Admission is cached per subscription for at most 4 s and
+to its actor (ADR 0004 S3), which survives a gap and a host restart (the host
+asks the daemon whether its authors map still assigns the id to that member),
+so unsaved typing resends without Reapply. Admission is cached per subscription for at most 4 s and
 dropped on any revocation event. At most 16 files per branch are open at once
 (`MaxOpenDocuments`). An install mounts the relay only when `app.Config` sets
 `LiveCodeDocuments`; the shipped install leaves it unset until ADR 0003 is

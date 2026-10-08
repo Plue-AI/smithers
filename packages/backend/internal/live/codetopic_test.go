@@ -24,24 +24,32 @@ type fakeDaemon struct {
 	out    chan []byte
 	refuse func(wire.Document) bool
 	save   bool
+	// owners stands in for the daemon's durable authors map (client → actor).
+	owners map[uint32]string
 }
 
 func newFakeDaemon() *fakeDaemon { return &fakeDaemon{out: make(chan []byte, 1024), save: true} }
 
+// emit writes to the most recently opened stream, as one daemon link would.
 func (d *fakeDaemon) emit(t *testing.T, msg wire.Document) {
 	t.Helper()
 	b, err := wire.EncodeDocumentV2(msg)
 	require.NoError(t, err)
-	d.out <- b
+	d.mu.Lock()
+	out := d.out
+	d.mu.Unlock()
+	out <- b
 }
 
 func (d *fakeDaemon) open(t *testing.T) func(context.Context, []byte) (DocumentStream, error) {
 	return func(_ context.Context, actor []byte) (DocumentStream, error) {
 		d.mu.Lock()
 		d.opens = append(d.opens, append([]byte(nil), actor...))
+		d.out = make(chan []byte, 1024)
+		stream := &fakeStream{d: d, t: t, out: d.out}
 		d.mu.Unlock()
 		d.emit(t, wire.Document{Msg: wire.DocumentEpoch, Epoch: [16]byte{1}, ClientID: 5})
-		return &fakeStream{d: d, t: t}, nil
+		return stream, nil
 	}
 }
 
@@ -52,8 +60,9 @@ func (d *fakeDaemon) recorded() []wire.Document {
 }
 
 type fakeStream struct {
-	d *fakeDaemon
-	t *testing.T
+	d   *fakeDaemon
+	t   *testing.T
+	out chan []byte
 }
 
 func (s *fakeStream) Send(_ context.Context, raw []byte) error {
@@ -71,7 +80,16 @@ func (s *fakeStream) Send(_ context.Context, raw []byte) error {
 	case refuse:
 		d.emit(s.t, wire.Document{Msg: 255, Refusal: 11})
 	case msg.Msg == wire.DocumentAwarenessInput:
-		d.emit(s.t, wire.Document{Msg: wire.DocumentAwareness, Data: msg.Data})
+		// Like peer_awareness: echo only when authors[client] is the actor.
+		client, _ := binary.Uvarint(msg.Data[1:])
+		d.mu.Lock()
+		owner, known := d.owners[uint32(client)]
+		d.mu.Unlock()
+		if known && owner == string(msg.Actor) {
+			d.emit(s.t, wire.Document{Msg: wire.DocumentAwareness, Data: msg.Data})
+		} else {
+			d.emit(s.t, wire.Document{Msg: 255, Refusal: 11})
+		}
 	case msg.Data[0] == 0:
 		d.emit(s.t, wire.Document{Msg: wire.DocumentSync, Data: syncPayload(1, []byte{0, 0})})
 	default:
@@ -86,7 +104,7 @@ func (s *fakeStream) Receive(ctx context.Context) ([]byte, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case b := <-s.d.out:
+	case b := <-s.out:
 		return b, nil
 	}
 }
@@ -269,6 +287,33 @@ func TestCodeTopicGapKeepsClientIdentity(t *testing.T) {
 	_, tab := joinTopic(t, topics, d, []byte("ben"), 0)
 	require.NotEqual(t, benClient, tab)
 	_ = aliceClient
+}
+
+// A host restart loses the client table but not the daemon's authors map. The
+// host admits a requested id the daemon assigns to the same actor, so typing
+// resends without Reapply; another member's claim and an unknown id get a new
+// id instead.
+func TestCodeTopicRestartKeepsOwnedClient(t *testing.T) {
+	d := newFakeDaemon()
+	_, _ = joinTopic(t, &codeTopics{}, d, []byte("alice"), 0)
+	d.mu.Lock()
+	d.owners = map[uint32]string{0x80000001: "ben", 5: "alice"}
+	d.mu.Unlock()
+	restarted := &codeTopics{}
+	before := len(d.recorded())
+	ben, client := joinTopic(t, restarted, d, []byte("ben"), 0x80000001)
+	require.Equal(t, uint32(0x80000001), client)
+	inputs := d.recorded()[before:]
+	require.Len(t, inputs, 1, "one ownership probe, no registration")
+	require.Equal(t, wire.DocumentAwarenessInput, inputs[0].Msg)
+	require.Equal(t, []byte("ben"), inputs[0].Actor)
+	require.Equal(t, removalNotice(0x80000001), inputs[0].Data)
+	ben.send(2, insert(client, 0, "resent"))
+	require.Equal(t, uint64(1), ben.until(wire.DocumentSaved).ThroughSeq)
+	_, other := joinTopic(t, restarted, d, []byte("mallory"), 0x80000001)
+	require.NotEqual(t, uint32(0x80000001), other, "another member cannot claim the id")
+	_, unknown := joinTopic(t, restarted, d, []byte("ben"), 0x80000002)
+	require.NotEqual(t, uint32(0x80000002), unknown, "an id the daemon never assigned is not admitted")
 }
 
 // After the last subscriber leaves, the topic closes its daemon stream; a new

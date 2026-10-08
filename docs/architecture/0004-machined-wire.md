@@ -388,7 +388,11 @@ for every other subscriber the host sends one authors-map registration
 that subscriber's actor, and the daemon accepts it only as one new author for
 the envelope's actor. A client id stays bound to its actor for the epoch: a
 subscriber that resubscribes after a gap keeps it, so its unsaved updates
-resend as the same author. The daemon answers each input with exactly one
+resend as the same author. After a host restart the host has no record of a
+requested id, so it asks the daemon: it sends an awareness removal notice for
+that client under the subscriber's actor, which the daemon echoes only when
+its authors map assigns the client to that actor. The host admits the id on
+the echo and assigns a new one on `refused`; another member cannot claim it. The daemon answers each input with exactly one
 frame, in order (sync step 2, the update's echo, or `refused`), so the host
 answers sync step 1 only to the subscriber that asked, fans an echo out to the
 others, and ends only the subscriber whose input was refused. The host

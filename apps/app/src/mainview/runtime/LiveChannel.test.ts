@@ -51,6 +51,21 @@ describe("live channel", () => {
     expect(channel.getSnapshot("home")).toEqual({ topic: "home" })
     doc.release(); home(); channel.dispose()
   })
+  // ADR 0003 ruling: a host restart drops the socket; the reconnect
+  // resubscribes with the client id and typing waits, as after a gap.
+  test("a dropped socket keeps document typing pending and resubscribes with its client id", () => {
+    const { channel, sockets, timers } = harness(undefined, true)
+    const events: string[] = []
+    const doc = channel.subscribeDocument("doc:code:12:retry.ts", event => events.push(event.kind))
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 42 } })
+    sockets[0]!.drop()
+    expect(events).toEqual(["assigned", "offline"])
+    doc.send(1, new Uint8Array([2, 0]))
+    timers[0]!.run(); sockets[1]!.open()
+    expect(sockets[1]!.frames).toEqual([{ t: "sub", id: 1, topic: "doc:code:12:retry.ts", client_id: 42 }])
+    doc.release(); channel.dispose()
+  })
   test("private confirmations disappear on disconnect and await a fresh authorized snapshot", () => {
     const { channel, sockets, timers } = harness()
     const release = channel.subscribe("confirmations:17", () => {})

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -76,13 +77,18 @@ const (
 	inputUpdate
 	inputAwareness
 	inputRegistration
+	inputProbe
 )
+
+// probeTimeout bounds the wait for the daemon's answer to an ownership probe.
+const probeTimeout = 5 * time.Second
 
 // inflight is one input awaiting its single daemon reply, in send order.
 type inflight struct {
-	sub  *codeSub
-	kind int
-	echo []byte
+	sub    *codeSub
+	kind   int
+	echo   []byte
+	result chan bool
 }
 
 type receipt struct {
@@ -216,6 +222,12 @@ func (t *codeTopic) receive(msg wire.Document) error {
 			t.broadcast(msg, nil)
 		}
 	case wire.DocumentAwareness:
+		if head != nil && head.kind == inputProbe && bytes.Equal(msg.Data, head.echo) {
+			// The daemon's authors map assigns this client to the actor.
+			pop()
+			head.result <- true
+			return nil
+		}
 		if head != nil && head.kind == inputAwareness && bytes.Equal(msg.Data, head.echo) {
 			pop()
 			t.broadcast(msg, head.sub)
@@ -254,6 +266,10 @@ func (t *codeTopic) receive(msg wire.Document) error {
 		}
 		// The daemon refused one subscriber's input; only that subscriber ends.
 		pop()
+		if head.kind == inputProbe {
+			head.result <- false
+			return nil
+		}
 		if head.kind == inputRegistration {
 			t.topics.mu.Lock()
 			delete(t.topics.table(t.key, t.epoch).actors, head.sub.client)
@@ -278,7 +294,58 @@ func (t *codeTopic) broadcast(msg wire.Document, except *codeSub) {
 // join assigns the subscriber's client id: the one it held before a gap when
 // it still belongs to this actor, the daemon's opener id, or a new id the
 // host registers in the document's authors map.
+// probe asks the daemon whether its authors map assigns client to actor, for
+// a client this host process has no record of (after a host restart). The
+// daemon's awareness check answers it: a removal notice for client under the
+// actor's envelope is echoed only when authors[client] is that actor.
+func (t *codeTopic) probe(actor []byte, client uint32) {
+	t.sendMu.Lock()
+	t.mu.Lock()
+	t.topics.mu.Lock()
+	unknown := t.topics.table(t.key, t.epoch).actors[client] == nil
+	t.topics.mu.Unlock()
+	for s := range t.subs {
+		unknown = unknown && s.client != client
+	}
+	if !unknown || t.err != nil {
+		t.mu.Unlock()
+		t.sendMu.Unlock()
+		return
+	}
+	result := make(chan bool, 1)
+	payload, err := t.enqueue(actor, nil, inputProbe, 0, wire.DocumentAwarenessInput, removalNotice(client))
+	if err == nil {
+		t.inflight[len(t.inflight)-1].result = result
+	}
+	t.mu.Unlock()
+	if err == nil {
+		err = t.stream.Send(t.ctx, payload)
+	}
+	t.sendMu.Unlock()
+	if err != nil {
+		t.fail(err)
+		return
+	}
+	timer := time.NewTimer(probeTimeout)
+	defer timer.Stop()
+	select {
+	case owned := <-result:
+		if owned {
+			t.topics.mu.Lock()
+			if table := t.topics.table(t.key, t.epoch); table.actors[client] == nil {
+				table.actors[client] = append([]byte(nil), actor...)
+			}
+			t.topics.mu.Unlock()
+		}
+	case <-t.ctx.Done():
+	case <-timer.C:
+	}
+}
+
 func (t *codeTopic) join(actor []byte, requested uint32) (DocumentStream, error) {
+	if requested != 0 {
+		t.probe(actor, requested)
+	}
 	t.sendMu.Lock()
 	defer t.sendMu.Unlock()
 	t.mu.Lock()
@@ -328,7 +395,7 @@ func (t *codeTopic) join(actor []byte, requested uint32) (DocumentStream, error)
 	var payload []byte
 	if registration != nil {
 		var err error
-		payload, err = t.enqueue(s, inputRegistration, 0, wire.DocumentInput, syncPayload(2, registration))
+		payload, err = t.enqueue(s.actor, s, inputRegistration, 0, wire.DocumentInput, syncPayload(2, registration))
 		if err != nil {
 			s.closeLocked()
 			t.mu.Unlock()
@@ -348,11 +415,11 @@ func (t *codeTopic) join(actor []byte, requested uint32) (DocumentStream, error)
 
 // enqueue records the input and returns its daemon frame. Callers hold mu and
 // sendMu, and send before releasing sendMu, so replies match send order.
-func (t *codeTopic) enqueue(s *codeSub, kind int, subSeq uint64, msg byte, data []byte) ([]byte, error) {
+func (t *codeTopic) enqueue(actor []byte, s *codeSub, kind int, subSeq uint64, msg byte, data []byte) ([]byte, error) {
 	if len(t.inflight) >= maxInflight {
 		return nil, errDocumentGap
 	}
-	frame := wire.Document{Msg: msg, Actor: s.actor, Data: data}
+	frame := wire.Document{Msg: msg, Actor: actor, Data: data}
 	entry := inflight{sub: s, kind: kind}
 	switch kind {
 	case inputUpdate, inputRegistration:
@@ -365,7 +432,7 @@ func (t *codeTopic) enqueue(s *codeSub, kind int, subSeq uint64, msg byte, data 
 			r.sub = s
 		}
 		t.ledger = append(t.ledger, r)
-	case inputAwareness:
+	case inputAwareness, inputProbe:
 		entry.echo = data
 	}
 	payload, err := wire.EncodeDocumentV2(frame)
@@ -461,14 +528,14 @@ func (s *codeSub) Send(ctx context.Context, raw []byte) error {
 	var payload []byte
 	switch msg.Msg {
 	case wire.DocumentAwarenessInput:
-		payload, err = t.enqueue(s, inputAwareness, 0, wire.DocumentAwarenessInput, msg.Data)
+		payload, err = t.enqueue(s.actor, s, inputAwareness, 0, wire.DocumentAwarenessInput, msg.Data)
 	case wire.DocumentInput:
 		var kind uint64
 		kind, _, err = parseSync(msg.Data)
 		if err == nil && kind == 0 {
-			payload, err = t.enqueue(s, inputSync1, 0, wire.DocumentInput, msg.Data)
+			payload, err = t.enqueue(s.actor, s, inputSync1, 0, wire.DocumentInput, msg.Data)
 		} else if err == nil {
-			payload, err = t.enqueue(s, inputUpdate, msg.Seq, wire.DocumentInput, msg.Data)
+			payload, err = t.enqueue(s.actor, s, inputUpdate, msg.Seq, wire.DocumentInput, msg.Data)
 		}
 	default:
 		err = wire.ErrDocumentPayload
@@ -540,6 +607,15 @@ func freshClient(used map[uint32][]byte) (uint32, error) {
 		}
 	}
 	return 0, errors.New("client id allocation exhausted")
+}
+
+// removalNotice is a y-protocols awareness update clearing client's presence
+// (one entry, clock 0, state null).
+func removalNotice(client uint32) []byte {
+	b := binary.AppendUvarint([]byte{1}, uint64(client))
+	b = append(b, 0)
+	b = binary.AppendUvarint(b, uint64(len("null")))
+	return append(b, "null"...)
 }
 
 // authorRegistration is one Yjs v1 update that sets authors[client] = key. A
