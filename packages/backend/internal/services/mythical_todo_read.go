@@ -419,26 +419,14 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 // verdict, merged), its latest coding lane, retired or not, so the card keeps
 // naming its branch. A TODO that never had a lane has none.
 func (s *MythicalService) todoBranchWorkspace(ctx context.Context, item db.MythicalItem) (db.Workspace, bool, error) {
-	id := item.WorkspaceID
-	if id == "" {
-		err := s.store.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
- WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'
- ORDER BY created_at DESC LIMIT 1`, item.ID, item.RepositoryID).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return db.Workspace{}, false, nil
-		}
-		if err != nil {
-			return db.Workspace{}, false, err
-		}
-	}
-	workspace, err := s.queries().GetWorkspace(ctx, id)
+	workspace, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return db.Workspace{}, false, nil
 	}
 	if err != nil {
 		return db.Workspace{}, false, err
 	}
-	return workspace, workspace.RepositoryID == item.RepositoryID, nil
+	return workspace, true, nil
 }
 
 // modelAccessLabel names the model access a run used, one group per provider

@@ -452,7 +452,7 @@ func reserveTodoBranch(ctx context.Context, q *db.Queries, item db.MythicalItem)
 
 // BranchName is the name people see and log in with for a branch machine.
 // The stack keeps every lane on its own bookmark, an internal identity, so
-// the lane that is a TODO's current workspace reads as the TODO's branch.
+// the held or retained coding lane reads as the TODO's branch.
 // Any other workspace is named by its bookmark.
 func BranchName(ctx context.Context, q *db.Queries, row db.Workspace) (string, error) {
 	if row.TargetBookmark != MythicalBookmark {
@@ -469,7 +469,17 @@ func BranchName(ctx context.Context, q *db.Queries, row db.Workspace) (string, e
 	if err != nil {
 		return "", err
 	}
-	if item.WorkspaceID != row.ID || !item.Number.Valid {
+	if !item.Number.Valid {
+		return row.TargetBookmark, nil
+	}
+	workspace, err := q.GetMythicalTodoBranchWorkspace(ctx, item)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return row.TargetBookmark, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if workspace.ID != row.ID {
 		return row.TargetBookmark, nil
 	}
 	return TodoBranch(ctx, q, item)

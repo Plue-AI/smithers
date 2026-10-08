@@ -645,6 +645,28 @@ func (q *Queries) GetMythicalLane(ctx context.Context, workspaceID string) (Myth
 	return scanMythicalLane(q.db.QueryRow(ctx, `SELECT `+mythicalLaneColumns+` FROM mythical_lanes WHERE workspace_id = $1`, workspaceID))
 }
 
+// GetMythicalTodoBranchWorkspace is the one branch machine both cards name:
+// the held lane, or its latest retained coding lane after release. Review
+// lanes do not become the retained branch once the TODO releases them.
+func (q *Queries) GetMythicalTodoBranchWorkspace(ctx context.Context, item MythicalItem) (Workspace, error) {
+	id := item.WorkspaceID
+	if id == "" {
+		if err := q.db.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
+ WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'
+ ORDER BY created_at DESC LIMIT 1`, item.ID, item.RepositoryID).Scan(&id); err != nil {
+			return Workspace{}, err
+		}
+	}
+	workspace, err := q.GetWorkspace(ctx, id)
+	if err != nil {
+		return Workspace{}, err
+	}
+	if workspace.RepositoryID != item.RepositoryID {
+		return Workspace{}, pgx.ErrNoRows
+	}
+	return workspace, nil
+}
+
 // ListMythicalItemBranches returns the branches a repository's other items
 // have recorded: the names a TODO branch must avoid.
 func (q *Queries) ListMythicalItemBranches(ctx context.Context, repositoryID int64, except pgtype.UUID) ([]string, error) {

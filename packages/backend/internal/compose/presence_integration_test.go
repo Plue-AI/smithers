@@ -108,6 +108,10 @@ type presenceInstallFixture struct {
 }
 
 func presenceInstall(t *testing.T, withBroker ...bool) presenceInstallFixture {
+	return presenceInstallWithTodos(t, false, withBroker...)
+}
+
+func presenceInstallWithTodos(t *testing.T, realTodos bool, withBroker ...bool) presenceInstallFixture {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
@@ -167,7 +171,12 @@ func presenceInstall(t *testing.T, withBroker ...bool) presenceInstallFixture {
 		hints = live.BrokerHints{Broker: broker}
 	}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, hints), Origins: func() []string { return []string{origin} }, Topics: topics.resolver, Presence: p.session}
-	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Live: handler})
+	extras := routerExtras{Live: handler}
+	if realTodos {
+		topics.todos = todoService
+		extras.Mythical = &routes.MythicalHandler{Service: todoService}
+	}
+	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, extras)
 	server.Start()
 	t.Cleanup(server.Close)
 	return presenceInstallFixture{p, row, user, "ws" + strings.TrimPrefix(origin, "http") + "/api/live", origin, bus, revocation.NewDBPublisher(q, bus), cookie, pool}
@@ -529,7 +538,7 @@ func TestPresenceBranchRefreshCommittedInstallAddress(t *testing.T) {
 // card names the TODO's branch, smithers/<slug>, and copies the SSH line that
 // logs in by the slug (spec §8.1.1, §8.10.1).
 func TestPresenceTodoBranchNameAndSSHLogin(t *testing.T) {
-	f := presenceInstall(t)
+	f := presenceInstallWithTodos(t, true)
 	lane, err := db.New(f.pool).GetMythicalLane(t.Context(), f.row.ID)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET target_bookmark='mythical', name='TODO 1 attempt 1 g1' WHERE id=$1`, f.row.ID)
@@ -544,6 +553,36 @@ func TestPresenceTodoBranchNameAndSSHLogin(t *testing.T) {
 	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 retry-webhooks@localhost"`)
 	require.NotContains(t, string(first.Data), `mythical`)
 	require.NotContains(t, string(first.Data), `attempt 1`)
+	// The retained coding branch is still the TODO's branch after its lane
+	// is released. The sleeping Branch card must agree with the TODO card.
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET status='suspended' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET workspace_id='', state='proposed' WHERE id=$1`, lane.ItemID)
+	require.NoError(t, err)
+	for {
+		frame := readPresenceFrame(t, conn)
+		if !strings.Contains(string(frame.Data), `"state":"asleep"`) || !strings.Contains(string(frame.Data), `"state":"in_review"`) {
+			continue
+		}
+		require.Contains(t, string(frame.Data), `"name":"smithers/retry-webhooks"`)
+		require.Contains(t, string(frame.Data), `"ssh_line":"ssh -p 2222 retry-webhooks@localhost"`)
+		require.NotContains(t, string(frame.Data), `mythical`)
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, f.origin+"/api/todos/1", nil)
+		require.NoError(t, err)
+		request.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var todo struct {
+			Branch struct {
+				Name string `json:"name"`
+			} `json:"branch"`
+		}
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&todo))
+		require.Equal(t, "smithers/retry-webhooks", todo.Branch.Name, "the real TODO and sleeping Branch projections agree")
+		break
+	}
 }
 
 func TestPresenceScratchSourceAndItemCutover(t *testing.T) {
