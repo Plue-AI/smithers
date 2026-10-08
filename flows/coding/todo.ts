@@ -107,7 +107,7 @@ export const TodoReview: ReviewFlow = Flow.make("coding/todo-review", {
         )
       ),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
-      Node.bindPlanned((delivery) => Vibe.child(delivery)),
+      Node.bindPlanned((delivery) => Vibe.call(delivery)),
       Node.bindPlanned((delivered) => Node.succeed(delivered).pipe(Node.andThen(TodoReview.child({ input }))))
     )
   }

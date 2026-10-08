@@ -19,7 +19,7 @@ import type { FlowVersion } from "../coding/flow-load.ts"
 // The composed guest/browser rehearsal separately loads today's shipped source.
 const fixture = fileURLToPath(new URL("./fixtures/flow-load-todo-source.ts", import.meta.url))
 // Reviewed registry execution identity of the project fixture, including its empty dependency set.
-const projectDigest = "78cc650a9b825d8e23ffe4116890b07b75e04ccfc6490f4fb0cee84d9e6976ca"
+const projectDigest = "2a9e2a4092118bc078e3bfa0c424ed925fe3c91594e992929d4d91dae4b5c955"
 
 for (const pinnedAdmission of [false, true]) {
   test(
@@ -238,7 +238,9 @@ export default Flow.make("prompted", {
       assert.deepEqual(atCopy[1].steps, [
         { id: "root.flow.andThen.andThen", label: "coding/Request" },
         { id: "root.flow.andThen.then", label: "coding/todo-delivery" },
-        { id: "root.flow.then", label: "coding/Vibe" }
+        { id: "root.flow.then.flow.andThen.andThen", label: "coding/AdmitVibe" },
+        { id: "root.flow.then.flow.andThen.then", label: "coding/CleanVibeHistory" },
+        { id: "root.flow.then.flow.then", label: "coding/LandVibe" }
       ])
       assert.deepEqual(atCopy[1].inspection?.diagnostics, [])
       assert.ok(atCopy[1].inspection!.edges.length > 0)

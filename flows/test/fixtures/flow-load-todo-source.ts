@@ -23,6 +23,6 @@ export default Flow.make("todo", {
   body: (input) =>
     Request.child(input).pipe(
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
-      Node.bindPlanned((delivery) => Vibe.child(delivery))
+      Node.bindPlanned((delivery) => Vibe.call(delivery))
     )
 })

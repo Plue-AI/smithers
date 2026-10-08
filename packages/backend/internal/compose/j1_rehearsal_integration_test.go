@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // This is an opt-in diagnostic, not a C-J1-04 reference-host passing receipt.
@@ -297,7 +298,20 @@ func TestJ1Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("Merge in Smithers", "POST "+todoPath+"/merge", "202; reviewed head; browser session; one checks.Land", "T-STK-04", func() error {
-		return r.merge(number, head)
+		// Review and push settlement are independent background receipts. The
+		// person presses Merge only when the real card makes it available.
+		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			card, err := r.todo(number)
+			if err != nil {
+				return err
+			}
+			if card.Merge.State == "ready" {
+				return r.merge(number, head)
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("Merge remains %s", card.Merge.State)
+			}
+		}
 	}) {
 		return
 	}

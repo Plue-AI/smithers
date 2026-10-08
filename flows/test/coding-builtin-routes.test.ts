@@ -295,7 +295,7 @@ const pauseBoundary = ["coding/todo-pause-requested", "system/wait-for", "coding
 
 // Composition inspection does not claim the joint guest/Active-source gate.
 // Existing routes remain discoverable exclusively for legacy draining.
-test("the TODO composition reuses the request and delivery children and no host serves it", async (t) => {
+test("the TODO composition reuses request steps and inlines delivery while no host serves it", async (t) => {
   assert.equal(Todo._tag, "todo")
   const graph = Graph.build(Todo, {
     prompt: "Add a regression test.",
@@ -308,7 +308,7 @@ test("the TODO composition reuses the request and delivery children and no host 
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, [...pauseBoundary, "coding/Request", ...pauseBoundary, "coding/todo-delivery", "coding/Vibe", ...pauseBoundary, "coding/todo-review", "todo"])
+  assert.deepEqual(calls, [...pauseBoundary, "coding/Request", ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "coding/todo-review", "todo"])
   assert.equal(calls.includes("coding/Verify"), false, "verification remains an engine launch")
   assert.equal(calls.includes("review/change"), false, "review remains an engine launch")
   const { repositoryPath, stateRoot } = await workspace(t)
@@ -410,6 +410,9 @@ test("a repository copy of the TODO composition loads on the packaged host with 
     "coding/Request",
     ...pauseBoundary,
     "coding/todo-delivery",
+    "coding/AdmitVibe",
+    "coding/CleanVibeHistory",
+    "coding/LandVibe",
     "coding/Vibe",
     ...pauseBoundary,
     "coding/todo-review"
