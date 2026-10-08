@@ -1,8 +1,8 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 14:33 PDT
-main          43e26fff08 when written
+Updated       2026-10-08 14:34 PDT
+main          8d94b9e5db when written
 
 Publish       CANNOT PUBLISH YET. Dry run #4 decides, about 15:00 PDT.
 Real machine  The machine daemon starts, admits its session and lands writes in
@@ -47,7 +47,7 @@ Needs Will    Now: nothing required. Optional: say yes to using your model keys
 
 **In a real VM.** A development run on this MacBook at 99a4356a1a, with no workarounds: the agent initializes the repository, the daemon starts and admits its session, reads and compared writes land through it, nested and parallel writes land, and stop, reopen, restart and a cold snapshot fork pass. The agent edits a daemon-created file in place, and its git commit and jj work afterwards. This is the daemon path, not an install.
 
-**On Linux fixtures.** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey on what a person can do: Detail A.
+**On Linux fixtures, last full pass (d0b0c7b2f0).** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey on what a person can do: Detail A.
 
 ```
       pass fail pending  commit      a person can
@@ -65,7 +65,7 @@ J11    19    0     0     d0b0c7b2f0  inspect a merged TODO's run
 All   176    8    37
 ```
 
-A full board pass on b74a68604e is running: J1 21/0/0 and J2 14/0/0 so far.
+Newer runs are in section 3. They stopped early, so their counts are not comparable with this table.
 
 ## 2. Off
 
@@ -80,16 +80,21 @@ Two features ship switched off because of a known hole (ruled by smithers-8a).
 
 ### Journey rows
 
-Red on the board at d0b0c7b2f0. Every fix below landed after that commit and has not been rerun on the board.
+**A TODO that reaches review ends `failed` with `source_refused`.** The runs after d0b0c7b2f0 that failed stopped at this error:
 
-| | Rows | Error | Fix |
-|---|---|---|---|
-| J4 | 12 Move T4 above T3 | The move answers 409 "TODO moved; try again". | d9bdb772e2 |
-| J5 | 15, 17 | A TODO that waited on an answer ends `failed`: `coding/NativeCodingError/source_refused`. Row 17 follows from it. | ba1a27bc91. Lane fr18-j5-source-refused is still running. |
-| J7 | 9, 10, 11, 12 | T2 ends `failed` with the same error. Fork to a scratch branch then has nothing to fork. | ba1a27bc91 |
-| J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | No lane found. Whether 9bb8cd3f9c covers it: not checked. |
+```
+            pass/fail/pending
+b74a68604e  J1 21/0/0   J2 14/0/0   J3 13/1/5   J4 7/2/0
+4881e80270  J4 2/1/0    J7 3/1/0    J10 9/1/0   J5 10/9/0
+```
 
-Three more rows were red in an earlier pass or a lane rerun and are green on this board. Their fixes and lanes: Detail G.
+Cause: the server answered 409 "stack operation request changed". PostgreSQL JSONB reorders a plan's nested keys, and a byte comparison refused an identical plan. The coding agent's helper reports HTTP 400, 401, 403 and 409 all as `source_refused`, which hid it.
+
+Fixed on main: f9d3b72e29 (compare plans as stored) and ba1a27bc91 (keep the admitted request through a rebase). 43e26fff08 names and logs the refusal sites. A lane is giving each refusal its own reason, so a refused TODO says why.
+
+Rerunning on main 0489b1c08c since 14:31 PDT: J4, J7, J3, J10, J5. No result yet.
+
+Other red rows, each with its fix or lane: Detail G.
 
 ### Real VM
 
@@ -97,11 +102,14 @@ Three more rows were red in an earlier pass or a lane rerun and are green on thi
 
 ### Release
 
-- No Release run has produced the server bundle or reached build, pack and smoke. The fix (86881fe0d0) is unproven until dry run #3 finishes.
+- No Release run has passed pack and smoke-test or delivered the server bundle. Dry run #3 failed at pack and smoke-test: `scripts/smoke-release.mjs` imported the create-app template removed on 10-01. Fixed in 0489b1c08c, with a test that checks every release script's imports. Dry run #4 is the first run with the fix.
 
 ## 4. Unverified
 
-- **A TODO on a real install: not yet run.** Nobody has gone install, start, sign in, connect the test repository, TODO, PR, merge on a real Mac. The bundle is building on this MacBook from 3fc44ee1e8 since 14:01 PDT. The MacBook has 37 GiB free and needs 44.
+- **A TODO on a real install: not yet run.** The bundle is still building on this MacBook (from 3fc44ee1e8, started 14:01 PDT). The scripted coding model cannot be reached from the production launcher, by design. So the run has three parts:
+  1. Install, start, owner sign-in and repository connect, under the production launcher.
+  2. TODO to merged PR on the same install, with the scripted model, under the test launcher.
+  3. A TODO with a real model under the production launcher, only if Will says yes to using his keys.
 - **Not yet exercised in a real VM:** the coding agent started as a daemon session, member terminals, capture, sleep and wake. 3fc44ee1e8 landed after the proof at 99a4356a1a.
 - **The real-machine fixes** await smithers-3f's review (Detail B). For `/run` on tmpfs (88e7f6521c), the 64 MiB size is not verified and machines created earlier keep the old flags.
 - **Start refusal under the floor.** The fix that stops the restart loop is on main (aa7af43171; tests c3aece0daa). It has not run on a Mac: launchd behaviour is unverified.
@@ -122,19 +130,20 @@ Three more rows were red in an earlier pass or a lane rerun and are green on thi
 
 ## 6. Publish
 
-Do not publish yet. No dry run is green. Source: `~/smithers-lanes/release/STATE.md`, updated 14:05 PDT.
+**Cannot publish yet.** No dry run is green. Dry run #4's build, pack and smoke lane decides whether the tag can be pushed. Source: `~/smithers-lanes/release/STATE.md`, updated 14:28 PDT.
 
 ### Dry runs
 
-| # | Run | Workflow | Result |
-|---|---|---|---|
-| 1 | 37837413419 | old | Failed. The changelog section was stale. The Mac bundle built for 40 minutes, then the upload found no files: the archive is in a hidden directory. |
-| 2 | 37842512795 | old | Running on the cut. The changelog gate passed. Expected red: the bundle upload fails the same way and the first red gate stops the build. |
-| 3 | 37843714479 | 86881fe0d0 | Running on the cut since 14:01 PDT. The first run that can go green. Bundle about 14:45, build, pack and smoke about 14:50. |
+| # | Run | Result |
+|---|---|---|
+| 1 | 37837413419 | Failed. The changelog section was stale. The Mac bundle built for 40 minutes, then the upload found no files: the archive is in a hidden directory. Fixed in 86881fe0d0. |
+| 2 | 37842512795 | Running on the first cut with the old workflow. The changelog gate passed. It will end red: the bundle upload fails the same way. |
+| 3 | 37843714479 | Build, pack and smoke lane failed at 14:22 PDT at pack and smoke-test (a removed import). Its bundle job and report-only gates are still running. |
+| 4 | 37846701537 | Running since 14:25 PDT on 0489b1c08c: the cut, the smoke fix, every real-machine fix and the 44 GiB floor. Smoke test about 14:40, end about 15:00. |
 
 ### Before the tag
 
-1. Dry run #3 is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs.
+1. Dry run #4 is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs.
 2. A final cut lands tonight on top of the real-machine, disk floor and install-run fixes. Every commit after a cut makes its changelog section stale.
 3. One last dry run passes on that commit.
 4. The tag goes on that commit.
@@ -142,8 +151,8 @@ Do not publish yet. No dry run is green. Source: `~/smithers-lanes/release/STATE
 ### Known risks
 
 1. The publish step runs for the first time on the tag. No dry run can run it.
-2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login was proven today (run 37840712277). Its right to create the 37 names is proven only by the first publish.
-3. The four installed-CLI jobs have never run in a dry run. #3 is the first.
+2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (run 37840712277). Whether it may create the 37 new `@smthrs/*` names could not be determined (run 37844231677). If it may not, the publish stops at the first package, `@smthrs/canonical`, and nothing reaches `next`. The fix takes minutes and needs Will: Detail F.
+3. The four installed-CLI jobs have never run in a dry run. They run after the build, pack and smoke lane, so #4 is the first that can reach them.
 4. The start commands below are read from source. They have not been run against a real artifact.
 5. This MacBook's `gh` token cannot push workflow files; the lead pushes those from a server. Whether it can push the tag: not checked. `gh auth refresh -h github.com -s workflow` removes the doubt.
 6. 104 release script tests fail on main (pack-release, release-gates, installer-release). Cause: not checked.
@@ -260,7 +269,7 @@ Also landed: 5e1a8748b5 moved tests off the removed guest read and write. 3fc44e
 
 ### F. Resume a failed publish
 
-From `scripts/release-resume.md`. A re-run of the failed run is refused.
+If `NPM_TOKEN` may not create the new names: Will creates an npm token with read and write on the `@smthrs` scope and sets it with `gh secret set NPM_TOKEN --repo smithersai/smithers`. Then the same candidate is resumed. Do not re-run the failed run and do not push the tag again. From `scripts/release-resume.md` and `STATE.md`:
 
 ```sh
 RUN=<failed run id>
@@ -270,7 +279,19 @@ gh workflow run release.yml --ref main \
   -f releaseTag=v1.0.0-rc.1 -f candidateRunId="$RUN" -f candidateArtifactId="$ART" -F dryRun=false
 ```
 
-### G. Rows red earlier, green on this board
+### G. Other red journey rows
+
+Red on the last full pass, d0b0c7b2f0, and not rerun to completion since:
+
+| | Rows | Error | Fix |
+|---|---|---|---|
+| J4 | 12 Move T4 above T3 | The move answers 409 "TODO moved; try again". | d9bdb772e2 |
+| J5 | 15, 17 | `source_refused`, as above. Row 17 follows from 15. | f9d3b72e29, ba1a27bc91 |
+| J7 | 9, 10, 11, 12 | `source_refused`, as above. Fork to a scratch branch then has nothing to fork. | f9d3b72e29, ba1a27bc91 |
+| J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | No lane found. Whether 9bb8cd3f9c covers it: not checked. |
+| J4 | 6 One Merge, on T1 (b74a68604e) | T1's merge reads "waiting (pending_work)"; the row wants it waiting on order. | Not checked. |
+
+Red in an earlier pass or a lane rerun, green at d0b0c7b2f0:
 
 | | Row | Error | Fix |
 |---|---|---|---|
