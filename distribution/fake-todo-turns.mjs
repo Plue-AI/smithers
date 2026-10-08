@@ -149,14 +149,10 @@ export const CHANGELOG_STEP = "[CHANGELOG] Add one line for this change to CHANG
 
 /** The built-in TODO composition (flows/todo/flow.ts) whose request also asks for the changelog step. */
 const editedFlow = () => {
-  let source
-  try {
-    source = readFileSync(new URL("../flows/todo/flow.ts", import.meta.url), "utf8")
-  } catch {
-    return `// flows/todo/flow.ts was not readable by the scripted model.\n// ${CHANGELOG_STEP}\nexport {}\n`
-  }
-  const edited = source.replace("Request.child(input)", `Request.child({ ...input, prompt: \`\${input.prompt}\\n\\n${CHANGELOG_STEP}\` })`)
-  return edited === source ? `${source}\n// ${CHANGELOG_STEP}\n` : edited
+  const source = readFileSync(new URL("../flows/todo/flow.ts", import.meta.url), "utf8")
+  const edited = source.replace("Request.call(input)", `Request.call({ ...input, prompt: \`\${input.prompt}\\n\\n${CHANGELOG_STEP}\` })`)
+  if (edited === source) throw new Error("TODO composition has no Request.call(input) to edit")
+  return edited
 }
 
 /** The first `{changeId, intent}` atom in a correction payload. */

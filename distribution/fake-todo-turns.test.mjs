@@ -137,6 +137,7 @@ test("[FLOWEDIT] writes only the TODO flow, whose changelog step later TODOs fol
   assert.deepEqual(settled.writes, ["flows/todo/flow.ts"])
   assert.match(tree["flows/todo/flow.ts"], /Flow\.make\("todo"/)
   assert.ok(tree["flows/todo/flow.ts"].includes(CHANGELOG_STEP), "the flow carries no changelog step")
+  assert.ok(tree["flows/todo/flow.ts"].includes("Request.call({ ...input, prompt:"), "the requirement reaches the planner")
   // A TODO the edited flow runs carries [CHANGELOG] and appends one line.
   const next = await plan(`Add a greeting\n\n${CHANGELOG_STEP}`)
   assert.deepEqual(next.writes, ["JOURNEY.md", "CHANGELOG.md"])
