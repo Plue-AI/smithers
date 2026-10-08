@@ -11,7 +11,7 @@ import { Client } from "../src/internal/backend/Client.ts"
 import * as Presentation from "../src/cli/Presentation.ts"
 
 it.each(["missing binding", "ambiguous binding", "invalid payload"])(
-  "refuses a person-only CLI action before %s can mask never",
+  "refuses malformed person-action transport locally: %s",
   async (boundary) => {
     const requests: string[] = []
     const server = createServer((request, response) => {
@@ -22,7 +22,8 @@ it.each(["missing binding", "ambiguous binding", "invalid payload"])(
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     try {
       // Exercise the production dispatcher through incur's command boundary.
-      // Presentation metadata is deliberately broken; it cannot change policy.
+      // Broken transport metadata cannot reach the install for authorization.
+      // Person policy is authoritative only in the install, after credential checks.
       const { client: _client, ...descriptor } = catalogCommands.find(row => row.name === "todo.new")!
       const row = {
         ...descriptor,
@@ -49,7 +50,23 @@ it.each(["missing binding", "ambiguous binding", "invalid payload"])(
       await Presentation.withErrorEnvelope(text => { stdout += text }, stdout =>
         cli.serve(["new", "--json"], { stdout, exit: code => { exit = code } }))
       expect(exit).not.toBe(0)
-      expect(JSON.parse(stdout)).toMatchObject({ code: "never", class: "never", message: "Only a person can do this in the app" })
+      expect(JSON.parse(stdout)).toEqual(boundary === "missing binding"
+        ? { code: "not_available", message: "Not available yet" }
+        : boundary === "ambiguous binding"
+          ? { code: "UsageError", message: "This HTTP door has no unique payload variant" }
+          : { code: "command_failed", message: "Something went wrong on our side. Not your fault." })
+      if (boundary === "invalid payload") {
+        await expect(dispatchCatalog(client, row, { text: 42 })).rejects.toMatchObject({
+          name: "ZodError",
+          issues: [expect.objectContaining({
+            code: "invalid_union", path: ["text"],
+            errors: [
+              [expect.objectContaining({ code: "invalid_type", expected: "string" })],
+              [expect.objectContaining({ code: "invalid_type", expected: "null" })]
+            ]
+          })]
+        })
+      }
       expect(requests).toEqual([])
     } finally {
       server.closeAllConnections()
