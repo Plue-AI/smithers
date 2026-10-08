@@ -15,11 +15,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
-// A claimed install's state is read by its owner and by roster members'
-// browser sessions (install.read): Ben (Maintainer) and Alice (Member) read
-// it; a person off the roster, a suspended member and a member's token do
-// not. Changing it stays the owner's (Begin and the setup steps).
-func TestGitHubAppSetupStatusAdmitsRosterMembers(t *testing.T) {
+// Install status is owner-session-only after claim (spec §5.2.0c).
+// Roster membership permits shared repository reads, but does not grant setup
+// authority or access to the install's private configuration.
+func TestGitHubAppSetupStatusRefusesRosterMembers(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -51,8 +50,8 @@ func TestGitHubAppSetupStatusAdmitsRosterMembers(t *testing.T) {
 		status int
 	}{
 		{"owner", &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "owner-session"}, http.StatusOK},
-		{"maintainer", &middleware.AuthInfo{User: &db.User{ID: ben}, SessionHash: "ben-session"}, http.StatusOK},
-		{"member", &middleware.AuthInfo{User: &db.User{ID: alice}, SessionHash: "alice-session"}, http.StatusOK},
+		{"maintainer", &middleware.AuthInfo{User: &db.User{ID: ben}, SessionHash: "ben-session"}, http.StatusForbidden},
+		{"member", &middleware.AuthInfo{User: &db.User{ID: alice}, SessionHash: "alice-session"}, http.StatusForbidden},
 		{"off roster", &middleware.AuthInfo{User: &db.User{ID: carol}, SessionHash: "carol-session"}, http.StatusForbidden},
 		{"suspended", &middleware.AuthInfo{User: &db.User{ID: dave}, SessionHash: "dave-session"}, http.StatusForbidden},
 		{"member token", &middleware.AuthInfo{User: &db.User{ID: alice}, IsTokenAuth: true, TokenSource: middleware.TokenSourcePersonalAccessToken}, http.StatusForbidden},
@@ -69,7 +68,7 @@ func TestGitHubAppSetupStatusAdmitsRosterMembers(t *testing.T) {
 			require.Contains(t, w.Body.String(), `"code":"permission"`, tc.who)
 		}
 	}
-	require.Equal(t, 3, store.loads, "only the owner and roster members read the install")
+	require.Equal(t, 1, store.loads, "only the owner reads the install")
 	// Without the roster the install's state stays the owner's.
 	h.Roster = nil
 	r := httptest.NewRequest(http.MethodGet, "http://localhost:4000/api/install", nil)
