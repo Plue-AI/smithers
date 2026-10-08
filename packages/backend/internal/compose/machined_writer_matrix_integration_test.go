@@ -83,12 +83,16 @@ func TestMachinedMutationWriterPreservation(t *testing.T) {
 	script := func(writer string) string {
 		return fmt.Sprintf(`import os,sys,time,json,hashlib,subprocess
 sys.stdin.buffer.readline()
-for i in range(1200):
+i=0
+while i<1200:
  p='col03-%%s-%%04d.txt'%%(%q,i)
  b=('acknowledged '+p+'\n').encode()
  if %q=='W2':
   c=subprocess.run(['/opt/smithers/bin/smithers-machined','client','write-file',p,'--base','absent'],input=b,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
   if c.returncode:
+   failure=json.loads(c.stdout)
+   if failure.get('error',{}).get('code')=='moved_off':
+    time.sleep(.1);continue
    raise RuntimeError(c.stdout.decode()+c.stderr.decode())
  else:
   temp=p+'.swap' if %q=='W4' else p
@@ -100,6 +104,7 @@ for i in range(1200):
    os.replace(temp,p)
    d=os.open('.',os.O_RDONLY|os.O_DIRECTORY);os.fsync(d);os.close(d)
  print(json.dumps({'Writer':%q,'Path':p,'SHA256':hashlib.sha256(b).hexdigest()}),flush=True)
+ i+=1
  time.sleep(.1)
 `, writer, writer, writer, writer)
 	}
@@ -201,6 +206,19 @@ for i in range(1200):
 		case <-time.After(2 * time.Second):
 		}
 	}
+	// Return is driven through the host registry after a real member jj move.
+	terminalID, err := r.openBranchTerminal(r.keyed, branch)
+	require.NoError(t, err)
+	terminal, err := r.openTerminal(terminalID)
+	require.NoError(t, err)
+	defer terminal.close()
+	for i := 0; i < 10; i++ {
+		status, out, err := terminal.capture("jj new main", "COL03MOVE", 30*time.Second)
+		require.NoError(t, err)
+		require.Equal(t, "0", status, "%s", out)
+		_, err = registry.ReturnToItem(ctx, branch, person)
+		require.NoError(t, err, "Return %d", i)
+	}
 	httpWriters.Wait()
 	for _, e := range executions {
 		require.NoError(t, e.CloseWrite())
@@ -219,19 +237,6 @@ for i in range(1200):
 	}
 	for _, writer := range []string{"W1", "W2", "W3", "W4"} {
 		require.Equal(t, 1200, counts[writer], writer)
-	}
-	// Return is driven through the host registry after a real member jj move.
-	terminalID, err := r.openBranchTerminal(r.keyed, branch)
-	require.NoError(t, err)
-	terminal, err := r.openTerminal(terminalID)
-	require.NoError(t, err)
-	defer terminal.close()
-	for i := 0; i < 10; i++ {
-		status, out, err := terminal.capture("jj new main", "COL03MOVE", 30*time.Second)
-		require.NoError(t, err)
-		require.Equal(t, "0", status, "%s", out)
-		_, err = registry.ReturnToItem(ctx, branch, person)
-		require.NoError(t, err, "Return %d", i)
 	}
 	captured, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
