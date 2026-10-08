@@ -16,7 +16,12 @@ import { afterEach, expect, it, vi } from "vitest"
 import * as StoreCopy from "../src/history/StoreCopy.ts"
 import * as ControlDatabaseMigrations from "../src/internal/ControlDatabaseMigrations.ts"
 
-const url = process.env.SMITHERS_HISTORY_TEST_PG_URL!
+const url = process.env.SMITHERS_HISTORY_TEST_PG_URL ?? process.env.SMITHERS_TEST_DATABASE_URL!
+const publicUrl = () => {
+  const parsed = new URL(url)
+  parsed.searchParams.set("schema", "public")
+  return parsed.href
+}
 const roots: Array<string> = []
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -161,7 +166,7 @@ it("copies a PostgreSQL schema whole, continues its identities and drops the cop
     await Effect.runPromise(StoreCopy.discard(engineCopy))
     await Effect.runPromise(StoreCopy.discard(controlCopy))
     const left = await on(
-      `${url}?schema=public`,
+      publicUrl(),
       Effect.flatMap(
         SqlClient,
         (sql) =>
@@ -171,7 +176,7 @@ it("copies a PostgreSQL schema whole, continues its identities and drops the cop
     expect(left.map((row) => row.name)).toEqual([`${prefix}_control_db`, `${prefix}_engine_db`])
   } finally {
     await on(
-      `${url}?schema=public`,
+      publicUrl(),
       Effect.gen(function*() {
         const sql = yield* SqlClient
         for (
@@ -191,7 +196,7 @@ it("refuses a PostgreSQL copy that exists already or would reach its source, and
   vi.stubEnv("SMITHERS_BACKEND", "postgres")
   const directory = mkdtempSync(join(tmpdir(), "store-copy-refusals-"))
   roots.push(directory)
-  const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) => on(`${url}?schema=public`, body)
+  const admin = <A, E>(body: Effect.Effect<A, E, SqlClient>) => on(publicUrl(), body)
   const schemas = () =>
     admin(
       Effect.flatMap(SqlClient, (sql) =>
