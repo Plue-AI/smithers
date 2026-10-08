@@ -4,9 +4,8 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { payloadFor } from "../SlashPayload"
 import { line, text } from "@smthrs/ui/flow-form"
-import { flow, RepoTarget, NumberedTarget } from "./Declare"
+import { flow, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -15,38 +14,6 @@ export const namespace: Namespace = { id: "prs", label: "Pull requests", summary
 
 /** The `prs` flows registered as one aggregator block. */
 export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "prs",
-    hidden: true,
-    grammar: args => payloadFor("prs.list", args),
-    summary: "List a repository's pull requests",
-    runtimeAny: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["first-run-target", "repo-source"],
-    input: RepoTarget,
-    prepare: ({ repo }) => actions.listLandings.preload?.(repo),
-    handler: ({ repo }) => actions.listLandings(repo)
-  }),
-  flow({
-    name: "prs.list",
-    summary: "List a repository's pull requests",
-    runtimeAny: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["first-run-target", "repo-source"],
-    input: RepoTarget,
-    prepare: ({ repo }) => actions.listLandings.preload?.(repo),
-    handler: ({ repo }) => actions.listLandings(repo)
-  }),
-  flow({
-    name: "prs.view",
-    summary: "Open a pull request with reviews and checks",
-    runtimeAny: ["cloud"],
-    args: "<number> [owner/repo]",
-    requires: ["repo-read"],
-    input: NumberedTarget,
-    prepare: ({ number, repo }) => actions.viewLanding.preload?.(number, repo),
-    handler: ({ number, repo }) => actions.viewLanding(number, repo)
-  }),
   flow({
     name: "prs.tab",
     summary: "Show a pull request's conversation, commits, checks, or files",

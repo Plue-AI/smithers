@@ -1507,6 +1507,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({
       tab: z.enum(["conversation", "commits", "checks", "files"]).optional(),
       repo: z.string(),
+      sourceRepo: z.string().optional(),
       number: z.number().int(),
       title: z.string(),
       /** Platform landing state; "queued" after a land — never "merged". */

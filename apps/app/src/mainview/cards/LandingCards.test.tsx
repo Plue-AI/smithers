@@ -42,8 +42,8 @@ test("failed and successful-empty tab reads are distinct, and failure retries th
   const failed = renderTab({ tab: "files", readErrors: { files: "Files unavailable (change not found)" } })
   expect(failed).toContain('role="alert"')
   expect(failed).toContain("Files unavailable (change not found)")
-  expect(failed).toContain('data-flow="prs.view"')
-  expect(failed).toContain('data-flow-args="2 owner/repo"')
+  expect(failed).toContain('data-flow="pr"')
+  expect(failed).toContain('data-flow-args="{&quot;number&quot;:2,&quot;repo&quot;:&quot;owner/repo&quot;}"')
   expect(failed).toContain(">Retry</button>")
 
   const empty = renderTab({ tab: "files", files: [] })
@@ -59,4 +59,12 @@ test("review actions carry the Beta label and its limitations; finished PRs show
   expect(open).toContain("No line comments or suggested changes yet")
   const merged = render("merged")
   expect(merged).not.toContain('data-maturity="beta"')
+})
+
+test("a GitHub source never offers native review or claims unread checks and reviews", () => {
+  const markup = renderTab({ sourceRepo: "upstream/project", branch: "smithers/second", baseBranch: "main", state: "open" })
+  expect(markup).toContain('href="https://github.com/upstream/project/pull/2"')
+  expect(markup).not.toContain('data-flow="prs.review"')
+  expect(markup).not.toContain("No reviews")
+  expect(markup).not.toContain("No checks")
 })

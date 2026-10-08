@@ -60,7 +60,7 @@ export const repositoryUpdateCardFamily: CardFamily<"repo-update"> = {
           <ul className="ghc-rows repo-update-items">
             {items.map(item => {
               const display = displayOf(item)
-              const viewFlow = item.kind === "pr" ? "prs.view" : item.kind === "issue" ? "issues.view" : undefined
+              const viewFlow = item.kind === "pr" ? "pr" : item.kind === "issue" ? "issues.view" : undefined
               const meta = <span className="ghc-row-meta">
                 {item.number ? `#${item.number} · ` : ""}{KIND_LABEL[item.kind]}
               </span>
@@ -80,7 +80,7 @@ export const repositoryUpdateCardFamily: CardFamily<"repo-update"> = {
                   <button type="button" className="ghc-row-btn" {...flowProps(viewFlow)}
                     onClick={() => actions.onRunCommand(viewFlow, viewFlow === "issues.view"
                       ? flowArgs("issues.view", { number: item.number!, repo, source: issueSource(item) })
-                      : flowArgs("prs.view", { number: item.number!, repo }))}>{body}</button> :
+                      : flowArgs("pr", { number: item.number!, repo }))}>{body}</button> :
                   <span className="ghc-row-btn repo-update-static">{body}</span>}
               </li>
             })}

@@ -1461,6 +1461,7 @@ const FIXTURES: Record<
       checks: []
     },
     full: {
+      sourceRepo: "smithersai/smithers",
       tab: "files",
       repo: "smithersai/smithers",
       number: 12,

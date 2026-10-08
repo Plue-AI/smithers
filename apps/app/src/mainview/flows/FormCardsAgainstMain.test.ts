@@ -534,6 +534,11 @@ describe("the card every slash line opens, against main@origin", () => {
       Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
     ]))).toEqual({ "box.open": 27, "box.view": 0, "box.list": 30 })
     expect(rows.some(row => retiredWorkspaceDoors.includes(row.flow))).toBe(false)
+    const retiredPullDoors = ["prs", "prs.list", "prs.view"]
+    expect(Object.fromEntries(retiredPullDoors.map(flow => [flow,
+      Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
+    ]))).toEqual({ prs: 30, "prs.list": 30, "prs.view": 3 })
+    expect(rows.some(row => retiredPullDoors.includes(row.flow))).toBe(false)
     const lost = rows.filter((row) => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
@@ -587,7 +592,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // github.app and env.view no longer register duplicate Settings doors or their 60 parser diagnostics.
       // github.app.open and github.reconcile retire 60 additional executable-alias diagnostics; saved inputs decode via GitHubPayload.
       // The three retired Runs aliases remove 63 parser diagnostics; the retired workspace catalog removes 33 more; RunsPayload retains recorded source and operation.
-      here: 521 // Workspace navigation retires sixty-one measured diagnostics; recorded recovery targets remain readable.
+      here: 458 // The three retired PR aliases remove sixty-three diagnostics; recorded repository targets remain readable.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

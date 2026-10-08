@@ -178,9 +178,21 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         const id = newWikiPage(design, name, design.viewer())
         return open(wikiCard(id, name.trim()))
       } }),
-    flow({ name: "pr",   slash: "/pr", cli: ["pr"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open a pull request's card", args: "#n", discloseToAgent: true,
-      grammar: numbered(), agent: "run", input: Schema.Struct({ number: Schema.Number }),
-      handler: ({ number }) => {
+    flow({ name: "pr", slash: "/pr", cli: ["pr"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open a pull request's card", args: "#n [owner/repo]", discloseToAgent: true,
+      grammar: args => args?.trim().startsWith("{") ? positional("number", Number)(args) : payloadFor("prs.view", args?.trim().replace(/^#/, "")),
+      agent: "run",
+      input: Schema.Union([
+        Schema.Struct({ number: Schema.Number.pipe(Schema.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER))), repo: Schema.optional(Schema.String), operation: Schema.optional(Schema.Never) }),
+        Schema.Struct({ operation: Schema.Literal("list"), repo: Schema.optional(Schema.String), number: Schema.optional(Schema.Never) })
+      ]),
+      form: { fields: { operation: { hidden: true }, repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => JSON.stringify(payload) },
+      payloadRequires: payload => payload.operation === "list" ? ["signed-in"] : install() || payload.repo !== undefined || (actions.snapshot().repositorySelected === true && !design.world().prs.some(pr => pr.number === payload.number)) ? ["repo-read"] : [],
+      prepare: ({ number, repo, operation }) => operation === "list" ? actions.listLandings.preload?.(repo)
+        : number !== undefined && (install() || repo !== undefined || (actions.snapshot().repositorySelected === true && !design.world().prs.some(pr => pr.number === number))) ? actions.viewLanding.preload?.(number, repo) : undefined,
+      handler: ({ number, repo, operation }) => {
+        if (operation === "list") return actions.listLandings(repo)
+        if (number === undefined) return "Choose a pull request"
+        if (install() || repo !== undefined || (actions.snapshot().repositorySelected === true && !design.world().prs.some(pr => pr.number === number))) return actions.viewLanding(number, repo)
         const pr = design.world().prs.find(each => each.number === number)
         return pr === undefined ? `No pull request #${number}` : open(prCard(designRepo(), number, pr.title))
       } })

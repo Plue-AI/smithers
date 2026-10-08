@@ -73,5 +73,5 @@ test("unread belongs to individual rows; open, closed and merged have distinct a
   expect(new Set(glyphs.map(glyph => glyph.innerHTML)).size).toBe(3)
   expect(rows.map(row => row.querySelector(".ghc-row-meta")?.textContent)).toEqual(["#3 · Issue", "#2 · Issue", "#4 · Pull request"])
   expect(rows[0]?.querySelector('button[data-flow="issues.view"]')).not.toBeNull()
-  expect(rows[2]?.querySelector('button[data-flow="prs.view"]')).not.toBeNull()
+  expect(rows[2]?.querySelector('button[data-flow="pr"]')).not.toBeNull()
 })

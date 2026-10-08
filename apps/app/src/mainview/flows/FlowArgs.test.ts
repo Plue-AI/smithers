@@ -170,8 +170,8 @@ test("opening a diff file preserves a frame id and a path containing spaces", ()
 
 
 test("repository detail buttons preserve typed issue and PR targets", () => {
-  for (const flow of ["issues.view", "prs.view"] as const) {
-    expect(payloadFor(flow, flowArgs(flow, { number: 3, repo: "owner/repo" }))).toEqual({ payload: { number: 3, repo: "owner/repo" } })
+  for (const flow of ["issues.view", "pr"] as const) {
+    expect(flow === "pr" ? { payload: JSON.parse(flowArgs(flow, { number: 3, repo: "owner/repo" })) } : payloadFor(flow, flowArgs(flow, { number: 3, repo: "owner/repo" }))).toEqual({ payload: { number: 3, repo: "owner/repo" } })
   }
 })
 

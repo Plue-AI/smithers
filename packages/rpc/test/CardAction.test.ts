@@ -85,3 +85,11 @@ it("recorded workspace actions retain recovery identity through canonical branch
     ["box.list", { repo: "owner/repo" }, "branches", "workspace"]
   ] as const) expect(ActionSchema.parse({ tag, args, label: "Branch" })).toEqual({ tag: target, args: { ...args, operation }, label: "Branch" })
 })
+
+it("recorded PR doors retain list and numbered repository targets", () => {
+  for (const [tag, args, expected] of [
+    ["prs", { repo: "owner/repo" }, { repo: "owner/repo", operation: "list" }],
+    ["prs.list", { repo: "owner/repo" }, { repo: "owner/repo", operation: "list" }],
+    ["prs.view", { number: "42", repo: "owner/repo" }, { number: "42", repo: "owner/repo" }]
+  ] as const) expect(ActionSchema.parse({ tag, args, label: "Open" })).toEqual({ tag: "pr", args: expected, label: "Open" })
+})

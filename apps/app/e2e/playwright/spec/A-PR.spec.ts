@@ -1,3 +1,4 @@
+import { withGitHubInstall } from "./github-install-fixture"
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
@@ -29,4 +30,33 @@ test("A-PR: mounted controls", async ({ page }) => {
   await card.getByRole("button", { name: "T8 ↗", exact: true }).press("Enter")
   await expect(page.locator(".todo-view").last()).toContainText("Upgrade the Stripe SDK to v17")
   await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
+// Accepted publication trees are fixture inputs; every browser read uses the composed install.
+test("A-PR: canonical PR list and detail read the installed GitHub source", async ({ page }) => {
+  test.setTimeout(300_000)
+  await withGitHubInstall(page, "TestTODOGitHubOrderAndShapeComposedInstall", "SMITHERS_GH03_ORDER_REHEARSAL", async fixture => {
+    const host = await fixture.phase("shape")
+    await fixture.open(host)
+    await say(page, '/pr {"operation":"list","repo":"rehearsal-owner/app"}')
+    const listing = page.getByTestId("card-prs-rehearsal-owner/app")
+    await expect(listing).toContainText("Second")
+    const row = listing.getByRole("button").filter({ hasText: "Second" }).first()
+    await expect(row).toHaveAttribute("data-flow", "pr")
+    const args = JSON.parse(await row.getAttribute("data-flow-args") ?? "{}")
+    const detailRead = page.waitForResponse(r => new URL(r.url()).pathname.endsWith(`/pulls/${args.number}`) && r.request().method() === "GET")
+    await row.click()
+    expect((await detailRead).status()).toBe(200)
+    const detail = page.getByRole("region", { name: `#${args.number} Second · rehearsal-owner/app`, exact: true })
+    await expect(detail).toContainText("Second")
+    await expect(detail).toContainText("Requested by @rehearsal-owner")
+    await expect(detail.getByRole("link", { name: "GitHub", exact: true })).toHaveAttribute("href", `https://github.com/rehearsal-owner/app/pull/${args.number}`)
+    await expect(detail.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0)
+    await expect(detail).not.toContainText("No reviews yet")
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    await page.reload()
+    await expect(detail).toContainText("Second")
+    await expect(detail).toContainText("Requested by @rehearsal-owner")
+    await fixture.acknowledge("shape")
+  }, "shape")
 })

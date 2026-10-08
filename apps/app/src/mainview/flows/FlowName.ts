@@ -20,6 +20,7 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "prs": "pr", "prs.list": "pr", "prs.view": "pr",
   "box.list": "branches",
   "box.open": "branch",
   "box.view": "branch",
@@ -246,12 +247,9 @@ export const FLOW_NAMES = [
   "palette.actions",
   "palette.open",
   "palette.recent",
-  "prs",
-  "prs.list",
   "prs.review",
   "prs.tab",
   "review",
-  "prs.view",
   "repo.choose",
   "repo.create",
   "repo.overview",

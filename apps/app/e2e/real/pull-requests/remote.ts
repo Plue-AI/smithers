@@ -345,7 +345,7 @@ export const createPullRequestFixture = async (
   const list = await readJson<readonly Landing[]>(page, request, `${repositoryApiPath(owned.fullName, "/landings")}?limit=100`)
   const matches = list.filter((landing) => landing.title === title)
   expect(matches).toHaveLength(1)
-  await command(page, `/prs.view ${matches[0]!.number} ${owned.fullName}`)
+  await command(page, `/pr ${matches[0]!.number} ${owned.fullName}`)
   await expect(landingDetail(page, matches[0]!.number)).toBeVisible()
   return { number: matches[0]!.number }
 }

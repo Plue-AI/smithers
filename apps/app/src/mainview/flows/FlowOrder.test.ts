@@ -68,8 +68,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "issues.close",
   "issues.reopen",
   "issues.comment",
-  "prs.list",
-  "prs.view",
   "prs.tab",
   "branches",
   "github.mirror-sync",

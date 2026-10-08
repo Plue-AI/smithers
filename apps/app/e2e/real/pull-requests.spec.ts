@@ -28,7 +28,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Create a private two-commit branch, import it through the real service, seed its pull request through the real API and open it through the UI, and compare its detail tabs with independent platform reads, including the honest empty-check state.",
     coverage: [
-      "action:prs.list", "action:prs.view", "action:prs.tab",
+      "action:pr", "action:prs.tab",
       "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
       "dimension:private-repository", "dimension:commits", "dimension:checks-empty", "dimension:diff",
       "dimension:keyboard", "dimension:list-status-count", "dimension:reload", "evidence:ui-platform-github-readback"
@@ -58,8 +58,8 @@ test(
         `Add second fixture ${owned.marker}`
       ])
 
-      await command(page, `/prs.list ${owned.fullName}`)
-      await expectFlowOutcome(page, "prs.list", owned.fullName, "executed")
+      await command(page, `/pr ${JSON.stringify({ operation: "list", repo: owned.fullName })}`)
+      await expectFlowOutcome(page, "pr", JSON.stringify({ operation: "list", repo: owned.fullName }), "executed")
       const list = landingList(page, owned.fullName)
       await expect(list.getByText("1 Open", { exact: true })).toBeVisible()
       const row = list.locator(`[data-landing="${created.number}"]`)
@@ -91,8 +91,8 @@ test(
 
       await reloadApp(page)
       await bootProductionRepository(page)
-      await command(page, `/prs.view ${created.number} ${owned.fullName}`)
-      await expectFlowOutcome(page, "prs.view", `${created.number} ${owned.fullName}`, "executed")
+      await command(page, `/pr ${created.number} ${owned.fullName}`)
+      await expectFlowOutcome(page, "pr", `${created.number} ${owned.fullName}`, "executed")
       await expect(landingDetail(page, created.number)).toContainText(`Real detail ${owned.marker}`)
 
       await attachPullRequestEvidence(testInfo, "create-detail-tabs", {
@@ -114,7 +114,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Post a real review comment from the PR detail flow, then activate Approve and require the platform's self-review denial with unchanged review state.",
     coverage: [
-      "action:prs.view", "action:prs.review", "host:production", "path:success",
+      "action:pr", "action:prs.review", "host:production", "path:success",
       "path:permission", "door:slash", "door:button", "dimension:review-comment", "dimension:request-changes", "dimension:self-approval",
       "evidence:ui-platform-review-readback"
     ]
@@ -172,7 +172,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Open a deliberately nonexistent PR number on the read-only production canary and require the real 404 to remain a visible failed action.",
     coverage: [
-      "action:prs.view", "host:production", "path:error", "door:slash", "dimension:missing-reference",
+      "action:pr", "host:production", "path:error", "door:slash", "dimension:missing-reference",
       "dimension:no-mutation", "evidence:http-status-and-visible-failure"
     ]
   }),
@@ -191,10 +191,10 @@ test(
     await enableProductionVerbose(page)
     const reading = page.waitForResponse((response) => response.request().method() === "GET"
       && new URL(response.url()).pathname.endsWith(`/landings/${number}`))
-    await command(page, `/prs.view ${number} ${repo}`)
+    await command(page, `/pr ${number} ${repo}`)
     const response = await reading
     expect(response.status()).toBe(404)
-    await expectFlowOutcome(page, "prs.view", `${number} ${repo}`, "failed")
+    await expectFlowOutcome(page, "pr", `${number} ${repo}`, "failed")
     await expect(page.getByTestId("transcript")).toContainText(/not found|couldn't be read/i)
     await expect(landingDetail(page, number)).toHaveCount(0)
     expect(mutations).toEqual([])

@@ -31,7 +31,7 @@ export async function repositoryListRead(
   const target = resolveTargetRepo(ctx.store, explicit)
   if ("error" in target) {
     if (!explicit && renderForm) {
-      renderForm({ name: `${kind}.list`, args: formArgs ?? (kind === "issues" ? filter : ""), via: actor === "smithers" ? "agent" : "user",
+      renderForm({ name: kind === "prs" ? "pr" : "issues.list", args: formArgs ?? (kind === "issues" ? filter : JSON.stringify({ operation: "list" })), via: actor === "smithers" ? "agent" : "user",
         hints: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text", required: true } } } })
       return readResult("Rendered a form for repo.")
     }

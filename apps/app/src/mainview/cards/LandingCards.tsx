@@ -79,7 +79,7 @@ const LandingListRow = ({ repo, landing, onRunCommand }: { readonly repo: string
         type="button"
         className="ghc-row-btn"
         aria-label={`Open pull request #${landing.number}: ${landing.title}`}
-        {...flowAction(onRunCommand, "prs.view", flowArgs("prs.view", { number: landing.number, repo }))}
+        {...flowAction(onRunCommand, "pr", flowArgs("pr", { number: landing.number, repo }))}
       >
         <StateIcon display={prDisplay(landing.state, extra.draft)} />
         <span className="ghc-row-main">
@@ -256,20 +256,20 @@ export const LandingCardBody = ({
 }: { readonly card: Extract<Card, { kind: "pr" }> } & LandingCardActions) => {
   const { repo, number, title, state, author, prBody, reviews, checks } = card.payload
   const extra = card.payload
-  const actionable = ["open", "draft", "failed"].includes(state.toLowerCase())
+  const actionable = extra.sourceRepo === undefined && ["open", "draft", "failed"].includes(state.toLowerCase())
   const tab = card.payload.tab ?? "conversation"
   const summary = checksSummary(checks)
   const additions = (extra.files ?? []).reduce((sum, file) => sum + (file.additions ?? 0), 0)
   const deletions = (extra.files ?? []).reduce((sum, file) => sum + (file.deletions ?? 0), 0)
   const tabs: ReadonlyArray<readonly [PrTab, string, "comment" | "git-commit" | "check" | "file-diff", number | undefined]> = [
-    ["conversation", "Conversation", "comment", reviews.length],
+    ["conversation", "Conversation", "comment", extra.sourceRepo === undefined ? reviews.length : undefined],
     ["commits", "Commits", "git-commit", extra.commits?.length],
-    ["checks", "Checks", "check", checks.length],
+    ["checks", "Checks", "check", extra.sourceRepo === undefined ? checks.length : undefined],
     ["files", "Files changed", "file-diff", extra.files?.length]
   ]
   const reviewers = [...new Set(reviews.flatMap((review) => review.author !== null ? [review.author] : []))]
   const commitCount = extra.commits?.length
-  const retry = flowAction(onRunCommand, "prs.view", flowArgs("prs.view", { number, repo }))
+  const retry = flowAction(onRunCommand, "pr", flowArgs("pr", { number, repo }))
   return (
     <article className="ghc ghc-detail" data-landing={number}>
       <header className="ghc-detail-head">
@@ -290,6 +290,7 @@ export const LandingCardBody = ({
             {` · ${repoLabel(repo)}`}
           </span>
         </div>
+        {extra.sourceRepo === undefined ? null : <a className="mvp-link" href={`https://github.com/${extra.sourceRepo}/pull/${number}`} target="_blank" rel="noreferrer">GitHub</a>}
       </header>
       <div className="ghc-tabs" role="tablist" aria-label={`Pull request #${number} tabs`}>
         {tabs.map(([name, label, icon, count]) => (
@@ -319,7 +320,7 @@ export const LandingCardBody = ({
                     <p className="world-card-empty ghc-muted">No description provided.</p> :
                     <Markdown className="smithers-card-markdown" content={prBody} />}
                 </CommentBox>
-                {reviews.length === 0 ?
+                {extra.sourceRepo !== undefined ? null : reviews.length === 0 ?
                   <p className="ghc-event"><span className="ghc-event-badge"><Octicon name="eye" size={14} /></span> No reviews yet.</p> :
                   reviews.map((review, index) => {
                     const verb = reviewVerb(review.type)
@@ -344,7 +345,7 @@ export const LandingCardBody = ({
             null}
           {tab === "commits" ? <CommitsTab commits={extra.commits} error={extra.readErrors?.commits} retry={retry} /> : null}
           {tab === "files" ? <FilesTab files={extra.files} error={extra.readErrors?.files} retry={retry} /> : null}
-          {tab === "conversation" || tab === "checks" ?
+          {extra.sourceRepo === undefined && (tab === "conversation" || tab === "checks") ?
             (
               <section className="ghc-box ghc-merge" aria-label="Checks and landing">
                 <header className={`ghc-merge-head ${TONE_CLASS[summary.tone]}`}>
@@ -392,16 +393,16 @@ export const LandingCardBody = ({
             null}
         </div>
         <aside className="ghc-side" aria-label={`Pull request #${number} details`}>
-          <SideSection title="Reviewers" empty="No reviews">
+          {extra.sourceRepo === undefined ? <SideSection title="Reviewers" empty="No reviews">
             {reviewers.length > 0 ?
               reviewers.map((reviewer) => (
                 <span key={reviewer} className="ghc-side-person"><Avatar person={{ login: reviewer }} /> {reviewer}</span>
               )) :
               null}
-          </SideSection>
-          <SideSection title="Labels">
+          </SideSection> : null}
+          {extra.sourceRepo === undefined || extra.labels !== undefined ? <SideSection title="Labels">
             {(extra.labels ?? []).length > 0 ? (extra.labels ?? []).map((label) => <LabelPill key={label} name={label} color={extra.labelColors?.[label]} />) : null}
-          </SideSection>
+          </SideSection> : null}
           <SideSection title="Repository">
             <span className="ghc-mono">{repoLabel(repo)}</span>
           </SideSection>

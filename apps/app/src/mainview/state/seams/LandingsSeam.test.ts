@@ -1,3 +1,4 @@
+import { savedPullNavigationArgs } from "../../flows/PullNavigationPayload"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, test } from "bun:test"
 
@@ -44,6 +45,7 @@ const backend = (
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
     const absolute = new URL(url, "https://app.test")
     const path = absolute.pathname + absolute.search
+    if (path === "/api/repos/will/flows" && routes[path] === undefined) return json(200, { full_name: "will/flows" })
     for (const [route, answer] of Object.entries(routes)) {
       if (path === route || path.startsWith(`${route}?`)) {
         return typeof answer === "function"
@@ -138,7 +140,7 @@ describe("landings seam — prs.list", () => {
         [LANDINGS]: json(200, [landing(3, "open"), { nonsense: true }, landing(4, "queued")])
       })
     )
-    const outcome = await controller.commands[door]("prs.list")
+    const outcome = await controller.commands[door]("pr", savedPullNavigationArgs("prs.list"))
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe(
       "Pull requests · will/flows\n#3 Wire the seam 3 · open\n#4 Wire the seam 4 · queued"
@@ -169,7 +171,7 @@ describe("landings seam — prs.list", () => {
 
   test("the agent receives an explicit empty PR list", async () => {
     const { controller } = await ready(backend({ [LANDINGS]: json(200, []) }))
-    const outcome = await controller.commands.runForAgent("prs.list")
+    const outcome = await controller.commands.runForAgent("pr", savedPullNavigationArgs("prs.list"))
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toBe("No pull requests in will/flows.")
   })
@@ -178,7 +180,7 @@ describe("landings seam — prs.list", () => {
     const { store, controller } = await ready(
       backend({ [LANDINGS]: json(500, { message: "the platform fell over" }) })
     )
-    const outcome = await controller.commands.run("prs.list")
+    const outcome = await controller.commands.run("pr", savedPullNavigationArgs("prs.list"))
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Pull requests for will/flows couldn't be listed. That's a bug in Smithers, not something you did.")
@@ -196,9 +198,9 @@ describe("landings seam — prs.list", () => {
     )
     await signedIn(store)
     /* THE FORM LAW: the missing repository is asked for, never guessed (tutorial stage 3). */
-    const outcome = await controller.commands.run("prs.list")
+    const outcome = await controller.commands.run("pr", savedPullNavigationArgs("prs.list"))
     expect(outcome.status).toBe("executed")
-    const form = store.collections.cards.get("form-prs.list")
+    const form = store.collections.cards.get("form-pr")
     expect(form?.kind).toBe("flow-form")
     if (form?.kind === "flow-form") expect(form.payload.fields.map(field => field.name)).toContain("repo")
   })
@@ -220,7 +222,7 @@ describe("landings seam — prs.view", () => {
       })
     )
     // The card-row arg shape: "<number> <owner/repo>" through splitTrailingRepo.
-    const outcome = await controller.commands[door]("prs.view", "3 will/flows")
+    const outcome = await controller.commands[door]("pr", "3 will/flows")
     expect(outcome.status).toBe("executed")
     const value = outcome.status === "executed" ? outcome.value : undefined
     for (const text of ["will/flows", "#3 Wire the seam 3 · open", "will", "The **stack** description.", "approve", "Ship it", "ci/test · success", "ci/lint · failure"]) {
@@ -267,7 +269,7 @@ describe("landings seam — prs.view", () => {
         ] })
       })
     )
-    const outcome = await controller.commands.run("prs.view", "3 will/flows")
+    const outcome = await controller.commands.run("pr", "3 will/flows")
     expect(outcome.status).toBe("executed")
     const value = outcome.status === "executed" ? outcome.value : undefined
     expect(value).toContain("File: src/server.ts +5 −1")
@@ -290,10 +292,10 @@ describe("landings seam — prs.view", () => {
         throw new Error("socket dropped")
       }
     })
-    const outcome = await controller.commands.run("prs.view", "3")
+    const outcome = await controller.commands.run("pr", "3")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
-      expect(outcome.error).toBe("Pull request #3 couldn't be read — the platform didn't answer.")
+      expect(outcome.error).toBe("The source of pull requests for will/flows couldn't be checked.")
     }
   })
 
@@ -314,7 +316,7 @@ describe("landings seam — prs.view", () => {
       }
     })
     const { store, controller } = await ready(services)
-    expect((await controller.commands.run("prs.view", "3 will/flows")).status).toBe("executed")
+    expect((await controller.commands.run("pr", "3 will/flows")).status).toBe("executed")
     await settled()
     let card = store.collections.cards.get("pr-will/flows-3")
     if (card?.kind !== "pr") throw new Error("expected the pr card")
@@ -323,7 +325,7 @@ describe("landings seam — prs.view", () => {
     expect(card.payload.commits).toBeUndefined()
     expect(card.payload.files).toBeUndefined()
 
-    expect((await controller.commands.run("prs.view", "3 will/flows")).status).toBe("executed")
+    expect((await controller.commands.run("pr", "3 will/flows")).status).toBe("executed")
     await settled()
     card = store.collections.cards.get("pr-will/flows-3")
     if (card?.kind !== "pr") throw new Error("expected the pr card")
@@ -446,7 +448,7 @@ test("PR detail bounds the model value while retaining the card body", async () 
   const { store, controller } = await ready(backend({
     [`${LANDINGS}/3`]: json(200, { ...landing(3, "open"), body })
   }))
-  const outcome = await controller.commands.runForAgent("prs.view", "3")
+  const outcome = await controller.commands.runForAgent("pr", "3")
   expect(outcome.status).toBe("executed")
   const value = outcome.status === "executed" ? outcome.value : undefined
   expect(value).toContain("#3 Wire the seam 3 · open")
@@ -595,4 +597,33 @@ describe("Review a PR source selection", () => {
     expect(options.error).toContain("unavailable")
     expect(calls).toEqual([cloudRepo])
   })
+})
+
+for (const door of ["run", "runForAgent"] as const) {
+  test(`canonical PR ${door} reads the verified GitHub source rather than same-number native data`, async () => {
+    const services = backend({
+      "/api/repos/will/flows": json(200, { full_name: "will/flows", github_source: { owner: "upstream", repo: "project" } }),
+      "/api/user/github-repos/upstream/project/pulls/3": json(200, { number: 3, title: "GitHub source", body: "Original discussion", state: "open", user: { login: "maintainer" }, head: { ref: "smithers/second" }, base: { ref: "main" } })
+    })
+    const { store, controller } = await ready(services)
+    const outcome = await controller.commands[door]("pr", "3 will/flows")
+    expect(outcome.status).toBe("executed")
+    expect(store.collections.cards.get("pr-will/flows-3")).toMatchObject({ kind: "pr", payload: {
+      number: 3, repo: "will/flows", sourceRepo: "upstream/project", title: "GitHub source", prBody: "Original discussion", author: "maintainer", branch: "smithers/second", baseBranch: "main"
+    } })
+    await controller.dispose()
+  })
+}
+
+test("a saved PR form keeps its identity and explicit repository when submitted through the canonical door", async () => {
+  const { store, controller } = await ready(backend({ [`${LANDINGS}/3`]: json(200, landing(3, "open")) }))
+  const id = "form-prs.view"
+  await store.dispatch({ type: "card.upsert", actor: "user", card: {
+    id, kind: "flow-form", title: "Open pull request", status: "active", createdAt: 1, ordinal: 1,
+    payload: { flow: "prs.view", via: "user", fields: [{ name: "number", label: "Number", kind: "number", required: true }], draft: { number: "3" }, given: { repo: "will/flows" } }
+  } }).isPersisted.promise
+  expect((await controller.commands.run("form.submit", id)).status).toBe("executed")
+  expect(store.collections.cards.get(id)).toMatchObject({ id, status: "acted", payload: { flow: "pr", given: { repo: "will/flows" } } })
+  expect(store.collections.cards.get("pr-will/flows-3")).toMatchObject({ payload: { number: 3, repo: "will/flows" } })
+  await controller.dispose()
 })

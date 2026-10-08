@@ -1,3 +1,4 @@
+import { historicalPullNavigation } from "../../flows/PullNavigationPayload"
 import { historicalWorkspaceNavigation } from "../../flows/WorkspaceNavigationPayload"
 import { currentFlowName } from "../../flows/FlowName"
 import { Schema } from "effect"
@@ -511,6 +512,11 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
   const submitForm: FormsController["submitForm"] = async (cardId, invocation, gesture) => {
     let card = formCard(cardId)
     if (card === undefined) return `There is no form card ${cardId}.`
+    if (historicalPullNavigation.includes(card.payload.flow)) {
+      await patch(card, { ...card.payload, flow: "pr", given: { ...card.payload.given, ...(card.payload.flow === "prs.view" ? {} : { operation: "list" }) } }, card.status)
+      card = formCard(cardId)
+      if (card === undefined) return `There is no form card ${cardId}.`
+    }
     const recordedOperation = historicalWorkspaceNavigation[card.payload.flow]
     if (recordedOperation !== undefined) {
       // Migrate the recorded target in place. The form id, draft and owner-bound continuation stay intact.

@@ -58,7 +58,7 @@ const httpPayloadSchema = (row: typeof catalogCommands[number]): Record<string, 
   const binding = row.client?.http ?? row.http
   const keys = [...Array.from(binding?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!), ...Object.values(binding?.body ?? {}), ...Object.values(binding?.query ?? {})]
   const hasValue = (field: Record<string, any>): boolean => field.not === undefined && (field.anyOf === undefined || field.anyOf.some((member: Record<string, any>) => member.type !== "null" && member.not === undefined))
-  const variants = schema.anyOf.filter((variant: Record<string, any>) => variant.type === "object" && keys.every(key => variant.properties?.[key] && hasValue(variant.properties[key])))
+  const variants = schema.anyOf.filter((variant: Record<string, any>) => variant.type === "object" && (binding != null || variant.properties?.operation === undefined || !hasValue(variant.properties.operation)) && keys.every(key => variant.properties?.[key] && hasValue(variant.properties[key])))
   if (variants.length !== 1) throw new UsageError({ message: "This HTTP door has no unique payload variant" })
   const variant = variants[0]
   return { ...variant, properties: Object.fromEntries(Object.entries(variant.properties).filter(([, field]) => hasValue(field as Record<string, any>))) }

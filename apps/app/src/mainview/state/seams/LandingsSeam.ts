@@ -103,7 +103,7 @@ const parseLandingDetail = (value: unknown): LandingDetail | null => {
     changeIds: Array.isArray(value.change_ids)
       ? value.change_ids.filter((id): id is string => typeof id === "string")
       : [],
-    targetBookmark: stringOrNull(value.target_bookmark),
+    targetBookmark: stringOrNull(value.target_bookmark) ?? (isRecord(value.base) ? stringOrNull(value.base.ref) : null),
     createdAt: stringOrNull(value.created_at)
   }
 }
@@ -386,20 +386,23 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
     number: number,
     stateOverride?: string
   ): Promise<ViewResult> => {
+    const source = await pullSource(ctx, repo)
+    if ("error" in source) return source.error
     let response: Response
     try {
-      response = await ctx.http(`${landingsUrl(repo)}/${number}`)
+      response = await ctx.http(source.kind === "github" ? `${githubPullsRoot(ctx, source.repo)}/${number}` : `${landingsUrl(repo)}/${number}`)
     } catch {
       return `Pull request #${number} couldn't be read — the platform didn't answer.`
     }
     if (!response.ok) {
       return readErrorMessage(response, `Pull request #${number} on ${repo} couldn't be read.`)
     }
-    const landing = parseLandingDetail(await response.json().catch(() => undefined))
-    if (landing === null) {
+    const raw: unknown = await response.json().catch(() => undefined)
+    const landing = parseLandingDetail(raw)
+    if (landing === null || landing.number !== number) {
       return `Pull request #${number} on ${repo} answered with a payload this app couldn't read.`
     }
-    const [reviews, checks, stack] = await Promise.all([
+    const [reviews, checks, stack] = source.kind === "github" ? [[], [], {}] as const : await Promise.all([
       fetchReviews(repo, number),
       fetchChecks(repo, landing.changeIds.at(-1)),
       fetchStack(repo, number)
@@ -408,12 +411,13 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
     const payload: PrPayload = {
       repo,
       number,
+      ...(source.kind === "github" ? { sourceRepo: source.repo, ...(isRecord(raw) && typeof raw.draft === "boolean" ? { draft: raw.draft } : {}), ...(isRecord(raw) && Array.isArray(raw.labels) ? { labels: raw.labels.flatMap(label => isRecord(label) && typeof label.name === "string" ? [label.name] : []) } : {}), ...(isRecord(raw) && isRecord(raw.head) && typeof raw.head.ref === "string" ? { branch: raw.head.ref } : {}) } : {}),
       title: landing.title,
       state: stateOverride ?? landing.state,
       author: landing.author,
       prBody: landing.body,
-      reviews,
-      checks,
+      reviews: [...reviews],
+      checks: [...checks],
       ...(current?.kind === "pr" && current.payload.tab !== undefined ? { tab: current.payload.tab } : {}),
       ...(landing.targetBookmark !== null ? { baseBranch: landing.targetBookmark } : {}),
       ...(landing.createdAt !== null ? { createdAt: landing.createdAt } : {}),
@@ -444,11 +448,13 @@ export const createLandingsSeam = (ctx: SeamContext, renderRepositoryForm?: Repo
     if ("error" in target) return target.error
     const repo = target.repo
     return { id: `prs-${repo}`, title: `Pull requests · ${repo}`, pane: repo, read: async (): Promise<ViewResult> => {
+      const source = await pullSource(ctx, repo)
+      if ("error" in source) return source.error
       let response: Response
       try {
         // One bounded page. Omitting `state` lists every lifecycle state —
         // plue has no "all" filter value and 422s an unknown one.
-        response = await ctx.http(`${landingsUrl(repo)}?limit=100`)
+        response = await ctx.http(source.kind === "github" ? `${githubPullsRoot(ctx, source.repo)}?state=all&per_page=100` : `${landingsUrl(repo)}?limit=100`)
       } catch {
         return `Pull requests for ${repo} couldn't be listed — the platform didn't answer.`
       }

@@ -22,7 +22,7 @@ export default showcase({
   order: 112,
   title: "Pull requests",
   summary: "Read and review a PR.",
-  flows: [ "prs.tab", "prs.review", "prs.list", "prs.view"],
+  flows: [ "prs.tab", "prs.review", "pr"],
   run: async ({ page, app, backend }) => {
     const state = "open"
     const opened = true
@@ -74,7 +74,7 @@ export default showcase({
     ])
 
     await app.open("/")
-    await app.slash(`/prs.view 12 ${REPO}`)
+    await app.slash(`/pr 12 ${REPO}`)
     const card = page.locator('[data-kind="pr"]').last()
     await expect(card).toContainText("The split flow", { timeout: 15_000 })
     await expect(card).toContainText("browser e2e")
@@ -94,7 +94,7 @@ export default showcase({
     await expect(card.getByRole("button", { name: /Land/ })).toHaveCount(0)
     await expect.poll(() => writes).toEqual([])
 
-    await app.slash(`/prs.list ${REPO}`)
+    await app.slash(`/pr ${JSON.stringify({ operation: "list", repo: REPO })}`)
     const list = page.locator('[data-kind="pr-list"]').last()
     await expect(list).toContainText("Keep review history")
     await app.closeComposer()
