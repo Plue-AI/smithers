@@ -383,6 +383,23 @@ test("C-INS-01 the install works at loopback and at each origin the owner sets, 
       if (secureContext(origin)) expect(button.length).toBeLessThanOrEqual(1)
       else expect(button).toEqual([["copy", true]])
       await page.screenshot({ path: join(install.evidence, `slice-${new URL(origin).hostname}.png`) })
+
+      // T-APP-24 (C-UI-09): on plain HTTP off loopback, Settings names the HTTPS fix and opens the bundled quickstart
+      // at its heading; a secure origin shows neither the row nor the door. The first such origin is clicked, the rest use the keyboard.
+      const settings = page.locator('.smithers-card[data-kind="settings"]').last()
+      const hint = settings.getByRole("button", { name: "Notifications need HTTPS ↗", exact: true })
+      const docs = page.getByRole("article", { name: "Docs", exact: true })
+      await expect(docs, "no Docs card before the hint").toHaveCount(0)
+      if (secureContext(origin)) {
+        await expect(settings.getByText("Notifications need HTTPS ↗", { exact: true })).toHaveCount(0)
+        await expect(settings.getByText("Notifications", { exact: true })).toHaveCount(0)
+      } else {
+        if (origin === install.ownerSet.find(each => !secureContext(each))) await hint.click()
+        else await hint.press("Enter")
+        await expect(docs.locator("#put-https-in-front")).toHaveText("Put HTTPS in front")
+        await expect(docs.locator("#put-https-in-front")).toBeInViewport()
+        await page.screenshot({ path: join(install.evidence, `https-hint-${new URL(origin).hostname}.png`) })
+      }
     })
 
     await test.step("an Address change reaches every origin as a live delta", async () => {
