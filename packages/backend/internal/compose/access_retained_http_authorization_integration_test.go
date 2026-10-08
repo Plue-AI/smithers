@@ -750,11 +750,11 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	} {
 		request(t, retainedHTTPCase{Command: denied.command, Method: "GET", Path: denied.path, Body: map[string]any{}}, runCredential, "active/foreign-or-person-subject", 403, "permission")
 	}
-	require.Equal(t, 135, httpCommands)
-	require.Equal(t, 2059+44+132+111+8+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 137, httpCommands)
+	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))

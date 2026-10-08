@@ -1628,7 +1628,9 @@
     },
     {
       "command": "wiki",
-      "door": "app"
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/wiki",
+      "body": {}
     },
     {
       "command": "wiki.attach",
@@ -1710,7 +1712,9 @@
     },
     {
       "command": "wiki.page",
-      "door": "app"
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/wiki/{name}",
+      "body": {}
     },
     {
       "command": "wiki.pane",
