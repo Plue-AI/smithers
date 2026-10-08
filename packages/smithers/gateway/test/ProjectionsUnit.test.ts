@@ -13,7 +13,7 @@ import { ControlFacts } from "@smthrs/control"
 import type { Service as ControlService } from "@smthrs/control/Control"
 import { PersistenceError, Unavailable } from "@smthrs/control/ControlError"
 import type { ControlEvent, ListResponse, RunSummary } from "@smthrs/control/ControlSchema"
-import { Deferred, Effect, Logger, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Logger, Schema, Stream } from "effect"
 import { GatewayError } from "../src/GatewayError.ts"
 import * as GatewayProjection from "../src/GatewayProjection.ts"
 import * as GatewaySchema from "../src/GatewaySchema.ts"
@@ -330,28 +330,54 @@ describe("Projections resource bounds", () => {
   it.effect("retains exact large bound root answers while clipping event bodies and refusing oversized carry", () =>
     Effect.gen(function*() {
       const binding = event(1, "control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "root" })
-      const completion = (value: unknown) => event(2, "control.engine.event", {
-        version: 1, executionId: "root", generation: 0, sequence: 10,
-        eventType: "flows.engine.run-decision", payload: {
-          decision: "transitioned", status: "completed",
-          executionFact: { version: 1, baseline: "created", observation: { executionId: "root", flowName: "agent/run", status: "completed" } },
-          state: { version: 1, flowName: "agent/run", payload: { runId: run.runId, planId: "plan-1" },
-            result: { _tag: "Complete", exit: { _tag: "Success", value } } }
-        }
-      })
-      const read = (events: ReadonlyArray<ControlEvent>) => make(control({
-        list: () => Effect.succeed({ _tag: "runs", items: [{ ...run, status: "completed" }] }),
-        watch: () => Stream.fromIterable(events)
-      })).snapshot({ _tag: "run-summary", runId: run.runId })
-      for (const value of ["x".repeat(32_000), { flows: Array.from({ length: 1030 }, (_, n) => ({ id: n, label: "step".repeat(40) })) }]) {
+      const completion = (value: unknown) =>
+        event(2, "control.engine.event", {
+          version: 1,
+          executionId: "root",
+          generation: 0,
+          sequence: 10,
+          eventType: "flows.engine.run-decision",
+          payload: {
+            decision: "transitioned",
+            status: "completed",
+            executionFact: {
+              version: 1,
+              baseline: "created",
+              observation: { executionId: "root", flowName: "agent/run", status: "completed" }
+            },
+            state: {
+              version: 1,
+              flowName: "agent/run",
+              payload: { runId: run.runId, planId: "plan-1" },
+              result: { _tag: "Complete", exit: { _tag: "Success", value } }
+            }
+          }
+        })
+      const read = (events: ReadonlyArray<ControlEvent>) =>
+        make(control({
+          list: () => Effect.succeed({ _tag: "runs", items: [{ ...run, status: "completed" }] }),
+          watch: () => Stream.fromIterable(events)
+        })).snapshot({ _tag: "run-summary", runId: run.runId })
+      for (
+        const value of ["x".repeat(32_000), {
+          flows: Array.from({ length: 1030 }, (_, n) => ({ id: n, label: "step".repeat(40) }))
+        }]
+      ) {
         const snapshot = yield* read([binding, completion(value)])
-        expect(snapshot.rows[0]).toMatchObject({ finalOutput: typeof value === "string" ? value : JSON.stringify(value) })
+        expect(snapshot.rows[0]).toMatchObject({
+          finalOutput: typeof value === "string" ? value : JSON.stringify(value)
+        })
         const unbound = yield* read([completion(value)])
         expect(unbound.rows[0]).not.toHaveProperty("finalOutput")
-        const wrong = yield* read([event(1, "control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "other" }), completion(value)])
+        const wrong = yield* read([
+          event(1, "control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "other" }),
+          completion(value)
+        ])
         expect(wrong.rows[0]).not.toHaveProperty("finalOutput")
       }
-      const refused = yield* read([binding, completion("x".repeat(Projections.maxProjectionBytes + 1))]).pipe(Effect.flip)
+      const refused = yield* read([binding, completion("x".repeat(Projections.maxProjectionBytes + 1))]).pipe(
+        Effect.flip
+      )
       expect(refused.code).toBe("resource_limit")
     }))
 
@@ -2550,6 +2576,44 @@ describe("Projections window accounting", () => {
 })
 
 describe("incremental journal snapshots", () => {
+  it.effect("keeps a newer journal prefix when an earlier reader finishes later", () =>
+    Effect.gen(function*() {
+      const began = yield* Deferred.make<void>()
+      const release = yield* Deferred.make<void>()
+      const cursors: Array<number | undefined> = []
+      const history = [
+        event(1, "control.agent.cell-call-started", { flowName: "one" }),
+        event(2, "control.agent.cell-call-started", { flowName: "two" })
+      ]
+      const projections = make(control({
+        list: () => Effect.succeed({ _tag: "runs", items: [run] }),
+        watch: (filter) => {
+          cursors.push(filter.afterSequence)
+          if (cursors.length === 1) {
+            return Stream.fromEffect(
+              Deferred.succeed(began, void 0).pipe(
+                Effect.andThen(Deferred.await(release)),
+                Effect.as(history[0]!)
+              )
+            )
+          }
+          return Stream.fromIterable(
+            history.filter((entry) => filter.afterSequence === undefined || entry.sequence > filter.afterSequence)
+          )
+        }
+      }))
+      const selector = { _tag: "run-tree", runId: run.runId } as const
+      const earlier = yield* Effect.forkChild(projections.snapshot(selector))
+      yield* Deferred.await(began)
+      const newer = yield* projections.snapshot(selector)
+      expect(newer.cursor.value).toBe(2)
+      yield* Deferred.succeed(release, void 0)
+      expect((yield* Fiber.join(earlier)).cursor.value).toBe(1)
+      const retained = yield* projections.snapshot(selector)
+      expect(retained).toEqual(newer)
+      expect(cursors).toEqual([undefined, undefined, 1])
+    }))
+
   it.effect("reads only the suffix, including events appended in one sequence and unchanged summaries", () =>
     Effect.gen(function*() {
       let history = [event(1, "control.agent.cell-call-started", { flowName: "one" })]

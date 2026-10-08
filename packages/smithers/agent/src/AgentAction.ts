@@ -710,6 +710,7 @@ export const implement = <
       // One resolution per execution: the declared seat may be a function of
       // the payload, and every later rung compares against the id it chose.
       const declaredSeat = typeof options.seat === "function" ? options.seat(payload) : options.seat
+      const declaredRole = typeof declaredSeat === "string" ? declaredSeat : undefined
       const declaredIds = typeof declaredSeat === "string" ? [declaredSeat] : declaredSeat
       if (!Schema.is(ModelSelection)(declaredSeat) || declaredIds.some((id) => id.trim() === "")) {
         return yield* new HarnessError({
@@ -722,7 +723,7 @@ export const implement = <
       // execution, as a sealed step, so each subagent routes on its own prompt
       // and a replay is served the seat it ran on. The step's own phase wins
       // over the one the host gives the role.
-      const routedAs = typeof declaredSeat === "string" ? seats.routedAs?.(declaredSeat) : undefined
+      const routedAs = declaredRole === undefined ? undefined : seats.routedAs?.(declaredRole)
       const routed = declaredSeat === Seat.auto || routedAs !== undefined
         ? yield* routeSeat(tag, task, instance.executionId, stepId, options.phase ?? routedAs?.phase)
         : undefined
@@ -741,9 +742,8 @@ export const implement = <
       if (routed !== undefined && Option.isSome(sink)) {
         // The routing receipt reaches the sink ahead of the first ask's events.
         const step = stepOf(0, yield* Action.CurrentAttempt, sessionRoot)
-        const modelId =
-          (yield* seats.resolve(routed.decision.seat, typeof declaredSeat === "string" ? declaredSeat : undefined))
-            .modelId
+        const modelId = (yield* seats.resolve(routed.decision.seat, declaredRole))
+          .modelId
         for (const event of SeatRouter.events(routed.decision, { scope: sessionRoot, modelId })) {
           yield* sink.value.emit(event, step)
         }
@@ -858,7 +858,7 @@ export const implement = <
           const decoding = yield* Effect.context<Output["DecodingServices"]>()
           const resolvedSeats = yield* Effect.forEach(
             ids,
-            (id) => seats.resolve(id, typeof declaredSeat === "string" ? declaredSeat : undefined)
+            (id) => seats.resolve(id, declaredRole)
           )
           const seat = resolvedSeats[0]!
           const fallbackSeats = resolvedSeats.slice(1)
@@ -900,7 +900,7 @@ export const implement = <
                 const atSource = Option.isSome(sink) && sink.value.atSource === true
                 const resolved = askSeat === seatId
                   ? seat
-                  : yield* seats.resolve(askSeat, typeof declaredSeat === "string" ? declaredSeat : undefined)
+                  : yield* seats.resolve(askSeat, declaredRole)
                 const outcome = yield* agent.run({
                   instructions: host.instructions,
                   pinnedSources: host.pinnedSources,

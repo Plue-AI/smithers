@@ -13,6 +13,7 @@ import * as DatabaseMigrations from "@smthrs/database/Migrations"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
 import * as TestDatabase from "@smthrs/database/test/TestDatabase"
+import * as EngineMigrations from "@smthrs/engine-store/Migrations"
 import { Migrations } from "@smthrs/journal"
 import { Migrations as RunStoreMigrations, RunStore } from "@smthrs/run-store"
 import { type Crypto, Effect, Layer } from "effect"
@@ -614,6 +615,26 @@ describe("SqlControlRuntime and a key another process claimed", () => {
 })
 
 describe("SqlControlRuntime reading rows the engine wrote", () => {
+  it("omits unnamed event tokens while retaining a named wait in the same SQL run tree", async () => {
+    await withRuntime((runtime, sql) =>
+      Effect.gen(function*() {
+        yield* EngineMigrations.run
+        const root = yield* start(runtime, "unnamed-event-root")
+        const unnamed = yield* start(runtime, "unnamed-event-child")
+        const named = yield* start(runtime, "named-event-child")
+        const queueToken = globalThis.btoa(JSON.stringify(["system/test", unnamed.runId, "DurableQueue/items"]))
+        const answerToken = globalThis.btoa(JSON.stringify(["system/test", named.runId, "WaitFor/sign-off"]))
+        for (const [runId, token] of [[unnamed.runId, queueToken], [named.runId, answerToken]] as const) {
+          yield* sql`UPDATE flows_runs SET status = 'suspended', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL, heartbeat_at_ms = NULL, parent_run_id = ${root.runId}, waiting_reason = 'event', waiting_token = ${token} WHERE run_id = ${runId}`
+        }
+        expect((yield* runtime.getRun(unnamed.runId)).pendingWaits).toBeUndefined()
+        const waits = (yield* runtime.getRun(root.runId)).pendingWaits
+        expect(waits).toHaveLength(1)
+        expect(waits?.[0]).toMatchObject({ runId: named.runId, name: "sign-off", token: answerToken })
+      })
+    )
+  })
+
   it("attributes a cancel request that names neither a principal nor a reason", async () => {
     // The engine's own cancel writes the column and journals nothing about who
     // asked. The projection still has to report WHEN, because that is the

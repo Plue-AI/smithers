@@ -14,8 +14,8 @@
  * shape of a fixture rather than the behavior of a store.
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import { NoMatchingWait, PersistenceError, Unauthorized } from "@smthrs/control/ControlError"
 import { Control } from "@smthrs/control/Control"
+import { NoMatchingWait, PersistenceError, Unauthorized } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlRuntimeModule from "@smthrs/control/ControlRuntime"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
@@ -26,7 +26,7 @@ import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import * as EngineStore from "@smthrs/engine-store/EngineStore"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as TestStores from "@smthrs/engine-store/test/TestStores"
-import { Action, DurableDeferred, Flow, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, DurableDeferred, Flow, FlowRuntime, HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Jj from "@smthrs/kernel/Jj"
 import { Node } from "@smthrs/plan"
 import { RunStore } from "@smthrs/run-store"
@@ -114,16 +114,19 @@ const runControlless = <A, E, R>(body: Effect.Effect<A, E, R>): Promise<A> =>
   )
 
 /** Plans, approves, and launches one control run through the port itself. */
-const startControlRun = Effect.gen(function*() {
-  const runtime = yield* ControlRuntime
-  const { card } = yield* runtime.plan({ flowId: "system/test", input: { suite: "ports" } })
-  const token = yield* runtime.lookupApproval(card.approval.target)
-  yield* runtime.installBulkGrant(token, card.envelope, "run")
-  yield* runtime.resolveApproval(token, "approved", yield* runtime.stampPrincipal())
-  const launched = yield* runtime.launch(card.planId, card.digest, card.envelope)
-  if (launched._tag !== "Started") return yield* Effect.die("expected a started run")
-  return launched.run.runId
-})
+const startControlFlow = (flowId: string) =>
+  Effect.gen(function*() {
+    const runtime = yield* ControlRuntime
+    const { card } = yield* runtime.plan({ flowId, input: { suite: "ports" } })
+    const token = yield* runtime.lookupApproval(card.approval.target)
+    yield* runtime.installBulkGrant(token, card.envelope, "run")
+    yield* runtime.resolveApproval(token, "approved", yield* runtime.stampPrincipal())
+    const launched = yield* runtime.launch(card.planId, card.digest, card.envelope)
+    if (launched._tag !== "Started") return yield* Effect.die("expected a started run")
+    return launched.run.runId
+  })
+
+const startControlRun = startControlFlow("system/test")
 
 /** Starts the gated flow and returns once the engine has parked it. */
 const parkedRun = (runId: string, name: string) =>
@@ -248,6 +251,160 @@ describe("AgentSession.requestCancel", () => {
 })
 
 describe("AgentSession.deliverSignal", () => {
+  it.each(["absent", "another flow"] as const)("does not admit Bring in for %s control run", async (mode) => {
+    await run(Effect.gen(function*() {
+      const state = yield* DurableEngineState.DurableEngineState
+      const runtime = yield* ControlRuntime
+      const runId = mode === "absent" ? "ports-untracked-bring-in" : yield* startControlRun
+      const before = yield* parkedRun(runId, "review")
+      expect(
+        yield* AgentSession.deliverSignal({
+          runId,
+          signal: { name: "bring_in", payload: { sha: "a".repeat(40), wait: "push" } }
+        })
+      ).toBe("no-match")
+      expect(yield* state.waiting(runId)).toEqual(Option.some(before))
+      expect(yield* runtime.pendingResumes).toEqual([])
+    }))
+  })
+
+  it.each([
+    null,
+    [],
+    "bring in",
+    {},
+    { sha: 1, wait: "push" },
+    { sha: "a".repeat(39), wait: "push" },
+    { sha: "a".repeat(41), wait: "push" },
+    { sha: "A".repeat(40), wait: "push" },
+    { sha: "a".repeat(40) },
+    { sha: "a".repeat(40), wait: 1 },
+    { sha: "a".repeat(40), wait: "" },
+    { sha: "a".repeat(40), wait: "x".repeat(129) }
+  ])("refuses an invalid Bring in payload without waking or answering a TODO (%j)", async (payload) => {
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const runtime = yield* ControlRuntime
+        const state = yield* DurableEngineState.DurableEngineState
+        const runId = yield* startControlFlow("todo")
+        const before = yield* parkedRun(runId, "review")
+        expect(yield* AgentSession.deliverSignal({ runId, signal: { name: "bring_in", payload } })).toBe("no-match")
+        expect(yield* state.waiting(runId)).toEqual(Option.some(before))
+        expect(yield* runtime.pendingResumes).toEqual([])
+      }).pipe(
+        Effect.provide(makeStack(ControlRuntimeModule.layerMemory({
+          flows: [{ flowId: "todo", description: "TODO", deployClass: false, envelope }]
+        }))),
+        Effect.scoped
+      )
+    )
+  })
+
+  it.each(
+    [
+      "human",
+      "poll window",
+      "named event",
+      "maximum wait",
+      "stack",
+      "null request",
+      "string request",
+      "other request"
+    ] as const
+  )(
+    "delivers a TODO Bring in checkpoint without answering its %s wait",
+    async (mode) => {
+      const eventPark = ["stack", "null request", "string request", "other request"].includes(mode)
+      const Park = Action.make("agent/test/ports/bring-in-park", { payload: {}, success: Schema.Json })
+      const Question = Flow.make("agent/test/ports/bring-in-question", {
+        payload: {},
+        success: Schema.Json,
+        error: HumanTask.HumanTaskFailed,
+        body: () =>
+          eventPark ?
+            Park.call({}) :
+            HumanTask.action.call({ name: "review", kind: "confirm", prompt: "Ship?", maxAttempts: 1 })
+      })
+      const todoStack = Layer.mergeAll(
+        HumanTask.layer,
+        Interpreter.layer(Question),
+        Park.toLayer(() =>
+          Effect.gen(function*() {
+            yield* FlowRuntime.annotateWaiting({
+              reason: "event",
+              request: JSON.stringify(
+                mode === "null request"
+                  ? null
+                  : mode === "string request"
+                  ? "stack"
+                  : { kind: mode === "stack" ? "stack" : "other" }
+              )
+            })
+            return yield* Flow.suspend(yield* FlowRuntime.FlowInstance)
+          })
+        )
+      ).pipe(
+        Layer.provideMerge(makeStack(ControlRuntimeModule.layerMemory({
+          flows: [{ flowId: "todo", description: "TODO", deployClass: false, envelope }]
+        })))
+      )
+      await Effect.runPromise(
+        Effect.gen(function*() {
+          const runtime = yield* ControlRuntime
+          const state = yield* DurableEngineState.DurableEngineState
+          const runId = yield* startControlFlow("todo")
+          if (mode === "named event") yield* parkedRun(runId, "review")
+          else {
+            yield* Question.execute({}, { executionId: runId, discard: true })
+            const human = (): Effect.Effect<void> =>
+              state.waiting(runId).pipe(
+                Effect.flatMap((row) =>
+                  Option.isSome(row) && row.value.reason === (eventPark ? "event" : ControlExecutor.humanWaitReason)
+                    ? Effect.void :
+                    Effect.andThen(Effect.yieldNow, Effect.suspend(human))
+                )
+              )
+            yield* human().pipe(Effect.timeout("5 seconds"))
+          }
+          const engine = yield* FlowRuntime.FlowRuntime
+          const before = yield* state.waiting(runId)
+          const signal = {
+            name: "bring_in",
+            payload: { sha: "a".repeat(40), wait: mode === "maximum wait" ? "x".repeat(128) : "push-1" }
+          }
+          const receipt = yield* Effect.flatMap(
+            Control,
+            (control) => control.signal({ runId, signal, idempotencyKey: "bring-in-public" })
+          ).pipe(
+            Effect.provide(controlLive({
+              runtime: Layer.succeed(ControlRuntime)(runtime),
+              executor: ControlExecutor.makeNoop({
+                deliverSignal: (input) =>
+                  AgentSession.deliverSignal(input).pipe(
+                    Effect.provideService(ControlRuntime, runtime),
+                    Effect.provideService(FlowRuntime.FlowRuntime, engine),
+                    Effect.provideService(
+                      DurableEngineState.DurableEngineState,
+                      mode === "poll window"
+                        ? { ...state, waitingTree: () => Effect.succeed([]) } :
+                        state
+                    )
+                  )
+              })
+            }))
+          )
+          expect(receipt._tag).toBe("Accepted")
+          expect(yield* state.waiting(runId)).toEqual(before)
+          expect(yield* statusOf(runId)).toBe("suspended")
+          expect((yield* runtime.pendingResumes).map((entry) => entry.runId)).toEqual(
+            mode === "named event" || ["null request", "string request", "other request"].includes(mode) ? [] : [runId]
+          )
+          expect(yield* runtime.deliveredSignals(runId)).toContainEqual(signal)
+        }).pipe(Effect.provide(todoStack), Effect.scoped)
+      )
+    }
+  )
+
   it.each([
     { name: "outside_change", payload: { id: "burst-1", files: ["retry.ts"] } },
     { name: "approval", payload: { kind: "outside_change", id: "burst-1", files: ["retry.ts"] } }
@@ -268,11 +425,12 @@ describe("AgentSession.deliverSignal", () => {
       }).pipe(Effect.provide(controlLive({
         runtime: Layer.succeed(ControlRuntime)(runtime),
         executor: ControlExecutor.makeNoop({
-          deliverSignal: (request) => AgentSession.deliverSignal(request).pipe(
-            Effect.provideService(DurableEngineState.DurableEngineState, state),
-            Effect.provideService(FlowRuntime.FlowRuntime, engine),
-            Effect.provideService(ControlRuntime, runtime)
-          )
+          deliverSignal: (request) =>
+            AgentSession.deliverSignal(request).pipe(
+              Effect.provideService(DurableEngineState.DurableEngineState, state),
+              Effect.provideService(FlowRuntime.FlowRuntime, engine),
+              Effect.provideService(ControlRuntime, runtime)
+            )
         })
       })))
       yield* runtime.admitSignal("outside-note", runId, signal)

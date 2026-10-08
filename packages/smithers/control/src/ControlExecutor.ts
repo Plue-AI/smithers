@@ -17,8 +17,8 @@ import type {
   ExecutionBatch,
   PendingWait,
   Principal,
-  RunId,
   Receipt,
+  RunId,
   RunSummary,
   SignalPayload
 } from "./ControlSchema.ts"
@@ -325,11 +325,16 @@ export interface Service {
   }) => Effect.Effect<ExecutionBatch, PersistenceError>
   readonly launch: (input: Launch) => Effect.Effect<Acceptance, LaunchFailed>
   /**
+   * Host-only close of a retained run, after its last native module completed.
+   * @since 1.0.0
+   */
+  readonly requestComplete?:
+    | ((input: { readonly runId: RunId; readonly receiptId: string }) => Effect.Effect<Receipt, PersistenceError>)
+    | undefined
+  /**
    * Records a cancellation on the engine row, durably, regardless of which
    * process owns the run.
    */
-  /** Host-only close of a retained run, after its last native module completed. */
-  readonly requestComplete?: ((input: { readonly runId: RunId; readonly receiptId: string }) => Effect.Effect<Receipt, PersistenceError>) | undefined
   readonly requestCancel: (input: CancelRequest) => Effect.Effect<CancelRecord, PersistenceError>
   /**
    * Completes the run's open `WaitFor` wait point with the signal's payload.

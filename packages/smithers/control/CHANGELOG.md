@@ -4,6 +4,9 @@
 
 ### Added
 
+- `ControlExecutor.Service.requestComplete` optionally closes a retained run
+  after its last native module completes, through the host executor.
+
 - `PlanInput.budget` can override budget fields, including the optional
   `onExceeded` policy. Resume accepts `allowCodeDrift`; run and approval
   operations can also fail with `CodeDrift`. Custom runtime implementations

@@ -145,12 +145,13 @@ export const SteerCommand = Schema.Struct({
 })
 
 /**
- * Requests cancellation or explicit resume.
+ * Requests cancellation, explicit resume, or completion of a retained run.
  * @since 1.0.0
  * @category models
  */
 export const LifecycleCommand = Schema.Struct({
   ...common,
+  /** Completion is a host-only lifecycle operation. @since 1.0.0 */
   operation: Schema.Literals(["cancel", "resume", "complete"]),
   runId: Schema.NonEmptyString,
   reason: Schema.optional(Schema.String)
@@ -227,9 +228,15 @@ export interface Config {
   /** Captured and verified by native catalog registration, never decoded from a request or environment. */
   readonly verifiedCatalogSourceRevision?: string | undefined
   readonly ownerGeneration: number
-  /** Private installed-host receipt reader; never accepted on the command wire. */
+  /**
+   * Private installed-host receipt reader; never accepted on the command wire.
+   * @since 1.0.0
+   */
   readonly commandReceipt?: ((runId: string) => Effect.Effect<CommandReceipt | undefined, unknown>) | undefined
-  /** Native host port, captured from the executor rather than from a request. */
+  /**
+   * Native host completion port, captured from the executor rather than from a request.
+   * @since 1.0.0
+   */
   readonly requestComplete?: ControlExecutorService["requestComplete"]
   readonly authenticate: (
     headers: Readonly<Record<string, string>>

@@ -64,6 +64,14 @@ stamps `NodeGateway.scopedPrincipal` (`gateway/scoped`), which no delegation to
 alone, and a ticket issued against a scoped token opens only what the token
 could open.
 
+### Runtime completion
+
+`RuntimeBridge.LifecycleCommand.operation` also accepts `complete` (since
+1.0.0). `RuntimeBridge.Config.requestComplete?:
+ControlExecutor.Service["requestComplete"]` (since 1.0.0) supplies the host port;
+when absent, the bridge uses the installed executor's port. A host without
+either refuses completion as unavailable.
+
 ### Runtime observation cursors
 
 `POST /runtime/v1/observe` returns `nextCursor`; pass it back unchanged as

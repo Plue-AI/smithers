@@ -401,9 +401,8 @@ const appendEvent = (
   run: ControlSchema.RunSummary
 ): Effect.Effect<EventBuffer, GatewayError> =>
   Effect.flatMap(decodedEvent(candidate, message), (decoded) => {
-    if (state.seen && decoded.sequence < state.lastPosition.value) {
-      return Effect.fail(unavailable(message, undefined))
-    }
+    // Ordering is checked before admission by eventsOf, runDeltaFrames and
+    // workspaceDeltaFrames. bufferOf only replays an ordered cursor prefix.
     // A payload larger than one projection reads is clipped before it is
     // measured, so a journaled model body costs the window its own size and
     // not the body's.
@@ -414,11 +413,13 @@ const appendEvent = (
     let carry = state.carry
     if (resolution?.result !== undefined) {
       carry = Diagnosis.combine(carry ?? Diagnosis.emptyDigest(), {
-        ...Diagnosis.emptyDigest(), nativeResolution: resolution
+        ...Diagnosis.emptyDigest(),
+        nativeResolution: resolution
       })
     }
     const event = resolution?.result === undefined ? retainedEvent(decoded) : {
-      ...decoded, payload: { truncated: true, encodedBytes: encodedSize(decoded.payload) }
+      ...decoded,
+      payload: { truncated: true, encodedBytes: encodedSize(decoded.payload) }
     }
     // `decodedEvent` has already rebuilt payload through `Schema.Json`, so it
     // contains neither accessors nor `toJSON` hooks and JSON encoding cannot

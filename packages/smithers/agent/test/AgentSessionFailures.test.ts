@@ -19,7 +19,7 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { ControlFacts } from "@smthrs/control"
-import { ClaimLost, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
+import { ClaimLost, CodeDrift, LaunchFailed, PersistenceError } from "@smthrs/control/ControlError"
 import type * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import type { RunStatus } from "@smthrs/control/ControlSchema"
@@ -27,7 +27,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { FlowEngine } from "@smthrs/engine"
 import * as DurableEngineState from "@smthrs/engine-store/DurableEngineState"
 import { AttemptEvidenceQuarantined } from "@smthrs/engine-store/Errors"
-import { type Flow, FlowRuntime } from "@smthrs/flow"
+import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -44,6 +44,7 @@ import * as Registry from "@smthrs/registry/Registry"
 import { RegistryError } from "@smthrs/registry/RegistryError"
 import { Ownership, RunStore } from "@smthrs/run-store"
 import {
+  Cause,
   Clock,
   Deferred,
   Duration,
@@ -159,6 +160,7 @@ interface RuntimeStub {
   readonly pendingSignals: ControlRuntime["Service"]["pendingSignals"]
   readonly pageRunIds: ControlRuntime["Service"]["pageRunIds"]
   readonly deliveredSignals: ControlRuntime["Service"]["deliveredSignals"]
+  readonly codeDrift: ControlRuntime["Service"]["codeDrift"]
   readonly getRun: ControlRuntime["Service"]["getRun"]
   readonly recordedCode: ControlRuntime["Service"]["recordedCode"]
   readonly getPlan: ControlRuntime["Service"]["getPlan"]
@@ -198,6 +200,7 @@ const runtimeLayer = (
     pendingSignals: Effect.succeed([]),
     pageRunIds: () => Effect.succeed({ ids: [], through: 0 }),
     deliveredSignals: () => Effect.succeed([]),
+    codeDrift: () => Effect.succeed(undefined),
     getRun: () => Effect.succeed(launchInput.run),
     // The run's own identity unless a case says the row inherits one.
     recordedCode: (runId) =>
@@ -328,10 +331,13 @@ interface ScenarioOptions {
   readonly agent?: Agent.Service | undefined
   readonly runtime?: Partial<RuntimeStub> | undefined
   readonly journal?: Partial<Journal.Service> | undefined
+  readonly notifications?: Parameters<typeof NotificationQueue.layerNoop>[0]
   readonly registry?: Partial<Registry.Registry> | undefined
   readonly catalog?: Executable.Catalog | undefined
   readonly engine?: ((service: EngineService) => EngineService) | undefined
   readonly engineState?: Partial<DurableEngineState.Service> | undefined
+  readonly reenterModules?: AgentSession.Options["reenterModules"]
+  readonly reentryCheckpoint?: AgentSession.Options["reentryCheckpoint"]
   readonly orderTerminalStatus?: AgentSession.Options["orderTerminalStatus"]
 }
 
@@ -364,6 +370,8 @@ const withExecutor = <A>(
   Effect.gen(function*() {
     const executor = yield* AgentSession.make({
       canExecute: options.canExecute,
+      reenterModules: options.reenterModules,
+      reentryCheckpoint: options.reentryCheckpoint,
       abandonedParkAfter: options.abandonedParkAfter,
       orderTerminalStatus: options.orderTerminalStatus,
       limits: { calls: 4 },
@@ -387,7 +395,7 @@ const withExecutor = <A>(
         registryLayer(options.registry),
         options.catalog === undefined ? Layer.empty : Layer.succeed(Executable.Catalog, options.catalog),
         journalLayer(record, options.journal),
-        NotificationQueue.layerNoop(),
+        NotificationQueue.layerNoop(options.notifications),
         engineLayer(options.engine),
         // The two engine stores the cancel and signal ports write through.
         // This suite exercises the control seam, not those ports, so the
@@ -2909,6 +2917,467 @@ describe("historical stop and cancellation facts", () => {
       expect(logs.some((message) => message.includes("terminal control status could not be written"))).toBe(
         peerStatus !== "cancelled"
       )
+    }
+  )
+})
+
+describe("retained module completion evidence", () => {
+  const executionDigest = launchInput.plan.card.executionDigest!
+  const executionId = Digest.digest(Digest.canonical(["control/module", runId, executionDigest]))
+  const marker = { ordinal: 0, executionDigest, executionId }
+  const retainedEntry = (payload: unknown = marker, eventType = "control.module.launched"): JournalEvent.Entry =>
+    new JournalEvent.Entry({
+      runId: JournalEvent.RunId.make(runId),
+      seq: JournalEvent.Seq.make(1),
+      eventId: "retained-module-marker",
+      sourceId: JournalEvent.SourceId.make("/test/retained-module"),
+      sourceSeq: JournalEvent.SourceSeq.make(0),
+      emittedAtMs: 1,
+      eventType,
+      payload,
+      meta: {}
+    })
+  const child: RunStore.RunRow = {
+    runId: executionId,
+    status: "completed",
+    owner: null,
+    heartbeatAtMs: null,
+    createdAtMs: 1,
+    startedAtMs: 1,
+    finishedAtMs: 2,
+    claim: null,
+    claimedAtMs: null,
+    parentRunId: runId,
+    cancelRequestedAtMs: null,
+    stateJson: "{}"
+  }
+  const eventWait = { runId, reason: "event", wakeAt: null, token: null, request: { kind: "stack" } }
+
+  it.each(
+    [
+      { mode: "completion-before-launch", message: "Retained module completion evidence is inconsistent" },
+      { mode: "changed-completion", message: "Retained module completion evidence is inconsistent" },
+      { mode: "malformed-launch", message: "Retained module launch evidence is inconsistent" },
+      { mode: "missing-child", message: "The completed module is no longer terminal" },
+      { mode: "unfinished-child", message: "The completed module is no longer terminal" },
+      { mode: "missing-result", message: "The completed module has no committed result" },
+      { mode: "suspended-result", message: "The completed module has no committed result" },
+      { mode: "failed-result", message: "retained module result failed" },
+      { mode: "storage-failed", message: "retained child read failed" },
+      { mode: "unfinished-resume", message: "" },
+      { mode: "missing-resume", message: "" },
+      { mode: "completed-hold", message: "" }
+    ] as const
+  )("recovers a retained module using its typed launch evidence: $mode", async ({ mode, message }) => {
+    const record = recorder()
+    const reentered: Array<string> = []
+    const recovering = ["unfinished-resume", "missing-resume", "completed-hold"].includes(mode)
+    const descriptor = new Descriptor.FlowDescriptor({
+      ...seated,
+      flows: [],
+      body: new Descriptor.BodyRefModule({ path: "/flows/agents/notes/flow.ts", contentDigest: "b".repeat(64) })
+    })
+    const digest = Descriptor.executionDigest(descriptor)
+    const moduleId = Digest.digest(Digest.canonical(["control/module", runId, digest]))
+    const launchMarker = { ordinal: 0, executionDigest: digest, executionId: moduleId }
+    const plan = { ...launchInput.plan, card: { ...launchInput.plan.card, executionDigest: digest } }
+    const entries = mode === "completion-before-launch" ?
+      [retainedEntry(launchMarker, "control.module.completion-requested")] :
+      mode === "malformed-launch" ?
+      [retainedEntry(null)] :
+      recovering ?
+      [retainedEntry(launchMarker)] :
+      [
+        retainedEntry(launchMarker),
+        retainedEntry(
+          mode === "changed-completion" ? { ...launchMarker, ordinal: 1 } : launchMarker,
+          "control.module.completion-requested"
+        )
+      ]
+    await withExecutor(record, {
+      reenterModules: [flowId],
+      notifications: { pending: () => Effect.succeed([]) },
+      runtime: { getPlan: () => Effect.succeed(plan) },
+      registry: {
+        getOption: () => Effect.succeed(Option.some(descriptor)),
+        loadBody: () => Effect.succeed(moduleBody)
+      },
+      catalog: {
+        executables: [{
+          descriptor,
+          delegate: undefined,
+          flow: {
+            execute: (_input: unknown, options: { executionId: string }) =>
+              mode === "unfinished-resume" || mode === "missing-resume"
+                ? Effect.sync(() => {
+                  reentered.push(options.executionId)
+                  return "done"
+                })
+                : Effect.die("completed module must not re-enter")
+          }
+        } as unknown as Executable.Executable],
+        refused: []
+      },
+      runs: {
+        get: () =>
+          mode === "missing-child" || mode === "missing-resume" || mode === "storage-failed"
+            ? Effect.fail(
+              new RunStore.RunStoreError({
+                code: mode === "storage-failed" ? "persistence_failed" : "not_found_row",
+                method: "get",
+                message: mode === "storage-failed" ? "retained child read failed" : "retained child is gone",
+                cause: undefined
+              })
+            )
+            : Effect.succeed({
+              ...child,
+              runId: moduleId,
+              status: mode === "unfinished-child" || mode === "unfinished-resume" ? "running" : "completed"
+            })
+      },
+      engine: (engine) => ({
+        ...engine,
+        poll: (flow, id) =>
+          id === moduleId
+            ? Effect.succeed(
+              mode === "failed-result"
+                ? Option.some({
+                  _tag: "Complete",
+                  exit: Exit.fail(new HarnessError({ code: "model_failed", message: "retained module result failed" }))
+                })
+                : mode === "suspended-result"
+                ? Option.some({ _tag: "Suspended", instance: {} as FlowRuntime.FlowInstance["Service"] })
+                : Option.none()
+            ) as ReturnType<EngineService["poll"]>
+            : engine.poll(flow, id)
+      }),
+      journal: {
+        entries: ({ after }) =>
+          Effect.succeed(
+            mode === "malformed-launch" && after !== undefined
+              ? { entries: [retainedEntry(launchMarker)], hasMore: false }
+              : { entries, hasMore: mode === "malformed-launch" }
+          )
+      }
+    }, (executor) =>
+      Effect.gen(function*() {
+        yield* executor.launch({ ...launchInput, plan })
+        expect(yield* Deferred.await(record.settled).pipe(Effect.timeout("5 seconds"))).toBe(
+          recovering ? "parked" : "failed"
+        )
+      }))
+    if (!recovering) {
+      expect(causeOf(record)).toContain(
+        mode === "failed-result" ? "HarnessError" : mode === "storage-failed" ? "RunStoreError" : "LaunchFailed"
+      )
+    }
+    if (!recovering) expect(causeOf(record)).toContain(message)
+    expect(reentered).toEqual(mode === "unfinished-resume" || mode === "missing-resume" ? [moduleId] : [])
+    expect(record.journaled.some((entry) => entry.eventType === "control.module.launched")).toBe(false)
+  })
+
+  it.each(
+    [
+      { mode: "unretained", message: "Only a retained module event wait can complete: parked/event/agents/notes" },
+      { mode: "accepted", message: "Only a retained module event wait can complete: accepted/event/agents/notes" },
+      { mode: "human", message: "Only a retained module event wait can complete: parked/approval/agents/notes" },
+      { mode: "no-plan", message: "The retained module has no plan" },
+      { mode: "no-digest", message: "The retained module has no pinned execution digest" },
+      { mode: "no-marker", message: "The retained module launch is not bound to this run" },
+      { mode: "invalid-marker", message: "The retained module launch is not bound to this run" },
+      { mode: "wrong-digest", message: "The retained module launch is not bound to this run" },
+      { mode: "negative-ordinal", message: "The retained module launch is not bound to this run" },
+      { mode: "wrong-child", message: "The retained module launch is not bound to this run" },
+      { mode: "unfinished", message: "The retained native module has not completed" },
+      { mode: "missing-wait", message: "Only a retained module event wait can complete: parked/none/agents/notes" },
+      { mode: "changed-wait", message: "Only a retained module event wait can complete: parked/approval/agents/notes" }
+    ] as const
+  )("refuses completion with typed persistence evidence: $mode", async ({ mode, message }) => {
+    const record = recorder()
+    let following = false
+    const payload = mode === "invalid-marker" ?
+      null :
+      mode === "wrong-digest" ?
+      { ...marker, executionDigest: "changed" } :
+      mode === "negative-ordinal" ?
+      { ...marker, ordinal: -1 } :
+      mode === "wrong-child"
+      ? { ...marker, ordinal: 1, executionId: "foreign" }
+      : marker
+    const refusal = await withExecutor(record, {
+      reenterModules: mode === "unretained" ? [] : [flowId],
+      runtime: {
+        getRun: () =>
+          Effect.succeed({
+            ...launchInput.run,
+            status: mode === "accepted" ? "accepted" : "parked",
+            planId: mode === "no-plan" ? undefined : planId
+          }),
+        getPlan: () =>
+          Effect.succeed({
+            ...launchInput.plan,
+            card: { ...launchInput.plan.card, executionDigest: mode === "no-digest" ? undefined : executionDigest }
+          })
+      },
+      engineState: {
+        waiting: () =>
+          Effect.sync(() => {
+            if (mode === "missing-wait") return Option.none()
+            if (mode === "changed-wait" && !following) {
+              following = true
+              return Option.none()
+            }
+            return Option.some({
+              ...eventWait,
+              reason: mode === "human" || mode === "changed-wait" ? "approval" : "event"
+            })
+          })
+      },
+      runs: { get: () => Effect.succeed({ ...child, status: mode === "unfinished" ? "running" : "completed" }) },
+      journal: {
+        entries: () =>
+          Effect.succeed({
+            entries: mode === "no-marker" ? [] : [retainedEntry({}, "unrelated"), retainedEntry(payload)],
+            hasMore: false
+          })
+      }
+    }, (executor) => Effect.flip(executor.requestComplete!({ runId, receiptId: "owner-merged" })))
+    expect(refusal).toBeInstanceOf(PersistenceError)
+    expect(refusal).toMatchObject({
+      operation: "AgentSession.requestComplete",
+      message: "Cannot close an unfinished retained module"
+    })
+    expect(refusal.cause).toBeInstanceOf(PersistenceError)
+    expect(refusal.cause).toMatchObject({ message })
+    expect(record.journaled).toEqual([])
+  })
+
+  it.each(["completed", "failed", "cancelled"] as const)(
+    "returns an existing %s receipt without a completion write",
+    async (status) => {
+      const record = recorder()
+      const receipt = await withExecutor(record, {
+        runtime: { getRun: () => Effect.succeed({ ...launchInput.run, status }) }
+      }, (executor) => executor.requestComplete!({ runId, receiptId: "owner-merged" }))
+      expect(receipt).toEqual({ _tag: "Terminal", runId, status })
+      expect(record.journaled).toEqual([])
+    }
+  )
+
+  it("observes terminal settlement while waiting for the durable condition", async () => {
+    const record = recorder()
+    let following = false
+    const receipt = await withExecutor(record, {
+      reenterModules: [flowId],
+      runtime: {
+        getRun: () =>
+          Effect.sync(() => {
+            const status = following ? "completed" : "running"
+            following = true
+            return { ...launchInput.run, status }
+          })
+      },
+      runs: { get: () => Effect.succeed(child) },
+      journal: {
+        entries: () => Effect.succeed({ entries: [retainedEntry()], hasMore: false })
+      }
+    }, (executor) => executor.requestComplete!({ runId, receiptId: "owner-merged" }))
+    expect(receipt).toEqual({ _tag: "Terminal", runId, status: "completed" })
+    expect(record.journaled).toEqual([])
+  })
+
+  it("interrupts a completion waiting for its durable park without recording intent", async () => {
+    const record = recorder()
+    const following = Deferred.makeUnsafe<void>()
+    const interrupted = await withExecutor(record, {
+      reenterModules: [flowId],
+      runtime: { getRun: () => Effect.succeed({ ...launchInput.run, status: "parked" }) },
+      engineState: { waiting: () => Deferred.succeed(following, void 0).pipe(Effect.as(Option.none())) },
+      runs: { get: () => Effect.succeed(child) },
+      journal: {
+        entries: () => Effect.succeed({ entries: [retainedEntry()], hasMore: false })
+      }
+    }, (executor) =>
+      Effect.gen(function*() {
+        const fiber = yield* Effect.forkChild(executor.requestComplete!({ runId, receiptId: "owner-merged" }))
+        yield* Deferred.await(following)
+        yield* Fiber.interrupt(fiber)
+        return yield* Fiber.await(fiber)
+      }))
+    expect(Exit.isFailure(interrupted) && Cause.hasInterruptsOnly(interrupted.cause)).toBe(true)
+    expect(record.journaled).toEqual([])
+  })
+})
+
+describe("retained TODO checkpoint admission", () => {
+  const sha = "a".repeat(40)
+  const admitted = { name: "bring_in", payload: { sha, wait: "push-1" } }
+  const cases = [
+    { name: "admitted", signals: [admitted], checkpoints: 1 },
+    { name: "completed", signals: [admitted, { name: "bring_in_complete#push-1", payload: null }], checkpoints: 0 },
+    {
+      name: "unrelated completion",
+      signals: [admitted, { name: "bring_in_complete#other", payload: null }],
+      checkpoints: 1
+    },
+    { name: "other signal", signals: [{ name: "other", payload: admitted.payload }], checkpoints: 0 },
+    { name: "null payload", signals: [{ name: "bring_in", payload: null }], checkpoints: 0 },
+    { name: "array payload", signals: [{ name: "bring_in", payload: [] }], checkpoints: 0 },
+    { name: "string payload", signals: [{ name: "bring_in", payload: "push" }], checkpoints: 0 },
+    { name: "missing sha", signals: [{ name: "bring_in", payload: { wait: "push-1" } }], checkpoints: 0 },
+    {
+      name: "short sha",
+      signals: [{ name: "bring_in", payload: { sha: "a".repeat(39), wait: "push-1" } }],
+      checkpoints: 0
+    },
+    { name: "missing wait", signals: [{ name: "bring_in", payload: { sha } }], checkpoints: 0 },
+    { name: "empty wait", signals: [{ name: "bring_in", payload: { sha, wait: "" } }], checkpoints: 0 },
+    { name: "long wait", signals: [{ name: "bring_in", payload: { sha, wait: "x".repeat(129) } }], checkpoints: 0 },
+    { name: "maximum wait", signals: [{ name: "bring_in", payload: { sha, wait: "x".repeat(128) } }], checkpoints: 1 },
+    { name: "not retained", signals: [admitted], checkpoints: 0 },
+    { name: "no checkpoint port", signals: [admitted], checkpoints: 0 },
+    { name: "code drift", signals: [admitted], checkpoints: 0 },
+    { name: "foreign host", signals: [admitted], checkpoints: 0 },
+    { name: "malformed launch", signals: [], checkpoints: 0 },
+    { name: "foreign child", signals: [], checkpoints: 0 },
+    { name: "missing child", signals: [], checkpoints: 0 },
+    { name: "unfinished child", signals: [], checkpoints: 0 },
+    { name: "completed child", signals: [], checkpoints: 0 },
+    { name: "unreadable child", signals: [], checkpoints: 0 }
+  ]
+
+  it.each(cases)(
+    "re-enters only a hosted, pending, valid checkpoint: $name",
+    async ({ name, signals, checkpoints }) => {
+      const record = recorder()
+      const descriptor = new Descriptor.FlowDescriptor({ ...seated, name: "todo" })
+      const plan = {
+        ...launchInput.plan,
+        card: { ...launchInput.plan.card, flowId: "todo", executionDigest: Descriptor.executionDigest(descriptor) }
+      }
+      const launch = { ...launchInput, plan, run: { ...launchInput.run, flowId: "todo" } }
+      const moduleId = Digest.digest(Digest.canonical(["control/module", runId, plan.card.executionDigest]))
+      const hasMarker = [
+        "malformed launch",
+        "foreign child",
+        "missing child",
+        "unfinished child",
+        "completed child",
+        "unreadable child"
+      ]
+        .includes(name)
+      const checked: Array<{ runId: string; flowId: string }> = []
+      let entered = false
+      let driven: never | undefined
+      let observe: ((flow: never, executionId: string) => Effect.Effect<Option.Option<unknown>, unknown>) | undefined
+      const result = await withExecutor(record, {
+        notifications: { pending: () => Effect.succeed([]) },
+        reenterModules: name === "not retained" ? [] : ["todo"],
+        reentryCheckpoint: name === "no checkpoint port" ? undefined : (runId, flowId) =>
+          Effect.gen(function*() {
+            checked.push({ runId, flowId })
+            yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) })
+            return yield* Flow.suspend(yield* FlowRuntime.FlowInstance)
+          }),
+        agent: Agent.makeNoop({ run: () => Stream.die("A checkpoint must park before repository execution") }),
+        runtime: {
+          getRun: () =>
+            Effect.succeed({
+              ...launch.run,
+              status: entered ? "parked" : "running",
+              ...(name === "foreign host" ? { parkedBy: "another-host" } : {})
+            }),
+          getPlan: () => Effect.succeed(plan),
+          deliveredSignals: () => Effect.succeed(signals),
+          codeDrift: () =>
+            Effect.succeed(
+              name === "code drift"
+                ? new CodeDrift({ runId, flowId: "todo", recorded: "old", current: "new" })
+                : undefined
+            )
+        },
+        registry: { getOption: () => Effect.succeed(Option.some(descriptor)) },
+        journal: {
+          entries: () =>
+            Effect.succeed({
+              entries: hasMarker ?
+                [
+                  new JournalEvent.Entry({
+                    runId: JournalEvent.RunId.make(runId),
+                    seq: JournalEvent.Seq.make(1),
+                    eventId: "checkpoint-module",
+                    sourceId: JournalEvent.SourceId.make("/test/checkpoint"),
+                    sourceSeq: JournalEvent.SourceSeq.make(0),
+                    emittedAtMs: 1,
+                    eventType: "control.module.launched",
+                    meta: {},
+                    payload: name === "malformed launch" ? null : {
+                      ordinal: 0,
+                      executionDigest: plan.card.executionDigest,
+                      executionId: name === "foreign child" ? "foreign" : moduleId
+                    }
+                  })
+                ] :
+                [],
+              hasMore: false
+            })
+        },
+        runs: hasMarker ?
+          {
+            get: () =>
+              name === "missing child" || name === "unreadable child" ?
+                Effect.fail(
+                  new RunStore.RunStoreError({
+                    code: name === "unreadable child" ? "persistence_failed" : "not_found_row",
+                    method: "get",
+                    message: name === "unreadable child" ? "checkpoint child read failed" : "checkpoint child is gone",
+                    cause: undefined
+                  })
+                ) :
+                Effect.succeed({
+                  runId: moduleId,
+                  status: name === "completed child" ? "completed" : "running",
+                  owner: null,
+                  heartbeatAtMs: null,
+                  createdAtMs: 1,
+                  startedAtMs: 1,
+                  finishedAtMs: null,
+                  claim: null,
+                  claimedAtMs: null,
+                  parentRunId: runId,
+                  cancelRequestedAtMs: null,
+                  stateJson: "{}"
+                })
+          } :
+          undefined,
+        engine: (engine) => {
+          observe = (flow, executionId) => engine.poll(flow, executionId) as never
+          return {
+            ...engine,
+            execute: (flow: never, options: never) =>
+              Effect.suspend(() => {
+                entered = true
+                driven = flow
+                return engine.execute(flow, options)
+              })
+          } as unknown as EngineService
+        }
+      }, (executor) =>
+        Effect.gen(function*() {
+          yield* executor.launch(launch)
+          return yield* Effect.suspend(() =>
+            driven === undefined ? Effect.succeed(Option.none()) : observe!(driven, runId)
+          ).pipe(
+            Effect.repeat({ until: Option.isSome, schedule: Schedule.spaced("10 millis") }),
+            Effect.timeout("5 seconds")
+          )
+        }))
+      expect(result).toEqual(
+        Option.some(expect.objectContaining({ _tag: name === "unreadable child" ? "Complete" : "Suspended" }))
+      )
+      if (name === "unreadable child") expect(causeOf(record)).toContain("checkpoint child read failed")
+      expect(checked).toEqual(Array.from({ length: checkpoints }, () => ({ runId, flowId: "todo" })))
+      expect(record.journaled.some((entry) => entry.eventType === "control.module.launched")).toBe(false)
     }
   )
 })

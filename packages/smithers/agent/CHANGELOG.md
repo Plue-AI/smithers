@@ -4,6 +4,9 @@
 
 ### Added
 
+- `AgentSession.Options.reentryCheckpoint` runs host controls before entering
+  or resuming a retained module, including an unfinished child holding a question.
+
 - `control.agent.model-requested` journals the step's `task` (its task system
   part) bounded on its own, so the monitor keeps a step's input when the whole
   system text is too large to journal (#3514).

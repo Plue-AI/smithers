@@ -55,6 +55,7 @@
           "This host pins no trees: ctx.base, ctx.checkpoint() and every call with at are refused and run nothing. For a baseline, run the check in the same cell before your edit, then run it again after.",
           "The task for this run:\n\ndo the task"
         ],
+        "task": "do the task",
         "systemDigest": "digest-2",
         "messages": [
           {
@@ -432,6 +433,7 @@
           "This host pins no trees: ctx.base, ctx.checkpoint() and every call with at are refused and run nothing. For a baseline, run the check in the same cell before your edit, then run it again after.",
           "The task for this run:\n\ndo the task"
         ],
+        "task": "do the task",
         "systemDigest": "digest-13",
         "messages": [
           {

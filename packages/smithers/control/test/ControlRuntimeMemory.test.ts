@@ -59,6 +59,25 @@ const start = (runtime: Service) =>
   })
 
 describe("ControlRuntime.layerMemory", () => {
+  it("refuses a reserved identity already occupied by another run without replacing it", async () => {
+    await withRuntime((runtime) =>
+      Effect.gen(function*() {
+        const first = yield* start(runtime)
+        const { card } = yield* runtime.plan({ flowId: "system/test", input: { suite: "reserved-collision" } })
+        const token = yield* runtime.lookupApproval(card.approval.target)
+        yield* runtime.resolveApproval(token, "approved", principal)
+        const failure = yield* Effect.flip(
+          runtime.launch(card.planId, card.digest, card.envelope, principal, first.run.runId)
+        )
+        expect(failure).toBeInstanceOf(PersistenceError)
+        expect(failure).toMatchObject({ operation: "reserve a run", message: "Run identity already exists" })
+        expect(yield* runtime.getRun(first.run.runId)).toEqual(first.run)
+        const launched = yield* runtime.launch(card.planId, card.digest, card.envelope, principal, "reserved-free")
+        expect(launched).toMatchObject({ _tag: "Started", run: { runId: "reserved-free", planId: card.planId } })
+      })
+    )
+  })
+
   it("refuses to plan a flow the catalog does not carry", async () => {
     const error = await withRuntime((runtime) => Effect.flip(runtime.plan({ flowId: "system/absent", input: {} })))
 

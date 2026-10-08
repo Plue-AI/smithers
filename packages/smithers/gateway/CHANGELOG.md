@@ -4,6 +4,9 @@
 
 ### Added
 
+- `RuntimeBridge.LifecycleCommand` accepts `complete`;
+  `RuntimeBridge.Config.requestComplete` supplies the host completion port.
+
 - `Diagnosis.digest` takes an optional `runId`. A `control.run.*` verdict
   stamped with another run's id, such as a child's, no longer sets the digested
   run's status or failure cause, so a run summary no longer reports a child's

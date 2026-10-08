@@ -1095,3 +1095,32 @@ it.effect("Inspect reads a journal suffix and replay stays identical after warmi
     expect(replay).toEqual(yield* RuntimeBridge.monitor(cold, "run-1", 1))
     expect(cursors).toEqual([undefined, 0, 4])
   }))
+
+it.effect("monitor evicts the oldest prefix after observing 33 distinct runs", () =>
+  Effect.gen(function*() {
+    const cursors: Array<{ runId: string | undefined; after: number | undefined }> = []
+    const control = service({
+      list: (request) =>
+        Effect.succeed({
+          _tag: "runs",
+          items: [{ ...summary, runId: request._tag === "runs" ? request.filters?.runId ?? "run-1" : "run-1" }]
+        }),
+      watch: (filter) => {
+        cursors.push({ runId: filter.runId, after: filter.afterSequence })
+        return Stream.make({
+          sequence: 4,
+          kind: "control.run.completed",
+          runId: filter.runId,
+          occurredAt: 1,
+          payload: null
+        })
+      }
+    })
+    const first = yield* RuntimeBridge.monitor(control, "run-0")
+    for (let index = 1; index <= 32; index++) yield* RuntimeBridge.monitor(control, `run-${index}`)
+    yield* RuntimeBridge.monitor(control, "run-1")
+    expect(cursors.at(-1)).toEqual({ runId: "run-1", after: 3 })
+    const reread = yield* RuntimeBridge.monitor(control, "run-0")
+    expect(reread).toEqual(first)
+    expect(cursors.at(-1)).toEqual({ runId: "run-0", after: undefined })
+  }))

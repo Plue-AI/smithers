@@ -176,8 +176,16 @@ export type SandboxOpener = (session: string) => Effect.Effect<SandboxedRun, unk
 export interface Options {
   /** Host-owned module launches that retain their control run for later input. */
   readonly reenterModules?: ReadonlyArray<string> | undefined
-  /** Host-owned controls before entering or resuming a retained module. */
-  readonly reentryCheckpoint?: ((runId: string, flowId: string) => Effect.Effect<void, unknown, ControlRuntime | FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance>) | undefined
+  /**
+   * Host-owned controls before entering or resuming a retained module.
+   * @since 1.0.0
+   */
+  readonly reentryCheckpoint?:
+    | ((
+      runId: string,
+      flowId: string
+    ) => Effect.Effect<void, unknown, ControlRuntime | FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance>)
+    | undefined
   /**
    * The host's sandbox providers: the opener for a flow's `sandbox:`
    * selection, `SandboxRefused` when the configured provider cannot honor it,
@@ -2387,7 +2395,10 @@ export const readExecution = (
         status: current.status === "pending"
           ? "accepted"
           : current.status === "suspended"
-          ? reason === ControlExecutor.humanWaitReason || pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason) ? "waiting-approval" : "parked"
+          ? reason === ControlExecutor.humanWaitReason ||
+              pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason)
+            ? "waiting-approval"
+            : "parked"
           : current.status === "running" && pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason)
           ? "waiting-approval"
           : current.status,
@@ -2527,16 +2538,26 @@ export const deliverSignal = (
     // unrelated human wait. Its admitting host binds the sponsor and run.
     // Preserve a wake when a poll temporarily hides the trailing stack park.
     // A human-held run reads the durable inbox at its next coding boundary.
-    if (input.signal.name === "bring_in" && typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
-      typeof (payload as Readonly<Record<string, unknown>>).sha === "string" && /^[a-f0-9]{40}$/.test((payload as Readonly<Record<string, unknown>>).sha as string) &&
-      typeof (payload as Readonly<Record<string, unknown>>).wait === "string" && ((payload as Readonly<Record<string, unknown>>).wait as string).length > 0 &&
-      ((payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 && Option.isSome(control)) {
-      const run = yield* control.value.getRun(input.runId).pipe(Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined)))
+    if (
+      input.signal.name === "bring_in" && typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+      typeof (payload as Readonly<Record<string, unknown>>).sha === "string" &&
+      /^[a-f0-9]{40}$/.test((payload as Readonly<Record<string, unknown>>).sha as string) &&
+      typeof (payload as Readonly<Record<string, unknown>>).wait === "string" &&
+      ((payload as Readonly<Record<string, unknown>>).wait as string).length > 0 &&
+      ((payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 && Option.isSome(control)
+    ) {
+      const run = yield* control.value.getRun(input.runId).pipe(
+        Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined))
+      )
       if (run?.flowId === "todo") {
-        if (open.length === 0 || open.some((row) => row.reason === ControlExecutor.humanWaitReason ||
-          row.reason === "event" && row.request !== undefined &&
-          typeof row.request === "object" && row.request !== null &&
-          (row.request as Readonly<Record<string, unknown>>).kind === "stack")) {
+        if (
+          open.length === 0 || open.some((row) =>
+            row.reason === ControlExecutor.humanWaitReason ||
+            row.reason === "event" && row.request !== undefined &&
+              typeof row.request === "object" && row.request !== null &&
+              (row.request as Readonly<Record<string, unknown>>).kind === "stack"
+          )
+        ) {
           yield* recordAnswerResume
         }
         return "delivered" as const
@@ -3486,17 +3507,29 @@ export const make = (
             // marker in the existing journal selects that child after a crash;
             // an unfinished child always resumes before another is allocated.
             let launched = false
+            let evidenceError: LaunchFailed | undefined
             yield* scanRun(journal, payload.runId, (entries) => {
               for (const entry of entries) {
-                if (entry.eventType !== "control.module.launched" && entry.eventType !== "control.module.completion-requested") continue
+                if (evidenceError !== undefined) return
+                if (
+                  entry.eventType !== "control.module.launched" &&
+                  entry.eventType !== "control.module.completion-requested"
+                ) continue
                 const marker = Schema.decodeUnknownOption(Schema.Struct({
                   ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
                   executionDigest: Schema.String,
                   executionId: Schema.String
                 }))(entry.payload)
                 if (entry.eventType === "control.module.completion-requested") {
-                  if (Option.isNone(marker) || !launched || marker.value.ordinal !== ordinal || marker.value.executionDigest !== pinnedDigest || marker.value.executionId !== moduleId(ordinal)) {
-                    throw new Error("Retained module completion evidence is inconsistent")
+                  if (
+                    Option.isNone(marker) || !launched || marker.value.ordinal !== ordinal ||
+                    marker.value.executionDigest !== pinnedDigest || marker.value.executionId !== moduleId(ordinal)
+                  ) {
+                    evidenceError = new LaunchFailed({
+                      runId: payload.runId,
+                      message: "Retained module completion evidence is inconsistent"
+                    })
+                    return
                   }
                   completing = true
                   continue
@@ -3506,12 +3539,17 @@ export const make = (
                   marker.value.executionId !== moduleId(marker.value.ordinal) ||
                   marker.value.ordinal !== (launched ? ordinal + 1 : 0)
                 ) {
-                  throw new Error("Retained module launch evidence is inconsistent")
+                  evidenceError = new LaunchFailed({
+                    runId: payload.runId,
+                    message: "Retained module launch evidence is inconsistent"
+                  })
+                  return
                 }
                 ordinal = marker.value.ordinal
                 launched = true
               }
             })
+            if (evidenceError !== undefined) return yield* evidenceError
             const queue = yield* NotificationQueue.NotificationQueue
             if (launched) {
               const previous = yield* engineRuns.get(moduleId(ordinal)).pipe(
@@ -3523,19 +3561,32 @@ export const make = (
                 )
               )
               if (completing) {
-                if (Option.isNone(previous) || previous.value.status !== "completed") throw new Error("The completed module is no longer terminal")
+                if (Option.isNone(previous) || previous.value.status !== "completed") {
+                  return yield* new LaunchFailed({
+                    runId: payload.runId,
+                    message: "The completed module is no longer terminal"
+                  })
+                }
                 // Poll committed output. Finalization never re-enters repository
                 // code, asks a model, or grants retry to an unfinished action.
                 const result = yield* engine.poll(executable.flow, moduleId(ordinal))
-                if (Option.isNone(result) || result.value._tag !== "Complete") throw new Error("The completed module has no committed result")
-                return yield* Exit.isSuccess(result.value.exit) ? Effect.succeed(result.value.exit.value) : Effect.failCause(result.value.exit.cause)
+                if (Option.isNone(result) || result.value._tag !== "Complete") {
+                  return yield* new LaunchFailed({
+                    runId: payload.runId,
+                    message: "The completed module has no committed result"
+                  })
+                }
+                return yield* Exit.isSuccess(result.value.exit)
+                  ? Effect.succeed(result.value.exit.value)
+                  : Effect.failCause(result.value.exit.cause)
               }
               if (Option.isSome(previous) && previous.value.status === "completed") {
                 if ((yield* queue.pending(payload.runId)).length === 0) {
                   moduleHolds.add(instance)
-                  yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) }).pipe(
-                    Effect.provideService(FlowRuntime.FlowInstance, instance)
-                  )
+                  yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) })
+                    .pipe(
+                      Effect.provideService(FlowRuntime.FlowInstance, instance)
+                    )
                   return yield* Flow.suspend(instance)
                 }
                 ordinal++
@@ -4392,8 +4443,10 @@ export const make = (
               // concurrent re-park can therefore see the old cleared row. Read
               // the completed module receipt to retain that stack rendezvous;
               // an unfinished child or any named/human wait keeps its own gate.
-              if (annotation.reason === "event" && annotation.token === undefined && annotation.request === undefined &&
-                options.reenterModules?.includes(controlRun.flowId) === true) {
+              if (
+                annotation.reason === "event" && annotation.token === undefined && annotation.request === undefined &&
+                options.reenterModules?.includes(controlRun.flowId) === true
+              ) {
                 let completedModule: string | undefined
                 yield* scanRun(journal, payload.runId, (entries) => {
                   for (const entry of entries) {
@@ -4407,7 +4460,14 @@ export const make = (
                       const value = marker.value
                       const expected = value.ordinal === 0
                         ? moduleExecutionId(payload.runId, value.executionDigest)
-                        : Digest.digest(Digest.canonical(["control/module/reentry", payload.runId, value.executionDigest, value.ordinal]))
+                        : Digest.digest(
+                          Digest.canonical([
+                            "control/module/reentry",
+                            payload.runId,
+                            value.executionDigest,
+                            value.ordinal
+                          ])
+                        )
                       completedModule = value.executionId === expected ? expected : undefined
                     } else completedModule = undefined
                   }
@@ -4415,7 +4475,11 @@ export const make = (
                 if (completedModule !== undefined) {
                   const module = yield* engineRuns.get(completedModule).pipe(
                     Effect.map(Option.some),
-                    Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(Option.none<RunStore.RunRow>()) : Effect.fail(error))
+                    Effect.catch((error) =>
+                      error.code === "not_found_row"
+                        ? Effect.succeed(Option.none<RunStore.RunRow>())
+                        : Effect.fail(error)
+                    )
                   )
                   if (Option.isSome(module) && module.value.status === "completed") {
                     annotation = { reason: "event", request: JSON.stringify({ kind: "stack" }) }
@@ -4436,20 +4500,25 @@ export const make = (
               // Claiming a polling round clears its prior engine wait. A
               // still-admitted Bring in must rebuild its checkpoint even when
               // a child's question is the remaining observed wait.
-              const signals = controlRun.flowId === "todo" && options.reenterModules?.includes(controlRun.flowId) === true &&
-                options.reentryCheckpoint !== undefined &&
-                (yield* runtime.codeDrift(payload.runId)) === undefined &&
-                (yield* hostsPark(payload.runId, { _tag: "delegated" }))
-                ? yield* runtime.deliveredSignals(payload.runId)
-                : []
-              const queuedCheckpoint = signals.some((signal) => signal.name === "bring_in" &&
+              const signals =
+                controlRun.flowId === "todo" && options.reenterModules?.includes(controlRun.flowId) === true &&
+                  options.reentryCheckpoint !== undefined &&
+                  (yield* runtime.codeDrift(payload.runId)) === undefined &&
+                  (yield* hostsPark(payload.runId, { _tag: "delegated" }))
+                  ? yield* runtime.deliveredSignals(payload.runId)
+                  : []
+              const queuedCheckpoint = signals.some((signal) =>
+                signal.name === "bring_in" &&
                 typeof signal.payload === "object" && signal.payload !== null && !Array.isArray(signal.payload) &&
                 typeof (signal.payload as Readonly<Record<string, unknown>>).sha === "string" &&
                 /^[a-f0-9]{40}$/.test((signal.payload as Readonly<Record<string, unknown>>).sha as string) &&
                 typeof (signal.payload as Readonly<Record<string, unknown>>).wait === "string" &&
                 ((signal.payload as Readonly<Record<string, unknown>>).wait as string).length > 0 &&
                 ((signal.payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 &&
-                !signals.some((completion) => completion.name === `bring_in_complete#${(signal.payload as Readonly<Record<string, unknown>>).wait}`))
+                !signals.some((completion) =>
+                  completion.name === `bring_in_complete#${(signal.payload as Readonly<Record<string, unknown>>).wait}`
+                )
+              )
               if (!queuedStack && !queuedCheckpoint) {
                 yield* FlowRuntime.annotateWaiting(annotation)
                 return yield* Flow.suspend(instance)
@@ -4485,8 +4554,10 @@ export const make = (
               // Checkpoint before re-entering any retained module, including
               // an unfinished child holding a question. The child keeps its
               // own wait while the root parks for the admitted Bring in.
-              if (controlRun !== undefined && options.reenterModules?.includes(controlRun.flowId) === true &&
-                options.reentryCheckpoint !== undefined && (yield* runtime.codeDrift(payload.runId)) === undefined) {
+              if (
+                controlRun !== undefined && options.reenterModules?.includes(controlRun.flowId) === true &&
+                options.reentryCheckpoint !== undefined && (yield* runtime.codeDrift(payload.runId)) === undefined
+              ) {
                 yield* options.reentryCheckpoint(payload.runId, controlRun.flowId).pipe(
                   Effect.provideService(ControlRuntime, runtime),
                   Effect.provideService(FlowRuntime.FlowRuntime, engine),
@@ -4733,49 +4804,121 @@ export const make = (
     return ControlExecutor.make({
       readExecution: (runId) => Effect.provide(readExecution(runId), services),
       launch: Effect.fn("AgentSession.launch")(launch),
-      requestComplete: Effect.fn("AgentSession.requestComplete")((input) => Effect.gen(function*() {
-        let run = yield* runtime.getRun(input.runId)
-        let waiting = yield* engineState.waiting(input.runId)
-        // Native polling briefly clears the wait while the control projection
-        // still says parked. A periodic stack poll must not synchronize with
-        // that window forever. Observe an eligible wait; never synthesize it.
-        for (let poll = 0; poll < 100; poll++) {
-          if (["completed", "failed", "cancelled"].includes(run.status)) return { _tag: "Terminal", runId: input.runId, status: run.status } as const
-          if (run.status === "parked" && Option.isSome(waiting) && waiting.value.reason === "event") break
-          if (!options.reenterModules?.includes(run.flowId) || !["parked", "running"].includes(run.status) || Option.isSome(waiting) && waiting.value.reason !== "event") break
-          yield* Effect.sleep("10 millis")
-          run = yield* runtime.getRun(input.runId)
-          waiting = yield* engineState.waiting(input.runId)
-        }
-        if (["completed", "failed", "cancelled"].includes(run.status)) return { _tag: "Terminal", runId: input.runId, status: run.status } as const
-        if (run.status !== "parked" || Option.isNone(waiting) || waiting.value.reason !== "event" || !options.reenterModules?.includes(run.flowId)) {
-          return yield* Effect.fail(new Error(`Only a retained module event wait can complete: ${run.status}/${Option.isSome(waiting) ? waiting.value.reason : "none"}/${run.flowId}`))
-        }
-        if (run.planId === undefined) return yield* Effect.fail(new Error("The retained module has no plan"))
-        const plan = yield* runtime.getPlan(run.planId)
-        const digest = plan.card.executionDigest
-        if (digest === undefined) return yield* Effect.fail(new Error("The retained module has no pinned execution digest"))
-        let marker: { readonly ordinal: number; readonly executionDigest: string; readonly executionId: string } | undefined
-        yield* scanRun(journal, input.runId, entries => {
-          for (const entry of entries) {
-            if (entry.eventType !== "control.module.launched") continue
-            const parsed = Schema.decodeUnknownOption(Schema.Struct({ ordinal: Schema.Int, executionDigest: Schema.String, executionId: Schema.String }))(entry.payload)
-            if (Option.isSome(parsed)) marker = parsed.value
+      requestComplete: Effect.fn("AgentSession.requestComplete")((input) =>
+        Effect.gen(function*() {
+          let run = yield* runtime.getRun(input.runId)
+          let waiting = yield* engineState.waiting(input.runId)
+          // Native polling briefly clears the wait while the control projection
+          // still says parked. Observe an eligible durable wait; never invent it.
+          for (let poll = 0; poll < 100; poll++) {
+            if (["completed", "failed", "cancelled"].includes(run.status)) {
+              break
+            }
+            if (run.status === "parked" && Option.isSome(waiting) && waiting.value.reason === "event") {
+              break
+            }
+            if (
+              !options.reenterModules?.includes(run.flowId) || !["parked", "running"].includes(run.status) ||
+              Option.isSome(waiting) && waiting.value.reason !== "event"
+            ) break
+            yield* Effect.sleep("10 millis")
+            run = yield* runtime.getRun(input.runId)
+            waiting = yield* engineState.waiting(input.runId)
           }
-        })
-        if (marker === undefined || marker.executionDigest !== digest || marker.ordinal < 0 || marker.executionId !== (marker.ordinal === 0 ? moduleExecutionId(input.runId, digest) : Digest.digest(Digest.canonical(["control/module/reentry", input.runId, digest, marker.ordinal])))) {
-          return yield* Effect.fail(new Error("The retained module launch is not bound to this run"))
-        }
-        const child = yield* engineRuns.get(marker.executionId)
-        if (child.status !== "completed") return yield* Effect.fail(new Error("The retained native module has not completed"))
-        yield* journal.emitDurableUnfenced(new JournalEvent.Input({
-          runId: JournalEvent.RunId.make(input.runId), sourceId: JournalEvent.SourceId.make("/control/module-completion"),
-          sourceSeq: JournalEvent.SourceSeq.make(marker.ordinal), eventType: "control.module.completion-requested", payload: marker
-        }))
-        yield* runtime.requestResume(input.runId)
-        yield* takeUpResume(input.runId, (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)), { _tag: "delegated" })
-        return { _tag: "Accepted", receiptId: input.receiptId, runId: input.runId } as const
-      }).pipe(Effect.mapError(cause => new PersistenceError({ operation: "AgentSession.requestComplete", message: "Cannot close an unfinished retained module", cause })))),
+          if (["completed", "failed", "cancelled"].includes(run.status)) {
+            return { _tag: "Terminal", runId: input.runId, status: run.status } as const
+          }
+          if (
+            run.status !== "parked" || Option.isNone(waiting) || waiting.value.reason !== "event" ||
+            !options.reenterModules?.includes(run.flowId)
+          ) {
+            return yield* Effect.fail(
+              new PersistenceError({
+                operation: "AgentSession.requestComplete",
+                message: `Only a retained module event wait can complete: ${run.status}/${
+                  Option.isSome(waiting) ? waiting.value.reason : "none"
+                }/${run.flowId}`
+              })
+            )
+          }
+          if (run.planId === undefined) {
+            return yield* Effect.fail(
+              new PersistenceError({
+                operation: "AgentSession.requestComplete",
+                message: "The retained module has no plan"
+              })
+            )
+          }
+          const plan = yield* runtime.getPlan(run.planId)
+          const digest = plan.card.executionDigest
+          if (digest === undefined) {
+            return yield* Effect.fail(
+              new PersistenceError({
+                operation: "AgentSession.requestComplete",
+                message: "The retained module has no pinned execution digest"
+              })
+            )
+          }
+          let marker:
+            | { readonly ordinal: number; readonly executionDigest: string; readonly executionId: string }
+            | undefined
+          yield* scanRun(journal, input.runId, (entries) => {
+            for (const entry of entries) {
+              if (entry.eventType !== "control.module.launched") {
+                continue
+              }
+              const parsed = Schema.decodeUnknownOption(
+                Schema.Struct({ ordinal: Schema.Int, executionDigest: Schema.String, executionId: Schema.String })
+              )(entry.payload)
+              if (Option.isSome(parsed)) marker = parsed.value
+            }
+          })
+          if (
+            marker === undefined || marker.executionDigest !== digest || marker.ordinal < 0 ||
+            marker.executionId !== (marker.ordinal === 0
+                ? moduleExecutionId(input.runId, digest)
+                : Digest.digest(Digest.canonical(["control/module/reentry", input.runId, digest, marker.ordinal])))
+          ) {
+            return yield* Effect.fail(
+              new PersistenceError({
+                operation: "AgentSession.requestComplete",
+                message: "The retained module launch is not bound to this run"
+              })
+            )
+          }
+          const child = yield* engineRuns.get(marker.executionId)
+          if (child.status !== "completed") {
+            return yield* Effect.fail(
+              new PersistenceError({
+                operation: "AgentSession.requestComplete",
+                message: "The retained native module has not completed"
+              })
+            )
+          }
+          yield* journal.emitDurableUnfenced(
+            new JournalEvent.Input({
+              runId: JournalEvent.RunId.make(input.runId),
+              sourceId: JournalEvent.SourceId.make("/control/module-completion"),
+              sourceSeq: JournalEvent.SourceSeq.make(marker.ordinal),
+              eventType: "control.module.completion-requested",
+              payload: marker
+            })
+          )
+          yield* runtime.requestResume(input.runId)
+          yield* takeUpResume(
+            input.runId,
+            (runId, uptake) => Effect.asVoid(Effect.forkIn(resumeExecution(runId, uptake), scope)),
+            { _tag: "delegated" }
+          )
+          return { _tag: "Accepted", receiptId: input.receiptId, runId: input.runId } as const
+        }).pipe(Effect.mapError((cause) =>
+          new PersistenceError({
+            operation: "AgentSession.requestComplete",
+            message: "Cannot close an unfinished retained module",
+            cause
+          })
+        ))
+      ),
       requestCancel: Effect.fn("AgentSession.requestCancel")((input) =>
         options.requestNativeCancel?.(input) ?? Effect.provide(requestCancel(input), services)
       ),

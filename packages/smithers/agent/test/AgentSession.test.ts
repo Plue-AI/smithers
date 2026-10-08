@@ -17,8 +17,8 @@
  */
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlError, ControlExecutor, ControlLive, ControlRuntime, ControlSchema } from "@smthrs/control"
-import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import { DurableEngineState, type Service as EngineStateService } from "@smthrs/engine-store/DurableEngineState"
+import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, Flow, FlowRuntime, HumanTask, Interpreter, Sleep } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
@@ -44,7 +44,21 @@ import { RunStore } from "@smthrs/run-store"
 import type * as Fixture from "@smthrs/testing/Fixture"
 import type * as ModelLike from "@smthrs/testing/ModelLike"
 import * as RecordedModel from "@smthrs/testing/RecordedModel"
-import { Cause, Context, Deferred, Duration, Effect, Exit, Layer, Logger, Option, Schedule, Schema, Stream, Tracer } from "effect"
+import {
+  Cause,
+  Context,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  Option,
+  Schedule,
+  Schema,
+  Stream,
+  Tracer
+} from "effect"
 import { mkdtempSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -388,7 +402,11 @@ const stack = (options: StackOptions) => {
     asks: options.asks,
     memory: options.memory
   }).pipe(
-    Layer.provide(options.wrapEngineState === undefined ? Layer.empty : Layer.effect(DurableEngineState)(Effect.map(DurableEngineState, options.wrapEngineState))),
+    Layer.provide(
+      options.wrapEngineState === undefined
+        ? Layer.empty
+        : Layer.effect(DurableEngineState)(Effect.map(DurableEngineState, options.wrapEngineState))
+    ),
     Layer.provideMerge(Action.layerImplementations),
     Layer.provide(
       options.modules === undefined ? Layer.empty : Layer.merge(
@@ -661,6 +679,15 @@ const drive = (
     yield* decision === "approve" ? control.approve(approval) : control.deny(approval)
     yield* control.resume({ runId, idempotencyKey: "resume:1" })
     yield* awaitStatus(runtime, runId, legacy || changedOnResume !== undefined ? "failed" : "completed")
+    if (legacy || changedOnResume !== undefined) {
+      // Status settles before the executor journals the failure. Wait for the
+      // durable receipt rather than racing the body's finalizer with flush.
+      yield* journal.stream({ runId: JournalEvent.RunId.make(runId) }).pipe(
+        Stream.filter((entry) => entry.eventType === "control.run.failed"),
+        Stream.take(1),
+        Stream.runDrain
+      )
+    }
 
     const grants = yield* runtime.grants
     yield* journal.flush
@@ -1745,7 +1772,16 @@ describe("AgentSession", () => {
     expect(result.status).toBe("failed")
   })
 
-  it.each(["after settlement", "before settlement", "live parked host", "concurrent park", "code drift", "transient wait"] as const)(
+  it.each(
+    [
+      "after settlement",
+      "before settlement",
+      "live parked host",
+      "concurrent park",
+      "code drift",
+      "transient wait"
+    ] as const
+  )(
     "re-enters settled module launches on the same control run: %s",
     async (timing) => {
       const seen: Array<unknown> = []
@@ -1819,15 +1855,16 @@ describe("AgentSession", () => {
             }
             const runId = receipt.runId
             retainedRunId = runId
-            if (timing !== "before settlement") {
-              yield* awaitStatus(runtime, runId, "parked")
-              const engineState = yield* DurableEngineState
-              const readWait = (): Effect.Effect<unknown, unknown> => Effect.gen(function*() {
+            const engineState = yield* DurableEngineState
+            const readWait = (): Effect.Effect<unknown, unknown> =>
+              Effect.gen(function*() {
                 const row = yield* engineState.waiting(runId)
-                if (Option.isSome(row)) return row.value.request
+                if (Option.isSome(row) && row.value.request !== undefined) return row.value.request
                 yield* Effect.sleep("10 millis")
                 return yield* readWait()
               })
+            if (timing !== "before settlement") {
+              yield* awaitStatus(runtime, runId, "parked")
               expect(yield* readWait().pipe(Effect.timeout("5 seconds"))).toEqual({ kind: "stack" })
             } else {
               const began = (): Effect.Effect<void> =>
@@ -1837,7 +1874,7 @@ describe("AgentSession", () => {
               const refusal = yield* Effect.flip(executor.requestComplete!({ runId, receiptId: "too-early" }))
               expect(refusal.operation).toBe("AgentSession.requestComplete")
               const page = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1000 })
-              expect(page.entries.some(e => e.eventType === "control.module.completion-requested")).toBe(false)
+              expect(page.entries.some((e) => e.eventType === "control.module.completion-requested")).toBe(false)
             }
             expect(seen).toHaveLength(1)
             const input = {
@@ -1850,29 +1887,22 @@ describe("AgentSession", () => {
             yield* Deferred.succeed(gate, void 0)
             const wait = (): Effect.Effect<void, unknown> =>
               Effect.gen(function*() {
-                if (seen.length === (timing === "code drift" ? 1 : 2) && (yield* runtime.getRun(runId)).status === "parked") return
+                if (
+                  seen.length === (timing === "code drift" ? 1 : 2) &&
+                  (yield* runtime.getRun(runId)).status === "parked"
+                ) return
                 yield* Effect.sleep("10 millis")
                 return yield* wait()
               })
             yield* wait().pipe(Effect.timeout("20 seconds"))
-            const engineState = yield* DurableEngineState
-            yield* Effect.sleep("100 millis")
-            expect(Option.getOrUndefined(yield* engineState.waiting(runId))?.request).toEqual({ kind: "stack" })
+            expect(yield* readWait().pipe(Effect.timeout("5 seconds"))).toEqual({ kind: "stack" })
             yield* control.steer(input)
             yield* awaitStatus(runtime, runId, "parked")
-            yield* Effect.sleep("100 millis")
-            expect(Option.getOrUndefined(yield* engineState.waiting(runId))?.request).toEqual({ kind: "stack" })
-            yield* Effect.sleep("50 millis")
+            expect(yield* readWait().pipe(Effect.timeout("5 seconds"))).toEqual({ kind: "stack" })
             const executor = yield* ControlExecutor.ControlExecutor
             expect(executor.requestComplete).toBeDefined()
             completing = true
-            yield* executor.requestComplete!({ runId, receiptId: "owner-merged" }).pipe(Effect.retry({
-              schedule: Schedule.spaced("10 millis"), times: timing === "transient wait" ? 0 : 100,
-              // A trampoline poll temporarily clears the root's event row.
-              // Completed-child and pin refusals remain failures.
-              while: (error) => error.cause instanceof Error &&
-                /^Only a retained module event wait can complete: (parked|running)\/(none|event)\/agents\/module$/.test(error.cause.message)
-            }))
+            yield* executor.requestComplete!({ runId, receiptId: "owner-merged" })
             yield* awaitStatus(runtime, runId, "completed")
             const terminal = yield* executor.requestComplete!({ runId, receiptId: "owner-merged" })
             expect(terminal._tag).toBe("Terminal")
@@ -1885,17 +1915,43 @@ describe("AgentSession", () => {
             gate,
             notes: [],
             reenterModules: ["agents/module"],
-            wrapEngineState: timing === "transient wait" ? state => ({ ...state, waiting: id => completing && completionReads++ < 5 ? Effect.succeed(Option.none()) : state.waiting(id) }) : undefined,
-            wrapRuntime: timing === "code drift" ? (runtime) => ({
-              ...runtime,
-              codeDrift: (runId) => seen.length > 0 ? Effect.succeed(new ControlError.CodeDrift({ runId, flowId: "agents/module", recorded: "old", current: "new" })) : runtime.codeDrift(runId)
-            }) : timing === "live parked host" || timing === "concurrent park" ? (runtime) => ({
-              ...runtime,
-              resume: (runId, options) => options?.scope === "launched"
-                ? Effect.fail(new ControlError.ClaimLost({ runId, reason: "The parked host is still alive", ...(timing === "live parked host" ? { parkedBy: { hostId: "agent-session-test", pid: 123 } } : {}) }))
-                : runtime.resume(runId, options)
-            }) : undefined,
-            reentryCheckpoint: (runId, flowId) => Effect.sync(() => { checkpoints.push({ runId, flowId, completed: seen.length }) }),
+            wrapEngineState: timing === "transient wait"
+              ? (state) => ({
+                ...state,
+                waiting: (id) => completing && completionReads++ < 5 ? Effect.succeed(Option.none()) : state.waiting(id)
+              })
+              : undefined,
+            wrapRuntime: timing === "code drift" ?
+              (runtime) => ({
+                ...runtime,
+                codeDrift: (runId) =>
+                  seen.length > 0
+                    ? Effect.succeed(
+                      new ControlError.CodeDrift({ runId, flowId: "agents/module", recorded: "old", current: "new" })
+                    )
+                    : runtime.codeDrift(runId)
+              }) :
+              timing === "live parked host" || timing === "concurrent park" ?
+              (runtime) => ({
+                ...runtime,
+                resume: (runId, options) =>
+                  options?.scope === "launched"
+                    ? Effect.fail(
+                      new ControlError.ClaimLost({
+                        runId,
+                        reason: "The parked host is still alive",
+                        ...(timing === "live parked host"
+                          ? { parkedBy: { hostId: "agent-session-test", pid: 123 } }
+                          : {})
+                      })
+                    )
+                    : runtime.resume(runId, options)
+              }) :
+              undefined,
+            reentryCheckpoint: (runId, flowId) =>
+              Effect.sync(() => {
+                checkpoints.push({ runId, flowId, completed: seen.length })
+              }),
             resolve: () => Effect.die("module must not resolve a seat"),
             modules: {
               catalog: { executables: [executable], refused: [] },
@@ -1909,11 +1965,17 @@ describe("AgentSession", () => {
       expect(checkpoints[0]).toEqual({ runId: retainedRunId, flowId: "agents/module", completed: 0 })
       if (timing === "code drift") expect(checkpoints).toHaveLength(1)
       else expect(checkpoints.some((entry) => entry.completed === 1)).toBe(true)
-      expect(checkpoints.every((entry) => entry.runId === retainedRunId && entry.flowId === "agents/module" && entry.completed >= 0)).toBe(true)
-      expect(outcome.launches.map((e) => e.payload)).toEqual(timing === "code drift" ? [expect.objectContaining({ ordinal: 0 })] : [
-        expect.objectContaining({ ordinal: 0 }),
-        expect.objectContaining({ ordinal: 1 })
-      ])
+      expect(
+        checkpoints.every((entry) =>
+          entry.runId === retainedRunId && entry.flowId === "agents/module" && entry.completed >= 0
+        )
+      ).toBe(true)
+      expect(outcome.launches.map((e) => e.payload)).toEqual(
+        timing === "code drift" ? [expect.objectContaining({ ordinal: 0 })] : [
+          expect.objectContaining({ ordinal: 0 }),
+          expect.objectContaining({ ordinal: 1 })
+        ]
+      )
       expect(seen).toHaveLength(timing === "code drift" ? 1 : 2)
       if (timing !== "code drift") expect(JSON.stringify(seen[1])).toContain("Use backoff")
     },

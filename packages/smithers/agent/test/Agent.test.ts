@@ -67,7 +67,8 @@ import {
   Stream,
   Tracer
 } from "effect"
-import type * as Crypto from "effect/Crypto"
+import * as Crypto from "effect/Crypto"
+import * as PlatformError from "effect/PlatformError"
 import * as TestClock from "effect/testing/TestClock"
 import { describe, expect, it, vi } from "vitest"
 import * as Agent from "../src/Agent.ts"
@@ -407,6 +408,57 @@ describe("capacity seat chain", () => {
     expect(prepared).toBeGreaterThan(0)
     expect(contacted).toBe(0)
   })
+  it.each(["key", "refresh"] as const)("fails a host seat %s refusal before contacting the provider", async (mode) => {
+    let contacted = 0
+    let refreshed = 0
+    let rejectedKeys = 0
+    const model = Model.make({
+      stream: () => {
+        contacted++
+        return Stream.empty
+      }
+    })
+    const dynamic = Seat.make({
+      id: "reviewer",
+      modelId: "stale-model",
+      model,
+      route,
+      contextWindowTokens: 0,
+      refresh: () => {
+        refreshed++
+        return Effect.fail(new Seat.SeatUnresolved({ seat: "reviewer", message: "host seat refresh refused" }))
+      }
+    })
+    const outcome = await drive(Effect.gen(function*() {
+      const crypto = yield* Crypto.Crypto
+      return yield* collect({ model, seat: dynamic, capacity: { park: false }, registry: registryOf([]) }).pipe(
+        Effect.provideService(Crypto.Crypto, {
+          ...crypto,
+          digest: (algorithm, data) => {
+            if (mode === "key" && new TextDecoder().decode(data).includes("FactoryModelChoice")) {
+              rejectedKeys++
+              return Effect.fail(
+                PlatformError.badArgument({ module: "Crypto", method: "digest", description: "host digest refused" })
+              )
+            }
+            return crypto.digest(algorithm, data)
+          }
+        })
+      )
+    }))
+    expect(outcome._tag).toBe("failed")
+    if (outcome._tag === "failed") {
+      expect(outcome.error).toMatchObject({
+        _tag: "/harness/HarnessError",
+        code: "model_failed",
+        message: mode === "key" ? "Factory model choice could not be keyed" : "host seat refresh refused"
+      })
+    }
+    expect(contacted).toBe(0)
+    expect(refreshed).toBe(mode === "key" ? 0 : 1)
+    expect(rejectedKeys).toBe(mode === "key" ? 1 : 0)
+  })
+
   it("refreshes the host seat before each sealed call without rebinding an in-flight call", async () => {
     const selected: string[] = []
     const sealed: string[] = []
@@ -802,37 +854,55 @@ describe("capacity seat chain", () => {
     const events: AgentEvent.AgentEvent[] = []
     const answers = recordedCells([], ["ctx.done('primary recovered')"])
     const first = Model.make({
-      stream: (request) => Stream.suspend(() => {
-        contacted.push("first")
-        return contacted.length === 1
-          ? Stream.fail(new ModelError({
-            code: "quota_exceeded", message: "brief reset", retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
-          }))
-          : answers.stream(request)
-      })
+      stream: (request) =>
+        Stream.suspend(() => {
+          contacted.push("first")
+          return contacted.length === 1
+            ? Stream.fail(
+              new ModelError({
+                code: "quota_exceeded",
+                message: "brief reset",
+                retryAfterMillis: 10,
+                quotaScope: "model",
+                httpStatus: 429
+              })
+            )
+            : answers.stream(request)
+        })
     })
     const second = Model.make({
-      stream: (request) => Stream.unwrap(Effect.gen(function*() {
-        contacted.push("second")
-        yield* Effect.sleep("40 millis")
-        return recordedCells([], ["console.log(1)"]).stream(request)
-      }))
+      stream: (request) =>
+        Stream.unwrap(Effect.gen(function*() {
+          contacted.push("second")
+          yield* Effect.sleep("40 millis")
+          return recordedCells([], ["console.log(1)"]).stream(request)
+        }))
     })
     const outcome = await drive(collect({
       model: first,
       seat: Seat.make({ id: "first", modelId: "first", model: first, route, contextWindowTokens: 0 }),
       fallbackSeats: [Seat.make({
-        id: "second", modelId: "second", model: second,
-        route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) }, contextWindowTokens: 0
+        id: "second",
+        modelId: "second",
+        model: second,
+        route: { prepare: () => Effect.succeed({ ...prepared, routeId: "route-b" }) },
+        contextWindowTokens: 0
       })],
-      registry: registryOf([]), sink: events, modelRetryPolicy: Schedule.recurs(0)
+      registry: registryOf([]),
+      sink: events,
+      modelRetryPolicy: Schedule.recurs(0)
     }))
     expect(outcome._tag).toBe("completed")
     expect(contacted).toEqual(["first", "second", "first"])
     expect(events.filter((event) => event._tag === "model-selected").map((event) => event.seat))
       .toEqual(["first", "second", "first"])
     expect(events.filter((event) => event._tag === "seat-failed-over")).toMatchObject([{
-      from: "first", to: "second", code: "quota_exceeded", retryAfterMillis: 10, quotaScope: "model", httpStatus: 429
+      from: "first",
+      to: "second",
+      code: "quota_exceeded",
+      retryAfterMillis: 10,
+      quotaScope: "model",
+      httpStatus: 429
     }])
   })
 

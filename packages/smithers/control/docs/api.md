@@ -540,13 +540,14 @@ engine observations. Mutation methods remain refused.
 
 ### Service
 
-| Method                | Signature                                                          |
-| --------------------- | ------------------------------------------------------------------ |
-| `launch`              | `(input: Launch) => Effect<Acceptance, LaunchFailed>`              |
-| `requestCancel`       | `(input: CancelRequest) => Effect<CancelRecord, PersistenceError>` |
-| `deliverSignal`       | `(input: Signal) => Effect<SignalDelivery, PersistenceError>`      |
-| `resumeRun`           | `(input: ResumeRequest) => Effect<ResumeUptake, PersistenceError>` |
-| `settleCancelledPark` | `(input: CancelRequest) => Effect<void, PersistenceError>`         |
+| Method                | Signature                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`              | `(input: Launch) => Effect<Acceptance, LaunchFailed>`                                                                                                         |
+| `requestComplete`     | Optional `(input: { runId: RunId; receiptId: string }) => Effect<Receipt, PersistenceError>`. Host close after the last native module completes. Since 1.0.0. |
+| `requestCancel`       | `(input: CancelRequest) => Effect<CancelRecord, PersistenceError>`                                                                                            |
+| `deliverSignal`       | `(input: Signal) => Effect<SignalDelivery, PersistenceError>`                                                                                                 |
+| `resumeRun`           | `(input: ResumeRequest) => Effect<ResumeUptake, PersistenceError>`                                                                                            |
+| `settleCancelledPark` | `(input: CancelRequest) => Effect<void, PersistenceError>`                                                                                                    |
 
 ### Models
 
