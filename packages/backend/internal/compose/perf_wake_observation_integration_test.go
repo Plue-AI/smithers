@@ -182,6 +182,32 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 			handler.AllowedOrigins = cfg.Server.AllowedOrigins
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: f.pool, terminal: handler})
+			// Keep an authenticated production subscription open across the actual
+			// terminal request. Its scratch source emits snapshots, not deltas.
+			f.p.branches = service
+			conn := f.dial(t)
+			sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, branch.ID))
+			readMachine := func(state string) liveFrame {
+				for {
+					frame := readPresenceFrame(t, conn)
+					require.NotEqual(t, "err", frame.T)
+					require.NotEqual(t, "gap", frame.T)
+					if frame.T != "snap" && frame.T != "delta" {
+						continue
+					}
+					var card struct {
+						Machine struct {
+							State string `json:"state"`
+						} `json:"machine"`
+					}
+					require.NoError(t, json.Unmarshal(frame.Data, &card))
+					if card.Machine.State == state {
+						return frame
+					}
+				}
+			}
+			asleepFrame := readMachine("asleep")
+			require.Equal(t, "snap", asleepFrame.T)
 			requestID := uuid.NewString()
 			call := func(authenticated bool) *httptest.ResponseRecorder {
 				req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/terminals", strings.NewReader(`{"branch":"`+branch.ID+`"}`))
@@ -220,6 +246,14 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			require.Zero(t, legacySessions, "owner terminals must not create legacy session rows")
 			heldFor := time.Since(heldAt)
 			finish()
+			var awake liveFrame
+			if mode == "warm" {
+				awake = readMachine("awake")
+				require.Equal(t, "snap", awake.T)
+				require.NotNil(t, awake.Cursor)
+				require.NotNil(t, asleepFrame.Cursor)
+				require.Greater(t, *awake.Cursor, *asleepFrame.Cursor)
+			}
 			var records []map[string]any
 			for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
 				var record map[string]any
@@ -250,9 +284,9 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 				require.Empty(t, record["workingHead"])
 			}
 			// Feed the actual server record to the actual workload validator.
-			input, err := json.Marshal(map[string]any{"sample": map[string]any{"requestId": requestID, "branch": branch.ID, "capturedHead": perfWakeHead, "clientMs": 0}, "observation": record})
+			input, err := json.Marshal(map[string]any{"sample": map[string]any{"requestId": requestID, "branch": branch.ID, "capturedHead": perfWakeHead, "clientMs": 0}, "observation": record, "awake": awake, "asleep": asleepFrame})
 			require.NoError(t, err)
-			command := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", `import { verifyWake } from './scripts/perf/warm-wake.mjs'; let raw=''; for await (const part of process.stdin) raw+=part; const {sample,observation}=JSON.parse(raw); console.log(JSON.stringify(verifyWake(sample,observation)));`)
+			command := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", `import { verifyWake, awakeFrame } from './scripts/perf/warm-wake.mjs'; let raw=''; for await (const part of process.stdin) raw+=part; const {sample,observation,awake,asleep}=JSON.parse(raw); if (!observation.failed && !awakeFrame([{...awake,sequence:2}],1,asleep.cursor)) throw new Error('production awake frame rejected'); console.log(JSON.stringify(verifyWake(sample,observation)));`)
 			command.Dir = "../../../.."
 			command.Stdin = bytes.NewReader(input)
 			output, err := command.CombinedOutput()

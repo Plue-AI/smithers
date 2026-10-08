@@ -25,6 +25,15 @@ export function verifyWake(sample, observation) {
   return { ...sample, observation, hostMs: Number(elapsed) / 1e6, failed: false, clock: `host monotonic/${observation.bootId}; client performance.now()` }
 }
 
+// Scratch branches publish snapshots; TODO branches can publish deltas. Both
+// carry complete machine facts. A newer local arrival alone is insufficient:
+// a replay of an older source cursor must not satisfy this wake.
+export function awakeFrame(events, previousSequence, previousCursor) {
+  return events.find(event => event.sequence > previousSequence &&
+    ['snap', 'delta'].includes(event.t) && Number.isSafeInteger(event.cursor) &&
+    event.cursor > previousCursor && event.data?.machine?.state === 'awake')
+}
+
 export function summarizeWakes(samples) {
   if (new Set(samples.map(s => s.requestId)).size !== samples.length) throw new Error('duplicate wake')
   const summary = summarize(samples, ['hostMs', 'clientMs'], 100)
@@ -102,11 +111,13 @@ export async function run(env = process.env, { persist = true } = {}) {
     for (let i = 0; i < 100; i++) {
       const requestId = crypto.randomUUID()
       const previous = sequence
+      const previousCursor = current?.cursor
+      if (!Number.isSafeInteger(previousCursor)) throw new Error('branch source cursor required')
       const t0 = performance.now()
       const opened = await (await request('/api/terminals', { method: 'POST', headers: { 'Idempotency-Key': requestId, 'X-Request-ID': requestId }, body: JSON.stringify({ branch: c.branch }) })).json()
       if (typeof opened.id !== 'string' || !opened.id) throw new Error('terminal open returned no session id')
       terminal = opened.id
-      const awake = await wait(() => events.find(event => event.sequence > previous && event.t === 'delta' && event.data?.machine?.state === 'awake'), 30000)
+      const awake = await wait(() => awakeFrame(events, previous, previousCursor), 30000)
       const sample = { i, requestId, branch: c.branch, capturedHead, clientMs: awake.at - t0 }
       // This file must come from the install's host observer, never fabricated
       // from client time or histogram buckets. Retain the matched raw record.

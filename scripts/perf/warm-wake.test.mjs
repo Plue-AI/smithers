@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { configuration, verifyWake, summarizeWakes, run } from './warm-wake.mjs'
+import { configuration, verifyWake, summarizeWakes, awakeFrame, run } from './warm-wake.mjs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -62,4 +62,17 @@ test('CLI workload retains refusal artifacts without credentials or a passing bu
     const receipt = await readFile(join(root, '.artifacts/checks/C-PERF-05', result.timestamp, 'summary.json'), 'utf8')
     assert.equal(JSON.parse(receipt).status, 'failed')
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+for (const t of ['snap', 'delta']) test(`accepts an advancing production ${t} awake frame`, () => {
+  const event = { t, sequence: 4, cursor: 8, data: { machine: { state: 'awake' } } }
+  assert.equal(awakeFrame([event], 3, 7), event)
+  assert.equal(awakeFrame([event], 4, 7), undefined)
+  assert.equal(awakeFrame([event], 3, 8), undefined)
+})
+test('refuses stale replay, missing cursors and non-machine frames', () => {
+  const event = { t: 'snap', sequence: 4, cursor: 8, data: { machine: { state: 'awake' } } }
+  for (const patch of [{ cursor: 6 }, { cursor: undefined }, { cursor: '8' }, { t: 'ack' }, { data: { machine: { state: 'waking' } } }]) {
+    assert.equal(awakeFrame([{ ...event, ...patch }], 3, 7), undefined)
+  }
 })
