@@ -89,7 +89,6 @@ def validate():
         trusted_path(name, executable=True)
     # Hosted image keyrings can be runner-owned. Verify their exact approved
     # bytes, but never hand that mutable path to apt under root.
-    trusted_path('/usr/share/keyrings')
     image_keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg').read_bytes()
     if hashlib.sha256(image_keyring).hexdigest() != KEYRING_SHA256:
         refuse('runner keyring identity')
