@@ -387,7 +387,7 @@
     },
     "C-J11-02": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/flow-source-run.spec.ts",
+      "reason": "Production-door flow-source-run.spec.ts exists; reference Mac execution and authenticated owner approval of argv/host remain pending. Composed Linux Source/Plan/Run proof is supplemental.",
       "ticket": "T-APP-05"
     },
     "C-J11-03": {
@@ -1050,7 +1050,7 @@
     },
     "C-UI-01": {
       "status": "manual",
-      "reason": "Person/hardware required: reference host plus a second Mac on the same network; Absent: apps/app/e2e/real/keyboard-journeys.spec.ts, apps/app/e2e/real/support/keyboardOnly.ts"
+      "reason": "Person/hardware required: reference host plus a second Mac on the same network. Keyboard journey specs and native guards exist; full Chromium/WebKit journey qualification and owner-signed receipts remain pending."
     },
     "C-UI-02": {
       "status": "pending-owner",

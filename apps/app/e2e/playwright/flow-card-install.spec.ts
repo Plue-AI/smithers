@@ -39,7 +39,7 @@ test("install flow versions retain selection across refresh and reload", async (
   await expect(flow.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
   await expect(flow.locator('[data-flow="agent"]')).toHaveText("implementer")
   await expect(flow.getByRole("button", { name: "Source", exact: true })).toBeVisible()
-  await expect(flow.getByRole("button", { name: "Run", exact: true })).toHaveCount(0)
+  await expect(flow.getByRole("button", { name: "Run", exact: true })).toBeVisible()
 })
 
 test("Source without a proposal continues after Commit and reload on the served TODO branch", async ({ page }) => {
