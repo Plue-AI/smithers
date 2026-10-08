@@ -53,6 +53,37 @@ def linked(parent, name, held):
         os.close(current)
 
 
+def verified_file(parent, name, expected, mode):
+    """Hold only bounded regular installed bytes, never a FIFO/device."""
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=parent)
+    try:
+        verify_bytes(fd, expected, mode)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def verify_bytes(fd, expected, mode):
+    before = os.fstat(fd)
+    if (before.st_uid != 0 or before.st_nlink != 1 or not stat.S_ISREG(before.st_mode)
+            or stat.S_IMODE(before.st_mode) != mode or before.st_size != len(expected)):
+        refuse()
+    os.lseek(fd, 0, os.SEEK_SET)
+    data = bytearray()
+    while len(data) <= len(expected):
+        chunk = os.read(fd, min(1024 * 1024, len(expected) + 1 - len(data)))
+        if not chunk:
+            break
+        data.extend(chunk)
+    after = os.fstat(fd)
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_uid,
+                              value.st_gid, value.st_nlink, value.st_size,
+                              value.st_mtime_ns, value.st_ctime_ns)
+    if bytes(data) != expected or identity(before) != identity(after):
+        refuse()
+
+
 def fresh_file(parent, name, contents, mode):
     fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode, dir_fd=parent)
     try:
@@ -111,22 +142,23 @@ def install():
         state = directory(runtime, "trm06")
         held.append(state)
         fresh_file(prototype, "supervisor", binary, 0o755)
-        fresh_file(state, "boot.json", json.dumps(boot, separators=(",", ":")).encode(), 0o400)
-        # Re-read via held descriptors before executing. Untrusted parents are
-        # never traversed by a privileged repair/rename or recursive chown.
-        fd = os.open("supervisor", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=prototype)
+        boot_bytes = json.dumps(boot, separators=(",", ":")).encode()
+        fresh_file(state, "boot.json", boot_bytes, 0o400)
+        fd = verified_file(prototype, "supervisor", binary, 0o755)
         held.append(fd)
-        with os.fdopen(os.dup(fd), "rb") as source:
-            info = os.fstat(source.fileno())
-            if info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o755 or hashlib.sha256(source.read()).hexdigest() != request["sha256"]:
-                refuse()
+        boot_fd = verified_file(state, "boot.json", boot_bytes, 0o400)
+        held.append(boot_fd)
         # Reopen every link through its held parent. A renamed ancestor must
         # not leave an init running against a different absolute boot path.
         for parent, name, child in [(root, "opt", opt), (opt, "smithers", smithers),
                                     (root, "run", run), (run, "smithers", runtime),
                                     (smithers, "prototype", prototype), (runtime, "trm06", state),
-                                    (prototype, "supervisor", fd)]:
+                                    (prototype, "supervisor", fd), (state, "boot.json", boot_fd)]:
             linked(parent, name, child)
+        # Recheck contents as well as links: truncate/write/chmod can retain
+        # the inode observed above. Only these held installed bytes may launch.
+        verify_bytes(fd, binary, 0o755)
+        verify_bytes(boot_fd, boot_bytes, 0o400)
         logfd = os.open("init.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=state)
         with os.fdopen(logfd, "wb") as log:
             # Keep the verified inode through exec. The literal fixed descriptor

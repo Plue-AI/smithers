@@ -25,8 +25,11 @@ class InstallerReplacement(unittest.TestCase):
     def test_install_boundary_replacement_matrix(self):
         for target in (None, "opt", "opt/smithers", "run", "run/smithers",
                        "opt/smithers/prototype", "run/smithers/trm06",
-                       "opt/smithers/prototype/supervisor"):
-            for replacement in (("directory",) if target is None else ("symlink", "inode")):
+                       "opt/smithers/prototype/supervisor", "run/smithers/trm06/boot.json"):
+            replacements = ("directory",) if target is None else ("symlink", "inode", "mode")
+            if target and (target.endswith("supervisor") or target.endswith("boot.json")):
+                replacements += ("contents", "same-size", "hardlink", "fifo")
+            for replacement in replacements:
                 with self.subTest(target=target, replacement=replacement), tempfile.TemporaryDirectory() as temporary:
                     root = Path(temporary)
                     (root / "opt").mkdir()
@@ -59,13 +62,27 @@ class InstallerReplacement(unittest.TestCase):
                         nonlocal replaced
                         if target and not replaced:
                             path = root / target
-                            path.rename(path.with_name(path.name + "-original"))
+                            if replacement in ("contents", "same-size"):
+                                # These replaceable-byte fixtures model the
+                                # installed operator; our real UID stays local.
+                                mode, size = path.stat().st_mode & 0o777, path.stat().st_size
+                                path.chmod(0o600)
+                                path.write_bytes(b"canary" if replacement == "contents" else b"x" * size)
+                                path.chmod(mode)
+                            elif replacement == "mode":
+                                path.chmod(0o777)
+                            elif replacement == "hardlink":
+                                os.link(path, root / "hardlink")
+                            else:
+                                path.rename(path.with_name(path.name + "-original"))
                             if replacement == "symlink":
                                 path.symlink_to(sentinel)
-                            elif target.endswith("supervisor"):
+                            elif replacement == "fifo":
+                                os.mkfifo(path)
+                            elif replacement == "inode" and (target.endswith("supervisor") or target.endswith("boot.json")):
                                 path.write_bytes(b"canary")
                                 path.chmod(0o755)
-                            else:
+                            elif replacement == "inode":
                                 path.mkdir(mode=0o755)
                             replaced = True
                     def scheduled_link(parent, name, held):
@@ -81,6 +98,7 @@ class InstallerReplacement(unittest.TestCase):
                         if target:
                             with self.assertRaises((ValueError, OSError)):
                                 installer.install()
+                            self.assertTrue(replaced, "the attacker must reach its selected boundary")
                             launch.assert_not_called()
                         else:
                             installer.install()
@@ -88,6 +106,48 @@ class InstallerReplacement(unittest.TestCase):
                             self.assertEqual(launch.call_args.kwargs["env"], {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"})
                             self.assertTrue(launch.call_args.kwargs["executable"].startswith("/proc/self/fd/"))
                     self.assertEqual((sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode), before)
+
+
+    def test_installer_refuses_nonregular_artifacts_before_read(self):
+        # Kernel nonblocking opens must make a FIFO refusal prompt, even before
+        # the first inode/digest comparison. A subprocess bounds a regression
+        # that would otherwise hang this test at a blocking open.
+        import subprocess
+        for kind in ("fifo", "directory", "symlink", "hardlink", "oversized", "positive"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "artifact"
+                if kind == "fifo": os.mkfifo(path)
+                elif kind == "directory": path.mkdir()
+                elif kind == "symlink": path.symlink_to("outside")
+                else:
+                    path.write_bytes(b"main" if kind != "oversized" else bytes(65537))
+                    path.chmod(0o755)
+                    if kind == "hardlink": os.link(path, path.with_name("other"))
+                program = r"""
+import importlib.util, os, sys
+from unittest.mock import patch
+spec = importlib.util.spec_from_file_location("installer", sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+original = os.fstat
+def owned(fd):
+    values = list(original(fd)); values[4] = 0
+    return os.stat_result(values)
+parent = os.open(sys.argv[2], os.O_RDONLY | os.O_DIRECTORY)
+try:
+    with patch.object(m.os, "fstat", side_effect=owned):
+        fd = m.verified_file(parent, "artifact", b"main", 0o755)
+        os.close(fd)
+except (ValueError, OSError):
+    sys.exit(78)
+finally:
+    os.close(parent)
+"""
+                result = subprocess.run([os.sys.executable, "-I", "-S", "-c", program,
+                                         str(Path(installer.__file__).resolve()), temporary],
+                                        capture_output=True, timeout=2)
+                self.assertEqual(result.returncode, 0 if kind == "positive" else 78,
+                                 result.stderr.decode())
 
 
 if __name__ == "__main__":

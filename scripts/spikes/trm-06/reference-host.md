@@ -159,3 +159,15 @@ the campaign never installs or selects a caller-supplied kernel. Keep the actual
 ABI/errno/kernel observation, SSH and explicit broker refusal, independent
 process/canary/sentinel samples and incomplete receipt. The campaign is unrun;
 no no-Landlock reference receipt is claimed.
+
+Pass-3 repair (2026-10-08): the guest installer now holds and validates both
+`supervisor` and `boot.json`, rechecking bounded regular-file bytes, mode and
+hardlink count after every destination-link check and before init launch. The
+local synchronized matrix covers 32 destination/artifact refusals and a positive
+control, including same-inode/same-size byte changes and boot replacement. Six
+separate bounded subprocess controls exercise initial FIFO, directory, symlink,
+hardlink, oversized and valid artifacts. UID observations and init launch are
+substituted only in the local tests; no installed root acceptance is inferred.
+These checks do not authorize a writable install tree or a concurrent privileged
+writer after final validation. Installed launcher/cgroup races and host-startup
+matrices, unsupported-kernel execution and all manual evidence remain pending.
