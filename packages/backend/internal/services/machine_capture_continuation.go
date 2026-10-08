@@ -19,6 +19,14 @@ import (
 func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	capture := checks.Capture
+	// A native observation can arrive after the same head's authenticated,
+	// validated delivery. It confirms that candidate; it is not edited work
+	// waiting for another steer or verification launch.
+	_, pinned := mythicalPinOf(item)
+	if pinned && !item.PausedAt.Valid && len(item.PendingOp) == 0 && checks.ForeignHead == "" && capture != nil && !capture.Stale && !capture.Conflict && capture.ReconciledOnto == "" && capture.ReconcileWaitID == "" &&
+		item.CandidateVerified && item.VibeOutcome == "submitted" && capture.Head == item.CandidateHead {
+		return st.consumeSubmittedCapture(ctx, item, *capture)
+	}
 	if capture == nil || capture.Stale || capture.Conflict || capture.ReconciledOnto != "" || todoReopenedAttempt(item) || item.PausedAt.Valid || len(item.PendingOp) > 0 || checks.ForeignHead != "" {
 		return nil, false, nil
 	}
@@ -166,4 +174,30 @@ func (st *mythicalItemStep) lockCapturedContinuation(ctx context.Context, tx pgx
 		return errors.New("capture is no longer pending on this TODO")
 	}
 	return nil
+}
+
+func (st *mythicalItemStep) consumeSubmittedCapture(ctx context.Context, item db.MythicalItem, capture MachineCapturePending) (*db.MythicalItem, bool, error) {
+	tx, err := st.s.store.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if err = st.lockCapturedContinuation(ctx, tx, item, capture, st.prefix(item)); err != nil {
+		return nil, false, err
+	}
+	next := item
+	checks := mythicalChecksOf(next)
+	checks.Capture = nil
+	next.Checks = checks.encode()
+	if _, err = tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
+		return nil, false, err
+	}
+	saved, err := db.New(tx).SaveMythicalItem(ctx, next)
+	if err != nil {
+		return nil, false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return &saved, true, nil
 }

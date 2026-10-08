@@ -29,9 +29,9 @@ export const waitingAnnotation = (
   return {
     reason,
     ...(clocks.length > 0 ? { wakeAt: Math.min(...clocks.map((clock) => clock.dueAtMs)) } : {}),
-    ...(declared?.token != null && declared.reason === reason
+    ...(declared !== undefined && declared.reason === reason
       ? {
-        token: declared.token,
+        ...(declared.token == null ? {} : { token: declared.token }),
         ...(declared.request === undefined ? {} : { request: JSON.stringify(declared.request) })
       }
       : {})

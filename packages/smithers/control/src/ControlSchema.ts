@@ -492,7 +492,7 @@ export const Cancellation = Schema.Struct({
 export type Cancellation = typeof Cancellation.Type
 
 /**
- * One open wait somewhere in a run tree that a person has to end.
+ * One open wait in a run tree that a person or named signal can end.
  *
  * A run that calls another flow parks the CHILD execution, not the run an
  * operator named. `run-3` of `coding/request` sat at `waiting-reason: event`
@@ -516,7 +516,7 @@ export const PendingWait = Schema.Struct({
   runId: RunId,
   /** The flow that execution is running. */
   flowId: Schema.optional(FlowId),
-  /** The supervisor vocabulary this wait parked under, always `approval` here. */
+  /** The supervisor vocabulary: `approval` for people or `event` for a named signal. */
   reason: Schema.String,
   /** The durable wait address a decision is routed to. */
   token: Schema.String,
@@ -533,7 +533,7 @@ export const PendingWait = Schema.Struct({
 })
 
 /**
- * One open wait somewhere in a run tree that a person has to end.
+ * One open wait in a run tree that a person or named signal can end.
  *
  * @since 1.0.0
  * @category models

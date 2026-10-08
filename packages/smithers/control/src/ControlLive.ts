@@ -966,7 +966,9 @@ export const layer: Layer.Layer<
      * — an engine-created child keeps its park, because claiming it would
      * strand it under this plane's fence where no engine re-drives it. The
      * steer itself is already durable in the notification queue, so the
-     * owning driver delivers it at the run's next boundary.
+     * owning driver delivers it at the run's next boundary. A refusal naming
+     * the live parked host delegates a wake to that host, so an idle retained
+     * module gets that boundary without transferring its fence.
      */
     const wake = (
       run: RunSummary,
@@ -990,7 +992,15 @@ export const layer: Layer.Layer<
             } as ControlEvent["payload"]
           )
         ),
-        Effect.catchTag("/control/ClaimLost", () => Effect.void),
+        // A detached live host keeps its fence. Delegate the admitted event
+        // wake to it, just as a node decision does, instead of leaving an idle
+        // retained module with input it will never get a boundary to drain.
+        Effect.catchTag("/control/ClaimLost", (refusal) => refusal.parkedBy === undefined ? Effect.void : Effect.gen(function*() {
+          const delegated = yield* runtime.requestResume(run.runId).pipe(
+            Effect.catchTag("/control/InvalidInput", () => Effect.succeed(undefined))
+          )
+          if (delegated !== undefined) yield* emit(run.runId, "control.run.resumed", { runId: run.runId })
+        })),
         Effect.catchTag("/control/RunNotFound", () => Effect.void),
         Effect.catchTag(
           "/control/CodeDrift",

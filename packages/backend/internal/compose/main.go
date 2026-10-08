@@ -1630,7 +1630,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// reader would retain the legacy permission to rebase an unknown branch.
 		bindRebasePresence(mythicalService, presence)
 		if options.Machined != nil {
-			mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool, presence: presence})
+			mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool, presence: presence, ensureReady: func(ctx context.Context, branch string) error {
+				q := db.New(pool)
+				lane, err := q.GetMythicalLane(ctx, branch)
+				if err != nil {
+					return err
+				}
+				workspace, err := q.GetWorkspace(ctx, branch)
+				if err != nil {
+					return err
+				}
+				return workspaceService.WakeTodoWorkspace(ctx, uuid.UUID(lane.ItemID.Bytes).String(), branch, lane.RepositoryID, workspace.UserID)
+			}})
 		}
 	}
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)

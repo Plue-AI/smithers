@@ -5,21 +5,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 type mythicalForeignBring struct {
-	Workspace string                  `json:"workspace"`
-	SHA       string                  `json:"sha"`
-	Wait      string                  `json:"wait"`
-	Onto      string                  `json:"onto"`
-	Request   *mythicalRebaseRequest  `json:"request"`
-	Native    *machined.RewriteResult `json:"native,omitempty"`
+	Checkpoint bool                    `json:"checkpoint,omitempty"`
+	Workspace  string                  `json:"workspace"`
+	SHA        string                  `json:"sha"`
+	Wait       string                  `json:"wait"`
+	Onto       string                  `json:"onto"`
+	Request    *mythicalRebaseRequest  `json:"request"`
+	Native     *machined.RewriteResult `json:"native,omitempty"`
 }
 
 // Bring in is durable admission only. The stack worker consumes the retained
@@ -81,6 +86,14 @@ func (s *MythicalService) requestForeignBring(ctx context.Context, tx pgx.Tx, q 
 	if err != nil {
 		return err
 	}
+	if item.FlowDigest.Valid && item.WorkspaceID != "" {
+		if _, ok := s.launcher.(mythicalSignaler); !ok || s.branchRebase == nil || item.RequestRunID == "" || branch.ID != item.WorkspaceID {
+			return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
+		}
+		if err := s.signalForeignBring(ctx, tx, saved, stack, input.Revision, "bring_in"); err != nil {
+			return err
+		}
+	}
 	*receipt = TodoControlReceipt{State: "accepted", Number: item.Number.Int64}
 	if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.foreign_bring-in", *receipt, map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait, "sha": input.Revision, "by": todoActorRef(ctx, person), "onto": checks.ForeignBring.Onto}); err != nil {
 		return err
@@ -109,6 +122,9 @@ func (st *mythicalItemStep) consumeForeignBring(ctx context.Context, item db.Myt
 	// Occupied branches wait for the inspected native boundary. Never rewrite
 	// an active working copy on the host, even after an explicit choice.
 	if item.WorkspaceID != "" {
+		if item.FlowDigest.Valid && !pending.Checkpoint {
+			return nil, false, nil
+		}
 		return st.consumeNativeForeignBring(ctx, item, *pending, index)
 	}
 	branch, err := st.s.queries().GetWorkspace(ctx, pending.Workspace)
@@ -170,6 +186,12 @@ func (st *mythicalItemStep) lockForeignBring(ctx context.Context, tx pgx.Tx, ite
 	if repository != current.RepositoryID || (occupied && (current.WorkspaceID != pending.Workspace || status != "running" || current.PausedAt.Valid || mythicalMergeFenced(current))) || (!occupied && status != "stopped" && status != "suspended" && status != "running") {
 		return errors.New("branch woke before Bring in verification")
 	}
+	if current.FlowDigest.Valid && occupied {
+		fresh := mythicalChecksOf(current).ForeignBring
+		if fresh == nil || !fresh.Checkpoint || fresh.SHA != pending.SHA || fresh.Wait != pending.Wait || fresh.Request == nil || fresh.Request.Head != current.CandidateHead || fresh.Request.Generation != current.Generation {
+			return errors.New("Bring in checkpoint changed")
+		}
+	}
 	_, err = foreignPushAnswerWait(current, pending.Wait, pending.SHA)
 	return err
 }
@@ -188,6 +210,9 @@ func foreignBringPusher(item db.MythicalItem, id string) json.RawMessage {
 // a second rewrite after capture or launcher failure.
 func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item db.MythicalItem, pending mythicalForeignBring, index int) (*db.MythicalItem, bool, error) {
 	if st.s.branchRebase == nil || (item.WorkspaceID != "" && pending.Workspace != item.WorkspaceID) {
+		return nil, false, nil
+	}
+	if item.FlowDigest.Valid && item.CandidateBase != pending.Onto {
 		return nil, false, nil
 	}
 	if pending.Native == nil {
@@ -255,6 +280,12 @@ func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item 
 	if binding == nil || binding.Native == nil || binding.Native.Head != result.Head || binding.SHA != pending.SHA || current.WorkspaceID != item.WorkspaceID || current.CandidateHead != item.CandidateHead || current.Generation != item.Generation {
 		return nil, false, errors.New("Bring in capture binding changed")
 	}
+	if current.FlowDigest.Valid && !binding.Checkpoint {
+		return nil, false, errors.New("Bring in checkpoint changed")
+	}
+	if capture.Head != result.Head {
+		return nil, false, errors.New("Bring in capture differs from inspected rebase")
+	}
 	index, err = foreignPushAnswerWait(current, pending.Wait, pending.SHA)
 	if err != nil {
 		return nil, false, err
@@ -306,10 +337,76 @@ func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item 
 		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact); err != nil {
 			return nil, false, err
 		}
+		if current.FlowDigest.Valid {
+			if err = st.s.signalForeignBring(ctx, tx, saved, st.r.row, pending.SHA, "bring_in_complete"); err != nil {
+				return nil, false, err
+			}
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return nil, false, err
 		}
 		return &saved, true, nil
 	}
 	return st.verifyCandidate(ctx, current, next, pending.Onto, result.Head, nil)
+}
+
+// Control signals use the offering run's current sponsor and retained target.
+// Admission and completion are journaled in the same transactions as their
+// item projections; a replay cannot strand the run between two writes.
+func (s *MythicalService) signalForeignBring(ctx context.Context, tx pgx.Tx, item db.MythicalItem, stack db.MythicalStack, sha, name string) error {
+	signaler, ok := s.launcher.(mythicalSignaler)
+	if !ok {
+		return errors.New("Bring in signal unavailable")
+	}
+	sponsor := mythicalExecutionSponsor(item, stack)
+	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(sponsor, 10)}
+	target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: uuidString(item.ID)}
+	wait := ""
+	if pending := mythicalChecksOf(item).ForeignBring; pending != nil {
+		wait = pending.Wait
+	}
+	// Verification saved the settled wait and cleared the pending request.
+	if wait == "" {
+		for _, entry := range mythicalChecksOf(item).Waits {
+			if entry.Kind == "foreign_push" && entry.SHA == sha && entry.Answer == "bring-in" {
+				wait = entry.ID
+			}
+		}
+	}
+	payload, _ := json.Marshal(map[string]string{"sha": sha, "wait": wait})
+	projection, _ := json.Marshal(map[string]any{"kind": "mythical-bring", "itemId": uuidString(item.ID), "run": item.RequestRunID, "attempt": item.Attempt})
+	authorization, _ := json.Marshal(map[string]any{"repositoryId": item.RepositoryID, "userId": sponsor, "itemId": uuidString(item.ID), "workspaceId": item.WorkspaceID})
+	if name == "bring_in_complete" {
+		name += "#" + wait
+	}
+	_, err := signaler.SignalInTx(ctx, tx, flowdispatch.SignalRequest{Scope: scope, Target: target, RequestID: "todo-" + name + ":" + item.RequestRunID + ":" + wait, FlowID: flowdispatch.TodoFlow, RunID: item.RequestRunID, Name: name, Payload: payload, Projection: projection, AuthorizationContext: authorization})
+	return err
+}
+
+func projectForeignBringCheckpoint(next *db.MythicalItem, projection mythicalProjection, update flowdispatch.ProjectionUpdate) {
+	checks := mythicalChecksOf(*next)
+	pending := checks.ForeignBring
+	run := update.Checkpoint.Run
+	if pending == nil || projection.Phase != "todo" || run == nil || run.RunID != next.RequestRunID || update.Checkpoint.Target.WorkspaceID != pending.Workspace {
+		return
+	}
+	pending.Checkpoint = false
+	if !update.State.Terminal() {
+		for _, wait := range run.PendingWaits {
+			raw := wait.Request
+			var text string
+			if json.Unmarshal(raw, &text) == nil {
+				raw = json.RawMessage(text)
+			}
+			var request struct {
+				Kind string `json:"kind"`
+				SHA  string `json:"sha"`
+				Wait string `json:"wait"`
+			}
+			if json.Unmarshal(raw, &request) == nil && wait.Reason == "event" && request.Kind == "bring_in" && request.SHA == pending.SHA && request.Wait == pending.Wait {
+				pending.Checkpoint = true
+			}
+		}
+	}
+	next.Checks = checks.encode()
 }

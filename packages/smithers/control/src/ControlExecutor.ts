@@ -234,7 +234,7 @@ const waitPointOf = (token: string): { readonly name?: string; readonly attempt?
 
 /**
  * One parked execution as a {@link PendingWait}, or nothing when it is not a
- * wait a person can end.
+ * wait a person or a named control signal can end.
  *
  * Shared by the two readers that produce these rows — the control plane's own
  * SQL runtime, when it shares a database with the engine, and the executor's
@@ -251,7 +251,9 @@ export const pendingWaitOf = (row: {
   readonly request?: unknown
   readonly createdAt: number
 }): PendingWait | undefined => {
-  if (row.reason !== humanWaitReason || row.token === null || row.token === undefined) return undefined
+  if (row.token === null || row.token === undefined) return undefined
+  const point = waitPointOf(row.token)
+  if (row.reason !== humanWaitReason && !(row.reason === "event" && point.name !== undefined)) return undefined
   return {
     runId: row.runId,
     reason: row.reason,
@@ -259,7 +261,7 @@ export const pendingWaitOf = (row: {
     tokenDigest: Sha256.digestSync(row.token),
     createdAt: row.createdAt,
     ...(row.flowId === undefined ? {} : { flowId: row.flowId }),
-    ...waitPointOf(row.token),
+    ...point,
     ...(row.request === undefined ? {} : { request: row.request as PendingWait["request"] })
   }
 }

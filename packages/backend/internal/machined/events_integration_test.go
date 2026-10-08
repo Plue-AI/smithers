@@ -101,6 +101,30 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	require.Equal(t, AckMissingObjects, ack.Outcome)
 	require.NoError(t, admission.Rollback(ctx))
 	counts(0, 0, 0)
+	mutation, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer mutation.Rollback(context.WithoutCancel(ctx))
+	_, err = mutation.Exec(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR NO KEY UPDATE`, branch)
+	require.NoError(t, err)
+	blockedCtx, cancelBlocked := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelBlocked()
+	blocked := make(chan error, 1)
+	go func() { _, err := s.Apply(blockedCtx, connection, scope, event); blocked <- err }()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT repository_id FROM workspaces%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, 2*time.Second, 10*time.Millisecond)
+	lookup := make(chan error, 1)
+	go func() { _, err := registry.Current(branch); lookup <- err }()
+	select {
+	case err := <-lookup:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("blocked database authority held the daemon registry fence")
+	}
+	require.NoError(t, mutation.Rollback(ctx))
+	require.NoError(t, <-blocked)
 	objects.missing = nil
 	// Force the per-file insert to fail after the canonical writer has appended.
 	_, err = pool.Exec(ctx, `ALTER TABLE burst_files ADD CONSTRAINT fixture_fail CHECK(path<>'b.ts')`)

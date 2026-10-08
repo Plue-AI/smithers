@@ -365,6 +365,9 @@ func (r *rehearsal) bringInReleased(n int64, branch, foreign, wait string) error
 			if card.PR.Number != before.PR.Number || pull.Head.SHA != card.PR.Head {
 				return fmt.Errorf("Bring in changed the PR binding: %+v", card.PR)
 			}
+			if _, err := r.githubGit("merge-base", "--is-ancestor", foreign, pull.Head.SHA); err != nil {
+				return fmt.Errorf("Bring in publication lost the laptop commit: %w", err)
+			}
 			content, err := r.githubGit("show", pull.Head.SHA+":alice.md")
 			if err != nil || content != "log each retry" {
 				return fmt.Errorf("Alice's bytes were not brought in: %q %v", content, err)

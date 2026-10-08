@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -86,14 +87,18 @@ func TestTodoPausedConflictDoneNativeComposedInstall(t *testing.T) {
 	testBranchRebaseNative(t, false, "", rebaseNativeOptions{Conflict: true, ManualDone: true, Paused: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused bool }
+func TestForeignBringNativeComposedExecution(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Bring: true})
+}
+
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring bool }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
 	if len(options) > 0 {
 		option = options[0]
 	}
-	conflict, manualDone := option.Conflict, option.ManualDone
+	conflict, manualDone, bring := option.Conflict, option.ManualDone, option.Bring
 
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
@@ -318,6 +323,11 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.NoError(t, err, "refusals must preserve the authenticated transport")
 		require.Equal(t, "first\n", string(file.Content))
 	})
+	if bring {
+		checks, _ = json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "machineItemChanges": map[string]string{f.row.ID: strings.TrimSpace(string(changeID))}, "foreignHead": onto, "waits": []map[string]any{{"id": "00000000-0000-4000-8000-000000000001", "kind": "foreign_push", "sha": onto, "since": time.Now().UTC()}}})
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',reason='',candidate_base=$2,checks=$3 WHERE id=$1`, item.ID, onto, checks)
+		require.NoError(t, err)
+	}
 	launcher := new(rebaseRecordedLauncher)
 	service.SetLauncher(launcher)
 	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client))
@@ -413,9 +423,15 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		delay = ackRequest("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`)
 		require.Equal(t, "armed", delay.State)
 	}
+	branchPath := f.row.ID
+	body := `{"rebase":true}`
+	if bring {
+		branchPath = "smithers%2Ftest"
+		body = fmt.Sprintf(`{"op":"bring-in","id":"00000000-0000-4000-8000-000000000001","revision":"%s"}`, onto)
+	}
 	if people {
 		for range 2 {
-			req, err := http.NewRequest("POST", origin+"/api/branches/"+f.row.ID, strings.NewReader(`{"rebase":true}`))
+			req, err := http.NewRequest("POST", origin+"/api/branches/"+branchPath, strings.NewReader(body))
 			require.NoError(t, err)
 			req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
 			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
@@ -429,10 +445,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
 			require.NoError(t, res.Body.Close())
 			require.Equal(t, 202, res.StatusCode, body)
-			require.Equal(t, onto, body["onto"])
+			if !bring {
+				require.Equal(t, onto, body["onto"])
+			}
 		}
 	}
-	if people {
+	if people && !bring {
 		readReceipt("running")
 	}
 	// The HTTP door returns with the old head; only the stack worker rewrites.
@@ -486,6 +504,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.Contains(t, []string{"armed", "withheld"}, receipt.State, "guest thaw must precede host ACK")
 		require.NoError(t, <-done)
 
+	}
+	if bring {
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{foreignBring,checkpoint}','true'::jsonb) WHERE id=$1`, item.ID)
+		require.NoError(t, err)
 	}
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
@@ -567,8 +589,8 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.Equal(t, "pinned-run", current.RequestRunID)
 		require.EqualValues(t, 1, current.Attempt)
 	}
-	require.Equal(t, "verifying", current.State, current.Reason)
-	if people {
+	require.Equal(t, "verifying", current.State, "reason=%s checks=%s", current.Reason, current.Checks)
+	if people && !bring {
 		readReceipt("completed")
 	}
 
@@ -589,6 +611,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	}
 	require.Equal(t, "later item bytes", git("--git-dir", store, "show", current.CandidateHead+":second.txt"))
 	require.Equal(t, "new main bytes", git("--git-dir", store, "show", current.CandidateHead+":main.txt"))
+	if bring {
+		require.Len(t, launcher.signals, 2)
+		return
+	}
 	var system, requester string
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor'->>'id',COALESCE(data->'by'->>'person','') FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&system, &requester))
 	require.Equal(t, "stack", system)
@@ -711,7 +737,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	// destination changes. A newer request cannot settle an older toast.
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase}', '{"onto":"later-main","name":"main"}') WHERE id=$1`, item.ID)
 	require.NoError(t, err)
-	if people {
+	if people && !bring {
 		readReceipt("completed")
 	}
 }

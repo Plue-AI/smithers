@@ -692,7 +692,7 @@ const makeRuntime = (
           // so the walk stops at one rather than telling a reader that a run
           // which can proceed cannot.
           ...(pendingWaits === undefined ? {} : { pendingWaits }),
-          ...(pendingWaits === undefined || terminal(base.status)
+          ...(pendingWaits === undefined || !pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason) || terminal(base.status)
             ? {}
             : { status: "waiting-approval" as const }),
           ...(pendingResume === undefined ? {} : { pendingResume }),
@@ -821,7 +821,8 @@ const makeRuntime = (
       }>`
       WITH RECURSIVE human_waits(wait_run_id, ancestor_id, depth) AS (
         SELECT run_id, run_id, 0 FROM flows_runs
-        WHERE waiting_reason = ${ControlExecutor.humanWaitReason}
+        WHERE waiting_reason IN (${ControlExecutor.humanWaitReason}, 'event')
+          AND waiting_token IS NOT NULL
           AND status NOT IN ('completed', 'failed', 'cancelled')
         UNION
         SELECT human_waits.wait_run_id, parent.run_id, human_waits.depth + 1

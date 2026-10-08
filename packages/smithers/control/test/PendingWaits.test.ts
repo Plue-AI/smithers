@@ -66,6 +66,12 @@ describe("pendingWaitOf", () => {
     expect(row === undefined ? "unread" : Object.keys(row)).not.toContain("flowId")
   })
 
+  it("exposes a named event checkpoint without inventing a human decision", () => {
+    expect(ControlExecutor.pendingWaitOf({ ...base, reason: "event", token: token("WaitFor/bring_in_complete#push-1"), request: { kind: "bring_in", sha: "head", wait: "push-1" } }))
+      .toMatchObject({ reason: "event", name: "bring_in_complete#push-1", request: { kind: "bring_in", sha: "head", wait: "push-1" } })
+    expect(ControlExecutor.pendingWaitOf({ ...base, reason: "event", token: token("DurableQueue/items") })).toBeUndefined()
+  })
+
   it("is not a wait a person can end when it is not an approval park", () => {
     expect(ControlExecutor.pendingWaitOf({ ...base, reason: "timer", token: token("WaitFor/later") }))
       .toBeUndefined()

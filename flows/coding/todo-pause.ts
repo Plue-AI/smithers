@@ -19,6 +19,7 @@ const observationLayer = TodoPauseRequested.toLayer(() => Effect.gen(function*()
   if (Option.isNone(owner) || owner.value.flowId !== "todo") {
     return yield* Effect.fail(new CodingError({ code: "invalid_receipt", message: "Pause requires a TODO attempt" }))
   }
+  yield* todoBringBoundary(owner.value.rootId)
   const runtime = yield* ControlRuntime
   const signals = yield* runtime.deliveredSignals(owner.value.rootId)
   let generation: number | null = null
@@ -68,3 +69,25 @@ export const TodoBoundary = Flow.make("coding/todo-boundary", {
     })
   ))
 })
+
+/** Bring in parks the offering run before the shared daemon rebase. The
+ * completion signal is committed with verification admission, so a crash or
+ * duplicate delivery cannot resume coding before the new head is retained.
+ */
+export const todoBringBoundary = (runId: string) => Effect.gen(function*() {
+  const runtime = yield* Effect.serviceOption(ControlRuntime)
+  if (Option.isNone(runtime)) return
+  const signals = yield* runtime.value.deliveredSignals(runId)
+  for (const signal of signals) {
+    if (signal.name !== "bring_in" || typeof signal.payload !== "object" || signal.payload === null || Array.isArray(signal.payload)) continue
+    const payload = signal.payload as Readonly<Record<string, unknown>>
+    const { sha, wait } = payload
+    if (typeof sha !== "string" || !/^[a-f0-9]{40}$/.test(sha) || typeof wait !== "string" || wait.length === 0 || wait.length > 128) continue
+    if (signals.some((entry) => entry.name === `bring_in_complete#${wait}`)) continue
+    const instance = yield* FlowRuntime.FlowInstance
+    const deferred = WaitFor.deferred(`bring_in_complete#${wait}`)
+    const token = DurableDeferred.tokenFromExecutionId(deferred, { flow: instance.flow, executionId: instance.executionId })
+    yield* FlowRuntime.annotateWaiting({ reason: "event", token, request: JSON.stringify({ kind: "bring_in", sha, wait }) })
+    yield* DurableDeferred.await(deferred)
+  }
+}).pipe(Effect.mapError(() => new CodingError({ code: "unavailable", message: "Bring in checkpoint unavailable" })))

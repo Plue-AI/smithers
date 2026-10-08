@@ -750,6 +750,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				projectTodoPlan(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 				projectTodoPause(&next, projection, update, s.now().UTC())
+				projectForeignBringCheckpoint(&next, projection, update)
 				// Verify/review are separate engine launches. Their terminal
 				// observations cannot suspend the offering composition's clock.
 				if projection.Phase == "todo" || projection.Phase == "request" {
@@ -3561,6 +3562,11 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 				return err
 			}
 			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": mythicalChecksOf(item).ForeignHead, "head": saved.CandidateHead, "by": pending.Request.By, "pusher": foreignBringPusher(item, pending.Wait), "actor": foreignBringPusher(item, pending.Wait)})
+			if pending.Native != nil && saved.WorkspaceID != "" && saved.FlowDigest.Valid {
+				if err := st.s.signalForeignBring(ctx, tx, saved, r.row, pending.SHA, "bring_in_complete"); err != nil {
+					return err
+				}
+			}
 			_, err := st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact)
 			return err
 		}
@@ -3685,10 +3691,11 @@ type mythicalProposalOp struct {
 	Head     string `json:"head"`
 }
 
-// propose opens (or finds, or updates) the item's pull request: one commit
-// on main whose tree is exactly the verified candidate built on the current,
-// available prefix. The intended branch head is recorded and pinned before the
-// push; a recorded push is settled before anything new is computed.
+// propose opens (or finds, or updates) the item's pull request with the
+// verified candidate tree built on its available prefix. Initial publication
+// parents main; accepted laptop pushes retain their ancestry. Record and pin
+// the intended head before pushing, and settle a recorded push before computing
+// a new one.
 func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	if err := st.publicationAuthority(item); err != nil {
 		next := item

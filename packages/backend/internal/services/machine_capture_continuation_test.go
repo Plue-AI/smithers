@@ -172,3 +172,63 @@ func TestCapturedContinuationDoesNotHideMovedMain(t *testing.T) {
 		}
 	}
 }
+
+func TestCapturedSubmittedCandidateDoesNotWaitForItsSteer(t *testing.T) {
+	f := newMythicalServiceFixture(t)
+	ctx := t.Context()
+	q := db.New(f.pool)
+	_, err := q.RequestMythicalBootstrap(ctx, f.repoID, f.userID, 1, false)
+	require.NoError(t, err)
+	main, head := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	branch := "10000000-0000-4000-8000-000000000001"
+	capture := MachineCapturePending{Head: head, Tree: strings.Repeat("c", 40), Base: main, Onto: head}
+	raw, _ := json.Marshal(capture)
+	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status,head_commit_id,capture_pending) VALUES($1,$2,$3,'capture','capture-vm','running',$4,$5)`, branch, f.repoID, f.userID, head, raw)
+	require.NoError(t, err)
+	checks := mythicalChecks{Todo: true, FlowSource: main, Capture: &capture, Steers: []todoSteer{{Attempt: 2, Text: "amend the prompt"}}}
+	var id pgtype.UUID
+	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,candidate_base,candidate_head,candidate_verified,vibe_outcome,attempt,generation,checks,flow_digest,request_run_id) VALUES($1,'todo','integrating',$2,$3,$4,true,'submitted',2,9,$5,$6,'same-todo-run') RETURNING id`, f.repoID, branch, main, head, checks.encode(), strings.Repeat("e", 64)).Scan(&id))
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET state='active',running=true,claim=7,lease_expires_at=now()+interval '1 minute',landed_main=$2 WHERE repository_id=$1`, f.repoID, main)
+	require.NoError(t, err)
+	row, err := q.GetMythicalStack(ctx, f.repoID)
+	require.NoError(t, err)
+	item, err := q.GetMythicalItem(ctx, id)
+	require.NoError(t, err)
+	step := mythicalItemStep{s: f.service, r: &mythicalRun{row: row, mainTip: main}}
+	for _, name := range []string{"different head", "unverified", "stale", "reconciliation", "paused", "ready"} {
+		t.Run(name, func(t *testing.T) {
+			current := item
+			held := mythicalChecksOf(current)
+			switch name {
+			case "different head":
+				current.CandidateHead = strings.Repeat("f", 40)
+			case "unverified":
+				current.CandidateVerified = false
+			case "stale":
+				held.Capture.Stale = true
+			case "reconciliation":
+				held.Capture.ReconcileWaitID = "wake-wait"
+			case "paused":
+				current.PausedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+			}
+			current.Checks = held.encode()
+			next, saved, err := step.consumeCapturedEdits(ctx, current)
+			require.NoError(t, err)
+			if name != "ready" {
+				require.Nil(t, next)
+				require.False(t, saved)
+				return
+			}
+			require.True(t, saved)
+			require.NotNil(t, next)
+			require.Nil(t, mythicalChecksOf(*next).Capture)
+			require.Equal(t, mythicalChecksOf(item).Steers, mythicalChecksOf(*next).Steers)
+			require.Equal(t, item.RequestRunID, next.RequestRunID)
+			require.Equal(t, item.Attempt, next.Attempt)
+			require.Equal(t, item.Generation, next.Generation)
+			var pending []byte
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT capture_pending FROM workspaces WHERE id=$1`, branch).Scan(&pending))
+			require.Empty(t, pending)
+		})
+	}
+}

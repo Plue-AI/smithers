@@ -334,6 +334,7 @@ export interface ExecutorOptions {
 export interface Platform {
   /** Modules whose settled launches retain their run for subsequent input. */
   readonly reenterModules?: ReadonlyArray<string> | undefined
+  readonly reentryCheckpoint?: AgentSession.Options["reentryCheckpoint"]
   /** Coding hosts require the registered daemon terminal; never use the native spawn binding. */
   readonly shellTerminal?: "agent" | undefined
   readonly agentLimits?: {
@@ -1768,6 +1769,7 @@ export const make = (
         }
         const session = AgentSession.make({
           reenterModules: native.reenterModules,
+          reentryCheckpoint: native.reentryCheckpoint,
           sandbox,
           requestNativeCancel,
           canExecute,

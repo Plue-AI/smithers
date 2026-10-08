@@ -6,9 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -240,4 +244,164 @@ func testForeignBringRecovery(t *testing.T, planning bool) {
 	var count int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_brought-in'`).Scan(&count))
 	require.Equal(t, 1, count)
+}
+
+// Only the daemon is substituted to inject a capture outage. Admission and
+// verification use the production branch control and PostgreSQL boundaries.
+func TestForeignBringRetainedCodingRunRecoversAtCheckpoint(t *testing.T) {
+	testRetainedForeignBring(t, nil, false)
+}
+func TestForeignBringRetainedConflictKeepsRunAndWait(t *testing.T) {
+	testRetainedForeignBring(t, []string{"OWN.md"}, false)
+}
+func TestForeignBringRetainedStackPrefixIsNotItsPRCommit(t *testing.T) {
+	testRetainedForeignBring(t, nil, true)
+}
+func testRetainedForeignBring(t *testing.T, paths []string, stacked bool) {
+	f := newRebaseFixture(t)
+	onto := f.main
+	if stacked {
+		first := f.candidate("Earlier", f.main, "FIRST.md", "first\n")
+		f.wake()
+		onto = first.CandidateHead
+	}
+	item := f.candidate("Bring retained", onto, "OWN.md", "own\n")
+	f.wake()
+	item = f.item(item.Number.Int64)
+	branch := mythicalChecksOf(item).Branch
+	foreign, err := f.fake.PushAs("rehearsal-owner/app", branch, 202, "alice", "Alice's addition", map[string]string{"alice.md": "alice bytes\n"})
+	require.NoError(t, err)
+	f.git(f.work, "fetch", "-q", f.github, foreign)
+	f.git(f.work, "push", "-q", f.hostDir, foreign+":"+repohost.KeptCommitRefPrefix+foreign)
+	q := db.New(f.pool)
+	workspace, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: branch, Status: "running", Kind: "vm"})
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "coding"})
+	require.NoError(t, err)
+	checks := mythicalChecksOf(item)
+	checks.ForeignHead = foreign
+	checks.FlowSource = f.main
+	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
+	item.Attempt = 1
+	checks.Waits = append(checks.Waits, TodoWait{ID: "foreign-wait", Kind: "foreign_push", SHA: foreign, Since: time.Now().UTC()})
+	item.WorkspaceID, item.RequestRunID = workspace.ID, "retained-todo"
+	item.Checks = checks.encode()
+	item, err = q.SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	launcher := &answerLauncher{fakeMythicalLauncher: f.launcher}
+	f.service.SetOrchestration(f.service.github, launcher, &fakeMythicalLanes{})
+	head := f.git(f.hostDir, "commit-tree", f.hostTree(foreign), "-p", foreign, "-m", "native bring result")
+	// Control the lost capture receipt to prove recovery never repeats a native
+	// rewrite. The composed rehearsal separately executes the real daemon.
+	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true, Paths: paths}, failCapture: true}
+	f.service.SetBranchRebaseExecutor(executor)
+	owner, err := q.GetUserByID(t.Context(), f.userID)
+	require.NoError(t, err)
+	session := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+	input := TodoControlInput{Op: "bring-in", Repository: f.repoID, Actor: f.userID, Request: "bring-retained", Wait: "foreign-wait", Revision: foreign}
+	receipt, err := f.service.AnswerBranch(session, branch, input)
+	require.NoError(t, err)
+	replay, err := f.service.AnswerBranch(session, branch, input)
+	require.NoError(t, err)
+	require.Equal(t, receipt, replay)
+	f.wake()
+	require.Zero(t, executor.calls, "admission must wait for the run's checkpoint")
+	admitted := f.item(item.Number.Int64)
+	require.Len(t, launcher.sent(), 1)
+	require.Equal(t, "bring_in", launcher.sent()[0].Name)
+	boundary, _ := json.Marshal(map[string]string{"kind": "bring_in", "sha": foreign, "wait": "foreign-wait"})
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Target: flowruntime.Target{WorkspaceID: workspace.ID}, Run: &flowruntime.Run{RunID: "retained-todo", PendingWaits: []flowruntime.PendingWait{{Reason: "event", Request: boundary}}}}}
+	projectForeignBringCheckpoint(&admitted, mythicalProjection{Phase: "todo"}, update)
+	require.True(t, mythicalChecksOf(admitted).ForeignBring.Checkpoint)
+	admitted, err = q.SaveMythicalItem(t.Context(), admitted)
+	require.NoError(t, err)
+	f.wake()
+	require.Equal(t, 1, executor.calls, "the retained coding lane must use the daemon checkpoint rebase: %s", f.item(item.Number.Int64).Reason)
+	f.wake()
+	if len(paths) > 0 {
+		conflicted := f.item(item.Number.Int64)
+		require.Equal(t, "rebase_conflict_pending", conflicted.Reason)
+		require.Equal(t, "retained-todo", conflicted.RequestRunID)
+		require.Equal(t, item.CandidateHead, conflicted.CandidateHead)
+		require.Contains(t, string(conflicted.Integration), "OWN.md")
+		require.Contains(t, string(conflicted.Integration), foreign)
+		require.NotNil(t, mythicalChecksOf(conflicted).ConflictReservation)
+		require.Len(t, todoOpenWaits(conflicted), 1)
+		require.Zero(t, executor.captures)
+		require.Zero(t, f.verifies(conflicted))
+		require.Len(t, launcher.sent(), 1, "a conflict must not acknowledge Bring in completion")
+		return
+	}
+	require.Equal(t, 1, executor.calls, "a failed capture must retain the inspected rebase")
+	require.Equal(t, item.CandidateHead, f.item(item.Number.Int64).CandidateHead)
+	executor.failCapture = false
+	f.wake()
+	next := f.item(item.Number.Int64)
+	require.Equal(t, "verifying", next.State, next.Reason)
+	require.Equal(t, item.Attempt, next.Attempt)
+	require.Equal(t, "retained-todo", next.RequestRunID)
+	require.Equal(t, workspace.ID, next.WorkspaceID)
+	require.Equal(t, head, next.CandidateHead)
+	require.Equal(t, onto, next.CandidateBase)
+	require.Equal(t, foreign, next.PRHead)
+	require.Empty(t, todoOpenWaits(next))
+	require.Nil(t, mythicalChecksOf(next).Capture)
+	require.Equal(t, 1, executor.calls)
+	require.Equal(t, "alice bytes", f.git(f.hostDir, "show", head+":alice.md"))
+	f.git(f.hostDir, "merge-base", "--is-ancestor", foreign, head)
+	require.Equal(t, 1, f.verifies(next))
+	require.Len(t, launcher.sent(), 2)
+	require.Equal(t, "bring_in_complete#foreign-wait", launcher.sent()[1].Name)
+	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_brought-in'`).Scan(&count))
+	require.Equal(t, 1, count)
+	verification := launcher.last("coding/verify")
+	output := `{"status":"passed","failed":[],"receipts":[]}`
+	require.NoError(t, f.service.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{State: jobs.StateCompleted, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: verification.Projection, FlowID: "coding/verify", ExecutionDigest: todoPinOne, RunID: "verify-bring", Run: &flowruntime.Run{RunID: "verify-bring", FinalOutput: &output}}}))
+	for range 4 {
+		f.wake()
+		if f.item(item.Number.Int64).State == "proposed" {
+			break
+		}
+	}
+	published := f.item(item.Number.Int64)
+	require.Equal(t, "proposed", published.State, published.Reason)
+	require.Equal(t, item.PRNumber, published.PRNumber)
+	require.Equal(t, published.PRHead, f.githubRef(branch))
+	f.git(f.github, "merge-base", "--is-ancestor", foreign, published.PRHead)
+	require.Equal(t, "alice bytes", f.git(f.github, "show", published.PRHead+":alice.md"))
+}
+
+func TestForeignBringCheckpointRejectsOtherRunWaitAndHead(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*flowdispatch.ProjectionUpdate)
+		ready  bool
+	}{
+		{"bound", func(*flowdispatch.ProjectionUpdate) {}, true},
+		{"ended", func(u *flowdispatch.ProjectionUpdate) { u.State = jobs.StateCompleted }, false},
+		{"other run", func(u *flowdispatch.ProjectionUpdate) { u.Checkpoint.Run.RunID = "other" }, false},
+		{"other workspace", func(u *flowdispatch.ProjectionUpdate) { u.Checkpoint.Target.WorkspaceID = "other" }, false},
+		{"question", func(u *flowdispatch.ProjectionUpdate) { u.Checkpoint.Run.PendingWaits[0].Reason = "approval" }, false},
+		{"other push", func(u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.Run.PendingWaits[0].Request = json.RawMessage(`{"kind":"bring_in","sha":"other","wait":"wait"}`)
+		}, false},
+		{"old wait", func(u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.Run.PendingWaits[0].Request = json.RawMessage(`{"kind":"bring_in","sha":"head","wait":"old"}`)
+		}, false},
+		{"malformed", func(u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.Run.PendingWaits[0].Request = json.RawMessage(`{`)
+		}, false},
+		{"string receipt", func(u *flowdispatch.ProjectionUpdate) {
+			u.Checkpoint.Run.PendingWaits[0].Request = json.RawMessage(`"{\"kind\":\"bring_in\",\"sha\":\"head\",\"wait\":\"wait\"}"`)
+		}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			item := db.MythicalItem{WorkspaceID: "coding", RequestRunID: "offering", Checks: mythicalChecks{ForeignBring: &mythicalForeignBring{Workspace: "coding", SHA: "head", Wait: "wait"}}.encode()}
+			update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{Target: flowruntime.Target{WorkspaceID: "coding"}, Run: &flowruntime.Run{RunID: "offering", PendingWaits: []flowruntime.PendingWait{{Reason: "event", Request: json.RawMessage(`{"kind":"bring_in","sha":"head","wait":"wait"}`)}}}}}
+			test.change(&update)
+			projectForeignBringCheckpoint(&item, mythicalProjection{Phase: "todo"}, update)
+			require.Equal(t, test.ready, mythicalChecksOf(item).ForeignBring.Checkpoint)
+		})
+	}
 }

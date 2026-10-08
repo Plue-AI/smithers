@@ -13,9 +13,10 @@ import (
 // machineRebase shares the install's authenticated connection, object transport
 // and event consumer. It never substitutes a host working copy for the daemon.
 type machineRebase struct {
-	registry *machined.Registry
-	pool     *pgxpool.Pool
-	presence *branchPresence
+	registry    *machined.Registry
+	pool        *pgxpool.Pool
+	presence    *branchPresence
+	ensureReady func(context.Context, string) error
 }
 
 func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, onto, base string, admit func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
@@ -23,6 +24,12 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 		return machined.RewriteResult{}, fmt.Errorf("rebase event consumer: %w", machined.ErrNotReady)
 	}
 	link, err := r.registry.Current(branch)
+	if (err != nil || link.RequireReady(branch) != nil) && r.ensureReady != nil {
+		if err := r.ensureReady(ctx, branch); err != nil {
+			return machined.RewriteResult{}, err
+		}
+		link, err = r.registry.Current(branch)
+	}
 	if err != nil {
 		return machined.RewriteResult{}, fmt.Errorf("rebase connection: %w", err)
 	}

@@ -455,12 +455,12 @@ func (service *Service) handleRunMutation(ctx context.Context, lease *jobs.Lease
 		var projection struct {
 			Kind string `json:"kind"`
 		}
-		if kind == "signal" && json.Unmarshal(payload.Projection, &projection) == nil && projection.Kind == "mythical-pause" {
-			// Pause controls are not conversation inputs. Resume must reach the
+		if kind == "signal" && json.Unmarshal(payload.Projection, &projection) == nil && (projection.Kind == "mythical-pause" || projection.Kind == "mythical-bring") {
+			// Checkpoint controls are not conversation inputs. Completion must reach the
 			// durable wait even when earlier text is held by that very pause.
 			// Only the person-authorized control admission sets this projection.
 			// Keep controls ordered with each other; text still orders behind both.
-			match["projection"] = map[string]any{"kind": "mythical-pause"}
+			match["projection"] = map[string]any{"kind": projection.Kind}
 		}
 		fragment := mustJSON(match)
 		pending, err := service.store.HasEarlierPending(ctx, claim.Scope, claim.OperationID,

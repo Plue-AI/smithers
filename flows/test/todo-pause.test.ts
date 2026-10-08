@@ -272,3 +272,72 @@ test("the no-pause boundary survives the Control plan JSON round trip", () => {
   }
   assert.equal(emptyBranches, 1)
 })
+
+// The ordinary TODO checkpoint acknowledges Bring in independently of its
+// notification inbox. Wrong and old completions cannot release a later push.
+test("Bring in parks the same TODO until its matching native completion", { timeout: 30_000 }, async () => {
+  let release!: () => void
+  const ready = new Promise<void>((resolve) => { release = resolve })
+  let entered = 0, finished = 0
+  const Before = Action.make("test/bring-before", { payload: {}, success: Schema.Void })
+  const After = Action.make("test/bring-after", { payload: {}, success: Schema.Void })
+  const Todo = Flow.make("todo", { payload: {}, success: Schema.Void, error: TodoBoundary.errorSchema,
+    body: () => Before.call({}).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(After.call({}))) })
+  const engine = Layer.mergeAll(Interpreter.layer(Todo), Interpreter.layer(TodoBoundary), WaitFor.layer, todoPauseLayer,
+    Before.toLayer(() => Effect.promise(async () => { entered++; await ready })),
+    After.toLayer(() => Effect.sync(() => { finished++ }))).pipe(
+      Layer.provideMerge(Layer.succeed(ModuleOwner, { rootId: "bring-todo", flowId: "todo" })),
+      Layer.provideMerge(SqlControlRuntime.layer({}).pipe(Layer.orDie)),
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(EngineStore.layer({ owner: { hostId: "bring-host" }, journalSource: "bring-host", isAlive: () => Effect.succeed(false) })),
+      Layer.provideMerge(Layer.mergeAll(StepBoundary.layerTest(), Layer.succeed(Jj.Jj, jj), OwnerIdentity.layer)),
+      Layer.provideMerge(database))
+  const layer = Layer.merge(engine, plane).pipe(Layer.provideMerge(engine))
+  const sha = "a".repeat(40)
+  await Effect.runPromise(Effect.gen(function*() {
+    const control = yield* Control
+    const state = yield* DurableEngineState.DurableEngineState
+    const store = yield* RunStore.RunStore
+    const signal = (name: string, payload: { sha: string; wait: string }) => control.signal({ runId: "bring-todo", signal: { name, payload }, idempotencyKey: `${name}/${payload.wait}` })
+    yield* Todo.execute({}, { executionId: "bring-todo", discard: true })
+    yield* TestDatabase.until(Effect.sync(() => entered === 1))
+    // A background poll can be running between observing and rewriting the
+    // retained root park. The durable signal must retain its wake in that gap.
+    assert.equal((yield* state.waitingTree("bring-todo")).length, 0)
+    assert.equal(yield* deliverSignal({ runId: "bring-todo", signal: { name: "bring_in", payload: { sha, wait: "push-1" } } }), "delivered")
+    assert.ok((yield* (yield* ControlRuntime).pendingResumes).some((entry) => entry.runId === "bring-todo"))
+    yield* signal("bring_in", { sha, wait: "push-1" })
+    yield* signal("bring_in", { sha, wait: "push-1" })
+    release()
+    yield* TestDatabase.until(Effect.gen(function*() {
+      yield* drainRecordedSignals
+      const waiting = yield* state.waiting("bring-todo")
+      return Option.isSome(waiting) && waiting.value.reason === "event" &&
+        JSON.stringify(waiting.value.request) === JSON.stringify({ kind: "bring_in", sha, wait: "push-1" })
+    }))
+    assert.equal(finished, 0)
+    const checkpoint = yield* (yield* ControlRuntime).getRun("bring-todo")
+    assert.equal(checkpoint.status, "parked")
+    assert.equal(checkpoint.pendingWaits?.[0]?.reason, "event")
+    assert.deepEqual(checkpoint.pendingWaits?.[0]?.request, { kind: "bring_in", sha, wait: "push-1" })
+    const runtime = yield* ControlRuntime
+    for (const pending of yield* runtime.pendingResumes) {
+      if (pending.runId === "bring-todo") yield* runtime.clearResume(pending.runId, pending.sequence)
+    }
+    // Another checkpoint request cannot answer the current named child wait.
+    assert.equal(yield* deliverSignal({ runId: "bring-todo", signal: { name: "bring_in", payload: { sha, wait: "push-2" } } }), "delivered")
+    assert.equal((yield* runtime.pendingResumes).some((entry) => entry.runId === "bring-todo"), false)
+    assert.deepEqual(Option.getOrUndefined(yield* state.waiting("bring-todo"))?.request, { kind: "bring_in", sha, wait: "push-1" })
+    yield* signal("bring_in_complete#push-0", { sha, wait: "push-0" }).pipe(Effect.catchTag("/control/NoMatchingWait", () => Effect.void))
+    yield* Todo.resume("bring-todo")
+    assert.equal(finished, 0)
+    yield* signal("bring_in_complete#push-1", { sha, wait: "push-1" })
+    yield* TestDatabase.until(Effect.gen(function*() {
+      yield* drainRecordedSignals
+      return (yield* store.get("bring-todo")).status === "completed"
+    }))
+    yield* Todo.execute({}, { executionId: "bring-todo" })
+    assert.equal(entered, 1)
+    assert.equal(finished, 1)
+  }).pipe(Effect.provide(layer), Effect.scoped))
+})

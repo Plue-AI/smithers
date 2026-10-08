@@ -630,15 +630,21 @@ describe("ControlLive when the row moves under it", () => {
     const receipts = await Promise.all(
       [
         (runId: string) => new ClaimLost({ runId }),
-        (runId: string) => new RunNotFound({ runId })
-      ].map((refusal) => {
+        (runId: string) => new RunNotFound({ runId }),
+        (runId: string) => new ClaimLost({ runId, parkedBy: { hostId: "retained-host", pid: 123 } }),
+        (runId: string) => new ClaimLost({ runId, parkedBy: { hostId: "retained-host", pid: 123 } })
+      ].map((refusal, index) => {
         // Armed after the run exists: starting one needs the very reads and
         // claims this then takes away.
         let armed = false
         const stack = live({
           runtime: wrapping((runtime) => ({
             getRun: (runId) => armed ? Effect.map(runtime.getRun(runId), parked) : runtime.getRun(runId),
-            resume: (runId, options) => armed ? Effect.fail(refusal(runId)) : runtime.resume(runId, options)
+            resume: (runId, options) => armed ? Effect.fail(refusal(runId)) : runtime.resume(runId, options),
+            // The owning host can finish after the public claim refuses.
+            requestResume: (runId, options) => index === 3 && armed
+              ? Effect.fail(new InvalidInput({ issue: "run completed" }))
+              : runtime.requestResume(runId, options)
           }))
         })
         return run(
@@ -646,13 +652,18 @@ describe("ControlLive when the row moves under it", () => {
             const control = yield* Control
             const runId = yield* start("parked-wake")
             armed = true
-            return yield* control.steer(steer(runId))
+            const receipt = yield* control.steer(steer(runId))
+            const runtime = yield* ControlRuntime
+            return { receipt, delegated: (yield* runtime.pendingResumes).map((entry) => entry.runId), runId }
           }),
           stack
         )
       })
     )
 
-    for (const receipt of receipts) expect(receipt._tag).toBe("Accepted")
+    for (const [index, observed] of receipts.entries()) {
+      expect(observed.receipt._tag).toBe("Accepted")
+      expect(observed.delegated).toEqual(index === 2 ? [observed.runId] : [])
+    }
   })
 })

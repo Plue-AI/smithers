@@ -315,3 +315,33 @@ func TestTodoWakeFiftyPendingInputsRestart(t *testing.T) {
 	}
 	t.Logf("restored_pending_inputs=50 delivered_once=50 restart_to_delivery_ms=%d; protocol fixture excludes machine queue, wake, run_attached and model reservations", elapsed.Milliseconds())
 }
+
+// Completion must reach the native checkpoint even if a prior conversation
+// input is still waiting for the same TODO. Other signals retain input order.
+func TestTodoBringCheckpointCompletionDoesNotWaitForHeldSteer(t *testing.T) {
+	store, pool := newFlowDispatchStore(t)
+	ctx := t.Context()
+	runtime := newRecordingRuntime()
+	runtime.status = "waiting"
+	service, err := New(Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		return todoWakeRuntime{runtime}, nil
+	}), SteerAuthorizer: allowTestSteer})
+	require.NoError(t, err)
+	scope := jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}
+	target := flowruntime.Target{BindingKind: StackBindingKind, BindingID: "00000000-0000-0000-0000-000000000001", WorkspaceID: "coding"}
+	held, err := service.Steer(ctx, SteerRequest{Scope: scope, Target: target, RequestID: "held-steer", FlowID: TodoFlow, RunID: "offering", MessageID: "held-message", CreatedAt: 1791228000000, Body: "Keep this input"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET next_attempt_at=NOW()+interval '1 hour' WHERE operation_id=$1`, held.OperationID)
+	require.NoError(t, err)
+	completion, err := service.Signal(ctx, SignalRequest{Scope: scope, Target: target, RequestID: "bring-complete", FlowID: TodoFlow, RunID: "offering", Name: "bring_in_complete#wait", Payload: json.RawMessage(`{"sha":"head","wait":"wait"}`), Projection: json.RawMessage(`{"kind":"mythical-bring"}`)})
+	require.NoError(t, err)
+	startTestWorker(t, service, "bring-completion")
+	waitOperation(t, store, scope, completion.OperationID, func(op jobs.Operation) bool { return op.State == jobs.StateCompleted })
+	runtime.mu.Lock()
+	require.Len(t, runtime.signals, 1)
+	require.Empty(t, runtime.steers)
+	runtime.mu.Unlock()
+	pending, err := store.Get(ctx, scope, held.OperationID)
+	require.NoError(t, err)
+	require.Equal(t, jobs.StateAccepted, pending.State)
+}

@@ -11,7 +11,7 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import Request from "./request-flow.ts"
 import { CodingError, RequestInput, RequestResult } from "./schema.ts"
 import { renderFeedback } from "./steering.ts"
-import { TodoBoundary } from "./todo-pause.ts"
+import { TodoBoundary, todoBringBoundary } from "./todo-pause.ts"
 import { readTodoDelivery } from "./vibe-evidence.ts"
 import Vibe, { VibeError } from "./vibe-flow.ts"
 import { VibeDelivered } from "./vibe-schema.ts"
@@ -61,6 +61,7 @@ const reviewInputLayer = TodoReviewInput.toLayer(() =>
     if (Option.isNone(owner) || owner.value.flowId !== "todo") {
       return yield* new CodingError({ code: "unavailable", message: "Review input requires its TODO attempt" })
     }
+    yield* todoBringBoundary(owner.value.rootId)
     const instance = yield* FlowRuntime.FlowInstance
     const queue = yield* NotificationQueue.NotificationQueue
     for (let rung = 0;; rung++) {

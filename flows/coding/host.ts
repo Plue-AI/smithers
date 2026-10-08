@@ -77,7 +77,7 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
-import { TodoBoundary, todoPauseLayer } from "./todo-pause.ts"
+import { TodoBoundary, todoBringBoundary, todoPauseLayer } from "./todo-pause.ts"
 import { todoDeliveryLayer, todoReviewLayer, todoLayers } from "./todo.ts"
 import { todoConflictLayer } from "./todo-conflict.ts"
 import { verifyRegistration } from "./verify.ts"
@@ -631,6 +631,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       // Retained TODO attempts wait for stack signals after delivery. A
       // scratch Run owns no stack item and finishes with its module result.
       reenterModules: options.planning === undefined || options.draftVersion ? undefined : ["todo"],
+      reentryCheckpoint: (runId, flowId) => flowId === "todo" ? todoBringBoundary(runId) : Effect.void,
       agentLimits: options.planning?.limits,
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),

@@ -29,6 +29,13 @@ describe("waiting annotation", () => {
       .toEqual({ reason: "approval" })
   })
 
+  it("keeps the retained stack rendezvous through an unrequested poll", () => {
+    expect(waitingAnnotation("parked", [], { reason: "event", token: null, request: { kind: "stack" } }))
+      .toEqual({ reason: "event", request: JSON.stringify({ kind: "stack" }) })
+    expect(waitingAnnotation("waiting-approval", [], { reason: "event", token: null, request: { kind: "stack" } }))
+      .toEqual({ reason: "approval" })
+  })
+
   it("keeps approval and event parks distinct from timers", () => {
     expect(waitingAnnotation("waiting-approval", [])).toEqual({ reason: "approval" })
     expect(waitingAnnotation("parked", [])).toEqual({ reason: "event" })

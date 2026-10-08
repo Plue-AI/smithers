@@ -176,6 +176,8 @@ export type SandboxOpener = (session: string) => Effect.Effect<SandboxedRun, unk
 export interface Options {
   /** Host-owned module launches that retain their control run for later input. */
   readonly reenterModules?: ReadonlyArray<string> | undefined
+  /** Host-owned controls at the boundary after a retained module settles. */
+  readonly reentryCheckpoint?: ((runId: string, flowId: string) => Effect.Effect<void, unknown, ControlRuntime | FlowRuntime.FlowRuntime | FlowRuntime.FlowInstance>) | undefined
   /**
    * The host's sandbox providers: the opener for a flow's `sandbox:`
    * selection, `SandboxRefused` when the configured provider cannot honor it,
@@ -2385,8 +2387,8 @@ export const readExecution = (
         status: current.status === "pending"
           ? "accepted"
           : current.status === "suspended"
-          ? reason === ControlExecutor.humanWaitReason || pendingWaits.length > 0 ? "waiting-approval" : "parked"
-          : current.status === "running" && pendingWaits.length > 0
+          ? reason === ControlExecutor.humanWaitReason || pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason) ? "waiting-approval" : "parked"
+          : current.status === "running" && pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason)
           ? "waiting-approval"
           : current.status,
         waitingReason: current.status === "suspended" ? reason : undefined,
@@ -2521,6 +2523,24 @@ export const deliverSignal = (
     // operator knows about answered `/control/NoMatchingWait` for a wait that
     // was wide open (`DurableEngineState.waitingTree`).
     const open = yield* state.waitingTree(input.runId)
+    // A TODO's Bring in is a checkpoint request, never an answer to an
+    // unrelated human wait. Its admitting host binds the sponsor and run.
+    // Preserve a wake when a poll temporarily hides the trailing stack park.
+    // A human-held run reads the durable inbox at its next coding boundary.
+    if (input.signal.name === "bring_in" && typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+      typeof (payload as Readonly<Record<string, unknown>>).sha === "string" && /^[a-f0-9]{40}$/.test((payload as Readonly<Record<string, unknown>>).sha as string) &&
+      typeof (payload as Readonly<Record<string, unknown>>).wait === "string" && ((payload as Readonly<Record<string, unknown>>).wait as string).length > 0 &&
+      ((payload as Readonly<Record<string, unknown>>).wait as string).length <= 128 && Option.isSome(control)) {
+      const run = yield* control.value.getRun(input.runId).pipe(Effect.catchTag("/control/RunNotFound", () => Effect.succeed(undefined)))
+      if (run?.flowId === "todo") {
+        if (open.length === 0 || open.some((row) => row.reason === "event" && row.request !== undefined &&
+          typeof row.request === "object" && row.request !== null &&
+          (row.request as Readonly<Record<string, unknown>>).kind === "stack")) {
+          yield* recordAnswerResume
+        }
+        return "delivered" as const
+      }
+    }
     let token = input.token ?? null
     let reason = "event"
     if (token === null) {
@@ -3510,9 +3530,16 @@ export const make = (
                 return yield* Exit.isSuccess(result.value.exit) ? Effect.succeed(result.value.exit.value) : Effect.failCause(result.value.exit.cause)
               }
               if (Option.isSome(previous) && previous.value.status === "completed") {
+                if (options.reentryCheckpoint !== undefined) yield* options.reentryCheckpoint(payload.runId, card.flowId).pipe(
+                  Effect.provideService(ControlRuntime, runtime),
+                  Effect.provideService(FlowRuntime.FlowRuntime, engine),
+                  Effect.provideService(FlowRuntime.FlowInstance, instance)
+                )
                 if ((yield* queue.pending(payload.runId)).length === 0) {
                   moduleHolds.add(instance)
-                  yield* FlowRuntime.annotateWaiting({ reason: "event" })
+                  yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) }).pipe(
+                    Effect.provideService(FlowRuntime.FlowInstance, instance)
+                  )
                   return yield* Flow.suspend(instance)
                 }
                 ordinal++
@@ -3540,7 +3567,9 @@ export const make = (
           )
           if (reenter && !completing) {
             moduleHolds.add(instance)
-            yield* FlowRuntime.annotateWaiting({ reason: "event" })
+            yield* FlowRuntime.annotateWaiting({ reason: "event", request: JSON.stringify({ kind: "stack" }) }).pipe(
+              Effect.provideService(FlowRuntime.FlowInstance, instance)
+            )
             return yield* Flow.suspend(instance)
           }
           return result
@@ -4362,19 +4391,69 @@ export const make = (
                 : []
               const prior = Option.getOrUndefined(yield* engineState.waiting(payload.runId)) ??
                 (yield* pendingApprovalWait(payload.runId))
-              yield* FlowRuntime.annotateWaiting(waitingAnnotation(controlRun.status, clocks, prior))
-              return yield* Flow.suspend(instance)
+              let annotation = waitingAnnotation(controlRun.status, clocks, prior)
+              // The control park settles before the driver's waiting row. A
+              // concurrent re-park can therefore see the old cleared row. Read
+              // the completed module receipt to retain that stack rendezvous;
+              // an unfinished child or any named/human wait keeps its own gate.
+              if (annotation.reason === "event" && annotation.token === undefined && annotation.request === undefined &&
+                options.reenterModules?.includes(controlRun.flowId) === true) {
+                let completedModule: string | undefined
+                yield* scanRun(journal, payload.runId, (entries) => {
+                  for (const entry of entries) {
+                    if (entry.eventType !== "control.module.launched") continue
+                    const marker = Schema.decodeUnknownOption(Schema.Struct({
+                      ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+                      executionDigest: Schema.String,
+                      executionId: Schema.String
+                    }))(entry.payload)
+                    if (Option.isSome(marker)) {
+                      const value = marker.value
+                      const expected = value.ordinal === 0
+                        ? moduleExecutionId(payload.runId, value.executionDigest)
+                        : Digest.digest(Digest.canonical(["control/module/reentry", payload.runId, value.executionDigest, value.ordinal]))
+                      completedModule = value.executionId === expected ? expected : undefined
+                    } else completedModule = undefined
+                  }
+                })
+                if (completedModule !== undefined) {
+                  const module = yield* engineRuns.get(completedModule).pipe(
+                    Effect.map(Option.some),
+                    Effect.catch((error) => error.code === "not_found_row" ? Effect.succeed(Option.none<RunStore.RunRow>()) : Effect.fail(error))
+                  )
+                  if (Option.isSome(module) && module.value.status === "completed") {
+                    annotation = { reason: "event", request: JSON.stringify({ kind: "stack" }) }
+                  }
+                }
+              }
+              // A steer can arrive while a trampoline poll reports Running,
+              // before it writes this park. Its courtesy wake then sees no park
+              // to claim. The retained host drains the durable inbox on its own
+              // stack rendezvous; child waits and a foreign park keep their gate.
+              const queue = yield* NotificationQueue.NotificationQueue
+              const queuedStack = annotation.reason === "event" && annotation.token === undefined &&
+                annotation.request === JSON.stringify({ kind: "stack" }) &&
+                options.reenterModules?.includes(controlRun.flowId) === true &&
+                (yield* runtime.codeDrift(payload.runId)) === undefined &&
+                (yield* hostsPark(payload.runId, { _tag: "delegated" })) &&
+                (yield* queue.pending(payload.runId)).length > 0
+              if (!queuedStack) {
+                yield* FlowRuntime.annotateWaiting(annotation)
+                return yield* Flow.suspend(instance)
+              }
+              yield* reclaimControl
+            } else {
+              yield* reclaimControl
+              // An operator's resume handed to this host grants its released
+              // children before the body can re-admit them.
+              if (pending.consent !== undefined) yield* authorizeReleased(payload.runId, pending.consent)
+              // One answer buys one re-drive. The delegation is durable and only a
+              // host clears it, and this round IS the host taking it up: left
+              // standing it would re-drive the run's NEXT park too, which is the
+              // unrequested round this guard exists to refuse. The sequence check
+              // keeps a resume requested since this read.
+              yield* runtime.clearResume(payload.runId, pending.sequence)
             }
-            yield* reclaimControl
-            // An operator's resume handed to this host grants its released
-            // children before the body can re-admit them.
-            if (pending.consent !== undefined) yield* authorizeReleased(payload.runId, pending.consent)
-            // One answer buys one re-drive. The delegation is durable and only a
-            // host clears it, and this round IS the host taking it up: left
-            // standing it would re-drive the run's NEXT park too, which is the
-            // unrequested round this guard exists to refuse. The sequence check
-            // keeps a resume requested since this read.
-            yield* runtime.clearResume(payload.runId, pending.sequence)
           } else if (controlRun !== undefined) {
             // A running run this process does not own is one the engine took
             // over from a host that died mid-run: it re-drives an execution only
