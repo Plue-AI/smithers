@@ -143,3 +143,9 @@ fn cadence_boundaries_and_failed_attempt_remain_due() {
     c.captured(now + Duration::from_secs(6));
     assert!(!c.due(now + Duration::from_secs(7)));
 }
+
+// Acceptance evidence runs the installed executable; the fixtures above only
+// qualify cadence and hook ordering as unit/component behavior.
+#[cfg(target_os = "linux")]
+#[path = "capture/installed.rs"]
+mod installed;

@@ -26,6 +26,8 @@ struct Host {
     store: tempfile::TempDir,
     bundle: Vec<u8>,
     captured: Option<[u8; 20]>,
+    acknowledge: bool,
+    seen: Vec<(u64, [u8; 16])>,
 }
 fn guest() -> (Guest, Host) {
     let init = std::env::var("SMITHERS_NAMESPACE_INIT")
@@ -146,13 +148,15 @@ fn guest() -> (Guest, Host) {
                 store,
                 bundle: Vec::new(),
                 captured: None,
+                acknowledge: true,
+                seen: Vec::new(),
             },
         )
     }
 }
 fn authenticate(stream: &mut TcpStream) {
     stream
-        .set_read_timeout(Some(Duration::from_secs(15)))
+        .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
     stream
         .set_write_timeout(Some(Duration::from_secs(2)))
@@ -184,6 +188,9 @@ fn authenticate(stream: &mut TcpStream) {
     .unwrap();
 }
 fn call(host: &mut Host, method: u8, fields: &[Vec<u8>]) -> Vec<u8> {
+    exchange(host, method, fields, false)
+}
+fn exchange(host: &mut Host, method: u8, fields: &[Vec<u8>], stop_at_event: bool) -> Vec<u8> {
     Frame {
         kind: 1,
         stream: 0,
@@ -197,7 +204,12 @@ fn call(host: &mut Host, method: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     }
     .write(&mut host.stream)
     .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
     loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "request never completed"
+        );
         let f = Frame::read(&mut host.stream).unwrap();
         if f.kind == 6 {
             let payload = match f.payload[0] {
@@ -239,6 +251,7 @@ fn call(host: &mut Host, method: u8, fields: &[Vec<u8>]) -> Vec<u8> {
         }
         if f.kind == 2 && f.payload[0] == 1 {
             let event = conn::Durable::decode(&f.payload).unwrap();
+            host.seen.push((event.seq, event.id));
             if let Some(head) = event.captured_head() {
                 let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
                 let output = Command::new("/usr/bin/git")
@@ -250,16 +263,21 @@ fn call(host: &mut Host, method: u8, fields: &[Vec<u8>]) -> Vec<u8> {
                 assert!(output.status.success(), "event preceded its objects");
                 host.captured = Some(head);
             }
-            Frame {
-                kind: 2,
-                stream: 0,
-                payload: conn::tagged(
-                    3,
-                    &[conn::field(1, event.seq.to_be_bytes()), conn::field(2, [1])],
-                ),
+            if host.acknowledge || event.captured_head().is_none() {
+                Frame {
+                    kind: 2,
+                    stream: 0,
+                    payload: conn::tagged(
+                        3,
+                        &[conn::field(1, event.seq.to_be_bytes()), conn::field(2, [1])],
+                    ),
+                }
+                .write(&mut host.stream)
+                .unwrap();
             }
-            .write(&mut host.stream)
-            .unwrap();
+            if stop_at_event && event.captured_head().is_some() {
+                return f.payload;
+            }
         }
         if f.kind == 1 {
             return conn::fields("response", &f.payload[1..]).unwrap()[1]
@@ -291,6 +309,38 @@ fn production_binary_dark_activation_and_confined_read() {
         assert_eq!(call(&mut host, 2, &[conn::field(1, value)])[0], 255);
     }
 
+    // A rejected newcomer cannot retire the authenticated live connection.
+    let address = host.stream.peer_addr().unwrap();
+    let mut bad = TcpStream::connect(address).unwrap();
+    bad.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    assert_eq!(Frame::read(&mut bad).unwrap().payload[0], 1);
+    Frame {
+        kind: 0,
+        stream: 0,
+        payload: conn::tagged(
+            2,
+            &[conn::field(1, 9u16.to_be_bytes()), conn::field(2, [0; 32])],
+        ),
+    }
+    .write(&mut bad)
+    .unwrap();
+    assert_eq!(
+        Frame::read(&mut bad).unwrap().payload,
+        vec![5, 0, 0, 0, 2, 1, 14]
+    );
+    assert_eq!(call(&mut host, 1, &[])[0], 1);
+    let mut replacement = TcpStream::connect(address).unwrap();
+    authenticate(&mut replacement);
+    host.stream = replacement;
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(
+        call(
+            &mut host,
+            2,
+            &[conn::field(1, [0, 4, b'f', b'i', b'l', b'e'])]
+        )[0],
+        2
+    );
     let workspace = guest.root.path().join("workspace");
     std::os::unix::fs::symlink("/etc/passwd", workspace.join("symlink")).unwrap();
     fs::create_dir(workspace.join("directory")).unwrap();
@@ -417,4 +467,56 @@ fn killed_production_daemon_restarts_and_authenticates_with_retained_boot() {
         &[conn::field(1, [0, 4, b'f', b'i', b'l', b'e'])],
     );
     assert!(read.windows(16).any(|w| w == b"outside sentinel"));
+}
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; authenticated lost-ack replay"]
+fn production_capture_replays_verified_event_after_lost_acknowledgement() {
+    for _ in 0..10 {
+        lost_ack_case();
+    }
+}
+fn lost_ack_case() {
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    // First drain ordinary setup so the fault applies to this capture alone.
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    fs::write(
+        guest.root.path().join("workspace/file"),
+        b"lost ack sentinel",
+    )
+    .unwrap();
+    host.acknowledge = false;
+    let payload = exchange(&mut host, 4, &[], true);
+    let original = conn::Durable::decode(&payload).unwrap();
+    let address = host.stream.peer_addr().unwrap();
+    host.stream.shutdown(std::net::Shutdown::Both).unwrap();
+    host.stream = TcpStream::connect(address).unwrap();
+    authenticate(&mut host.stream);
+    host.acknowledge = true;
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    assert!(
+        host.seen
+            .iter()
+            .filter(|entry| **entry == (original.seq, original.id))
+            .count()
+            >= 2,
+        "replay changed durable identity"
+    );
+    let hex: String = host
+        .captured
+        .unwrap()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let output = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(host.store.path())
+        .args(["show", &format!("{hex}:file")])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"lost ack sentinel");
 }
