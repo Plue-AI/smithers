@@ -149,3 +149,14 @@ test("packaged Stop and Resume each require their own reached crossing", () => {
       .toThrow("skipped or failed")
   }
 })
+
+
+test("accepts a fault marker bound to its Go subtest log", () => {
+  const name = "TestHost/fault"
+  const transcript = [
+    { Action: "output", Test: name, Output: "    host_test.go:80: CRASH-POINT host-keyless-crossing subject todo\n" },
+    { Action: "pass", Test: name },
+  ].map(event => JSON.stringify(event)).join("\n")
+  expect(() => requireReachedGoFault(transcript, name, ["host-keyless-crossing"])).not.toThrow()
+  expect(() => requireReachedGoFault(transcript.replace(name, "TestHost"), name)).toThrow("logged no kill marker")
+})

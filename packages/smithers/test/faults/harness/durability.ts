@@ -36,7 +36,7 @@ export function requireReachedGoFault(log: string, name: string, requiredPoints:
     assert(events.some((event) => event.Action === "pass" && event.Test === test),
       `required fault subtest did not pass: ${test}`)
     const output = events.filter((event) => event.Test === test).map((event) => event.Output ?? "").join("")
-    const markers = [...output.matchAll(/^CRASH-POINT ([a-zA-Z0-9][a-zA-Z0-9-]*)(?:[ \t][^\r\n]*)?\r?$/gm)]
+    const markers = [...output.matchAll(/^(?:[ \t]+[^\r\n:]+\.go:\d+: )?CRASH-POINT ([a-zA-Z0-9][a-zA-Z0-9-]*)(?:[ \t][^\r\n]*)?\r?$/gm)]
     assert(markers.length > 0,
       `required fault test logged no kill marker: ${test}`)
     for (const marker of markers) {

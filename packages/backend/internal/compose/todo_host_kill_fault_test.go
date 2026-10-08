@@ -77,7 +77,7 @@ export default Flow.make("todo", {
 		require.Positive(t, host.PID)
 		// This PID is the service started by this rehearsal, never a host-wide search.
 		require.NoError(t, syscall.Kill(host.PID, syscall.SIGKILL))
-		fmt.Println("CRASH-POINT host-keyless-crossing subject todo")
+		t.Log("CRASH-POINT host-keyless-crossing subject todo")
 		failed, err := r.waitTodoWithin(number, 3*time.Minute, "failed")
 		require.NoError(t, err)
 		require.NotNil(t, failed.FlowVersion)
@@ -117,7 +117,7 @@ export default Flow.make("todo", {
 		require.True(t, preserved, "Retry must retain the original attempt's pin and source evidence")
 		// newRehearsal closes every owned runtime and worker at test cleanup.
 		// Dropping a live override separately requires stopped-writer capture.
-		fmt.Println(`CRASH-OBSERVATION {"point":"host-keyless-crossing","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1}`)
+		t.Log(`CRASH-OBSERVATION {"point":"host-keyless-crossing","subject":"todo","stepsReRun":0,"automaticKeylessRepeats":0,"retryAttempts":1}`)
 	})
 }
 
