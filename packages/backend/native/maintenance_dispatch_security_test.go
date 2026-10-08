@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // These suites execute apps/backend/main.go, including os.Executable and the
@@ -147,7 +148,7 @@ func maintenanceManifest(t *testing.T, directory string, manifest hostbackup.Man
 func TestHostRestorePathConfinement(t *testing.T) {
 	require.NotZero(t, os.Geteuid(), "never execute branch-built code as root")
 	bundle := installedMaintenanceCommand(t)
-	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "replaced state tree", "replaced dump", "replaced manifest", "link loop"} {
+	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "replaced state tree", "replaced dump", "replaced manifest", "link loop", "cross-tree link", "fifo dump", "windows entry", "nul entry"} {
 		t.Run(name, func(t *testing.T) {
 			home, state := ownerHome(t)
 			outside := filepath.Join(home, "outside")
@@ -159,6 +160,21 @@ func TestHostRestorePathConfinement(t *testing.T) {
 			link := "state/workspaces/escape"
 			target := ""
 			switch name {
+			case "windows entry":
+				manifest.Files[0].Path = `C:\outside\sentinel`
+				refusal = `unsafe_path: C:\outside\sentinel`
+			case "nul entry":
+				manifest.Files[0].Path = "state/config/secret\x00suffix"
+				refusal = "unsafe_path: state/config/secret\x00suffix"
+			case "fifo dump":
+				require.NoError(t, os.Remove(filepath.Join(backup, "postgres.dump")))
+				require.NoError(t, unix.Mkfifo(filepath.Join(backup, "postgres.dump"), 0600))
+				refusal = "unsafe_path: postgres.dump"
+			case "cross-tree link":
+				maintenanceSeedFile(t, filepath.Join(backup, "bundle/bin/payload"), "branch executable bytes", 0755)
+				sum := sha256.Sum256([]byte("branch executable bytes"))
+				manifest.Files = append(manifest.Files, hostbackup.File{Path: "bundle/bin/payload", Size: 23, SHA256: hex.EncodeToString(sum[:])})
+				target = "../../bundle/bin/payload"
 			case "absolute entry":
 				manifest.Files[0].Path = filepath.Join(outside, "sentinel")
 				refusal = "unsafe_path: " + manifest.Files[0].Path

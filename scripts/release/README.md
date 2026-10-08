@@ -32,3 +32,77 @@ creates check receipts nor qualifies a run: `scripts/check-run.mjs` and its
 approved reference-host mapping own qualification. Terminal completion alone
 is not proof that any call succeeded. Inspect every redacted call and both
 machines' complete duration, including the first observation after every wake.
+
+## Host maintenance recording (T-INS-07)
+
+The C-REL-03/C-REL-06 recorders require the tap-installed CLI on an Apple Silicon
+Mac, an unprivileged installing owner, and the bundled PostgreSQL 18 programs.
+They refuse on Linux. They do not install a candidate bundle or authorize guest
+root execution. Keep the configuration and artifacts private (they include
+install profiles and command transcripts). Diagnostic JSON is not an authenticated
+C-PRC-03 completion receipt.
+
+An owner configuration names `commit`, an absolute `evidence` directory outside
+STATE, `psql` (the absolute bundled executable), `database` (the owner's libpq
+connection string), and `tables`: a complete roster of `{ "name": "table_name",
+"exclude": [] }`. List only the N+1 migration's rewritten columns in `exclude`;
+retain that list for review. The recorder hashes ordered JSON rows without
+retaining raw rows, and independently hashes files, modes and symlink targets.
+PostgreSQL queries run read-only. Files exclude backups, logs, live PostgreSQL,
+the host socket, version.env and the incomplete-upgrade marker. These exclusions
+are explicit limitations; the transient install_settings.quiesce row is excluded from the database digest.
+All other database/journal exclusions require owner review.
+
+Run C-REL-03 stages on the reference Mac:
+
+```sh
+node scripts/journeys/upgrade.mjs capture /absolute/owner-config.json
+node scripts/journeys/upgrade.mjs refuse-merge /absolute/owner-config.json
+node scripts/journeys/upgrade.mjs refuse-burst /absolute/owner-config.json
+node scripts/journeys/upgrade.mjs upgrade /absolute/owner-config.json
+node scripts/journeys/upgrade.mjs failed-upgrade /absolute/owner-config.json
+```
+
+Before each stage, arrange the workload/release that C-REL-03 names. Use a new
+recording directory for each run; existing receipts are never overwritten. The
+failed-upgrade stage runs the printed restore argv without evaluating shell
+source and checks that it matches the durable marker. The owner still records
+sign-ins, wake/resume controls, secrets, versions and the screen recording.
+
+For C-REL-06, run `backup` on A under the specified concurrent load. It captures
+independent database/tree digests while the actual ready freeze holds, verifies
+the produced manifest against observed files, and stops A. Copy the archive and
+A's receipts to B's evidence directory using the owner's normal transport.
+Run `restore` on B with B's configuration and the absolute transferred directory:
+
+```sh
+node scripts/release/backup-restore.mjs backup /absolute/host-a-config.json
+node scripts/release/backup-restore.mjs restore /absolute/host-b-config.json '/absolute/backup-dir'
+```
+
+The B stage checks physical host UUID, user name and STATE path differ before
+restoring; it compares independent row and file digests afterward. Stage runners
+do not replace C-REL-06's mutation probes, machine-disk home/credential controls,
+GitHub exactly-once reconciliation, five-minute observation, corrupt-backup,
+free-space and retention checks. Those remain acceptance requirements.
+
+The fault suite drives six actual installed backup processes on A. Add `api`,
+`authHeaders` (owner cookie/CSRF or delegated authorization), and a literal `todo`
+request body to the configuration. Set `SMITHERS_HOST_BACKUP_FAULT_CONFIG` to its
+absolute path and run:
+
+```sh
+cd packages/smithers
+pnpm exec vitest run test/host-backup.fault.test.ts --coverage.enabled=false
+```
+
+It observes durable freezes and branch release states, owned PostgreSQL dump
+processes and partial-tree/manifest creation. It kills only its own detached
+command process group, waits 31 seconds, checks no new manifest was published,
+and creates a TODO through the served API. A missed checkpoint fails; it never
+inserts a test-only gate or substitutes a fake provider. Polling observes states,
+not instruction-exact boundaries: retain the observations and qualify them on
+the reference Mac before accepting the six fault receipts. The host flow drain
+and dependency barriers must be composed before these stages can succeed.
+Linux skips all six faults explicitly. Recorder logic has a separate portable
+check: `node --test scripts/release/host-maintenance-evidence.test.mjs`.
