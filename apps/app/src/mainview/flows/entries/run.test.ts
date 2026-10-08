@@ -28,6 +28,12 @@ const boot = async () => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller }
 }
+const inventorySettled = async (h: Awaited<ReturnType<typeof bootInstall>>, state: "completed" | "failed") => {
+  for (let attempt = 0; attempt < 100 && h.store.session().flowInventoryRequest?.state !== state; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  expect(h.store.session().flowInventoryRequest?.state).toBe(state)
+}
 const cards = (h: Awaited<ReturnType<typeof boot>>) => [...h.store.collections.cards.values()]
 
 test("run opens the seeded run's card, run.inspect maximizes it, a TODO ref names its latest attempt, runs opens every live run", async () => {
@@ -112,7 +118,10 @@ test("on an install, flow doors read GET /api/flows: the built-in TODO flow is e
     expect(html).toContain("Built-in")
     for (const label of ["Plan", "Implement", "Verify", "Review", "Propose", "Wait for merge"]) expect(html).toContain(label)
     expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.source", "flow.edit"])
-    expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "1 flows" })
+    // 12cf983e41: installed inventory persists admission, then finishes in the background.
+    expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "Requested" })
+    await inventorySettled(h, "completed")
+    expect(cards(h).filter(row => row.kind === "flow").map(row => row.id)).toEqual(["flow:todo"])
     expect(await h.controller.runCommandForResult("flow", "merge")).toMatchObject({ status: "failed", error: expect.stringContaining("No flow merge") })
     expect(await h.controller.runCommandForResult("flow.edit", "todo Add review")).toMatchObject({ status: "executed" })
     expect(cards(h).find(row => row.kind === "draft")?.payload).toMatchObject({ prompt: flowEditPrompt("todo", "Add review"), title: "Change the TODO flow: Add review" })
@@ -122,10 +131,19 @@ test("on an install, flow doors read GET /api/flows: the built-in TODO flow is e
 test("on an install, a catalog the install does not serve refuses the flow doors instead of reading the seed", async () => {
   const h = await bootInstall(() => Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 }))
   try {
-    for (const [name, args] of [["flow", "todo"], ["flow.edit", "todo Add review"], ["flow.source", "todo"], ["flows", undefined]] as const) {
+    for (const [name, args] of [["flow", "todo"], ["flow.edit", "todo Add review"], ["flow.source", "todo"]] as const) {
       expect(await h.controller.runCommandForResult(name, args)).toMatchObject({ status: "failed", error: expect.stringContaining("Flows unavailable") })
     }
     expect(cards(h).filter(row => row.kind === "flow" || row.kind === "draft")).toEqual([])
+    expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "Requested" })
+    await inventorySettled(h, "failed")
+    expect(cards(h).filter(row => row.kind === "flow" || row.kind === "draft")).toEqual([])
     expect(h.controller.flowCatalog?.get()).toEqual({ error: "Flows unavailable" })
+    for (let attempt = 0; attempt < 100 && ![...h.store.collections.toasts.values()].some(toast => toast.key === "flows.list" && toast.status === "failed"); attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    expect([...h.store.collections.toasts.values()]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "flows.list", status: "failed", detail: "Flows unavailable" })
+    ]))
   } finally { h.controller.dispose() }
 })
