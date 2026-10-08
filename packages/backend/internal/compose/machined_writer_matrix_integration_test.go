@@ -590,7 +590,7 @@ print(Path('/var/lib/smithers-machined/mutation-holds.jsonl').read_text(),end=''
 		require.Equal(t, "mutation_hold", sample.Event)
 		require.GreaterOrEqual(t, sample.End, sample.Start)
 		require.Equal(t, sample.End-sample.Start, sample.Hold)
-		if sample.Operation == "rewrite" {
+		if sample.Operation == "rebase" {
 			rebaseHolds++
 		}
 		if sample.Operation == "return_to_item" {

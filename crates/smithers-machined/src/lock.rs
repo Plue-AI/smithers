@@ -190,8 +190,11 @@ impl Executor {
                     job(&mut cx);
                     if counted {
                         cx.completed += 1;
-                        cx.last_hold =
-                            Some((name, cx.hooks.clock.mono().saturating_duration_since(start)));
+                        let end = cx.hooks.clock.mono();
+                        cx.last_hold = Some((name, end.saturating_duration_since(start)));
+                        if matches!(name, "rebase" | "return_to_item") {
+                            crate::freeze::record_hold(name, start, end);
+                        }
                     }
                 }
             })?;

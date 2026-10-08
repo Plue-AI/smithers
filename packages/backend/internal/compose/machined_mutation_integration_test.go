@@ -162,6 +162,29 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 	first, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.Head)
+	awaitIdle := func() {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			bursts, docs, err := registry.IdleSafety(ctx, branch)
+			return err == nil && bursts && docs
+		}, 10*time.Second, 10*time.Millisecond)
+
+	}
+	settledCapture := func() machined.CaptureResult {
+		t.Helper()
+		captured, err := registry.Capture(ctx, branch)
+		if err == machined.ErrNotReady {
+			// A capture can commit before its own jj metadata finishes the
+			// watcher debounce. The production sleep guard correctly keeps
+			// that machine awake. Re-enter capture after real quiet evidence;
+			// replay must still signal edited only once for the same tree.
+			awaitIdle()
+			captured, err = registry.Capture(ctx, branch)
+		}
+		require.NoError(t, err)
+		return captured
+	}
+
 	if mode == "preconditions" {
 		initial, updated := "created from browser", "updated from browser"
 		res := request("PUT", "preconditions.txt", `{"content":"created from browser","base_digest":"absent"}`)
@@ -185,18 +208,10 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		require.NoError(t, res.err)
 		require.Equal(t, http.StatusOK, res.status, "%s", res.body)
 		require.Contains(t, string(res.body), updated)
-		captured, err := registry.Capture(ctx, branch)
-		require.NoError(t, err)
+		awaitIdle()
+		captured := settledCapture()
 		require.Equal(t, []byte(updated), git("-C", store, "show", captured.Head+":preconditions.txt"))
 		return
-	}
-	awaitIdle := func() {
-		t.Helper()
-		require.Eventually(t, func() bool {
-			bursts, docs, err := registry.IdleSafety(ctx, branch)
-			return err == nil && bursts && docs
-		}, 10*time.Second, 10*time.Millisecond)
-
 	}
 	if mode == "race" {
 		awaitIdle()
@@ -314,20 +329,6 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		return
 	}
 	if mode == "pending" {
-		settledCapture := func() machined.CaptureResult {
-			t.Helper()
-			captured, err := registry.Capture(ctx, branch)
-			if err == machined.ErrNotReady {
-				// A capture can commit before its own jj metadata finishes the
-				// watcher debounce. The production sleep guard correctly keeps
-				// that machine awake. Re-enter capture after real quiet evidence;
-				// replay must still signal edited only once for the same tree.
-				awaitIdle()
-				captured, err = registry.Capture(ctx, branch)
-			}
-			require.NoError(t, err)
-			return captured
-		}
 
 		_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
 		require.NoError(t, err)
@@ -441,27 +442,30 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 	require.NoError(t, <-rewrite)
 	// The real daemon, rather than the HTTP harness, owns hold measurements.
 	// This is native component evidence; kernel-freeze qualification stays on VM.
-	log, err := os.ReadFile(filepath.Join(evidence, "machined-"+branch+".log"))
-	require.NoError(t, err)
-	var measured int
-	for _, line := range strings.Split(string(log), "\n") {
-		var sample struct {
-			Event     string `json:"event"`
-			Operation string `json:"operation"`
-			Start     uint64 `json:"start_ns"`
-			End       uint64 `json:"end_ns"`
-			Hold      uint64 `json:"hold_ns"`
+	require.Eventually(t, func() bool {
+		log, err := os.ReadFile(filepath.Join(evidence, "machined-"+branch+".log"))
+		require.NoError(t, err)
+		var measured int
+		for _, line := range strings.Split(string(log), "\n") {
+			var sample struct {
+				Event     string `json:"event"`
+				Operation string `json:"operation"`
+				Start     uint64 `json:"start_ns"`
+				End       uint64 `json:"end_ns"`
+				Hold      uint64 `json:"hold_ns"`
+			}
+			if json.Unmarshal([]byte(line), &sample) != nil || sample.Event != "mutation_hold" {
+				continue
+			}
+			require.Equal(t, "rebase", sample.Operation)
+			require.Greater(t, sample.Hold, uint64(0))
+			require.GreaterOrEqual(t, sample.End, sample.Start)
+			require.Equal(t, sample.End-sample.Start, sample.Hold)
+			measured++
 		}
-		if json.Unmarshal([]byte(line), &sample) != nil || sample.Event != "mutation_hold" {
-			continue
-		}
-		require.Equal(t, "rewrite", sample.Operation)
-		require.Greater(t, sample.Hold, uint64(0))
-		require.GreaterOrEqual(t, sample.End, sample.Start)
-		require.Equal(t, sample.End-sample.Start, sample.Hold)
-		measured++
-	}
-	require.Equal(t, 1, measured)
+		return measured == 1
+
+	}, 5*time.Second, time.Millisecond)
 
 	for i, w := range writes {
 		res := <-done[i]

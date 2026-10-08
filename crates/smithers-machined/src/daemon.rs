@@ -187,10 +187,19 @@ impl Daemon {
             let state = self.reconciled.clone();
             let roster = self.roster.clone();
             let current = self.generation.clone();
+            let job = if frame.kind == 1 {
+                match frame.request().map(|(_, method, _)| method) {
+                    Ok(11) => "rebase",
+                    Ok(12) => "return_to_item",
+                    _ => "host_rpc",
+                }
+            } else {
+                "host_rpc"
+            };
             let receipt = self
                 .executor
                 .lock
-                .enqueue("host_rpc", move |cx| {
+                .enqueue(job, move |cx| {
                     if current.load(Ordering::Acquire) != generation {
                         return Err(ProtocolError::HandshakeOrder);
                     }

@@ -45,31 +45,6 @@ fn freeze_for<T>(
     returning: bool,
     rewrite: impl FnOnce(&mut LockCx) -> Result<T>,
 ) -> Result<T> {
-    // Log on the guest monotonic clock, independently of host RPC latency or
-    // outbox acknowledgements. The guard also records refused and panicked holds.
-    struct Hold(std::time::Instant, bool);
-    impl Drop for Hold {
-        fn drop(&mut self) {
-            static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-            let origin = *ORIGIN.get_or_init(|| self.0);
-            let end = std::time::Instant::now();
-            let record = serde_json::json!({
-                "event": "mutation_hold", "operation": if self.1 { "return_to_item" } else { "rewrite" },
-                "start_ns": self.0.saturating_duration_since(origin).as_nanos(),
-                "end_ns": end.saturating_duration_since(origin).as_nanos(),
-                "hold_ns": end.saturating_duration_since(self.0).as_nanos()
-            });
-            eprintln!("{record}");
-            // The installed broker has no inherited stderr sink. Retain bounded
-            // measurements in the daemon-owned state, never a repository path.
-            // Qualification reads these as machined through the approved guest.
-            let _ = append_hold(
-                std::path::Path::new("/var/lib/smithers-machined/mutation-holds.jsonl"),
-                &record.to_string(),
-            );
-        }
-    }
-    let _hold = Hold(std::time::Instant::now(), returning);
     if cx.rewrite_pending {
         return Err(pending_error());
     }
@@ -141,6 +116,33 @@ pub fn inspect_then<T>(cx: &mut LockCx, inspect: impl FnOnce(&mut LockCx) -> Res
         Ok(result) => { thawed?; result }
         Err(panic) => { let _ = thawed; std::panic::resume_unwind(panic) }
     }
+}
+
+// Consume the executor's existing job interval, never time the freeze twice.
+// A bounded, nonblocking handoff keeps telemetry IO outside the mutation queue.
+// Missing samples fail the qualification count instead of delaying a rewrite.
+pub(crate) fn record_hold(operation: &'static str, start: std::time::Instant, end: std::time::Instant) {
+    type Sample = (&'static str, std::time::Instant, std::time::Instant);
+    static SENDER: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<Sample>>> = std::sync::OnceLock::new();
+    let sender = SENDER.get_or_init(|| {
+        let (sender, samples) = std::sync::mpsc::sync_channel::<Sample>(1024);
+        std::thread::Builder::new().name("machined-holds".into()).spawn(move || {
+            let mut origin = None;
+            for (operation, start, end) in samples {
+                let origin = *origin.get_or_insert(start);
+                let record = serde_json::json!({
+                    "event": "mutation_hold", "operation": operation,
+                    "start_ns": start.saturating_duration_since(origin).as_nanos(),
+                    "end_ns": end.saturating_duration_since(origin).as_nanos(),
+                    "hold_ns": end.saturating_duration_since(start).as_nanos()
+                });
+                eprintln!("{record}");
+                // The installed broker has no inherited stderr sink.
+                let _ = append_hold(std::path::Path::new("/var/lib/smithers-machined/mutation-holds.jsonl"), &record.to_string());
+            }
+        }).ok().map(|_| sender)
+    });
+    if let Some(sender) = sender { let _ = sender.try_send((operation, start, end)); }
 }
 
 // This runs only as the daemon, in its private state directory. Opening a leaf
