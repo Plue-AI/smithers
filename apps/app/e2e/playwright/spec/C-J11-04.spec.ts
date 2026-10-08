@@ -82,7 +82,7 @@ test("native edit and attempt boundaries suppress thrash, and a passing retry cl
 
 
 
-test("native Retry launches another pinned attempt and retains the failed journal", async ({ page, context }) => {
+test("native Retry launches another pinned attempt and retains the failed journal", async ({ page, context }, testInfo) => {
   test.setTimeout(180_000)
   const origin = process.env.SMITHERS_J11_ORIGIN
   const n = process.env.SMITHERS_J11_RETRY_N
@@ -97,6 +97,7 @@ test("native Retry launches another pinned attempt and retains the failed journa
   const failedArchive = await retainedBefore.json()
   expect(failedArchive.state).toBe("failed")
   expect(failedArchive.journal.length).toBeGreaterThan(0)
+  await writeFile(testInfo.outputPath("failed-before-retry.json"), JSON.stringify(failedArchive, null, 2))
   await page.goto(origin!)
   await say(page, `/run.inspect ${id}`)
   const run = page.locator('.mvp-run[data-maximized]')
@@ -117,6 +118,7 @@ test("native Retry launches another pinned attempt and retains the failed journa
   const receipts = (archive: { attempts: Array<{ n: number; run_id: string; state: string; graph: unknown; steps: unknown }> }) =>
     archive.attempts.map(({ n, run_id, state, graph, steps }) => ({ n, run_id, state, graph, steps }))
   expect(receipts(retainedAfter)).toEqual(receipts(failedArchive))
+  await writeFile(testInfo.outputPath("failed-after-retry.json"), JSON.stringify(retainedAfter, null, 2))
   const currentID = `${after.branch.id}:${after.run.id}`
   const current = await page.request.get(`${origin}/api/runs/${encodeURIComponent(currentID)}/trace`)
   expect(current.status()).toBe(200)
@@ -124,6 +126,7 @@ test("native Retry launches another pinned attempt and retains the failed journa
   expect(monitor.state).toBe("failed")
   expect(monitor.version).toEqual(before.flow_version.digest)
   expect(monitor.attempts.map((attempt: { n: number }) => attempt.n)).toEqual([1, 2])
+  await writeFile(testInfo.outputPath("retried-attempts.json"), JSON.stringify(monitor, null, 2))
   await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
   await say(page, `/run.inspect ${currentID}`)
   const retried = page.locator('.mvp-run[data-maximized]')
@@ -134,4 +137,23 @@ test("native Retry launches another pinned attempt and retains the failed journa
   await earlier.press("Enter")
   await expect(retried.locator(".mvp-run-detail")).toBeVisible()
   await expect(earlier).toHaveAttribute("data-selected", "true")
+  await page.screenshot({ path: testInfo.outputPath("failed-attempt.png") })
+  // Rediscover both attempts in a fresh browser document, without relying
+  // on the previous mounted card's retained topic snapshot.
+  await page.reload()
+  await say(page, `/run.inspect ${currentID}`)
+  const restored = page.locator('.mvp-run[data-maximized]')
+  await expect(restored.getByRole("list", { name: "Attempt 1", exact: true })).toBeVisible()
+  await expect(restored.getByRole("list", { name: "Attempt 2", exact: true })).toBeVisible()
+  const restoredEarlier = restored.getByRole("list", { name: "Attempt 1", exact: true }).getByRole("button").first()
+  await restoredEarlier.press("Enter")
+  await expect(restoredEarlier).toHaveAttribute("data-selected", "true")
+  await expect(restored.locator(".mvp-run-detail")).toBeVisible()
+  const reloadedTodo = await (await page.request.get(`${origin}/api/todos/${n}`)).json()
+  expect(reloadedTodo.run).toEqual(after.run)
+  expect(reloadedTodo.flow_version).toEqual(before.flow_version)
+  const reloadedArchive = await (await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)).json()
+  expect(reloadedArchive.journal).toEqual(failedArchive.journal)
+  expect(receipts(reloadedArchive)).toEqual(receipts(failedArchive))
+  await page.screenshot({ path: testInfo.outputPath("reloaded-failed-attempt.png") })
 })
