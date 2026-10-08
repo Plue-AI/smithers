@@ -10,29 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
-
-func sampleDBLSPSession(id, workspaceID, language string) db.WorkspaceSession {
-	return db.WorkspaceSession{
-		ID:              id,
-		WorkspaceID:     workspaceID,
-		RepositoryID:    101,
-		UserID:          1,
-		Status:          "running",
-		Kind:            WorkspaceSessionKindLSP,
-		Language:        language,
-		Cols:            80,
-		Rows:            24,
-		IdleTimeoutSecs: workspaceLSPIdleTimeoutSecs,
-	}
-}
 
 func TestWorkspaceSessionKind_DefaultsToTerminal(t *testing.T) {
 	t.Parallel()
@@ -42,10 +25,6 @@ func TestWorkspaceSessionKind_DefaultsToTerminal(t *testing.T) {
 		createWorkspaceSessionFn: func(ctx context.Context, arg db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error) {
 			created = append(created, arg)
 			return db.WorkspaceSession{ID: "sess-1", WorkspaceID: arg.WorkspaceID, Status: "running", Cols: arg.Cols, Rows: arg.Rows}, nil
-		},
-		createWorkspaceLSPSessionFn: func(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			t.Fatalf("terminal create must not use the lsp insert: %+v", arg)
-			return db.WorkspaceSession{}, nil
 		},
 	}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
@@ -61,7 +40,9 @@ func TestWorkspaceSessionKind_DefaultsToTerminal(t *testing.T) {
 	assert.Empty(t, resp.Language)
 }
 
-func TestWorkspaceSessionKind_RejectsUnknownKindAndLanguage(t *testing.T) {
+// Sessions start only as terminals: the File card's language server opens at
+// /api/branches/{b}/lsp as a member daemon exec session, never as a row here.
+func TestWorkspaceSessionKind_RefusesEveryKindButTerminal(t *testing.T) {
 	t.Parallel()
 
 	q := &mockWorkspaceQuerier{}
@@ -72,13 +53,15 @@ func TestWorkspaceSessionKind_RejectsUnknownKindAndLanguage(t *testing.T) {
 		input CreateWorkspaceSessionInput
 		want  string
 	}{
-		{"unknown kind", CreateWorkspaceSessionInput{Kind: "shell"}, "kind must be terminal or lsp"},
-		{"lsp without language", CreateWorkspaceSessionInput{Kind: "lsp"}, "language is required for kind lsp"},
-		{"lsp unknown language", CreateWorkspaceSessionInput{Kind: "lsp", Language: "cobol"}, "language must be one of: typescript"},
-		{"terminal with language", CreateWorkspaceSessionInput{Language: "typescript"}, "language is only accepted with kind lsp"},
+		{"unknown kind", CreateWorkspaceSessionInput{Kind: "shell"}, "kind must be terminal"},
+		{"retired lsp kind", CreateWorkspaceSessionInput{Kind: "lsp"}, "code intelligence opens at /api/branches/{b}/lsp"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			q.createWorkspaceSessionFn = func(context.Context, db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error) {
+				t.Fatal("a refused kind writes no session")
+				return db.WorkspaceSession{}, nil
+			}
 			tc.input.RepositoryID = 101
 			tc.input.UserID = 1
 			tc.input.WorkspaceID = "ws-1"
@@ -89,109 +72,6 @@ func TestWorkspaceSessionKind_RejectsUnknownKindAndLanguage(t *testing.T) {
 			assert.Contains(t, apiErr.Message, tc.want)
 		})
 	}
-}
-
-func TestWorkspaceSessionKind_LSPInsertCarriesLanguageAndIdleBudget(t *testing.T) {
-	t.Parallel()
-
-	var inserted []db.CreateWorkspaceLSPSessionParams
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceLSPSessionFn: func(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			return db.WorkspaceSession{}, pgx.ErrNoRows
-		},
-		createWorkspaceLSPSessionFn: func(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			inserted = append(inserted, arg)
-			return sampleDBLSPSession("lsp-1", arg.WorkspaceID, arg.Language), nil
-		},
-		createWorkspaceSessionFn: func(ctx context.Context, arg db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error) {
-			t.Fatalf("lsp create must not use the terminal insert: %+v", arg)
-			return db.WorkspaceSession{}, nil
-		},
-		// RETURNING * carries kind and language back on the CAS to running; the
-		// stateless mock has to say so explicitly.
-		markWorkspaceSessionRunningFn: func(ctx context.Context, id string) (db.WorkspaceSession, error) {
-			return sampleDBLSPSession(id, "ws-1", "typescript"), nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	resp, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
-		WorkspaceID:  "ws-1",
-		Kind:         "LSP",
-		Language:     " TypeScript ",
-	})
-	require.NoError(t, err)
-	require.Len(t, inserted, 1)
-	assert.Equal(t, "typescript", inserted[0].Language, "language is normalized to the registry id")
-	assert.Equal(t, workspaceLSPIdleTimeoutSecs, inserted[0].IdleTimeoutSecs, "LSP rows carry the 10-minute idle budget")
-	assert.Equal(t, WorkspaceSessionKindLSP, resp.Kind)
-	assert.Equal(t, "typescript", resp.Language)
-}
-
-func TestWorkspaceSessionKind_SecondLSPCreateReturnsExisting(t *testing.T) {
-	t.Parallel()
-
-	touched := 0
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceLSPSessionFn: func(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			assert.Equal(t, "ws-1", arg.WorkspaceID)
-			assert.Equal(t, "typescript", arg.Language)
-			return sampleDBLSPSession("lsp-existing", "ws-1", "typescript"), nil
-		},
-		createWorkspaceLSPSessionFn: func(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			t.Fatalf("a live lsp session must be reused, not duplicated: %+v", arg)
-			return db.WorkspaceSession{}, nil
-		},
-		touchWorkspaceSessionActivityFn: func(ctx context.Context, id string) error {
-			touched++
-			assert.Equal(t, "lsp-existing", id)
-			return nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	resp, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
-		WorkspaceID:  "ws-1",
-		Kind:         "lsp",
-		Language:     "typescript",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "lsp-existing", resp.ID)
-	assert.Equal(t, 1, touched, "reusing a session refreshes its activity so the idle sweeper keeps it")
-}
-
-func TestWorkspaceSessionKind_LSPInsertRaceAnswersWinner(t *testing.T) {
-	t.Parallel()
-
-	lookups := 0
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceLSPSessionFn: func(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			lookups++
-			if lookups == 1 {
-				return db.WorkspaceSession{}, pgx.ErrNoRows
-			}
-			return sampleDBLSPSession("lsp-winner", "ws-1", "typescript"), nil
-		},
-		createWorkspaceLSPSessionFn: func(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-			return db.WorkspaceSession{}, &pgconn.PgError{Code: "23505", ConstraintName: "idx_workspace_sessions_active_lsp"}
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	resp, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
-		WorkspaceID:  "ws-1",
-		Kind:         "lsp",
-		Language:     "typescript",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "lsp-winner", resp.ID)
-	assert.Equal(t, 2, lookups)
 }
 
 func TestLanguageServerMissing_Is409WithInstallLineVerbatim(t *testing.T) {

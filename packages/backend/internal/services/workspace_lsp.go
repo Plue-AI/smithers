@@ -8,16 +8,10 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
-// Workspace session kinds (#505). A terminal session relays a PTY; an LSP
-// session relays one language server's stdio as JSON-RPC over a WebSocket.
+// Workspace session kinds (#505). Sessions start only as terminals; rows an
+// earlier release wrote as kind lsp remain readable.
 const (
 	WorkspaceSessionKindTerminal = "terminal"
-	WorkspaceSessionKindLSP      = "lsp"
-
-	// workspaceLSPIdleTimeoutSecs is the LSP session's idle budget: the relay
-	// closes the socket and the sweeper stops the row after this long without
-	// a JSON-RPC message in either direction.
-	workspaceLSPIdleTimeoutSecs int32 = 600
 
 	// CodeLanguageServerMissing is the 409 code answered before the WebSocket
 	// upgrade when the guest has no binary for the session's language. The
@@ -158,33 +152,12 @@ func LanguageServerMissing(spec LanguageServerSpec) *pkgerrors.APIError {
 }
 
 // normalizeWorkspaceSessionKind maps the request's kind to a stored kind:
-// empty means terminal, which keeps every existing caller unchanged.
+// empty means terminal. Rows written as kind lsp stay readable; none starts.
 func normalizeWorkspaceSessionKind(kind string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "", WorkspaceSessionKindTerminal:
 		return WorkspaceSessionKindTerminal, nil
-	case WorkspaceSessionKindLSP:
-		return WorkspaceSessionKindLSP, nil
 	default:
-		return "", pkgerrors.BadRequest("kind must be terminal or lsp")
+		return "", pkgerrors.BadRequest("kind must be terminal; code intelligence opens at /api/branches/{b}/lsp")
 	}
-}
-
-// normalizeWorkspaceSessionLanguage validates the language for an LSP
-// session against the registry; terminal sessions carry no language.
-func normalizeWorkspaceSessionLanguage(kind, language string) (string, error) {
-	language = strings.ToLower(strings.TrimSpace(language))
-	if kind != WorkspaceSessionKindLSP {
-		if language != "" {
-			return "", pkgerrors.BadRequest("language is only accepted with kind lsp")
-		}
-		return "", nil
-	}
-	if language == "" {
-		return "", pkgerrors.BadRequest("language is required for kind lsp; one of: " + strings.Join(LSPLanguages(), ", "))
-	}
-	if _, ok := LanguageServerFor(language); !ok {
-		return "", pkgerrors.BadRequest("language must be one of: " + strings.Join(LSPLanguages(), ", "))
-	}
-	return language, nil
 }

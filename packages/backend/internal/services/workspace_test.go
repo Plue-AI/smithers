@@ -80,8 +80,6 @@ type mockWorkspaceQuerier struct {
 	countWorkspaceSnapshotsByRepoFn        func(ctx context.Context, arg db.CountWorkspaceSnapshotsByRepoParams) (int64, error)
 	deleteWorkspaceSnapshotFn              func(ctx context.Context, id string) error
 	createWorkspaceSessionFn               func(ctx context.Context, arg db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error)
-	createWorkspaceLSPSessionFn            func(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error)
-	getActiveWorkspaceLSPSessionFn         func(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error)
 	getWorkspaceSessionFn                  func(ctx context.Context, id string) (db.WorkspaceSession, error)
 	getWorkspaceSessionByRepoFn            func(ctx context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error)
 	getWorkspaceSessionForUserRepoFn       func(ctx context.Context, arg db.GetWorkspaceSessionForUserRepoParams) (db.WorkspaceSession, error)
@@ -437,31 +435,6 @@ func (m *mockWorkspaceQuerier) CreateWorkspaceSession(ctx context.Context, arg d
 		return m.createWorkspaceSessionFn(ctx, arg)
 	}
 	return db.WorkspaceSession{ID: "sess-1", WorkspaceID: arg.WorkspaceID, RepositoryID: arg.RepositoryID, UserID: arg.UserID}, nil
-}
-
-func (m *mockWorkspaceQuerier) CreateWorkspaceLSPSession(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-	if m.createWorkspaceLSPSessionFn != nil {
-		return m.createWorkspaceLSPSessionFn(ctx, arg)
-	}
-	return db.WorkspaceSession{
-		ID:              "lsp-session-1",
-		WorkspaceID:     arg.WorkspaceID,
-		RepositoryID:    arg.RepositoryID,
-		UserID:          arg.UserID,
-		Status:          "running",
-		Kind:            WorkspaceSessionKindLSP,
-		Language:        arg.Language,
-		Cols:            arg.Cols,
-		Rows:            arg.Rows,
-		IdleTimeoutSecs: arg.IdleTimeoutSecs,
-	}, nil
-}
-
-func (m *mockWorkspaceQuerier) GetActiveWorkspaceLSPSession(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error) {
-	if m.getActiveWorkspaceLSPSessionFn != nil {
-		return m.getActiveWorkspaceLSPSessionFn(ctx, arg)
-	}
-	return db.WorkspaceSession{}, pgx.ErrNoRows
 }
 
 func (m *mockWorkspaceQuerier) GetWorkspaceSession(ctx context.Context, id string) (db.WorkspaceSession, error) {

@@ -130,9 +130,8 @@ type createWorkspaceSessionRequest struct {
 	Cols        int32  `json:"cols"`
 	Rows        int32  `json:"rows"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
-	// Kind is terminal (default) or lsp; Language is required with lsp (#505).
-	Kind     string `json:"kind,omitempty"`
-	Language string `json:"language,omitempty"`
+	// Kind is terminal, the default and only kind a session starts as.
+	Kind string `json:"kind,omitempty"`
 }
 
 type createWorkspaceRequest struct {
@@ -989,7 +988,6 @@ func (h *WorkspaceHandler) CreateSession(w http.ResponseWriter, r *http.Request)
 		RepoName:     repoCtx.Repository.Name,
 		WorkspaceID:  req.WorkspaceID,
 		Kind:         req.Kind,
-		Language:     req.Language,
 	})
 	if svcErr != nil {
 		writeRouteError(w, r, svcErr)

@@ -445,10 +445,9 @@ type CreateWorkspaceSessionInput struct {
 	RepoName       string
 	WorkspaceID    string
 	SourceBookmark string
-	// Kind is terminal (default) or lsp; Language names the LSP session's
-	// registry row and is required with kind lsp (#505).
-	Kind     string
-	Language string
+	// Kind is terminal, the only kind a session starts as. The File card's
+	// language server is a member daemon exec session (/api/branches/{b}/lsp).
+	Kind string
 }
 
 // ForkWorkspaceInput is the input for forking a running workspace.
@@ -531,8 +530,6 @@ type WorkspaceQuerier interface {
 	CountWorkspaceSnapshotsByRepo(ctx context.Context, arg db.CountWorkspaceSnapshotsByRepoParams) (int64, error)
 	DeleteWorkspaceSnapshot(ctx context.Context, id string) error
 	CreateWorkspaceSession(ctx context.Context, arg db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error)
-	CreateWorkspaceLSPSession(ctx context.Context, arg db.CreateWorkspaceLSPSessionParams) (db.WorkspaceSession, error)
-	GetActiveWorkspaceLSPSession(ctx context.Context, arg db.GetActiveWorkspaceLSPSessionParams) (db.WorkspaceSession, error)
 	GetWorkspaceSession(ctx context.Context, id string) (db.WorkspaceSession, error)
 	GetWorkspaceSessionByRepo(ctx context.Context, arg db.GetWorkspaceSessionByRepoParams) (db.WorkspaceSession, error)
 	GetWorkspaceSessionForUserRepo(ctx context.Context, arg db.GetWorkspaceSessionForUserRepoParams) (db.WorkspaceSession, error)

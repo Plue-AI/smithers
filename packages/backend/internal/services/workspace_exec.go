@@ -38,15 +38,10 @@ func (s *WorkspaceService) CreateSession(ctx context.Context, input CreateWorksp
 	if err != nil {
 		return WorkspaceSessionResponse{}, err
 	}
-	language, err := normalizeWorkspaceSessionLanguage(kind, input.Language)
-	if err != nil {
-		return WorkspaceSessionResponse{}, err
-	}
 	if kind == WorkspaceSessionKindTerminal && s.credentialIssuer != nil && s.credentialIssuer.TerminalSubject != nil {
 		return WorkspaceSessionResponse{}, pkgerrors.BadRequest("Open a branch terminal")
 	}
 	input.Kind = kind
-	input.Language = language
 
 	var workspace db.Workspace
 
@@ -69,24 +64,6 @@ func (s *WorkspaceService) CreateSession(ctx context.Context, input CreateWorksp
 	// bookmark recorded on the workspace row, including a custom repository
 	// default resolved above, rather than falling back to Git's remote HEAD.
 	input.SourceBookmark = targetWorkspaceBookmark(workspace.TargetBookmark)
-
-	if kind == WorkspaceSessionKindLSP {
-		// One language server per workspace and language: a second create
-		// answers the live session (pending, starting, or running) instead of
-		// booting a sibling; the client polls or attaches exactly as it would
-		// have for the first one.
-		existing, err := s.q.GetActiveWorkspaceLSPSession(ctx, db.GetActiveWorkspaceLSPSessionParams{
-			WorkspaceID: workspace.ID,
-			Language:    language,
-		})
-		if err == nil {
-			_ = s.q.TouchWorkspaceSessionActivity(ctx, existing.ID)
-			return toWorkspaceSessionResponse(existing), nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return WorkspaceSessionResponse{}, pkgerrors.Internal("load workspace lsp session: " + err.Error())
-		}
-	}
 
 	session, err := s.insertWorkspaceSession(ctx, workspace.ID, input, cols, rows)
 	if err != nil {
@@ -442,44 +419,17 @@ func (s *WorkspaceService) publishWorkspaceStatus(ctx context.Context, workspace
 	})
 }
 
-// insertWorkspaceSession writes the session row for input's kind. Both
-// queries lock and recheck the live parent workspace: a concurrent tombstone
-// turns the insert into no rows (404) instead of an orphan active session. An
-// LSP insert that loses the one-per-workspace-and-language race answers the
-// winner, exactly like a second create would.
+// insertWorkspaceSession writes the terminal session row. The query locks and
+// rechecks the live parent workspace: a concurrent tombstone turns the insert
+// into no rows (404) instead of an orphan active session.
 func (s *WorkspaceService) insertWorkspaceSession(ctx context.Context, workspaceID string, input CreateWorkspaceSessionInput, cols, rows int32) (db.WorkspaceSession, error) {
-	var (
-		session db.WorkspaceSession
-		err     error
-	)
-	if input.Kind == WorkspaceSessionKindLSP {
-		session, err = s.q.CreateWorkspaceLSPSession(ctx, db.CreateWorkspaceLSPSessionParams{
-			WorkspaceID:     workspaceID,
-			RepositoryID:    input.RepositoryID,
-			UserID:          input.UserID,
-			Cols:            cols,
-			Rows:            rows,
-			Language:        input.Language,
-			IdleTimeoutSecs: workspaceLSPIdleTimeoutSecs,
-		})
-		if err != nil && isUniqueViolation(err) {
-			existing, loadErr := s.q.GetActiveWorkspaceLSPSession(ctx, db.GetActiveWorkspaceLSPSessionParams{
-				WorkspaceID: workspaceID,
-				Language:    input.Language,
-			})
-			if loadErr == nil {
-				return existing, nil
-			}
-		}
-	} else {
-		session, err = s.q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{
-			WorkspaceID:  workspaceID,
-			RepositoryID: input.RepositoryID,
-			UserID:       input.UserID,
-			Cols:         cols,
-			Rows:         rows,
-		})
-	}
+	session, err := s.q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{
+		WorkspaceID:  workspaceID,
+		RepositoryID: input.RepositoryID,
+		UserID:       input.UserID,
+		Cols:         cols,
+		Rows:         rows,
+	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return db.WorkspaceSession{}, pkgerrors.NotFound("workspace not found")

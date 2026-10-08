@@ -549,42 +549,6 @@ FROM live_workspace
 RETURNING *;
 
 
--- name: CreateWorkspaceLSPSession :one
--- LSP relay (#505): same live-parent fence as CreateWorkspaceSession, with the
--- session kind, its language, and the 10-minute idle budget the relay enforces.
-WITH live_workspace AS MATERIALIZED (
-    SELECT workspace.id
-    FROM workspaces AS workspace
-    WHERE workspace.id = sqlc.arg(workspace_id)
-      AND workspace.repository_id = sqlc.arg(repository_id)
-      AND workspace.deleted_at IS NULL
-    FOR UPDATE
-)
-INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, cols, rows, kind, language, idle_timeout_secs)
-SELECT live_workspace.id,
-       sqlc.arg(repository_id),
-       sqlc.arg(user_id),
-       sqlc.arg(cols),
-       sqlc.arg(rows),
-       'lsp',
-       sqlc.arg(language),
-       sqlc.arg(idle_timeout_secs)
-FROM live_workspace
-RETURNING *;
-
-
--- name: GetActiveWorkspaceLSPSession :one
--- The one live language-server session for a workspace and language, if any.
-SELECT *
-FROM workspace_sessions
-WHERE workspace_id = sqlc.arg(workspace_id)
-  AND kind = 'lsp'
-  AND language = sqlc.arg(language)
-  AND status IN ('pending', 'starting', 'running')
-ORDER BY created_at DESC
-LIMIT 1;
-
-
 -- name: GetWorkspaceSession :one
 SELECT *
 FROM workspace_sessions

@@ -318,70 +318,6 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 	return i, err
 }
 
-const createWorkspaceLSPSession = `-- name: CreateWorkspaceLSPSession :one
-WITH live_workspace AS MATERIALIZED (
-    SELECT workspace.id
-    FROM workspaces AS workspace
-    WHERE workspace.id = $7
-      AND workspace.repository_id = $1
-      AND workspace.deleted_at IS NULL
-    FOR UPDATE
-)
-INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, cols, rows, kind, language, idle_timeout_secs)
-SELECT live_workspace.id,
-       $1,
-       $2,
-       $3,
-       $4,
-       'lsp',
-       $5,
-       $6
-FROM live_workspace
-RETURNING id, workspace_id, repository_id, user_id, ssh_connection_info, status, cols, rows, last_activity_at, idle_timeout_secs, created_at, updated_at, kind, language
-`
-
-type CreateWorkspaceLSPSessionParams struct {
-	RepositoryID    int64  `json:"repository_id"`
-	UserID          int64  `json:"user_id"`
-	Cols            int32  `json:"cols"`
-	Rows            int32  `json:"rows"`
-	Language        string `json:"language"`
-	IdleTimeoutSecs int32  `json:"idle_timeout_secs"`
-	WorkspaceID     string `json:"workspace_id"`
-}
-
-// LSP relay (#505): same live-parent fence as CreateWorkspaceSession, with the
-// session kind, its language, and the 10-minute idle budget the relay enforces.
-func (q *Queries) CreateWorkspaceLSPSession(ctx context.Context, arg CreateWorkspaceLSPSessionParams) (WorkspaceSession, error) {
-	row := q.db.QueryRow(ctx, createWorkspaceLSPSession,
-		arg.RepositoryID,
-		arg.UserID,
-		arg.Cols,
-		arg.Rows,
-		arg.Language,
-		arg.IdleTimeoutSecs,
-		arg.WorkspaceID,
-	)
-	var i WorkspaceSession
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.RepositoryID,
-		&i.UserID,
-		&i.SshConnectionInfo,
-		&i.Status,
-		&i.Cols,
-		&i.Rows,
-		&i.LastActivityAt,
-		&i.IdleTimeoutSecs,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Kind,
-		&i.Language,
-	)
-	return i, err
-}
-
 const createWorkspaceSession = `-- name: CreateWorkspaceSession :one
 
 
@@ -1053,45 +989,6 @@ func (q *Queries) GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg Get
 		&i.CleanupPendingHead,
 		&i.CleanupPendingCaptureID,
 		&i.DiskReclaimedAt,
-	)
-	return i, err
-}
-
-const getActiveWorkspaceLSPSession = `-- name: GetActiveWorkspaceLSPSession :one
-SELECT id, workspace_id, repository_id, user_id, ssh_connection_info, status, cols, rows, last_activity_at, idle_timeout_secs, created_at, updated_at, kind, language
-FROM workspace_sessions
-WHERE workspace_id = $1
-  AND kind = 'lsp'
-  AND language = $2
-  AND status IN ('pending', 'starting', 'running')
-ORDER BY created_at DESC
-LIMIT 1
-`
-
-type GetActiveWorkspaceLSPSessionParams struct {
-	WorkspaceID string `json:"workspace_id"`
-	Language    string `json:"language"`
-}
-
-// The one live language-server session for a workspace and language, if any.
-func (q *Queries) GetActiveWorkspaceLSPSession(ctx context.Context, arg GetActiveWorkspaceLSPSessionParams) (WorkspaceSession, error) {
-	row := q.db.QueryRow(ctx, getActiveWorkspaceLSPSession, arg.WorkspaceID, arg.Language)
-	var i WorkspaceSession
-	err := row.Scan(
-		&i.ID,
-		&i.WorkspaceID,
-		&i.RepositoryID,
-		&i.UserID,
-		&i.SshConnectionInfo,
-		&i.Status,
-		&i.Cols,
-		&i.Rows,
-		&i.LastActivityAt,
-		&i.IdleTimeoutSecs,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Kind,
-		&i.Language,
 	)
 	return i, err
 }
