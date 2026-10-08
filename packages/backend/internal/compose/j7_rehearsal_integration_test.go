@@ -23,8 +23,9 @@ import (
 // T2 while its edit is held, and its run's next implement turn reads the
 // amendment (rows 7 and 8). TN and T1 rebase onto their moved prefix (rows 9
 // and 16), T2 is forked to a scratch branch that is edited (rows 10-12), and
-// T2 is dropped (row 15). The add-to-stack and conflict rows wait on their
-// lanes and are listed as pending.
+// T2 is dropped (row 15). The add-to-stack rows wait on their lane.
+// Conflict rows use the independent complete-install cases below so a held
+// placement run cannot hide conflict resolution or manual continuation.
 func TestJ7Rehearsal(t *testing.T) {
 	// The model trace keeps each turn's messages: row 8 reads the amendment
 	// in T2's next implement turn.
@@ -349,16 +350,29 @@ func TestJ7Rehearsal(t *testing.T) {
 				t1, pull.Number, short7(head1), short7(pull.Head.SHA), short7(main))
 			return nil
 		})
-	// Rows 17-20 wait on T-STK-08's conflict dispatch. On a conflicting
-	// rebase the stack reserves the attempt and holds the item at
-	// rebase_conflict_pending (integrate, mythical_items.go) but never sends
-	// conflict{paths, onto} to the run; the todo composition (flows/todo) has
-	// no resolution step or conflict wait; and no ConflictValidator is
-	// composed (SetConflictValidator has no caller) to validate Done.
-	r.pending("17 Conflict, agent resolves once", "conflicting main push; [RESOLVE]", "the agent resolves the conflict once and shows what it did", "T-STK-08", "conflict-once")
-	r.pending("18 Conflict, agent fails", "conflicting main push; [NORESOLVE]", "needs_you with Resolve; no further attempts", "T-STK-08", "conflict-once")
-	r.pending("19 Done while conflicted", "POST /api/todos/{n} {op: done}", "409", "T-STK-08", "conflict-once")
-	r.pending("20 Done after resolve", "POST /api/todos/{n} {op: done}", "202; a check run admitted", "T-STK-08", "conflict-once")
+	// Each conflict case owns its install, native daemon and fake GitHub. Reuse
+	// the complete boundary proofs instead of maintaining another conflict
+	// driver here. These are trusted-process rehearsals, not VM qualification.
+	resolved, manual := runJ7RebaseConflictRows(t)
+	// The manual rows share one retained conflict. Count them only after the
+	// whole sequence passes, including publication; any failure fails all three.
+	for _, row := range []struct {
+		name, expected string
+		passed         bool
+	}{
+		{"17 Conflict, agent resolves once", "one repair in the same pinned attempt; both sides retained; same PR updated", resolved},
+		{"18 Conflict, agent fails", "one failed repair; Needs you with paths after restart and ten worker passes", manual},
+		{"19 Done while conflicted", "stale and unresolved Done return 409 without settling the wait", manual},
+		{"20 Done after resolve", "real file write; Done 202; same run and PR; fresh checks and review", manual},
+	} {
+		r.step(row.name, "composed conflict install; Rebase now; Branch Done; GitHub fake", row.expected, "T-STK-08", func() error {
+			if !row.passed {
+				return fmt.Errorf("complete conflict scenario failed; see its subtest receipt")
+			}
+			r.actual = row.expected
+			return nil
+		})
+	}
 }
 
 // j7Card is what rows 9 and 16 read of a TODO card beyond rehearsalTodo.
@@ -676,4 +690,22 @@ func firstHeldTurnAfterAdmission(turns []map[string]any, key string, admitted ti
 		}
 	}
 	return -1, nil
+}
+
+// Keep rows 17–20 independently runnable when an earlier placement row fails.
+// The failed-attempt case includes ten worker passes and restart, stale and
+// unresolved Done refusals, a real resolution write, and same-run publication.
+func TestJ7RebaseConflictRows(t *testing.T) {
+	if os.Getenv("SMITHERS_J7_REHEARSAL") != "1" {
+		t.Skip("enable explicitly with SMITHERS_J7_REHEARSAL=1")
+	}
+	runJ7RebaseConflictRows(t)
+}
+
+func runJ7RebaseConflictRows(t *testing.T) (resolved, manual bool) {
+	t.Helper()
+	t.Setenv("SMITHERS_REBASE_REHEARSAL", "1")
+	resolved = t.Run("Agent resolves the conflict", TestRebaseConflictRehearsal)
+	manual = t.Run("Agent fails and a person completes the conflict", TestRebaseManualConflictRehearsal)
+	return resolved, manual
 }
