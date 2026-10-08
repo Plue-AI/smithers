@@ -165,10 +165,7 @@ func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
 			launch := decodeJSON(t, raw)
 			require.Equal(t, item.FlowDigest.String, launch["pin"].(map[string]any)["executionDigest"], "the next attempt keeps its pin")
 			require.Contains(t, string(raw), text)
-			// The launch carried the input, so the run consumed it. A later
-			// version of the same review (GitHub re-batches its line comments)
-			// is activity only; it is never held for the ended run, which
-			// would block every later review of the PR behind it.
+			// The launch carries and consumes the input on the new attempt.
 			require.True(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers[0].InputConsumed, "the launch payload carries the input")
 			startWorker()
 			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)

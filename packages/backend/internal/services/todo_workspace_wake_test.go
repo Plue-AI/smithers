@@ -35,7 +35,7 @@ func (r *wakeBoundaryRuntime) InspectWorkspace(context.Context, string) (workspa
 	return workspaceapi.Workspace{}, errors.New("guest unavailable")
 }
 func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
-	for _, mode := range []string{"active", "review", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
+	for _, mode := range []string{"active", "review", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "review_working", "review_paused", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
 		t.Run(mode, func(t *testing.T) {
 			id := uuid.New()
 			row := db.Workspace{ID: "retained", RepositoryID: 3, UserID: 9, Status: "suspended"}
@@ -50,6 +50,10 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 				checks := mythicalChecksOf(q.item)
 				checks.Review = &mythicalReview{Lane: row.ID, Candidate: "candidate", Head: "published"}
 				switch mode {
+				case "review_working":
+					q.item.State = "running"
+				case "review_paused":
+					q.item.PausedAt.Valid = true
 				case "review_stale_candidate":
 					checks.Review.Candidate = "old"
 				case "review_stale_head":

@@ -4870,7 +4870,7 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_binding_unavailable", retryable: !errors.Is(err, pgx.ErrNoRows)}
 	}
 	workspaceID := item.WorkspaceID
-	if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" && target.WorkspaceID == review.Lane {
+	if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" && target.WorkspaceID == review.Lane && todoExecutionWorkspace(item, target.WorkspaceID) {
 		workspaceID = review.Lane
 	}
 	if item.RepositoryID != repositoryID || mythicalExecutionSponsor(item, stack) != userID || workspaceID == "" ||

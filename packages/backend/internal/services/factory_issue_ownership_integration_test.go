@@ -618,3 +618,67 @@ func TestFactoryIssueOwnershipDirectFactoryAndOrdinaryJobsRemainIndependent(t *t
 		})
 	}
 }
+
+// A review owns no second issue: its isolated workspace is authorized by the
+// current candidate and the same item's active lane binding.
+func TestFactoryIssueOwnershipIsolatedReviewLane(t *testing.T) {
+	for _, tc := range []struct {
+		name                               string
+		retired, foreign, stale, wrongFlow bool
+	}{
+		{name: "current review"},
+		{name: "retired lane", retired: true},
+		{name: "foreign item lane", foreign: true},
+		{name: "stale candidate", stale: true},
+		{name: "implementation in review lane", wrongFlow: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFactoryOwnershipFixture(t)
+			ctx := context.Background()
+			original, err := f.commit(t, "request")
+			require.NoError(t, err)
+			claim := f.claim(t)
+			reviewLane := uuid.NewString()
+			_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status,name) VALUES($1,$2,$3,'running','isolated review')`, reviewLane, f.o.repoID, f.o.userID)
+			require.NoError(t, err)
+			bound := original.ID
+			if tc.foreign {
+				other := f.issue
+				other.Number++
+				require.NoError(t, seedMythicalIssue(f.o.service, ctx, f.o.repoID, other, maintainerTodo))
+				bound = f.o.item(other.Number).ID
+			}
+			_, err = f.pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name,retired_at) VALUES($1,$2,$3,'isolated review',CASE WHEN $4 THEN now() ELSE NULL END)`, reviewLane, f.o.repoID, bound, tc.retired)
+			require.NoError(t, err)
+			item := original
+			item.State, item.PRHead, item.CandidateHead = "proposed", strings.Repeat("c", 40), strings.Repeat("e", 40)
+			checks := mythicalChecksOf(item)
+			checks.Review = &mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, Lane: reviewLane}
+			if tc.stale {
+				checks.Review.Head = strings.Repeat("d", 40)
+			}
+			item.Checks = checks.encode()
+			flow := mythicalReviewFlow
+			if tc.wrongFlow {
+				flow = "coding/request"
+			}
+			saved, err := f.step(t).commit(ctx, item, "review", flow, json.RawMessage(`{"args":"review the candidate"}`))
+			if tc.retired || tc.foreign || tc.stale || tc.wrongFlow {
+				var refusal *pgconn.PgError
+				require.ErrorAs(t, err, &refusal)
+				require.Equal(t, "P2082", refusal.Code)
+				require.Equal(t, claim.OperationID, f.claim(t).OperationID)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, original.WorkspaceID, saved.WorkspaceID)
+			require.Equal(t, original.Attempt, saved.Attempt)
+			current := f.claim(t)
+			require.Equal(t, claim.ID, current.ID)
+			require.NotEqual(t, claim.OperationID, current.OperationID)
+			var workspace string
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT payload->'target'->>'WorkspaceID' FROM product_job_requests WHERE id=$1`, current.OperationID).Scan(&workspace))
+			require.Equal(t, reviewLane, workspace)
+		})
+	}
+}

@@ -80,3 +80,41 @@ func TestTodoWorkspaceExecutionBinding(t *testing.T) {
 		})
 	}
 }
+
+func TestTodoWorkspaceExecutionCurrentReview(t *testing.T) {
+	for _, mode := range []string{"current", "stale", "retired", "working", "unbound", "stale_candidate", "settled", "empty_head"} {
+		t.Run(mode, func(t *testing.T) {
+			id := pgtype.UUID{Bytes: uuid.New(), Valid: true}
+			review := &mythicalReview{Head: "published", Candidate: "candidate", Lane: "review-box"}
+			s := &executionPinStore{lane: db.MythicalLane{WorkspaceID: "review-box", RepositoryID: 4, ItemID: id},
+				item: db.MythicalItem{ID: id, RepositoryID: 4, WorkspaceID: "coding-box", State: "proposed", PRHead: "published", CandidateHead: "candidate", Attempt: 2,
+					FlowDigest: pgtype.Text{String: strings.Repeat("b", 64), Valid: true}}}
+			switch mode {
+			case "stale":
+				review.Head = "previous"
+			case "retired":
+				s.lane.RetiredAt.Valid = true
+			case "working":
+				s.item.State = "running"
+			case "unbound":
+				review.Lane = "other"
+			case "stale_candidate":
+				review.Candidate = "previous"
+			case "settled":
+				review.Verdict = "approve"
+			case "empty_head":
+				s.item.PRHead, review.Head = "", ""
+			}
+			s.item.Checks = (mythicalChecks{FlowSource: strings.Repeat("a", 40), Review: review}).encode()
+			got, err := ResolveTodoWorkspaceExecution(t.Context(), s, 4, "review-box")
+			if mode != "current" {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.EqualValues(t, 2, got.Attempt)
+			require.Equal(t, strings.Repeat("b", 64), got.Pin.ExecutionDigest)
+		})
+	}
+}

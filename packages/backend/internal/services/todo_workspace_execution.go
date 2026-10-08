@@ -40,7 +40,7 @@ func ResolveTodoWorkspaceExecution(ctx context.Context, q interface {
 	if err != nil {
 		return nil, err
 	}
-	if item.ID != lane.ItemID || item.RepositoryID != repositoryID || item.WorkspaceID != workspaceID || item.Attempt < 1 {
+	if item.ID != lane.ItemID || item.RepositoryID != repositoryID || !todoExecutionWorkspace(item, workspaceID) || item.Attempt < 1 {
 		return nil, mythicalFlowFailure{code: "runtime_target_forbidden"}
 	}
 	pin, ok := mythicalPinOf(item)
@@ -48,4 +48,17 @@ func ResolveTodoWorkspaceExecution(ctx context.Context, q interface {
 		return nil, mythicalFlowFailure{code: "runtime_pin_invalid"}
 	}
 	return &TodoWorkspaceExecution{ItemID: uuid.UUID(item.ID.Bytes).String(), Attempt: item.Attempt, Pin: pin}, nil
+}
+
+// The engine's current isolated review shares the attempt's immutable pin,
+// while its implementing run retains its own workspace for later steers.
+func todoExecutionWorkspace(item db.MythicalItem, workspaceID string) bool {
+	if workspaceID == "" {
+		return false
+	}
+	if item.WorkspaceID == workspaceID {
+		return true
+	}
+	review := mythicalChecksOf(item).Review
+	return item.State == "proposed" && review != nil && review.Lane == workspaceID && item.PRHead != "" && review.Head == item.PRHead && review.Candidate == item.CandidateHead && review.Verdict == ""
 }

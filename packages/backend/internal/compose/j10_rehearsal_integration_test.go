@@ -545,7 +545,64 @@ func TestJ10Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 files %v", paths)
 		return nil
 	})
-	r.pending("1 Amend updates the same PR", "POST /api/todos {place: amend T2}; GitHub fake PR", "the same PR shows revision 2's prompt, not revision 1's", "T-GH-03, T-STK-06", "amend")
+	if !r.step("1 Amend updates the same PR", "PATCH /api/todos/{T2} ×2; GitHub fake PR",
+		"revision 2 replaces the PR prompt; same run, attempt, working copy and PR; one amendment", "T-GH-03, T-STK-06", func() error {
+			before, err := r.j3Lane(t2)
+			if err != nil {
+				return err
+			}
+			const prompt = "[PR] [FILE retry-webhooks.md] Retry webhook deliveries and log each retry."
+			body, err := json.Marshal(map[string]string{"prompt": prompt})
+			if err != nil {
+				return err
+			}
+			for range 2 {
+				code, data, err := r.keyed("PATCH", fmt.Sprintf("/api/todos/%d", t2), string(body), r.keyPrefix+"amend-review")
+				if err != nil {
+					return err
+				}
+				var receipt struct {
+					N   int64 `json:"n"`
+					Rev int   `json:"rev"`
+				}
+				if code != 202 || json.Unmarshal(data, &receipt) != nil || receipt.N != t2 || receipt.Rev != 2 {
+					return fmt.Errorf("Amend: HTTP %d %s, want 202 {n: %d, rev: 2}", code, data, t2)
+				}
+			}
+			v, err := r.waitTodoWithin(t2, j10RunWait, "in_review")
+			if err != nil {
+				return err
+			}
+			after, err := r.j3Lane(t2)
+			if err != nil {
+				return err
+			}
+			if before != after || v.PR.Number != pr2 {
+				return fmt.Errorf("Amend changed lane %+v → %+v or PR %d → %d", before, after, pr2, v.PR.Number)
+			}
+			pull, err := r.checkPull(pr2, v.PR.Head)
+			if err != nil {
+				return err
+			}
+			if !strings.Contains(pull.Body, "Retry webhook deliveries and log each retry.") || strings.Contains(pull.Body, "Retry failed webhook deliveries.") {
+				return fmt.Errorf("PR body does not replace revision 1 with revision 2: %q", pull.Body)
+			}
+			var revisions, events int
+			if err := r.pool.QueryRow(r.ctx, `SELECT jsonb_array_length(revisions) FROM mythical_items WHERE number=$1`, t2).Scan(&revisions); err != nil {
+				return err
+			}
+			if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.amended' AND data->>'n'=$1`, fmt.Sprint(t2)).Scan(&events); err != nil {
+				return err
+			}
+			if revisions != 2 || events != 1 {
+				return fmt.Errorf("Amend revisions=%d events=%d, want 2 and 1", revisions, events)
+			}
+			head2 = v.PR.Head
+			r.actual = fmt.Sprintf("PR #%d revision 2 on run %s; one amendment", pr2, after.run)
+			return nil
+		}) {
+		return
+	}
 
 	// J10.2: a teammate's review on GitHub steers the same attempt.
 	var reviewLane j3Lane
