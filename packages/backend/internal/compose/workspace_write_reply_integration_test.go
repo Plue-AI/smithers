@@ -368,7 +368,16 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		stop, err := bindMachineEvents(ctx, registry, pool, client, nil, nil)
 		require.NoError(t, err)
 		t.Cleanup(stop)
-		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, t.TempDir(), binary, &machined.ItemBinding{}))
+		evidence := t.TempDir()
+		t.Cleanup(func() {
+			if t.Failed() {
+				log, err := os.ReadFile(filepath.Join(evidence, "machined-"+id+".log"))
+				if err == nil {
+					t.Logf("daemon failure evidence: %s", log)
+				}
+			}
+		})
+		require.NoError(t, startRehearsalMachined(t, ctx, registry, id, root, evidence, binary, &machined.ItemBinding{}))
 		previous, previousReader := provider.writer, provider.reader
 		t.Cleanup(func() { provider.writer, provider.reader = previous, previousReader })
 		provider.reader = func(ctx context.Context, branch, path string) ([]byte, error) {
@@ -468,6 +477,52 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 				_, err := os.Stat(filepath.Join(root, path))
 				require.ErrorIs(t, err, os.ErrNotExist)
 			}
+			// Request admission is exercised while the real daemon is available.
+			// A valid earlier entry must remain untouched when a later entry is
+			// malformed, escapes confinement, or tries to supply an identity.
+			request(`{"changes":[{"path":"admission-prefix","content":"hello","base_digest":"absent"}]}`, 200)
+			for _, tail := range []string{
+				`{"path":"admission-new","content":"world"}`,
+				`{"path":"admission-new","content":"world","base_digest":"invalid"}`,
+				`{"path":"../admission-outside","content":"world","base_digest":"absent"}`,
+				`{"path":"/admission-outside","content":"world","base_digest":"absent"}`,
+				`{"path":"admission-prefix","content":"world","base_digest":"absent"}`,
+				`{"path":"admission-prefix/child","content":"world","base_digest":"absent"}`,
+			} {
+				request(`{"changes":[{"path":"admission-prefix","content":"world","base_digest":"`+helloDigest+`"},`+tail+`]}`, 400)
+				bytesAt("admission-prefix", "hello")
+				missing("admission-new")
+			}
+			for _, field := range []string{"actor", "branch", "machine", "uid"} {
+				request(`{"changes":[{"path":"admission-prefix","content":"world","base_digest":"`+helloDigest+`"}],"`+field+`":"injected"}`, 400)
+				bytesAt("admission-prefix", "hello")
+			}
+			request(`{"changes":[{"path":"admission-prefix","content":"world","base_digest":"`+helloDigest+`"},{"path":"admission-new","content":"`+strings.Repeat("x", 1024*1024)+`","base_digest":"absent"}]}`, 413)
+			bytesAt("admission-prefix", "hello")
+			missing("admission-new")
+			// Supplemental Linux confinement evidence through HTTP. The namespace
+			// cannot substitute for fresh/retained-machine privilege receipts.
+			outside := t.TempDir()
+			protected := filepath.Join(outside, "protected")
+			require.NoError(t, os.WriteFile(protected, []byte("outside remains"), 0600))
+			require.NoError(t, os.Symlink(protected, filepath.Join(root, "admission-link")))
+			require.NoError(t, os.Symlink(outside, filepath.Join(root, "admission-ancestor")))
+			for _, path := range []string{"admission-link", "admission-ancestor/protected"} {
+				request(`{"changes":[{"path":"admission-prefix","content":"world","base_digest":"`+helloDigest+`"},{"path":"`+path+`","content":"must not land","base_digest":"absent"}]}`, 503)
+				bytesAt("admission-prefix", "hello")
+				got, err := os.ReadFile(protected)
+				require.NoError(t, err)
+				require.Equal(t, "outside remains", string(got))
+			}
+			// Empty bytes are a present file, distinct from a deletion receipt.
+			const emptyDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+			empty := request(`{"changes":[{"path":"batch-empty","content":"","base_digest":"absent"}]}`, 200)
+			require.Contains(t, string(empty), emptyDigest)
+			bytesAt("batch-empty", "")
+			request(`{"changes":[{"path":"batch-empty","content":null,"base_digest":"absent"}]}`, 409)
+			bytesAt("batch-empty", "")
+			request(`{"changes":[{"path":"batch-empty","content":null,"base_digest":"`+emptyDigest+`"}]}`, 200)
+			missing("batch-empty")
 			request(`{"changes":[{"path":"batch-a","content":"hello","base_digest":"absent"},{"path":"batch-b","content":"world","base_digest":"absent"}]}`, 200)
 			bytesAt("batch-a", "hello")
 			bytesAt("batch-b", "world")

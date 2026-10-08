@@ -36,12 +36,12 @@ for (const available of [false, true]) {
         Context.make(FileSystem.FileSystem, coding).pipe(Context.add(Path.Path, path))
       ).bindings()
       let ordinal = 0
-      const dispatch = (name: string, input: Cell.Call["input"]) => {
+      const dispatch = (name: string, input: Cell.Call["input"], session = "col10-acceptance") => {
         const binding = bindings.find((entry) => entry.descriptor.name === name)
         assert.ok(binding)
         return binding.run(new Cell.Call({ flowName: name, input, capabilities: [],
           effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
-          placement: Option.none(), identity: new Cell.CallIdentity({ session: "col10-acceptance",
+          placement: Option.none(), identity: new Cell.CallIdentity({ session,
             frame: 0, cell: "coding/edit-atom", ordinal: ordinal++, declaration: "col10", layers: [] }) }))
       }
       const a = join(root, "a"), b = join(root, "b"), dest = join(root, "dest")
@@ -66,6 +66,32 @@ for (const available of [false, true]) {
         assert.equal(yield* fs.exists(dest), false)
         return
       }
+      // Pagination must retain the digest of the undisplayed tail. Reading in
+      // another run must neither authorize our write nor refresh our stale base.
+      const paged = join(root, "paged")
+      yield* Effect.promise(() => writeFile(paged, "hello\nworld\n"))
+      yield* expect(Read.name, { path: paged, limit: 1 }, "success")
+      yield* Effect.promise(() => writeFile(paged, "hello\nchanged tail\n"))
+      const otherRead = yield* dispatch(Read.name, { path: paged }, "col10-other-run")
+      assert.equal(otherRead.outcome, "success")
+      yield* expect(Write.name, { path: paged, content: "bad" }, "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(paged), "hello\nchanged tail\n")
+      yield* expect(Read.name, { path: paged, limit: 1 }, "success")
+      yield* expect(Edit.name, { path: paged, oldString: "changed tail", newString: "world" }, "success")
+      assert.equal(yield* fs.readFileString(paged), "hello\nworld\n")
+      const unreadRun = yield* dispatch(Write.name, { path: paged, content: "bad" }, "col10-unread-run")
+      assert.equal(unreadRun.outcome, "failure")
+      assert.match(unreadRun.message!, /Re-read/)
+      assert.equal(yield* fs.readFileString(paged), "hello\nworld\n")
+      // A later stale add refuses the complete batch without consuming our own
+      // successful edit's read authority for the earlier deletion.
+      const createdOutside = join(root, "created-outside")
+      yield* Effect.promise(() => writeFile(createdOutside, "world\n"))
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${paged}\n*** Add File: ${createdOutside}\n+bad\n`), "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(paged), "hello\nworld\n")
+      assert.equal(yield* fs.readFileString(createdOutside), "world\n")
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${paged}\n`), "success")
+      assert.equal(yield* fs.exists(paged), false)
       // Unread existing sources refuse at every mutation door, including delete.
       yield* Effect.promise(() => writeFile(b, "world\n"))
       for (const [name, input] of [
