@@ -3,7 +3,7 @@ import { useLiveQuery } from "@tanstack/react-db"
 import { useSyncExternalStore } from "react"
 import { Markdown, MessageScrollerItem } from "@smthrs/ui"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
-import { TranscriptMessage } from "./TranscriptMessage"
+import { CopyMessageButton, TranscriptMessage } from "./TranscriptMessage"
 import { cardActions } from "./flows/cardActions"
 import { contextActions } from "./flows/contextActions"
 import { contextOpenAction } from "./flows/contextOpenAction"
@@ -41,7 +41,7 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
       return <div key={turn.id} data-shared-turn={turn.id} data-state={turn.state}>
         {turn.subject ? null : <>
           <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:prompt`}><EntryRow kind="prompt" author={{ kind: "person", ...person, color_index: color }} title="" tone="quiet" card={<Markdown content={turn.prompt} />} onAction={() => {}} /></MessageScrollerItem>
-          <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" action={inspect.actions[0]} contextActions={turn.context ? contextActions(turn.context, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction) : undefined} context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={inspect.onAction} /></MessageScrollerItem>
+          <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" action={inspect.actions[0]} contextActions={turn.context ? contextActions(turn.context, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction) : undefined} context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} /><span className="message-actions"><CopyMessageButton text={text} onCopy={value => controller.runCommandForResult("chat.copy-message", value)} /></span>{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={inspect.onAction} /></MessageScrollerItem>
         </>}
         {frames.flatMap((frame) => {
           if (frame.type !== "card") return []

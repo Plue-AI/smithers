@@ -25,7 +25,7 @@ const systemNoteLabel = (message: Message): string => {
   return message.status === "failed" ? "Turn failed" : "Turn interrupted"
 }
 
-function CopyMessageButton({
+export function CopyMessageButton({
   text,
   onCopy
 }: {

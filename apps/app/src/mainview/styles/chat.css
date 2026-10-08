@@ -712,7 +712,7 @@
 .crumb:hover { background: var(--hover); color: var(--text); }
 .crumb-here { display: inline-flex; align-items: center; gap: 4px; color: var(--text); font-weight: 600; }
 .crumbs > .tree { margin-top: 6px; }
-.entry { padding: 12px 0; min-width: 0; overflow-wrap: anywhere; }
+.entry { position: relative; padding: 12px 0; min-width: 0; overflow-wrap: anywhere; }
 .entry header, .earlier header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .author { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 4px 2px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .locked { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
