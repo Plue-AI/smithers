@@ -158,8 +158,21 @@ try {
   assert.ok(host.textContent?.includes("smithers/sleep-item"))
   const beforeBurstDiff = requests.length
   assert.deepEqual(await controller.submitCommand({ name: "diff", payload: { branch: "smithers/sleep-item", entry: "captured-burst-1" }, actor: "user" }),
-    { status: "failed", error: "Burst diff unavailable" })
-  assert.ok(requests.slice(beforeBurstDiff).every(request => !request.path.endsWith("/diff")), "an unavailable burst comparison never shows a TODO base diff")
+    { status: "failed", error: "Choose a change" })
+  assert.ok(requests.slice(beforeBurstDiff).every(request => !request.path.endsWith("/diff")), "a malformed burst comparison never shows a TODO base diff")
+  const missingBurst = "00000000-0000-4000-8000-000000000099"
+  assert.equal((await controller.submitCommand({ name: "diff", payload: { branch: "smithers/sleep-item", entry: missingBurst }, actor: "user" })).status, "executed")
+  await waitFor(() => store.collections.cards.get(`diff-burst-smithers/sleep-item-${missingBurst}-`)?.status === "error")
+  const missingDiff = store.collections.cards.get(`diff-burst-smithers/sleep-item-${missingBurst}-`)
+  assert.equal(missingDiff?.kind, "diff")
+  if (missingDiff?.kind === "diff") {
+    assert.equal(missingDiff.payload.branchDiffPending, false)
+    assert.deepEqual(missingDiff.payload.branchFiles, [])
+    assert.ok(missingDiff.payload.error)
+  }
+  const burstReads = requests.slice(beforeBurstDiff).filter(request => request.path.endsWith("/diff"))
+  assert.equal(burstReads.length, 1, "an unavailable burst comparison never falls back to a TODO base diff")
+  assert.equal(burstReads[0]?.status, 404)
   // The slash door resolves both a TODO and the canonical bookmark through
   // authorized HTTP reads, then shares the mounted card's existing live topic.
   const sshReads = requests.length
