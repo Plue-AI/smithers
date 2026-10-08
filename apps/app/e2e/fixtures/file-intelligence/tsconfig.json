@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "plugins": [{ "name": "smithers-lsp-canary" }]
+  },
+  "include": ["src/*.ts"]
+}

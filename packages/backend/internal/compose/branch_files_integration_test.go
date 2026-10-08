@@ -53,23 +53,30 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	creates, live := len(r.compute.Creates()), len(r.compute.Live())
 	var before, queuedBefore int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&before))
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&queuedBefore))
+	// Completed receipts and host-only conversation summaries are not machine
+	// demand. A question legitimately schedules its summary without admitting
+	// a machine; every other outstanding operation stays in this assertion.
+	const queuedJobs = `SELECT count(*) FROM product_job_requests WHERE operation <> 'conversation.summary' AND state IN ('accepted','dispatching','running','waiting','uncertain')`
+	require.NoError(t, r.pool.QueryRow(r.ctx, queuedJobs).Scan(&queuedBefore))
 	// The app-agent door must produce the same mirrored File card while no
 	// machine exists, not merely expose bytes at an otherwise unused route.
 	answer, frames, terminal, err := r.ask("", "What is in JOURNEY.md? Show the file.")
 	require.NoError(t, err)
 	require.True(t, terminal)
 	require.Contains(t, answer, "Add a greeting to JOURNEY.md")
-	fileRead, fileCard := false, false
+	fileCard := false
 	for _, frame := range frames {
-		fileRead = fileRead || frame.Type == "call.settled" && frame.Name == "file"
 		if frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" {
 			require.Equal(t, "Add a greeting to JOURNEY.md\n", frame.Card.Payload.Content)
 			require.Equal(t, r.mainCommit, frame.Card.Payload.ReadAt.CommitID)
 			fileCard = true
 		}
 	}
-	require.True(t, fileRead, "the registered /file command must settle")
+	// Shared conversation frames deliberately omit internal command receipts.
+	// Verify dispatch in the durable audit, independently of the served card.
+	var fileReads int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM chat_turn_batches b, jsonb_array_elements(b.frames) f WHERE f->>'type'='call.settled' AND f->>'name'='file' AND f->>'verdict'='run'`).Scan(&fileReads))
+	require.Equal(t, 1, fileReads, "the registered /file command must settle once")
 	require.True(t, fileCard, "the answer must include a mirrored File card")
 	var afterQuestion int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&afterQuestion))
@@ -91,12 +98,19 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 		require.Equal(t, "text", file.Content.Kind)
 		require.Equal(t, item.text, file.Content.Text)
 	}
-	// These requests must not fall back to the now-readable mirror. No live
-	// digest or burst snapshot provider exists in the install composition.
-	for _, selector := range []string{"digest=sha256:abc", "digest=", "compare=burst-before", "compare=", "at=" + r.mainCommit + "&digest=sha256:abc"} {
+	// main has no live digest provider. Selectors must not silently fall back
+	// to readable mirror bytes. The composed version reader rejects malformed
+	// versions before trying to resolve a branch or read a snapshot.
+	for _, selector := range []string{"digest=sha256:abc", "digest=", "at=" + r.mainCommit + "&digest=sha256:abc"} {
 		body, err := r.expect("GET", "/api/branches/main/files/JOURNEY.md?"+selector, "", 503)
 		require.NoError(t, err)
 		require.Contains(t, string(body), `"code":"service_unavailable"`)
+		require.NotContains(t, string(body), "Add a greeting")
+	}
+	for _, selector := range []string{"compare=burst-before", "compare="} {
+		body, err := r.expect("GET", "/api/branches/main/files/JOURNEY.md?"+selector, "", 400)
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"message":"invalid file version"`)
 		require.NotContains(t, string(body), "Add a greeting")
 	}
 	// Captured immutable reads keep their existing route and never wake.
@@ -129,8 +143,10 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	require.NotContains(t, string(body), "Add a greeting")
 	var after, queuedAfter int
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM workspaces`).Scan(&after))
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&queuedAfter))
-	require.Equal(t, queuedBefore, queuedAfter)
+	require.NoError(t, r.pool.QueryRow(r.ctx, queuedJobs).Scan(&queuedAfter))
+	var jobStates []byte
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT jsonb_agg(jsonb_build_object('operation',operation,'state',state)) FROM product_job_requests`).Scan(&jobStates))
+	require.Equal(t, queuedBefore, queuedAfter, string(jobStates))
 	require.Equal(t, before, after)
 	require.Equal(t, creates, len(r.compute.Creates()))
 	require.Equal(t, live, len(r.compute.Live()))

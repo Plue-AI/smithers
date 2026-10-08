@@ -19,7 +19,10 @@ test("Source-ready file card answers before Machine ready", scenario("file.first
   expect(before.steps.find(step => step.id === "source")?.state).toBe("done")
   expect(before.steps.find(step => step.id === "machine")?.state).not.toBe("done")
   const requests: string[] = []
-  page.on("request", request => { if (request.url().includes("/workspace/sessions")) requests.push(request.url()) })
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname
+    if (path.includes("/workspace/sessions") || /\/api\/branches\/[^/]+\/lsp(?:\/|$)/.test(path)) requests.push(request.url())
+  })
   const started = performance.now()
   await command(page, "where do we send the expiry email?")
   const editor = page.getByRole("textbox", { name: "src/mail/expiry.ts", exact: true }).last()
