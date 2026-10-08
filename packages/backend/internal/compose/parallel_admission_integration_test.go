@@ -350,19 +350,22 @@ esac
 	}()
 	go stack.Start(liveContext)
 
-	call := func(method, path, body, cookie string) (int, []byte) {
+	callKey := func(method, path, body, cookie, key string) (int, []byte) {
 		t.Helper()
 		req := httptest.NewRequest(method, cfg.Server.PublicURL+path, strings.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:51900"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Origin", cfg.Server.PublicURL)
-		req.Header.Set("Idempotency-Key", uuid.NewString())
+		req.Header.Set("Idempotency-Key", key)
 		req.Header.Set("X-CSRF-Token", "parallel-csrf")
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "parallel-csrf"})
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
 		return res.Code, res.Body.Bytes()
+	}
+	call := func(method, path, body, cookie string) (int, []byte) {
+		return callKey(method, path, body, cookie, uuid.NewString())
 	}
 	cards := func() map[int]parallelCard {
 		t.Helper()
@@ -544,8 +547,18 @@ esac
 		beforeTarget = 3
 		beforeOrder = []int{1, 2, 6, 3, 4, 5}
 	}
-	code, body = call("POST", "/api/todos", fmt.Sprintf(`{"title":"T6","prompt":"Add a line","place":{"mode":"before","n":%d}}`, beforeTarget), mayaCookie)
+	beforeKey := uuid.NewString()
+	beforeBody := fmt.Sprintf(`{"title":"T6","prompt":"Add a line","place":{"mode":"before","n":%d}}`, beforeTarget)
+	code, body = callKey("POST", "/api/todos", beforeBody, mayaCookie, beforeKey)
 	require.Equal(t, 202, code, string(body))
+	beforeReceipt := append([]byte(nil), body...)
+	if beforeCapacityRecovery {
+		// A reconnect/double press while capacity is held replays the durable
+		// placement receipt. It cannot append another TODO or queue entry.
+		code, body = callKey("POST", "/api/todos", beforeBody, mayaCookie, beforeKey)
+		require.Equal(t, 202, code, string(body))
+		require.JSONEq(t, string(beforeReceipt), string(body))
+	}
 	settle("step 2", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "queued"}, map[int]int{6: 1, 3: 2, 4: 3, 5: 4})
 	homeSnapshot("step 2", homeView{Order: beforeOrder, Positions: map[int]int{6: 1, 3: 2, 4: 3, 5: 4}, Parallel: 2})
 	todoSnapshot("step 2", 3, 2)
@@ -667,9 +680,21 @@ esac
 		require.NotEmpty(t, inserted.WorkspaceID)
 		require.NotEmpty(t, inserted.RequestRunID)
 		require.True(t, runtime.AdmissionHeld("workspace:"+inserted.WorkspaceID))
+		// The same durable request also replays after the queued item has
+		// acquired its machine and run; replay must not reset either identity.
+		code, body = callKey("POST", "/api/todos", beforeBody, mayaCookie, beforeKey)
+		require.Equal(t, 202, code, string(body))
+		require.JSONEq(t, string(beforeReceipt), string(body))
+		replayed, err := q.GetMythicalItemByNumber(ctx, repo.ID, 6)
+		require.NoError(t, err)
+		require.Equal(t, inserted.WorkspaceID, replayed.WorkspaceID)
+		require.Equal(t, inserted.RequestRunID, replayed.RequestRunID)
+		require.Equal(t, inserted.Attempt, replayed.Attempt)
+		require.Len(t, cards(), 6, "replayed Before must not allocate another TODO")
 		for _, n := range []int64{3, 4, 5} {
 			successor, err := q.GetMythicalItemByNumber(ctx, repo.ID, n)
 			require.NoError(t, err)
+			require.Empty(t, successor.WorkspaceID, "queued successor must have no machine")
 			require.Empty(t, successor.RequestRunID, "queued successor must have no launch")
 		}
 		var facts int

@@ -20,6 +20,9 @@ import (
 // projector is substituted. The candidate's completed verification is seeded;
 // this matrix does not claim capture/guest verification qualification.
 func TestTodoProposeSourceTransitionLiteralCases(t *testing.T) {
+	if testing.Short() {
+		t.Skip("real PostgreSQL proposal matrix; run without -short")
+	}
 	t.Setenv("TMPDIR", t.TempDir())
 	cases := []struct {
 		name, engine, wait                  string
