@@ -315,7 +315,7 @@ func TestTodoPublicationNeverOverwritesForeignHead(t *testing.T) {
 	op, err := decodeMythicalOutbound(item.PendingOp)
 	require.NoError(t, err)
 	assert.Equal(t, "conflict", op.State)
-	assert.Equal(t, "working", f.card(first.Number.Int64)["state"], "never In review without GitHub's pull request")
+	assert.Equal(t, "needs_you", f.card(first.Number.Int64)["state"], "an outside push opens its independent branch wait")
 }
 
 func TestTodoPublicationSettlesLostPushByLookup(t *testing.T) {
@@ -528,7 +528,7 @@ func TestTodoPublicationHoldsForeignPushFoundOnRecovery(t *testing.T) {
 		"POST /rehearsal-owner/app.git/git-receive-pack",
 		"POST /repos/rehearsal-owner/app/issues/12/comments",
 	}, f.writes(), "one push and one notice: no second push and no pull request")
-	assert.Equal(t, "working", f.card(first.Number.Int64)["state"])
+	assert.Equal(t, "needs_you", f.card(first.Number.Int64)["state"])
 }
 
 // The App token can write any branch: only the TODO's own recorded

@@ -1664,7 +1664,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 						}
 					}
 					if stateChanged {
-						data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(result)})
+						data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(result), "actor": map[string]any{"kind": "system", "id": "stack"}})
 						_, err := s.recordTodoFact(ctx, tx, result, uuid.NewString(), "todo.state_changed", todoState(result), data)
 						return err
 					}
@@ -3823,6 +3823,10 @@ func (st *mythicalItemStep) publicationAuthority(item db.MythicalItem) error {
 		if wait.Kind == "foreign_push" {
 			return errors.New("an outside push to this TODO's branch waits for a person")
 		}
+		return errors.New("this TODO waits for a person before publication")
+	}
+	if item.PausedAt.Valid {
+		return errors.New("this TODO is paused before publication")
 	}
 	return nil
 }
