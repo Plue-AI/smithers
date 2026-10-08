@@ -76,9 +76,9 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 	require.NoError(t, err)
 	require.NoError(t, connection.Reconciled())
 	if len(script) == 0 {
-		script = [][]byte{docGolden(t, "epoch"), {3, 1, 2, 0, 0}}
+		script = [][]byte{docGolden(t, "epoch")}
 	}
-	daemon := &machinedfake.Documents{Script: script}
+	daemon := &machinedfake.Documents{Script: script, Reply: func(raw []byte) [][]byte { return daemonReply(t, raw) }}
 	client := &machinedfake.Client{OnOpenDocument: func(ctx context.Context, branch, path string, actor []byte) (machined.DocumentStream, error) {
 		if err := connection.RequireReady(branch); err != nil {
 			return nil, err

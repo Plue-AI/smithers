@@ -12,10 +12,11 @@ const prerequisites = { contract: true, actor: true, file: true, recovery: true,
 
 const member = (cookie: string) => {
   const frames: string[] = []
+  let current: WebSocket | undefined
   const channel = new LiveChannel({
     documentFrames: true,
     socket: () => {
-      const socket = new WebSocket(`${origin.replace(/^http/, "ws")}/api/live`, {
+      const socket = current = new WebSocket(`${origin.replace(/^http/, "ws")}/api/live`, {
         headers: { Cookie: `smithers_session=${cookie}`, Origin: origin }, protocols: ["smithers.live.v1"]
       } as never)
       // Keep refusals and closes for a failing run's report.
@@ -25,7 +26,7 @@ const member = (cookie: string) => {
     }
   })
   const provider = new LiveDocProvider(topic, channel, prerequisites)
-  return { channel, provider, frames, text: () => provider.doc.getText("content") }
+  return { channel, provider, frames, socket: () => current, text: () => provider.doc.getText("content") }
 }
 const waitFor = async (what: string, predicate: () => boolean, limitMs = 5000) => {
   const started = performance.now()
@@ -73,6 +74,22 @@ assert.ok(text.startsWith(BEN) && text.endsWith(ALICE), text)
 // Saved only after the daemon receipt covers each member's own updates.
 await waitFor("both pages saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
 
+// Spec §7.1.1 gap on Ben's subscription alone: an oversized frame ends only
+// that subscription. Ben keeps typing; resubscribing keeps his client id,
+// resends the typing and offers no Reapply.
+const benClient = ben.provider.doc.clientID
+const gap = new Uint8Array(2 * 1024 * 1024 + 1)
+gap.set([1, 0, 0, 0, 1])
+ben.socket()!.send(gap)
+const GAP = " typed during the gap"
+for (const char of GAP) ben.text().insert(ben.text().length, char)
+await waitFor("the gap", () => ben.frames.some(frame => frame.includes('"t":"gap"'))).catch(diagnose)
+await waitFor("Alice sees typing from the gap", () => alice.text().toString().endsWith(GAP)).catch(diagnose)
+await waitFor("both pages saved after the gap", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
+assert.equal(ben.provider.doc.clientID, benClient, "the gap kept Ben's client id")
+assert.equal(ben.provider.unsaved, undefined, "a gap offers no Reapply")
+assert.equal(ben.text().toString(), alice.text().toString())
+
 // The host registered each tab's client id under its member's actor.
 const authors = ben.provider.doc.getMap("authors")
 const benActor = authors.get(String(ben.provider.doc.clientID)), aliceActor = authors.get(String(alice.provider.doc.clientID))
@@ -83,4 +100,4 @@ samples.sort((a, b) => a - b)
 const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!
 assert.ok(p95 < 1000, `keystroke p95 ${p95} ms`)
 ben.provider.dispose(); alice.provider.dispose(); ben.channel.dispose(); alice.channel.dispose()
-console.log(JSON.stringify({ text, ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, samples: samples.length, p95 }))
+console.log(JSON.stringify({ text: ben.text().toString(), ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, samples: samples.length, p95 }))

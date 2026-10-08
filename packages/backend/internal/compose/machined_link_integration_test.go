@@ -258,7 +258,6 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	// The daemon holds the document: it assigns the epoch and client id, then
 	// receipts each sequenced browser update the host relays unparsed.
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: docGolden(t, "epoch")}))
-	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 1, 2, 0, 0}}))
 	library, err := livedocument.Load(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
 	require.NoError(t, err)
 	daemonDocument, err := library.Open(livedocument.Code, nil)
@@ -300,7 +299,16 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 				finished <- err
 				return
 			}
-			_, update := codeDecode(t, msg.Data)
+			// One reply per input, in order: sync step 2, or the update's echo
+			// followed by a receipt.
+			kind, update := codeDecode(t, msg.Data)
+			if kind == 0 {
+				if err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 1, 2, 0, 0}}); err != nil {
+					finished <- err
+					return
+				}
+				continue
+			}
 			if _, err = daemonDocument.Peer(update); err != nil {
 				finished <- err
 				return
@@ -310,7 +318,14 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 				finished <- err
 				return
 			}
-			saved, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: vector})
+			echo, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSync, Data: append([]byte{2}, msg.Data[1:]...)})
+			if err == nil {
+				err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: echo})
+			}
+			saved, encodeErr := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: vector})
+			if err == nil && encodeErr != nil {
+				err = encodeErr
+			}
 			if err == nil {
 				err = wire.Write(guest, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: saved})
 			}

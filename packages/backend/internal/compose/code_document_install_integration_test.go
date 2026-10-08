@@ -53,7 +53,7 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 		alice.sub(t, install.topic)
 		aliceClient := alice.assigned(t)
 		require.NotEqual(t, benClient, aliceClient)
-		require.Equal(t, 2, install.daemon.opened(), "each subscription is its own daemon stream")
+		require.Equal(t, 1, install.daemon.opened(), "one daemon stream serves every subscriber")
 
 		started := time.Now()
 		ben.edit(t, codeInsert(benClient, "ben types "))
@@ -81,12 +81,31 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 		forged := install.daemon.authors(t, install)
 		require.Equal(t, install.ben, forged["forged"])
 
-		// Suspending Alice's membership ends her document within 5 s.
+		// Suspending Alice without any revocation event: her cached admission
+		// expires and her frames stop within 5 s while she keeps typing.
 		_, err := install.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, install.alice)
 		require.NoError(t, err)
 		removed := time.Now()
+		typing, stop := context.WithCancel(t.Context())
+		defer stop()
+		go func() {
+			ticker := time.NewTicker(100 * time.Millisecond)
+			defer ticker.Stop()
+			for clock := uint64(len("alice types ")); typing.Err() == nil; clock++ {
+				frame := append([]byte{1, 0, 0, 0, 7}, codeSync(2, codeInsertAt(aliceClient, clock, "z"))...)
+				if alice.conn.Write(typing, websocket.MessageBinary, frame) != nil {
+					return
+				}
+				<-ticker.C
+			}
+		}()
 		alice.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
 		require.Less(t, time.Since(removed), 5*time.Second)
+		time.Sleep(200 * time.Millisecond) // a frame already past admission may land
+		refusedAt := install.daemon.inputsFrom(t, install, install.alice)
+		time.Sleep(500 * time.Millisecond)
+		stop()
+		require.Equal(t, refusedAt, install.daemon.inputsFrom(t, install, install.alice), "no frame of hers reaches the daemon after the refusal")
 	})
 	t.Run("production clients co-edit", func(t *testing.T) {
 		install := startCodeDocumentInstall(t, true)
@@ -305,7 +324,10 @@ func (b *codeDocumentBrowser) assigned(t *testing.T) uint32 {
 	require.NoError(t, b.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{1, 0, 0, 0, 7}, codeSync(0, []byte{0})...)))
 	for {
 		kind, raw = b.read(t)
-		require.Equal(t, websocket.MessageBinary, kind, string(raw))
+		if kind == websocket.MessageText {
+			require.Contains(t, string(raw), `"t":"saved"`, "only receipts for earlier inputs may precede sync step 2")
+			continue
+		}
 		if b.apply(t, raw) == 1 {
 			return snap.Data.ClientID
 		}
@@ -370,10 +392,10 @@ func (b *codeDocumentBrowser) converge(t *testing.T, want string) {
 	}
 }
 
-// scriptedDocumentDaemon stands in for the branch daemon on the guest end
-// of the authenticated link: one stream per subscription, a daemon-allocated
-// client id, fan-out to the other streams and an immediate receipt per update.
-// It does not enforce the daemon's actor checks or touch a disk.
+// scriptedDocumentDaemon stands in for the branch daemon on the guest end of
+// the authenticated link. Like its document dispatcher it answers each input
+// with exactly one frame, in order: sync step 2, or the update's echo followed
+// by an immediate receipt. It does not enforce the daemon's actor checks.
 type scriptedDocumentDaemon struct {
 	mu      sync.Mutex
 	doc     *livedocument.Document
@@ -445,18 +467,6 @@ func (d *scriptedDocumentDaemon) write(stream uint32, msg wire.Document) error {
 	return wire.Write(d.guest, wire.Frame{Kind: wire.Documents, Stream: stream, Payload: payload})
 }
 
-// fanOut is the daemon's job under relay: other streams receive each update.
-func (d *scriptedDocumentDaemon) fanOut(from uint32, update []byte) error {
-	for stream := range d.streams {
-		if stream != from {
-			if err := d.write(stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(2, update)}); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 	if frame.Kind == wire.Control {
 		id, method, args, err := frame.Request()
@@ -487,11 +497,8 @@ func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 				return err
 			}
 			d.streams[stream] = &scriptedStream{actor: actor, client: client}
-			author, err := d.doc.SetAuthor(uint64(client), hex.EncodeToString(actor))
-			if err != nil {
-				return err
-			}
-			return d.fanOut(stream, author)
+			_, err = d.doc.SetAuthor(uint64(client), hex.EncodeToString(actor))
+			return err
 		case byte(wire.CloseDoc):
 			fields, err := wire.Fields("args14", args)
 			if err == nil && len(fields[1]) == 4 {
@@ -511,35 +518,38 @@ func (d *scriptedDocumentDaemon) handle(frame wire.Frame) error {
 		return fmt.Errorf("input on unopened stream %d", frame.Stream)
 	}
 	msg, err := wire.DecodeDocumentV2(frame.Payload)
-	if err != nil || msg.Msg != wire.DocumentInput {
+	if err != nil {
 		return err
+	}
+	if msg.Msg == wire.DocumentAwarenessInput {
+		return d.write(frame.Stream, wire.Document{Msg: wire.DocumentAwareness, Data: msg.Data})
+	}
+	if msg.Msg != wire.DocumentInput {
+		return fmt.Errorf("unexpected document message %d", msg.Msg)
 	}
 	kind, payload, err := codeSyncParts(msg.Data)
 	if err != nil {
 		return err
 	}
-	switch kind {
-	case 0:
+	if kind == 0 {
 		state, err := d.doc.Sync2(payload)
 		if err != nil {
 			return err
 		}
 		return d.write(frame.Stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(1, state)})
-	case 2:
-		if _, err := d.doc.Peer(payload); err != nil {
-			return err
-		}
-		d.inputs = append(d.inputs, scriptedDocumentInput{actor: append([]byte(nil), msg.Actor...), seq: msg.Seq, update: append([]byte(nil), payload...)})
-		sv, err := d.doc.Sync1()
-		if err != nil {
-			return err
-		}
-		if err := d.write(frame.Stream, wire.Document{Msg: wire.DocumentSaved, AtMS: uint64(time.Now().UnixMilli()), ThroughSeq: msg.Seq, Data: sv}); err != nil {
-			return err
-		}
-		return d.fanOut(frame.Stream, payload)
 	}
-	return nil
+	if _, err := d.doc.Peer(payload); err != nil {
+		return err
+	}
+	d.inputs = append(d.inputs, scriptedDocumentInput{actor: append([]byte(nil), msg.Actor...), seq: msg.Seq, update: append([]byte(nil), payload...)})
+	if err := d.write(frame.Stream, wire.Document{Msg: wire.DocumentSync, Data: codeSync(2, payload)}); err != nil {
+		return err
+	}
+	sv, err := d.doc.Sync1()
+	if err != nil {
+		return err
+	}
+	return d.write(frame.Stream, wire.Document{Msg: wire.DocumentSaved, AtMS: uint64(time.Now().UnixMilli()), ThroughSeq: msg.Seq, Data: sv})
 }
 
 func (d *scriptedDocumentDaemon) fail(err error) {
@@ -587,6 +597,26 @@ func (d *scriptedDocumentDaemon) authors(t *testing.T, install *codeDocumentInst
 		}
 	}
 	return out
+}
+
+// inputsFrom counts the daemon inputs stamped with member's actor.
+func (d *scriptedDocumentDaemon) inputsFrom(t *testing.T, install *codeDocumentInstall, member int64) int {
+	t.Helper()
+	d.mu.Lock()
+	inputs := append([]scriptedDocumentInput(nil), d.inputs...)
+	d.mu.Unlock()
+	tx, err := install.pool.Begin(t.Context())
+	require.NoError(t, err)
+	defer tx.Rollback(t.Context())
+	n := 0
+	for _, input := range inputs {
+		actor, err := machined.ResolveActorInTx(t.Context(), tx, install.branch, "machine", input.actor)
+		require.NoError(t, err)
+		if actor.MemberID == member {
+			n++
+		}
+	}
+	return n
 }
 
 // clientMembers resolves the actor of every single-client update the daemon

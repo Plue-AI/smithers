@@ -9,6 +9,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -61,13 +64,31 @@ type DocumentSource struct {
 // errDocumentGap ends one subscription whose stream fell behind its budget.
 var errDocumentGap = machined.ErrDocumentGap
 
-// DocRelay relays code documents between each subscriber and the branch
-// daemon, which alone holds, saves and acknowledges them (ADR 0003). The host
-// authenticates the subscriber, stamps its actor on every frame and passes
-// document payloads through unparsed. It keeps no document replica.
+// admissionMaxAge bounds a cached member admission. With the relay's 1 s idle
+// check, a suspended member's frames stop within 5 s even without an event.
+const admissionMaxAge = 4 * time.Second
+
+// DocRelay relays code documents between subscribers and the branch daemon,
+// which alone holds, saves and acknowledges them (ADR 0003). The host
+// authenticates each subscriber, stamps its actor on every frame and passes
+// document bytes through unparsed over one daemon stream per open topic.
 type DocRelay struct {
 	Authorize  func(context.Context, DocumentTopic, int64, int64) ([]byte, string)
 	Connection func(context.Context, string) (*machined.Connection, DocumentRPC)
+	// Now is the admission cache clock; nil uses time.Now.
+	Now        func() time.Time
+	topics     codeTopics
+	generation atomic.Uint64
+}
+
+// Invalidate ends every cached admission. Roster and grant changes call it.
+func (r *DocRelay) Invalidate() { r.generation.Add(1) }
+
+func (r *DocRelay) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member int64) (Source, string) {
@@ -78,6 +99,7 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 	if r == nil || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
 		return Source{}, Unsupported
 	}
+	generation := r.generation.Load()
 	actor, refusal := r.Authorize(ctx, doc, repository, member)
 	if refusal != "" {
 		return Source{}, refusal
@@ -96,24 +118,36 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		return Source{}, Forbidden
 	}
 	actor = append([]byte(nil), actor...)
-	// Each check repeats admission: membership, write share, lane and machine
-	// can change while the subscription is open.
+	// Admission is cached per subscription: membership, write share, lane and
+	// machine are rechecked after admissionMaxAge or any roster/grant change.
+	var mu sync.Mutex
+	admitted, admittedGeneration := r.now(), generation
 	ready := func() error {
+		mu.Lock()
+		defer mu.Unlock()
+		if !admitted.IsZero() && admittedGeneration == r.generation.Load() && r.now().Sub(admitted) < admissionMaxAge {
+			return connection.RequireReady(doc.Branch)
+		}
+		generation := r.generation.Load()
 		current, code := r.Authorize(ctx, doc, repository, member)
 		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
+			admitted = time.Time{}
 			return machined.ErrUnauthorized
 		}
+		admitted, admittedGeneration = r.now(), generation
 		return connection.RequireReady(doc.Branch)
 	}
-	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Sequenced: true, Open: func(ctx context.Context) (DocumentStream, error) {
+	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Sequenced: true, OpenClient: func(ctx context.Context, requested uint32) (DocumentStream, error) {
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		// One daemon stream per subscription, on the admitted connection only.
+		// Streams open only on the admitted connection, never its replacement.
 		if current, _ := r.Connection(ctx, doc.Branch); current != connection {
 			return nil, machined.ErrNotReady
 		}
-		return rpc.OpenDocument(ctx, doc.Path, actor)
+		return r.topics.subscribe(ctx, topicKey{topic: topic, connection: connection}, actor, requested, func(ctx context.Context, opener []byte) (DocumentStream, error) {
+			return rpc.OpenDocument(ctx, doc.Path, opener)
+		})
 	}}}, ""
 }
 

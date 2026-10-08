@@ -2076,7 +2076,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 
 		if options.LiveCodeDocuments {
-			topics.documents = composeCodeDocumentRelay(workspaceService, options.Machined)
+			if relay := composeCodeDocumentRelay(workspaceService, options.Machined); relay != nil {
+				// Any roster or grant change ends cached document admissions at once.
+				defer revocationBus.Subscribe(func(revocation.Event) { relay.Invalidate() })()
+				topics.documents = relay
+			}
 		}
 		ffiPath, ffiErr := repohostserver.FFILibraryPath()
 		if ffiErr != nil {

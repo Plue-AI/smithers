@@ -66,12 +66,38 @@ func (f *docFixture) assigned(t *testing.T) uint32 {
 	require.Equal(t, "snap", snap.T)
 	require.Equal(t, "00112233445566778899aabbccddeeff", snap.Data.Epoch)
 	require.NotZero(t, snap.Data.ClientID)
-	kind, b = f.read(t)
-	require.Equal(t, websocket.MessageBinary, kind)
-	require.Equal(t, []byte{1, 0, 0, 0, 7}, b[:5])
-	k, _ := codeDecode(t, b[5:])
-	require.Equal(t, byte(1), k)
-	return snap.Data.ClientID
+	// Like the browser provider, ask the daemon for its state (sync step 1).
+	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{1, 0, 0, 0, 7}, codeSync(0, []byte{0})...)))
+	for {
+		kind, b = f.read(t)
+		if kind == websocket.MessageText {
+			continue // a receipt for an earlier input on the shared stream
+		}
+		require.Equal(t, []byte{1, 0, 0, 0, 7}, b[:5])
+		if k, _ := codeDecode(t, b[5:]); k == 1 {
+			return snap.Data.ClientID
+		}
+	}
+}
+
+// daemonReply answers like the daemon's document dispatcher: exactly one
+// reply per input, in order. Sync step 1 gets sync step 2, an update or
+// awareness input gets its echo.
+func daemonReply(t *testing.T, raw []byte) [][]byte {
+	t.Helper()
+	msg, err := wire.DecodeDocumentV2(raw)
+	require.NoError(t, err)
+	if msg.Msg == wire.DocumentAwarenessInput {
+		echo, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentAwareness, Data: msg.Data})
+		require.NoError(t, err)
+		return [][]byte{echo}
+	}
+	if msg.Data[0] == 0 {
+		return [][]byte{{3, 1, 2, 0, 0}}
+	}
+	echo, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSync, Data: append([]byte{2}, msg.Data[1:]...)})
+	require.NoError(t, err)
+	return [][]byte{echo}
 }
 func (f *docFixture) update(t *testing.T, update []byte) {
 	t.Helper()
@@ -98,34 +124,38 @@ func peerFor(t *testing.T, f *docFixture) *codePeer {
 	f.daemon.Reply = func(raw []byte) [][]byte {
 		p.mu.Lock()
 		defer p.mu.Unlock()
+		replies := daemonReply(t, raw)
 		msg, e := wire.DecodeDocumentV2(raw)
 		require.NoError(t, e)
 		if msg.Msg != wire.DocumentInput {
-			return nil
+			return replies
 		}
 		k, update := codeDecode(t, msg.Data)
 		if k != 2 {
-			return nil
+			return replies
 		}
 		_, e = p.doc.Peer(update)
 		require.NoError(t, e)
 		require.Greater(t, msg.Seq, p.last)
 		p.last = msg.Seq
 		if !p.save {
-			return nil
+			return replies
 		}
 		sv, e := doc.Sync1()
 		require.NoError(t, e)
-		reply, e := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: sv})
+		saved, e := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1791028800000, ThroughSeq: msg.Seq, Data: sv})
 		require.NoError(t, e)
-		return [][]byte{reply}
+		return append(replies, saved)
 	}
 	return p
 }
 func readSaved(t *testing.T, f *docFixture, want uint64) {
 	t.Helper()
 	for {
-		_, raw := f.read(t)
+		kind, raw := f.read(t)
+		if kind == websocket.MessageBinary {
+			continue
+		}
 		var saved struct {
 			T   string
 			ID  uint32
@@ -165,14 +195,20 @@ func TestDocRelayWireContract(t *testing.T) {
 	opened, sent, _ := f.daemon.Recorded()
 	require.Len(t, opened, 1)
 	require.Equal(t, docActor, opened[0].Actor)
-	require.Len(t, sent, 2)
-	for i, update := range [][]byte{insert, deletion} {
-		msg, e := wire.DecodeDocumentV2(sent[i])
+	var updates []wire.Document
+	for _, raw := range sent {
+		msg, e := wire.DecodeDocumentV2(raw)
 		require.NoError(t, e)
 		require.Equal(t, wire.DocumentInput, msg.Msg)
-		require.Equal(t, docActor, msg.Actor)
-		require.Equal(t, uint64(i+1), msg.Seq)
-		require.Equal(t, codeSync(2, update), msg.Data, "document bytes pass through unparsed")
+		require.Equal(t, docActor, msg.Actor, "every frame carries the admitted actor")
+		if msg.Seq > 0 {
+			updates = append(updates, msg)
+		}
+	}
+	require.Len(t, updates, 2)
+	for i, update := range [][]byte{insert, deletion} {
+		require.Equal(t, uint64(i+1), updates[i].Seq)
+		require.Equal(t, codeSync(2, update), updates[i].Data, "document bytes pass through unparsed")
 	}
 }
 
@@ -186,15 +222,14 @@ func TestDocRelayAuthorization(t *testing.T) {
 	}
 	opened, _, _ := f.daemon.Recorded()
 	require.Empty(t, opened, "a refused subscription opens no daemon stream")
-	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{docGolden(t, "spoof")} }
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	client := f.assigned(t)
+	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{docGolden(t, "spoof")} }
 	forged := codeInsert(client^1, "forged")
 	f.update(t, forged)
 	f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
 	_, sent, _ := f.daemon.Recorded()
-	require.Len(t, sent, 1)
-	msg, err := wire.DecodeDocumentV2(sent[0])
+	msg, err := wire.DecodeDocumentV2(sent[len(sent)-1])
 	require.NoError(t, err)
 	require.Equal(t, docActor, msg.Actor, "the browser cannot choose the actor the daemon checks")
 	require.Equal(t, codeSync(2, forged), msg.Data)
@@ -285,29 +320,21 @@ func TestDocRelayRevocation(t *testing.T) {
 func TestDocRelayBackpressure(t *testing.T) {
 	for _, direction := range []string{"browser", "daemon"} {
 		t.Run(direction, func(t *testing.T) {
-			var f *docFixture
+			f := newDocFixture(t)
+			f.sub(t, "doc:code:branch-a:retry.ts")
+			client := f.assigned(t)
 			if direction == "daemon" {
-				f = newDocFixture(t, docGolden(t, "epoch"), append([]byte{3}, make([]byte, 2<<20)...))
-				f.sub(t, "doc:code:branch-a:retry.ts")
-				for {
-					kind, b := f.read(t)
-					require.Equal(t, websocket.MessageText, kind, "an oversized document frame never reaches the browser")
-					if string(b) == `{"t":"gap","id":7}` {
-						break
-					}
-					require.Contains(t, string(b), `"t":"snap"`)
-				}
+				// A daemon frame over the subscriber's budget never reaches it.
+				f.daemon.Reply = func([]byte) [][]byte { return [][]byte{append([]byte{3}, make([]byte, 2<<20)...)} }
+				f.update(t, codeInsert(client, "x"))
 			} else {
-				f = newDocFixture(t)
-				f.sub(t, "doc:code:branch-a:retry.ts")
-				f.assigned(t)
 				raw := make([]byte, (2<<20)+1)
 				copy(raw, []byte{1, 0, 0, 0, 7})
 				require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, raw))
-				f.text(t, `{"t":"gap","id":7}`)
 			}
+			f.text(t, `{"t":"gap","id":7}`)
 			require.Eventually(t, func() bool { _, _, closed := f.daemon.Recorded(); return closed == 1 }, time.Second, time.Millisecond)
-			f.daemon.Script = [][]byte{docGolden(t, "epoch"), {3, 1, 2, 0, 0}}
+			f.daemon.Reply = func(raw []byte) [][]byte { return daemonReply(t, raw) }
 			f.sub(t, "doc:code:branch-a:retry.ts")
 			f.assigned(t)
 			opened, _, _ := f.daemon.Recorded()
@@ -316,9 +343,9 @@ func TestDocRelayBackpressure(t *testing.T) {
 	}
 }
 
-// Every subscription is its own daemon stream; the daemon fans out. Frames
-// from one subscription never reach another's stream.
-func TestDocRelayStreamPerSubscription(t *testing.T) {
+// One daemon stream serves every subscriber of a topic. The host registers
+// each further client under its actor and fans out the daemon's echoes.
+func TestDocRelayOneStreamPerTopic(t *testing.T) {
 	f := newDocFixture(t)
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	a := f.assigned(t)
@@ -329,34 +356,45 @@ func TestDocRelayStreamPerSubscription(t *testing.T) {
 	other := &docFixture{conn: second}
 	other.sub(t, "doc:code:branch-a:retry.ts")
 	b := other.assigned(t)
+	require.NotEqual(t, a, b, "two tabs never share a client id")
+	opened, sent, _ := f.daemon.Recorded()
+	require.Len(t, opened, 1)
+	registration, err := wire.DecodeDocumentV2(sent[1])
+	require.NoError(t, err)
+	require.Equal(t, docActor, registration.Actor)
+	require.Equal(t, uint64(1), registration.Seq)
+	require.Contains(t, string(registration.Data), "authors")
+	require.Contains(t, string(registration.Data), hex.EncodeToString(docActor))
 	f.update(t, codeInsert(a, "A"))
+	other.binaryContaining(t, "A")
 	other.update(t, codeInsert(b, "B"))
-	require.Eventually(t, func() bool { _, sent, _ := f.daemon.Recorded(); return len(sent) == 2 }, time.Second, time.Millisecond)
-	opened, _, _ := f.daemon.Recorded()
-	require.Len(t, opened, 2)
-	require.NotEqual(t, opened[0].Stream, opened[1].Stream)
-	frames, _ := f.daemon.RecordedWire()
-	streams := map[string]uint32{}
-	for _, raw := range frames {
-		frame, err := wire.Decode(raw)
-		require.NoError(t, err)
-		msg, err := wire.DecodeDocumentV2(frame.Payload)
-		require.NoError(t, err)
-		_, update := codeDecode(t, msg.Data)
-		streams[string(update[len(update)-2:len(update)-1])] = frame.Stream
-	}
-	require.NotEqual(t, streams["A"], streams["B"])
+	f.binaryContaining(t, "B")
 }
 
-// A daemon epoch change reaches the browser as a fresh assignment.
+func (f *docFixture) binaryContaining(t *testing.T, text string) {
+	t.Helper()
+	for {
+		kind, raw := f.read(t)
+		if kind == websocket.MessageBinary && strings.Contains(string(raw), text) {
+			return
+		}
+	}
+}
+
+// A daemon epoch change ends the topic: every subscriber resubscribes, and
+// the fresh assignment carries the new epoch.
 func TestDocRelayEpochChange(t *testing.T) {
 	f := newDocFixture(t)
 	epoch := docGolden(t, "epoch")
 	epoch[1] = 0xff
-	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{epoch} }
 	f.sub(t, "doc:code:branch-a:retry.ts")
 	client := f.assigned(t)
+	f.daemon.Reply = func([]byte) [][]byte { return [][]byte{epoch} }
 	f.update(t, codeInsert(client, "x"))
+	f.text(t, `{"t":"gap","id":7}`)
+	f.daemon.Script = [][]byte{epoch}
+	f.daemon.Reply = func(raw []byte) [][]byte { return daemonReply(t, raw) }
+	f.sub(t, "doc:code:branch-a:retry.ts")
 	kind, raw := f.read(t)
 	require.Equal(t, websocket.MessageText, kind)
 	require.Contains(t, string(raw), `"epoch":"ff112233445566778899aabbccddeeff"`)
@@ -380,7 +418,7 @@ func TestDocRelayReplacementConnection(t *testing.T) {
 	f.relay.Connection = func(context.Context, string) (*machined.Connection, live.DocumentRPC) {
 		return binding, f.daemon
 	}
-	_, err = source.Document.Open(t.Context())
+	_, err = source.Document.OpenClient(t.Context(), 0)
 	require.ErrorIs(t, err, machined.ErrNotReady)
 	opened, _, _ := f.daemon.Recorded()
 	require.Empty(t, opened)

@@ -377,9 +377,28 @@ fixed bodies follow `msg`; all fixed integers are big-endian. The existing
 
 The actor comes exclusively from the host authorizer, never a browser payload.
 The daemon rejects client-id and authors-map spoofing before applying updates.
-The host document host opens one stream per code path as the daemon's trusted
-peer. Browser subscriptions and their client ids belong to the host document
-host. Epoch precedes sync; the host never manufactures code durability receipts.
+The host opens one stream per open code path as the daemon's trusted peer and
+fans the daemon's frames out to that path's subscribers (ADR 0003: it relays
+document bytes unparsed and keeps no replica). Browser subscriptions and their
+client ids belong to the host. The opener takes the epoch notice's client id;
+for every other subscriber the host sends one authors-map registration
+(`authors[client] = actor key`, written by a one-use registrar client) under
+that subscriber's actor, and the daemon accepts it only as one new author for
+the envelope's actor. A client id stays bound to its actor for the epoch: a
+subscriber that resubscribes after a gap keeps it, so its unsaved updates
+resend as the same author. The daemon answers each input with exactly one
+frame, in order (sync step 2, the update's echo, or `refused`), so the host
+answers sync step 1 only to the subscriber that asked, fans an echo out to the
+others, and ends only the subscriber whose input was refused. The host
+enforces the browser's 2 MiB send budget per subscriber and gaps only that
+subscriber.
+
+Open documents per link are bounded by `MaxOpenDocuments` = 16 open code paths.
+The host refuses a further `open_doc` itself with `busy` ("open document
+limit"), sends nothing to the daemon, and the subscription is refused
+`unsupported`. A daemon stream whose reader falls behind its 2 MiB queue gaps
+alone; neither an overflow nor a refused `open_doc` or `close_doc` closes the
+link. Epoch precedes sync; the host never manufactures code durability receipts.
 Sequences are monotonic per stream; repeating a sequence with different update
 bytes is refused. `through_seq` covers every input through that sequence,
 including delete-only updates that do not advance a state vector. Reconnect

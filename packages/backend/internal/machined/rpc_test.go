@@ -266,6 +266,42 @@ func TestRegistryDocumentOverflowGapsOnlyItsStream(t *testing.T) {
 	}
 }
 
+// ADR 0004 S3: the host refuses an open beyond MaxOpenDocuments itself; the
+// daemon never sees it and the open documents keep working.
+func TestRegistryDocumentLimit(t *testing.T) {
+	r, link, peer := rpcFixture(t)
+	open := make([]DocumentStream, 0, MaxOpenDocuments)
+	for i := 0; i < MaxOpenDocuments; i++ {
+		result := make(chan DocumentStream, 1)
+		go func() {
+			doc, err := r.OpenDocument(t.Context(), "a", fmt.Sprintf("file-%d.ts", i), []byte("actor"))
+			assert.NoError(t, err)
+			result <- doc
+		}()
+		answer(t, peer, wire.OpenDoc, wire.Field(1, wire.U32(uint32(5+2*i))))
+		open = append(open, <-result)
+	}
+	_, err := r.OpenDocument(t.Context(), "a", "one-more.ts", []byte("actor"))
+	require.ErrorIs(t, err, ErrDocumentLimit)
+	require.Equal(t, "busy", ErrDocumentLimit.Code)
+	require.NoError(t, link.RequireReady("a"))
+	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Documents, Stream: 5, Payload: []byte{3, 0, 1, 0}}))
+	got, err := open[0].Receive(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []byte{3, 0, 1, 0}, got)
+	closed := make(chan error, 1)
+	go func() { closed <- open[0].Close() }()
+	answer(t, peer, wire.CloseDoc)
+	require.NoError(t, <-closed)
+	result := make(chan error, 1)
+	go func() {
+		_, err := r.OpenDocument(t.Context(), "a", "one-more.ts", []byte("actor"))
+		result <- err
+	}()
+	answer(t, peer, wire.OpenDoc, wire.Field(1, wire.U32(41)))
+	require.NoError(t, <-result, "closing a document frees its slot")
+}
+
 // A daemon refusal names one document. It is not a protocol failure, so the
 // link stays open for every other stream and session.
 func TestRegistryDocumentRefusalKeepsLink(t *testing.T) {

@@ -40,6 +40,23 @@ test("same epoch reconnect resends exactly once per restart and saved vectors al
   f.event({ kind: "saved", seq: 1, vector: new Uint8Array([1, 7, 5]) })
   expect(f.provider.saved).toBe("saved"); f.provider.dispose(); expect(f.released).toBe(1)
 })
+// ADR 0003 ruling: a gap keeps the actor-bound client id. Typing before and
+// during the gap resends after the same assignment; no Reapply is offered.
+test("a gap and the same assignment resend unsaved typing without recovery", () => {
+  const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
+  const text = f.provider.doc.getText("content")
+  text.insert(0, "before")
+  f.event({ kind: "offline" })
+  text.insert(text.length, " during")
+  expect(f.provider.unsaved).toBeUndefined(); expect(f.provider.editable).toBe(true)
+  const before = f.sent.length
+  f.event({ kind: "assigned", epoch, clientId: 7 })
+  expect(f.sent.length - before).toBe(3)
+  expect(f.sent.slice(-2)).toEqual(f.sent.slice(before - 2, before))
+  f.event({ kind: "saved", seq: 2, vector: Y.encodeStateVector(f.provider.doc) })
+  expect(f.provider.saved).toBe("saved"); expect(f.provider.unsaved).toBeUndefined()
+  expect(text.toString()).toBe("before during"); f.provider.dispose()
+})
 test("new epoch retains text; reapply clears only on covering save", () => {
   const f = fixture(); f.event({ kind: "assigned", epoch, clientId: 7 })
   f.provider.doc.getText("content").insert(0, "<script>inert</script>")

@@ -355,7 +355,7 @@ func (l *Link) read() {
 		case wire.Documents:
 			l.mu.Lock()
 			queue := l.documents[f.Stream]
-			if queue == nil && l.openingDocuments > 0 && len(l.documents) < 16 {
+			if queue == nil && l.openingDocuments > 0 && len(l.documents) < MaxOpenDocuments {
 				queue = newDocumentQueue()
 				l.documents[f.Stream] = queue
 			}

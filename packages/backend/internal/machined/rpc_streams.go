@@ -21,6 +21,15 @@ var ErrDocumentGap = errors.New("document stream gap")
 
 const documentQueueBytes = 2 << 20
 
+// MaxOpenDocuments bounds open document streams per machine link (ADR 0004
+// S3). The host opens one stream per open file, so this many files can be
+// co-edited at once on one branch.
+const MaxOpenDocuments = 16
+
+// ErrDocumentLimit refuses an open beyond MaxOpenDocuments on the host,
+// before any request reaches the daemon.
+var ErrDocumentLimit = &SessionError{Code: "busy", Detail: "open document limit"}
+
 // documentQueue buffers one daemon document stream for its reader. The link
 // reader never blocks on it and never closes the link for it.
 type documentQueue struct {
@@ -65,9 +74,9 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 		return nil, ErrUnauthorized
 	}
 	l.mu.Lock()
-	if len(l.documents)+l.openingDocuments >= 16 {
+	if len(l.documents)+l.openingDocuments >= MaxOpenDocuments {
 		l.mu.Unlock()
-		return nil, refused("busy", "document stream limit")
+		return nil, ErrDocumentLimit
 	}
 	l.openingDocuments++
 	l.mu.Unlock()
@@ -88,7 +97,7 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 	}
 	l.mu.Lock()
 	queue := l.documents[id]
-	if queue == nil && len(l.documents) < 16 {
+	if queue == nil && len(l.documents) < MaxOpenDocuments {
 		queue = newDocumentQueue()
 		l.documents[id] = queue
 	}

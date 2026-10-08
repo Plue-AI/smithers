@@ -71,8 +71,11 @@ func TestComposeCodeDocumentAuthority(t *testing.T) {
 		_, code = relay.Resolve(ctx, topic, scope.repo, scope.member)
 		require.Equal(t, live.Forbidden, code)
 	}
+	// Admission is cached per subscription; a grant change invalidates it.
 	_, err = pool.Exec(ctx, `UPDATE workspace_shares SET level='read' WHERE workspace_id=$1`, row.ID)
 	require.NoError(t, err)
+	require.NoError(t, source.Document.Ready(), "cached until a change or its maximum age")
+	relay.Invalidate()
 	require.ErrorIs(t, source.Document.Ready(), machined.ErrUnauthorized)
 	_, code = relay.Resolve(ctx, topic, repo.ID, owner.ID)
 	require.Equal(t, live.Forbidden, code)
@@ -81,6 +84,7 @@ func TestComposeCodeDocumentAuthority(t *testing.T) {
 	require.NoError(t, source.Document.Ready())
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='replacement' WHERE id=$1`, row.ID)
 	require.NoError(t, err)
+	relay.Invalidate()
 	require.ErrorIs(t, source.Document.Ready(), machined.ErrUnauthorized)
 	_, code = relay.Resolve(ctx, topic, repo.ID, owner.ID)
 	require.Equal(t, live.Unsupported, code, "old transport cannot consume the replacement's actor")

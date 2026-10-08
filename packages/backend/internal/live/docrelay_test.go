@@ -74,15 +74,15 @@ func TestDocumentAdmissionProviders(t *testing.T) {
 	auth := func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return []byte("Be"), "" }
 	connection := func(context.Context, string) (*machined.Connection, DocumentRPC) { return nil, nil }
 	for _, tc := range []struct {
-		r    DocRelay
+		r    *DocRelay
 		want string
 	}{
-		{DocRelay{Connection: connection}, Unsupported},
-		{DocRelay{Authorize: auth}, Unsupported},
-		{DocRelay{Authorize: auth, Connection: connection}, Unsupported},
-		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, Forbidden }, Connection: connection}, Forbidden},
-		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, "" }, Connection: connection}, Forbidden},
-		{DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return make([]byte, 1025), "" }, Connection: connection}, Forbidden},
+		{&DocRelay{Connection: connection}, Unsupported},
+		{&DocRelay{Authorize: auth}, Unsupported},
+		{&DocRelay{Authorize: auth, Connection: connection}, Unsupported},
+		{&DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, Forbidden }, Connection: connection}, Forbidden},
+		{&DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return nil, "" }, Connection: connection}, Forbidden},
+		{&DocRelay{Authorize: func(context.Context, DocumentTopic, int64, int64) ([]byte, string) { return make([]byte, 1025), "" }, Connection: connection}, Forbidden},
 	} {
 		_, code := tc.r.Resolve(context.Background(), "doc:code:b:a", 1, 1)
 		if code != tc.want {
@@ -91,7 +91,7 @@ func TestDocumentAdmissionProviders(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	r := DocRelay{Authorize: auth, Connection: connection}
+	r := &DocRelay{Authorize: auth, Connection: connection}
 	_, code = r.Resolve(ctx, "doc:code:b:a", 1, 1)
 	if code != Forbidden {
 		t.Fatal(code)
