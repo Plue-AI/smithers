@@ -2,6 +2,8 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -25,7 +28,15 @@ import (
 // Production HTTP, PostgreSQL, registry, object ingest, native rewrite and FIFO
 // are real. The rehearsal's empty broker cannot qualify cgroup freeze or W2-W4;
 // those require the approved reference VM. Build rehearsal_daemon with killpoints.
-func TestMachinedMutationQueuedHTTPWrites(t *testing.T) {
+func TestMachinedMutationQueuedHTTPWrites(t *testing.T) { testMachinedNativeMutation(t, false, false) }
+
+// Real daemon capture/event dispatch following authenticated composed HTTP saves.
+// Unlike the scripted capture peer, this executes the native snapshot/outbox.
+func TestMachinedCapturePendingWorkNative(t *testing.T) { testMachinedNativeMutation(t, true, false) }
+
+func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMutation(t, false, true) }
+
+func testMachinedNativeMutation(t *testing.T, pendingOnly, ackOnly bool) {
 	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
 	if os.Getenv("SMITHERS_MACHINED_MUTATION_DEBUG") != "1" {
 		t.Skip("debug rehearsal daemon with killpoints required")
@@ -140,6 +151,123 @@ func TestMachinedMutationQueuedHTTPWrites(t *testing.T) {
 	first, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.Head)
+	if ackOnly {
+		res := request("PUT", "ack.txt", `{"content":"pinned before rewrite","base_digest":"absent"}`)
+		require.NoError(t, res.err)
+		require.Equal(t, 200, res.status, "%s", res.body)
+		window, err := registry.AckDelay(branch, 10000, "", "")
+		require.NoError(t, err)
+		t.Cleanup(func() { _, _ = registry.AckDelay(branch, 0, window.ID, window.Boot) })
+		began := time.Now()
+		_, err = registry.Rebase(ctx, branch, actor, base)
+		require.NoError(t, err)
+		require.Less(t, time.Since(began), 5*time.Second, "rewrite cannot await the ten-second host ACK")
+		require.Eventually(t, func() bool {
+			receipt, err := registry.ReadAckDelay(branch)
+			return err == nil && receipt.State == "withheld"
+		}, 5*time.Second, 5*time.Millisecond)
+		waiting := make(chan error, 1)
+		go func() { _, err := registry.Capture(ctx, branch); waiting <- err }()
+		select {
+		case err := <-waiting:
+			t.Fatalf("capture did not wait for durable outbox delivery: %v", err)
+		case <-time.After(150 * time.Millisecond):
+		}
+		// The pending capture cannot hold the mutation lock while draining.
+		// A second authenticated browser write must complete during the hold.
+		began = time.Now()
+		res = request("PUT", "while-ack.txt", `{"content":"lock available during ACK hold","base_digest":"absent"}`)
+		require.NoError(t, res.err)
+		require.Equal(t, 200, res.status, "%s", res.body)
+		require.Less(t, time.Since(began), 3*time.Second, "capture drain held the mutation lock")
+		receipt, err := registry.ReadAckDelay(branch)
+		require.NoError(t, err)
+		require.Equal(t, "withheld", receipt.State)
+		var receipts int
+		eventBytes, err := hex.DecodeString(receipt.Event)
+		require.NoError(t, err)
+		require.Len(t, eventBytes, 16)
+		eventID, err := uuid.FromBytes(eventBytes)
+		require.NoError(t, err)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, branch, eventID.String()).Scan(&receipts))
+		require.Equal(t, 1, receipts, "event transaction commits before delayed ACK")
+		require.NoError(t, <-waiting)
+		require.Eventually(t, func() bool {
+			receipt, err = registry.ReadAckDelay(branch)
+			return err == nil && receipt.State == "acknowledged"
+		}, time.Second, 5*time.Millisecond)
+		require.GreaterOrEqual(t, receipt.WithheldMS, 10000.0)
+		final, err := registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		for path, want := range map[string]string{"ack.txt": "pinned before rewrite", "while-ack.txt": "lock available during ACK hold"} {
+			require.Equal(t, []byte(want), git("-C", store, "show", final.Head+":"+path))
+		}
+		return
+	}
+	if pendingOnly {
+		_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
+		require.NoError(t, err)
+		var itemID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,generation,request_run_id,checks)
+          VALUES($1,'todo','proposed',$2,$3,$4,true,3,9,'native-capture-run','{"todo":true,"land":{"head":"approved"},"attempts":[]}') RETURNING id::text`, row.RepositoryID, branch, base, first.Head).Scan(&itemID))
+		generation := func() int64 {
+			var n int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&n))
+			return n
+		}
+		initialGeneration := generation()
+		var currentHead, currentBase string
+		var attempt, itemGeneration int32
+		var verified bool
+		read := func() []byte {
+			var checks []byte
+			require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_head,candidate_base,attempt,generation,candidate_verified,checks FROM mythical_items WHERE id=$1`, itemID).Scan(&currentHead, &currentBase, &attempt, &itemGeneration, &verified, &checks))
+			require.Equal(t, first.Head, currentHead)
+			require.Equal(t, base, currentBase)
+			require.EqualValues(t, 3, attempt)
+			require.EqualValues(t, 9, itemGeneration)
+			return checks
+		}
+		_, err = registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		require.Equal(t, initialGeneration, generation(), "equal accepted tree is not edited")
+		read()
+		require.True(t, verified)
+		for i, text := range []string{"native pending bytes", "native pending bytes", "second native pending bytes"} {
+			digest := "absent"
+			if i > 0 {
+				hash := sha256.Sum256([]byte("native pending bytes"))
+				digest = hex.EncodeToString(hash[:])
+			}
+			body, err := json.Marshal(map[string]string{"content": text, "base_digest": digest})
+			require.NoError(t, err)
+			res := request("PUT", "pending.txt", string(body))
+			require.NoError(t, res.err)
+			require.Equal(t, 200, res.status, "%s", res.body)
+			captured, err := registry.Capture(ctx, branch)
+			require.NoError(t, err)
+			checks := read()
+			require.False(t, verified)
+			var record struct {
+				Capture struct{ Head, Tree string }
+				Land    json.RawMessage
+			}
+			require.NoError(t, json.Unmarshal(checks, &record))
+			require.Equal(t, captured.Head, record.Capture.Head)
+			require.Equal(t, captured.Tree, record.Capture.Tree)
+			require.Empty(t, record.Land)
+			want := initialGeneration + 1
+			if i == 2 {
+				want++
+			}
+			require.Equal(t, want, generation(), "new captured tree signals once; identical bytes do not")
+			_, err = registry.Capture(ctx, branch)
+			require.NoError(t, err)
+			require.Equal(t, want, generation(), "drained/repeated capture is not another edit")
+			require.Equal(t, []byte(text), git("-C", store, "show", captured.Head+":pending.txt"))
+		}
+		return
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-frozen.arm"), nil, 0600))
 	rewrite := make(chan error, 1)
 	go func() { _, err := registry.Rebase(ctx, branch, actor, onto); rewrite <- err }()
