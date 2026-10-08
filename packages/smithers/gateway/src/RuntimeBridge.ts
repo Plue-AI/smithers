@@ -498,9 +498,6 @@ export const monitor = (control: Control["Service"], runId: string, at?: number)
     const records = Array.from(yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1)))
     if (records.length > Projections.maxEventsScanned) return yield* new BridgeError({ code: "resource_limit", message: "Run journal exceeds the inspection limit", retryable: false })
     const value = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
-    // Until model rows carry the native step identity, a nonzero usage total
-    // cannot establish a USD total. Never publish unknown spend as zero.
-    if (value.tokens > 0) return yield* new BridgeError({ code: "unavailable", message: "Run metering unavailable", retryable: true })
     if (new TextEncoder().encode(JSON.stringify(value)).byteLength > Projections.maxProjectionBytes) return yield* new BridgeError({ code: "resource_limit", message: "Run monitor exceeds the inspection limit", retryable: false })
     return value
   })

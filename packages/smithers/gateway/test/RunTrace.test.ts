@@ -1574,3 +1574,81 @@ test("monitor collapses bookkeeping graph nodes while retaining visible dependen
     { id: "engine-node:collapsed%3A0:edit", label: "Edited the files", state: "next", deps: ["engine-node:collapsed%3A0:read"] }
   ])
 })
+
+describe("native step transcripts and metered dispatches", () => {
+  const D1 = "1".repeat(64)
+  const D2 = "2".repeat(64)
+  const D3 = "3".repeat(64)
+  const CALL_READ = `cell-call-v1:${"a".repeat(64)}`
+  const CALL_WRITE = `cell-call-v1:${"b".repeat(64)}`
+  const scope = `exec/coding/edit-atom@${D1}:1#0`
+  const envelope = (sequence: number, eventType: string, payload: unknown, sourceId: string, sourceSequence: number): JournalRecord => ({
+    sequence, kind: "control.engine.event", runId: "run-1", occurredAt: sequence * 1000,
+    payload: { version: 1, executionId: "exec", generation: 0, sequence, eventId: `e${sequence}`, sourceId, sourceSequence,
+      emittedAtMs: sequence * 1000, eventType, payload, meta: {} }
+  })
+  const node = (sequence: number, eventType: string, payload: unknown) => envelope(sequence, eventType, payload, "engine", sequence)
+  const fact = (sequence: number, kind: string, ordinal: number, payload: unknown) => envelope(sequence, "flows.harness.step-fact.v1", {
+    version: 1, generation: 0, frame: 0, ordinal, cell: "", at: sequence * 1000, eventType: kind, sourceSequence: ordinal, payload,
+    step: { stepId: D1, executionId: "exec", action: "coding/edit-atom", attempt: 1, ask: 0, retry: 1, scope: `${scope}` }
+  }, `step-fact-v1:${D1}:1:0:1`, ordinal)
+  const identity = { runId: scope, frame: 0, cell: "c", ordinal: 0, declaration: "d", layers: [] }
+  const call = (sequence: number, callId: string, phase: "invoked" | "settled", rest: Record<string, unknown>) =>
+    envelope(sequence, "flows.harness.call-fact.v1", { version: 1, callId, identity, phase, ...rest }, `call-fact-v1:${callId}:${phase}`, 0)
+  const verbs = (verb: string, failure: string) => ({ subject: "path", verb: { success: verb, failure, pending: verb } })
+  const journal: Array<JournalRecord> = [
+    node(1, "flows.engine.node-scheduled", { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" }),
+    fact(2, "control.agent.turn-opened", 0, { seat: "coding/implement" }),
+    fact(3, "control.agent.model-settled", 1, { text: "```cell\nwrite\n```", durationMillis: 500, usage: { inputTokens: 100, outputTokens: 100 } }),
+    fact(4, "control.agent.cell-produced", 2, { language: "javascript", digest: "c", text: "await ctx.call(\"read\", { path: \"t5.md\" })" }),
+    call(5, CALL_READ, "invoked", { flowName: "read", input: { path: "t5.md" },
+      descriptor: { name: "read", activity: "reads", presentation: verbs("read", "failed to read") } }),
+    call(6, CALL_READ, "settled", { flowName: "read", outcome: "success", value: { content: "hi" } }),
+    call(7, CALL_WRITE, "invoked", { flowName: "write", input: { path: "t5.md", content: "hello" },
+      descriptor: { name: "write", activity: "writes", presentation: verbs("wrote", "failed to write") } }),
+    call(8, CALL_WRITE, "settled", { flowName: "write", outcome: "failure", value: null, message: "Flow write failed" }),
+    fact(9, "control.agent.cell-printed", 3, { cell: "c", text: "done" }),
+    fact(10, "control.agent.cell-settled", 4, { outcome: "success" }),
+    node(11, "flows.engine.node-settled", { nodeId: "edit", outcome: "built", attempts: 1, action: "coding/edit-atom",
+      stepKeyDigests: [D1, D2, D1], result: { preview: "{\"writes\":[\"t5.md\"]}", bytes: 20, truncated: false } }),
+    node(12, "flows.engine.node-scheduled", { nodeId: "check", kind: "action", attempt: 1, action: "coding/check-command" }),
+    node(13, "flows.engine.node-settled", { nodeId: "check", outcome: "built", attempts: 1, action: "coding/check-command", stepKeyDigests: [D3] })
+  ]
+  const run = { runId: "run-1", flowId: "todo", status: "completed" }
+
+  test("a step carries its dispatches, its journaled model usage and its agent transcript", () => {
+    const model = monitorFromJournal(run, journal)
+    const [edit, check] = model.attempts[0]!.steps
+    expect(edit).toMatchObject({ label: "Edited the files", meter: [`exec:${D1}`, `exec:${D2}`], model_calls: 1, tokens: 200,
+      output: "{\"writes\":[\"t5.md\"]}" })
+    expect(check).toMatchObject({ label: "Ran checks", meter: [`exec:${D3}`] })
+    expect(check).not.toHaveProperty("tokens")
+    expect(check).not.toHaveProperty("usage")
+    const cells = model.attempts[0]!.phases[0]!.cells
+    expect(cells.map(cell => [cell.kind, cell.label, cell.tone])).toEqual([
+      ["think", "Model reply", undefined],
+      ["run", "Ran a cell", "ok"],
+      ["read", "Read t5.md", "ok"],
+      ["edit", "Failed to write t5.md", "fail"]
+    ])
+    expect(cells[0]).toMatchObject({ quote: "```cell\nwrite\n```", tokens: 200, took_s: 0.5 })
+    expect(cells[1]).toMatchObject({ code: "await ctx.call(\"read\", { path: \"t5.md\" })", output: "done" })
+    expect(cells[2]).toMatchObject({ code: "{\"path\":\"t5.md\"}", output: "{\"content\":\"hi\"}" })
+    expect(cells[3]).toMatchObject({ output: "Flow write failed" })
+    expect(model.attempts[0]!.phases[1]!.cells.map(cell => cell.label)).toEqual(["Ran checks"])
+  })
+
+  test("a run with model tokens leaves its USD total to the metering install", () => {
+    const model = monitorFromJournal(run, journal)
+    expect(model.tokens).toBe(200)
+    expect(model).not.toHaveProperty("cost_usd")
+    expect(monitorFromJournal(run, journal.filter(row => row.sequence !== 3))).toMatchObject({ tokens: 0, cost_usd: 0 })
+  })
+
+  test("the transcript is a pure function of the journal, and replay stops at the cursor", () => {
+    expect(JSON.stringify(monitorFromJournal(run, journal))).toBe(JSON.stringify(monitorFromJournal(run, journal)))
+    const replay = monitorFromJournal(run, journal, 4)
+    expect(replay.attempts[0]!.phases[0]!.cells.map(cell => cell.label)).toEqual(["Edited the files"])
+    expect(replay.attempts[0]!.steps[0]).not.toHaveProperty("meter")
+  })
+})

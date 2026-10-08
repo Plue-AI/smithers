@@ -17,13 +17,14 @@
  * @since 1.0.0
  */
 
+import { CallFact } from "@smthrs/journal"
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
 import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineExecutionEvidence, engineTraceFromJournal } from "./EngineTrace.ts"
 import { ACTION_RENDERINGS } from "./internal/actionRenderings.ts"
-import { type CallEventFilter, callEventFilter, uniqueCallEvents } from "./internal/callEvents.ts"
+import { type CallEventFilter, callEventFilter, nativeStepEvent, uniqueCallEvents } from "./internal/callEvents.ts"
 
 export { inspectLabel } from "./internal/inspectLabels.ts"
 
@@ -2274,6 +2275,152 @@ export const runMemoryOf = (records: ReadonlyArray<JournalRecord>): RunMemory | 
   }
 }
 
+/** One recorded agent action inside an engine step, as an Inspect cell.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface TranscriptCell {
+  readonly id: string
+  readonly kind: "read" | "edit" | "run" | "think" | "ask"
+  label: string
+  code?: string
+  output?: string
+  quote?: string
+  tokens?: number
+  took_s?: number
+  tone?: "ok" | "fail" | "live"
+}
+
+/** What the agent did inside one engine dispatch, keyed `<execution id>:<step id>`. */
+interface StepTranscript {
+  readonly cells: Array<TranscriptCell>
+  tokens: number
+  models: number
+}
+
+const hexDigest = /^[0-9a-f]{64}$/
+
+/** The recorded presentation of a tool call: "Read t5.md", "Failed to write t5.md". */
+const callCellLabel = (started: Record<string, unknown>, failed: boolean): string => {
+  const descriptor = asRecord(started.descriptor)
+  const presentation = asRecord(descriptor.presentation)
+  const verbs = asRecord(presentation.verb)
+  const name = asString(started.flowName) ?? asString(descriptor.name) ?? "call"
+  const verb = asString(failed ? verbs.failure : verbs.success) ?? (failed ? `failed ${name}` : name)
+  const subjectKey = asString(presentation.subject)
+  const subject = subjectKey === undefined ? undefined : asString(asRecord(started.input)[subjectKey])
+  const text = subject === undefined ? verb : `${verb} ${subject}`
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+const callCellKind = (started: Record<string, unknown>): TranscriptCell["kind"] => {
+  const activity = asString(asRecord(started.descriptor).activity)
+  const name = asString(started.flowName)
+  return name === "ask" ? "ask" : activity === "reads" ? "read" : activity === "writes" ? "edit" : "run"
+}
+
+const decodeCallFact = Schema.decodeUnknownOption(CallFact.Fact)
+
+/** A native tool-call fact and the dispatch digest its scope names. */
+const callFactOf = (record: JournalRecord) => {
+  if (record.kind !== "control.engine.event") return undefined
+  const envelope = asRecord(record.payload)
+  if (envelope.version !== 1 || envelope.eventType !== CallFact.eventType || envelope.sourceSequence !== 0) return undefined
+  const fact = decodeCallFact(envelope.payload)
+  if (fact._tag === "None" || envelope.sourceId !== `call-fact-v1:${fact.value.callId}:${fact.value.phase}`) return undefined
+  const stepId = /@([0-9a-f]{64}):\d+#\d+$/.exec(fact.value.identity.runId)?.[1]
+  return stepId === undefined ? undefined : { stepId, fact: fact.value }
+}
+
+/**
+ * The agent transcript of every native dispatch in `journal`: model replies,
+ * cells with what they printed, and tool calls, in journal order. Keyed by the
+ * dispatch's step key digest, which the engine's node settlement names in
+ * `stepKeyDigests`. Pure over the records; no model call.
+ */
+const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<string, StepTranscript> => {
+  const transcripts = new Map<string, StepTranscript>()
+  const entry = (key: string) => {
+    let found = transcripts.get(key)
+    if (found === undefined) transcripts.set(key, found = { cells: [], tokens: 0, models: 0 })
+    return found
+  }
+  const lastCell = new Map<string, TranscriptCell>()
+  const calls = new Map<string, { readonly cell: TranscriptCell; readonly started: Record<string, unknown> }>()
+  for (const record of journal) {
+    const sequence = record.sequence ?? 0
+    const step = nativeStepEvent(record)
+    if (step !== undefined) {
+      const payload = asRecord(step.payload)
+      const stepId = asString(asRecord(payload.step).stepId)
+      if (stepId === undefined || !hexDigest.test(stepId)) continue
+      const transcript = entry(stepId)
+      if (step.kind === "control.agent.model-settled") {
+        const usage = asRecord(payload.usage)
+        const tokens = (asNumber(usage.inputTokens) ?? 0) + (asNumber(usage.outputTokens) ?? 0)
+        const duration = asNumber(payload.durationMillis)
+        const text = textOf(payload.text)
+        transcript.tokens += tokens
+        transcript.models += 1
+        transcript.cells.push({
+          id: `cell:${sequence}`, kind: "think", label: "Model reply",
+          ...(text === undefined ? {} : { quote: text }), tokens,
+          ...(duration === undefined ? {} : { took_s: Math.max(0, duration) / 1000 })
+        })
+      } else if (step.kind === "control.agent.cell-produced") {
+        const code = textOf(payload.text)
+        const cell: TranscriptCell = { id: `cell:${sequence}`, kind: "run", label: "Ran a cell", ...(code === undefined ? {} : { code }) }
+        transcript.cells.push(cell)
+        lastCell.set(stepId, cell)
+      } else if (step.kind === "control.agent.cell-printed") {
+        const cell = lastCell.get(stepId)
+        const printed = textOf(payload.text)
+        if (cell !== undefined && printed !== undefined && printed !== "") {
+          cell.output = cell.output === undefined ? printed : `${cell.output}\n${printed}`
+        }
+      } else if (step.kind === "control.agent.cell-settled") {
+        const cell = lastCell.get(stepId)
+        if (cell !== undefined) cell.tone = asString(payload.outcome) === "failure" ? "fail" : "ok"
+      }
+      continue
+    }
+    const call = callFactOf(record)
+    if (call === undefined) continue
+    const handle = `${call.stepId}:${call.fact.callId}`
+    const payload = call.fact as unknown as Record<string, unknown>
+    if (call.fact.phase === "invoked") {
+      const input = textOf(call.fact.input)
+      const cell: TranscriptCell = {
+        id: `cell:${sequence}`, kind: callCellKind(payload), label: callCellLabel(payload, false),
+        ...(input === undefined ? {} : { code: input }), tone: "live"
+      }
+      entry(call.stepId).cells.push(cell)
+      calls.set(handle, { cell, started: payload })
+      continue
+    }
+    const open = calls.get(handle)
+    if (open === undefined) continue
+    const failed = call.fact.outcome === "failure"
+    open.cell.label = callCellLabel(open.started, failed)
+    open.cell.tone = failed ? "fail" : "ok"
+    const result = failed ? textOf(call.fact.message) : textOf(call.fact.value)
+    if (result !== undefined) open.cell.output = result
+  }
+  return transcripts
+}
+
+/** The dispatches a settled engine node drove, as `<execution id>:<step key digest>`. */
+const nodeDispatches = (row: TraceSpan): ReadonlyArray<string> => {
+  if (!row.id.startsWith("engine-node:")) return []
+  const fields = asRecord(row.detail.fields)
+  const execution = asString(fields.executionId)
+  const digests = asRecord(fields.payload).stepKeyDigests
+  if (execution === undefined || !Array.isArray(digests)) return []
+  return [...new Set(digests.filter((digest): digest is string => typeof digest === "string" && hexDigest.test(digest)))]
+    .map((digest) => `${execution}:${digest}`)
+}
+
 /** Adapt the canonical trace to the install monitor. IDs and timestamps come
  * from recorded spans; inspection never evaluates flow bodies or presentations.
  * @since 1.0.0
@@ -2294,23 +2441,47 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   const trace = traceFromJournal({ ...run, status }, journal)
   const engineLabel = (label: string) => ACTION_RENDERINGS[label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(label)
   const bookkeeping = (row: TraceSpan) => engineLabel(row.label)
+  const transcripts = stepTranscripts(journal)
+  const dispatchesOf = new Map(trace.rows.map(row => [row.id, nodeDispatches(row)] as const))
   const calls = trace.rows.filter(row => row.kind === "call" && !bookkeeping(row))
-  const steps = calls.map(row => ({
-    ...(() => { const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id); const id = matched?.[1] ?? row.id; const k = Number(matched?.[2] ?? 1); return { key: `${id}#${k}`, id, k } })(), label: row.label, state: row.status,
-    started_at: new Date(row.startedAt).toISOString(),
-    ...(row.endedAt === undefined ? {} : { ended_at: new Date(row.endedAt).toISOString(), took_s: Math.max(0, row.endedAt - row.startedAt) / 1000 }),
-    ...(row.detail.input === undefined ? {} : { input: row.detail.input }),
-    ...(row.detail.output === undefined ? {} : { output: row.detail.output })
-  }))
+  const transcriptOf = (row: TraceSpan) => {
+    const parts = (dispatchesOf.get(row.id) ?? []).flatMap(dispatch => {
+      const found = transcripts.get(dispatch.slice(dispatch.lastIndexOf(":") + 1))
+      return found === undefined ? [] : [found]
+    })
+    return {
+      cells: parts.flatMap(part => part.cells).sort((left, right) => Number(left.id.slice(5)) - Number(right.id.slice(5))),
+      tokens: parts.reduce((total, part) => total + part.tokens, 0),
+      models: parts.reduce((total, part) => total + part.models, 0)
+    }
+  }
+  const steps = calls.map(row => {
+    const meter = dispatchesOf.get(row.id) ?? []
+    const transcript = transcriptOf(row)
+    return {
+      ...(() => { const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id); const id = matched?.[1] ?? row.id; const k = Number(matched?.[2] ?? 1); return { key: `${id}#${k}`, id, k } })(), label: row.label, state: row.status,
+      started_at: new Date(row.startedAt).toISOString(),
+      ...(row.endedAt === undefined ? {} : { ended_at: new Date(row.endedAt).toISOString(), took_s: Math.max(0, row.endedAt - row.startedAt) / 1000 }),
+      ...(row.detail.input === undefined ? {} : { input: row.detail.input }),
+      ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
+      // The install prices these dispatches from its metered proxy rows and
+      // replaces them with `usage`; the journal's own token count rides along.
+      ...(meter.length === 0 ? {} : { meter }),
+      ...(transcript.models === 0 ? {} : { model_calls: transcript.models, tokens: transcript.tokens })
+    }
+  })
   const tone = (value: string): "live" | "ok" | "fail" | "wait" => value === "failed" ? "fail"
     : value === "completed" ? "ok" : value === "waiting" ? "wait" : "live"
-  const phases = calls.map((row, index) => ({
-    id: `phase:${row.id}`, step: steps[index]!.key, title: row.label,
-    took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000, tone: tone(row.status),
-    cells: [{ id: `cell:${row.id}`, kind: /Edited/.test(row.label) ? "edit" as const : /Read/.test(row.label) ? "read" as const : "run" as const,
-      label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
-      tone: tone(row.status) }]
-  }))
+  const phases = calls.map((row, index) => {
+    const transcript = transcriptOf(row).cells
+    return {
+      id: `phase:${row.id}`, step: steps[index]!.key, title: row.label,
+      took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000, tone: tone(row.status),
+      cells: transcript.length > 0 ? transcript : [{ id: `cell:${row.id}`, kind: /Edited/.test(row.label) ? "edit" as const : /Read/.test(row.label) ? "read" as const : "run" as const,
+        label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
+        tone: tone(row.status) }]
+    }
+  })
   const declaredGraph = engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => {
     const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)}:`
     const nodes = execution.graph?.nodes ?? []
@@ -2333,6 +2504,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
         deps: [...new Set(node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([node.id]))))] }
     })
   })
+  const tokens = trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0)
   const approvalWaits = trace.rows.filter(row => row.kind === "approval").map(row => ({
     id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
     ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
@@ -2345,8 +2517,10 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     waits: [...approvalWaits, ...engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => execution.waits.map(wait => ({
       id: wait.id, kind: wait.kind, label: inspectLabel("wait"), since: new Date(wait.since).toISOString(),
       ...(wait.settledAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(wait.settledAt).toISOString() } })
-    })))], tokens: trace.rows.reduce((total, row) => total + (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0), 0),
-    time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, cost_usd: 0,
+    })))], tokens,
+    // Spend is priced where model calls are metered. The host never publishes
+    // an unknown total as zero: a run with model tokens leaves cost to the install.
+    time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, ...(tokens === 0 ? { cost_usd: 0 } : {}),
     engine: trace.rows.filter(row => row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)).map(row => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
     journal: journal.map(row => ({ seq: row.sequence ?? 0, at: new Date(row.occurredAt ?? 0).toISOString(), type: row.kind ?? "event", text: JSON.stringify(row.payload) ?? "null" })),
     ...(at === undefined ? {} : { replay: { at: Math.min(at, last), last } })

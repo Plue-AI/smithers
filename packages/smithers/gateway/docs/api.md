@@ -88,10 +88,11 @@ journal sequence. Its response is `{ protocol, ok: true, value }`, or the
 bridge's typed error envelope. Unknown runs return `run_not_found`; bounded
 journal and projection overflow return `resource_limit`.
 
-The current adapter refuses journals with model tokens as `unavailable`
-until native usage can establish a priced USD total. The install also refuses
-workspace usage without native run attribution. A zero returned total therefore
-does not silently substitute for known, unpriced model usage.
+Spend is priced where model calls are metered. A run with journaled model
+tokens returns no `cost_usd`; its steps carry `meter`, the
+`<execution id>:<step key digest>` dispatches each settled node drove, and the
+install prices them from its metered proxy rows. A returned `cost_usd` of zero
+therefore only ever means a run with no model tokens.
 
 ### Types and constants
 
@@ -500,14 +501,17 @@ evidence do not acquire invented phases, successful checks, or file changes.
   live states. Rescheduled native nodes retain separate instance keys. A replay
   folds only records through `at`, derives terminal
   state from that prefix, and returns `replay: { at, last }`. It does not fetch
-  a registry or execute presentation code. The current adapter does not yet
-  reconstruct all native wait kinds or priced usage;
+  a registry or execute presentation code. Each settled native step lists the
+  dispatches it drove (`meter`), its journaled model calls and tokens, and its
+  agent transcript as phase cells: model replies, cells with what they printed,
+  and tool calls labelled by their recorded presentation ("Read t5.md"). The
+  current adapter does not yet reconstruct all native wait kinds;
   Clock and deferred waits use typed native lifecycle observations, clock
   registrations and explicit deferred settlements. Deferred identities have no
   recorded question, pause or external-job classification and remain signals.
   Running or completed execution status alone never settles a wait. Repeated registrations retain the opening timestamp, generations
   have separate identities, and replay hides settlements beyond its cursor;
-  callers must enforce the metering refusal described above.
+  callers price `meter` dispatches as described above.
 - `inspectLabel(tag)` reads the build-generated Appendix C Inspect rendering.
   Coding call and native execution spans use the same labels. Dynamic
   `<cell-call:flow>` wrappers use the wrapped action's rendering; unknown

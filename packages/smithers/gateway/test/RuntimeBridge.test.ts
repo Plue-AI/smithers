@@ -870,9 +870,9 @@ describe("RuntimeBridge", () => {
     }))
 })
 
-it.effect("refuses an unknown USD total rather than reporting model usage as free", () =>
+it.effect("leaves an unknown USD total to the metering install rather than reporting model usage as free", () =>
   Effect.gen(function*() {
-    const result = yield* Effect.flip(RuntimeBridge.monitor(
+    const result = yield* RuntimeBridge.monitor(
       service({
         watch: () =>
           Stream.make({
@@ -884,8 +884,9 @@ it.effect("refuses an unknown USD total rather than reporting model usage as fre
           })
       }),
       "run-1"
-    ))
-    expect(result).toMatchObject({ code: "unavailable", retryable: true })
+    )
+    expect(result.tokens).toBe(8)
+    expect("cost_usd" in result).toBe(false)
   }))
 
 it.effect("refuses monitor lookups that return no matching run", () =>

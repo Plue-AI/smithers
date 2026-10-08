@@ -21,6 +21,11 @@
 
 ### Changed
 
+- The runtime monitor no longer refuses runs with model tokens. Settled native
+  steps carry their metered dispatches (`meter`), journaled model calls and
+  tokens, and their agent transcript as phase cells; a run with tokens returns
+  no `cost_usd` and the install prices it from metered proxy rows (#3514).
+
 - Monitor graphs collapse Engine bookkeeping nodes while retaining visible
   dependency order through nested boundaries.
 
