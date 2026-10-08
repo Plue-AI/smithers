@@ -710,6 +710,9 @@ impl Repository {
             .rebase_descendants()
             .block_on()
             .map_err(invalid)?;
+        jj_lib::git::reset_head(tx.repo_mut(), &rebased)
+            .block_on()
+            .map_err(invalid)?;
         let updated = tx
             .commit("machined rebase item")
             .block_on()
@@ -752,6 +755,9 @@ impl Repository {
             .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
             .map_err(|e| invalid(format!("native delta: {e}")))?;
         reconcile_descendants(tx.repo_mut(), &snapshot)?;
+        jj_lib::git::reset_head(tx.repo_mut(), &rebased)
+            .block_on()
+            .map_err(invalid)?;
         let updated = tx
             .commit("machined reconcile local delta")
             .block_on()
@@ -1254,6 +1260,36 @@ pub(crate) mod tests {
             assert!(reopened.descends_from_item(&change).unwrap());
             assert_eq!(reopened.current().unwrap().0, result);
         }
+    }
+    #[test]
+    fn journey_conflict_checkout_survives_capture_and_resolution() {
+        let (_dir, repo) = fixture();
+        fs::write(repo.root.join("JOURNEY.md"), b"Add a greeting to JOURNEY.md\n").unwrap();
+        fs::write(repo.root.join("Makefile"), b"check:\n\ttest -s JOURNEY.md\n").unwrap();
+        let base = repo.snapshot().unwrap().0;
+        child(&repo, base, "greeting");
+        fs::write(repo.root.join("JOURNEY.md"), b"Add a greeting to JOURNEY.md\nHello from Smithers!\n").unwrap();
+        let item = repo.snapshot().unwrap().0;
+        let change = change(&repo, item);
+        child(&repo, base, "main");
+        fs::write(repo.root.join("JOURNEY.md"), b"Greeting from new main\n").unwrap();
+        let onto = repo.snapshot().unwrap().0;
+        repo.move_to(item).unwrap();
+        let conflict = repo.rebase_bound(onto, Some(&change)).unwrap();
+        let (_, loaded) = repo.load().unwrap();
+        let git = jj_lib::git::get_git_repo(loaded.store()).unwrap();
+        assert_eq!(git.head_id().unwrap().as_bytes(), onto);
+        // A repeated wake reconciles a captured conflicted head against the
+        // prior acknowledged item before the repair agent edits its files.
+        let conflict = repo.rebase_delta(conflict, item, conflict).unwrap();
+        for _ in 0..3 {
+            let reopened = Repository::open(&repo.root, &repo.state).unwrap();
+            assert_eq!(reopened.snapshot().unwrap().0, conflict);
+        }
+        fs::write(repo.root.join("JOURNEY.md"), b"Greeting from new main\nHello from Smithers!\n").unwrap();
+        let reopened = Repository::open(&repo.root, &repo.state).unwrap();
+        let _resolved = reopened.snapshot().unwrap().0;
+        assert!(reopened.resolution_paths(conflict, onto).unwrap().is_empty());
     }
     #[test]
     fn conflicted_rebase_reopens_captures_and_resolves_without_losing_sides() {
