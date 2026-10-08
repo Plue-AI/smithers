@@ -885,6 +885,18 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 // ForkWorkspace retains the hosted door on the stack's revision writer.
 // No missing provider may fall back to resuming or copying the source machine.
 func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+	if s.installQueries != nil {
+		subject, lookup := InstallWorkspaceForkSubject(ctx, s.installQueries, input)
+		var err error
+		ctx, err = s.authorizeInstallWorkspaceMetadata(ctx, "branch.fork", input.RepositoryID, input.UserID, subject)
+		if err != nil {
+			return WorkspaceResponse{}, err
+		}
+		if lookup != nil {
+			return WorkspaceResponse{}, lookup
+		}
+	}
+
 	if err := s.requireBranchMachineProviders(); err != nil {
 		return WorkspaceResponse{}, err
 	}

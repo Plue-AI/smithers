@@ -683,7 +683,11 @@ func buildRouter(
 			}
 			r.With(workspaceJoin...).Post("/api/repos/{owner}/{repo}/workspaces", workspaceHandler.CreateWorkspace)
 			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/resume", workspaceHandler.ResumeWorkspace)
-			r.With(vmProvisionSandbox...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/fork", workspaceHandler.ForkWorkspace)
+			workspaceFork := vmProvisionSandbox
+			if config.IsSingleOwner(cfg.Auth) {
+				workspaceFork = append([]func(http.Handler) http.Handler{memberCommands(queries)}, vmProvision...)
+			}
+			r.With(workspaceFork...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/fork", workspaceHandler.ForkWorkspace)
 			r.With(vmProvision...).Delete("/api/repos/{owner}/{repo}/workspaces/{id}", workspaceHandler.DeleteWorkspace)
 			r.With(vmProvision...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/suspend", workspaceHandler.SuspendWorkspace)
 			// RFD-004: guest head reports; a workspace-bound token reaches only this route.

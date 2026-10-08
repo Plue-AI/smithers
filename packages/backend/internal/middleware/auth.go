@@ -644,7 +644,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+$`)},
 	// File co-edit has its own actor policy; the service binds the validated batch.
 	{http.MethodPut, "flow.source-coedit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},
-	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodPost, "branch.fork", regexp.MustCompile(`^(?:/api/branches|/api/repos/[^/]+/[^/]+/workspaces/[^/]+/fork)$`)},
 	{http.MethodPost, "branch.add-to-stack", regexp.MustCompile(`^/api/branches/[^/]+/add-to-stack$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	// All retained workflow aliases resolve the same concrete catalog action.

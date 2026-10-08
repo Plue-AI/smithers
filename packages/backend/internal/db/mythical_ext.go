@@ -833,3 +833,14 @@ func (q *Queries) ListMythicalFlowCandidates(ctx context.Context, repositoryID i
  AND state NOT IN ('landed','cancelled','declined','skipped','rejected') ORDER BY number`, repositoryID)
 	return scanMythicalItems(rows, err)
 }
+
+// MythicalForkItemNumber resolves the retained workspace door's source using
+// the same current item/lane binding as the stack revision writer.
+func (q *Queries) MythicalForkItemNumber(ctx context.Context, repository int64, workspace string) (int64, error) {
+	var number int64
+	err := q.db.QueryRow(ctx, `SELECT i.number FROM mythical_items i
+ LEFT JOIN mythical_lanes l ON l.item_id=i.id
+ WHERE i.repository_id=$1 AND (i.workspace_id=$2 OR l.workspace_id=$2)
+ ORDER BY l.created_at DESC NULLS LAST LIMIT 1`, repository, workspace).Scan(&number)
+	return number, err
+}

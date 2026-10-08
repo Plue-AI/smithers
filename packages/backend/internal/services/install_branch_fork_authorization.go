@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"net/http"
 	"strconv"
 	"strings"
 )
@@ -15,7 +17,7 @@ import (
 // InstallBranchForkSubject binds every caller to the requested repository and
 // fork payload. Execution credentials may fork only their current TODO.
 func InstallBranchForkSubject(ctx context.Context, repository int64, input BranchForkInput) InstallSubject {
-	subject := InstallSubject{RepositoryID: repository}
+	subject := InstallSubject{RepositoryID: repository, WorkspaceID: input.WorkspaceID}
 	if match := branchForkTodo.FindStringSubmatch(strings.TrimSpace(input.From)); match != nil {
 		subject.TodoNumber, _ = strconv.ParseInt(match[1], 10, 64)
 	}
@@ -55,4 +57,39 @@ func branchForkRequestCredential(ctx context.Context, actor int64) (string, erro
 		return string(identity), nil
 	}
 	return todoRequestCredential(ctx, actor)
+}
+
+// InstallWorkspaceForkSubject resolves the retained route from stored state.
+// The revision writer resolves it again so a changed source cannot reuse the
+// admission decision. Workspace ACL checks stay in withWorkspaceMutation.
+func InstallWorkspaceForkSubject(ctx context.Context, q *db.Queries, input ForkWorkspaceInput) (InstallSubject, error) {
+	subject := InstallSubject{RepositoryID: input.RepositoryID, WorkspaceID: input.WorkspaceID}
+	source, err := q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: input.WorkspaceID, RepositoryID: input.RepositoryID})
+	if errors.Is(err, pgx.ErrNoRows) || isInvalidTextRepresentation(err) {
+		return subject, &BranchError{404, "not_found", "user", "Workspace not found"}
+	}
+	if err != nil {
+		return subject, err
+	}
+	resolved, err := workspaceForkRevisionInput(ctx, q, source, input)
+	if err != nil {
+		return subject, err
+	}
+	return InstallBranchForkSubject(ctx, input.RepositoryID, resolved), nil
+}
+func workspaceForkRevisionInput(ctx context.Context, q *db.Queries, source db.Workspace, input ForkWorkspaceInput) (BranchForkInput, error) {
+	resolved := BranchForkInput{From: "main", Name: input.Name, Request: input.Request, WorkspaceID: source.ID}
+	if strings.HasPrefix(source.TargetBookmark, scratchBranchPrefix) {
+		resolved.From = source.TargetBookmark
+		return resolved, nil
+	}
+	number, err := q.MythicalForkItemNumber(ctx, source.RepositoryID, source.ID)
+	if err == nil {
+		resolved.From = "T" + strconv.FormatInt(number, 10)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return resolved, err
+	} else if source.TargetBookmark != "main" {
+		return resolved, &BranchError{http.StatusConflict, "no_verified_head", "conflict", "Workspace has no verified revision to fork"}
+	}
+	return resolved, nil
 }

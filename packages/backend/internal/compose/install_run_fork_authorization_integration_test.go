@@ -74,7 +74,7 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 	var number int64
 	require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO mythical_items(repository_id,source,state,stack_position,title,workspace_id,request_run_id,owner_id,created_by,attempt,candidate_head,candidate_base,candidate_verified) VALUES($1,'todo','proposed',1,'Own execution',$2,'fork-run',$3,$3,1,$4,$4,true) RETURNING number`, f.repoID, source.ID, f.owner.ID, head).Scan(&number))
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(f.q), &forkAdmissionRuntime{})
-	workspaces := services.NewWorkspaceService(f.q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(providers))
+	workspaces := services.NewWorkspaceService(f.q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceInstallAuthorization(f.q), services.WithBranchMachineProviders(providers))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -241,6 +241,68 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 		}
 		require.Equal(t, "scratch/"+f.other.Username+"/person-proof", first.Name)
 		require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/"+first.Name))
+		t.Run("legacy workspace door uses the same native revision writer", func(t *testing.T) {
+			own, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.other.ID, Name: "legacy-main", Kind: "container", Status: "stopped", TargetBookmark: "main"})
+			require.NoError(t, err)
+			otherMain, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.other.ID, Name: "legacy-other-main", Kind: "container", Status: "stopped", TargetBookmark: "main"})
+			require.NoError(t, err)
+			legacy := func(workspace, name, token string, status int) services.WorkspaceResponse {
+				t.Helper()
+				req := request()
+				req.URL.Path = "/api/repos/gate-owner/app/workspaces/" + workspace + "/fork"
+				req.Body = io.NopCloser(strings.NewReader(`{"name":"` + name + `"}`))
+				req.Header.Set("Idempotency-Key", name)
+				if token != "" {
+					req.Header.Del("Cookie")
+					req.Header.Set("Authorization", "Bearer "+token)
+				}
+				decisions := []string{}
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, status, out.Code, out.Body.String())
+				require.Equal(t, []string{"branch.fork"}, decisions)
+				var result services.WorkspaceResponse
+				if status == 201 {
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &result))
+				}
+				return result
+			}
+			created := legacy(own.ID, "legacy-person", "", 201)
+			replayed := legacy(own.ID, "legacy-person", "", 201)
+			require.Equal(t, created.ID, replayed.ID)
+			require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/scratch/"+f.other.Username+"/legacy-person"))
+			legacy(source.ID, "foreign-person", "", 403)
+			fresh := f.token(f.owner, "fork-legacy-run", scopes, true)
+			legacy(own.ID, "cross-run", fresh, 403)
+			legacy(source.ID, "machine-refused", machine, 403)
+			runFork := legacy(source.ID, "legacy-run", fresh, 201)
+			require.NotEmpty(t, runFork.ID)
+			require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/scratch/gate-owner/legacy-run"))
+			ctx := middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.other, SessionHash: hash})
+			in := services.ForkWorkspaceInput{RepositoryID: f.repoID, UserID: f.other.ID, WorkspaceID: own.ID, Name: "legacy-person", Request: "legacy-person"}
+			subject, err := services.InstallWorkspaceForkSubject(ctx, f.q, in)
+			require.NoError(t, err)
+			decision, err := services.Authorize(ctx, f.q, "branch.fork", subject)
+			require.NoError(t, err)
+			ctx = services.WithInstallAuthorization(ctx, "branch.fork", decision, subject)
+			changed := in
+			changed.WorkspaceID = otherMain.ID
+			_, err = workspaces.ForkWorkspace(ctx, changed)
+			var access *services.AccessError
+			require.ErrorAs(t, err, &access)
+			require.Equal(t, 403, access.Status)
+			_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET target_bookmark='scratch/other/substituted' WHERE id=$1`, own.ID)
+			require.NoError(t, err)
+			_, err = workspaces.ForkWorkspace(ctx, in)
+			require.ErrorAs(t, err, &access)
+			require.Equal(t, 403, access.Status)
+			_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET target_bookmark='main' WHERE id=$1`, own.ID)
+			require.NoError(t, err)
+			original, err := f.q.GetWorkspace(f.ctx, own.ID)
+			require.NoError(t, err)
+			require.Equal(t, "stopped", original.Status)
+		})
 		for _, cookie := range []bool{true, false} {
 			req := request()
 			req.Body = io.NopCloser(strings.NewReader(`{}`))
@@ -296,7 +358,7 @@ func testInstallRunForkAuthorizationPostgres(t *testing.T) map[string]any {
 	})
 	require.Equal(t, head, git("--git-dir", hostGit, "rev-parse", "refs/heads/main"))
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM workspaces WHERE is_fork`).Scan(&count))
-	require.Equal(t, 3, count)
+	require.Equal(t, 5, count)
 	sum := sha256.Sum256([]byte(run))
 	return map[string]any{"credential_hash": hex.EncodeToString(sum[:]), "todo": number, "workspace": source.ID, "run": "fork-run", "attempt": 1}
 }

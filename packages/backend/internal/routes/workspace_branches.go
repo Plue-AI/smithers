@@ -335,16 +335,46 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 			if err != nil || len(raw) > 64<<10 {
 				return refuse(pkgerrors.BadRequest("Invalid fork request"))
 			}
-			input, err := DecodeBranchFork(bytes.NewReader(raw))
-			if err != nil {
-				return refuse(err)
-			}
+
 			r.Body = io.NopCloser(bytes.NewReader(raw))
-			repository, err := services.InstallRepositoryID(r.Context(), queries)
-			if err != nil {
-				return 0, 0, err
+			if r.URL.Path == "/api/branches" {
+				input, err := DecodeBranchFork(bytes.NewReader(raw))
+				if err != nil {
+					return refuse(err)
+				}
+				repository, err := services.InstallRepositoryID(r.Context(), queries)
+				if err != nil {
+					return 0, 0, err
+				}
+				subject = services.InstallBranchForkSubject(r.Context(), repository, input)
+			} else {
+				var input forkWorkspaceRequest
+				if err := decodeSingleJSONDocument(json.NewDecoder(bytes.NewReader(raw)), &input); err != nil {
+					return refuse(pkgerrors.BadRequest("invalid request body"))
+				}
+				parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
+				if len(parts) != 7 {
+					return refuse(pkgerrors.BadRequest("invalid fork request"))
+				}
+				owner, e1 := url.PathUnescape(parts[2])
+				name, e2 := url.PathUnescape(parts[3])
+				workspace, e3 := url.PathUnescape(parts[5])
+				if e1 != nil || e2 != nil || e3 != nil {
+					return refuse(pkgerrors.BadRequest("invalid fork request"))
+				}
+				repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(owner), LowerName: strings.ToLower(name)})
+				if errors.Is(err, pgx.ErrNoRows) {
+					return refuse(pkgerrors.NotFound("repository not found"))
+				}
+				if err != nil {
+					return refuse(err)
+				}
+				var lookup error
+				subject, lookup = services.InstallWorkspaceForkSubject(r.Context(), queries, services.ForkWorkspaceInput{RepositoryID: repository.ID, WorkspaceID: workspace, Name: input.Name, Request: r.Header.Get("Idempotency-Key")})
+				if lookup != nil {
+					return refuse(lookup)
+				}
 			}
-			subject = services.InstallBranchForkSubject(r.Context(), repository, input)
 		}
 		if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {
 			var err error

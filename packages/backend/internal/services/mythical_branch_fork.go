@@ -26,9 +26,10 @@ import (
 // BranchForkInput is POST /api/branches fork{from, name?} (spec §6.3):
 // from is main or a TODO (T2); name defaults to fork-<from>.
 type BranchForkInput struct {
-	From    string `json:"from"`
-	Name    string `json:"name,omitempty"`
-	Request string `json:"-"`
+	From        string `json:"from"`
+	Name        string `json:"name,omitempty"`
+	Request     string `json:"-"`
+	WorkspaceID string `json:"-"`
 }
 
 // forkWorkspaceRevision keeps the hosted workspace door on the same revision
@@ -38,24 +39,11 @@ func (s *MythicalService) forkWorkspaceRevision(ctx context.Context, source db.W
 	if s == nil || s.store == nil {
 		return WorkspaceResponse{}, branchForkUnavailable("fork unavailable")
 	}
-	from := "main"
-	if strings.HasPrefix(source.TargetBookmark, scratchBranchPrefix) {
-		from = source.TargetBookmark
-	} else {
-		var number int64
-		err := s.store.QueryRow(ctx, `SELECT i.number FROM mythical_items i
-            LEFT JOIN mythical_lanes l ON l.item_id=i.id
-            WHERE i.repository_id=$1 AND (i.workspace_id=$2 OR l.workspace_id=$2)
-            ORDER BY l.created_at DESC NULLS LAST LIMIT 1`, source.RepositoryID, source.ID).Scan(&number)
-		if err == nil {
-			from = "T" + strconv.FormatInt(number, 10)
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return WorkspaceResponse{}, err
-		} else if source.TargetBookmark != "main" {
-			return WorkspaceResponse{}, &BranchError{409, "no_verified_head", "conflict", "Workspace has no verified revision to fork"}
-		}
+	resolved, err := workspaceForkRevisionInput(ctx, s.queries(), source, input)
+	if err != nil {
+		return WorkspaceResponse{}, err
 	}
-	branch, err := s.ForkBranch(ctx, input.RepositoryID, input.UserID, BranchForkInput{From: from, Name: input.Name, Request: input.Request})
+	branch, err := s.ForkBranch(ctx, input.RepositoryID, input.UserID, resolved)
 	return branch.Machine, err
 }
 
