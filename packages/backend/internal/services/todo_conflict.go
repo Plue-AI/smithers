@@ -157,7 +157,7 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Querie
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	pin, pinned := mythicalPinOf(item)
-	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
+	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || s.host == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	// Older persisted waits may predate reservations. When one is present,

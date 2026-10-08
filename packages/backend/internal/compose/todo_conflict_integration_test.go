@@ -10,8 +10,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -19,6 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -71,14 +77,46 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Server.PublicURL, cfg.Server.AllowedOrigins = "selfhost", origin, []string{origin}
-	service := services.NewMythicalService(pool, nil)
+	// Native mirrored main is independent of the stack's folding receipt.
+	native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+	require.NoError(t, native.Load())
+	hostCfg := repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "conflict-door"}
+	repoPath := hostCfg.RepoPath(owner.Username, repo.Name)
+	_, err = native.InitRepo(repoPath)
+	require.NoError(t, err)
+	store := filepath.Join(repoPath, ".jj", "repo", "store", "git")
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := hostexec.Git(ctx, append([]string{"--git-dir", store, "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "core.hooksPath=/dev/null"}, args...)...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	treeCommand := hostexec.Git(ctx, "--git-dir", store, "hash-object", "-t", "tree", "-w", "--stdin")
+	treeCommand.Stdin = strings.NewReader("")
+	treeBytes, err := treeCommand.Output()
+	require.NoError(t, err)
+	onto := git("commit-tree", strings.TrimSpace(string(treeBytes)), "-m", "main")
+	moved := git("commit-tree", strings.TrimSpace(string(treeBytes)), "-p", onto, "-m", "moved main")
+	mirror := func(head string) {
+		t.Helper()
+		git("update-ref", "refs/heads/main", head)
+		require.NoError(t, native.ImportGitRefs(repoPath))
+	}
+	mirror(onto)
+	engine, err := repohostserver.NewWithFFI(hostCfg, native)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	client := repohost.NewLocalClient(engine.Handler(), hostCfg.AuthToken)
+	service := services.NewMythicalService(pool, client)
 
 	provider := &conflictDoorProvider{unresolved: []string{"a.txt"}}
 	service.SetLauncher(provider)
-	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	handler := &routes.MythicalHandler{Service: service}
+	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, handler)
 	server.Start()
 	t.Cleanup(server.Close)
 	checks := `{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","rebase":{"onto":"onto","name":"main"},"waits":[{"id":"conflict-1","kind":"conflict","paths":["a.txt"],"conflict_change":"change","onto_revision":"onto","signal":{"flow":"todo","run":"pinned-run","name":"conflict"}}]}`
+	checks = strings.ReplaceAll(checks, `:"onto"`, fmt.Sprintf(":%q", onto))
 	// Bind the fake signal to the same production launch address as the item.
 	var bound map[string]any
 	require.NoError(t, json.Unmarshal([]byte(checks), &bound))
@@ -86,11 +124,11 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	tenant, principal := fmt.Sprintf("repository:%d", repo.ID), fmt.Sprintf("user:%d", owner.ID)
 	signal["scope"] = map[string]any{"tenantId": tenant, "principalId": principal}
 	signal["target"] = map[string]any{"tenantId": tenant, "principalId": principal, "workspaceId": "11111111-1111-4111-8111-111111111111", "bindingKind": "mythical-item", "bindingId": fmt.Sprintf("%s", item.ID)}
-	bound["conflictReservation"] = map[string]any{"change": "change", "onto": "onto", "run": "pinned-run", "limit": 1, "reserved": 1}
+	bound["conflictReservation"] = map[string]any{"change": "change", "onto": onto, "run": "pinned-run", "limit": 1, "reserved": 1}
 	encoded, err := json.Marshal(bound)
 	require.NoError(t, err)
 	checks = string(encoded)
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration='{"conflict":{"head":"change","onto":"onto","paths":["a.txt"]}}' WHERE id=$1`, item.ID, checks)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration=jsonb_build_object('conflict',jsonb_build_object('head','change','onto',$3::text,'paths',jsonb_build_array('a.txt'))) WHERE id=$1`, item.ID, checks, onto)
 	require.NoError(t, err)
 	call := func(t *testing.T, expected int, code string) {
 		t.Helper()
@@ -137,13 +175,29 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 		require.Equal(t, []string{"a.txt"}, card.Waits[0].Paths)
 		return card.Waits[0].Actions
 	}
+	t.Run("missing mirrored repository provider", func(t *testing.T) {
+		missingHost := services.NewMythicalService(pool, nil)
+		missingHost.SetLauncher(provider)
+		missingHost.SetConflictValidator(provider)
+		handler.Service = missingHost
+		defer func() { handler.Service = service }()
+		before, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Empty(t, waitActions(t))
+		call(t, 503, "conflict_validation_unavailable")
+		after, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.JSONEq(t, string(before.Checks), string(after.Checks))
+		require.Zero(t, provider.validations)
+		require.Zero(t, provider.signals)
+	})
 	require.Empty(t, waitActions(t))
 	call(t, 503, "conflict_validation_unavailable")
 	service.SetConflictValidator(provider)
 	require.Equal(t, []any{map[string]any{"tag": "todo.answer", "label": "Done", "args": map[string]any{"answer": "done"}}}, waitActions(t))
 	for _, field := range []string{"change", "onto", "run"} {
 		t.Run("stale reservation "+field, func(t *testing.T) {
-			reservation := map[string]any{"change": "change", "onto": "onto", "run": "pinned-run", "limit": 1, "reserved": 1}
+			reservation := map[string]any{"change": "change", "onto": onto, "run": "pinned-run", "limit": 1, "reserved": 1}
 			reservation[field] = "another-conflict"
 			raw, err := json.Marshal(reservation)
 			require.NoError(t, err)
@@ -219,6 +273,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main='moved-main' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
+	mirror(moved)
 	validations := provider.validations
 	call(t, 409, "stale_conflict")
 	require.Equal(t, validations, provider.validations)
@@ -228,6 +283,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	require.JSONEq(t, checks, string(retained.Checks))
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main='onto' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
+	mirror(onto)
 	provider.unresolved = nil
 	call(t, 202, "")
 	call(t, 202, "")
@@ -289,7 +345,12 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 				require.Equal(t, "bad_request", result["code"])
 			} else if principal == "person" {
 				require.Equal(t, 503, response.StatusCode, result)
-				require.Equal(t, "rebase_execution_unavailable", result["code"])
+				code := "rebase_execution_unavailable"
+				if tc.body == `{"rebase":true}` || tc.body == `{"op":"rebase"}` {
+					code = "rebase_unavailable"
+				}
+				require.Equal(t, code, result["code"])
+				require.Equal(t, "infra", result["class"])
 			} else if principal == "anonymous" {
 				require.Equal(t, 401, response.StatusCode, result)
 			} else {
@@ -301,7 +362,7 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	require.Equal(t, 1, provider.signals)
 	// The native continuation contract parks the existing attempt. Project it
 	// through the production runtime boundary and read the mounted HTTP card.
-	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set($2::jsonb-'waits','{conflictReservation}','{"change":"change","onto":"onto","run":"pinned-run","limit":1,"reserved":1}') WHERE id=$1`, item.ID, checks)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set($2::jsonb-'waits','{conflictReservation}',jsonb_build_object('change','change','onto',$3::text,'run','pinned-run','limit',1,'reserved',1)) WHERE id=$1`, item.ID, checks, onto)
 	require.NoError(t, err)
 	current, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
@@ -310,10 +371,19 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: jobs.Scope{TenantID: tenant, PrincipalID: principal}, Checkpoint: flowdispatch.RuntimeCheckpoint{
 		FlowID: "todo", RunID: "pinned-run", ExecutionDigest: digest, Projection: projection,
 		Target: flowruntime.Target{TenantID: tenant, PrincipalID: principal, WorkspaceID: current.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprint(item.ID)},
-		Run:    &flowruntime.Run{RunID: "pinned-run", Status: "waiting", PendingWaits: []flowruntime.PendingWait{{RunID: "conflict-child", Token: "park-1", Name: "conflict", Request: json.RawMessage(`{"kind":"conflict","conflict_change":"change","onto_revision":"onto","paths":["invented.txt"]}`)}}},
+		Run:    &flowruntime.Run{RunID: "pinned-run", Status: "waiting", PendingWaits: []flowruntime.PendingWait{{RunID: "conflict-child", Token: "park-1", Name: "conflict", Request: json.RawMessage(fmt.Sprintf(`{"kind":"conflict","conflict_change":"change","onto_revision":%q,"paths":["invented.txt"]}`, onto))}}},
 	}}
+	var projectedWaitID string
 	for range 10 {
 		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		var projectedID string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'waits'->0->>'id' FROM mythical_items WHERE id=$1`, item.ID).Scan(&projectedID))
+		require.Regexp(t, `^c-[0-9a-f]{16}$`, projectedID)
+		if projectedWaitID == "" {
+			projectedWaitID = projectedID
+		} else {
+			require.Equal(t, projectedWaitID, projectedID, "replayed projection keeps the same conflict")
+		}
 	}
 	request, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
 	require.NoError(t, err)
@@ -332,10 +402,10 @@ func TestConflictDoneComposedInstall(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(stored.Checks, &waits))
 	require.Len(t, waits.Waits, 1)
-	require.Equal(t, "c-9e92f3542b87a2a3", waits.Waits[0].ID)
+	require.Equal(t, projectedWaitID, waits.Waits[0].ID)
 	require.Equal(t, []string{"a.txt"}, waits.Waits[0].Paths)
 	require.Equal(t, "change", waits.Waits[0].ConflictChange)
-	require.Equal(t, "onto", waits.Waits[0].OntoRevision)
+	require.Equal(t, onto, waits.Waits[0].OntoRevision)
 	require.Equal(t, 1, provider.signals, "projection never launches or answers an attempt")
 
 }

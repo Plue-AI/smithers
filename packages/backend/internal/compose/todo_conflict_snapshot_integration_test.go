@@ -87,7 +87,7 @@ func conflictDoneWorkingCopyInstall(t *testing.T, awake bool) {
 	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
 	client := repohost.NewLocalClient(engine.Handler(), cfg.AuthToken)
 	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client))
-	service := services.NewMythicalService(f.pool, nil)
+	service := services.NewMythicalService(f.pool, client)
 	signals := &conflictDoorProvider{}
 	service.SetLauncher(signals)
 	inspections := 0
