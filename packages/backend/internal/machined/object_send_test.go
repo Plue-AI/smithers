@@ -21,7 +21,7 @@ func bindFixtureExporter(r *Registry) {
 		return io.NopCloser(strings.NewReader("fixture bundle")), nil
 	})
 }
-func acceptFixtureBundle(t *testing.T, peer net.Conn) uint32 {
+func acceptFixtureBundle(t *testing.T, peer net.Conn, during ...func()) uint32 {
 	t.Helper()
 	var stream uint32
 	var received int
@@ -32,6 +32,9 @@ func acceptFixtureBundle(t *testing.T, peer net.Conn) uint32 {
 		require.GreaterOrEqual(t, f.Stream, uint32(0x80000000))
 		if stream == 0 {
 			stream = f.Stream
+			for _, observe := range during {
+				observe()
+			}
 		}
 		require.Equal(t, stream, f.Stream)
 		if f.Payload[0] == 2 {
@@ -284,7 +287,11 @@ func TestRebaseImportsTargetBeforeClaimGuardAndRewrite(t *testing.T) {
 				_ = peer.Close()
 			}
 		}()
-		acceptFixtureBundle(t, peer)
+		acceptFixtureBundle(t, peer, func() {
+			require.NoError(t, link.RequireReady("a"), "object-only import keeps authenticated presence live")
+			_, err := link.PresenceScope("a")
+			require.NoError(t, err)
+		})
 		close(imported)
 		f, err := wire.Read(peer)
 		require.NoError(t, err)

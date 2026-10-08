@@ -654,6 +654,17 @@ func (q *Queries) GetMythicalLane(ctx context.Context, workspaceID string) (Myth
 // lanes do not become the retained branch once the TODO releases them.
 func (q *Queries) GetMythicalTodoBranchWorkspace(ctx context.Context, item MythicalItem) (Workspace, error) {
 	id := item.WorkspaceID
+	var review struct {
+		Review *struct {
+			Lane string `json:"lane"`
+		} `json:"review"`
+	}
+	if err := json.Unmarshal(item.Checks, &review); err != nil && len(item.Checks) > 0 {
+		return Workspace{}, err
+	}
+	if review.Review != nil && review.Review.Lane == id {
+		id = ""
+	}
 	if id == "" {
 		if err := q.db.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
  WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'

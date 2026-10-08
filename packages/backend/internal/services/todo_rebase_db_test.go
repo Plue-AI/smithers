@@ -3,14 +3,18 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -338,4 +342,156 @@ func TestTodoRebaseEqualTreeNewBaseRequiresFreshVerification(t *testing.T) {
 			Run: &flowruntime.FlowRuntimeRun{RunID: "stale-review", FinalOutput: &output}},
 	}))
 	require.Equal(t, review, mythicalChecksOf(f.item(first.Number.Int64)).Review)
+}
+
+// A review machine reads an immutable PR; it cannot become the TODO's coding
+// branch when main moves. Real database rows retain both machine identities.
+func TestMainMoveUsesCodingBranchDuringIsolatedReview(t *testing.T) {
+	for _, mode := range []string{"stopped", "suspended", "pending capture", "changed capture", "running", "completed coding"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRebaseFixture(t)
+			item := f.candidate("Coding branch", f.main, "TODO.md", "work\n")
+			f.wake()
+			item = f.item(item.Number.Int64)
+			require.Equal(t, "proposed", item.State)
+			q := db.New(f.pool)
+			status := "stopped"
+			if mode == "running" || mode == "suspended" {
+				status = mode
+			}
+			coding, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "coding", TargetBookmark: "mythical", Kind: "vm", Status: status})
+			require.NoError(t, err)
+			_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: coding.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "TODO retained"})
+			require.NoError(t, err)
+			_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, coding.ID, item.CandidateHead)
+			require.NoError(t, err)
+			if mode == "pending capture" {
+				_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET capture_pending='{}' WHERE id=$1`, coding.ID)
+				require.NoError(t, err)
+			}
+			review, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "review", TargetBookmark: "mythical", Kind: "vm", Status: "running"})
+			require.NoError(t, err)
+			_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: review.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "TODO review g1"})
+			require.NoError(t, err)
+			item.WorkspaceID = review.ID
+			checks := mythicalChecksOf(item)
+			checks.Review = &mythicalReview{Lane: review.ID, Head: item.PRHead}
+			if mode == "completed coding" {
+				item.WorkspaceID = coding.ID
+				item.RequestOutcome = "completed"
+				checks.Review.Verdict = "approve"
+			}
+			item.Checks = checks.encode()
+			_, err = q.SaveMythicalItem(t.Context(), item)
+			require.NoError(t, err)
+			lanes := &fakeMythicalLanes{}
+			f.service.SetBranchRebaseExecutor(reviewRebaseRefusal{})
+			f.service.SetOrchestration(f.service.github, f.launcher, lanes)
+			f.service.SetRebasePresence(func(_ context.Context, repo int64, workspace string) (RebasePresence, error) {
+				require.Equal(t, f.repoID, repo)
+				require.Equal(t, coding.ID, workspace)
+				return RebasePresenceEmpty, nil
+			})
+			f.git(f.work, "checkout", "-q", "main")
+			f.commit("main moves", "OUTSIDE.md", "outside\n")
+			main := f.publish()
+			if mode == "changed capture" {
+				_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, coding.ID, main)
+				require.NoError(t, err)
+			}
+			for range 2 {
+				f.wake()
+			}
+			next := f.item(item.Number.Int64)
+			switch mode {
+			case "stopped", "suspended", "completed coding":
+				require.Equal(t, "verifying", next.State, next.Reason)
+				require.Equal(t, main, next.CandidateBase)
+				require.NotEqual(t, review.ID, next.WorkspaceID)
+				require.Equal(t, 1, f.verifies(next))
+				if mode == "completed coding" {
+					lane, err := q.GetMythicalLane(t.Context(), coding.ID)
+					require.NoError(t, err)
+					require.True(t, lane.RetiredAt.Valid, "main invalidation must not suppress completed coding retirement")
+				}
+			case "running":
+				require.Equal(t, "integrating", next.State, next.Reason)
+				require.Equal(t, coding.ID, next.WorkspaceID)
+				require.Equal(t, 0, f.verifies(next))
+				require.Nil(t, mythicalChecksOf(next).Review)
+			default:
+				require.Equal(t, "integrating", next.State, next.Reason)
+				require.Equal(t, "rebase_pending", next.Reason)
+				require.Equal(t, item.CandidateHead, next.CandidateHead)
+				require.Equal(t, 0, f.verifies(next))
+			}
+		})
+	}
+}
+
+// This refusal port proves the asleep path never contacts a daemon; the
+// composed HTTP rehearsal supplies the real authenticated native provider.
+type reviewRebaseRefusal struct{ failure error }
+
+func (r reviewRebaseRefusal) Rebase(context.Context, string, int64, string, func(pgx.Tx) error, func(func() error) error) (machined.RewriteResult, error) {
+	if r.failure != nil {
+		return machined.RewriteResult{}, r.failure
+	}
+	return machined.RewriteResult{}, machined.ErrNotReady
+}
+func (reviewRebaseRefusal) Capture(context.Context, string) (machined.CaptureResult, error) {
+	return machined.CaptureResult{}, machined.ErrNotReady
+}
+
+func TestNativeRebaseBoundaryChangeRetainsPendingSnapshot(t *testing.T) {
+	item := db.MythicalItem{WorkspaceID: "coding", State: "integrating", Reason: "rebase_pending", CandidateBase: "before", CandidateHead: "captured", Attempt: 2, Generation: 3}
+	step := mythicalItemStep{s: &MythicalService{branchRebase: reviewRebaseRefusal{failure: fmt.Errorf("native rebase: %w", db.ErrMythicalItemMoved)}}, r: &mythicalRun{row: db.MythicalStack{ActorUserID: pgtype.Int8{Int64: 1, Valid: true}}}}
+	next, saved, err := step.executeNativeRebase(t.Context(), item, "main")
+	require.ErrorIs(t, err, db.ErrMythicalItemMoved)
+	require.Nil(t, next, "a stale presence boundary cannot persist an outage or overwrite the item")
+	require.False(t, saved)
+	now := time.Now()
+	require.Equal(t, now, mythicalStepFailedDue(err, now), "fresh state is read at the next claim, within the follow-main bound")
+}
+
+func TestNativeRebaseFenceReadsPresenceBeforeWorkspaceMutationLock(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Native boundary", f.main, "TODO.md", "work\n")
+	q := db.New(f.pool)
+	branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "coding", TargetBookmark: "mythical", Kind: "vm", Status: "running"})
+	require.NoError(t, err)
+	item.WorkspaceID = branch.ID
+	item, err = q.SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_stacks SET running=true,claim=claim+1,lease_expires_at=NOW()+INTERVAL '5 minutes' WHERE repository_id=$1`, f.repoID)
+	require.NoError(t, err)
+	stack, err := q.GetMythicalStack(t.Context(), f.repoID)
+	require.NoError(t, err)
+	reads := 0
+	f.service.SetRebasePresence(func(ctx context.Context, repository int64, workspace string) (RebasePresence, error) {
+		reads++
+		require.Equal(t, f.repoID, repository)
+		require.Equal(t, branch.ID, workspace)
+		// Host resolution independently takes this SHARE lock. It must not
+		// wait for the native fence's own mutation transaction to finish.
+		read, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		tx, err := f.pool.Begin(read)
+		if err != nil {
+			return RebasePresenceUnknown, err
+		}
+		defer tx.Rollback(context.WithoutCancel(read))
+		var id string
+		err = tx.QueryRow(read, `SELECT id FROM workspaces WHERE id=$1 FOR SHARE`, workspace).Scan(&id)
+		if err != nil {
+			return RebasePresenceUnknown, err
+		}
+		return RebasePresenceEmpty, nil
+	})
+	tx, err := f.pool.Begin(t.Context())
+	require.NoError(t, err)
+	defer tx.Rollback(context.WithoutCancel(t.Context()))
+	step := mythicalItemStep{s: f.service, r: &mythicalRun{row: stack, owner: "rehearsal-owner", repo: "app", mainTip: f.main}}
+	require.NoError(t, step.lockNativeRebase(t.Context(), tx, item, f.main))
+	require.Equal(t, 1, reads)
 }

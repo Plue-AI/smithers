@@ -389,13 +389,12 @@ func (r *Registry) RebaseWithObjects(ctx context.Context, branch string, actor [
 	if guard == nil {
 		return RewriteResult{}, ErrNotReady
 	}
-	if err := l.sendWakeObjects(ctx, branch, onto); err != nil {
+	if err := l.sendRebaseObjects(ctx, branch, onto); err != nil {
 		return RewriteResult{}, err
 	}
-	// This link was already reconciled before the object-only import. The
-	// acknowledged transfer adds the target; it does not change the working
-	// copy or require another wake. Restore admission before the rewrite RPC.
-	if err := l.Reconciled(); err != nil {
+	// The object-only import does not change admission. Recheck this exact
+	// connection before the fresh mutation fence; a replacement still refuses.
+	if err := l.RequireReady(branch); err != nil {
 		return RewriteResult{}, err
 	}
 	var result RewriteResult

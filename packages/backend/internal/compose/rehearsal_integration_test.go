@@ -402,6 +402,7 @@ path = "lib.rs"
 		built := buildRehearsalCodingHost(t, node, r.root, fileFixture)
 		registry = &built
 	}
+	r.workspaceRuntime = workspace
 	if registry != nil {
 		// The coding host's model is scripted: test-only owner keys route every
 		// turn through the composed install's metered proxy to this provider.
@@ -1928,6 +1929,13 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 	boot := lock.(*sync.Mutex)
 	boot.Lock()
 	defer boot.Unlock()
+	observed, err := r.InspectWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if observed.State != workspaceapi.WorkspaceRunning {
+		return workspaceapi.ErrWorkspaceStopped
+	}
 
 	link, err := r.daemons.Current(id)
 	if err == nil && link.RequireReady(id) == nil {
@@ -1948,6 +1956,10 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 
 // Stop the retained machine's native transport with its actual processes.
 func (r bindingProcessRuntime) StopWorkspace(ctx context.Context, id string) error {
+	lock, _ := r.daemonLocks.LoadOrStore(id, new(sync.Mutex))
+	boot := lock.(*sync.Mutex)
+	boot.Lock()
+	defer boot.Unlock()
 	err := r.rehearsalAdmissionRuntime.StopWorkspace(ctx, id)
 	if err == nil || errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 		if stop, ok := r.daemonStops.LoadAndDelete(id); ok {
@@ -2007,13 +2019,11 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 func provisionRehearsalJJ(root string) error {
 	// Catalog probes can arrive during provisioning. Never make the clone's
 	// empty destination nonempty before its repository materialization settles.
-	for _, metadata := range []string{".git", ".jj/repo"} {
-		if _, err := os.Stat(filepath.Join(root, metadata)); err != nil {
-			if os.IsNotExist(err) {
-				return workspaceapi.ErrWorkspaceSourceUnavailable
-			}
-			return err
+	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+		if os.IsNotExist(err) {
+			return workspaceapi.ErrWorkspaceSourceUnavailable
 		}
+		return err
 	}
 	// The confined native helper also invokes jj. Host-home tools are outside
 	// its runtime reads, so provision the exact fixture executable inside .jj,

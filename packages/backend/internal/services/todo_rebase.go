@@ -104,6 +104,9 @@ func (s *MythicalService) storedBranchRequestAuthorized(ctx context.Context, q *
 // been reopened by a person, so retirement alone is not permission to rebase.
 func (s *MythicalService) mayRebaseItemAtBoundary(ctx context.Context, item db.MythicalItem) bool {
 	workspace := item.WorkspaceID
+	if review := mythicalChecksOf(item).Review; review != nil && review.Lane == workspace {
+		workspace = ""
+	}
 	if s.rebasePresence != nil && workspace == "" {
 		if s.store == nil {
 			return false

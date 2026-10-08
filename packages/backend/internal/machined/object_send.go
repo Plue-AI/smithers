@@ -68,7 +68,17 @@ func (l *Link) receiveObjectReceipt(f wire.Frame) bool {
 	return true
 }
 
-func (l *Link) sendWakeObjects(ctx context.Context, branch, head string) (err error) {
+func (l *Link) sendWakeObjects(ctx context.Context, branch, head string) error {
+	return l.sendObjects(ctx, branch, head, true)
+}
+
+// An onto-only import adds immutable objects without waking or changing the
+// working copy. Its authenticated sessions and presence remain admitted.
+func (l *Link) sendRebaseObjects(ctx context.Context, branch, head string) error {
+	return l.sendObjects(ctx, branch, head, false)
+}
+
+func (l *Link) sendObjects(ctx context.Context, branch, head string, waking bool) (err error) {
 	if l.objectExporter == nil {
 		return ErrNotReady
 	}
@@ -97,14 +107,17 @@ func (l *Link) sendWakeObjects(ctx context.Context, branch, head string) (err er
 	}
 	// Export/admission can refuse before the peer sees any bundle bytes.
 	// Retain readiness on that path so the stack can retry after its fence
-	// changes. Once transfer starts, only reconciliation can admit mutations.
+	// changes. Wake transfer needs reconciliation; an onto-only import keeps
+	// its unchanged working copy and authenticated presence admitted.
 	l.registry.mu.Lock()
 	if branch != l.boot.branch || !l.current() {
 		l.registry.mu.Unlock()
 		_ = source.Close()
 		return ErrUnauthorized
 	}
-	l.ready = false
+	if waking {
+		l.ready = false
+	}
 	l.registry.mu.Unlock()
 	var closeOnce sync.Once
 	closeSource := func() { closeOnce.Do(func() { _ = source.Close() }) }

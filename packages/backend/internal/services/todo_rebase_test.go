@@ -40,14 +40,22 @@ func TestReleasedTodoRebaseReadsRetainedCodingBranch(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = h.q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: review.ID, RepositoryID: h.repoID, ItemID: item.ID, Name: "T1 review g1"})
 	require.NoError(t, err)
-	item.WorkspaceID = ""
-	for _, presence := range []RebasePresence{RebasePresenceEmpty, RebasePresenceAgent, RebasePresencePeople, RebasePresenceUnknown} {
-		h.service.SetRebasePresence(func(_ context.Context, repository int64, workspace string) (RebasePresence, error) {
-			require.Equal(t, h.repoID, repository)
-			require.Equal(t, coding.ID, workspace, "review lane is not the TODO's branch")
-			return presence, nil
-		})
-		require.Equal(t, presence == RebasePresenceEmpty || presence == RebasePresenceAgent, h.service.mayRebaseItemAtBoundary(t.Context(), item))
+	for _, heldReview := range []bool{false, true} {
+		item.WorkspaceID = ""
+		if heldReview {
+			item.WorkspaceID = review.ID
+			checks := mythicalChecksOf(item)
+			checks.Review = &mythicalReview{Lane: review.ID}
+			item.Checks = checks.encode()
+		}
+		for _, presence := range []RebasePresence{RebasePresenceEmpty, RebasePresenceAgent, RebasePresencePeople, RebasePresenceUnknown} {
+			h.service.SetRebasePresence(func(_ context.Context, repository int64, workspace string) (RebasePresence, error) {
+				require.Equal(t, h.repoID, repository)
+				require.Equal(t, coding.ID, workspace, "review lane is not the TODO's branch")
+				return presence, nil
+			})
+			require.Equal(t, presence == RebasePresenceEmpty || presence == RebasePresenceAgent, h.service.mayRebaseItemAtBoundary(t.Context(), item))
+		}
 	}
 	item.RepositoryID++
 	require.False(t, h.service.mayRebaseItemAtBoundary(t.Context(), item), "retained branch must belong to this repository")

@@ -47,11 +47,30 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	require.NoError(t, err)
 	// 60 s bounds following main, independently of the checks and PR write.
 	deadline := movedAt.Add(time.Minute)
+	observedAt := time.Time{}
 	for {
 		after, err := r.candidate(second)
 		require.NoError(t, err)
 		if after.Base == main {
+			elapsed := time.Since(movedAt)
+			require.LessOrEqual(t, elapsed, time.Minute, "follow main exceeded its bound")
+			t.Logf("T%d followed the person's merge in %s", second, elapsed)
 			break
+		}
+		if time.Since(observedAt) >= 15*time.Second {
+			observedAt = time.Now()
+			var state, head string
+			var capture []byte
+			readErr := r.pool.QueryRow(r.ctx, `SELECT status,head_commit_id,capture_pending FROM workspaces WHERE id=$1`, workspace).Scan(&state, &head, &capture)
+			t.Logf("retained coding branch %s status=%s head=%s capture=%s read=%v", workspace, state, head, capture, readErr)
+			if runtime, ok := r.workspaceRuntime.(bindingProcessRuntime); ok {
+				link, linkErr := runtime.daemons.Current(workspace)
+				var readyErr error
+				if linkErr == nil {
+					readyErr = link.RequireReady(workspace)
+				}
+				t.Logf("retained coding branch %s status=%s head=%s capture=%s read=%v native=%v ready=%v consumer=%t", workspace, state, head, capture, readErr, linkErr, readyErr, runtime.daemons.EventConsumerReady())
+			}
 		}
 		if !time.Now().Before(deadline) {
 			rows, queryErr := r.pool.Query(r.ctx, `SELECT number,state,reason,workspace_id,candidate_base,candidate_head,request_outcome,COALESCE(checks->'rebase'->>'name','') FROM mythical_items ORDER BY number`)
@@ -73,6 +92,7 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	for {
 		card, err = r.j10Card(second)
 		require.NoError(t, err)
+		require.NotEqual(t, "failed", card.State, "T%d's rebased checks failed", second)
 		pull, err := r.readFakePull(pr)
 		require.NoError(t, err)
 		parent, err := r.githubGit("rev-parse", pull.Head.SHA+"^")

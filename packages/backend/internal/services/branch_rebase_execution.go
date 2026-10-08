@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -32,6 +33,14 @@ func (st *mythicalItemStep) lockNativeRebaseReceipt(ctx context.Context, tx pgx.
 }
 
 func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string, executing bool) error {
+	// Presence resolves the existing host through its own authority transaction
+	// and SHARE lock on this workspace. Read that live boundary before taking
+	// mutation locks here; otherwise the fence waits on its own presence read.
+	// The locks below still reject any changed item, prefix or machine before
+	// the native mutation starts.
+	if !st.s.mayExecuteRequestedRebase(ctx, item, onto) && !st.s.mayRebaseItemAtBoundary(ctx, item) {
+		return fmt.Errorf("rebase authority changed: %w", db.ErrMythicalItemMoved)
+	}
 	var live bool
 	if err := tx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
 		return err
@@ -53,12 +62,12 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 		return err
 	}
 	if main != st.r.mainTip {
-		return errors.New("main moved before rebase")
+		return fmt.Errorf("main moved before rebase: %w", db.ErrMythicalItemMoved)
 	}
 	step := *st
 	step.items = order
 	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
-		return errors.New("rebase binding changed")
+		return fmt.Errorf("rebase binding changed: %w", db.ErrMythicalItemMoved)
 	}
 	var status, head string
 	if err := tx.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status, &head); err != nil {
@@ -66,16 +75,13 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 	}
 	if executing {
 		if status != "running" {
-			return machined.ErrNotReady
+			return fmt.Errorf("rebase machine state changed: %w", db.ErrMythicalItemMoved)
 		}
 	} else {
 		pending := mythicalChecksOf(current).Rebase
 		if pending == nil || pending.Native == nil || !pending.Native.Inspected || len(pending.Native.Paths) != 0 || pending.Native.Head != head || (status != "running" && status != "stopped" && status != "suspended") {
 			return machined.ErrNotReady
 		}
-	}
-	if !st.s.mayExecuteRequestedRebase(ctx, current, onto) && !st.s.mayRebaseItemAtBoundary(ctx, current) {
-		return errors.New("rebase authority changed")
 	}
 	return nil
 }
@@ -106,6 +112,11 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 		return rewrite()
 	})
 	if err != nil {
+		// A fresh fence refused this snapshot before the rewrite. Read the
+		// new branch/presence boundary rather than charging an outage delay.
+		if errors.Is(err, db.ErrMythicalItemMoved) {
+			return nil, false, err
+		}
 		return mythicalInfraOutage(item, "launch", "the branch could not be rebased: "+err.Error(), st.now), false, nil
 	}
 	if !result.Inspected || !codingCommitID.MatchString(result.Head) {
