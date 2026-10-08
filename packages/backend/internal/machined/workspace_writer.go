@@ -11,10 +11,9 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// WorkspaceWriter accepts only singleton settlements at the workspace mutation
-// boundary. ADR 0004's compared mutation batch can partially apply on I/O
-// failure. Refuse multi-file and deletion requests before dispatch rather than
-// expose that batch as a whole-patch transaction.
+// WorkspaceWriter submits one compared daemon batch. Only a complete receipt
+// is success; only a zero-write preflight receipt is stale. Application failures
+// may retain a durable prefix and must never be reported as stale or success.
 type WorkspaceWriter struct {
 	// EnsureReady starts/adopts the installed daemon only after admission and
 	// complete request validation. Runtime composition supplies its lifecycle.
@@ -31,19 +30,38 @@ func (w WorkspaceWriter) CompareWriteFiles(ctx context.Context, workspaceID stri
 	op, ok := workspaceapi.OperationFromContext(ctx)
 	// Agent writes must use the local registered-run socket. The host RPC's
 	// principal actor cannot stand in for a run, even with a valid S1 grant.
-	if !ok || op.Automated || op.PrincipalID == "" || len(op.PrincipalID) > 1024 || op.TenantID == "" || op.OperationID == "" || workspaceID == "" || w.Client == nil || len(changes) != 1 || changes[0].Content == nil {
+	if !ok || op.Automated || op.PrincipalID == "" || len(op.PrincipalID) > 1024 || op.TenantID == "" || op.OperationID == "" || workspaceID == "" || w.Client == nil || len(changes) == 0 || len(changes) > 256 {
 		return nil, workspaceapi.ErrCompareWriteUnavailable
 	}
-	c := changes[0]
-	if !utf8.ValidString(c.Path) || c.Path == "" || len(c.Path) > 4096 || c.Path == "." || path.IsAbs(c.Path) || path.Clean(c.Path) != c.Path || c.Path == ".." || strings.HasPrefix(c.Path, "../") || strings.ContainsRune(c.Path, 0) || len(c.Content) > 1<<20 {
-		return nil, workspaceapi.ErrCompareWriteUnavailable
-	}
-	var base *string
-	if c.BaseDigest != "absent" {
-		if !fileDigest(c.BaseDigest) {
+	batch := make([]FileChange, len(changes))
+	paths := make(map[string]bool, len(changes))
+	total := 0
+	for i, c := range changes {
+		total += len(c.Content)
+		if !utf8.ValidString(c.Path) || !utf8.Valid(c.Content) || c.Path == "" || len(c.Path) > 4096 || c.Path == "." || path.IsAbs(c.Path) || path.Clean(c.Path) != c.Path || c.Path == ".." || strings.HasPrefix(c.Path, "../") || strings.ContainsRune(c.Path, 0) || paths[c.Path] || total > 1<<20 {
 			return nil, workspaceapi.ErrCompareWriteUnavailable
 		}
-		base = &c.BaseDigest
+		paths[c.Path] = true
+		var base *string
+		if c.BaseDigest != "absent" {
+			if !fileDigest(c.BaseDigest) {
+				return nil, workspaceapi.ErrCompareWriteUnavailable
+			}
+			value := c.BaseDigest
+			base = &value
+		}
+		var content []byte
+		if c.Content != nil {
+			content = append([]byte{}, c.Content...)
+		}
+		batch[i] = FileChange{Path: c.Path, BaseDigest: base, Content: content}
+	}
+	for name := range paths {
+		for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+			if paths[parent] {
+				return nil, workspaceapi.ErrCompareWriteUnavailable
+			}
+		}
 	}
 	if w.EnsureReady != nil {
 		if err := w.EnsureReady(ctx, workspaceID); err != nil {
@@ -53,7 +71,7 @@ func (w WorkspaceWriter) CompareWriteFiles(ctx context.Context, workspaceID stri
 			return nil, workspaceapi.ErrCompareWriteUnavailable
 		}
 	}
-	result, err := w.Client.WriteFiles(ctx, workspaceID, []byte(op.PrincipalID), []FileChange{{Path: c.Path, BaseDigest: base, Content: append([]byte{}, c.Content...)}})
+	result, err := w.Client.WriteFiles(ctx, workspaceID, []byte(op.PrincipalID), batch)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -68,21 +86,33 @@ func (w WorkspaceWriter) CompareWriteFiles(ctx context.Context, workspaceID stri
 				return nil, workspaceapi.ErrCompareWriteUnavailable
 			}
 		}
-		if result.Stale.Path != c.Path || len(result.Applied) != 0 || len(result.Raced) != 0 {
+		if !paths[result.Stale.Path] || len(result.Applied) != 0 || len(result.Raced) != 0 {
 			return nil, workspaceapi.ErrCompareWriteUnavailable
 		}
-		return nil, &workspaceapi.StaleFileError{Path: c.Path, CurrentDigest: current}
+		return nil, &workspaceapi.StaleFileError{Path: result.Stale.Path, CurrentDigest: current}
 	}
-	digest := sha256.Sum256(c.Content)
-	if len(result.Applied) != 1 || result.Applied[0].Path != c.Path || result.Applied[0].PostDigest != hex.EncodeToString(digest[:]) || len(result.Raced) > 1 {
+	if len(result.Applied) != len(batch) || len(result.Raced) > len(batch) {
 		return nil, workspaceapi.ErrCompareWriteUnavailable
 	}
-	receipt := &workspaceapi.FileWriteResult{Paths: []workspaceapi.FileMutationResult{{Path: c.Path, Digest: result.Applied[0].PostDigest}}, Raced: []workspaceapi.FileRace{}}
-	for _, raced := range result.Raced {
-		if raced.Path != c.Path || !fileDigest(raced.DisplacedDigest) {
+	receipt := &workspaceapi.FileWriteResult{Paths: make([]workspaceapi.FileMutationResult, 0, len(batch)), Raced: []workspaceapi.FileRace{}}
+	for i, c := range batch {
+		expected := "absent"
+		if c.Content != nil {
+			digest := sha256.Sum256(c.Content)
+			expected = hex.EncodeToString(digest[:])
+		}
+		if result.Applied[i].Path != c.Path || result.Applied[i].PostDigest != expected {
 			return nil, workspaceapi.ErrCompareWriteUnavailable
 		}
-		receipt.Raced = append(receipt.Raced, workspaceapi.FileRace{Path: c.Path, Version: raced.DisplacedDigest})
+		receipt.Paths = append(receipt.Paths, workspaceapi.FileMutationResult{Path: c.Path, Digest: expected})
+	}
+	seenRaces := make(map[string]bool)
+	for _, raced := range result.Raced {
+		if !paths[raced.Path] || seenRaces[raced.Path] || !fileDigest(raced.DisplacedDigest) {
+			return nil, workspaceapi.ErrCompareWriteUnavailable
+		}
+		seenRaces[raced.Path] = true
+		receipt.Raced = append(receipt.Raced, workspaceapi.FileRace{Path: raced.Path, Version: raced.DisplacedDigest})
 	}
 	return receipt, nil
 }

@@ -262,10 +262,10 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			return nil
 		}, Client: &machinedfake.Client{OnWriteFiles: func(_ context.Context, branch string, actor []byte, changes []machined.FileChange) (machined.WriteResult, error) {
 			calls++
-			require.Equal(t, calls, readyCalls, "readiness must precede each write")
+			require.GreaterOrEqual(t, readyCalls, calls, "readiness must precede each write")
 			require.Equal(t, id, branch)
 			require.Equal(t, fmt.Sprint(ownerID), string(actor))
-			require.Len(t, changes, 1)
+			require.NotEmpty(t, changes)
 			require.Equal(t, "daemon.txt", changes[0].Path)
 			if string(changes[0].Content) == "offline" {
 				return machined.WriteResult{}, machined.ErrNotReady
@@ -303,7 +303,7 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			{"?path=daemon.txt", `{"content":"partial-stale","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"?path=daemon.txt", `{"content":"not-ready","base_digest":"absent"}`, 503, `"code":"service_unavailable"`},
 			{"", `{"changes":[{"path":"daemon.txt","content":"hello","base_digest":"absent"},{"path":"second.txt","content":"hello","base_digest":"absent"}]}`, 503, `"code":"service_unavailable"`},
-			{"", `{"changes":[{"path":"daemon.txt","content":null,"base_digest":"` + helloDigest + `"}]}`, 503, `"code":"service_unavailable"`},
+			{"", `{"changes":[{"path":"daemon.txt","content":null,"base_digest":"` + helloDigest + `"}]}`, 409, `"code":"stale"`},
 		} {
 			unavailable = strings.Contains(item.request, `"not-ready"`)
 			req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content"+item.query, strings.NewReader(item.request))
@@ -321,10 +321,9 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			require.Equal(t, item.status, response.StatusCode, string(body))
 			require.Contains(t, string(body), item.fragment)
 		}
-		// Unsupported transactions and deletions must refuse before the first
-		// remote write. Sequential WriteFiles receipts cannot qualify a patch.
-		require.Equal(t, 5, calls)
-		require.Equal(t, 6, readyCalls)
+		// Incomplete batch/deletion receipts are refused after one batch dispatch.
+		require.Equal(t, 7, calls)
+		require.Equal(t, 8, readyCalls)
 	})
 	t.Run("real unprivileged daemon", func(t *testing.T) {
 		binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
@@ -440,6 +439,71 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("world"), disk)
+		t.Run("batch delete move and later stale through HTTP", func(t *testing.T) {
+			request := func(body string, status int) []byte {
+				t.Helper()
+				req, err := http.NewRequest("PUT", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content", strings.NewReader(body))
+				require.NoError(t, err)
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Origin", origin)
+				req.Header.Set("X-CSRF-Token", "digest-csrf")
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+				res, err := server.Client().Do(req)
+				require.NoError(t, err)
+				bodyBytes, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				require.NoError(t, res.Body.Close())
+				require.Equal(t, status, res.StatusCode, string(bodyBytes))
+				return bodyBytes
+			}
+			bytesAt := func(path, want string) {
+				t.Helper()
+				got, err := os.ReadFile(filepath.Join(root, path))
+				require.NoError(t, err)
+				require.Equal(t, want, string(got))
+			}
+			missing := func(path string) {
+				t.Helper()
+				_, err := os.Stat(filepath.Join(root, path))
+				require.ErrorIs(t, err, os.ErrNotExist)
+			}
+			request(`{"changes":[{"path":"batch-a","content":"hello","base_digest":"absent"},{"path":"batch-b","content":"world","base_digest":"absent"}]}`, 200)
+			bytesAt("batch-a", "hello")
+			bytesAt("batch-b", "world")
+			// A stale later source must not remove the earlier source or create
+			// the destination. Expectations are fixed, independent SHA fixtures.
+			refused := request(`{"changes":[{"path":"batch-a","content":null,"base_digest":"`+helloDigest+`"},{"path":"batch-b","content":null,"base_digest":"`+helloDigest+`"},{"path":"batch-dest","content":"hello","base_digest":"absent"}]}`, 409)
+			require.Contains(t, string(refused), `"path":"batch-b"`)
+			require.Contains(t, string(refused), worldDigest)
+			bytesAt("batch-a", "hello")
+			bytesAt("batch-b", "world")
+			missing("batch-dest")
+			// An outside creation invalidates an absent move destination.
+			require.NoError(t, os.WriteFile(filepath.Join(root, "batch-dest"), []byte("world"), 0600))
+			refused = request(`{"changes":[{"path":"batch-a","content":null,"base_digest":"`+helloDigest+`"},{"path":"batch-dest","content":"hello","base_digest":"absent"}]}`, 409)
+			require.Contains(t, string(refused), `"path":"batch-dest"`)
+			bytesAt("batch-a", "hello")
+			bytesAt("batch-dest", "world")
+			request(`{"changes":[{"path":"batch-a","content":null,"base_digest":"`+helloDigest+`"},{"path":"batch-dest","content":"hello","base_digest":"`+worldDigest+`"},{"path":"batch-b","content":null,"base_digest":"`+worldDigest+`"}]}`, 200)
+			missing("batch-a")
+			missing("batch-b")
+			bytesAt("batch-dest", "hello")
+			request(`{"changes":[{"path":"batch-dest","content":null,"base_digest":"`+worldDigest+`"}]}`, 409)
+			bytesAt("batch-dest", "hello")
+			request(`{"changes":[{"path":"batch-dest","content":null,"base_digest":"`+helloDigest+`"}]}`, 200)
+			missing("batch-dest")
+			// A real filesystem application failure is distinct from stale
+			// preflight: the first durable write stays, and HTTP never reports
+			// success or a stale no-op for the partially applied batch.
+			request(`{"changes":[{"path":"batch-prefix","content":"hello","base_digest":"absent"}]}`, 200)
+			locked := filepath.Join(root, "batch-locked")
+			require.NoError(t, os.Mkdir(locked, 0555))
+			t.Cleanup(func() { require.NoError(t, os.Chmod(locked, 0755)) })
+			request(`{"changes":[{"path":"batch-prefix","content":"world","base_digest":"`+helloDigest+`"},{"path":"batch-locked/new","content":"hello","base_digest":"absent"}]}`, 503)
+			bytesAt("batch-prefix", "world")
+			missing("batch-locked/new")
+		})
 		// Restore the fixture through the same guarded door before running
 		// independent outside-replacement and provider-loss checks below.
 		call("PUT", cookie, `{"content":"hello","base_digest":"`+worldDigest+`"}`, 200)

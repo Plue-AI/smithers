@@ -6,6 +6,17 @@ Ready: 2026-10-03 smithers-8a sha256:bf6d7f69a591
 
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §3). Absorbs T-COL-10 ([#3507](https://github.com/smithersai/smithers/issues/3507)).
 
+## Patch settlement clarification (2026-10-08)
+
+The older whole-patch rollback requirement is superseded at the S2 boundary by
+mvp.md §6.8 save/recovery and ADR 0004 protocol 7. All affected bases compare
+before application: a stale preflight changes nothing. Once application starts,
+an I/O failure may retain a durable prefix and the stopped path may also have
+changed. It is a failure requiring fresh reads, never `stale_read` or success.
+An exchange race retains and versions outside bytes and returns a `raced`
+receipt. No compensating host writes roll back an applied patch. This follows
+the lane's product-over-ticket ruling; owner/provider qualification is pending.
+
 ## Goal
 Every write to a branch's files through Smithers, from the app or the coding agent, carries `base_digest`. A stale write is refused and changes nothing. The wiki keeps its Yjs text.
 
@@ -32,7 +43,7 @@ Reshape:
 - `PUT /workspaces/{id}/files/content` handler (handler at `packages/backend/internal/routes/workspace.go:470`, route at `packages/backend/internal/compose/router.go:1444`) → require `base_digest`; return `409 {code: "stale", current_digest}` on mismatch; actor from the authenticated principal plus `via`, as `workspaceFacetRouteContext` does; a body naming actor, branch, machine or uid is 400.
 - `docs/api/openapi/*.yaml` → the same request, response and 409 shapes (`openapi_conformance_test.go`).
 - Every caller of `files/content` in `apps/app` and `packages/smithers` → sends `base_digest`, reloads on 409. No blind write remains.
-- `packages/smithers/agent/std/src/Read.ts`, `Write.ts`, `Edit.ts`, `ApplyPatch.ts`, `src/internal/ApplyPatch.ts`, `src/internal/FileMutation.ts` → reshape the guarded filesystem in `flows/coding/filesystem.ts` to hold one run-scoped read-digest ledger (the current adapter has no digest ledger); record the full file digest even for a paginated read; refuse a write whose base no longer matches, or an existing file never read. `apply_patch` validates every source and destination under the per-branch lock and rolls back the whole patch on a stale path.
+- `packages/smithers/agent/std/src/Read.ts`, `Write.ts`, `Edit.ts`, `ApplyPatch.ts`, `src/internal/ApplyPatch.ts`, `src/internal/FileMutation.ts` → reshape the guarded filesystem in `flows/coding/filesystem.ts` to hold one run-scoped read-digest ledger (the current adapter has no digest ledger); record the full file digest even for a paginated read; refuse a write whose base no longer matches, or an existing file never read. `apply_patch` validates every source and destination under the per-branch lock; a stale preflight leaves the whole patch unchanged. Application errors follow the settlement clarification above.
 - `packages/smithers/agent/std/src/StdError.ts:15` → add `stale_read` to the existing `Code` with path and both digests. No new error class.
 - `packages/smithers/agent/std/docs/` → document `stale_read`; run the docs gates.
 
@@ -50,7 +61,7 @@ C-COL-01 (folded steps and assertions):
 5. Through the composed authenticated GET/PUT `/api/repos/{owner}/{repo}/workspaces/{id}/files/content` routes, repeat steps 1–4 in a real machine with PostgreSQL; do not invoke the handler or service directly.
 
 Pass when:
-- Step 4b: every stale or unread affected path returns stale_read. Both move paths are validated; source removal is guarded. The later stale hunk leaves all earlier hunks byte-identical, no new destination and no removed source. Displaced-digest rollback preserves the outside writer’s bytes. No read-ledger or diagnostic update reports a successful refused patch.
+- Step 4b: every stale or unread affected path returns stale_read. Both move paths are validated; source removal is guarded. The later stale hunk leaves all earlier hunks byte-identical, no new destination and no removed source. An exchange race retains the outside writer’s bytes as a recoverable version and is never reported as an unchanged stale patch. Application failure requires fresh reads of all affected paths and never advances the ledger. No read-ledger or diagnostic update reports a successful refused patch.
 - Step 2 returns 200 and the file holds B's content.
 - Step 3 returns `409 {code: "stale", current_digest: d1}`, and the file still holds B's content byte for byte.
 - Step 4 returns 400.
@@ -76,12 +87,12 @@ Fail when:
 - Root entry input inventory for S1 compare-and-write: helper source, expected SHA-256, bootstrap, fixed `/usr/bin/env` and `/usr/bin/python3`, isolated interpreter flags, fixed PATH and cleared loader/Python environment come from the main-built install bundle and trusted guest image; machine ID, `fs` operation, fixed `agent` identity, workspace root, mode and size limits come from the host's main-installed runtime and authenticated provisioning. Passwd/group records, helper/interpreter ownership and modes, startup directory/ancestor metadata and kernel credential responses come from the guest image or retained machine and require validation. Relative source/destination paths, `base_digest`/`absent`, file or patch bytes, stdin, existing file bytes, modes and symlink/ancestor state are branch/member-sourced. Root may consume only the bounded envelope and fixed identity; drop uid/gid/groups before consuming branch operands or bytes. Branch-sourced root inputs block enablement unless `TestWorkspaceCompareWriteDropsPrivilegeAndConfinesPaths` proves validation before use; branch-built executable/helper/interpreter code is forbidden regardless of tests. The existing T-SEC-01 R1–R3 tests qualify installation and startup inputs.
 - `TestWorkspaceCompareWriteDropsPrivilegeAndConfinesPaths` (C-COL-01): use the production HTTP route and real coding/edit-atom binding on fresh and retained machines; attempt traversal, symlink/ancestor swaps, identity injection, malformed digests, oversized input and branch-controlled startup environment. Assert the mutation child has the unprivileged uid/gid and no supplementary groups, outside files stay byte-identical, and unqualified providers refuse. Literal fixtures define expected bytes and digests. smithers-3f accepts these receipts.
 - Resume loses the in-memory ledger, so the agent re-reads before its first write. If that costs more than one extra turn per file, journal the ledger with the run (smithers-8a decides).
-- smithers-b8 signs off the public HTTP request/error contract and caller migration; smithers-38 accepts the std schema, digest-ledger lifetime and patch rollback seam. Owner review is post hoc under the 2026-10-03 directive; the questions below are the pre-review record, not claimed answers.
+- smithers-b8 signs off the public HTTP request/error contract and caller migration; smithers-38 accepts the std schema, digest-ledger lifetime and patch settlement seam. Owner review is post hoc under the 2026-10-03 directive; the questions below are the pre-review record, not claimed answers.
 
 ## Ready checklist
 1. Depends on lists called contracts only: S1 T-FLW-01 coding binding; S2 T-COL-03 authenticated write_file. Scope names fail-closed dark gates for these contracts and launcher, root validation and coding-session enablement.
 2. Out explicitly excludes document topics/codecs, relay, live editing, wiki changes, topology benchmarking, presence, watcher digests, code intelligence, moved_off and outside-change notes.
-3. C-COL-01 uses the composed authenticated HTTP route and real coding/edit-atom dispatcher in machines; fixed bytes and independent SHA-256 fixtures define expectations. Missing providers, stale races and whole-patch rollback are tested at these boundaries.
+3. C-COL-01 uses the composed authenticated HTTP route and real coding/edit-atom dispatcher in machines; fixed bytes and independent SHA-256 fixtures define expectations. Missing providers, stale races and whole-batch stale preflight and durable-prefix failure are tested at these boundaries.
 4. smithers-8a accepts ADR 0003 and decides persistence or stage changes; smithers-3f approves atomicity and security seams; smithers-b8 signs off the public API; smithers-38 accepts std schemas and ledger/rollback semantics; T-COL-11 owns topology.
 5. Owner pre-review record (post hoc review per directive): smithers-3f: Does credential drop precede every branch input? Does compare/exchange preserve outside bytes under races? Do unavailable providers fail closed? smithers-b8: Does the HTTP contract reject identity fields and missing bases? Do all callers handle 409 without blind retry? smithers-38: Does one run-scoped ledger cover full-file reads and reset on resume? Does patch rollback preserve outside writes and suppress success diagnostics? No UI View change is scoped; any View change requires smithers-06 to answer whether read-only behavior remains and handlers follow the existing action seam.
 6. M-29 confines repository execution to unprivileged machine processes; the root input inventory names main/install and branch/member sources, forbidden executable inputs and validation tests. smithers-3f reviews the security gates before enablement.

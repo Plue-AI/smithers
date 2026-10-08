@@ -106,7 +106,7 @@ func (f forbiddenWriter) WriteFiles(context.Context, string, []byte, []FileChang
 }
 
 func TestWorkspaceWriterRefusesBeforeDispatch(t *testing.T) {
-	for _, scenario := range []string{"identity", "agent", "batch", "delete", "base", "path", "size", "cancel"} {
+	for _, scenario := range []string{"identity", "agent", "batch", "ancestor", "base", "path", "size", "cancel"} {
 		t.Run(scenario, func(t *testing.T) {
 			op := workspaceapi.Operation{TenantID: "1", PrincipalID: "9", OperationID: "write"}
 			changes := []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent", Content: []byte{}}}
@@ -117,8 +117,8 @@ func TestWorkspaceWriterRefusesBeforeDispatch(t *testing.T) {
 				op.Automated = true
 			case "batch":
 				changes = append(changes, changes[0])
-			case "delete":
-				changes[0].Content = nil
+			case "ancestor":
+				changes = append(changes, workspaceapi.FileMutation{Path: "a/b", BaseDigest: "absent", Content: nil})
 			case "base":
 				changes[0].BaseDigest = "bad"
 			case "path":
@@ -165,6 +165,74 @@ func TestWorkspaceWriterReadinessFailureNeverDispatches(t *testing.T) {
 				require.ErrorIs(t, err, context.Canceled)
 			} else {
 				require.ErrorIs(t, err, workspaceapi.ErrCompareWriteUnavailable)
+			}
+		})
+	}
+}
+
+// Corrupt peer receipts need a scripted peer: real daemon coverage is at the
+// composed HTTP boundary in TestWorkspaceFileContentCompareWrite.
+type receiptWriter func(context.Context, string, []byte, []FileChange) (WriteResult, error)
+
+func (f receiptWriter) WriteFiles(ctx context.Context, branch string, actor []byte, changes []FileChange) (WriteResult, error) {
+	return f(ctx, branch, actor, changes)
+}
+
+func TestWorkspaceWriterBatchReceipts(t *testing.T) {
+	const digest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+	for _, scenario := range []string{"complete", "later-stale", "partial-error", "short", "wrong-order", "wrong-delete", "unknown-stale", "partial-stale", "duplicate-race", "unknown-race", "bad-race"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := workspaceapi.WithOperation(t.Context(), workspaceapi.Operation{TenantID: "1", PrincipalID: "9", OperationID: "batch"})
+			calls := 0
+			writer := WorkspaceWriter{Client: receiptWriter(func(_ context.Context, branch string, actor []byte, changes []FileChange) (WriteResult, error) {
+				calls++
+				require.Equal(t, "branch", branch)
+				require.Equal(t, []byte("9"), actor)
+				require.Len(t, changes, 2)
+				require.Nil(t, changes[0].Content)
+				require.Equal(t, digest, *changes[0].BaseDigest)
+				require.Nil(t, changes[1].BaseDigest)
+				require.Equal(t, []byte("hello"), changes[1].Content)
+				result := WriteResult{Applied: []AppliedFile{{"source", "absent"}, {"dest", digest}}, Raced: []RacedFile{{"source", digest}}}
+				switch scenario {
+				case "later-stale":
+					return WriteResult{Stale: &StaleFile{Path: "dest", CurrentDigest: &[]string{digest}[0]}}, nil
+				case "partial-error":
+					return WriteResult{Applied: result.Applied[:1]}, ErrNotReady
+				case "short":
+					result.Applied = result.Applied[:1]
+				case "wrong-order":
+					result.Applied[0], result.Applied[1] = result.Applied[1], result.Applied[0]
+				case "wrong-delete":
+					result.Applied[0].PostDigest = digest
+				case "unknown-stale":
+					return WriteResult{Stale: &StaleFile{Path: "other"}}, nil
+				case "partial-stale":
+					result.Stale = &StaleFile{Path: "dest"}
+				case "duplicate-race":
+					result.Raced = append(result.Raced, result.Raced[0])
+				case "unknown-race":
+					result.Raced[0].Path = "other"
+				case "bad-race":
+					result.Raced[0].DisplacedDigest = "bad"
+				}
+				return result, nil
+			})}
+			receipt, err := writer.CompareWriteFiles(ctx, "branch", []workspaceapi.FileMutation{{Path: "source", BaseDigest: digest, Content: nil}, {Path: "dest", BaseDigest: "absent", Content: []byte("hello")}})
+			require.Equal(t, 1, calls, "a move is exactly one daemon dispatch")
+			if scenario == "complete" {
+				require.NoError(t, err)
+				require.Equal(t, []workspaceapi.FileMutationResult{{Path: "source", Digest: "absent"}, {Path: "dest", Digest: digest}}, receipt.Paths)
+				require.Equal(t, []workspaceapi.FileRace{{Path: "source", Version: digest}}, receipt.Raced)
+			} else if scenario == "later-stale" {
+				var stale *workspaceapi.StaleFileError
+				require.ErrorAs(t, err, &stale)
+				require.Equal(t, "dest", stale.Path)
+				require.Equal(t, digest, stale.CurrentDigest)
+				require.Nil(t, receipt)
+			} else {
+				require.ErrorIs(t, err, workspaceapi.ErrCompareWriteUnavailable)
+				require.Nil(t, receipt)
 			}
 		})
 	}

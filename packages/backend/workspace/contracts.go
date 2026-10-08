@@ -515,6 +515,8 @@ type FileRace struct {
 // compare every full SHA-256 (or "absent") at one mutation boundary and must
 // leave the entire batch unchanged on stale refusal. A write racing the swap
 // remains applied; retain the displaced bytes and return their version in Raced.
+// Application failure may retain a durable prefix; it returns an error, never
+// success or StaleFileError. Callers must re-read all affected paths.
 // A move is one batch containing both the removal and the destination write.
 // A runtime without this capability must never fall back to WriteFile.
 type WorkspaceCompareWriter interface {
@@ -525,7 +527,8 @@ type WorkspaceCompareWriter interface {
 // admitted working-copy file service.
 var ErrReadFileUnavailable = errors.New("workspace file read unavailable")
 
-// ErrCompareWriteUnavailable refuses unsupported mutations before dispatch.
+// ErrCompareWriteUnavailable refuses unsupported mutations or unverifiable
+// settlements. After dispatch the outcome may be uncertain; callers re-read.
 var ErrCompareWriteUnavailable = errors.New("workspace compare-and-write unavailable")
 
 // StaleFileError reports the version that refused a compare-and-write.
