@@ -12,19 +12,19 @@
  * `//crates/flows-jj` under the test verb would pull it into both.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as jjRuntimePackage } from "../../third_party/jj/PACKAGE.ts"
 
 /** Package-owned Rust sources consumed by the root native FFI gate. */
 const nativeSources = Smithers.Filegroup({
   cwd: "crates/flows-jj",
-  srcs: [Smithers.glob("src/**/*.rs")]
+  srcs: [Smithers.glob("src/**/*.rs"), jjRuntimePackage.sources]
 })
 
 /**
  * The crate sources, the workspace manifest, and the lockfile.
  *
- * The jj fork the crate builds against is a cargo git dependency pinned to one
- * rev, so the lockfile is the whole of its declaration here and a fresh checkout
- * needs nothing beyond `cargo fetch`.
+ * The sole jj fork is pinned and vendored, including its path representation.
+ * Its source and manifests participate in every native and WASM input identity.
  */
 const sources = [
   Smithers.glob("//crates/flows-jj/**/*.rs"),
@@ -56,7 +56,7 @@ const destinations = [
  */
 const cargoFmt = Smithers.Cargo.Fmt({
   workspace: true,
-  data: sources,
+  data: [...sources, nativeSources],
   changes: ["crates/flows-jj/**/*.rs"]
 })
 
@@ -71,7 +71,7 @@ const cargoClippy = Smithers.Cargo.Clippy({
   allTargets: true,
   locked: true,
   denyWarnings: true,
-  data: sources,
+  data: [...sources, nativeSources],
   destinations
 })
 
@@ -84,7 +84,7 @@ const cargoClippy = Smithers.Cargo.Clippy({
 const cargoTest = Smithers.Cargo.Test({
   package: "flows-jj",
   locked: true,
-  data: sources,
+  data: [...sources, nativeSources],
   destinations
 })
 
@@ -120,7 +120,7 @@ const buildScript = Smithers.NodeTest({
 const wasmReproducibility = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("//crates/flows-jj/build-wasm.mjs"), ["--verify"]),
   srcs: [...sources, Smithers.file("//packages/smithers/flows/jj/wasm/flows_jj.wasm")],
-  deps: [],
+  deps: [nativeSources],
   env: { CARGO_TARGET_DIR: "target/wasm-reproducibility" },
   cwd: "."
 })
@@ -224,7 +224,7 @@ const securityReview = Smithers.SecurityReview({
       title: "The committed wasm is built only from locked, pinned inputs",
       threat: "A tampered dependency or ambient build environment injects code into flows_jj.wasm that every browser user then runs.",
       lookFor: [
-        "cargo invoked without --locked, or the jj-lib git dependency in //Cargo.toml not pinned to a full rev.",
+        "cargo invoked without --locked, or a jj source omitted from the nativeSources input identity.",
         "buildEnvironment inheriting RUSTC_WRAPPER, RUSTC, CARGO_BUILD_RUSTC_WRAPPER or CARGO_TARGET_*_LINKER from the ambient env.",
         "The --verify path writing over the committed artifact instead of comparing."
       ],

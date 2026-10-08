@@ -924,6 +924,34 @@ pub(crate) mod tests {
         (dir, repo)
     }
     #[test]
+    fn snapshots_and_checkout_preserve_raw_names_and_binary_bytes() {
+        use std::os::unix::ffi::OsStrExt as _;
+        let (_dir, repo) = fixture();
+        let base = repo.current().unwrap().0;
+        let names = [b"raw-\xff.ts".as_slice(), b"raw-\xfe.ts"];
+        for (n, name) in names.iter().enumerate() {
+            let path = repo.root.join(std::ffi::OsStr::from_bytes(name));
+            fs::write(&path, [0, n as u8, 255]).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let captured = repo.snapshot().unwrap();
+        for name in names {
+            fs::remove_file(repo.root.join(std::ffi::OsStr::from_bytes(name))).unwrap();
+        }
+        repo.snapshot().unwrap();
+        repo.move_to(captured.0).unwrap();
+        for (n, name) in names.iter().enumerate() {
+            let path = repo.root.join(std::ffi::OsStr::from_bytes(name));
+            assert_eq!(fs::read(&path).unwrap(), [0, n as u8, 255]);
+            assert_ne!(fs::metadata(path).unwrap().permissions().mode() & 0o111, 0);
+        }
+        assert_eq!(repo.snapshot().unwrap().1, captured.1);
+        repo.move_to(base).unwrap();
+        for name in names {
+            assert!(!repo.root.join(std::ffi::OsStr::from_bytes(name)).exists());
+        }
+    }
+    #[test]
     fn snapshots_exclude_retained_save_inodes_without_losing_ordinary_files() {
         let (_dir, repo) = fixture();
         fs::create_dir(repo.root.join("nested")).unwrap();

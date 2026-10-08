@@ -178,18 +178,20 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 		data, _ := os.ReadFile(log.Name())
 		return fmt.Errorf("machined connect: %w: %s", err, data)
 	}
-	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
-	if err != nil {
-		return err
-	}
-	headCommand := exec.CommandContext(ctx, jj, "log", "-r", "@", "--no-graph", "-T", "commit_id")
-	headCommand.Dir = root
-	head, err := headCommand.Output()
-	if err != nil {
-		return err
-	}
+	var head []byte
 	if restart != nil && restart.HostHead != "" {
 		head = []byte(restart.HostHead)
+	} else {
+		jj, err := rehearsalJJBinary(os.Getenv("PATH"))
+		if err != nil {
+			return err
+		}
+		headCommand := exec.CommandContext(ctx, jj, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+		headCommand.Dir = root
+		head, err = headCommand.Output()
+		if err != nil {
+			return err
+		}
 	}
 	headBytes, err := hex.DecodeString(strings.TrimSpace(string(head)))
 	if err != nil || len(headBytes) != 20 {

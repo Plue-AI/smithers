@@ -1,0 +1,114 @@
+// Copyright 2023 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![expect(missing_docs)]
+
+use std::fs::File;
+use std::path::PathBuf;
+
+use rustix::fs::FlockOperation;
+use tracing::instrument;
+
+use super::FileLockError;
+
+pub struct FileLock {
+    path: PathBuf,
+    file: File,
+}
+
+impl FileLock {
+    /// Acquire an exclusive lock on `path`, blocking until it's available.
+    pub fn lock(path: PathBuf) -> Result<Self, FileLockError> {
+        // In blocking mode, `lock_inner` never returns `Ok(None)`.
+        Ok(Self::lock_inner(path, true)?.expect("blocking lock should return a lock"))
+    }
+
+    /// Try to acquire an exclusive lock on `path` without blocking. Returns
+    /// `Ok(None)` if the lock is currently held by another process.
+    pub fn try_lock(path: PathBuf) -> Result<Option<Self>, FileLockError> {
+        Self::lock_inner(path, false)
+    }
+
+    fn lock_inner(path: PathBuf, blocking: bool) -> Result<Option<Self>, FileLockError> {
+        tracing::info!("Attempting to lock {path:?}");
+        let operation = if blocking {
+            FlockOperation::LockExclusive
+        } else {
+            FlockOperation::NonBlockingLockExclusive
+        };
+        loop {
+            // Create lockfile, or open pre-existing one
+            let file = File::create(&path).map_err(|err| FileLockError {
+                message: "Failed to open lock file",
+                path: path.clone(),
+                err,
+            })?;
+            // If the lock was already held, block until it's released, or (in
+            // non-blocking mode) report that it's currently unavailable.
+            match rustix::fs::flock(&file, operation) {
+                Ok(()) => {}
+                Err(rustix::io::Errno::WOULDBLOCK) if !blocking => return Ok(None),
+                Err(errno) => {
+                    return Err(FileLockError {
+                        message: "Failed to lock lock file",
+                        path: path.clone(),
+                        err: errno.into(),
+                    });
+                }
+            }
+
+            match rustix::fs::fstat(&file) {
+                Ok(stat) => {
+                    if stat.st_nlink == 0 {
+                        // Lockfile was deleted, probably by the previous holder's `Drop` impl;
+                        // create a new one so our ownership is visible,
+                        // rather than hidden in an unlinked file. Not
+                        // always necessary, since the previous holder might
+                        // have exited abruptly.
+                        continue;
+                    }
+                }
+                Err(rustix::io::Errno::STALE) => {
+                    // The file handle is stale.
+                    // This can happen when using NFS,
+                    // likely caused by a remote deletion of the lockfile.
+                    // Treat this like a normal lockfile deletion and retry.
+                    continue;
+                }
+                Err(errno) => {
+                    return Err(FileLockError {
+                        message: "failed to stat lock file",
+                        path: path.clone(),
+                        err: errno.into(),
+                    });
+                }
+            }
+
+            tracing::info!("Locked {path:?}");
+            return Ok(Some(Self { path, file }));
+        }
+    }
+}
+
+impl Drop for FileLock {
+    #[instrument(skip_all)]
+    fn drop(&mut self) {
+        // Removing the file isn't strictly necessary, but reduces confusion.
+        std::fs::remove_file(&self.path).ok();
+        // Unblock any processes that tried to acquire the lock while we held it.
+        // They're responsible for creating and locking a new lockfile, since we
+        // just deleted this one.
+        rustix::fs::flock(&self.file, FlockOperation::Unlock).ok();
+    }
+}

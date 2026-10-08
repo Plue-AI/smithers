@@ -1,0 +1,57 @@
+[debug]
+# commit-timestamp = <now>
+# operation-timestamp = <now>
+# randomness-seed = <random>
+
+[fsmonitor]
+backend = "none"
+
+[fsmonitor.watchman]
+register-snapshot-trigger = false
+
+[git]
+abandon-unreachable-commits = true
+executable-path = "git"
+record-synthetic-predecessors = true
+write-change-id-header = true
+
+[merge]
+hunk-level = "line"
+# TODO: Consider making "keep" the default, and maybe add an option to be used
+# when the user explicitly asks for conflict resolution. #6369
+same-change = "accept"
+
+[operation]
+hostname = ""
+username = ""
+
+[signing]
+backend = "none"
+behavior = "keep"
+# key = <none>
+
+[signing.backends.gpg]
+allow-expired-keys = false
+program = "gpg"
+
+[signing.backends.gpgsm]
+allow-expired-keys = false
+program = "gpgsm"
+
+[signing.backends.ssh]
+# allowed-signers = <unknown>
+program = "ssh-keygen"
+
+[ui]
+conflict-marker-style = "diff"
+
+[user]
+email = ""
+name = ""
+
+[working-copy]
+eol-conversion = "none"
+exec-bit-change = "auto"
+
+[experimental]
+record-predecessors-in-commit = true

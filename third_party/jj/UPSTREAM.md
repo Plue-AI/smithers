@@ -1,0 +1,7 @@
+# Jujutsu runtime
+
+Source: smithersai/jj commit 47589ada70c12b3e829b5c98ab32503abad49eac, Apache-2.0. Licenses and the upstream library, proc macros and tests are retained. Workspace inheritance is expanded into standalone Cargo manifests; both native and WASM use this one runtime.
+
+Byte names use the existing persisted UTF-8 path model. Each invalid UTF-8 byte is represented internally by NUL and two uppercase hexadecimal digits. NUL cannot occur in a Git or filesystem name, so existing valid names and history keep their representation. Canonical decoding rejects aliases, encoded ASCII separators, NUL and parent components. Filesystem operations recover the original bytes before the existing component and symlink checks. Git trees contain the original byte names, never the encoding; there is no side manifest or parallel snapshot implementation.
+
+Changes from the pin: repo_path.rs performs lossless component conversion; local_working_copy.rs tracks those names through the existing snapshot; git_backend.rs reads and writes the original Git names; gitignore.rs and matchers.rs evaluate patterns against the original path bytes. The raw snapshot regression now expects preservation rather than skipping. Path round trips, malformed/colliding representations and the composed watcher/capture/host-store test cover the extension. A non-Unix filesystem that cannot represent the bytes refuses checkout rather than substituting a name.

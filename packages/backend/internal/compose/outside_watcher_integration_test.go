@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -97,7 +98,14 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	// Exercise a preexisting name and a later modification through inotify.
 	rawPath := "invalid-" + string([]byte{0xff}) + ".ts"
 	require.NoError(t, os.WriteFile(filepath.Join(root, rawPath), []byte("raw before\n"), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\n"), 0600))
+	rawOther := "invalid-" + string([]byte{0xfe}) + ".ts"
+	rawDirectory := "raw-dir-" + string([]byte{0xff})
+	rawNested := rawDirectory + "/binary-" + string([]byte{0xfe}) + ".bin"
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawOther), []byte("distinct before\n"), 0755))
+	require.NoError(t, os.Mkdir(filepath.Join(root, rawDirectory), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawNested), []byte{0, 0xff, 1}, 0600))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\nprivate-\xff.ts\nsecret-?.tmp\n"), 0600))
 	snapshot := exec.Command(jj, "status")
 	snapshot.Dir = root
 	output, err = snapshot.CombinedOutput()
@@ -128,7 +136,7 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 			t.Logf("installed daemon: %s", log)
 		}
 	})
-	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, &rehearsalRestart{Run: run}))
+	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, &rehearsalRestart{Run: run, HostHead: seedHead}))
 	// Initialization observes the ordinary tracked ignore file. Let that
 	// setup burst settle before subscribing and measuring the outside edits.
 	require.Eventually(t, func() bool {
@@ -147,6 +155,15 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "node_modules", "outside-check"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "node_modules", "outside-check", "ignored.ts"), []byte("ignored\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, rawPath), []byte("raw after\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawOther), []byte("distinct after\n"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawNested), []byte{0, 0xfe, 2}, 0600))
+	rawIgnored := "private-" + string([]byte{0xff}) + ".ts"
+	rawGlobIgnored := "secret-" + string([]byte{0xfe}) + ".tmp"
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawIgnored), []byte("ignored literal\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawGlobIgnored), []byte("ignored glob\n"), 0600))
+
+	require.NoError(t, os.WriteFile(filepath.Join(root, "node_modules", "outside-check", "ignored-"+string([]byte{0xff})+".ts"), []byte("private ignored\n"), 0600))
+
 	for i := 0; i < 12; i++ {
 		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("outside-%02d.ts", i)), []byte(fmt.Sprintf("outside %02d\n", i)), 0600))
 	}
@@ -188,7 +205,7 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	require.NotEqual(t, entries[0].ID, laterEntry)
 	// Capture crosses the production RPC/outbox/bundle/transaction boundary.
 	// Read the independent text oracle directly from the retained tree.
-	// This does not qualify native capture of non-UTF-8 names (C-COL-05).
+	// Byte names stay private while their original bytes survive native capture.
 	var capture machined.CaptureResult
 	require.Eventually(t, func() bool {
 		capture, err = registry.Capture(ctx, f.row.ID)
@@ -203,9 +220,24 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	capturedText, err := exec.Command("/usr/bin/git", "-C", store, "show", capture.Head+":outside-00.ts").CombinedOutput()
 	require.NoError(t, err, string(capturedText))
 	require.Equal(t, []byte("later\n"), capturedText)
+	capturedRaw, err := exec.Command("/usr/bin/git", "-C", store, "show", capture.Head+":"+rawPath).CombinedOutput()
+	require.NoError(t, err, "the actual host capture must retain the original byte name")
+	require.Equal(t, []byte("raw after\n"), capturedRaw)
+	for path, expected := range map[string][]byte{rawOther: []byte("distinct after\n"), rawNested: {0, 0xfe, 2}} {
+		content, err := exec.Command("/usr/bin/git", "-C", store, "show", capture.Head+":"+path).CombinedOutput()
+		require.NoError(t, err, "captured raw component must use its original bytes")
+		require.Equal(t, expected, content)
+	}
+	capturedMode, err := exec.Command("/usr/bin/git", "-C", store, "ls-tree", "-z", capture.Head, "--", rawOther).CombinedOutput()
+	require.NoError(t, err)
+	require.True(t, bytes.HasPrefix(capturedMode, []byte("100755 blob ")))
+
 	capturedNames, err := exec.Command("/usr/bin/git", "-C", store, "ls-tree", "-r", "-z", "--name-only", capture.Head).CombinedOutput()
 	require.NoError(t, err, string(capturedNames))
 	require.NotContains(t, string(capturedNames), "node_modules/")
+	require.Contains(t, bytes.Split(capturedNames, []byte{0}), []byte(rawPath))
+	require.NotContains(t, bytes.Split(capturedNames, []byte{0}), []byte(rawIgnored))
+	require.NotContains(t, bytes.Split(capturedNames, []byte{0}), []byte(rawGlobIgnored))
 	var hiddenRows int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files WHERE path NOT LIKE 'outside-%' AND path<>'.gitignore'`).Scan(&hiddenRows))
 	require.Zero(t, hiddenRows, "ignored and non-UTF-8 paths cannot become public edits")

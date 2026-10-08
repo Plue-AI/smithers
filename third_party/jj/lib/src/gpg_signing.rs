@@ -1,0 +1,415 @@
+// Copyright 2023 The Jujutsu Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![expect(missing_docs)]
+
+use std::ffi::OsString;
+use std::fmt::Debug;
+use std::io;
+use std::io::Write as _;
+use std::process;
+use std::process::Command;
+use std::process::ExitStatus;
+use std::process::Stdio;
+
+use thiserror::Error;
+
+use crate::config::ConfigGetError;
+use crate::settings::UserSettings;
+use crate::signing::SigStatus;
+use crate::signing::SignError;
+use crate::signing::SigningBackend;
+use crate::signing::Verification;
+
+/// Search for one of these in the output from `--status-fd=1`.
+///
+/// - `[GNUPG:] GOODSIG <long keyid> <primary uid..>`
+/// - `[GNUPG:] EXPKEYSIG <long keyid> <primary uid..>`
+/// - `[GNUPG:] NO_PUBKEY <long keyid>`
+/// - `[GNUPG:] BADSIG <long keyid> <primary uid..>`
+///
+/// Assume signature is invalid if none of the above was found, and if there are
+/// at least one line other than general program failures `[GNUPG:] FAILURE`.
+///
+/// https://github.com/gpg/gnupg/blob/gnupg-2.5.18/doc/DETAILS#format-of-the-status-fd-output
+fn parse_gpg_verify_output(
+    output: &[u8],
+    allow_expired_keys: bool,
+) -> Option<Result<Verification, SignError>> {
+    let status_lines = || {
+        output.split(|&b| b == b'\n').filter_map(|line| {
+            let line = line.strip_prefix(b"[GNUPG:] ")?;
+            let mut parts = line.splitn(3, |&b| b == b' ');
+            Some((parts.next()?, parts))
+        })
+    };
+    let maybe_verification = status_lines().find_map(|(name, mut args)| {
+        let status = match name {
+            b"GOODSIG" => SigStatus::Good,
+            b"EXPKEYSIG" => {
+                if allow_expired_keys {
+                    SigStatus::Good
+                } else {
+                    SigStatus::Bad
+                }
+            }
+            b"NO_PUBKEY" => SigStatus::Unknown,
+            b"BADSIG" => SigStatus::Bad,
+            b"ERROR" => match args.next()? {
+                b"verify.findkey" => return Some(Verification::unknown()),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let mut args = args.fuse();
+        let key = args
+            .next()
+            .and_then(|bs| str::from_utf8(bs).ok())
+            .map(|value| value.trim().to_owned());
+        let display = args
+            .next()
+            .and_then(|bs| str::from_utf8(bs).ok())
+            .map(|value| value.trim().to_owned());
+        Some(Verification::new(status, key, display))
+    });
+    if let Some(verification) = maybe_verification {
+        Some(Ok(verification))
+    } else if status_lines().any(|(name, _)| name != b"FAILURE") {
+        Some(Err(SignError::InvalidSignatureFormat))
+    } else {
+        None
+    }
+}
+
+fn make_command_error(output: &process::Output) -> GpgError {
+    GpgError::Command {
+        exit_status: output.status,
+        stderr: String::from_utf8_lossy(&output.stderr).trim_end().into(),
+    }
+}
+
+fn run_sign_command(command: &mut Command, input: &[u8]) -> Result<Vec<u8>, GpgError> {
+    tracing::info!(?command, "running GPG signing command");
+    let process = command.stderr(Stdio::piped()).spawn()?;
+    let write_result = process.stdin.as_ref().unwrap().write_all(input);
+    let output = process.wait_with_output()?;
+    tracing::info!(?command, ?output.status, "GPG signing command exited");
+    if output.status.success() {
+        write_result?;
+        Ok(output.stdout)
+    } else {
+        Err(make_command_error(&output))
+    }
+}
+
+fn run_verify_command(command: &mut Command, input: &[u8]) -> Result<process::Output, GpgError> {
+    tracing::info!(?command, "running GPG signing command");
+    let process = command.stderr(Stdio::piped()).spawn()?;
+    let write_result = process.stdin.as_ref().unwrap().write_all(input);
+    let output = process.wait_with_output()?;
+    tracing::info!(?command, ?output.status, "GPG signing command exited");
+    match write_result {
+        Ok(()) => Ok(output),
+        // If the signature format is invalid, gpg will terminate early. Writing
+        // more input data will fail in that case.
+        Err(err) if err.kind() == io::ErrorKind::BrokenPipe => Ok(output),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn write_temp_file(prefix: &str, content: &[u8]) -> io::Result<tempfile::TempPath> {
+    let mut file = tempfile::Builder::new().prefix(prefix).tempfile()?;
+    file.write_all(content)?;
+    file.flush()?;
+    Ok(file.into_temp_path())
+}
+
+#[derive(Debug)]
+pub struct GpgBackend {
+    program: OsString,
+    allow_expired_keys: bool,
+    extra_args: Vec<OsString>,
+    default_key: String,
+}
+
+#[derive(Debug, Error)]
+pub enum GpgError {
+    #[error("GPG failed with {exit_status}:\n{stderr}")]
+    Command {
+        exit_status: ExitStatus,
+        stderr: String,
+    },
+    #[error("Failed to run GPG")]
+    Io(#[from] std::io::Error),
+}
+
+impl From<GpgError> for SignError {
+    fn from(e: GpgError) -> Self {
+        Self::Backend(Box::new(e))
+    }
+}
+
+impl GpgBackend {
+    pub fn new(program: OsString, allow_expired_keys: bool, default_key: String) -> Self {
+        Self {
+            program,
+            allow_expired_keys,
+            extra_args: vec![],
+            default_key,
+        }
+    }
+
+    /// Primarily intended for testing
+    pub fn with_extra_args(mut self, args: &[OsString]) -> Self {
+        self.extra_args.extend_from_slice(args);
+        self
+    }
+
+    pub fn from_settings(settings: &UserSettings) -> Result<Self, ConfigGetError> {
+        let program = settings.get_string("signing.backends.gpg.program")?;
+        let allow_expired_keys = settings.get_bool("signing.backends.gpg.allow-expired-keys")?;
+        let default_key = settings.user_email().to_owned();
+        Ok(Self::new(program.into(), allow_expired_keys, default_key))
+    }
+
+    fn create_command(&self) -> Command {
+        let mut command = Command::new(&self.program);
+        // Hide console window on Windows (https://stackoverflow.com/a/60958956)
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .args(&self.extra_args);
+        command
+    }
+}
+
+impl SigningBackend for GpgBackend {
+    fn name(&self) -> &'static str {
+        "gpg"
+    }
+
+    fn can_read(&self, signature: &[u8]) -> bool {
+        signature.starts_with(b"-----BEGIN PGP SIGNATURE-----")
+    }
+
+    fn sign(&self, data: &[u8], key: Option<&str>) -> Result<Vec<u8>, SignError> {
+        let key = key.unwrap_or(&self.default_key);
+        Ok(run_sign_command(
+            self.create_command().args(["-abu", key]),
+            data,
+        )?)
+    }
+
+    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<Verification, SignError> {
+        let sig_path = write_temp_file(".jj-gpg-sig-tmp-", signature).map_err(GpgError::Io)?;
+
+        let output = run_verify_command(
+            self.create_command()
+                .args(["--keyid-format=long", "--status-fd=1", "--verify"])
+                .arg(&sig_path)
+                .arg("-"),
+            data,
+        )?;
+
+        parse_gpg_verify_output(&output.stdout, self.allow_expired_keys)
+            .unwrap_or_else(|| Err(make_command_error(&output).into()))
+    }
+}
+
+#[derive(Debug)]
+pub struct GpgsmBackend {
+    program: OsString,
+    allow_expired_keys: bool,
+    extra_args: Vec<OsString>,
+    default_key: String,
+}
+
+impl GpgsmBackend {
+    pub fn new(program: OsString, allow_expired_keys: bool, default_key: String) -> Self {
+        Self {
+            program,
+            allow_expired_keys,
+            extra_args: vec![],
+            default_key,
+        }
+    }
+
+    /// Primarily intended for testing
+    pub fn with_extra_args(mut self, args: &[OsString]) -> Self {
+        self.extra_args.extend_from_slice(args);
+        self
+    }
+
+    pub fn from_settings(settings: &UserSettings) -> Result<Self, ConfigGetError> {
+        let program = settings.get_string("signing.backends.gpgsm.program")?;
+        let allow_expired_keys = settings.get_bool("signing.backends.gpgsm.allow-expired-keys")?;
+        let default_key = settings.user_email().to_owned();
+        Ok(Self::new(program.into(), allow_expired_keys, default_key))
+    }
+
+    fn create_command(&self) -> Command {
+        let mut command = Command::new(&self.program);
+        // Hide console window on Windows (https://stackoverflow.com/a/60958956)
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .args(&self.extra_args);
+        command
+    }
+}
+
+impl SigningBackend for GpgsmBackend {
+    fn name(&self) -> &'static str {
+        "gpgsm"
+    }
+
+    fn can_read(&self, signature: &[u8]) -> bool {
+        signature.starts_with(b"-----BEGIN SIGNED MESSAGE-----")
+    }
+
+    fn sign(&self, data: &[u8], key: Option<&str>) -> Result<Vec<u8>, SignError> {
+        let key = key.unwrap_or(&self.default_key);
+        Ok(run_sign_command(
+            self.create_command().args(["-abu", key]),
+            data,
+        )?)
+    }
+
+    fn verify(&self, data: &[u8], signature: &[u8]) -> Result<Verification, SignError> {
+        let data_path = write_temp_file(".jj-gpgsm-data-tmp-", data).map_err(GpgError::Io)?;
+        let sig_path = write_temp_file(".jj-gpgsm-sig-tmp-", signature).map_err(GpgError::Io)?;
+
+        // gpgsm 2.5.x doesn't parse "-" as stdin
+        let output = run_verify_command(
+            self.create_command()
+                .args(["--status-fd=1", "--verify"])
+                .arg(&sig_path)
+                .arg(&data_path),
+            b"",
+        )?;
+
+        parse_gpg_verify_output(&output.stdout, self.allow_expired_keys)
+            .unwrap_or_else(|| Err(make_command_error(&output).into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+
+    use super::*;
+
+    #[test]
+    fn gpg_verify_invalid_signature_format() {
+        assert_matches!(
+            parse_gpg_verify_output(
+                b"[GNUPG:] NODATA 4\n[GNUPG:] FAILURE gpg-exit 33554433\n",
+                true
+            ),
+            Some(Err(SignError::InvalidSignatureFormat))
+        );
+    }
+
+    #[test]
+    fn gpg_verify_bad_signature() {
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] BADSIG 123 456", true)
+                .unwrap()
+                .unwrap(),
+            Verification::new(SigStatus::Bad, Some("123".into()), Some("456".into()))
+        );
+    }
+
+    #[test]
+    fn gpg_verify_unknown_signature() {
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] NO_PUBKEY 123", true)
+                .unwrap()
+                .unwrap(),
+            Verification::new(SigStatus::Unknown, Some("123".into()), None)
+        );
+    }
+
+    #[test]
+    fn gpg_verify_good_signature() {
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] GOODSIG 123 456", true)
+                .unwrap()
+                .unwrap(),
+            Verification::new(SigStatus::Good, Some("123".into()), Some("456".into()))
+        );
+    }
+
+    #[test]
+    fn gpg_verify_expired_signature() {
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] EXPKEYSIG 123 456", true)
+                .unwrap()
+                .unwrap(),
+            Verification::new(SigStatus::Good, Some("123".into()), Some("456".into()))
+        );
+
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] EXPKEYSIG 123 456", false)
+                .unwrap()
+                .unwrap(),
+            Verification::new(SigStatus::Bad, Some("123".into()), Some("456".into()))
+        );
+    }
+
+    #[test]
+    fn gpg_verify_unknown_error() {
+        assert_matches!(parse_gpg_verify_output(b"", true), None);
+        assert_matches!(
+            parse_gpg_verify_output(b"[GNUPG:] FAILURE gpg-exit 33554433\n", true),
+            None
+        );
+        assert_matches!(
+            parse_gpg_verify_output(b"[GNUPG:] FAILURE gpgsm-exit 50331649\n", true),
+            None
+        );
+    }
+
+    #[test]
+    fn gpgsm_verify_unknown_signature() {
+        assert_eq!(
+            parse_gpg_verify_output(b"[GNUPG:] ERROR verify.findkey 50331657", true)
+                .unwrap()
+                .unwrap(),
+            Verification::unknown(),
+        );
+    }
+
+    #[test]
+    fn gpgsm_verify_invalid_signature_format() {
+        assert_matches!(
+            parse_gpg_verify_output(b"[GNUPG:] ERROR verify.leave 150995087", true),
+            Some(Err(SignError::InvalidSignatureFormat))
+        );
+    }
+}

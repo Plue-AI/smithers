@@ -77,6 +77,12 @@ durable, and refuse symlinks, replacement and malformed operation IDs. The
 composed host supplies authoritative heads, imports and transactional capture
 and burst projection through its existing repository engine capability.
 
+Capture preserves non-UTF-8 names, binary contents and executable modes in the
+ordinary Git tree. Those names emit no activity or file hints. The shared jj
+runtime stores them losslessly in its path representation and decodes the
+original bytes for snapshot, checkout and ignore matching; it creates no
+surrogate files or companion manifest. Existing UTF-8 paths retain their format.
+
 ### Process ownership and stream replay
 
 The supervisor uses the existing registry and `session_stream::Pipe`; it does
