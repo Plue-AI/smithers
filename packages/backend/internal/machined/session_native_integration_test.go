@@ -44,6 +44,9 @@ func nativeSessions(t *testing.T) *nativeSessionHarness {
 	t.Helper()
 	path := os.Getenv("SMITHERS_SESSION_ACCEPTANCE_CONFIG")
 	if path == "" {
+		if os.Getenv("SMITHERS_REQUIRE_SESSION_ACCEPTANCE") == "1" {
+			t.Fatal("required production session acceptance has no installed guest authority; set SMITHERS_SESSION_ACCEPTANCE_CONFIG")
+		}
 		t.Skip("requires an exclusively reserved installed guest; set SMITHERS_SESSION_ACCEPTANCE_CONFIG")
 	}
 	file, err := os.Open(path)

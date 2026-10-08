@@ -326,10 +326,28 @@ Run `TestInstalledMemberTerminalAndSSHChain` in approved reference-host mode;
 its preflight requires the reviewed helper and install bundle. A skip is no
 proof of this boundary or its deadline.
 
+`TestSessionProductionSignalMatrix` delivers all seven named signals through
+production RPC streams to real exec process groups, observes matching exit
+signals and PID disappearance, and checks that another member's held session
+survives. `TestSessionProductionResizeRefusalMatrix` bypasses the host size
+validator for zero rows/columns, requires broker refusals, and verifies the same
+PTY still reports its original kernel size. `TestSessionProductionLocalAdmissionMatrix`
+uses real agent processes and the production SO_PEERCRED socket to refuse
+member/root identities, exec/sftp kinds, foreign runs and host attribution.
+`TestSessionProductionMalformedStreamReconnectMatrix` sends literal invalid
+signal, resize, credit and oversized data envelopes without the host encoder,
+requires the installed daemon to disconnect, then reattaches the original
+session and proves no rejected stdin advanced its offset or reached the process.
+These are authored native cases, not executed acceptance receipts.
+
+Set `SMITHERS_REQUIRE_SESSION_ACCEPTANCE=1` alongside
+`SMITHERS_SESSION_ACCEPTANCE_CONFIG` when collecting required native receipts.
+The required mode fails if guest authority is absent instead of silently skipping.
+
 Without authority configuration the native tests explicitly skip. Skips are
 not C-COL-04 or C-J3-06 receipts. Retained/restart provenance, missing installed
 provider matrices, unregistered-agent socket admission, direct malformed broker
-socketpair envelopes, full signal/resize refusal matrices and passing reference-host
+socketpair envelopes, passing reference-host
 revocation receipts remain required. The composed chain is authored, not a passing
 native receipt. C-J3-06 additionally needs the second Mac,
 GitHub key/account exercise and owner-recorded VS Code session.
