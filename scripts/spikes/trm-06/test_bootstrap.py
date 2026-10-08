@@ -48,6 +48,17 @@ def namespace_campaign(temporary):
     sentinel = Path("/sentinel")
     sentinel.write_bytes(b"outside-fixture\0")
     before = (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode)
+    # Prove the literal shell payload is executable on this boundary before
+    # using its absence as a refusal assertion. Restore only sentinel bytes;
+    # owner and mode must remain identical through the positive control too.
+    canary = Path("/canary.sh")
+    canary.write_bytes(b"#!/bin/sh\nprintf canary >> /sentinel\n")
+    canary.chmod(0o755)
+    positive = subprocess.run(["/bin/sh", str(canary)], capture_output=True, timeout=2)
+    assert positive.returncode == 0 and sentinel.read_bytes() == before[0] + b"canary"
+    assert (sentinel.stat().st_uid, sentinel.stat().st_mode) == before[1:]
+    sentinel.write_bytes(before[0])
+    canary.unlink()
     controls = 0
     samples = []
 
@@ -126,18 +137,32 @@ def namespace_campaign(temporary):
     (bundle / "manifest.json").write_text(json.dumps(manifest))
     invoke()
     # Execute the rendered production bootstrap with a trace barrier immediately
-    # after its digest/metadata validation. The barrier grants no policy bypass:
+    # after initial digest/metadata validation at each startup phase. The trace
+    # barrier grants no policy bypass:
     # a separate process performs literal replacements, then normal bootstrap
     # validation and launcher execution resume. Namespace root maps only to this
     # lane's UID; none of these are native installation acceptance receipts.
     barrier = next(index for index, line in enumerate(bootstrap.splitlines(), 1)
                    if line.strip().startswith('current = os.open("/"'))
-    for target in (".", "share", "share/trm06", "share/trm06/launcher.py"):
-        for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable", "contents", "hardlink"):
-            if target != "share/trm06/launcher.py" and mutation in ("contents", "hardlink"):
-                continue
-            fixture()
-            wrapper = """import os, sys, time, json, shutil
+    launcher_barrier = next(index for index, line in enumerate(loader.decode().splitlines(), 1)
+                            if line.strip().startswith('operation = sys.argv[1]'))
+    schedules = [("bootstrap", target, mutation)
+                 for target in (".", "share", "share/trm06", "share/trm06/launcher.py")
+                 for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable", "contents", "hardlink")
+                 if target == "share/trm06/launcher.py" or mutation not in ("contents", "hardlink")]
+    leaves = ("manifest.json", "share/trm06/launcher.py", "share/trm06/run.sh",
+              "share/trm06/revoke.sh", "share/trm06/flow.sh", "bin/trm06-gateway")
+    schedules += [("launcher", target, mutation) for target in leaves
+                  for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable",
+                                   "contents", "hardlink", "fifo", "directory", "canary")]
+    schedules += [("launcher", target, mutation)
+                  for target in (".", "bin", "share", "share/trm06")
+                  for mutation in ("positive", "preserved-inode", "copy", "symlink", "writable")]
+    for phase, target, mutation in schedules:
+        # The launcher boundary runs the same rendered bootstrap, then holds
+        # after all initial artifact hashes and before its final path checks.
+        fixture()
+        wrapper = """import os, sys, time, json, shutil
 from pathlib import Path
 request_r, request_w = os.pipe()
 reply_r, reply_w = os.pipe()
@@ -160,13 +185,20 @@ if pid == 0:
         original = path.with_name(path.name + '-held')
         path.rename(original)
         if original.is_dir(): shutil.copytree(original, path)
-        else: shutil.copyfile(original, path); path.chmod(0o644)
+        else: shutil.copy2(original, path)
     elif MUTATION == 'symlink':
         original = path.with_name(path.name + '-held')
         path.rename(original); path.symlink_to(original)
     elif MUTATION == 'writable': path.chmod(0o777)
     elif MUTATION == 'contents': path.write_bytes(b'x' * path.stat().st_size)
     elif MUTATION == 'hardlink': os.link(path, '/hardlink')
+    elif MUTATION in ('fifo', 'directory'):
+        path.rename(path.with_name(path.name + '-held'))
+        if MUTATION == 'fifo': os.mkfifo(path)
+        else: path.mkdir()
+    elif MUTATION == 'canary':
+        path.write_bytes(b"#!/bin/sh\\nprintf canary >> /sentinel\\n")
+        path.chmod(0o755)
     end = time.monotonic_ns()
     Path('/race.json').write_text(json.dumps({'worker_pid': os.getpid(), 'start_ns': start, 'end_ns': end}))
     os.write(reply_w, b'1'); os._exit(0)
@@ -174,7 +206,7 @@ os.close(request_r); os.close(reply_w)
 held = None
 def trace(frame, event, arg):
     global held
-    if event == 'line' and frame.f_code.co_filename == '<installed-bootstrap>' and frame.f_lineno == BARRIER and held is None:
+    if event == 'line' and frame.f_code.co_filename == TRACE_FILE and frame.f_lineno == BARRIER and held is None:
         held = time.monotonic_ns()
         os.write(request_w, b'1')
         assert os.read(reply_r, 1) == b'1'
@@ -188,39 +220,40 @@ sys.argv = ['bootstrap', 'run']
 sys.settrace(trace)
 exec(compile(BOOTSTRAP, '<installed-bootstrap>', 'exec'), {'__name__': '__main__'})
 """
-            path = bundle if target == "." else bundle / target
-            prefix = "TARGET=" + repr(str(path)) + "\nMUTATION=" + repr(mutation) + "\nBARRIER=" + str(barrier) + "\nBOOTSTRAP=" + repr(bootstrap) + "\n"
-            result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c", prefix + wrapper],
-                                    capture_output=True, timeout=5)
-            if mutation == "positive":
-                assert result.returncode == 0, result.stderr
-            else:
-                assert result.returncode == 78, (target, mutation, result.stderr)
-                assert result.stderr == b'{"class":"unavailable","code":"prototype_authority_unavailable","check":"C-SPK-08"}\n', (target, mutation, result.stderr)
-            assert result.stdout == b"", result.stdout
-            record = json.loads(Path('/race.json').read_text())
-            assert record['worker_pid'] > 0
-            assert 0 < record['held_ns'] <= record['start_ns'] <= record['end_ns'] <= record['resume_ns']
-            assert (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode) == before
-            record.update({"target": target, "mutation": mutation,
-                           "exit": result.returncode, "stderr": result.stderr.decode(),
-                           "outside_sha256": hashlib.sha256(sentinel.read_bytes()).hexdigest(),
-                           "outside_uid": sentinel.stat().st_uid,
-                           "outside_mode": sentinel.stat().st_mode & 0o777})
-            samples.append(record)
-            # Restore only objects created by this disposable namespace fixture.
-            held = path.with_name(path.name + '-held')
-            if path.is_symlink(): path.unlink()
-            if path.exists():
-                if path.is_dir(): shutil.rmtree(path)
-                else: path.unlink()
-            if held.exists():
-                if held.is_dir(): shutil.rmtree(held)
-                else: held.unlink()
-            if Path('/hardlink').exists(): Path('/hardlink').unlink()
-            controls += 1
+        path = bundle if target == "." else bundle / target
+        prefix = "TARGET=" + repr(str(path)) + "\nMUTATION=" + repr(mutation) + "\nBARRIER=" + str(barrier if phase == "bootstrap" else launcher_barrier) + "\nTRACE_FILE=" + repr("<installed-bootstrap>" if phase == "bootstrap" else str(bundle / "share/trm06/launcher.py")) + "\nBOOTSTRAP=" + repr(bootstrap) + "\n"
+        result = subprocess.run(["/usr/bin/python3", "-I", "-S", "-c", prefix + wrapper],
+                                capture_output=True, timeout=5)
+        if mutation == "positive":
+            assert result.returncode == 0, result.stderr
+        else:
+            assert result.returncode == 78, (target, mutation, result.stderr)
+            assert result.stderr == b'{"class":"unavailable","code":"prototype_authority_unavailable","check":"C-SPK-08"}\n', (target, mutation, result.stderr)
+        assert result.stdout == b"", result.stdout
+        record = json.loads(Path('/race.json').read_text())
+        assert record['worker_pid'] > 0
+        assert 0 < record['held_ns'] <= record['start_ns'] <= record['end_ns'] <= record['resume_ns']
+        assert (sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode) == before
+        record.update({"phase": phase, "target": target, "mutation": mutation,
+                       "exit": result.returncode, "stderr": result.stderr.decode(),
+                       "outside_sha256": hashlib.sha256(sentinel.read_bytes()).hexdigest(),
+                       "outside_uid": sentinel.stat().st_uid,
+                       "outside_mode": sentinel.stat().st_mode & 0o777})
+        samples.append(record)
+        # Restore only objects created by this disposable namespace fixture.
+        held = path.with_name(path.name + '-held')
+        if path.is_symlink(): path.unlink()
+        if path.exists():
+            if path.is_dir(): shutil.rmtree(path)
+            else: path.unlink()
+        if held.exists():
+            if held.is_dir(): shutil.rmtree(held)
+            else: held.unlink()
+        if Path('/hardlink').exists(): Path('/hardlink').unlink()
+        controls += 1
 
-    print(json.dumps({"loader_controls": controls, "accepted": False, "synchronized_bootstrap_samples": samples}))
+    print(json.dumps({"loader_controls": controls, "accepted": False, "synchronized_bootstrap_samples": [s for s in samples if s["phase"] == "bootstrap"],
+                      "synchronized_launcher_samples": [s for s in samples if s["phase"] == "launcher"]}))
 
 
 class BootstrapBoundary(unittest.TestCase):
@@ -232,9 +265,10 @@ class BootstrapBoundary(unittest.TestCase):
             result = subprocess.run(["unshare", "-Ur", "-m", sys.executable, "-I", "-S", str(Path(__file__).resolve()), "--namespace", temporary], capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stderr.decode())
         receipt = json.loads(result.stdout)
-        self.assertEqual(receipt["loader_controls"], 113)
+        self.assertEqual(receipt["loader_controls"], 193)
         self.assertFalse(receipt["accepted"])
         self.assertEqual(len(receipt["synchronized_bootstrap_samples"]), 22)
+        self.assertEqual(len(receipt["synchronized_launcher_samples"]), 80)
         evidence = os.environ.get("TRM06_LOADER_EVIDENCE")
         if evidence:
             # Publish only after behavioral assertions pass; raw NO output is
