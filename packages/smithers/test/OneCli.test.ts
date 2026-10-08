@@ -306,6 +306,15 @@ describe("migrated command dispatch", () => {
     expect(requests).toEqual([])
   })
 
+  it("refuses repository selection on the install-wide runs door before transport", async () => {
+    const requests: string[] = []
+    const f = await fixture((req, res) => { requests.push(req.url!); res.end("{}") })
+    const result = await f.run(["runs", "list", "--repo", "owner/repo"])
+    expect(result.code).toBe(2)
+    expect(JSON.parse(result.output)).toEqual({ code: "UsageError", message: "This HTTP door does not accept repo" })
+    expect(requests).toEqual([])
+  })
+
   it("summarizes every command and group instead of repeating its name", () => {
     const placeholders: string[] = [], summaries = new Map<string, string>()
     const visit = (commands: Map<string, any>, path: string[]) => {
@@ -337,7 +346,7 @@ describe("migrated command dispatch", () => {
         undefined
       ],
       [["secret", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/secrets", undefined],
-      [["runs", "list", "--repo", "owner/repo"], "GET", "/api/runs", undefined],
+      [["runs", "list"], "GET", "/api/runs", undefined],
       [["flow", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/workflows", undefined],
       [["workspace", "list", "--repo", "owner/repo"], "GET", "/api/repos/owner/repo/workspaces", undefined],
       [
