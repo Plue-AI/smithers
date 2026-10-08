@@ -112,6 +112,47 @@ test("no release script imports a module from scripts/fixtures", () => {
   assert.deepEqual(importers, [], "move the module beside its importers under scripts/")
 })
 
+test("every release script imports only names its sibling modules export", () => {
+  // smoke-release.mjs runs its work at module scope, so no suite imports it,
+  // and nothing linked it until a release run did. #3385 removed
+  // `templateProfile` from release-consumers.mjs with the create-app template
+  // and left the import behind: dry run 37843714479 built and packed 49
+  // tarballs and then died on a SyntaxError before the first smoke command.
+  // This reads each script's named imports from a sibling module and checks
+  // them against that module's own export statements, without running either.
+  const scripts = import.meta.dirname
+  const exported = (file) => {
+    const source = readFileSync(file, "utf8")
+    const names = new Set([...source.matchAll(/^export\s+(?:async\s+)?(?:const|let|var|function\*?|class)\s+([A-Za-z_$][\w$]*)/gm)].map((match) => match[1]))
+    for (const list of source.matchAll(/^export\s*\{([^}]*)\}/gm)) {
+      for (const part of list[1].split(",")) {
+        const name = part.trim().split(/\s+as\s+/).pop()
+        if (name) names.add(name)
+      }
+    }
+    return { names, reexportsAll: /^export\s*\*\s*from\b/m.test(source) }
+  }
+  const broken = []
+  let checked = 0
+  for (const entry of readdirSync(scripts)) {
+    if (!entry.endsWith(".mjs")) continue
+    const source = readFileSync(join(scripts, entry), "utf8")
+    for (const statement of source.matchAll(/^import\s*\{([^}]*)\}\s*from\s*["'](\.\/[^"'\/]+\.mjs)["']/gm)) {
+      const target = exported(join(scripts, statement[2]))
+      if (target.reexportsAll) continue
+      for (const part of statement[1].split(",")) {
+        const name = part.trim().split(/\s+as\s+/)[0].trim()
+        if (name === "") continue
+        checked += 1
+        if (!target.names.has(name)) broken.push(`${entry}: ${name} from ${statement[2]}`)
+      }
+    }
+  }
+  assert.ok(checked > 300, `${checked} sibling imports is too few to be the release scripts`)
+  assert.deepEqual(broken, [])
+  assert.match(readFileSync(join(scripts, "smoke-release.mjs"), "utf8"), /from "\.\/release-consumers\.mjs"/)
+})
+
 test("candidate selection rejects empty, mixed and non-exact versions", () => {
   for (
     const entries of [[], [{ version: "1.0.0" }, { version: "1.0.0-rc.0" }], [{ version: "^1.0.0" }], [{

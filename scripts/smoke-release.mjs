@@ -54,8 +54,7 @@ import {
   minimalProfiles,
   releasePackageManager,
   runCliMcpConsumer,
-  runConsumerMatrix,
-  templateProfile
+  runConsumerMatrix
 } from "./release-consumers.mjs"
 import { verifyPackagedNativeHelpers } from "./release-native-helpers.mjs"
 import { assertNodeSupport } from "./release-node-support.mjs"
@@ -448,8 +447,7 @@ try {
       profiles: [
         ...minimalProfiles(packManifest),
         ...adapterProfiles(packManifest),
-        ...migrationProfiles(packManifest),
-        templateProfile(absolutePackDirectory, packManifest)
+        ...migrationProfiles(packManifest)
       ],
       runtime: true
     }))
