@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -41,15 +43,19 @@ import (
 //
 // The install serves loopback on its own port. The owner then sets Address in
 // the product (PUT /api/install): the bind is this Mac's LAN address, and the
-// origins are that address and this Mac's .local name. The network listener
-// is on 4000, the one port the Address contract accepts
+// origins are that address, this Mac's .local name and an HTTPS origin. The
+// network listener is on 4000, the one port the Address contract accepts
 // (TestInitialInstallAddressExplicitPort), so 4000 must be free on that
 // address. The LAN connections come from this Mac to its own interface
-// address, which the install sees as a non-loopback peer.
+// address, which the install sees as a non-loopback peer. The HTTPS origin is
+// a TLS reverse proxy in this process that passes Host and forwards to the
+// LAN listener, as the quickstart's Caddy does (§16.3.4); its certificate is
+// httptest's, which the browser is told not to verify.
 //
 // Not qualified here, and left to the reference host (C-INS-01 Setup): a
-// second Mac, the HTTPS proxy origin, WebKit, and the installed host's process
-// tree (launcher, PostgreSQL, egress relay, model host, msb).
+// second Mac, a proxy certificate the browser trusts, WebKit, and the
+// installed host's process tree (launcher, PostgreSQL, egress relay, model
+// host, msb).
 
 // installOriginsHost is what the spec reads from SMITHERS_JOURNEY_COMPOSED_HOST.
 type installOriginsHost struct {
@@ -67,7 +73,9 @@ type installOriginsHost struct {
 	Bind    string            `json:"bind"`
 	Address string            `json:"address"`
 	Resolve map[string]string `json:"resolve"`
-	Ports   struct {
+	// UntrustedTLS: the HTTPS origin's certificate is outside the browser's trust store.
+	UntrustedTLS bool `json:"untrustedTLS"`
+	Ports        struct {
 		HTTP     int `json:"http"`
 		Network  int `json:"network"`
 		SSH      int `json:"ssh"`
@@ -128,12 +136,18 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	httpPort, sshPort := free(), free()
 	loopback := fmt.Sprintf("http://localhost:%d", httpPort)
 	control := fmt.Sprintf("http://127.0.0.1:%d", httpPort)
-	const repository, unset = "will/canary", "unset-origin.test"
+	const repository, unset, proxied = "will/canary", "unset-origin.test", "smithers-proxy.test"
 	lan, named := fmt.Sprintf("http://%s:%d", address, network), fmt.Sprintf("http://%s:%d", name, network)
+	upstream, err := url.Parse(lan)
+	require.NoError(t, err)
+	// NewSingleHostReverseProxy leaves the request's Host as the browser sent it.
+	proxy := httptest.NewTLSServer(httputil.NewSingleHostReverseProxy(upstream))
+	t.Cleanup(proxy.Close)
+	secure := fmt.Sprintf("https://%s:%d", proxied, proxy.Listener.Addr().(*net.TCPAddr).Port)
 	host := installOriginsHost{Install: "composed", Commit: stackJourneyCommit(root), PID: os.Getpid(), Loopback: loopback,
-		OwnerSet: []string{lan, named}, Unset: fmt.Sprintf("http://%s:%d", unset, network), Bind: address, Address: address,
+		OwnerSet: []string{lan, named, secure}, Unset: fmt.Sprintf("http://%s:%d", unset, network), Bind: address, Address: address,
 		// mDNS answers this Mac's name on every interface; the browser uses the one the bind listens on.
-		Resolve:       map[string]string{name: address, unset: address},
+		Resolve: map[string]string{name: address, unset: address, proxied: "127.0.0.1"}, UntrustedTLS: true,
 		SessionCookie: "smithers_session", Answer: strings.Join(stackJourneyAnswer, "")}
 	host.Ports.HTTP, host.Ports.Network, host.Ports.SSH = httpPort, network, sshPort
 
@@ -146,7 +160,7 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	require.NoError(t, err)
 
 	// GitHub is the fake: the owner's account, the App installed on the
-	// install's repository, and the App's callback URLs for the three origins
+	// install's repository, and the App's callback URLs for every origin
 	// (GitHub fixes them when the App is created, §16.3.3).
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -282,7 +296,7 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	require.NoError(t, err, "install-origins.spec.ts against the composed install; evidence %s", host.Evidence)
 
 	// The owner's last Address, read from PostgreSQL beside the browser's
-	// account: the named origin was removed, and the install never restarted.
+	// account: the HTTPS origin was removed, and the install never restarted.
 	var bind string
 	var origins []string
 	for setting, target := range map[string]any{"bind": &bind, "public_origins": &origins} {
@@ -291,7 +305,7 @@ func TestInstallOriginsBrowser(t *testing.T) {
 		require.NoError(t, json.Unmarshal(row.Value, target))
 	}
 	require.Equal(t, net.JoinHostPort(host.Bind, strconv.Itoa(network)), bind)
-	require.Equal(t, []string{lan}, origins)
+	require.Equal(t, []string{lan, named}, origins)
 	require.Equal(t, os.Getpid(), host.PID)
 	t.Logf("install-origins.spec.ts passed against the composed install; evidence %s", host.Evidence)
 }

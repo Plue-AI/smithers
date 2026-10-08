@@ -14,7 +14,8 @@ import { connect, exchange, listenerReport, listeners, loopbackOnly, processTree
  * The install is described by a JSON file:
  *   - the composed install: packages/backend TestInstallOriginsBrowser writes
  *     it (SMITHERS_JOURNEY_COMPOSED_HOST) and runs this spec against the
- *     production composition on its own listeners, with the GitHub fake;
+ *     production composition on its own listeners, with the GitHub fake, at
+ *     localhost, the Mac's LAN address, its .local name and an HTTPS proxy;
  *   - the reference host: the operator writes it
  *     (SMITHERS_INSTALL_ORIGINS_HOST) for the Mac's install, its LAN origin
  *     and the HTTPS proxy origin. Run on the Mac it names the launcher's pid,
@@ -42,6 +43,8 @@ type Install = {
   readonly address: string
   /** Host names the browser resolves to a fixed address (Chromium host-resolver-rules). */
   readonly resolve?: Readonly<Record<string, string>>
+  /** The HTTPS origin's certificate is outside this browser's trust store (the composed install's proxy). */
+  readonly untrustedTLS?: boolean
   readonly ports: { readonly http: number; readonly network: number; readonly ssh: number; readonly postgres: number }
   readonly sessionCookie: string
   /** What the app agent answers, when the install's model is scripted. */
@@ -107,7 +110,8 @@ const cookieAttributes = (lines: readonly string[], name: string): string[] | un
  * error and unhandled rejection is kept, marked by whether a session existed.
  */
 const signIn = async (browser: Browser, install: Install, origin: string): Promise<Visitor> => {
-  const context = await browser.newContext({ recordVideo: { dir: join(install.evidence, "video", new URL(origin).hostname), size: { width: 960, height: 540 } } })
+  const context = await browser.newContext({ ignoreHTTPSErrors: install.untrustedTLS === true,
+    recordVideo: { dir: join(install.evidence, "video", new URL(origin).hostname), size: { width: 960, height: 540 } } })
   const page = await context.newPage()
   const lines: ConsoleLine[] = []
   const sockets: string[] = []
