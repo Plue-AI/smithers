@@ -136,6 +136,8 @@ type guestCommand struct {
 	stdout       *limitedBuffer
 	stderr       *limitedBuffer
 	cancelOnce   sync.Once
+	cancelMu     sync.Mutex
+	cancelled    bool
 	cancelErr    error
 	cancelNative func() error
 }
@@ -152,22 +154,33 @@ func (c *guestCommand) finished() bool {
 // cancel kills the client, which ends the guest exec session, then kills the
 // command's cgroup so descendants that left the session die too.
 func (c *guestCommand) cancel() error {
-	c.cancelOnce.Do(func() {
-		if c.cancelNative != nil {
-			c.cancelErr = c.cancelNative()
-			return
-		}
-		killGroup(c.cmd)
-		select {
-		case <-c.done:
-		case <-time.After(10 * time.Second):
-		}
+	c.cancelMu.Lock()
+	defer c.cancelMu.Unlock()
+	if c.cancelled {
+		return nil
+	}
+	if c.cancelNative != nil {
+		c.cancelErr = c.cancelNative()
+	} else {
+		// Signal the client only once: after Wait its PID may be reused.
+		c.cancelOnce.Do(func() {
+			killGroup(c.cmd)
+			select {
+			case <-c.done:
+			case <-time.After(10 * time.Second):
+			}
+		})
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if _, err := c.runtime.guest(ctx, c.machine, nil, "kill", c.id); err != nil {
+		_, err := c.runtime.guest(ctx, c.machine, nil, "kill", c.id)
+		c.cancelErr = err
+		if err != nil {
 			c.cancelErr = fmt.Errorf("%w: %v", workspaceapi.ErrCommandTerminationUnconfirmed, err)
 		}
-	})
+	}
+	// An error is not a cleanup receipt. Retain ownership and allow a later
+	// stop/end to retry; only confirmed cleanup is idempotently cached.
+	c.cancelled = c.cancelErr == nil
 	return c.cancelErr
 }
 

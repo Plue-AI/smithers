@@ -141,6 +141,7 @@ export class Commands {
   private ended = false
   private killed: Promise<void> | undefined
   private active: AbortController | undefined
+  private disposeAfterKill: (() => void) | undefined
 
   private readonly port: CommandPort
 
@@ -150,9 +151,20 @@ export class Commands {
 
   private kill(): Promise<void> {
     this.ended = true
-    return this.killed ??= Promise.resolve().then(() => this.port.killRun()).catch(() => {
+    return this.killed ??= Promise.resolve().then(() => this.port.killRun()).then(() => {
+      this.dispose()
+    }).catch(() => {
+      // Only a confirmed kill is reusable. Keep execution fenced, but permit
+      // a later end() to obtain the missing cleanup receipt.
+      this.killed = undefined
       throw new StdError({ code: "command_failed", message: "Agent terminal cleanup unconfirmed" })
     })
+  }
+
+  private dispose(): void {
+    const dispose = this.disposeAfterKill
+    this.disposeAfterKill = undefined
+    dispose?.()
   }
 
   async end(): Promise<void> {
@@ -239,18 +251,21 @@ export class Commands {
       controller.abort()
       // A cancellation, timeout or broken framing ends this run. Never queue
       // another command into a shell whose previous children may still exist.
-      await this.kill()
       if (!releaseRequested && frames?.return !== undefined) {
-        // Request disposal after confirmed process cleanup. An iterator stuck
-        // in next() may queue return() indefinitely, so it cannot be the kill
-        // receipt or delay cancellation. Observe both sync and async failures;
-        // the command is already failed and this run cannot be reused.
-        try {
-          void Promise.resolve(frames.return()).catch(() => undefined)
-        } catch {
-          // A broken subscription cannot undo the confirmed run kill.
+        const subscription = frames
+        this.disposeAfterKill = () => {
+          // A pending next() may delay return forever. Confirmed process cleanup
+          // is the barrier; disposal must not prevent its acknowledgment.
+          try {
+            void Promise.resolve(subscription.return?.()).catch(() => undefined)
+          } catch {
+            // Disposal cannot undo confirmed cleanup.
+          }
         }
       }
+      await this.kill()
+      // end() may have confirmed cleanup before this catch retained the iterator.
+      this.dispose()
       throw error instanceof StdError
         ? error
         : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })

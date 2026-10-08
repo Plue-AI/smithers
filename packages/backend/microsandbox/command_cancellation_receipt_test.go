@@ -44,7 +44,11 @@ func TestGuestCommandCancellationRequiresGuestKillReceipt(t *testing.T) {
 			}
 			invocations, err := os.ReadFile(marker)
 			require.NoError(t, err)
-			require.Equal(t, "x", string(invocations), "cancellation must make one guest kill attempt")
+			expected := "x"
+			if tc.exit != 0 {
+				expected = "xx"
+			}
+			require.Equal(t, expected, string(invocations), "only confirmed cleanup is cached")
 		})
 	}
 }
@@ -172,7 +176,11 @@ func TestServiceStopRequiresConfirmedGuestTermination(t *testing.T) {
 				require.False(t, sibling.command.finished())
 				calls, err := os.ReadFile(marker)
 				require.NoError(t, err)
-				require.Equal(t, "x", string(calls))
+				expected := "x"
+				if !confirmed {
+					expected = "xx"
+				}
+				require.Equal(t, expected, string(calls), "failed cleanup is retried without restarting the service")
 			})
 		}
 	}

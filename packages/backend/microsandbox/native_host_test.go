@@ -185,7 +185,14 @@ func NativeHostLifecycleForTest(ctx context.Context, branch string, lost bool, e
 	if len(exitFrames) != 0 {
 		exitFrame = exitFrames[0]
 	}
-	command := &guestCommand{done: done, stdout: &limitedBuffer{limit: 256}, stderr: &limitedBuffer{limit: 256}, cancelNative: func() error { return nil }}
+	stopAttempts := 0
+	command := &guestCommand{done: done, stdout: &limitedBuffer{limit: 256}, stderr: &limitedBuffer{limit: 256}, cancelNative: func() error {
+		stopAttempts++
+		if lost && stopAttempts == 1 {
+			return workspaceapi.ErrCommandTerminationUnconfirmed
+		}
+		return nil
+	}}
 	runtime := &Runtime{workspaces: map[string]*workspace{branch: {metadata: metadata{ID: branch, State: string(workspaceapi.WorkspaceRunning)}, services: map[string]*managedService{"coding-host": {spec: workspaceapi.ServiceSpec{Name: "coding-host"}, command: command}}}}}
 	go func() {
 		defer close(done)
@@ -208,7 +215,8 @@ func NativeHostLifecycleForTest(ctx context.Context, branch string, lost bool, e
 	return struct {
 		workspaceapi.WorkspaceRuntime
 		workspaceapi.WorkspaceServiceCatalog
-	}{runtime, runtime}, begin, entered, func() { begin(); once.Do(func() { close(release) }) }, done
+		workspaceapi.WorkspaceNamedServiceController
+	}{runtime, runtime, runtime}, begin, entered, func() { begin(); once.Do(func() { close(release) }) }, done
 }
 
 func TestNativeHostOutputCannotForgeCompletionAfterTransportFailure(t *testing.T) {
@@ -248,4 +256,65 @@ func TestNativeHostControlStatusPreservesLiteralDiagnostics(t *testing.T) {
 		require.False(t, got.hasExit, "only a daemon exit frame supplies status")
 		require.Equal(t, "literal\x00SMITHERS-EXIT 0\x00", got.text)
 	}
+}
+
+func TestNativeHostCleanupRetrySerializesAndCachesOnlyReceipt(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+	entered, release := make(chan struct{}), make(chan struct{})
+	calls := 0
+	command := &guestCommand{done: done, cancelNative: func() error {
+		calls++
+		if calls == 1 {
+			return workspaceapi.ErrCommandTerminationUnconfirmed
+		}
+		close(entered)
+		<-release
+		return nil
+	}}
+	require.ErrorIs(t, command.cancel(), workspaceapi.ErrCommandTerminationUnconfirmed)
+	results := make(chan error, 8)
+	for range 8 {
+		go func() { results <- command.cancel() }()
+	}
+	<-entered
+	select {
+	case <-results:
+		t.Fatal("cleanup acknowledged before the barrier")
+	default:
+	}
+	close(release)
+	for range 8 {
+		require.NoError(t, <-results)
+	}
+	require.Equal(t, 2, calls)
+	require.NoError(t, command.cancel())
+	require.Equal(t, 2, calls)
+}
+
+func TestNativeHostReplacementRefusesUnconfirmedPreviousRun(t *testing.T) {
+	done := make(chan struct{})
+	close(done)
+	kills := 0
+	command := &guestCommand{done: done, waitErr: workspaceapi.ErrCommandTerminationUnconfirmed, cancelNative: func() error {
+		kills++
+		return workspaceapi.ErrCommandTerminationUnconfirmed
+	}}
+	ws := &workspace{metadata: metadata{ID: "branch", State: string(workspaceapi.WorkspaceRunning)}, services: map[string]*managedService{"coding-host": {command: command}}}
+	runtime := &Runtime{
+		machinedAgentAdmission: func(context.Context, string, string, func(context.Context) error) error {
+			t.Fatal("new host admitted before cleanup")
+			return nil
+		},
+		machinedAgentActor: func(context.Context, string, string, string) ([]byte, error) {
+			t.Fatal("new host attribution before cleanup")
+			return nil, nil
+		},
+	}
+	for range 2 {
+		_, err := runtime.startNativeHost(t.Context(), ws, "next-run", workspaceapi.ServiceSpec{Name: "coding-host", Command: workspaceapi.Command{Args: []string{"/opt/smithers/bundle/bin/smthrs"}, Environment: map[string]string{"SMITHERS_API_KEY": "literal-token"}}})
+		require.ErrorIs(t, err, workspaceapi.ErrCommandTerminationUnconfirmed)
+		require.Same(t, command, ws.services["coding-host"].command)
+	}
+	require.Equal(t, 2, kills)
 }

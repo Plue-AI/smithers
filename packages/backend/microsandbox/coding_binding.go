@@ -112,6 +112,10 @@ func linuxArm64From(bundle *installbundle.Bundle, relative, label string) ([]byt
 	if err != nil {
 		return nil, "", err
 	}
+	entry, ok := bundle.Entry(relative)
+	if !ok || entry.Mode != managedArtifactMode {
+		return nil, "", fmt.Errorf("%w: %s must be executable", ErrUnapprovedArtifact, relative)
+	}
 	if len(data) < 64 || string(data[:4]) != "\x7fELF" || data[4] != 2 || data[5] != 1 || binary.LittleEndian.Uint16(data[18:20]) != 183 {
 		return nil, "", errors.New(label + " is not Linux arm64")
 	}

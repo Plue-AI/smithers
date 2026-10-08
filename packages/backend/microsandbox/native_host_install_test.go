@@ -125,6 +125,15 @@ func TestNativeHostCleanupThroughComposedInstall(t *testing.T) {
 				expected = "failed"
 			}
 			require.Equal(t, expected, read())
+			if lost {
+				controller := runtime.(workspaceapi.WorkspaceNamedServiceController)
+				_, err := controller.ManageService(ctx, branch.ID, "coding-host", "stop")
+				require.ErrorIs(t, err, workspaceapi.ErrCommandTerminationUnconfirmed)
+				require.Equal(t, "failed", read(), "a missing kill receipt retains failed state")
+				_, err = controller.ManageService(ctx, branch.ID, "coding-host", "stop")
+				require.NoError(t, err)
+				require.Equal(t, "stopped", read(), "retry obtained the confirmed cleanup receipt")
+			}
 		})
 	}
 }

@@ -529,4 +529,38 @@ describe("registered terminal command result contract", () => {
     })
     await expect(failed.run(input, controller().signal)).rejects.toMatchObject({ code: "provider_unavailable" })
   })
+  it("retries unconfirmed run cleanup at end and releases the retained subscription once", async () => {
+    let attempts = 0
+    let released = 0
+    const entered = deferred<void>()
+    const receipt = deferred<void>()
+    const commands = new Commands({
+      execute: () => ({
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: false as const, value: { kind: "exit" as const, code: -1 } }),
+          return: async () => { released++; return { done: true as const, value: undefined } }
+        })
+      }),
+      killRun: async () => {
+        attempts++
+        if (attempts === 1) throw new Error("lost kill receipt")
+        entered.resolve()
+        await receipt.promise
+      }
+    })
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ message: "Agent terminal cleanup unconfirmed" })
+    expect(released).toBe(0)
+    const endings = [commands.end(), commands.end()]
+    await entered.promise
+    expect(attempts).toBe(2)
+    expect(released).toBe(0)
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ code: "provider_unavailable" })
+    receipt.resolve()
+    await Promise.all(endings)
+    expect(released).toBe(1)
+    await commands.end()
+    expect(attempts).toBe(2)
+    expect(released).toBe(1)
+  })
+
 })

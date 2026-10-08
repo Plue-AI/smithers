@@ -48,6 +48,13 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 		}
 		return workspaceapi.Service{Name: spec.Name, Address: spec.ReadyAddress}, nil
 	}
+	if existing != nil && existing.command.finished() && errors.Is(existing.command.waitErr, workspaceapi.ErrCommandTerminationUnconfirmed) {
+		// An ended output pump does not establish an empty run. Repair its
+		// cleanup receipt before replacing the host or planting new credentials.
+		if err = existing.command.cancel(); err != nil {
+			return workspaceapi.Service{}, err
+		}
+	}
 	link, err := r.machined.Current(ws.ID)
 	if err != nil {
 		return workspaceapi.Service{}, err
@@ -161,7 +168,18 @@ func (r *Runtime) startNativeHost(ctx context.Context, ws *workspace, binding st
 	command.cancelNative = func() error {
 		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_, err := sessions.KillRun(cleanup, binding)
+		// A failed attempt fenced its transport. Retry against the current
+		// authenticated connection for this same machine, never the old socket.
+		current, err := r.machined.Current(ws.ID)
+		if err == nil {
+			err = current.RequireMachine(ws.ID, ws.Machine)
+		}
+		if err == nil {
+			_, err = machined.NewSessions(current.Connection, ws.ID, r.machined.Sessions(ws.ID)).KillRun(cleanup, binding)
+			if err != nil {
+				_ = current.Close()
+			}
+		}
 		stop()
 		closeSession()
 		cleanupToken()
