@@ -209,7 +209,7 @@ impl<V: Versions> Disk for LinuxDisk<V> {
             let metadata = old.metadata()?;
             super::saved_mode(metadata.mode())?
         } else {
-            0o664
+            0o644
         };
         let temp = format!(".smithers-doc-{}-{}", hex(&key), random()?);
         // Persist the displaced inode's original merge base before the swap.
