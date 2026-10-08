@@ -29,7 +29,8 @@ func TestTerminalIndependentSessionsComposedInstall(t *testing.T) {
 
 func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, token string, closed bool) {
 	t.Helper()
-	invoke := packagedTerminalCLIInvoker(t, ctx, origin, token)
+	cli := newPackagedTerminalCLI(t, ctx, origin, token)
+	invoke := cli.invoke
 	skill, err := os.ReadFile("../../../smithers/skills/smithers/SKILL.md")
 	require.NoError(t, err)
 	for _, command := range []string{"smthrs todo new", "smthrs todo drop", "smthrs merge"} {
@@ -43,6 +44,7 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 		require.Equal(t, "delegated", identity["credential_kind"])
 		require.Equal(t, "terminal", identity["via"])
 		require.NotContains(t, identity, "token")
+		exercisePackagedTerminalFileRefusals(t, cli, origin, token)
 	}
 	for _, fixture := range []struct {
 		argv []string
@@ -92,6 +94,16 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 // Compile the production guest entry for this CI host; native acceptance uses
 // the same entry cross-compiled to Linux arm64 in the install manifest.
 func packagedTerminalCLIInvoker(t *testing.T, ctx context.Context, origin, token string) func(...string) (int, map[string]any) {
+	return newPackagedTerminalCLI(t, ctx, origin, token).invoke
+}
+
+type packagedTerminalCLI struct {
+	tokenFile string
+	home      string
+	invoke    func(...string) (int, map[string]any)
+}
+
+func newPackagedTerminalCLI(t *testing.T, ctx context.Context, origin, token string) *packagedTerminalCLI {
 	t.Helper()
 	binary := filepath.Join(t.TempDir(), "smthrs")
 	entry, err := filepath.Abs("../../../smithers/src/guest-bin.ts")
@@ -104,10 +116,11 @@ func packagedTerminalCLIInvoker(t *testing.T, ctx context.Context, origin, token
 	tokenFile := filepath.Join(home, "sessions", session, "token")
 	require.NoError(t, os.MkdirAll(filepath.Dir(tokenFile), 0o700))
 	require.NoError(t, os.WriteFile(tokenFile, []byte(token), 0o600))
-	return func(argv ...string) (int, map[string]any) {
+	cli := &packagedTerminalCLI{tokenFile: tokenFile, home: home}
+	cli.invoke = func(argv ...string) (int, map[string]any) {
 		t.Helper()
 		command := exec.CommandContext(ctx, binary, append(argv, "--json")...)
-		command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home, "XDG_DATA_HOME=" + home, "SMITHERS_URL=" + origin, "SMITHERS_TOKEN_FILE=" + tokenFile, "CODEX_TEST=1"}
+		command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home, "XDG_DATA_HOME=" + home, "SMITHERS_DISABLE_SYSTEM_KEYRING=1", "SMITHERS_URL=" + origin, "SMITHERS_TOKEN_FILE=" + tokenFile, "CODEX_TEST=1"}
 		output, err := command.CombinedOutput()
 		code := 0
 		if err != nil {
@@ -119,4 +132,47 @@ func packagedTerminalCLIInvoker(t *testing.T, ctx context.Context, origin, token
 		require.NoError(t, json.Unmarshal(output, &result), string(output))
 		return code, result
 	}
+	return cli
+}
+
+// These execute the compiled production reader and command mount, with a
+// lifecycle-issued credential and a valid saved login on the composed router.
+// Invalid session files must never fall back to that otherwise usable login.
+func exercisePackagedTerminalFileRefusals(t *testing.T, cli *packagedTerminalCLI, origin, token string) {
+	t.Helper()
+	auth := filepath.Join(cli.home, ".config", "smithers", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(auth), 0o700))
+	record, err := json.Marshal(map[string]string{"api_url": origin, "token": token})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(auth, record, 0o600))
+	for _, fixture := range []string{"empty", "malformed", "oversized", "unreadable", "symlink", "directory", "missing"} {
+		t.Run("packaged file refuses "+fixture, func(t *testing.T) {
+			require.NoError(t, os.Remove(cli.tokenFile))
+			switch fixture {
+			case "empty", "malformed", "oversized", "unreadable":
+				contents := map[string]string{"empty": "", "malformed": "bad token", "oversized": strings.Repeat("a", 16385), "unreadable": token}[fixture]
+				require.NoError(t, os.WriteFile(cli.tokenFile, []byte(contents), 0o600))
+				if fixture == "unreadable" {
+					require.NoError(t, os.Chmod(cli.tokenFile, 0))
+				}
+			case "symlink":
+				foreign := filepath.Join(cli.home, "foreign-token")
+				require.NoError(t, os.WriteFile(foreign, []byte(token), 0o600))
+				require.NoError(t, os.Symlink(foreign, cli.tokenFile))
+			case "directory":
+				require.NoError(t, os.Mkdir(cli.tokenFile, 0o700))
+			}
+			code, result := cli.invoke("todo", "new", "--text", "Invalid session files cannot append", "--idempotencyKey", "invalid-file-"+fixture)
+			require.Equal(t, 1, code)
+			require.Equal(t, "token_file_unavailable", result["code"])
+			require.NotContains(t, result, "confirmation")
+			if fixture != "missing" {
+				require.NoError(t, os.Remove(cli.tokenFile))
+			}
+			require.NoError(t, os.WriteFile(cli.tokenFile, []byte(token), 0o600))
+		})
+	}
+	code, identity := cli.invoke("auth", "status")
+	require.Zero(t, code)
+	require.Equal(t, "ben", identity["username"], "restoring this session file restores its own identity")
 }

@@ -515,7 +515,7 @@
     },
     "C-J6-01": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/terminal-signin.spec.ts",
+      "reason": "Native CLI/skill sign-in slice authored in apps/app/e2e/real/terminal-signin.spec.ts and internal/compose/installed_terminal_chain_integration_test.go; full S1/S2 Claude Code, confirmation, placement, Review & merge and presence acceptance still requires approved reference-host execution and person model login",
       "ticket": "T-TRM-02"
     },
     "C-J6-02": {
@@ -943,7 +943,7 @@
     },
     "C-SEC-05": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/compose/terminal_token_scope_test.go",
+      "reason": "Composed-router compiled CLI scope, confirmation and session lifecycle tests present in internal/compose/terminal_token_scope_test.go; production native root-input, retained guest, ownership and physical revocation receipts plus authenticated owner approval of argv/host remain pending",
       "ticket": "T-TRM-02"
     },
     "C-SPK-02": {
