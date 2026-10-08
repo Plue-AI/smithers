@@ -173,11 +173,13 @@ it("answers with Luna when Jev times out", async () => {
   }
 })
 
-it("answers with Luna, without a gateway request, when no gateway key is set", async () => {
+it("refuses a missing Jev key without asking the configured Luna pool", async () => {
   const { run, sent } = judge({}, "answers")
-  const result = await Effect.runPromise(run)
-  expect(result.answers.complete).toEqual({ type: "boolean", probability: 0.95 })
-  expect(sent).not.toContain(jevUrl)
+  await expect(Effect.runPromise(run)).rejects.toMatchObject({
+    code: "unconfigured",
+    message: expect.stringContaining("AI_GATEWAY_API_KEY")
+  })
+  expect(sent).toEqual([])
 })
 
 it.each([429, 503] as const)("answers with Luna when the gateway keeps answering %s", async (status) => {
@@ -283,7 +285,7 @@ it("judges on the gateway's second-vendor model when Jev cannot answer and no Lu
   expect(routed[0]!.model).toBe("anthropic/claude-sonnet-4.5")
 })
 
-it("asks for Codex login when Luna was opted in without a usable session", async () => {
+it("keeps the Jev setup refusal when Luna is opted in without a usable session", async () => {
   const executor = RequestExecutor.RequestExecutor.of({
     execute: () => Effect.die("An unsigned Luna must never reach model transport")
   })
@@ -302,7 +304,7 @@ it("asks for Codex login when Luna was opted in without a usable session", async
   } catch (error) {
     expect(error).toMatchObject({ code: "unconfigured" })
     const message = Evaluator.publicMessage(error as Evaluator.EvaluatorError)
-    expect(message).toContain("ChatGPT login")
+    expect(message).toContain("AI_GATEWAY_API_KEY")
     expect(message).toContain("codex login")
     expect(message).not.toContain("did not answer")
   }
@@ -326,6 +328,14 @@ it("keeps the missing gateway setup reason when Luna cannot resolve either", asy
   ).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
 })
 
+// Pool failures are backup outages: a configured Jev primary must first be
+// unreachable. A missing primary key is a setup refusal and never asks Luna.
+const unreachableJev = Layer.succeed(HttpClient.HttpClient)(HttpClient.make((request) =>
+  Effect.fail(new HttpClientError.HttpClientError({
+    reason: new HttpClientError.TransportError({ request, description: "connection refused" })
+  }))
+))
+
 it.each(["unavailable", "disconnected"] as const)(
   "fails closed when the subscription pool is %s during resolution",
   async (failure) => {
@@ -347,14 +357,15 @@ it.each(["unavailable", "disconnected"] as const)(
           questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
         })).pipe(Effect.provide(
           layerSeatEvaluator({
+          AI_GATEWAY_API_KEY: "vck_test",
             SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
             SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
             SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
             CODEX_HOME: "/nonexistent",
             OPENAI_API_KEY: "must-not-use"
-          }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+          }, unreachableJev).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
         ))
-    )).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
+    )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
     expect(sent).toHaveLength(1)
   }
 )
@@ -375,13 +386,14 @@ it("fails closed when the subscription pool's route list cannot be read", async 
         questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
       })).pipe(Effect.provide(
         layerSeatEvaluator({
+          AI_GATEWAY_API_KEY: "vck_test",
           SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
           SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
           SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
           CODEX_HOME: "/nonexistent",
           OPENAI_API_KEY: "must-not-use"
-        }).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
+        }, unreachableJev).pipe(Layer.provide(Layer.succeed(RequestExecutor.RequestExecutor)(executor)))
       ))
-  )).rejects.toMatchObject({ code: "unconfigured", message: expect.stringContaining("AI_GATEWAY_API_KEY") })
+  )).rejects.toMatchObject({ code: "unreachable", message: Evaluator.unreachableMessage })
   expect(sent).toEqual(["https://pool.example/routes"])
 })
