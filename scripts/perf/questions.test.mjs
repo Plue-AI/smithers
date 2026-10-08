@@ -209,7 +209,7 @@ test('preflight cross-check aggregates paired durations from separate producer p
   assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, preflight: { ...s.preflight, durationMs: -1 } }))), /invalid/)
 })
 
-import { configuration as rebaseConfiguration, run as rebaseProductionRun, verifyCaptureDelay, verifyDrain } from './rebase-production.mjs'
+import { configuration as rebaseConfiguration, run as rebaseProductionRun, verifyCaptureDelay, verifyDrain, verifyHeldObservation } from './rebase-production.mjs'
 import { productionProviders } from './run.mjs'
 
 const rebaseEnv = { SMITHERS_PERF_REPOSITORY: 'team/scratch', SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/', SMITHERS_PERF_OWNER_COOKIE: 'session=secret; __csrf=csrf', SMITHERS_PERF_MEMBER_A: '/private/a.json', SMITHERS_PERF_BRANCH: '11111111-1111-4111-8111-111111111111', SMITHERS_PERF_TODO: '1', SMITHERS_PERF_INSTALL_VERSION: 'test', SMITHERS_PERF_REBASE_LOG: '/private/guest.jsonl', SMITHERS_PERF_SSH_IDENTITY: '/private/key', SMITHERS_PERF_SSH_DESTINATION: 'branch@mini.example' }
@@ -241,4 +241,14 @@ test('drain observation binds branch, target, clock and the complete capture', (
   const drained = { ...hold, phase: 'drained', outboxDepth: 0 }
   assert.equal(verifyDrain(drained, hold), drained)
   for (const change of [{ id: 'other' }, { branch: 'other' }, { onto: 'other' }, { clock: 'other' }, { phase: 'thawed' }, { outboxDepth: 1 }, { capture: undefined }, ...['boot', 'event', 'sequence'].map(field => ({ capture: { ...hold.capture, [field]: 'other' } }))]) assert.throws(() => verifyDrain({ ...drained, ...change }, hold))
+})
+
+
+test('production rebase binds the observed held barrier to exactly its thaw', () => {
+  const held = { phase: 'held', id: 'hold', branch: rebaseEnv.SMITHERS_PERF_BRANCH, onto: 'a'.repeat(40), clock: 'guest monotonic:' + 'b'.repeat(32), start: 12 }
+  const binding = { branch: held.branch, onto: held.onto }
+  const thawed = { ...held, phase: 'thawed', end: 20 }
+  assert.equal(verifyHeldObservation(held, binding, thawed), held)
+  for (const change of [{ branch: 'other' }, { onto: 'c'.repeat(40) }, { clock: 'browser monotonic' }, { start: -1 }, { start: NaN }, { phase: 'thawed' }, { id: '' }]) assert.throws(() => verifyHeldObservation({ ...held, ...change }, binding))
+  for (const change of [{ id: 'other' }, { branch: 'other' }, { onto: 'c'.repeat(40) }, { clock: 'guest monotonic:' + 'c'.repeat(32) }, { start: 13 }, { end: 11 }, { end: NaN }, { phase: 'drained' }]) assert.throws(() => verifyHeldObservation(held, binding, { ...thawed, ...change }))
 })

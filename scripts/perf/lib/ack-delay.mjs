@@ -16,6 +16,11 @@ export function acknowledgementDelay({ origin, branch, cookie }) {
     if (receipt.branch !== branch) throw new Error('acknowledgement receipt branch mismatch')
     return receipt
   }
+  const read = async () => {
+    const receipt = await request('GET')
+    if (armed && (receipt.id !== armed.id || receipt.boot !== armed.boot)) throw new Error('acknowledgement window replaced or machine reconnected')
+    return receipt
+  }
   return {
     async arm(delay) {
       if (delay !== 0 && delay !== 10000) throw new Error('delay must be 0 or 10000 ms')
@@ -26,10 +31,21 @@ export function acknowledgementDelay({ origin, branch, cookie }) {
       }
       return receipt
     },
-    async read() {
-      const receipt = await request('GET')
-      if (armed && (receipt.id !== armed.id || receipt.boot !== armed.boot)) throw new Error('acknowledgement window replaced or machine reconnected')
-      return receipt
+    read,
+    async waitForCapture(capture) {
+      if (!armed || capture?.boot !== armed.boot || !/^[a-f0-9]{32}$/.test(capture?.event ?? '') || !Number.isSafeInteger(capture?.sequence) || capture.sequence < 1) throw new Error('armed capture identity required')
+      const deadline = performance.now() + 30000
+      do {
+        const receipt = await read()
+        if (!['armed', 'withheld', 'acknowledged'].includes(receipt.state)) throw new Error(`capture delay ${receipt.state}`)
+        if (receipt.state !== 'armed' && (receipt.event !== capture.event || receipt.sequence !== capture.sequence)) throw new Error('acknowledgement window consumed by another capture')
+        if (receipt.state === 'acknowledged') {
+          if (!Number.isFinite(receipt.withheld_ms) || receipt.withheld_ms < 10000) throw new Error('capture acknowledgement resumed before ten seconds')
+          return receipt
+        }
+        await new Promise(resolve => setTimeout(resolve, 100))
+      } while (performance.now() < deadline)
+      throw new Error('capture acknowledgement timed out')
     }
   }
 }

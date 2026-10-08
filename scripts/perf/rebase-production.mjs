@@ -34,6 +34,14 @@ export async function observations(path, branch, onto) {
   return lines.filter(Boolean).map(line => JSON.parse(line)).filter(row => row.branch === branch && row.onto === onto)
 }
 
+/** The observed barrier and completion must describe the same guest rewrite. */
+export function verifyHeldObservation(held, { branch, onto }, thawed) {
+  if (held?.phase !== 'held' || !held.id || held.branch !== branch || held.onto !== onto ||
+      !/^guest monotonic:[a-f0-9]{32}$/.test(held.clock ?? '') || !Number.isFinite(held.start) || held.start < 0) throw new Error('guest held observation missing or mismatched')
+  if (thawed && (thawed.phase !== 'thawed' || thawed.id !== held.id || thawed.branch !== held.branch || thawed.onto !== held.onto || thawed.clock !== held.clock || thawed.start !== held.start || !Number.isFinite(thawed.end) || thawed.end < held.start)) throw new Error('guest thaw does not bind the observed hold')
+  return held
+}
+
 export function verifyCaptureDelay(receipt, hold, armed) {
   if (!armed || armed.state !== 'armed' || !armed.id || !armed.branch || !armed.boot || receipt.id !== armed.id || receipt.branch !== armed.branch || receipt.boot !== armed.boot || hold.branch !== armed.branch || hold.clock !== `guest monotonic:${armed.boot}`) throw new Error('host delay does not bind the armed branch window')
   if (receipt.state !== 'acknowledged' || receipt.event !== hold.capture?.event || receipt.boot !== hold.capture?.boot || receipt.sequence !== hold.capture?.sequence || !Number.isFinite(receipt.withheld_ms) || receipt.withheld_ms < 10000) throw new Error('host delay does not bind the guest capture')
@@ -104,7 +112,7 @@ export async function run(env = process.env, { persist = false } = {}) {
       } while (performance.now() < deadline)
       throw new Error('production rebase observation timed out')
     }
-    let main, typed, baseline, hold, armed
+    let main, typed, baseline, hold, held, armed
     const guestSSH = async command => (await execute('/usr/bin/ssh', ['-i', config.identity, '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-p', '2222', '--', config.destination, command], { timeout: 30000, maxBuffer: 4 << 20 })).stdout.trim()
     if (await guestSSH('git -C .smithers-perf-main symbolic-ref --short HEAD') !== 'main') throw new Error('scratch fixture must be on main')
     const remote = await guestSSH('git -C .smithers-perf-main remote get-url origin')
@@ -144,7 +152,12 @@ export async function run(env = process.env, { persist = false } = {}) {
       },
       async pressRebaseNow() { await page.getByRole('button', { name: 'Rebase now', exact: true }).last().press('Enter') },
       async waitWriteHold() {
-        await wait(async () => (await records()).some(row => row.phase === 'held' && row.id))
+        held = await wait(async () => {
+          const entries = (await records()).filter(row => row.phase === 'held')
+          if (entries.length > 1) throw new Error('duplicate guest held observation')
+          return entries[0]
+        })
+        verifyHeldObservation(held, { branch: config.branch, onto: main })
       },
       async typeMarker(marker) {
         typed = marker
@@ -157,6 +170,8 @@ export async function run(env = process.env, { persist = false } = {}) {
           if (completed.length > 1) throw new Error('duplicate guest rebase receipt')
           return completed[0]
         })
+        verifyHeldObservation(held, { branch: config.branch, onto }, hold)
+        hold.heldObservation = held
         if (hold.failed !== false || hold.marker?.text !== typed || hold.marker?.member !== String(result.member.id) || hold.marker?.typedDuringHold !== true) throw new Error('guest held marker evidence missing')
         await page.waitForFunction(marker => document.querySelector('.cm-content')?.textContent.includes(marker), typed)
         const entries = (await memberRead(`/api/branches/${config.branch}/activity`)).filter(entry => !baseline.has(entry.id) && entry.kind === 'rebase')
@@ -171,11 +186,7 @@ export async function run(env = process.env, { persist = false } = {}) {
       },
       async waitOutboxDrained(id) {
         const drained = await wait(async () => (await records()).find(row => row.phase === 'drained' && row.id === id && row.capture?.event === hold.capture?.event))
-        const delay = await wait(async () => {
-          const receipt = await config.delay.read()
-          if (receipt.state === 'failed' || receipt.state === 'expired') throw new Error('capture delay failed')
-          return receipt.state === 'acknowledged' && receipt.id === armed.id ? receipt : undefined
-        })
+        const delay = await config.delay.waitForCapture(hold.capture)
         verifyCaptureDelay(delay, hold, armed)
         verifyDrain(drained, hold)
         hold.acknowledgementReceipt = delay

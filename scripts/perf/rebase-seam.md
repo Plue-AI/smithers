@@ -36,7 +36,14 @@ the adapter can qualify C-PERF-06:
   records its observed duration. It never substitutes host ACK for guest drain.
 
 The driver arms each delayed window after push/sync/pending and immediately
-before Rebase now. It validates queued/thawed evidence before waiting for
+before Rebase now. Its authenticated client polls through armed/withheld to
+acknowledged, requires the exact boot/event/sequence, and refuses cancelled,
+expired, failed, replaced or prematurely restored windows. The composed HTTP
+test drives this client through the full automatic ten-second restoration using
+the real event transaction and wire ACK; its scripted peer is not guest proof.
+The adapter also retains the observed held barrier and binds thaw to its exact
+ID, branch, target, clock and start; duplicate held observations are refused. It validates queued/thawed
+evidence before waiting for
 acknowledgement. Once drain completes, the unified verdict also verifies the
 host receipt and rejects reused windows or capture events. The production
 adapter also binds the host receipt to the armed window and branch, and checks

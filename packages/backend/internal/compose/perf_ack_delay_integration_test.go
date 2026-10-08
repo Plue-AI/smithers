@@ -127,9 +127,35 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 	require.Equal(t, 200, code)
 	require.Equal(t, "cancelled", cancelled.State)
 	// The automatic cohort uses the full ten seconds, without an operator restore.
-	code, natural := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`, f.cookie)
-	require.Equal(t, 200, code)
+	module, err := filepath.Abs("../../../../scripts/perf/lib/ack-delay.mjs")
+	require.NoError(t, err)
+	moduleURL := (&url.URL{Scheme: "file", Path: module}).String()
 	eventID[0] = 92
+	naturalSource := `import {acknowledgementDelay} from ` + strconv.Quote(moduleURL) + `;
+ const client=acknowledgementDelay({origin:process.argv[1],branch:process.argv[2],cookie:process.argv[3]});
+ const armed=await client.arm(10000); console.log(JSON.stringify(armed));
+ const capture={boot:armed.boot,event:process.argv[4],sequence:2};
+ console.log(JSON.stringify(await client.waitForCapture(capture)));
+ for(const change of [{boot:"0".repeat(32)},{event:"0".repeat(32)},{sequence:3},{sequence:0}]){
+ let rejected=false;try{await client.waitForCapture({...capture,...change})}catch{rejected=true}
+ if(!rejected)throw new Error("foreign capture accepted");
+ }`
+	naturalCommand := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", naturalSource, f.origin, f.row.ID, "session="+f.cookie+"; __csrf=perf-csrf", hex.EncodeToString(eventID[:]))
+	stdout, err := naturalCommand.StdoutPipe()
+	require.NoError(t, err)
+	var stderr bytes.Buffer
+	naturalCommand.Stderr = &stderr
+	require.NoError(t, naturalCommand.Start())
+	t.Cleanup(func() {
+		if naturalCommand.ProcessState == nil {
+			_ = naturalCommand.Process.Kill()
+			_ = naturalCommand.Wait()
+		}
+	})
+	decoder := json.NewDecoder(stdout)
+	var natural machined.AckDelayReceipt
+	require.NoError(t, decoder.Decode(&natural), "%s", stderr.String())
+	require.Equal(t, "armed", natural.State)
 	start := time.Now()
 	require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(2)), wire.Field(2, eventID[:]), wire.Field(3, payload))}))
 	require.NoError(t, peer.SetReadDeadline(time.Now().Add(15*time.Second)))
@@ -141,6 +167,14 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 		_, r := call("GET", "", f.cookie)
 		return r.ID == natural.ID && r.State == "acknowledged" && r.WithheldMS >= 10000 && r.Event == hex.EncodeToString(eventID[:])
 	}, time.Second, 10*time.Millisecond)
+
+	var clientCompleted machined.AckDelayReceipt
+	require.NoError(t, decoder.Decode(&clientCompleted), "%s", stderr.String())
+	require.NoError(t, naturalCommand.Wait(), "%s", stderr.String())
+	require.Equal(t, natural.ID, clientCompleted.ID)
+	require.Equal(t, "acknowledged", clientCompleted.State)
+	require.Equal(t, uint64(2), clientCompleted.Sequence)
+	require.GreaterOrEqual(t, clientCompleted.WithheldMS, float64(10000))
 
 	// Recheck the production adapter against the actual completed host receipt.
 	// The matching guest identity is a wire-peer observation, not VM proof.
@@ -168,14 +202,13 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 
 	// Exercise the script's actual authenticated client against this composed
 	// install, rather than substituting fetch or testing only a receipt parser.
-	module, err := filepath.Abs("../../../.." + "/scripts/perf/lib/ack-delay.mjs")
-	require.NoError(t, err)
-	moduleURL := (&url.URL{Scheme: "file", Path: module}).String()
 	source := `import {acknowledgementDelay} from ` + strconv.Quote(moduleURL) + `;
  const client = acknowledgementDelay({origin:process.argv[1],branch:process.argv[2],cookie:process.argv[3]});
  const armed=await client.arm(10000); const read=await client.read();
  if(read.id!==armed.id||read.state!=="armed")throw new Error("wrong armed window");
- const restored=await client.arm(0); if(restored.state!=="cancelled")throw new Error("restore failed");`
+ const restored=await client.arm(0); if(restored.state!=="cancelled")throw new Error("restore failed");
+ let rejected=false;try{await client.waitForCapture({boot:armed.boot,event:"a".repeat(32),sequence:1})}catch{rejected=true}
+ if(!rejected)throw new Error("cancelled window accepted");`
 	cmd := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", source, f.origin, f.row.ID, "session="+f.cookie+"; __csrf=perf-csrf")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
