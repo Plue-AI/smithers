@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,7 +199,7 @@ export default Flow.make("todo", {
 				require.Equal(t, digest, item.Digest)
 				history, err := r.expect("GET", item.URL, "", 200)
 				require.NoError(t, err)
-				if revision != 2 {
+				if revision != 2 && revision != 4 {
 					require.Equal(t, body, string(history))
 				} else {
 					require.Equal(t, edited, string(history))
@@ -343,6 +345,53 @@ export default Flow.make("todo", {
 	}
 	require.NoError(t, r.drop(retryNumber))
 
+	// Hold the production selection response after its authorized model call,
+	// edit through the person API, then let the machine read the selected slug.
+	// No selector, wiki reader or planning receipt is replaced by this hook.
+	originalHandler := *r.serving.Load()
+	editPayload, err := json.Marshal(map[string]any{"body": edited, "expected_revision": 3})
+	require.NoError(t, err)
+	var editOnce sync.Once
+	editResult := make(chan error, 1)
+	raceHandler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != "POST" || request.URL.Path != api+"/selection" {
+			originalHandler.ServeHTTP(w, request)
+			return
+		}
+		selected := httptest.NewRecorder()
+		originalHandler.ServeHTTP(selected, request)
+		if selected.Code == http.StatusOK {
+			editOnce.Do(func() {
+				_, err := r.expect("PATCH", api+"/retry-policy", string(editPayload), 200)
+				editResult <- err
+			})
+		}
+		for key, values := range selected.Header() {
+			w.Header()[key] = values
+		}
+		w.WriteHeader(selected.Code)
+		_, _ = w.Write(selected.Body.Bytes())
+	})
+	var raceRouter http.Handler = raceHandler
+	r.serving.Store(&raceRouter)
+	t.Cleanup(func() { r.serving.Store(&originalHandler) })
+	raced, err := r.file("Capture a decision edited after selection", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow retry-policy.")
+	require.NoError(t, err)
+	raceReceipt := plan(raced, 4, editedDigest, "retry-policy")
+	select {
+	case err := <-editResult:
+		require.NoError(t, err)
+	default:
+		t.Fatal("the production selector never reached the edit crossing")
+	}
+	r.serving.Store(&originalHandler)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "selection-read-edit-plan.json"), raceReceipt, 0600))
+	require.NoError(t, r.drop(raced))
+	payload, err = json.Marshal(map[string]any{"body": body, "expected_revision": 4})
+	require.NoError(t, err)
+	_, err = r.expect("PATCH", api+"/retry-policy", string(payload), 200)
+	require.NoError(t, err)
+
 	// Restore the immutable generated-page publication fixture, not a plan,
 	// run or candidate receipt. Planning must fetch its provenance through
 	// the production run-authorized API and recollect inputs inside the VM.
@@ -356,14 +405,14 @@ export default Flow.make("todo", {
 	activateWatchdogOverride(t, r, planOnly+"\n// generated freshness control\n")
 	// Keep one selectable page so the recorded index-0 selection exercises
 	// the generated revision, rather than an authored-page fallback.
-	_, err = r.expect("PATCH", api+"/retry-policy", `{"slug":"generated-runtime","expected_revision":3}`, 200)
+	_, err = r.expect("PATCH", api+"/retry-policy", `{"slug":"generated-runtime","expected_revision":5}`, 200)
 	require.NoError(t, err)
 	var repositoryID int64
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT repository_id FROM mythical_stacks`).Scan(&repositoryID))
 	_, err = db.New(r.pool).EnsureMythicalWiki(r.ctx, repositoryID)
 	require.NoError(t, err)
 	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_wikis SET pages=$2 WHERE repository_id=$1`, repositoryID,
-		`[{"id":"runtime","slug":"generated-runtime","revision":4,"bodyDigest":"0314a7d6edf2ad4b7057d059f7dfdf17df0ab800ec24b502f02ecb38c1bbed22","inputDigest":"8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6","ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]`)
+		`[{"id":"runtime","slug":"generated-runtime","revision":6,"bodyDigest":"0314a7d6edf2ad4b7057d059f7dfdf17df0ab800ec24b502f02ecb38c1bbed22","inputDigest":"8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6","ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]`)
 	require.NoError(t, err)
 	generated, err := r.expect("GET", api+"/generated-runtime", "", 200)
 	require.NoError(t, err)
@@ -372,7 +421,7 @@ export default Flow.make("todo", {
 	require.Equal(t, &services.WikiGeneratedSource{ID: "runtime", InputDigest: "8155914883c6eee34b481cba5c68e82ba9061d7e8e80c618ea6dde345de52fe6", SourceRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, generatedPage.Generated)
 	fresh, err := r.file("Fresh generated retry policy", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
 	require.NoError(t, err)
-	plan(fresh, 4, digest, "generated-runtime")
+	plan(fresh, 6, digest, "generated-runtime")
 	require.NoError(t, r.drop(fresh))
 	_, err = r.pushGitHubMain("Invalidate generated planning input", map[string]string{"runtime.ts": "export const start = () => 2\n"})
 	require.NoError(t, err)
@@ -430,5 +479,122 @@ export default Flow.make("todo", {
 	_, err = r.pool.Exec(r.ctx, `UPDATE wiki_pages SET content_digest=$2 WHERE id=$1`, page.ID, digest)
 	require.NoError(t, err)
 	require.NoError(t, r.drop(corrupt))
+
+	// Mutate only the machine's real stored run credential at the wiki
+	// selection door. Authentication and repository authorization still run
+	// in the composed router, and the shipped planner observes their refusal.
+	for _, tc := range []struct {
+		name   string
+		status int
+	}{{"expired", 401}, {"wrong-repository", 403}} {
+		t.Run(tc.name+" run credential", func(t *testing.T) {
+			upstream := *r.serving.Load()
+			type observation struct {
+				status int
+				err    error
+			}
+			observed := make(chan observation, 1)
+			var wrapped http.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if request.Method != "POST" || request.URL.Path != api+"/selection" {
+					upstream.ServeHTTP(w, request)
+					return
+				}
+				func() {
+					token := strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer ")
+					sum := sha256.Sum256([]byte(token))
+					hash := hex.EncodeToString(sum[:])
+					var expires pgtype.Timestamptz
+					var scopes string
+					err := r.pool.QueryRow(request.Context(), `SELECT expires_at,scopes FROM access_tokens WHERE token_hash=$1 AND system_issued`, hash).Scan(&expires, &scopes)
+					if err == nil {
+						if tc.name == "expired" {
+							_, err = r.pool.Exec(request.Context(), `UPDATE access_tokens SET expires_at=NOW()-interval '1 second' WHERE token_hash=$1`, hash)
+						} else {
+							expected := middleware.RepositoryRestrictionScope(repositoryID)
+							changed := strings.Replace(scopes, expected, "repo:9223372036854775807", 1)
+							if changed == scopes {
+								err = fmt.Errorf("machine credential has no repository restriction")
+							} else {
+								_, err = r.pool.Exec(request.Context(), `UPDATE access_tokens SET scopes=$2 WHERE token_hash=$1`, hash, changed)
+							}
+						}
+					}
+					if err != nil {
+						select {
+						case observed <- observation{err: err}:
+						default:
+						}
+						http.Error(w, "credential fixture failed", 500)
+						return
+					}
+					result := httptest.NewRecorder()
+					upstream.ServeHTTP(result, request)
+					// Restore after the production refusal so the run can report
+					// its terminal event through its otherwise valid credential.
+					_, err = r.pool.Exec(request.Context(), `UPDATE access_tokens SET expires_at=$2,scopes=$3 WHERE token_hash=$1`, hash, expires, scopes)
+					select {
+					case observed <- observation{status: result.Code, err: err}:
+					default:
+					}
+					for key, values := range result.Header() {
+						w.Header()[key] = values
+					}
+					w.WriteHeader(result.Code)
+					_, _ = w.Write(result.Body.Bytes())
+				}()
+			})
+			r.serving.Store(&wrapped)
+			defer r.serving.Store(&upstream)
+			number, err := r.file("Refuse "+tc.name+" wiki credential", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
+			require.NoError(t, err)
+			_, err = r.waitTodoWithin(number, 8*time.Minute, "failed")
+			require.NoError(t, err)
+			select {
+			case result := <-observed:
+				require.NoError(t, result.err)
+				require.Equal(t, tc.status, result.status)
+			default:
+				t.Fatal("the planner never reached the credential refusal crossing")
+			}
+			var missing bool
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT NOT (checks ? 'planReceipt') FROM mythical_items WHERE number=$1`, number).Scan(&missing))
+			require.True(t, missing, "a refused credential must not publish a successful plan")
+			card, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
+			require.NoError(t, err)
+			require.NotContains(t, string(card), `"kind":"wiki"`)
+			require.NoError(t, os.WriteFile(filepath.Join(r.evidence, tc.name+"-credential-card.json"), card, 0600))
+			require.NoError(t, r.drop(number))
+		})
+	}
+
+	refusedPlan := func(name string) {
+		t.Helper()
+		number, err := r.file(name, "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow generated-runtime.")
+		require.NoError(t, err)
+		_, err = r.waitTodoWithin(number, 8*time.Minute, "failed")
+		require.NoError(t, err)
+		var missing bool
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT NOT (checks ? 'planReceipt') FROM mythical_items WHERE number=$1`, number).Scan(&missing))
+		require.True(t, missing, "unavailable wiki dependencies cannot publish a successful plan")
+		card, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
+		require.NoError(t, err)
+		require.NotContains(t, string(card), `"kind":"wiki"`)
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name+"-card.json"), card, 0600))
+		require.NoError(t, r.drop(number))
+	}
+	t.Setenv("SMITHERS_FEATURE_FLAGS_WIKI", "false")
+	r.restartBackend()
+	// Refusal comes from the actual availability gate in the recomposed install.
+	_, err = r.expect("GET", api+"/generated-runtime", "", 404)
+	require.NoError(t, err)
+	refusedPlan("disabled-wiki-gate")
+	t.Setenv("SMITHERS_FEATURE_FLAGS_WIKI", "true")
+	r.restartBackend()
+	_, err = r.pushGitHubMain("Remove pinned generated declaration", map[string]string{
+		".smithers/coding-project.json": `{"wikiCitations":true}`,
+	})
+	require.NoError(t, err)
+	activateWatchdogOverride(t, r, planOnly+"\n// missing pinned declaration control\n")
+	refusedPlan("missing-pinned-declaration")
 
 }

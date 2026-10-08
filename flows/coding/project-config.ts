@@ -33,7 +33,7 @@ const Project = Schema.Struct({
   /** Plans read and cite wiki page revisions; refused unless the host binds the relay and `pages` is pinned. */
   wikiCitations: Schema.optionalKey(Schema.Boolean),
   wikiOutput: Schema.optionalKey(text),
-  pages: Schema.optionalKey(Schema.Array(PageSpec).check(Schema.isMinLength(1), Schema.isMaxLength(30))),
+  pages: Schema.optionalKey(Schema.Array(PageSpec).check(Schema.isMaxLength(30))),
   /** Omitted, the built-in `coding/implementation`. */
   implementation: Schema.optionalKey(text),
   /** Omitted, the checks detected from the repository's files (`detectChecks`). */

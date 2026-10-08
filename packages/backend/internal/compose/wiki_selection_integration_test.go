@@ -104,10 +104,21 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		"unbound": f.token(f.owner, "wsel-unbound", landing(workspaces[0], ""), true),
 		"person":  f.token(f.owner, "wsel-person", "read:repository,write:repository", false),
 	}
+	const editorSession = "wiki-edit-session"
+	editorHash := sha256.Sum256([]byte(editorSession))
+	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.owner.ID, Username: f.owner.Username, SessionKey: hex.EncodeToString(editorHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	call := func(handler http.Handler, credential, method, path, body string) (*httptest.ResponseRecorder, []string) {
 		t.Helper()
 		req := httptest.NewRequest(method, "http://example.com/api/repos/gate-owner/app/wiki"+path, strings.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+credentials[credential])
+		if credential == "editor" {
+			req.AddCookie(&http.Cookie{Name: "session", Value: editorSession})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+			req.Header.Set("X-CSRF-Token", "csrf")
+			req.Header.Set("Origin", "http://example.com")
+		} else {
+			req.Header.Set("Authorization", "Bearer "+credentials[credential])
+		}
 		req.Header.Set("Content-Type", "application/json")
 		var decisions []string
 		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
@@ -282,6 +293,25 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 		}
 		out, _ := call(router(false, selector), "own", "POST", "/selection", `{"prompt":"Retry"}`)
 		require.NotEqual(t, 200, out.Code, "a disabled wiki gate is not an empty vault")
+	})
+
+	t.Run("selection then person edit binds the read to the edited revision", func(t *testing.T) {
+		selected, _ := call(served, "own", "POST", "/selection", `{"prompt":"Retry failed webhook deliveries"}`)
+		require.Equal(t, 200, selected.Code, selected.Body.String())
+		require.JSONEq(t, `{"pages":[{"slug":"retry-policy","revision":1,"reason":"Retry decision"}],"model":"owner-fast","durationMs":3}`, selected.Body.String())
+		edited, _ := call(served, "editor", "PATCH", "/retry-policy", "{\"body\":\"Webhook retries use `retryFixed(5000)`.\",\"expected_revision\":1}")
+		require.Equal(t, 200, edited.Code, edited.Body.String())
+		read, decisions := call(served, "own", "GET", "/retry-policy", "")
+		require.Equal(t, 200, read.Code, read.Body.String())
+		require.Equal(t, []string{"wiki.read"}, decisions)
+		var page services.WikiPageResponse
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &page))
+		require.EqualValues(t, 2, page.Revision)
+		require.Equal(t, "Webhook retries use `retryFixed(5000)`.", page.Body)
+		require.Equal(t, "e47d2d025a859ead6080b931b2b718bfa2937244433746068d08770278b36c7c", page.ContentDigest)
+		history, _ := call(served, "own", "GET", fmt.Sprintf("/history/%d/1/content", page.ID), "")
+		require.Equal(t, 200, history.Code, history.Body.String())
+		require.Equal(t, "Webhook retries use `retry()` with exponential backoff.", history.Body.String())
 	})
 	t.Run("an expired run credential is refused", func(t *testing.T) {
 		sum := sha256.Sum256([]byte(credentials["own"]))

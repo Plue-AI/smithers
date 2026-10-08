@@ -208,6 +208,11 @@ test("default project lookup, explicit override and absent default use the injec
   assert.deepEqual(await load("project.json"), { ...minimal, wiki: false })
   await writeFile(join(directory, "project.json"), JSON.stringify({ ...minimal, wiki: true }))
   await assert.rejects(load("project.json"), /enabled Wiki requires/)
+  // Authored-only citations pin an explicitly empty generated declaration.
+  // This is different from an absent declaration, which planning refuses.
+  const authoredOnly = { ...minimal, wikiCitations: true, pages: [] }
+  await writeFile(join(directory, "project.json"), JSON.stringify(authoredOnly))
+  assert.deepEqual(await load("project.json"), { ...authoredOnly, wiki: false })
   const exact = JSON.stringify(valid())
   await writeFile(join(directory, "project.json"), exact + " ".repeat(262144 - Buffer.byteLength(exact)))
   assert.deepEqual(await load("project.json"), expected)
@@ -219,7 +224,7 @@ test("default project lookup, explicit override and absent default use the injec
     { ...valid(), unknown: "refuse" },
     { ...valid(), reviewer: "" },
     { ...valid(), reviewer: "  " },
-    { ...valid(), pages: [] },
+    { ...valid(), wiki: true, pages: [] },
     { ...valid(), pages: [...valid().pages, ...valid().pages] },
     { ...valid(), pages: [{ ...valid().pages[0], related: ["absent"] }] },
     { ...valid(), pages: [{ ...valid().pages[0], privateKey: "do-not-print" }] },
