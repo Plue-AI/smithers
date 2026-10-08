@@ -866,3 +866,13 @@ func (q *Queries) MythicalForkItemNumber(ctx context.Context, repository int64, 
  ORDER BY l.created_at DESC NULLS LAST LIMIT 1`, repository, workspace).Scan(&number)
 	return number, err
 }
+
+// RestoreMythicalItemLane reactivates only the retained machine still bound to
+// this TODO. PR reopen keeps its branch identity even after disk reclamation;
+// deleted workspaces and lanes belonging to a different attempt stay retired.
+func (q *Queries) RestoreMythicalItemLane(ctx context.Context, item MythicalItem) error {
+	_, err := q.db.Exec(ctx, `UPDATE mythical_lanes l SET retired_at=NULL
+ WHERE l.workspace_id=$1 AND l.repository_id=$2 AND l.item_id=$3
+ AND EXISTS (SELECT 1 FROM workspaces w WHERE w.id::text=l.workspace_id AND w.repository_id=l.repository_id AND w.deleted_at IS NULL)`, item.WorkspaceID, item.RepositoryID, item.ID)
+	return err
+}

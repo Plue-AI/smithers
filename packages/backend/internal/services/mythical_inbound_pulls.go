@@ -286,6 +286,15 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 					return nil, err
 				}
 				next.Version = placed.Version
+				retained, err := q.GetMythicalTodoBranchWorkspace(ctx, item)
+				if err == nil && !retained.DeletedAt.Valid {
+					next.WorkspaceID = retained.ID
+				} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return nil, err
+				}
+				if err := q.RestoreMythicalItemLane(ctx, next); err != nil {
+					return nil, err
+				}
 			}
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if err != nil {

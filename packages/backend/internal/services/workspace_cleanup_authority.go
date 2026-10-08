@@ -86,8 +86,18 @@ func cleanupSettlement(item db.MythicalItem) time.Time {
 			}
 		}
 	case "dropped":
-		if checks.Dropped != nil && (!item.PRNumber.Valid || item.PRState == "closed") {
-			return checks.Dropped.At
+		if !item.PRNumber.Valid || item.PRState == "closed" {
+			// This is the current committed close projection. A previous Drop
+			// stays in evidence after reopen and must not shorten a later close.
+			if item.PRNumber.Valid && checks.GitHubClosedAt != nil {
+				return *checks.GitHubClosedAt
+			}
+			if item.PRNumber.Valid && checks.GitHubReopenedAttempt > 0 {
+				return time.Time{}
+			}
+			if checks.Dropped != nil {
+				return checks.Dropped.At
+			}
 		}
 	}
 	return time.Time{}

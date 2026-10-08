@@ -106,6 +106,10 @@ func installBranchAuthorizer(members identity.MemberAuthorizer) func(context.Con
 // (spec §8.1.1), which only a fork creates (forkScratchWorkspace).
 const scratchBranchPrefix = "scratch/"
 
+// Only retained metadata/file reads can inspect an archived retired lane.
+// Wake and writer admission never carry this private marker.
+type retainedBranchReadKey struct{}
+
 // installLaneBinding admits a machine on the stack's bookmark only while the
 // stack creates it as a lane (StackLaneCreation: the binding is recorded
 // right after) or while it is a lane the stack bound and has not retired, or
@@ -127,10 +131,12 @@ func installLaneBinding(ctx context.Context, tx pgx.Tx, repositoryID int64, bran
 	}
 	var bound bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM mythical_lanes
-        WHERE workspace_id = $1 AND repository_id = $2 AND retired_at IS NULL)
+        WHERE workspace_id = $1 AND repository_id = $2
+ AND (retired_at IS NULL OR ($4 AND EXISTS (SELECT 1 FROM workspaces w
+ WHERE w.id::text=workspace_id AND w.repository_id=$2 AND w.deleted_at IS NULL AND w.branch_archived_at IS NOT NULL))))
         OR ($3 AND (EXISTS (SELECT 1 FROM flow_loads WHERE workspace_id = $1 AND repository_id = $2)
         OR EXISTS (SELECT 1 FROM mythical_wikis WHERE workspace_id = $1 AND repository_id = $2)))`,
-		workspaceID, repositoryID, stack).Scan(&bound); err != nil {
+		workspaceID, repositoryID, stack, ctx.Value(retainedBranchReadKey{}) == true).Scan(&bound); err != nil {
 		return err
 	}
 	if !bound {

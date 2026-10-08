@@ -88,6 +88,33 @@ func TestCleanupSettlementUsesCommittedEvent(t *testing.T) {
 	require.True(t, cleanupSettlement(db.MythicalItem{State: "cancelled"}).IsZero())
 }
 
+func TestCleanupExternalGitHubDropSettlement(t *testing.T) {
+	at := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	item := db.MythicalItem{State: "rejected", PRState: "closed", PRNumber: pgtype.Int8{Int64: 1, Valid: true}}
+	checks := mythicalChecksOf(item)
+	checks.GitHubClosedAt = &at
+	item.Checks = checks.encode()
+	require.Equal(t, at, cleanupSettlement(item))
+	checks.Dropped = &todoDrop{At: at.Add(-6 * 24 * time.Hour)}
+	item.Checks = checks.encode()
+	require.Equal(t, at, cleanupSettlement(item), "an older Drop retained as evidence must not shorten the new close's retention")
+	checks.Dropped = nil
+	item.Checks = checks.encode()
+	item.PRState = "open"
+	require.True(t, cleanupSettlement(item).IsZero())
+	item.PRState = "closed"
+	item.State = "proposed"
+	require.True(t, cleanupSettlement(item).IsZero())
+	item.State = "rejected"
+	checks.GitHubClosedAt = nil
+	item.Checks = checks.encode()
+	require.True(t, cleanupSettlement(item).IsZero())
+	checks.Dropped = &todoDrop{At: at.Add(-6 * 24 * time.Hour)}
+	checks.GitHubReopenedAttempt = 1
+	item.Checks = checks.encode()
+	require.True(t, cleanupSettlement(item).IsZero(), "a reopened Drop's old evidence cannot substitute for a missing current close")
+}
+
 // This fake stands only for T-MCH-07/T-TRM-07's missing combined capture and
 // broker fence. SQL, settlement projection, decisions, scheduler and retries
 // use their real production implementations against PostgreSQL.

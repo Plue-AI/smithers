@@ -60,7 +60,7 @@ func (s *WorkspaceService) authorizeBranchFileRead(ctx context.Context, row db.W
 	if err := p.Authorize(ctx, tx, "branch.read", row.RepositoryID, row.TargetBookmark, userID); err != nil {
 		return err
 	}
-	return p.LaneBinding(ctx, tx, row.RepositoryID, row.TargetBookmark, row.ID)
+	return p.LaneBinding(context.WithValue(ctx, retainedBranchReadKey{}, true), tx, row.RepositoryID, row.TargetBookmark, row.ID)
 }
 
 // PresenceBranch resolves a branch under the same membership, lane and branch
