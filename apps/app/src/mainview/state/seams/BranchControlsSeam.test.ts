@@ -255,3 +255,36 @@ test("reload restores a failed Rebase notice without repeating admission or rece
     expect(calls).toBe(0)
   } finally { second.seam.dispose() }
 })
+
+for (const login of ["maya", "ben"]) test(`queued Rebase never transfers to a replacement ${login} session`, async () => {
+  let release!: () => void, held = false
+  const writes: string[] = []
+  const h = await boot(async () => new Promise<Response>(() => {}))
+  h.seam.dispose()
+  const seam = createBranchControlsSeam({ store: h.store, http: async (_url, init) => {
+    writes.push(JSON.parse(String(init?.body)).op ?? "rebase")
+    return new Promise<Response>(() => {})
+  }, baseUrl: "http://mini.lan:4000", actor: () => "user", nextOrdinal: () => h.store.nextOrdinal(),
+  dispatch: event => {
+    const result = h.store.dispatch(event)
+    if (event.type !== "branch.control.requests.changed" || event.actor !== "user" || held) return result
+    held = true
+    result.isPersisted.promise = result.isPersisted.promise.then(async transaction => {
+      await new Promise<void>(resolve => { release = resolve })
+      return transaction
+    })
+    return result
+  } }, { ready: () => true })
+  try {
+    const first = seam.request("sleep", "smithers/retry")
+    const queued = seam.request("rebase", "smithers/retry")
+    await until(() => typeof release === "function")
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
+    release()
+    expect(await first).toEqual({ value: "Requested" })
+    expect(await queued).toBe("Sign in")
+    expect((h.store.session().branchControlRequests ?? []).filter(row => row.operation === "rebase")).toEqual([])
+    expect(writes).not.toContain("rebase")
+  } finally { seam.dispose() }
+})

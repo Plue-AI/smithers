@@ -144,10 +144,13 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
     if (!available(operation)) return Promise.resolve("Branch unavailable")
     if ((input.conflict_change === undefined) !== (input.onto_revision === undefined)) return Promise.resolve("Branch unavailable")
     if (!branch.trim() || /[\u0000\\]/.test(branch)) return Promise.resolve("Choose a branch")
+    const principal = identity()
+    const owner = principal?.login, epoch = principal?.ownerRevision ?? principal?.revision
+    if (!owner || principal?.state !== "signed-in") return Promise.resolve("Sign in")
     const result = tail.then(async (): Promise<CommandResult> => {
       if (!available(operation)) return "Branch unavailable"
-      const owner = identity()?.login
-      if (!owner || identity()?.state !== "signed-in") return "Sign in"
+      if (identity()?.state !== "signed-in" || identity()?.login !== owner
+        || (identity()?.ownerRevision ?? identity()?.revision) !== epoch) return "Sign in"
       const previous = [...rows()].reverse().find(request => request.owner === owner && request.origin === ctx.baseUrl && request.branch === branch && request.operation === operation && request.input?.conflict_change === input.conflict_change && request.input?.onto_revision === input.onto_revision)
       if (previous && !["failed", "completed"].includes(previous.state)) return { value: "Requested" }
       const request: Request = previous?.state === "failed" && !previous.settled ? { ...previous, state: (previous.operationId || previous.number) ? "accepted" : "requested", error: undefined } : { key: randomUuid(), owner, origin: ctx.baseUrl, branch, operation, state: "requested", ...(operation === "rebase" ? { input } : {}), ...(repository() ? { repo: repository()! } : {}) }
