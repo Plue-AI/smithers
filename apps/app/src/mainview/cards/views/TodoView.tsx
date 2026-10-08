@@ -176,7 +176,9 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
             <code key={path}>{path}</code>
           ))}
           {wait.ssh_line && <code>{wait.ssh_line}</code>}
-          {wait.sha && <code>{wait.sha}</code>}
+          {wait.sha && (wait.kind === "foreign_push" && todo.pr
+            ? <a href={todo.pr.url.replace(/\/pull\/\d+(?:[?#].*)?$/, `/commit/${wait.sha}`)}><code>{wait.sha}</code></a>
+            : <code>{wait.sha}</code>)}
           {wait.kind === "conflict" && wait.id === todo.waits.find(row => row.kind === "conflict")?.id && conflictTerminal && (
             <div className="todo-conflict-terminal">{conflictTerminal}</div>
           )}

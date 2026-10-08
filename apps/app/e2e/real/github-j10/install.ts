@@ -42,6 +42,8 @@ export type J10Install = {
     /** Every pull request, in any state, whose head is branch. */
     readonly pulls: (branch: string) => Promise<number[]>
     readonly commit: (sha: string) => Promise<GitHubCommit>
+    /** Exact file bytes at a published commit. */
+    readonly file: (sha: string, path: string) => Promise<string>
     readonly main: () => Promise<string>
     /** Paths that differ between two commits. */
     readonly changed: (base: string, head: string) => Promise<string[]>
@@ -135,6 +137,7 @@ export const withJ10Install = async (browser: Browser, info: TestInfo, body: (in
           parents: gitHub("rev-list", "--parents", "-n", "1", sha).split(/\s+/).slice(1),
           paths: gitHub("ls-tree", "-r", "--name-only", sha).split("\n").filter(Boolean)
         }),
+        file: async (sha, path) => execFileSync(git, ["--git-dir", host.github.git, "show", `${sha}:${path}`], { encoding: "utf8" }),
         main: async () => gitHub("rev-parse", "refs/heads/main"),
         changed: async (base, head) => gitHub("diff", "--no-ext-diff", "--no-textconv", "--name-only", base, head).split("\n").filter(Boolean),
         contains: async (ancestor, head) => {
@@ -190,6 +193,11 @@ const withReferenceJ10 = (browser: Browser, info: TestInfo, body: (install: J10I
           const commit = await f.github("Will", "GET", `/git/commits/${sha}`) as { parents: { sha: string }[]; tree: { sha: string } }
           const tree = await f.github("Will", "GET", `/git/trees/${commit.tree.sha}?recursive=1`) as { tree: { path: string; type: string }[] }
           return { parents: commit.parents.map(parent => parent.sha), paths: tree.tree.filter(entry => entry.type === "blob").map(entry => entry.path) }
+        },
+        file: async (sha, path) => {
+          const file = await f.github("Will", "GET", `/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`) as { encoding: string; content: string }
+          expect(file.encoding).toBe("base64")
+          return Buffer.from(file.content, "base64").toString("utf8")
         },
         main: async () => (await f.github("Will", "GET", "/git/ref/heads/main") as { object: { sha: string } }).object.sha,
         changed: async (base, head) => (await f.github("Will", "GET", `/compare/${base}...${head}`) as { files: { filename: string }[] }).files.map(file => file.filename),

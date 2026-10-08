@@ -346,6 +346,7 @@ for (const key of Object.keys(expectedActions) as Array<keyof typeof expectedAct
 }
 // Independent labels: fixtures supply inputs, never the rendered-label oracle.
 const expectedAskers: Record<string, string> = {
+  issue: "Claude Code for Ben",
   one_click: "Claude Code for Ben",
   drop: "Smithers for Ben",
   branch: "Claude Code for Ben",
@@ -528,6 +529,8 @@ test("moved_off and foreign_push preserve supplied order, actor and SHA; missing
     ]);
     view.render({ ...repairTodo, waits: [moved, { ...foreign, actions: [bring] }] }, [resolve, bring]);
     expect(view.host.querySelector('[data-flow="branch.discard-foreign"]')).toBeNull();
+    view.render({ ...repairTodo, pr: { number: 17, url: "https://github.com/owner/app/pull/17", head: foreign.sha!, draft: false, included_items: [] }, waits: [foreign] }, [bring]);
+    expect(view.host.querySelector<HTMLAnchorElement>(".todo-wait a")!.href).toBe(`https://github.com/owner/app/commit/${foreign.sha}`);
   } finally { view.close(); }
 });
 test("hostile conflict paths, SSH, commit and actor remain inert text", () => {

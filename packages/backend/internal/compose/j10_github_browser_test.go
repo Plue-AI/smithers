@@ -3,6 +3,7 @@ package compose
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The C-J10-01 and C-J10-05 automation (apps/app/e2e/real/github-j10/
-// pr-shape.spec.ts and merge-on-github.spec.ts) against the composed install:
+// The C-J10-01, C-J10-03 and C-J10-05 automation (apps/app/e2e/real/github-j10/
+// pr-shape.spec.ts, foreign-push.spec.ts and merge-on-github.spec.ts) against the composed install:
 // the production router, the packaged coding host on the trusted-process
 // runtime with the scripted model, so every TODO reaches GitHub through the
 // packaged stack.candidate and stack.propose dispatch, real PostgreSQL, the
@@ -27,6 +28,10 @@ import (
 //	SMITHERS_J10_BROWSER=1 go test ./internal/compose -run 'TestJ10(PRShape|MergeOnGitHub)Browser' -count=1 -timeout 45m
 //
 // The reference host runs the same specs against github.com (§16.3.1).
+
+func TestJ10ForeignPushBrowser(t *testing.T) {
+	runJ10Browser(t, "C-J10-03", "foreign-push.spec.ts", "journey-github-foreign-push")
+}
 
 func TestJ10PRShapeBrowser(t *testing.T) {
 	runJ10Browser(t, "C-J10-01", "pr-shape.spec.ts", "journey-github-pr-shape")
@@ -54,6 +59,8 @@ func TestRehearsalJJBinarySkipsWrapperScripts(t *testing.T) {
 
 // j10BrowserHost is what the specs read from SMITHERS_J10_COMPOSED_HOST.
 type j10BrowserHost struct {
+	Push       string `json:"push,omitempty"`
+	Kept       string `json:"kept,omitempty"`
 	Origin     string `json:"origin"`
 	Repository string `json:"repository"`
 	Database   string `json:"database"`
@@ -80,7 +87,7 @@ func runPreparedGitHubBrowser(t *testing.T, check, spec, scenario string, prepar
 
 func runPreparedGitHubBrowserRuntime(t *testing.T, enable, check, spec, scenario string, prepare func(*rehearsal)) {
 	if os.Getenv("SMITHERS_J10_BROWSER") != "1" {
-		t.Skip("set SMITHERS_J10_BROWSER=1 for the composed C-J10-01 and C-J10-05 browser journeys")
+		t.Skip("set SMITHERS_J10_BROWSER=1 for the composed C-J10-01, C-J10-03 and C-J10-05 browser journeys")
 	}
 	// Public repositories support drafts: later TODOs open as drafts.
 	t.Setenv("REHEARSAL_PUBLIC_REPOSITORY", "1")
@@ -98,9 +105,13 @@ func runPreparedGitHubBrowserRuntime(t *testing.T, enable, check, spec, scenario
 		t.FailNow()
 	}
 	var ben http.CookieJar
-	require.True(t, r.step("0b Ben signs in", "POST /api/members; GitHub sign-in", "maintainer Ben signed in", "T-ACC-02", func() error {
+	require.True(t, r.step("0b Ben signs in", "POST /api/members; GitHub sign-in", "Ben signed in", "T-ACC-02", func() error {
 		var err error
-		ben, err = r.member("ben", 201, "maintain")
+		permission := "maintain"
+		if spec == "foreign-push.spec.ts" {
+			permission = "write"
+		}
+		ben, err = r.member("ben", 201, permission)
 		return err
 	}))
 	cookies := func(jar http.CookieJar) []map[string]string {
@@ -119,6 +130,27 @@ func runPreparedGitHubBrowserRuntime(t *testing.T, enable, check, spec, scenario
 	host := j10BrowserHost{Origin: r.origin, Repository: "rehearsal-owner/app", Database: r.pool.Config().ConnString(), Commit: strings.TrimSpace(string(commit)),
 		Members: map[string]j10BrowserMember{"Owner": {Login: "rehearsal-owner", Cookies: cookies(r.jar)}, "Ben": {Login: "ben", Cookies: cookies(ben)}}}
 	host.GitHub.URL, host.GitHub.Git = r.fake.URL, filepath.Join(r.gitRoot, "rehearsal-owner/app.git")
+	if spec == "foreign-push.spec.ts" {
+		// Only the fake GitHub accepts the laptop action; no product authority or
+		// database fixture creates its wait. Production sync observes this push.
+		push := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			var input struct{ Branch, File, Text string }
+			if req.Method != "POST" || json.NewDecoder(req.Body).Decode(&input) != nil {
+				w.WriteHeader(400)
+				return
+			}
+			sha, err := r.fake.PushAs("rehearsal-owner/app", input.Branch, 201, "ben", "Laptop change", map[string]string{input.File: input.Text})
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"sha": sha})
+		}))
+		t.Cleanup(push.Close)
+		host.Push = push.URL
+		host.Kept = filepath.Join(r.repositoryRoot, "rehearsal-owner", "app", ".jj", "repo", "store", "git")
+	}
+
 	data, err := json.Marshal(host)
 	require.NoError(t, err)
 	hostFile := filepath.Join(t.TempDir(), "host.json")
@@ -132,14 +164,25 @@ func runPreparedGitHubBrowserRuntime(t *testing.T, enable, check, spec, scenario
 	playwright.Env = append(environment, "SMITHERS_REAL_BASE_URL="+r.origin, "SMITHERS_REAL_E2E_HOST=local", "SMITHERS_REAL_AUTH_KIND=owner-session",
 		"SMITHERS_J10_COMPOSED_HOST="+hostFile, "SMITHERS_REAL_E2E_REVISION="+host.Commit, "SMITHERS_REAL_TEST_GREP=@real-scenario:"+regexp.QuoteMeta(scenario)+`(?:\s|$)`,
 		"SMITHERS_REAL_E2E_REPORT="+filepath.Join(evidence, "results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(evidence, "artifacts"))
-	// Both specs are named journeys. Declare the composed install so the
+	// The specs are named journeys. Declare the composed install so the
 	// runner admits this rehearsal without claiming reference qualification.
 	playwright.Env = append(playwright.Env, "SMITHERS_JOURNEY="+specPath, "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile)
 	playwright.Stdout, playwright.Stderr = os.Stdout, os.Stderr
 	began := time.Now()
 	err = playwright.Run()
-	r.step("1 "+spec, "playwright e2e/real/github-j10/"+spec, "the spec passes against the composed install", "T-GH-03", func() error {
+	ticket := "T-GH-03"
+	if spec == "foreign-push.spec.ts" {
+		ticket = "T-GH-06"
+	}
+	r.step("1 "+spec, "playwright e2e/real/github-j10/"+spec, "the spec passes against the composed install", ticket, func() error {
 		r.actual = "playwright exited after " + time.Since(began).Round(time.Second).String() + "; evidence " + evidence
 		return err
 	})
+}
+
+func TestRehearsalJJDoesNotPreemptInitialization(t *testing.T) {
+	root := t.TempDir()
+	require.Error(t, provisionRehearsalJJ(root))
+	_, err := os.Stat(filepath.Join(root, ".jj"))
+	require.True(t, os.IsNotExist(err), "an early source read must leave jj initialization possible")
 }

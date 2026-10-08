@@ -69,12 +69,13 @@ const input = { prompt: "Add a greet function with a test", feedback: "keep the 
 /** PreparePlan on the real engine with the model actions scripted: each
  * records the prompt the model would receive (planningPrompt), and the human
  * task records every question it is asked. */
-const host = (clarification: string) => {
+const host = (clarification: string, gather = () => context, onAnswer: () => void | Promise<void> = () => {}) => {
   const seen = {
     review: [] as Array<string>,
     draft: [] as Array<string>,
     answer: [] as Array<unknown>,
-    asked: [] as Array<string>
+    asked: [] as Array<string>,
+    checkpoints: [] as Array<string | undefined>
   }
   const layer = Layer.mergeAll(
     Interpreter.layer(PreparePlan),
@@ -84,9 +85,13 @@ const host = (clarification: string) => {
     })))),
     declineLayer,
     planningPolicy,
-    HumanTask.action.toLayer(({ prompt }) => Effect.sync(() => (seen.asked.push(prompt), "Answered now"))),
+    HumanTask.action.toLayer(({ prompt }) => Effect.promise(async () => {
+      seen.asked.push(prompt)
+      await onAnswer()
+      return "Answered now"
+    })),
     VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
-    GatherContext.toLayer(() => Effect.succeed(context)),
+    GatherContext.toLayer((input) => Effect.sync(() => { seen.checkpoints.push(input.checkpoint); return gather() })),
     ReviewRequest.toLayer((payload) =>
       Effect.sync(() => {
         seen.review.push(planningPrompt(payload))
@@ -164,4 +169,33 @@ test("carriedAnswer matches a question by its words, ignoring case and spacing",
   assert.equal(carriedAnswer(undefined, where), undefined)
   assert.equal(carriedAnswer([], where), undefined)
   assert.equal(carriedAnswer(answers, ""), undefined)
+})
+
+test("a checkpoint during a question refreshes source before the draft and keeps the answer", { timeout: 60_000 }, async t => {
+  let current = context
+  const updated = { ...context, head: { ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" },
+    history: [{ ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" }] }
+  let opened!: () => void, answered!: () => void
+  const questionOpen = new Promise<void>(resolve => { opened = resolve })
+  const answerReady = new Promise<void>(resolve => { answered = resolve })
+  const { runtime, seen } = host("Should greet trim its input?", () => current, async () => {
+    opened()
+    await answerReady
+    current = updated
+  })
+  t.after(() => runtime.dispose())
+  const running = runtime.runPromise(PreparePlan.execute(input, { executionId: "checkpoint-answer" }))
+  await questionOpen
+  try {
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.deepEqual(seen.checkpoints, [undefined], "no source receipt before the answer")
+    assert.deepEqual(seen.draft, [])
+  } finally { answered() }
+  const plan = await running
+  assert.deepEqual(seen.asked, ["Should greet trim its input?"])
+  assert.deepEqual(seen.answer, ["Answered now"])
+  assert.equal(JSON.parse(seen.review[0]!).context.head.commitId, "commit-head")
+  assert.equal(JSON.parse(seen.draft[0]!).context.head.commitId, "brought-in")
+  assert.equal(plan.base.commitId, "brought-in")
+  assert.deepEqual(seen.checkpoints, [undefined, "after-answer"])
 })

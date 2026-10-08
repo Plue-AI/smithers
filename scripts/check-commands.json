@@ -347,7 +347,7 @@
     },
     "C-J10-03": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/github-j10/foreign-push.spec.ts",
+      "reason": "Spec: apps/app/e2e/real/github-j10/foreign-push.spec.ts; composed driver: TestJ10ForeignPushBrowser (SMITHERS_J10_BROWSER=1); reference-host qualification and executable mapping approval pending",
       "ticket": "T-GH-06"
     },
     "C-J10-04": {
