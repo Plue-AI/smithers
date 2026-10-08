@@ -360,3 +360,124 @@ func TestTodoTransitionLiteralCases(t *testing.T) {
 	require.Equal(t, 12, refused)
 	t.Logf("literal Drop cases: %d accepted, %d refused; other trigger matrices remain separate", accepted, refused)
 }
+
+// Retry reads failure facts, even when a pause or independent branch wait
+// masks Failed. The public command must not reuse the broader engine helper's
+// historical rejected/declined retry permissions for a dropped TODO.
+func TestTodoRetryTransitionLiteralCases(t *testing.T) {
+	h := newTodoLiteralInstall(t)
+	ctx := t.Context()
+	cases := []struct {
+		engine string
+		from   [3]string
+		status int
+	}{
+		{"queued", [3]string{"queued", "paused", "needs_you"}, 409},
+		{"skipped", [3]string{"queued", "paused", "needs_you"}, 409},
+		{"running", [3]string{"working", "paused", "needs_you"}, 409},
+		{"delivering", [3]string{"working", "paused", "needs_you"}, 409},
+		{"integrating", [3]string{"working", "paused", "needs_you"}, 409},
+		{"verifying", [3]string{"working", "paused", "needs_you"}, 409},
+		{"proposing", [3]string{"working", "paused", "needs_you"}, 409},
+		{"waiting", [3]string{"working", "paused", "needs_you"}, 409},
+		{"retrying", [3]string{"working", "paused", "needs_you"}, 409},
+		{"proposed", [3]string{"in_review", "paused", "needs_you"}, 409},
+		{"blocked", [3]string{"failed", "paused", "needs_you"}, 202},
+		{"landed", [3]string{"merged", "merged", "merged"}, 409},
+		{"cancelled", [3]string{"dropped", "dropped", "dropped"}, 409},
+		{"rejected", [3]string{"dropped", "dropped", "dropped"}, 409},
+		{"declined", [3]string{"dropped", "dropped", "dropped"}, 409},
+	}
+	modes := []struct {
+		name   string
+		paused bool
+		waits  []map[string]any
+		after  string
+	}{
+		{"plain", false, []map[string]any{}, "queued"},
+		{"paused", true, []map[string]any{}, "queued"},
+		{"branch-wait", true, []map[string]any{{"id": "f", "kind": "foreign_push", "prompt": "Outside push", "since": "2026-10-02T12:00:01Z"}}, "needs_you"},
+	}
+	eventCount := func() int {
+		t.Helper()
+		var n int
+		require.NoError(t, h.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&n))
+		return n
+	}
+	accepted, refused := 0, 0
+	for _, c := range cases {
+		for m, mode := range modes {
+			t.Run(c.engine+"/retry/"+mode.name, func(t *testing.T) {
+				retained := []map[string]any{{"attempt": 1, "revision": "old-head", "items": []any{}, "run_id": "old-run", "outcome": "failed"}}
+				checks, err := json.Marshal(map[string]any{"todo": true, "waits": mode.waits, "attempts": retained})
+				require.NoError(t, err)
+				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,pr_state='',paused_at=CASE WHEN $4 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, mode.paused)
+				require.NoError(t, err)
+				before, err := h.q.GetMythicalItem(ctx, h.item.ID)
+				require.NoError(t, err)
+				status, card := h.call(t, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, c.from[m], card["state"])
+				events := eventCount()
+				key := "literal-retry-" + c.engine + "-" + mode.name
+				status, receipt := h.call(t, "POST", `{"op":"retry"}`, key)
+				require.Equal(t, c.status, status, receipt)
+				after, err := h.q.GetMythicalItem(ctx, h.item.ID)
+				require.NoError(t, err)
+				if c.status == 409 {
+					require.Equal(t, "todo_transition_refused", receipt["code"])
+					require.Equal(t, c.from[m], receipt["from"])
+					require.Equal(t, "retry", receipt["trigger"])
+					require.Equal(t, before, after)
+					require.Equal(t, events, eventCount())
+					refused++
+					return
+				}
+				require.Equal(t, "queued", after.State)
+				require.False(t, after.PausedAt.Valid)
+				require.EqualValues(t, 1, after.Attempt, "admission, rather than the request, advances the attempt")
+				require.Equal(t, float64(2), receipt["attempt"])
+				var saved, original map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(after.Checks, &saved))
+				require.NoError(t, json.Unmarshal(before.Checks, &original))
+				require.JSONEq(t, string(original["attempts"]), string(saved["attempts"]), "Retry preserves the ended attempt")
+				if len(mode.waits) > 0 {
+					require.JSONEq(t, string(original["waits"]), string(saved["waits"]), "Retry settles no independent branch wait")
+				} else {
+					var waits []json.RawMessage
+					if len(saved["waits"]) > 0 {
+						require.NoError(t, json.Unmarshal(saved["waits"], &waits))
+					}
+					require.Empty(t, waits)
+				}
+				require.Equal(t, events+1, eventCount())
+				var data []byte
+				require.NoError(t, h.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.retried' ORDER BY sequence DESC LIMIT 1`).Scan(&data))
+				var fact map[string]any
+				require.NoError(t, json.Unmarshal(data, &fact))
+				require.Equal(t, c.from[m], fact["from"])
+				require.Equal(t, mode.after, fact["to"])
+				actor := fact["actor"].(map[string]any)
+				require.Equal(t, "person", actor["kind"])
+				require.Equal(t, "maya", actor["login"])
+				require.Equal(t, "maya", actor["name"])
+				status, card = h.call(t, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, mode.after, card["state"])
+				replayStatus, replay := h.call(t, "POST", `{"op":"retry"}`, key)
+				require.Equal(t, 202, replayStatus, replay)
+				require.Equal(t, receipt, replay)
+				require.Equal(t, events+1, eventCount())
+				status, refusal := h.call(t, "POST", `{"op":"retry"}`, key+"-again")
+				require.Equal(t, 409, status, refusal)
+				require.Equal(t, "todo_transition_refused", refusal["code"])
+				require.Equal(t, mode.after, refusal["from"])
+				require.Equal(t, events+1, eventCount())
+				accepted++
+			})
+		}
+	}
+	require.Equal(t, 3, accepted)
+	require.Equal(t, 42, refused)
+	t.Logf("literal Retry cases: %d accepted, %d refused", accepted, refused)
+}

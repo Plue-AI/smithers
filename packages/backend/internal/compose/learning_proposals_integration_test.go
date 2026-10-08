@@ -317,7 +317,10 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 						Lessons int
 						Receipt services.LearningReceipt `json:"lessons_receipt"`
 					}
-					Home struct{ Counts map[string]int }
+					Home struct {
+						Items  []json.RawMessage
+						Counts map[string]int
+					}
 				}
 			}
 			require.NoError(t, json.Unmarshal(delta.Data, &event))
@@ -326,12 +329,22 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 			require.Equal(t, 2, event.Data.Card.Lessons)
 			require.Equal(t, "learning-1", event.Data.Card.Receipt.Run)
 			require.Len(t, event.Data.Card.Receipt.Lessons, 2)
-			require.Equal(t, 1, event.Data.Home.Counts["merged"])
+			// Home filters the current stack; completed TODOs have left it.
+			require.Empty(t, event.Data.Home.Items)
+			require.Equal(t, 0, event.Data.Home.Counts["merged"])
 			reloaded := readLive(topic, nil)
 			require.Equal(t, "snap", reloaded.T)
 			require.Equal(t, delta.Cursor, reloaded.Cursor, "completion replay must not advance the source again")
 			if topic == "todo:1" {
 				require.Contains(t, string(reloaded.Data), `"lessons":2`)
+			} else {
+				var home struct {
+					Items  []json.RawMessage
+					Counts map[string]int
+				}
+				require.NoError(t, json.Unmarshal(reloaded.Data, &home))
+				require.Empty(t, home.Items)
+				require.Equal(t, 0, home.Counts["merged"])
 			}
 		}
 
