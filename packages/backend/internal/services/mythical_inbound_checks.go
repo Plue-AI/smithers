@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -50,6 +51,10 @@ func (s *MythicalService) consumeGitHubCheckTodos(ctx context.Context, tx pgx.Tx
 		if !strings.EqualFold(owner, source.OwnerLogin) || !strings.EqualFold(repo, source.RepoName) {
 			continue
 		}
+		// The stack lock serializes the source self-loop with item transitions.
+		if _, err := tx.Exec(ctx, `SELECT repository_id FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
+			return nil, err
+		}
 		items, err := q.ListMythicalGitHubBranchItems(ctx, repository)
 		if err != nil {
 			return nil, err
@@ -57,6 +62,15 @@ func (s *MythicalService) consumeGitHubCheckTodos(ctx context.Context, tx pgx.Tx
 		for _, item := range items {
 			if !mythicalTodo(item) || !item.PRNumber.Valid || item.PRNumber.Int64 != fetched.Number || item.PRHead != snapshot.Head || mythicalSettledStates[item.State] {
 				continue
+			}
+			if todoState(item) == "in_review" && item.Number.Valid {
+				fact, err := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "head": snapshot.Head, "from": "in_review", "to": "in_review", "actor": map[string]string{"kind": "system", "id": "smithers"}})
+				if err != nil {
+					return nil, err
+				}
+				if _, err := s.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.checks_updated", "in_review", fact); err != nil {
+					return nil, err
+				}
 			}
 			affected, err := q.RequestMythicalStack(ctx, repository)
 			if err != nil {
