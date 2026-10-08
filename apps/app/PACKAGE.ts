@@ -362,6 +362,14 @@ const journeyAskRepository = Smithers.NodeTest({
   deps: [], exclusive: true, cache: false, timeout: "7m", cwd
 })
 
+/** C-J4-02 on the reference install; the composed install runs its Move step from packages/backend. */
+const journeyTodoStackActions = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-stack-actions"]),
+  srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
+  deps: [], exclusive: true, cache: false, timeout: "45m", cwd
+})
+
 /**
  * The evidence flow (EVIDENCE-CONTRACT.md): proofRecord drives the real bundle
  * through every journey's proof spec (e2e/proof) with real models and records
@@ -552,5 +560,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, proofRecord, proofPage, webSources, ...securityReview }
 })

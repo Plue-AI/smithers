@@ -490,8 +490,9 @@
     },
     "C-J4-02": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-stack-actions.spec.ts",
-      "ticket": "T-STK-02"
+      "reason": "Automation present: apps/app/e2e/real/todo-stack-actions.spec.ts (reference install, pending on the mini); the Move step passes on the composed install (packages/backend TestTodoStackMoveJourneyComposedInstall, apps/app/e2e/real/todo-stack-actions.browser.ts)",
+      "ticket": "T-STK-02",
+      "pendingBinding": { "target": "//apps/app:journeyTodoStackActions" }
     },
     "C-J4-03": {
       "status": "pending-owner",
@@ -524,7 +525,7 @@
     },
     "C-J7-01": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/todo-placement.spec.ts",
+      "reason": "Automation present: apps/app/e2e/real/todo-placement.spec.ts (reference install, pending on the mini); the Before placement passes on the composed install (packages/backend TestTodoPlacementJourneyComposedInstall, apps/app/e2e/real/todo-placement.browser.ts)",
       "ticket": "T-STK-02"
     },
     "C-J7-02": {

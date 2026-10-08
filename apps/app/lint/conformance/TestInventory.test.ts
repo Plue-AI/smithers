@@ -193,7 +193,8 @@ interface ExclusiveRunner {
 }
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
   Package.viewStories, Package.journeyJ1Activation, Package.journeyJ1Release, Package.journeyKeyboard, Package.journeyFreshRepository, Package.journeyWikiGeneratedRefresh, Package.journeyWikiCoedit, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
-  Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository
+  Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository,
+  Package.journeyTodoStackActions
 ].map(target => metadata(target).attrs)))`)
 
 // Read only the actual Bun.spawn argv. The J2 wrapper interpolates its one
@@ -283,7 +284,8 @@ test("exclusive browser ownership requires the exported target and executable se
     "e2e/real/j1.spec.ts", "e2e/real/keyboard-journeys.spec.ts", "e2e/real/fresh-repository.spec.ts", "e2e/real/wiki-generated-refresh.spec.ts", "e2e/real/wiki-coedit.spec.ts",
     "e2e/real/setup.spec.ts", "e2e/real/wiki-obsidian.spec.ts",
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
-    "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts"]
+    "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts",
+    "e2e/real/todo-stack-actions.spec.ts"]
   expect(exclusiveRunners).toHaveLength(paths.length)
   for (const target of exclusiveRunners) {
     const source = read(target.runner.entry.path)
