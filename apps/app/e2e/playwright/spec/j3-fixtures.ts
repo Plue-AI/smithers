@@ -2,6 +2,7 @@ import type { BranchCard } from "@smthrs/rpc/BranchCard"
 import type { Actor } from "@smthrs/rpc/CardPrimitives"
 import type { Page } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
+import { identityRoute } from "../identity"
 
 export const alice: Actor = { kind: "person", login: "alice", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }
 export const maya: Actor = { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 2, via: "ssh" }
@@ -21,6 +22,9 @@ export const branch = (presence: BranchCard["presence"] = [], state: "awake" | "
 // No claim of actual leases, SSH authentication or reference-host execution.
 export async function liveBranch(page: Page, initial: BranchCard) {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  // Install live subscriptions require the browser session, independently of
+  // the delegated /api/user identity used by non-install fixtures.
+  await page.route("**/api/auth/session", identityRoute())
   let current = initial
   const subscribers = new Set<() => void>()
   await page.route("**/api/branches", route => route.fulfill({ json: [{ name: current.name, kind: "item", state: current.machine.state, machine: { id: current.id } }] }))
