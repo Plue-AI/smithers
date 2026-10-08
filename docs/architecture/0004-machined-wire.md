@@ -158,7 +158,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 
 | id | method | arguments | result | S2 owner; until then |
 | --- | --- | --- | --- | --- |
-| 1 | `status` | — | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16` | T-COL-03a |
+| 1 | `status` | — | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16`, `7 bursts_idle: bool`?, `8 documents_flushed: bool`? | T-COL-03a, T-MCH-06 |
 | 2 | `read_file` | `1 path: str`, `2 at: oid`? | `1 content: bytes`, `2 digest: digest`, `3 mode: u32` | T-COL-03a |
 | 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
@@ -185,6 +185,8 @@ before ready, and after every roster change. A missing/unsupported roster hook
 must prevent session admission, not grant access. `set_roster` is host-only.
 
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
+
+T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation; older daemons therefore retain their machine instead of authorizing safe-idle release. Capture still flushes, snapshots, publishes and drains before stop.
 
 Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
 (`set_roster`) answers `not_ready`.

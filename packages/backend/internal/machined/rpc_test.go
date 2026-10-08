@@ -130,7 +130,7 @@ func answerCaptureStatus(t *testing.T, peer net.Conn, state byte, depth uint32, 
 }
 
 func TestRegistryCaptureRequiresAuthenticatedDrain(t *testing.T) {
-	for _, outcome := range []string{"drained", "cancelled", "replaced", "missing_ack", "wrong_head", "not_ready"} {
+	for _, outcome := range []string{"drained", "cancelled", "replaced", "missing_ack", "wrong_head", "not_ready", "new_burst", "new_document"} {
 		t.Run(outcome, func(t *testing.T) {
 			r, _, peer := rpcFixture(t)
 			require.NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
@@ -151,6 +151,15 @@ func TestRegistryCaptureRequiresAuthenticatedDrain(t *testing.T) {
 				answerCaptureStatus(t, peer, 3, 1, head)
 				answerCaptureStatus(t, peer, 3, 0, head)
 				require.NoError(t, <-result)
+			case "new_burst", "new_document":
+				burst, document := byte(1), byte(1)
+				if outcome == "new_burst" {
+					burst = 0
+				} else {
+					document = 0
+				}
+				answer(t, peer, wire.Status, wire.Field(1, []byte{3}), wire.Field(2, wire.U16(7)), wire.Field(3, wire.String("fixture")), wire.Field(4, wire.U32(0)), wire.Field(5, head), wire.Field(6, wire.U16(0)), wire.Field(7, []byte{burst}), wire.Field(8, []byte{document}))
+				require.ErrorIs(t, <-result, ErrNotReady)
 			case "cancelled":
 				cancel()
 				require.ErrorIs(t, <-result, context.Canceled)
@@ -590,4 +599,45 @@ func TestRegistryRejectsFalseFileDigests(t *testing.T) {
 			require.ErrorIs(t, link.RequireReady("a"), ErrUnauthorized)
 		})
 	}
+}
+
+func TestRegistryIdleSafetyRequiresFreshCompleteEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		state          byte
+		fields         [][]byte
+		quiet, flushed bool
+		missing        bool
+	}{
+		{"old daemon", 3, nil, false, false, true},
+		{"missing flush", 3, [][]byte{wire.Field(7, []byte{1})}, false, false, true},
+		{"reconciling", 2, [][]byte{wire.Field(7, []byte{1}), wire.Field(8, []byte{1})}, false, false, true},
+		{"open burst", 3, [][]byte{wire.Field(7, []byte{0}), wire.Field(8, []byte{1})}, false, true, false},
+		{"unflushed", 3, [][]byte{wire.Field(7, []byte{1}), wire.Field(8, []byte{0})}, true, false, false},
+		{"quiet", 3, [][]byte{wire.Field(7, []byte{1}), wire.Field(8, []byte{1})}, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _, peer := rpcFixture(t)
+			defer peer.Close()
+			type observation struct {
+				quiet, flushed bool
+				err            error
+			}
+			got := make(chan observation, 1)
+			go func() { q, f, e := r.IdleSafety(t.Context(), "a"); got <- observation{q, f, e} }()
+			fields := [][]byte{wire.Field(1, []byte{tc.state}), wire.Field(2, wire.U16(7)), wire.Field(3, wire.String("fixture")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0))}
+			answer(t, peer, wire.Status, append(fields, tc.fields...)...)
+			result := <-got
+			if tc.missing {
+				require.ErrorIs(t, result.err, ErrNotReady)
+			} else {
+				require.NoError(t, result.err)
+			}
+			require.Equal(t, tc.quiet, result.quiet)
+			require.Equal(t, tc.flushed, result.flushed)
+		})
+	}
+	r := new(Registry)
+	_, _, err := r.IdleSafety(t.Context(), "missing")
+	require.Error(t, err)
 }

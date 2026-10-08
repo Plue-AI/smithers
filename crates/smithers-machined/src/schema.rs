@@ -39,7 +39,7 @@ fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(mat
 "result17" => &[(1,true,"list:mutation_result"),(2,false,"batch_failure")],
 "batch_failure" => &[(1,true,"u16"),(2,true,"bool"),(3,true,"error")],
 "local_write" => &[(1,true,"str"),(2,true,"base"),(3,true,"content")],
-"result1" => &[(1,true,"state"),(2,true,"version"),(3,true,"str"),(4,true,"u32"),(5,false,"oid"),(6,true,"u16")],
+"result1" => &[(1,true,"state"),(2,true,"version"),(3,true,"str"),(4,true,"u32"),(5,false,"oid"),(6,true,"u16"),(7,false,"bool"),(8,false,"bool")],
 "result2" => &[(1,true,"content"),(2,true,"digest"),(3,true,"u32")],
 "result3" => &[(1,true,"digest"),(2,false,"raced")],
 "raced" => &[(1,true,"str"),(2,true,"digest")],

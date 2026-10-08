@@ -111,3 +111,18 @@ export function projectBranchActivity(previous: unknown, delta: unknown): unknow
   }
   return [...rows.values()].slice(-200)
 }
+
+/** TODO source facts update the mounted branch without discarding its roster. */
+export function projectBranch(previous: unknown, delta: unknown): unknown {
+  const before = Branch.parse(previous)
+  const fact = delta as { Type?: unknown; Data?: { card?: unknown } } | undefined
+  if (typeof fact?.Type !== "string" || !fact.Type.startsWith("todo.")) throw new Error("Invalid Branch source fact")
+  const card = z.object({ n: z.number().int().positive(), title: z.string(), state: TodoStateSchema,
+    place: z.number().int().nonnegative().optional(), branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
+    steps: z.array(z.object({ state: z.string(), label: z.string() })).optional()
+  }).parse(fact.Data?.card)
+  if (card.branch.id !== before.id) throw new Error("Branch source binding changed")
+  const current = card.steps?.find(step => step.state === "current")
+  return Branch.parse({ ...before, machine: card.branch.machine,
+    item: { n: card.n, title: card.title, state: card.state, place: card.place ?? 0, ...(current ? { step: current.label } : {}) } })
+}

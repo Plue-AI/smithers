@@ -30,6 +30,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -39,6 +40,8 @@ import (
 // Real host storage and authenticated install routes, with a test guest.
 // This is not reference-host qualification of native working-copy capture.
 type sleepCountRuntime struct {
+	idleProviders microsandbox.AdmissionIdleProviders
+	idleHolder    string
 	workspace.WorkspaceRuntime
 	workspace.WorkspaceManagedHosts
 	workspace.WorkspaceSourceRevisionResolver
@@ -50,6 +53,14 @@ type sleepCountRuntime struct {
 	unreachable atomic.Bool
 	unconfirmed atomic.Bool
 	stopped     atomic.Bool
+}
+
+func (r *sleepCountRuntime) AdmissionSnapshot() []microsandbox.AdmissionRequest {
+	return []microsandbox.AdmissionRequest{{Holder: r.idleHolder, Class: "todo", State: "granted"}}
+}
+func (r *sleepCountRuntime) SetAdmissionIdleProviders(p microsandbox.AdmissionIdleProviders) error {
+	r.idleProviders = p
+	return nil
 }
 
 type sleepCaptureFunc func(context.Context, string) (machined.CaptureResult, error)
@@ -99,6 +110,10 @@ func (r *sleepCountRuntime) ReadFile(ctx context.Context, id, path string) ([]by
 func (r *sleepCountRuntime) ListFiles(ctx context.Context, id, path string) ([]workspace.FileEntry, error) {
 	r.reads.Add(1)
 	return r.WorkspaceRuntime.ListFiles(ctx, id, path)
+}
+
+func TestAdmissionIdleCaptureInstallHTTP(t *testing.T) {
+	branchSleepInstall(t, "idle")
 }
 
 func TestBranchSleepAuthenticatedCaptureInstallHTTP(t *testing.T) {
@@ -604,6 +619,54 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		defer func() { peer.Close(); <-done }()
 		capture = registry.Capture
 	}
+
+	if scenario == "idle" {
+		counted.idleHolder = "workspace:" + id
+		svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(counted), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers), services.WithBranchHeads(client), services.WithBranchCapture(captureProvider))
+		svc.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
+		safety := microsandbox.AdmissionSafety{IdleSince: time.Now().Add(-time.Hour), PresenceKnown: true, SessionsKnown: true, RunKnown: true, BurstsEnabled: true, BurstsKnown: true}
+		require.NoError(t, svc.EnableMachineIdleRelease(func(context.Context) (int64, error) { return 140 << 30, nil }, func(context.Context, db.Workspace) (microsandbox.AdmissionSafety, error) { return safety, nil }))
+		observed, err := counted.idleProviders.Safety(ctx)
+		require.NoError(t, err)
+		require.Len(t, observed, 1)
+		require.Equal(t, counted.idleHolder, observed[0].Holder)
+		before := counted.stops.Load()
+		safety.BurstsKnown = false
+		require.ErrorContains(t, counted.idleProviders.Prepare(ctx, counted.idleHolder), "no longer safe-idle")
+		require.Equal(t, before, counted.stops.Load())
+		safety.BurstsKnown = true
+
+		var arriving string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions(workspace_id,repository_id,user_id,kind,status) VALUES($1,$2,$3,'terminal','pending') RETURNING id`, id, repo.ID, owner.ID).Scan(&arriving))
+		require.ErrorContains(t, counted.idleProviders.Prepare(ctx, counted.idleHolder), "admission changed before capture")
+		require.Equal(t, before, counted.stops.Load(), "a new terminal cannot begin a force-stop timer")
+		_, err = pool.Exec(ctx, `DELETE FROM workspace_sessions WHERE id=$1`, arriving)
+		require.NoError(t, err)
+		successful := capture
+		capture = func(context.Context, string) (machined.CaptureResult, error) {
+			return machined.CaptureResult{}, errors.New("unacknowledged unsaved edit")
+		}
+		require.Error(t, counted.idleProviders.Prepare(ctx, counted.idleHolder))
+		require.Equal(t, before, counted.stops.Load())
+		retained, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "running", retained.Status)
+		capture = successful
+		require.NoError(t, counted.idleProviders.Prepare(ctx, counted.idleHolder))
+		require.NoError(t, counted.idleProviders.Stop(ctx, counted.idleHolder))
+		require.Equal(t, before+1, counted.stops.Load())
+		var projected services.BranchMachineResponse
+		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projected))
+		require.Equal(t, "asleep", projected.State)
+		require.Equal(t, head, projected.Head)
+		for file, expected := range map[string]string{"src/retry.ts": retry, "src/backoff.ts": backoff} {
+			var retained struct{ Content struct{ Text string } }
+			require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/"+file, 200), &retained))
+			require.Equal(t, expected, retained.Content.Text)
+		}
+		return
+	}
+
 	sleep(200)
 	row, err = q.GetWorkspace(ctx, id)
 	require.NoError(t, err)

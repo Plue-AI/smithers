@@ -1073,3 +1073,27 @@ fn watcher_presence_requires_session_sink_before_activation() {
     assert!(shared.sink.frames.lock().unwrap().is_empty());
     executor.shutdown().unwrap();
 }
+
+#[test]
+fn idle_observation_drains_real_inotify_and_blocks_open_bursts() {
+    let (shared, executor) = setup();
+    let idle = || {
+        executor
+            .lock
+            .run_blocking("idle", |cx| {
+                let watcher = cx.hooks.watcher.clone();
+                watcher.idle(cx)
+            })
+            .unwrap()
+    };
+    assert!(idle().unwrap());
+    fs::write(
+        shared.f.lock().unwrap().root.join("idle.txt"),
+        b"unsaved member bytes",
+    )
+    .unwrap();
+    assert!(!idle().unwrap());
+    close(&executor);
+    assert!(idle().unwrap());
+    executor.shutdown().unwrap();
+}

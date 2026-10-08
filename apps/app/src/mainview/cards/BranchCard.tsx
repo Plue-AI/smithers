@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useBranchPresence, useTopic } from "../state/useTopic"
-import { branchModel, branchSeedAvailable, projectBranchActivity } from "../state/seams/BranchSeam"
+import { branchModel, branchSeedAvailable, projectBranch, projectBranchActivity } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -138,7 +138,10 @@ const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; 
 export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const topic = controller.live ? `branch:${card.payload.id}` : undefined
-  if (topic) controller.live?.registerProjection?.(`${topic}:activity`, projectBranchActivity)
+  if (topic) {
+    controller.live?.registerProjection?.(topic, projectBranch)
+    controller.live?.registerProjection?.(`${topic}:activity`, projectBranchActivity)
+  }
   const roster = useSyncExternalStore(controller.membersRoster?.subscribe ?? (() => () => {}),
     controller.membersRoster?.get ?? (() => undefined), controller.membersRoster?.get ?? (() => undefined))
   const branch = useTopic(topic, controller.live)

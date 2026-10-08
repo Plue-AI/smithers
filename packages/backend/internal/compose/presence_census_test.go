@@ -214,3 +214,15 @@ func TestLiveRevocationFollowsTheLiveSocketSource(t *testing.T) {
 	routes.SetRevocationSource(bus)
 	require.Equal(t, presenceRevocation(bus), liveRevocation())
 }
+
+func TestAdmissionIdleObservationMissingSources(t *testing.T) {
+	f := presenceInstall(t)
+	observe := machineIdleObserver(f.pool, nil, nil, nil, false)
+	safety, err := observe(t.Context(), f.row)
+	require.NoError(t, err)
+	require.True(t, safety.SessionsKnown, "real session queries must succeed")
+	require.False(t, safety.PresenceKnown)
+	require.False(t, safety.RunKnown)
+	require.False(t, safety.BurstsKnown)
+	require.True(t, safety.IdleSince.IsZero(), "missing authorities cannot start the safe-idle clock")
+}

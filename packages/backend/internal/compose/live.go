@@ -160,6 +160,31 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 				}
 				return branchItemProjection(raw, []map[string]any{card})
 			}
+			if t.jobs != nil {
+				lane, err := t.queries.GetMythicalLane(ctx, strings.TrimPrefix(source.Key, "branch:"))
+				if err == nil {
+					item, err := t.queries.GetMythicalItem(ctx, lane.ItemID)
+					if err != nil || lane.RepositoryID != repository || item.RepositoryID != repository {
+						return live.Source{}, live.Unsupported
+					}
+					source = liveJobSource(source, t.jobs, jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: "todo:" + uuid.UUID(item.ID.Bytes).String()})
+					source.RefreshEvery = 250 * time.Millisecond
+					source.RefreshSnapshot = liveSnapshotKey
+					source.RefreshDelta = func(previous, event json.RawMessage) json.RawMessage {
+						var fact struct{ Data struct{ Card map[string]any } }
+						if json.Unmarshal(event, &fact) != nil || fact.Data.Card == nil {
+							return nil
+						}
+						projected, err := branchItemProjection(previous, []map[string]any{fact.Data.Card})
+						if err != nil {
+							return nil
+						}
+						return liveSnapshotKey(projected)
+					}
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return live.Source{}, live.Unsupported
+				}
+			}
 			return source, ""
 		}
 		return t.resolve(ctx, topic, repository, slug, member)
@@ -526,7 +551,18 @@ func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.Raw
 			place = 0
 		}
 		item := map[string]any{"n": todo["n"], "title": todo["title"], "state": todo["state"], "place": place}
-		if steps, ok := todo["steps"].([]map[string]any); ok {
+		var steps []map[string]any
+		switch rows := todo["steps"].(type) {
+		case []map[string]any:
+			steps = rows
+		case []any:
+			for _, row := range rows {
+				if step, ok := row.(map[string]any); ok {
+					steps = append(steps, step)
+				}
+			}
+		}
+		if steps != nil {
 			for _, step := range steps {
 				if step["state"] == "current" {
 					item["step"] = step["label"]
@@ -535,6 +571,9 @@ func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.Raw
 			}
 		}
 		model["item"] = item
+		if machine, ok := branch["machine"].(map[string]any); ok {
+			model["machine"] = machine
+		}
 		delete(model, "scratch")
 		if pending, ok := todo["rebase_pending"].(map[string]any); ok {
 			model["rebase"] = map[string]any{"state": "pending", "onto": pending["onto"]}

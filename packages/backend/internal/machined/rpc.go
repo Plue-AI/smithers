@@ -227,6 +227,23 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 	return result, nil
 }
 
+// IdleSafety is fresh authenticated evidence, never a cached empty inventory.
+// Older daemons omit the optional observations and cannot authorize release.
+func (r *Registry) IdleSafety(ctx context.Context, branch string) (burstsIdle, documentsFlushed bool, err error) {
+	l, err := r.Current(branch)
+	if err != nil {
+		return false, false, err
+	}
+	fields, err := l.call(ctx, branch, wire.Status)
+	if err != nil {
+		return false, false, err
+	}
+	if fields[1][0] != 3 || len(fields[7]) != 1 || len(fields[8]) != 1 {
+		return false, false, ErrNotReady
+	}
+	return fields[7][0] == 1, fields[8][0] == 1, nil
+}
+
 func (r *Registry) Capture(ctx context.Context, branch string) (CaptureResult, error) {
 	l, err := r.Current(branch)
 	if err != nil {
@@ -254,6 +271,11 @@ func (r *Registry) Capture(ctx context.Context, branch string) (CaptureResult, e
 			return CaptureResult{}, ErrNotReady
 		}
 		if binary.BigEndian.Uint32(status[4]) == 0 {
+			// New writes observed while the capture drained are not part of
+			// its acknowledged head. Retain the live machine and retry capture.
+			if status[7] != nil && status[7][0] != 1 || status[8] != nil && status[8][0] != 1 {
+				return CaptureResult{}, ErrNotReady
+			}
 			if hex.EncodeToString(status[5]) != result.Head {
 				return CaptureResult{}, fmt.Errorf("capture head was not acknowledged")
 			}

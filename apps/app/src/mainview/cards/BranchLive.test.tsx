@@ -26,6 +26,13 @@ test("a demo keeps its seed on refused topics, then prefers a complete live proj
     expect(host.textContent).toContain("Captured live branch")
     expect(host.textContent).not.toContain("Retry failed webhooks")
     expect(host.querySelector("[data-flow]")).toBeNull()
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "delta", id: 1, cursor: 2, data: {
+      Type: "todo.started", Data: { card: { n: 5, title: "Admitted work", state: "starting", place: 1,
+        branch: { id: "b-retry", name: "Captured live branch", machine: { state: "waking" } } } }
+    } }) }))
+    expect(host.textContent).toContain("Starting")
+    expect(host.textContent).toContain("Waking")
+    expect(host.textContent).toContain("Admitted work")
   } finally { await act(async () => root.unmount()); live.dispose(); controller.design.dispose() }
 })
 

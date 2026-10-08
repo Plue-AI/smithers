@@ -22,6 +22,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
@@ -338,6 +339,17 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 		json.RawMessage(`[{"rev":1,"text":"Use the committed runtime"}]`),
 		json.RawMessage(`{"todo":true,"run_launched":true,"flowSource":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`))
 	require.NoError(t, err)
+	machineOwner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: "live-admission", Kind: "container", Status: "suspended", TargetBookmark: "smithers/live-admission"})
+	require.NoError(t, err)
+	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: branch.ID, OwnerUserID: machineOwner, GranteeUserID: owner.ID, Level: "write"})
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: branch.ID, RepositoryID: repo.ID, ItemID: third.ID, Name: "live-admission"})
+	require.NoError(t, err)
+	third.WorkspaceID = branch.ID
+	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)))
+	topics.presence = &branchPresence{queries: q, branches: branches}
 	third.State = "running"
 	third.Attempt = 1
 	third.FlowDigest = pgtype.Text{String: strings.Repeat("a", 64), Valid: true}
@@ -349,6 +361,11 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.Equal(t, "snap", admitted.T)
 	require.Contains(t, string(admitted.Data), `"state":"starting"`)
 	require.EqualValues(t, 0, *admitted.Cursor)
+	branchSocket := dial()
+	require.NoError(t, branchSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, branch.ID))))
+	branchInitial := read(branchSocket)
+	require.Equal(t, "snap", branchInitial.T)
+	require.Contains(t, string(branchInitial.Data), `"state":"starting"`)
 	// A fresh Home reader includes the seeded attempt before observing deltas.
 	transitionHome := dial()
 	require.NoError(t, transitionHome.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
@@ -393,6 +410,12 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 		require.EqualValues(t, index+3, *homeFrame.Cursor)
 		require.NoError(t, json.Unmarshal(homeFrame.Data, &fact))
 		require.Equal(t, 1, fact.Data.Home.Counts[expected])
+		branchFrame := read(branchSocket)
+		require.Equal(t, "delta", branchFrame.T)
+		require.EqualValues(t, index+1, *branchFrame.Cursor)
+		require.NoError(t, json.Unmarshal(branchFrame.Data, &fact))
+		require.Equal(t, expected, fact.Data.Card.State)
+		require.JSONEq(t, string(frame.Data), string(branchFrame.Data))
 		recorded = append(recorded, frame)
 		recordedHome = append(recordedHome, homeFrame)
 	}

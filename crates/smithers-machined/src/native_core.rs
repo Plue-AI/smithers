@@ -224,7 +224,9 @@ impl NativeCore {
 }
 impl Core for NativeCore {
     fn maintain(&self, cx: &mut LockCx) -> hooks::Result<()> {
-        if cx.rewrite_pending { return Err(crate::freeze::pending_error()); }
+        if cx.rewrite_pending {
+            return Err(crate::freeze::pending_error());
+        }
         self.require_settled_wake()?;
         // A settled rewrite no longer needs its rollback operation retained.
         self.native.settled().map_err(hook)?;
@@ -358,6 +360,14 @@ impl Core for NativeCore {
     fn call(&self, cx: &mut LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         match method {
             1 => {
+                let watcher = cx.hooks.watcher.clone();
+                let idle = watcher.idle(cx);
+                let flushed = cx
+                    .hooks
+                    .documents
+                    .ready()
+                    .is_ok()
+                    .then(|| cx.hooks.documents.all_flushed());
                 let mut fields = vec![
                     field(1, [2]),
                     field(2, conn::PROTOCOL.to_be_bytes()),
@@ -368,6 +378,14 @@ impl Core for NativeCore {
                     fields.push(field(5, acked));
                 }
                 fields.push(field(6, (self.sessions.live().len() as u16).to_be_bytes()));
+                // Optional observations preserve decoding of older status frames.
+                // Missing providers omit evidence rather than inventing quiet state.
+                if let Ok(idle) = idle {
+                    fields.push(field(7, [u8::from(idle)]));
+                }
+                if let Some(flushed) = flushed {
+                    fields.push(field(8, [u8::from(flushed)]));
+                }
                 Ok(structure_bytes(&fields))
             }
             4 => {
@@ -921,17 +939,15 @@ pub(crate) mod tests {
         let request = Frame {
             kind: 1,
             stream: 0,
-            payload: tagged(1, &[field(1, 73u32.to_be_bytes()), field(2, tagged(4, &[]))]),
+            payload: tagged(
+                1,
+                &[field(1, 73u32.to_be_bytes()), field(2, tagged(4, &[]))],
+            ),
         }
         .encode()
         .unwrap();
         let mut output = Vec::new();
-        rpc::serve_one(
-            &mut std::io::Cursor::new(request),
-            &mut output,
-            &mut cx,
-        )
-        .unwrap();
+        rpc::serve_one(&mut std::io::Cursor::new(request), &mut output, &mut cx).unwrap();
         Frame::decode(&output).unwrap()
     }
     fn call_with_documents(
@@ -1009,6 +1025,45 @@ pub(crate) mod tests {
             sessions: Arc::new(Disabled),
         });
         (dir, core)
+    }
+    #[test]
+    fn status_idle_observations_require_each_provider() {
+        struct Safety(bool);
+        impl Watcher for Safety {
+            fn idle(&self, _: &mut LockCx) -> hooks::Result<bool> {
+                Ok(self.0)
+            }
+        }
+        impl Documents for Safety {
+            fn ready(&self) -> hooks::Result<()> {
+                Ok(())
+            }
+            fn all_flushed(&self) -> bool {
+                self.0
+            }
+        }
+        let (_dir, core) = fixture();
+        for (quiet, flushed) in [(false, false), (false, true), (true, false), (true, true)] {
+            let mut cx = LockCx::new(Hooks {
+                watcher: Arc::new(Safety(quiet)),
+                documents: Arc::new(Safety(flushed)),
+                ..Default::default()
+            });
+            let body = core.call(&mut cx, 1, &[]).unwrap();
+            let fields = conn::fields("result1", &body).unwrap();
+            assert_eq!(
+                fields.iter().find(|(tag, _)| *tag == 7).unwrap().1,
+                [u8::from(quiet)]
+            );
+            assert_eq!(
+                fields.iter().find(|(tag, _)| *tag == 8).unwrap().1,
+                [u8::from(flushed)]
+            );
+        }
+        let mut cx = LockCx::new(Hooks::default());
+        let body = core.call(&mut cx, 1, &[]).unwrap();
+        let fields = conn::fields("result1", &body).unwrap();
+        assert!(fields.iter().all(|(tag, _)| *tag != 7 && *tag != 8));
     }
     #[test]
     fn dispatcher_native_capture_status_and_first_reconcile_use_durable_repository() {

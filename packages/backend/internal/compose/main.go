@@ -2057,6 +2057,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
 		defer stopPresence()
+		if options.InstallBranchMachines {
+			disk := options.Workspace.(interface {
+				FreeDisk(context.Context) (int64, error)
+			})
+			if err := workspaceService.EnableMachineIdleRelease(disk.FreeDisk, machineIdleObserver(pool, presence, options.Machined, mythicalService, options.LiveCodeDocuments)); err != nil {
+				return fmt.Errorf("compose automatic branch release: %w", err)
+			}
+		}
 		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
 		topics.main = repoHostClient

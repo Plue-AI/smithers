@@ -41,6 +41,10 @@ impl Error {
 }
 pub type Result<T> = std::result::Result<T, Error>;
 pub trait Watcher: Send + Sync {
+    /// Observe quiet state after draining kernel events, on the mutation lock.
+    fn idle(&self, _cx: &mut LockCx) -> Result<bool> {
+        Err(Error::unsupported())
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {

@@ -15,6 +15,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -27,6 +28,84 @@ type BranchCapture interface {
 
 func WithBranchCapture(capture BranchCapture) WorkspaceServiceOption {
 	return func(s *WorkspaceService) { s.branchCapture = capture }
+}
+
+// EnableMachineIdleRelease connects admission to the same capture/stop lifecycle
+// as explicit Sleep. The lifecycle owns its barrier and confirmed-stop receipt;
+// the scheduler never issues a second stop or captures on an unverified branch.
+func (s *WorkspaceService) EnableMachineIdleRelease(freeDisk func(context.Context) (int64, error), observe func(context.Context, db.Workspace) (microsandbox.AdmissionSafety, error)) error {
+	runtime, ok := s.runtime.(interface {
+		AdmissionSnapshot() []microsandbox.AdmissionRequest
+		SetAdmissionIdleProviders(microsandbox.AdmissionIdleProviders) error
+	})
+	if !ok || observe == nil || s.machineAdmission == nil {
+		return errors.New("automatic branch release providers unavailable")
+	}
+	return runtime.SetAdmissionIdleProviders(microsandbox.AdmissionIdleProviders{
+		FreeDisk: freeDisk,
+		Safety: func(ctx context.Context) ([]microsandbox.AdmissionSafety, error) {
+			seen := map[string]bool{}
+			var observations []microsandbox.AdmissionSafety
+			for _, request := range runtime.AdmissionSnapshot() {
+				if request.State != "granted" || request.Class == "background" || seen[request.Holder] || !strings.HasPrefix(request.Holder, "workspace:") {
+					continue
+				}
+				seen[request.Holder] = true
+				row, err := s.q.GetWorkspace(ctx, strings.TrimPrefix(request.Holder, "workspace:"))
+				if err != nil {
+					return nil, err
+				}
+				if row.Status != "running" || row.DeletedAt.Valid {
+					continue
+				}
+				safety, err := observe(ctx, row)
+				if err != nil {
+					return nil, err
+				}
+				safety.Holder = request.Holder
+				observations = append(observations, safety)
+			}
+			return observations, nil
+		},
+		Prepare: func(ctx context.Context, holder string) error {
+			id := strings.TrimPrefix(holder, "workspace:")
+			unlock := s.lockRuntimeWorkspace(id)
+			defer unlock()
+			row, err := s.q.GetWorkspace(ctx, id)
+			if err != nil {
+				return err
+			}
+			fresh, err := observe(ctx, row)
+			if err != nil {
+				return err
+			}
+			if !fresh.PresenceKnown || !fresh.SessionsKnown || !fresh.RunKnown || fresh.Presence || fresh.Terminal || fresh.SSH || fresh.RunningStep ||
+				fresh.BurstsEnabled && (!fresh.BurstsKnown || fresh.BurstOpen) || fresh.DocumentsEnabled && (!fresh.DocumentsKnown || fresh.Unflushed) {
+				return errors.New("branch is no longer safe-idle")
+			}
+			if err := s.captureAndSleepLocked(ctx, row, true); err != nil {
+				return err
+			}
+			current, err := s.q.GetWorkspace(ctx, id)
+			if err != nil {
+				return err
+			}
+			if current.Status != "suspended" && current.Status != "stopped" {
+				return errors.New("branch admission changed before capture")
+			}
+			return nil
+		},
+		Stop: func(ctx context.Context, holder string) error {
+			row, err := s.q.GetWorkspace(ctx, strings.TrimPrefix(holder, "workspace:"))
+			if err != nil {
+				return err
+			}
+			if row.Status != "suspended" && row.Status != "stopped" {
+				return errors.New("branch stop is unconfirmed")
+			}
+			return nil // captureAndSleepLocked already observed the runtime stop.
+		},
+	})
 }
 
 func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace, sessionless bool) error {

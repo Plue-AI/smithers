@@ -575,6 +575,12 @@ impl<
             .map_err(|_| hook_error(io::Error::other("watcher state poisoned")))?;
         state.1.activate().map_err(hook_error)
     }
+    fn idle(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<bool> {
+        self.job(cx, |w, p, now| {
+            w.drain(p, now)?;
+            Ok(!w.changes.writes_blocked() && w.changes.state.bursts.pending().is_empty())
+        })
+    }
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| w.drain(p, now))
     }

@@ -1,6 +1,6 @@
 import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { expect, test } from "bun:test"
-import { branchFileMachineScope, branchModel, branchSeedAvailable, createBrowserPresence, projectBranchActivity } from "./BranchSeam"
+import { branchFileMachineScope, branchModel, branchSeedAvailable, createBrowserPresence, projectBranch, projectBranchActivity } from "./BranchSeam"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
 test("branch fallback distinguishes a demo bootstrap from an install and a provider-only host", () => {
@@ -126,4 +126,15 @@ test("conversation activity decodes the agent's step and question, a steer and a
   expect(model.activity.every(entry => entry.files === undefined)).toBe(true)
   // The server omits files on conversation entries; a malformed one refuses the projection.
   expect(branchModel(branch, [{ ...events[2], files: [] }], [], "b1")).toBeUndefined()
+})
+
+test("TODO admission deltas preserve Branch participants while advancing queued to starting", () => {
+  const waiting = { ...branch, machine: { state: "waiting", position: 1 }, item: { n: 5, title: "Admission", state: "queued", place: 1 } }
+  const card = { n: 5, title: "Admission", state: "starting", branch: { id: "b1", name: "branch", machine: { state: "waking" } }, steps: [{ state: "current", label: "Prepare" }] }
+  const next = projectBranch(waiting, { Type: "todo.started", Data: { card } }) as { item: unknown; machine: unknown; presence: unknown; terminals: unknown }
+  expect(next.item).toEqual({ n: 5, title: "Admission", state: "starting", place: 0, step: "Prepare" })
+  expect(next.machine).toEqual({ state: "waking" })
+  expect(next.presence).toEqual(waiting.presence)
+  expect(next.terminals).toEqual(waiting.terminals)
+  for (const delta of [null, {}, { Type: "private.confirmation", Data: { card } }, { Type: "todo.started", Data: {} }, { Type: "todo.started", Data: { card: { ...card, branch: { ...card.branch, id: "other" } } } }]) expect(() => projectBranch(waiting, delta)).toThrow()
 })
