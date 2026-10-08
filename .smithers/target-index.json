@@ -28272,6 +28272,138 @@
     }
   },
   {
+    "label": "//apps/app:journeyGitHubMerge",
+    "package": "apps/app",
+    "name": "journeyGitHubMerge",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyGitHubMergeContinuation",
+    "package": "apps/app",
+    "name": "journeyGitHubMergeContinuation",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyGitHubPRShape",
+    "package": "apps/app",
+    "name": "journeyGitHubPRShape",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyJ1Activation",
     "package": "apps/app",
     "name": "journeyJ1Activation",

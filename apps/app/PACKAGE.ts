@@ -328,6 +328,21 @@ const journeyWikiCoedit = Smithers.NodeTest({
   deps: [], exclusive: true, cwd
 })
 
+/** Each GitHub journey selects one spec; wildcard runs omit reference qualification. */
+const githubJourney = (spec: string) => Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), [spec]),
+  timeout: "60m",
+  env: { SMITHERS_JOURNEY: spec, SMITHERS_CHAT_STUB: "0" },
+  cache: false,
+  srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [], exclusive: true, cwd
+})
+const journeyGitHubMerge = githubJourney("github-j10/merge-on-github.spec.ts")
+const journeyGitHubMergeContinuation = githubJourney("github-j10/merge-on-github-continuation.spec.ts")
+const journeyGitHubPRShape = githubJourney("github-j10/pr-shape.spec.ts")
+
 /** Dark reference-host journeys; wildcard selections omit these gates. */
 const journeyTodoFromIssue = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
@@ -560,5 +575,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, proofRecord, proofPage, webSources, ...securityReview }
 })

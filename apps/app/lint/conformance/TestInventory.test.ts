@@ -194,7 +194,7 @@ interface ExclusiveRunner {
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
   Package.viewStories, Package.journeyJ1Activation, Package.journeyJ1Release, Package.journeyKeyboard, Package.journeyFreshRepository, Package.journeyWikiGeneratedRefresh, Package.journeyWikiCoedit, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
   Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository,
-  Package.journeyTodoStackActions
+  Package.journeyTodoStackActions, Package.journeyGitHubMerge, Package.journeyGitHubMergeContinuation, Package.journeyGitHubPRShape
 ].map(target => metadata(target).attrs)))`)
 
 // Read only the actual Bun.spawn argv. The J2 wrapper interpolates its one
@@ -249,7 +249,7 @@ const exclusiveOwns = (path: string, target: ExclusiveRunner, source: string): b
     target.runner.args.length === 0 && path === "e2e/playwright/view-stories.spec.ts" &&
     runsStep(spawnArgv(source, undefined), ["pnpm", "exec", "playwright", "test", "--config", "playwright.config.ts", path])
   if (entry === "scripts/run-real-e2e.ts") return target.runner.args.length === 1 &&
-    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts", "fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
+    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts", "fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts", "github-j10/merge-on-github.spec.ts", "github-j10/merge-on-github-continuation.spec.ts", "github-j10/pr-shape.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
     path === `e2e/real/${target.runner.args[0]}` && invokesRealPlaywright(source) &&
     runnerEvidence(source).forwarding
   if (entry === "scripts/run-journey-j2.ts") return target.runner.args.length === 1 &&
@@ -285,7 +285,8 @@ test("exclusive browser ownership requires the exported target and executable se
     "e2e/real/setup.spec.ts", "e2e/real/wiki-obsidian.spec.ts",
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
     "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts",
-    "e2e/real/todo-stack-actions.spec.ts"]
+    "e2e/real/todo-stack-actions.spec.ts", "e2e/real/github-j10/merge-on-github.spec.ts",
+    "e2e/real/github-j10/merge-on-github-continuation.spec.ts", "e2e/real/github-j10/pr-shape.spec.ts"]
   expect(exclusiveRunners).toHaveLength(paths.length)
   for (const target of exclusiveRunners) {
     const source = read(target.runner.entry.path)

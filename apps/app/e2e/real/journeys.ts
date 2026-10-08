@@ -21,6 +21,8 @@ export const journeySpecs = [
   "flow-activation.spec.ts",
   "duplicate-launch.spec.ts",
   "github-j10/merge-on-github.spec.ts",
+  "github-j10/merge-on-github-continuation.spec.ts",
+  "github-j10/pr-shape.spec.ts",
   "github-j10/sync-health.spec.ts",
   "ask-repository.spec.ts",
   "todo-stack-actions.spec.ts",
