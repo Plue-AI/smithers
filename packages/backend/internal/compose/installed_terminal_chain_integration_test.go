@@ -92,6 +92,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	require.NoError(t, err)
 	defer relay.Close()
 	h := startRootLayerHarnessRuntime(t, true, rootLayerCodingFixture{bundle: bundle, registry: registry, profile: profile, relay: relay})
+	eventScan := startInstalledCredentialEventScan(t, h)
 	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n"})
 	h.runSetupThroughSource()
 	seedInstalledSecretFiles(t, h)
@@ -284,5 +285,6 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 		check(h, client, sshAddress, login, signer, member, uid)
 	}
 	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser, aliceBrowser)
+	eventScan.assertClean(t)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }

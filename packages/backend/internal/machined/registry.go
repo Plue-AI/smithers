@@ -34,6 +34,8 @@ type Registry struct {
 	eventsMu      sync.Mutex
 	eventsClosing bool
 	events        *eventConsumer
+	observationMu sync.Mutex
+	eventObserver func(string, []byte)
 }
 
 type boot struct {

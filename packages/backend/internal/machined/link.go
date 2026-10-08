@@ -314,6 +314,7 @@ func (l *Link) read() {
 				reply <- f
 			}
 		case wire.Events:
+			l.registry.observeEvent(l.boot.branch, f.Payload)
 			var event Event
 			switch f.Payload[0] {
 			case 1:

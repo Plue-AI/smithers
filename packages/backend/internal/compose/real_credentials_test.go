@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,7 +118,7 @@ func testInstalledCredentials(t *testing.T, h *rootLayerHarness, branch string, 
 	tables.Close()
 	require.NotEmpty(t, names)
 	for _, name := range names {
-		for _, sentinel := range []string{"mch-claude-A-fixture", "mch-codex-A-fixture", "mch-gh-A-fixture", "mch-claude-B-fixture", "mch-codex-B-fixture", "mch-gh-B-fixture", "mch-claude-A-refreshed"} {
+		for _, sentinel := range installedCredentialSentinels {
 			var copies int
 			require.NoError(t, h.pool.QueryRow(t.Context(), "SELECT count(*) FROM "+pgx.Identifier{"public", name}.Sanitize()+" t WHERE strpos(row_to_json(t)::text,$1)>0", sentinel).Scan(&copies))
 			require.Zero(t, copies, "tool login appeared in table %s", name)
@@ -268,4 +270,58 @@ func TestInstalledHomeWorkloadFixture(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	require.Error(t, err)
 	require.Contains(t, string(output), "FileExistsError")
+}
+
+// Inspect the raw authenticated stream, including transient hints and refused
+// durable events. Store counts only: no token-containing event is retained.
+type installedCredentialEventScan struct {
+	mu     sync.Mutex
+	frames int
+	hits   int
+}
+
+var installedCredentialSentinels = []string{
+	"mch-claude-A-fixture", "mch-codex-A-fixture", "mch-gh-A-fixture",
+	"mch-claude-B-fixture", "mch-codex-B-fixture", "mch-gh-B-fixture",
+	"mch-claude-A-refreshed",
+}
+
+func (s *installedCredentialEventScan) observe(_ string, payload []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames++
+	for _, sentinel := range installedCredentialSentinels {
+		if bytes.Contains(payload, []byte(sentinel)) {
+			s.hits++
+		}
+	}
+}
+
+func startInstalledCredentialEventScan(t *testing.T, h *rootLayerHarness) *installedCredentialEventScan {
+	t.Helper()
+	scan := new(installedCredentialEventScan)
+	stop, err := h.runtime.MachinedRegistry().ObserveEventFrames(scan.observe)
+	require.NoError(t, err)
+	t.Cleanup(func() { stop(); scan.assertClean(t) })
+	return scan
+}
+
+func (s *installedCredentialEventScan) assertClean(t *testing.T) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	require.Positive(t, s.frames, "credential check must observe real daemon events")
+	require.Zero(t, s.hits, "tool credential bytes appeared in raw daemon events")
+}
+
+func TestInstalledCredentialEventScanner(t *testing.T) {
+	scan := new(installedCredentialEventScan)
+	scan.observe("branch", []byte("ordinary capture"))
+	require.Equal(t, 1, scan.frames)
+	require.Zero(t, scan.hits)
+	scan.observe("branch", []byte("\x00mch-claude-A-fixture\x00mch-codex-A-fixture\x00mch-gh-A-fixture\x00"))
+	scan.observe("branch", []byte("mch-claude-B-fixture:mch-codex-B-fixture:mch-gh-B-fixture"))
+	scan.observe("branch", []byte("prefix:mch-claude-A-refreshed:suffix"))
+	require.Equal(t, 4, scan.frames)
+	require.Equal(t, 7, scan.hits)
 }

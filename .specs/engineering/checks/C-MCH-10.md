@@ -34,9 +34,17 @@ The native chain also denies Alice and agent reads of all three fixture login
 files, retains replacement terminals after wake, verifies logins across backend
 recomposition and checks B again after A logs out and B sleeps/wakes. Backend
 recomposition does not replace step 2's physical host-service restart. New-recipe
-recreation and exhaustive daemon-event evidence remain pending.
+recreation remains pending.
 
 Private-login reads by Alice and agent now require the kernel's `EACCES` for
 Ben's directory and all three login paths. Ben first reads the exact fixtures
 and verifies his home's literal uid, gid and mode; missing files cannot stand
 in for permission isolation. Native execution remains pending.
+
+The native chain now attaches a count-only diagnostic to the existing
+registry reader before the first boot. It scans every authenticated event
+frame before decoding or ingestion, including hints and refused events, for
+all seven literal credential sentinels. The observer survives recomposition
+and wake, requires a nonempty stream, and checks again on cleanup. It adds no
+second event consumer and retains no event bytes. Reference-host execution
+remains pending.
