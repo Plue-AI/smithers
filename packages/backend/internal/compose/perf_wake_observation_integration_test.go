@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -9,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -25,6 +27,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -48,6 +51,7 @@ type perfWakeRuntime struct {
 	row              db.Workspace
 	state            workspaceapi.WorkspaceState
 	mode             string
+	head             string
 	entered, release chan struct{}
 	once             sync.Once
 	registry         machined.Registry
@@ -143,9 +147,18 @@ func (r *perfWakeRuntime) ReadFile(_ context.Context, _, path string) ([]byte, e
 	if path != ".git/smithers-workspace-initialization.json" {
 		return nil, fmt.Errorf("unexpected guest file %q", path)
 	}
-	return json.Marshal(map[string]any{"version": 1, "workspace_id": r.row.ID, "repository_id": r.row.RepositoryID, "clone_url": perfWakeClone, "source_bookmark": r.row.TargetBookmark, "source_revision": perfWakeHead, "initialized_at": "2026-10-07T00:00:00Z"})
+	head := r.head
+	if head == "" {
+		head = perfWakeHead
+	}
+	return json.Marshal(map[string]any{"version": 1, "workspace_id": r.row.ID, "repository_id": r.row.RepositoryID, "clone_url": perfWakeClone, "source_bookmark": r.row.TargetBookmark, "source_revision": head, "initialized_at": "2026-10-07T00:00:00Z"})
 }
 func (r *perfWakeRuntime) ExecuteCommand(_ context.Context, _ string, cmd workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	for i, arg := range cmd.Args {
+		if r.head != "" {
+			cmd.Args[i] = strings.ReplaceAll(arg, r.head, perfWakeHead)
+		}
+	}
 	switch strings.Join(cmd.Args, " ") {
 	case "git remote get-url origin":
 		return workspaceapi.CommandResult{Stdout: perfWakeClone + "\n"}, nil
@@ -155,7 +168,11 @@ func (r *perfWakeRuntime) ExecuteCommand(_ context.Context, _ string, cmd worksp
 		if r.mode == "missing head" {
 			return workspaceapi.CommandResult{}, errors.New("controlled guest head refusal")
 		}
-		return workspaceapi.CommandResult{Stdout: perfWakeHead + "\n"}, nil
+		head := r.head
+		if head == "" {
+			head = perfWakeHead
+		}
+		return workspaceapi.CommandResult{Stdout: head + "\n"}, nil
 	default:
 		return workspaceapi.CommandResult{}, fmt.Errorf("unexpected guest command %q", cmd.Args)
 	}
@@ -410,6 +427,7 @@ type terminalFIFOGuests struct {
 	guests  map[string]*perfWakeRuntime
 	started chan string
 	booting chan string
+	cold    bool
 }
 
 func (r *terminalFIFOGuests) ReconstructAdmission(ctx context.Context, demand []microsandbox.AdmissionRequest) error {
@@ -426,8 +444,25 @@ func (r *terminalFIFOGuests) AdmissionOwnership(holder string) (bool, bool) {
 	return r.queue.AdmissionOwnership(holder)
 }
 func (r *terminalFIFOGuests) InspectWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	if r.cold {
+		return r.queue.InspectWorkspace(ctx, id)
+	}
 	return r.guests[id].InspectWorkspace(ctx, id)
 }
+func (r *terminalFIFOGuests) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
+	if !r.cold {
+		return workspaceapi.Workspace{}, errors.New("unexpected cold workspace")
+	}
+	result, err := r.queue.CreateWorkspace(ctx, spec)
+	if err == nil {
+		r.guests[spec.ID].mu.Lock()
+		r.guests[spec.ID].state = workspaceapi.WorkspaceRunning
+		r.guests[spec.ID].mu.Unlock()
+		r.started <- spec.ID
+	}
+	return result, err
+}
+
 func (r *terminalFIFOGuests) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
 	if r.guests[id].mode == "cancel boot" {
 		if err := r.queue.BindAdmissionMachine("workspace:"+id, "vm-"+id); err != nil {
@@ -462,6 +497,17 @@ func (r *terminalFIFOGuests) ExecuteCommand(ctx context.Context, id string, comm
 
 func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1, 1, false)
+}
+func TestTodoPersonPromotionInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "promote")
+}
+
+func TestTodoPersonConcurrentPromotionInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 25, 1, false, "promote")
+}
+
+func TestColdTerminalPrepareHandoffInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 1, 1, 1, false, "cold")
 }
 func TestSuccessfulScratchReplayInstallBoundary(t *testing.T) {
 	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 1, false, "replay")
@@ -506,21 +552,62 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	binary := filepath.Join(root, "msb")
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0700))
 	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}
-	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &profile, MaxRunningVMs: slots, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+	config := microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &profile, MaxRunningVMs: slots, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768}
+	var recorder *recordingMSB
+	var sourceHead string
+	if constraint == "cold" {
+		recorder = newRecordingMSB(t, "")
+		config.Bundle, config.Binary, config.Root = recordingRootLayerBundle(t, recorder.binary), "", bundletest.ProtectedTempDir(t)
+		config.Environments = &microsandbox.EnvironmentConfig{PrepareCPUs: 2, PrepareMemoryMiB: 8192, PrepareDiskMiB: 32768, MinFreeBytes: 1 << 30, LayerBudgetBytes: 8 << 30}
+	}
+	queue, err := microsandbox.New(ctx, config)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, queue.Close()) })
+	if constraint == "cold" {
+		source := filepath.Join(root, "source")
+		require.NoError(t, os.MkdirAll(source+"/.smithers", 0700))
+		files := rootLayerCanary()
+		files[".smithers/target-index.json"] = coldTerminalToolchainIndex
+		files[".node-version"] = "26.5.0\n"
+		files["package.json"] = `{"name":"canary","private":true,"packageManager":"pnpm@11.25.0"}`
+		for path, body := range files {
+			require.NoError(t, os.MkdirAll(filepath.Dir(filepath.Join(source, path)), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(source, path), []byte(body), 0600))
+		}
+		run := func(args ...string) string {
+			command := exec.CommandContext(ctx, "git", args...)
+			command.Dir = source
+			command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=fixture", "GIT_AUTHOR_EMAIL=fixture@example.com", "GIT_COMMITTER_NAME=fixture", "GIT_COMMITTER_EMAIL=fixture@example.com")
+			output, e := command.CombinedOutput()
+			require.NoError(t, e, string(output))
+			return strings.TrimSpace(string(output))
+		}
+		run("init", "-q", "-b", "main")
+		run("add", ".")
+		run("commit", "-qm", "Cold layer inputs")
+		sourceHead = run("rev-parse", "HEAD")
+		run("branch", "scratch/presence-owner/fifo-0")
+		queue.BindSourceFiles(coldTerminalGitSource{dir: source})
+		queue.BindMemberRoster(func(ctx context.Context, _ string, visit func(context.Context, []microsandbox.MemberIdentity) error) error {
+			return visit(ctx, nil)
+		})
+	}
 	var freeDisk atomic.Int64
 	freeDisk.Store(40 << 30)
 	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
 	capacity := &services.InstallCapacityService{Queries: q, Profile: profile, FreeDisk: readDisk, InUse: queue.InUse}
 	queue.SetCapacityReader(capacity.Capacity)
-	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, branchCount), booting: make(chan string, 1)}
+	runtime := &terminalFIFOGuests{cold: constraint == "cold", perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, branchCount), booting: make(chan string, 1)}
 	var branches []db.Workspace
 	for i := 0; i < branchCount; i++ {
-		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: fmt.Sprintf("fifo-%d", i), TargetBookmark: fmt.Sprintf("scratch/presence-owner/fifo-%d", i), Status: "suspended", Kind: "vm"})
+		kind, status := "vm", "suspended"
+		if constraint == "cold" {
+			kind, status = "container", "pending"
+		}
+		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: fmt.Sprintf("fifo-%d", i), TargetBookmark: fmt.Sprintf("scratch/presence-owner/fifo-%d", i), Status: status, Kind: kind})
 		require.NoError(t, err)
 		reader, writer := io.Pipe()
-		guest := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: "warm"}
+		guest := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: "warm", head: sourceHead}
 		guest.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: &echoOwnerTerminal{reader: reader, writer: writer}, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
 		if (constraint == "cancel" || constraint == "force" || constraint == "restart") && i == 0 {
 			guest.mode = "cancel boot"
@@ -566,6 +653,21 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	server.Config.Handler = parallelInstallRouter(cfg, q, f.pool, handler, routerExtras{Live: liveHandler, GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Origins: liveHandler.Origins, Setup: &services.InstallSetupService{Pool: f.pool, Capacity: capacity}}})
 	server.Start()
 	defer server.Close()
+	if constraint == "promote" {
+		// A durable queued TODO already owns the second branch. Its request is
+		// reconstructed by the production projection worker before either person
+		// arrives; no test calls Request, GrantNext or SyncTodoAdmission.
+		item, e := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
+		require.NoError(t, e)
+		_, e = f.pool.Exec(ctx, `UPDATE mythical_items SET state='queued',workspace_id=$2,checks='{"todo":true}',paused_at=NULL,next_attempt_at=clock_timestamp() WHERE id=$1`, item.ID, branches[1].ID)
+		require.NoError(t, e)
+		_, e = f.pool.Exec(ctx, `UPDATE mythical_lanes SET workspace_id=$2 WHERE item_id=$1`, item.ID, branches[1].ID)
+		require.NoError(t, e)
+		require.Eventually(t, func() bool {
+			rows := queue.AdmissionSnapshot()
+			return len(rows) == 1 && rows[0].Class == "todo" && rows[0].Holder == "workspace:"+branches[1].ID && rows[0].Position == 1
+		}, 5*time.Second, 10*time.Millisecond)
+	}
 	// All demand enters through the authenticated terminal door. Disk keeps
 	// grants closed while the literal FIFO is established, including a duplicate.
 	sessions := map[string][]string{}
@@ -650,12 +752,30 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	}
 	require.Zero(t, queue.InUse())
 	require.Empty(t, runtime.started)
+	if constraint == "promote" {
+		rows := queue.AdmissionSnapshot()
+		require.Len(t, rows, 3)
+		classes := map[string]int{}
+		for _, row := range rows {
+			classes[row.Class]++
+			position := 1
+			if row.Holder == "workspace:"+branches[1].ID {
+				position = 2
+			}
+			require.Equal(t, position, row.Position, "a later person promotion must rank behind the older person")
+			require.Equal(t, "waiting", row.State)
+		}
+		require.Equal(t, map[string]int{"todo": 1, "person": 2}, classes)
+	}
 	// Each mounted card receives the committed wake before the next observed
 	// stop makes room. A stop acknowledgment alone cannot advance this queue.
 	var sockets []*websocket.Conn
 	var cursors []int64
 	for i, branch := range branches {
 		require.Eventually(t, func() bool {
+			if constraint == "promote" && i == 1 {
+				return true
+			}
 			var state string
 			var position int
 			err := f.pool.QueryRow(ctx, `SELECT data->'branch'->'machine'->>'state',COALESCE((data->'branch'->'machine'->>'position')::int,0) FROM product_job_events WHERE principal_id=$1 ORDER BY sequence DESC LIMIT 1`, "branch:"+branch.ID+":machine").Scan(&state, &position)
@@ -686,6 +806,37 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		}
 		sockets = append(sockets, conn)
 	}
+	var browser *exec.Cmd
+	var browserOutput *bufio.Scanner
+	var browserErrors bytes.Buffer
+	if os.Getenv("SMITHERS_LIVE_BROWSER") == "1" && (constraint == "cold" || constraint == "promote") {
+		browserCtx, stopBrowser := context.WithTimeout(ctx, time.Minute)
+		defer stopBrowser()
+		browser = exec.CommandContext(browserCtx, "bun", "e2e/real/admission-branch.browser.ts")
+		browser.Dir = "../../../../apps/app"
+		browser.Env = append(os.Environ(), "SMITHERS_ADMISSION_ORIGIN="+server.URL, "SMITHERS_ADMISSION_PUBLIC_URL="+cfg.Server.PublicURL, "SMITHERS_ADMISSION_BRANCH="+branches[0].ID, "SMITHERS_ADMISSION_COOKIE="+f.cookie, "SMITHERS_ADMISSION_SUCCESSFUL=1")
+		output, e := browser.StdoutPipe()
+		require.NoError(t, e)
+		browser.Stderr = &browserErrors
+		require.NoError(t, browser.Start())
+		defer func() {
+			stopBrowser()
+			if browser.ProcessState == nil {
+				_ = browser.Wait()
+			}
+		}()
+		browserOutput = bufio.NewScanner(output)
+		waiting := false
+		for browserOutput.Scan() {
+			line := browserOutput.Text()
+			t.Log(line)
+			if line == "ADMISSION_BROWSER_WAITING" {
+				waiting = true
+				break
+			}
+		}
+		require.True(t, waiting, "browser must mount the real waiting branch: %s", browserErrors.String())
+	}
 	var stopLog, inventory string
 	if constraint == "cancel" || constraint == "force" || constraint == "restart" {
 		stopLog, inventory = filepath.Join(root, "stops"), filepath.Join(root, "inventory")
@@ -696,6 +847,64 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	if rejectPublication {
 		_, err := f.pool.Exec(ctx, `ALTER TABLE product_job_requests ADD CONSTRAINT grant_receipt_refusal CHECK(operation <> 'branch.machine.granted') NOT VALID`)
 		require.NoError(t, err)
+	}
+	if recorder != nil {
+		var peak atomic.Int64
+		sampleCtx, stopSample := context.WithCancel(ctx)
+		sampled := make(chan struct{})
+		go func() {
+			defer close(sampled)
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
+			for {
+				count := int64(queue.InUse())
+				for prior := peak.Load(); count > prior && !peak.CompareAndSwap(prior, count); prior = peak.Load() {
+				}
+				select {
+				case <-sampleCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+		defer func() {
+			stopSample()
+			<-sampled
+			require.EqualValues(t, 1, peak.Load(), "prepare, removal and branch boot share exactly one confirmed-stop slot")
+		}()
+		defer func() {
+			if t.Failed() {
+				return
+			}
+			calls := recorder.load()
+			preparations := machineKinds(calls)
+			require.NotEmpty(t, preparations, "the cold wake must build an actual environment layer")
+			branchBoot := false
+			removed := map[string]bool{}
+			for _, call := range calls {
+				if len(call.Argv) == 0 {
+					continue
+				}
+				if call.Argv[0] == "remove" {
+					removed[call.Argv[len(call.Argv)-1]] = true
+				}
+				if call.Argv[0] == "run" || call.Argv[0] == "create" {
+					name := ""
+					for i, arg := range call.Argv {
+						if arg == "-n" && i+1 < len(call.Argv) {
+							name = call.Argv[i+1]
+						}
+					}
+					if _, prepare := preparations[name]; !prepare {
+						for prepare := range preparations {
+							require.True(t, removed[prepare], "prepare VM %s must stop and be removed before branch %s boots", prepare, name)
+						}
+						branchBoot = true
+					}
+				}
+			}
+			require.True(t, branchBoot, "prepare must hand the only slot to the branch boot")
+		}()
 	}
 	freeDisk.Store(int64(40+32*slots) << 30)
 
@@ -1006,6 +1215,15 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		for {
 			frame := readPresenceFrame(t, sockets[i])
 			require.NotEqual(t, "err", frame.T)
+			if constraint == "promote" && i == 1 && frame.T == "snap" {
+				var snapshot struct{ Machine struct{ State string } }
+				require.NoError(t, json.Unmarshal(frame.Data, &snapshot))
+				if snapshot.Machine.State == "awake" {
+					require.Greater(t, *frame.Cursor, cursors[i])
+					break
+				}
+				continue
+			}
 			if frame.T != "delta" {
 				continue
 			}
@@ -1051,6 +1269,13 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 			err := f.pool.QueryRow(ctx, `SELECT count(*),count(DISTINCT data->>'session') FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=ANY($1::text[])`, sessions[branch.ID]).Scan(&count, &distinct)
 			return err == nil && count == perBranch && distinct == perBranch
 		}, 5*time.Second, 10*time.Millisecond, "terminal guest accepted the real member credential")
+		if browser != nil && i == 0 {
+			for browserOutput.Scan() {
+				t.Log(browserOutput.Text())
+			}
+			require.NoError(t, browserOutput.Err())
+			require.NoError(t, browser.Wait(), browserErrors.String())
+		}
 		// Inject a delayed stop observation, keeping the granted slot throughout.
 		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
 			require.LessOrEqual(t, queue.InUse(), slots)
@@ -1072,6 +1297,9 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		guest.mu.Lock()
 		guest.state = workspaceapi.WorkspaceStopped
 		guest.mu.Unlock()
+		if constraint == "cold" {
+			require.NoError(t, queue.StopWorkspace(ctx, branch.ID))
+		}
 		queue.ConfirmAdmissionStop("workspace:"+branch.ID, false)
 		if constraint == "owner" && i < 2 {
 			for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
@@ -1103,7 +1331,11 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	require.Equal(t, expected, order, "committed grants preserve literal holder FIFO at multi-slot capacity")
 
 	require.Zero(t, queue.InUse())
-	require.Len(t, queue.AdmissionSnapshot(), branchCount)
+	expectedRows := branchCount
+	if constraint == "promote" {
+		expectedRows++
+	}
+	require.Len(t, queue.AdmissionSnapshot(), expectedRows)
 	for _, row := range queue.AdmissionSnapshot() {
 		require.Equal(t, "released", row.State)
 	}
@@ -1114,3 +1346,25 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		return f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.closed'`).Scan(&closed) == nil && closed == branchCount*perBranch
 	}, 10*time.Second, 10*time.Millisecond, "every terminal closes before its database is retired")
 }
+
+// Repository inputs are read as immutable Git data; only guest execution is observed.
+type coldTerminalGitSource struct{ dir string }
+
+func (s coldTerminalGitSource) ResolveSourceRevision(ctx context.Context, _, revision string) (string, error) {
+	c := exec.CommandContext(ctx, "git", "-C", s.dir, "rev-parse", "--verify", revision+"^{commit}")
+	b, e := c.Output()
+	return strings.TrimSpace(string(b)), e
+}
+func (s coldTerminalGitSource) ReadSourceFile(ctx context.Context, source workspaceapi.WorkspaceSource, path string) ([]byte, error) {
+	if path == "requirements*.txt" {
+		return []byte(`{}`), nil
+	}
+	c := exec.CommandContext(ctx, "git", "-C", s.dir, "show", source.Revision+":"+path)
+	b, e := c.Output()
+	if e != nil {
+		return nil, fs.ErrNotExist
+	}
+	return b, nil
+}
+
+const coldTerminalToolchainIndex = `[{"label":"//:environmentToolchain","package":"","rule":"Environment.Toolchain","inputs":[],"destinations":["nodejs.org","registry.npmjs.org","github.com","go.dev"],"toolchain":{"downloads":{"node":{"version":"26.5.0","url":"https://nodejs.org/26.5.0","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"pnpm":{"version":"11.25.0","url":"https://registry.npmjs.org/11.25.0","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"bun":{"version":"1.4.1","url":"https://github.com/1.4.1","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"go":{"version":"1.26.8","url":"https://go.dev/1.26.8","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"jj":{"version":"0.39.0","url":"https://github.com/0.39.0","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"rg":{"version":"14.1.1","url":"https://github.com/14.1.1","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"fd":{"version":"10.2.0","url":"https://github.com/10.2.0","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"jq":{"version":"1.7.1","url":"https://github.com/1.7.1","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}]`

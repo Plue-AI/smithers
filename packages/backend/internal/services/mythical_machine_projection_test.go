@@ -224,3 +224,22 @@ func TestMachineGrantWaitsForTodoProjectionCommit(t *testing.T) {
 	require.NoError(t, json.Unmarshal(page.Events[0].Data, &fact))
 	require.Equal(t, 2, fact.Card.Queue.Position)
 }
+
+func TestMachineGrantObservationRecoveryDoesNotRepublishMetadata(t *testing.T) {
+	o, _ := newTodoAdmission(t)
+	ctx, q := t.Context(), db.New(o.pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: owner, Name: "recovery", TargetBookmark: "scratch/owner/recovery", Status: "running"})
+	require.NoError(t, err)
+	grant := microsandbox.AdmissionRequest{PublicationID: "11111111-1111-4111-8111-111111111111", Holder: "workspace:" + row.ID, Actor: "Alice", Class: "person", State: "granted"}
+	require.NoError(t, o.service.PublishMachineGrant(ctx, grant))
+	recovered := NewMythicalService(o.pool, nil)
+	recovered.SetOrchestration(nil, nil, NewWorkspaceMythicalLanes(NewWorkspaceService(q, WithWorkspaceRuntime(new(microsandbox.Runtime)))))
+	require.NoError(t, recovered.publishScratchMachineProjection(ctx))
+	store, err := jobs.NewStore(o.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	head, err := store.Head(ctx, jobs.Scope{TenantID: fmt.Sprint(o.repoID), PrincipalID: "branch:" + row.ID + ":machine"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, head, "admission metadata is not another machine observation")
+}

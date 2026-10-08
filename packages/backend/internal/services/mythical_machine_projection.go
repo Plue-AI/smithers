@@ -214,7 +214,7 @@ func (s *MythicalService) publishScratchMachineProjection(ctx context.Context) e
 		}
 		scope := jobs.Scope{TenantID: strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "branch:" + id + ":machine"}
 		var same bool
-		err = tx.QueryRow(ctx, `SELECT data=$3::jsonb FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 ORDER BY sequence DESC LIMIT 1`, scope.TenantID, scope.PrincipalID, data).Scan(&same)
+		err = tx.QueryRow(ctx, `SELECT data->'branch'=$3::jsonb->'branch' FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 ORDER BY sequence DESC LIMIT 1`, scope.TenantID, scope.PrincipalID, data).Scan(&same)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}

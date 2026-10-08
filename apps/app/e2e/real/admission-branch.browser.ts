@@ -7,6 +7,8 @@ import { resolve } from "node:path"
 const origin = process.env.SMITHERS_ADMISSION_ORIGIN!
 const branch = process.env.SMITHERS_ADMISSION_BRANCH!
 const cookie = process.env.SMITHERS_ADMISSION_COOKIE!
+const successful = process.env.SMITHERS_ADMISSION_SUCCESSFUL === "1"
+const publicURL = process.env.SMITHERS_ADMISSION_PUBLIC_URL ?? "http://127.0.0.1:4000"
 if (!origin || !branch || !cookie) throw new Error("An owned composed install is required")
 const fixture = resolve("e2e/real/admission-branch.fixture.tsx")
 const vite = await createServer({ configLoader: "runner", logLevel: "error", plugins: [{
@@ -21,7 +23,7 @@ const vite = await createServer({ configLoader: "runner", logLevel: "error", plu
   }
 }], server: { host: "127.0.0.1", port: 0, proxy: { "/api": {
   target: origin, ws: true, changeOrigin: true,
-  headers: { Origin: "http://127.0.0.1:4000", Host: "127.0.0.1:4000" }
+  headers: { Origin: publicURL, Host: new URL(publicURL).host }
 } } } })
 await vite.listen()
 const address = vite.httpServer!.address()
@@ -40,16 +42,18 @@ try {
   const cursor = await page.evaluate(() => (window as unknown as { admission: { cursor(): number } }).admission.cursor())
   expect(cursor).toBeGreaterThan(0)
   const stack = page.getByRole("list", { name: "Stack", exact: true })
-  await expect(stack).toContainText("waiting for a machine #2")
+  if (!successful) await expect(stack).toContainText("waiting for a machine #2")
   console.log("ADMISSION_BROWSER_WAITING")
-  await expect(card).toContainText("Waking", { timeout: 60000 })
+  await expect(card).toContainText(successful ? "Awake" : "Waking", { timeout: 60000 })
   await expect(card).not.toContainText("Waiting for a machine")
-  await expect(stack.locator('li[data-state="starting"]')).toContainText("T4")
-  await expect(stack).toContainText("waiting for a machine #1")
+  if (!successful) {
+    await expect(stack.locator('li[data-state="starting"]')).toContainText("T4")
+    await expect(stack).toContainText("waiting for a machine #1")
+  }
   const granted = await page.evaluate(() => (window as unknown as { admission: { cursor(): number } }).admission.cursor())
   expect(granted).toBeGreaterThan(cursor)
   await page.reload()
-  await expect(card).toContainText("Waking", { timeout: 30000 })
+  await expect(card).toContainText(successful ? "Awake" : "Waking", { timeout: 30000 })
   await expect(card).not.toContainText("Waiting for a machine")
   expect(errors).toEqual([])
   console.log("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")

@@ -70,3 +70,13 @@ test("C-MCH-11: a successful person terminal holds background review until confi
   const output = await runLiveInstall("^TestSuccessfulTerminalBeforeReviewInstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalBeforeReviewInstallBoundary")
 })
+
+
+test("C-MCH-11: cold preparation and TODO promotion keep one successful slot", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^Test(ColdTerminalPrepareHandoff|TodoPersonPromotion|TodoPersonConcurrentPromotion)InstallBoundary$")
+  expect(output).toContain("--- PASS: TestColdTerminalPrepareHandoffInstallBoundary")
+  expect(output).toContain("--- PASS: TestTodoPersonPromotionInstallBoundary")
+  expect(output).toContain("--- PASS: TestTodoPersonConcurrentPromotionInstallBoundary")
+  expect(output).toContain("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
+})
