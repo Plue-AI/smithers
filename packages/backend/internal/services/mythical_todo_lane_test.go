@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // launchOn is the last launch of flowID on workspaceID.
@@ -103,6 +104,17 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			o.wake()
 			item := o.byID(id)
 			require.Equal(t, "running", item.State, item.Reason)
+			if mode != "completed" {
+				// The lane provider stands in for machine provisioning, including
+				// the workspace the retained coding branch resolves through.
+				_, err := o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, item.WorkspaceID, o.repoID, o.userID)
+				require.NoError(t, err)
+				// A live composition must attach before its published PR can
+				// enter review. GitHub facts observed during startup are deferred.
+				o.projectTodo(o.launcher.last("todo"), jobs.StateWaiting, "coding-run", todoPinOne, "")
+				item = o.byID(id)
+				require.True(t, mythicalChecksOf(item).RunAttached)
+			}
 			coding := item.WorkspaceID
 			tip := o.hostRef("refs/heads/main")
 			candidate := o.laneResult(coding, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
@@ -125,7 +137,8 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			}
 			o.github.pulls[41] = &mythicalPull{Number: 41, State: "open", HeadSHA: candidate, HeadRef: "smithers/todo-1", MergeableState: "clean"}
 			o.github.mu.Unlock()
-			o.wake()
+			stack := o.wake()
+			require.Empty(t, stack.LastError)
 
 			item = o.byID(id)
 			require.Equal(t, "proposed", item.State, item.Reason)
