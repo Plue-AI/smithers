@@ -70,6 +70,10 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 			return err
 		}
 		receipt["host_startup_controls"] = "pass"
+		if err = validateInstalledHostReplacements(ctx, a, evidence); err != nil {
+			return err
+		}
+		receipt["host_replacement_controls"] = "pass"
 	}
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {

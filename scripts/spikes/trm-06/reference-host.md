@@ -389,3 +389,50 @@ controls, do not remove `pending_controls`, and do not supply the missing
 reviewed disposable native fixture. The native launcher/artifact/destination
 matrix, complete overlay, unsupported-Landlock execution, nine steps, ten
 connected revocations, recording and reviewer acceptances remain uncompleted.
+
+Pass-6 native host fixture campaign (execution pending):
+
+`host_validation.py` is now a manifest artifact in the main-built overlay.
+`check-install` reads it through the installed bundle and requires its protected
+same-revision receipt after the real startup-environment controls. The gateway
+never elevates or mutates a host installation. The receipt retains `accepted=false`.
+
+The owner must provision a disposable native filesystem at
+`/private/var/root/smithers-trm06-host-validation`, with root-owned non-writable
+ancestors, native OS `/bin/sh`, `/bin/ps`, `/usr/bin/python3`, their OS libraries
+and Python standard library, usable devfs `/dev/fd`, and the complete approved
+installed bundle copied to `/trm06-baseline`. No branch-built executable or
+writable substitute qualifies. UID/GID 501 is the literal unprivileged fixture
+identity; the fixture does not need that identity in passwd. No fixture path,
+UID or command is selected by caller arguments. Provisioning and approval of
+this native base remain an owner task; the harness does not create an OS base.
+
+Run only the main-pinned installed harness as root, with the OS startup
+environment cleared before Python starts:
+
+```
+/usr/bin/env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/python3 -I -S /usr/local/lib/smithers/current/share/trm06/host_validation.py
+```
+
+Each fork enters that disposable chroot, clones `/trm06-baseline` into its fixed
+install location and restores replaced ancestors before the next case. A root
+worker performs literal replacements while the loader drops to UID/GID 501
+and no supplementary groups before executing installed bytes. Static controls
+enter the real shell; synchronized controls trace the unchanged installed
+bootstrap/launcher at the validation barrier. Positive schedules execute the
+real approved gateway's `check-startup`, with independent `ps` UID/command
+observations. There is no gateway substitute. A literal shell canary positive
+precedes each control. Every negative requires exit 78, empty stdout and the
+exact unavailable envelope. Sentinel bytes, root ownership and 0644 mode,
+worker identity and monotonic hold/start/end/resume order are checked.
+
+Raw stdout, stderr, process observations and schedule results remain in the
+fixture's `/samples`. Exclusive publication to root-owned
+`/usr/local/lib/smithers/trm06-host-validation.json` refuses stale receipts.
+The owner retains an old receipt and fixture samples before reprovisioning.
+The installed reader binds revision and independently computed artifact
+identities, the complete ordered matrix, refusal/positive samples and sentinel
+expectations. A missing or failed receipt refuses the existing root campaign.
+Native execution, unsupported-Landlock, complete overlay, the nine native steps,
+ten connected revocations, recording and security/protocol acceptance remain
+pending; local receipt-parser and checkout-refusal tests are not native evidence.

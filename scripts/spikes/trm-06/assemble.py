@@ -20,7 +20,7 @@ import tarfile
 import tempfile
 
 SPIKE = Path("scripts/spikes/trm-06")
-FILES = {"launcher.py": 0o644, "install.py": 0o644, "validation.py": 0o644,
+FILES = {"host_validation.py": 0o644, "launcher.py": 0o644, "install.py": 0o644, "validation.py": 0o644,
          "run.sh": 0o755, "revoke.sh": 0o755, "flow.sh": 0o755}
 
 
