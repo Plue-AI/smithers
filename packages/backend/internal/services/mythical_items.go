@@ -2985,7 +2985,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			return st.awaitRebase(item, onto, fmt.Sprintf("T%d", mythicalItemNumber(*earlier))), false, nil
 		}
 	}
-	if item.CandidateBase != onto && !s.mayRebaseAtBoundary(ctx, r.row.RepositoryID, item.WorkspaceID) {
+	if item.CandidateBase != onto && !s.mayExecuteRequestedRebase(ctx, item, onto) && !s.mayRebaseAtBoundary(ctx, r.row.RepositoryID, item.WorkspaceID) {
 		return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
@@ -3129,6 +3129,9 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true}
 	if pending := mythicalChecksOf(item).Rebase; pending != nil && !pending.Since.IsZero() {
 		rebase.Rebase.Since = pending.Since
+		if s.mayExecuteRequestedRebase(ctx, item, onto) {
+			rebase.Rebase.Request = pending.Request
+		}
 	}
 	var before func(pgx.Tx) error
 	also := func(tx pgx.Tx, saved db.MythicalItem) error {
@@ -3186,7 +3189,7 @@ func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, save
 	}
 	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
 		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
-		"text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
+		"by": rebaseRequester(saved), "text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
 	_, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.rebased", todoState(saved), fact)
 	return err
 }
@@ -5528,10 +5531,11 @@ type mythicalChecks struct {
 // earlier TODO T<k>) and Since when the prefix moved under the item. It is
 // pending until Rebased: the candidate was rebased and its checks launched.
 type mythicalRebase struct {
-	Onto    string    `json:"onto"`
-	Name    string    `json:"name"`
-	Since   time.Time `json:"since"`
-	Rebased bool      `json:"rebased,omitempty"`
+	Onto    string                 `json:"onto"`
+	Name    string                 `json:"name"`
+	Since   time.Time              `json:"since"`
+	Rebased bool                   `json:"rebased,omitempty"`
+	Request *mythicalRebaseRequest `json:"request,omitempty"`
 }
 
 // rebuilding reports an item in review whose pull request rebuilds after a
