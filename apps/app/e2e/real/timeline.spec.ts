@@ -97,3 +97,81 @@ test("shared TODO entries reach both members' timeline and narrow edge", async (
     await expect(maya.page.getByTestId("composer-input")).toBeEditable()
   } finally { await maya.context.close(); await alice.context.close() }
 })
+
+// This install driver stops before any file edit, independently of Ready's
+// authenticated guest mutation prerequisite. HTTP and live are never mocked.
+test("shared attention and live entries preserve actions and private hiding", async ({ browser }) => {
+  const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
+    origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>;
+    todos: { ask: number; live: number; aliceFail: number; mayaFail: number }
+  }
+  const contexts = []
+  try {
+    const pages: Page[] = []
+    for (const [who, width] of [["Maya", 1440], ["Alice", 900]] as const) {
+      const context = await browser.newContext({ baseURL: host.origin, viewport: { width, height: 1000 } })
+      contexts.push(context)
+      await context.addCookies(host.members[who]!.map(cookie => ({ ...cookie, url: host.origin })))
+      const page = await context.newPage()
+      pages.push(page)
+      await page.goto(`/${host.repository}`)
+      const timeline = page.getByRole("navigation", { name: "Timeline", exact: true })
+      if (who === "Alice") {
+        await expect(timeline).toBeHidden()
+        await page.setViewportSize({ width: 1440, height: 1000 })
+      }
+      const ask = timeline.locator(`[data-entry="todo:${host.todos.ask}"]`)
+      const live = timeline.locator(`[data-entry="todo:${host.todos.live}"]`)
+      await expect(ask).toHaveCount(1)
+      await expect(ask).toHaveAttribute("data-tone", "attention")
+      await expect(ask.getByRole("button", { name: "Answer", exact: true })).toBeVisible()
+      await expect(live).toHaveCount(1)
+      await expect(live).toHaveAttribute("data-tone", "live")
+      // Both the title and its one action use the real TODO number. Answer
+      // opens the embedded question; it cannot submit on the person's behalf.
+      const answers: string[] = []
+      page.on("request", request => {
+        if (request.method() === "POST" && /\/api\/todos\/[^/]+(?:\/answer)?$/.test(new URL(request.url()).pathname)) answers.push(request.url())
+      })
+      await ask.getByRole("button", { name: "Answer", exact: true }).press("Enter")
+      await expect(page.locator(`[data-message-id="todo:${host.todos.ask}"]`)).toBeInViewport()
+      expect(answers).toEqual([])
+      await expect(page.getByTestId("composer-input")).toBeEditable()
+      const history = await memberRequest(page, "GET", "/api/conversations/main")
+      expect(history.status).toBe(200)
+      expect(history.body.entries.find((entry: any) => entry.subject?.n === host.todos.ask).subject).toMatchObject({ state: "needs_you", tone: "attention" })
+      expect(history.body.entries.find((entry: any) => entry.subject?.n === host.todos.live).subject).toMatchObject({ state: "working", tone: "live" })
+    }
+    const [maya, alice] = pages as [Page, Page]
+    expect((await memberRequest(alice, "PUT", "/api/conversations/main/view-state", { toasts_hidden: true }, "attention-hide")).status).toBe(200)
+    await alice.reload()
+    const ask = alice.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${host.todos.ask}"]`)
+    await expect(ask).toHaveAttribute("data-tone", "attention")
+    await expect(ask.getByRole("button", { name: "Answer", exact: true })).toBeVisible()
+    expect((await memberRequest(alice, "GET", "/api/conversations/main/view-state")).body.toasts_hidden).toBe(true)
+    expect((await memberRequest(maya, "GET", "/api/conversations/main/view-state")).body.toasts_hidden).not.toBe(true)
+    await expect(maya.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${host.todos.ask}"]`)).toHaveAttribute("data-tone", "attention")
+    for (const n of [host.todos.aliceFail, host.todos.mayaFail]) {
+      const published = await memberRequest(maya, "POST", `/api/todos/${n}`, { op: "move", direction: "up" }, `attention-failure-${n}`)
+      expect(published.status, JSON.stringify(published.body)).toBe(202)
+      const history = await memberRequest(maya, "GET", "/api/conversations/main")
+      expect(history.status).toBe(200)
+      expect(history.body.entries.find((entry: any) => entry.subject?.n === n)?.subject, JSON.stringify(history.body)).toMatchObject({ state: "failed", tone: "failed" })
+      for (const viewer of [maya, alice]) {
+        const failed = viewer.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${n}"]`)
+        await expect(failed).toHaveCount(1)
+        await expect(failed).toHaveAttribute("data-tone", "failed")
+        await expect(failed.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
+      }
+    }
+    // Each failure's owner is read from the real TODO response. Alice's saved
+    // hide suppresses her notice, while Maya's own failure still notifies her.
+    await expect(alice.locator(`[data-notice="toast-todo.failed.${host.todos.aliceFail}.no-run.0"]`)).toHaveCount(0)
+    const mayaNotice = maya.locator(`[data-notice="toast-todo.failed.${host.todos.mayaFail}.no-run.0"]`)
+    await expect(mayaNotice).toBeVisible()
+    await expect(mayaNotice).toHaveAttribute("data-tone", "failed")
+    await expect(mayaNotice.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
+    await expect(maya.locator(`[data-notice="toast-todo.failed.${host.todos.aliceFail}.no-run.0"]`)).toHaveCount(0)
+    await expect(alice.getByTestId("composer-input")).toBeEditable()
+  } finally { for (const context of contexts) await context.close() }
+})

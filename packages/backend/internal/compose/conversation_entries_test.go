@@ -49,32 +49,82 @@ func TestConversationTimelineInstallBrowser(t *testing.T) {
 			// Retain an earlier failed item as initial PostgreSQL data. This
 			// qualifies the UI's failure path independently of the coding
 			// flow's automatic repair loop; publication still runs through a
-			// person's production Steer command, never a mocked projection.
-			q := db.New(r.pool)
-			repository, err := q.InstallRepositoryID(r.ctx)
-			require.NoError(t, err)
-			person, err := q.GetUserByLowerUsername(r.ctx, "alice")
-			require.NoError(t, err)
-			err = pgx.BeginFunc(r.ctx, r.pool, func(tx pgx.Tx) error {
-				q := db.New(tx)
-				row, err := q.InsertMythicalTodo(r.ctx, repository, person.ID, "Failure entry", "Checks failed", json.RawMessage(`[{"rev":1,"text":"Checks failed","acceptance":[],"by":"alice","at":"2026-10-08T00:00:00Z"}]`), json.RawMessage(`{"todo":true}`))
-				if err != nil {
-					return err
-				}
-				row.State = "blocked"
-				row, err = q.SaveMythicalItem(r.ctx, row)
-				if err == nil {
-					todos["fail"] = row.Number.Int64
-				}
-				return err
-			})
-			require.NoError(t, err)
-			_, err = r.expectAs(alice, "POST", fmt.Sprintf("/api/todos/%d", todos["fail"]), `{"op":"steer","text":"Keep the regression test"}`, 202)
+			// person's production Move command, never a mocked projection.
+			todos["fail"] = seedConversationFailure(t, r, "alice", "Failure entry")
+			_, err = r.expectAs(r.jar, "POST", fmt.Sprintf("/api/todos/%d", todos["fail"]), `{"op":"move","direction":"up"}`, 202)
 			require.NoError(t, err)
 		}
 	}
-	runConversationTimelineBrowser(t, r, alice, todos, "")
+	runConversationTimelineBrowser(t, r, alice, todos, "^shared TODO entries")
 	require.NoError(t, r.release("timeline"))
+}
+
+// Attention and live entries can be exercised without a guest file mutation.
+// Keep this independent of the Ready journey, which needs an authenticated
+// coding machine to create its candidate. Both subjects still enter via the
+// install's TODO command and publish through the production conversation seam.
+func TestConversationAttentionInstallBrowser(t *testing.T) {
+	if os.Getenv("SMITHERS_CONVERSATION_ATTENTION_BROWSER") != "1" {
+		t.Skip("set SMITHERS_CONVERSATION_ATTENTION_BROWSER=1; build apps/app first")
+	}
+	_, source, _, _ := runtime.Caller(0)
+	app := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../../apps/app"))
+	t.Setenv("SMITHERS_REHEARSAL_SPA_DIR", filepath.Join(app, "dist"))
+	require.FileExists(t, filepath.Join(app, "dist/index.html"))
+	r := newRehearsal(t, "SMITHERS_CONVERSATION_ATTENTION_BROWSER", "C-UI-04", "attention-")
+	t.Cleanup(func() { require.NoError(t, r.release("attention-live")) })
+	require.True(t, r.install("Install ready"))
+	alice, err := r.member("alice", 81, "write")
+	require.NoError(t, err)
+	todos := map[string]int64{}
+	for _, item := range []struct{ key, title, prompt, state string }{
+		{"ask", "Question entry", "[ASK] [HOLD attention-answer] Ask which greeting to use", "needs_you"},
+		{"live", "Live entry", "[HOLD attention-live] Add a greeting", "working"},
+	} {
+		n, err := r.file(item.title, item.prompt)
+		require.NoError(t, err)
+		_, err = r.waitTodoWithin(n, 3*time.Minute, item.state)
+		require.NoError(t, err)
+		todos[item.key] = n
+	}
+	// Persist historical failures as initial database state. The browser's
+	// authenticated Move commands publish their entries; no coding provider
+	// or synthetic live frame participates in the read and toast proof.
+	todos["aliceFail"] = seedConversationFailure(t, r, "alice", "Alice failure")
+	todos["mayaFail"] = seedConversationFailure(t, r, "rehearsal-owner", "Maya failure")
+	runConversationTimelineBrowser(t, r, alice, todos, "shared attention and live entries")
+}
+
+func seedConversationFailure(t *testing.T, r *rehearsal, login, title string) int64 {
+	t.Helper()
+	q := db.New(r.pool)
+	repository, err := q.InstallRepositoryID(r.ctx)
+	require.NoError(t, err)
+	person, err := q.GetUserByLowerUsername(r.ctx, login)
+	require.NoError(t, err)
+	// Match the production revision's actor wire shape. A string author makes
+	// the shared card frame invalid and rejects the entire conversation read.
+	revisions, err := json.Marshal([]any{map[string]any{
+		"rev": 1, "text": "Checks failed", "acceptance": []any{}, "at": "2026-10-08T00:00:00Z",
+		"by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": "https://example.test/avatar.png", "color_index": 0},
+	}})
+	require.NoError(t, err)
+	var number int64
+	err = pgx.BeginFunc(r.ctx, r.pool, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		row, err := q.InsertMythicalTodo(r.ctx, repository, person.ID, title, "Checks failed", revisions, json.RawMessage(`{"todo":true}`))
+		if err != nil {
+			return err
+		}
+		row.State = "blocked"
+		row, err = q.SaveMythicalItem(r.ctx, row)
+		if err == nil {
+			number = row.Number.Int64
+		}
+		return err
+	})
+	require.NoError(t, err)
+	return number
 }
 
 func runConversationTimelineBrowser(t *testing.T, r *rehearsal, alice http.CookieJar, todos map[string]int64, grep string) {
