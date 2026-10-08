@@ -61,7 +61,9 @@ for (const optionalStreams of ["served", "unsupported", "scratch"] as const) tes
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [{ id: "t-live", title: "Shell", owner: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }, agents: [], watchers: [], frozen: false }], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
-    } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }, { id: "owned-1", at: "2026-10-06T12:00:01Z", kind: "burst", actor: writer, files: [{ path: "retry.ts", change: "modified" }] }]
+    } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }, { id: "owned-1", at: "2026-10-06T12:00:01Z", kind: "burst", actor: writer, files: [{ path: "retry.ts", change: "modified" }] },
+      { id: "steer-1", at: "2026-10-06T12:00:02Z", kind: "steer", actor: { kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0 }, text: "Keep retry backoff bounded" },
+      { id: "answer-1", at: "2026-10-06T12:00:03Z", kind: "answer", actor: { kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0 }, text: "Use the existing retry helper" }]
       : frame.topic === "branch:b-live:files" && optionalStreams === "served" ? { changed: [{ path: "retry.ts", change: "modified", last_writer: writer }], open: [] } : undefined
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
   }))
@@ -78,10 +80,20 @@ for (const optionalStreams of ["served", "unsupported", "scratch"] as const) tes
   await expect(card).toContainText("Asleep")
   await expect(card).toContainText("Retry webhooks")
   await expect(card).toContainText("Rebase pending")
-  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toBeVisible()
   if (optionalStreams === "served") {
     await expect(card).toContainText("changed outside Smithers")
     await expect(card.getByRole("tabpanel")).toContainText("Alice via SSH")
+    const inputs = card.locator('[data-kind="steer"], [data-kind="answer"]')
+    await expect(inputs).toHaveCount(2)
+    await expect(inputs.nth(0)).toContainText("Alice")
+    await expect(inputs.nth(0)).toContainText("Keep retry backoff bounded")
+    await expect(inputs.nth(1)).toContainText("Alice")
+    await expect(inputs.nth(1)).toContainText("Use the existing retry helper")
+    for (const row of [inputs.nth(0), inputs.nth(1)]) {
+      await expect(row).not.toContainText("changed")
+      await expect(row).not.toContainText("files")
+    }
     await card.getByRole("tab", { name: /Files\s*1/ }).press("Enter")
     await expect(card.getByRole("tabpanel")).toContainText("retry.ts")
     await card.getByRole("tabpanel").getByRole("button", { name: "retry.ts", exact: true }).press("Enter")
@@ -101,7 +113,7 @@ for (const optionalStreams of ["served", "unsupported", "scratch"] as const) tes
   await expect(card).toContainText("Maya via SSH")
   await expect(card).toContainText("retry.ts:12")
   await expect(card).toContainText("ssh -p 2222 retry-webhooks@localhost")
-  await expect(card.locator('[data-flow="box.resume"]')).toHaveCount(0)
+  await expect(card.locator('[data-flow="box.resume"]')).toBeVisible()
   await expect.poll(() => presence[0]).toEqual({ branch: "b-live" })
   await card.getByRole("tab", { name: /Terminals\s*1/ }).press("Enter")
   await card.getByRole("button", { name: /Shell/ }).press("Enter")
@@ -113,7 +125,7 @@ for (const optionalStreams of ["served", "unsupported", "scratch"] as const) tes
   if (optionalStreams === "scratch") {
     await expect(card).toContainText("Scratch")
     await expect(card).toContainText("T2 Retry webhooks")
-    await expect(card.getByRole("button", { name: "Add to stack", exact: true })).toHaveCount(0)
+    await expect(card.getByRole("button", { name: "Add to stack", exact: true })).toBeVisible()
     expect(posts).toEqual([])
   } else {
     await card.getByRole("button", { name: "Fork", exact: true }).press("Enter")

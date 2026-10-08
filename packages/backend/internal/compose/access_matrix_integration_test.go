@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,11 +17,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/stretchr/testify/require"
 )
 
@@ -406,7 +409,20 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			t.Setenv("SMITHERS_AUTH_SESSION_COOKIE_NAME", "session")
 			// Use the complete install, including the model and chat mounts that
 			// live outside buildRouter. Stop it with this subtest before TODO effects.
-			executionBoundary := startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+			root, err := filepath.Abs("../../../..")
+			require.NoError(t, err)
+			node, err := exec.LookPath("node")
+			require.NoError(t, err)
+			registry := buildRehearsalCodingHost(t, node, root)
+			exporter := rehearsalJJExport(root, os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
+			require.NotEmpty(t, exporter)
+			t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", exporter)
+			runtime, err := process.New(process.Config{Root: t.TempDir()})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+			executionBoundary := startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: runtime,
+				FlowHostProductAPIURL: cfg.Server.PublicURL, FlowHostRegistry: &registry,
+				FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 			replaceSubject := strings.NewReplacer("{name}", "sample", "{id}", "1", "{branch}", "sample", "{b}", "sample", "{number}", "1", "{n}", "1", "{owner}", "maya", "{repo}", "demo")
 			for _, operation := range inventory.Operations {
 				if operation.HTTP == nil {
@@ -430,7 +446,7 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body), w.Body.String())
 						// Branch mutations authenticate on their shared mounted POST door.
 						if pendingTicket := map[string]string{
-							"issue.comment": "T-GH-04", "monitor": "T-FLW-07", "run": "T-FLW-07", "run.inspect": "T-FLW-07", "runs": "T-FLW-07",
+							"issue.comment": "T-GH-04",
 						}[operation.Name]; pendingTicket != "" && w.Code == http.StatusNotFound {
 							// Unserved catalogue doors remain owned by their tickets.
 							// Never count a missing-route response as an auth pass.
