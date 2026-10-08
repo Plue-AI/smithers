@@ -391,9 +391,19 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						require.NoError(t, err)
 						require.Equal(t, status, status2)
 						require.JSONEq(t, string(receipt), string(replay))
-						var retained []byte
-						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1 AND state='cancelled'`, number).Scan(&retained))
+						var retained, dropRequest []byte
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op,checks->'drop_requested' FROM mythical_items WHERE number=$1`, number).Scan(&retained, &dropRequest))
 						require.JSONEq(t, string(raw), string(retained), "Drop must retain the uncertain open")
+						var requested struct {
+							Request string `json:"request"`
+							By      string `json:"by"`
+						}
+						require.NoError(t, json.Unmarshal(dropRequest, &requested))
+						require.NotEmpty(t, requested.Request, "the acknowledgment must retain a durable Drop request")
+						require.Equal(t, "rehearsal-owner", requested.By)
+						var facts int
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.drop-requested' AND payload->>'n'=$1`, fmt.Sprint(number)).Scan(&facts))
+						require.Equal(t, 1, facts, "replaying the acknowledgment must retain one Drop request fact")
 					}
 					// Attempt mutation through the real machine proxy while the slot is
 					// uncertain, and again after restart. Both refuse before minting.
