@@ -48,13 +48,14 @@ type terminalCredential struct {
 	url          string
 	via          string
 
-	mu       sync.Mutex
-	path     string
-	identity string
-	tokenID  int64 // the live token; 0 while revoked
-	holders  int
-	closed   bool
-	renew    *time.Timer
+	mu           sync.Mutex
+	path         string
+	identity     string
+	personBearer string // host-only person session
+	tokenID      int64  // the live token; 0 while revoked
+	holders      int
+	closed       bool
+	renew        *time.Timer
 }
 
 // signInWorkspaceTerminal mints the session's first credential and answers
@@ -173,11 +174,19 @@ func (c *terminalCredential) issueLocked(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	path, err := c.writer.PutSessionToken(ctx, c.workspaceID, c.sessionID, []byte(token.Plaintext), c.identity)
+	person, err := c.issuePersonLocked(ctx)
 	if err != nil {
 		revokeTemporaryRepoCloneToken(ctx, q, c.userID, token.ID)
 		return err
 	}
+	path, err := c.writer.PutSessionToken(ctx, c.workspaceID, c.sessionID, []byte(token.Plaintext), c.identity)
+	if err != nil {
+		c.revokePerson(person)
+		revokeTemporaryRepoCloneToken(ctx, q, c.userID, token.ID)
+		return err
+	}
+	c.revokePerson(c.personBearer)
+	c.personBearer = person
 	if c.tokenID != 0 {
 		revokeTemporaryRepoCloneToken(ctx, q, c.userID, c.tokenID)
 	}
@@ -192,6 +201,8 @@ func (c *terminalCredential) issueLocked(ctx context.Context) error {
 
 // revokeLocked deletes the live credential and its file.
 func (c *terminalCredential) revokeLocked() {
+	c.revokePerson(c.personBearer)
+	c.personBearer = ""
 	if c.renew != nil {
 		c.renew.Stop()
 		c.renew = nil

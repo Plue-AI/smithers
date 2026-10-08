@@ -69,6 +69,7 @@ type workspaceRuntimeTerminalService interface {
 // WorkspaceTerminalHandler handles the WebSocket terminal endpoint for workspace sessions.
 type WorkspaceTerminalHandler struct {
 	Service             WorkspaceTerminalService
+	PersonAppend        http.Handler
 	AuthorizeTerminal   func(*http.Request, string) (int64, int64, error)
 	Metrics             *SmithersMetrics
 	AllowedOrigins      []string

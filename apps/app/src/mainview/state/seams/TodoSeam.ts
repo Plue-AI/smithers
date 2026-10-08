@@ -347,7 +347,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover", "keep-moved", "return-to-item"].includes(request.operation)
     const route = ["discard-foreign", "bring-in"].includes(request.operation) ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
-      : request.operation === "create" ? TODOS_PATH
+      : request.operation === "create" ? (typeof request.body.terminal_session === "string" ? `/api/terminals/${encodeURIComponent(request.body.terminal_session)}/commands` : TODOS_PATH)
       : ["preapprove", "unapprove"].includes(request.operation) ? `${todoPath(request.n!)}/preapproval`
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
@@ -384,7 +384,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "unapprove" ? "DELETE" : request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
-          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(body)
+          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(request.operation === "create" && typeof request.body.terminal_session === "string"
+            ? { command: "todo.new", payload: Object.fromEntries(Object.entries(body).filter(([key]) => key !== "terminal_session")) } : body)
         })
       } catch (error) {
         if (current(login, revision)) await fail(unreachableSentence("TODOs", error))
@@ -731,7 +732,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     readIssueDraft(request)
     return { value: "Requested" }
   }
-  const commitDraft = async (cardId: string) => {
+  const commitDraft = async (cardId: string, terminalSession?: string) => {
     const refusal = signedIn(); if (refusal) return refusal
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() && !row.payload.committed) return "This draft belongs to its author."
@@ -748,6 +749,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const pending = model.request ?? { key: model.idempotencyKey, owner: owner()!, operation: place.mode === "amend" ? "amend" as const : "create" as const,
       n: place.mode === "amend" ? place.n : undefined, state: "requested" as const,
       body: { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
+        ...(terminalSession ? { terminal_session: terminalSession } : {}),
         ...(place.mode === "amend" ? {} : { place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) } }),
         ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes, ...(model.issueDigest ? { issue_digest: model.issueDigest } : {}) } : {}) } }
     const retry: Request = { ...pending, state: "requested", error: undefined }
@@ -755,12 +757,22 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     send(cardId, retry)
     return { value: "Requested" }
   }
+  const terminalNewTodo = async (session: string, input: { title: string; prompt: string }) => {
+    const refusal = signedIn(); if (refusal) return refusal
+    const prior = [...ctx.store.collections.cards.values()].find(row => row.kind === "draft"
+      && row.audience_member_id === owner() && row.payload.request?.body.terminal_session === session
+      && row.payload.title === input.title && row.payload.prompt === input.prompt)
+    if (prior?.kind === "draft") return commitDraft(prior.id, session)
+    const id = `draft:${randomUuid()}`
+    await write(draftCard({ id, author: owner()!, title: input.title, text: input.prompt, options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
+    return commitDraft(id, session)
+  }
   const setTodoFormField = async (cardId: string, field: string, value: string): Promise<string | void> => {
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() || row.payload.committed) return "This draft belongs to its author."
     if (row.payload.issuePreparation && row.payload.issuePreparation.state !== "ready") return "Issue draft is not ready."
     if (row.payload.imagePreparation && row.payload.imagePreparation.state !== "ready") return "Machine image draft is not ready."
-    if (row.payload.request && row.payload.request.state !== "failed") return "Commit is pending."
+    if (row.payload.request) return "Commit is pending."
     if (row.payload.request) return "Retry the pending commit before editing."
     let patch: Partial<DraftCard>
     try {
@@ -814,7 +826,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (row.kind === "draft" && row.audience_member_id === owner()) {
         prepareImageDraft(row.id)
         prepareIssueDraft(row.id)
-        if (row.payload.request && row.payload.request.state !== "failed") send(row.id, row.payload.request)
+        if (row.payload.request) send(row.id, row.payload.request)
         if (!row.payload.request) loadDraftPlaces(row.id)
       }
     }
@@ -876,7 +888,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   return { list, observeConfirmation, preapproveTodo: (n: number, approved: boolean) => request(n, approved ? "preapprove" : "unapprove", {}),
     bringIn: (branch: string, id: string, revision: string) => answerForeign("bring-in", branch, id, revision),
-    discardForeign: (branch: string, id: string, revision: string) => answerForeign("discard-foreign", branch, id, revision), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
+    discardForeign: (branch: string, id: string, revision: string) => answerForeign("discard-foreign", branch, id, revision), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, terminalNewTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
       const refusal = signedIn(); if (refusal) return refusal
       const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
       if (!options.openSource || options.sourceAvailable && !await options.sourceAvailable(path)) return "Branch files are unavailable."

@@ -1090,10 +1090,14 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) && workspaceTerminalHandler != nil {
 			workspaceTerminalHandler.AuthorizeTerminal = routes.InstallBranchAuthorizer(queries)
 			r.With(middleware.RequireAuth, middleware.WorkspaceTerminalOpenRateLimitWithObserver(queries, cfg.RateLimit.TerminalOpenPerMin, rateLimitRejectObserver)).Post("/terminals", workspaceTerminalHandler.OpenTerminal)
+			r.With(middleware.RequireAuth).Post("/terminals/{id}/commands", workspaceTerminalHandler.PersonCommand)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}
+			if workspaceTerminalHandler != nil {
+				workspaceTerminalHandler.PersonAppend = memberCommands(queries, confirmations)(http.HandlerFunc(todos.Create))
+			}
 			mountTodoReads(r, todos)
 			r.Post("/todos", todos.Create)
 			r.Post("/todos/{n}", todos.Control)

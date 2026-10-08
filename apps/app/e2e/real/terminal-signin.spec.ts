@@ -114,6 +114,22 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     }
     expect(await order()).toEqual([1, 2])
     expect((await confirmations()).filter(row => row.state === "pending")).toEqual([])
+    const personAppend = async () => {
+      // The person command door uses the same terminal flow and real broker;
+    // the guest token continues to report delegated authority afterward.
+    const beforePersonAppend = await order()
+    const beforePersonCards = await confirmations()
+    const session = tokenPath!.split("/").at(-2)!
+    const personReceipt = page.waitForResponse(response => response.url().endsWith(`/api/terminals/${session}/commands`) && response.request().method() === "POST")
+    await command(page, `/terminal ${JSON.stringify({ operation: "person-command", id: session, title: "Person terminal append", prompt: "Append through the host terminal command channel" })}`)
+    const personResponse = await personReceipt
+    expect(personResponse.status()).toBe(202)
+    const personTodo = await personResponse.json()
+    await expect.poll(order).toEqual([...beforePersonAppend, personTodo.n])
+    expect(await confirmations()).toEqual(beforePersonCards)
+    const afterPersonIdentity = await run("smthrs auth status --json")
+    expect(afterPersonIdentity).toMatch(/"credential_kind":\s*"delegated"/)
+    }
     const closeAndVerify = async () => {
       // A second real terminal holds A's delegated bytes only in test-process
       // memory before close, to exercise server revocation without recording a
@@ -210,6 +226,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(await order()).toEqual([1, 2])
       expect(await confirmations()).toEqual([])
       await info.attach("s1-missing-consumer", { body: JSON.stringify({ stage, stack: await stack(), confirmations: await confirmations() }), contentType: "application/json" })
+      await personAppend()
       await closeAndVerify()
       return
     }
@@ -410,6 +427,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       expect(claude!.avatar_url).not.toBe(coding!.avatar_url)
       await info.attach("s2-review-merge", { body: JSON.stringify({ mergeRows, before, after: await stack(), outboundMergeCallsBefore: callsBefore, outboundMergeCallsAfter: await mergeCalls() }), contentType: "application/json" })
     }
+    await personAppend()
     await closeAndVerify()
     await info.attach(`${stage.toLowerCase()}-terminal-acceptance`, { body: JSON.stringify({ stage, stack: await stack(), confirmations: await confirmations(), activity: facts, presence }), contentType: "application/json" })
     await info.attach("redacted-guest-signin", { body: signIn, contentType: "text/plain" })

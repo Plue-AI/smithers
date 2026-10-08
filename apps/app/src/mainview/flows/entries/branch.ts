@@ -84,11 +84,14 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: { method: "POST", path: "/api/terminals" }, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: branchCommandField("branch"), form: { fields: { operation: { hidden: true }, id: { hidden: true }, command: { hidden: true } }, requires: payload => payload.operation === "command" ? ["id", "command"] : ["branch"], args: payload => JSON.stringify(payload) }, agent: "run", input: Schema.Union([
+      grammar: branchCommandField("branch"), form: { fields: { operation: { hidden: true }, id: { hidden: true }, command: { hidden: true } }, requires: payload => payload.operation === "person-command" ? ["id", "title", "prompt"] : payload.operation === "command" ? ["id", "command"] : ["branch"], args: payload => JSON.stringify(payload) }, agent: "run", input: Schema.Union([
         Schema.Struct({ branch: Schema.String, operation: Schema.optional(Schema.Never), id: Schema.optional(Schema.Never), command: Schema.optional(Schema.Never) }),
-        Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String })
+        Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String }),
+        Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("person-command"), id: Schema.String, command: Schema.optional(Schema.Never), title: Schema.String, prompt: Schema.String })
       ]),
-      handler: async ({ branch, operation, id, command }) => {
+      handler: async input => {
+        const { branch, operation, id, command } = input
+        if (operation === "person-command") return actions.writeTerminal({ id, command: "todo.new", person: { title: input.title, prompt: input.prompt } })
         if (operation === "command") return actions.writeTerminal({ id, command })
 
         if (actions.openBranchTerminal) return actions.openBranchTerminal(branch)

@@ -159,6 +159,12 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	reader, writer := io.Pipe()
 	terminal := &echoOwnerTerminal{reader: reader, writer: writer}
 	handler := &routes.WorkspaceTerminalHandler{OwnerOnly: true, AllowedOrigins: []string{f.origin}, SessionCookieName: "session"}
+	handler.TerminalTokenLookup = func(ctx context.Context, hash string) (*middleware.AuthInfo, error) {
+		if service, ok := handler.Service.(*services.WorkspaceService); ok {
+			return service.AuthenticateOwnerTerminalToken(ctx, hash)
+		}
+		return nil, nil
+	}
 	manager := handler.SharedTerminalSessions()
 	defer manager.Close()
 	f.p.terminalManager = manager
@@ -173,7 +179,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	cfg.Server.AllowedOrigins = []string{f.origin}
 	tokenAuth := services.NewAuthService(q, cfg.Auth, nil, nil, services.WithAuthRevocationPublisher(f.publish))
 	tokenAuth.Members = &services.Members{Pool: f.pool}
-	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler, auth: &routes.AuthHandler{Service: tokenAuth, InstallSetup: &services.InstallSetupSessions{Pool: f.pool}, Origins: middleware.FixedOrigins(f.origin)}, user: &routes.UserHandler{TokenService: tokenAuth}, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
+	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, mythical: &routes.MythicalHandler{Service: services.NewMythicalService(f.pool, nil)}, terminal: handler, auth: &routes.AuthHandler{Service: tokenAuth, InstallSetup: &services.InstallSetupSessions{Pool: f.pool}, Origins: middleware.FixedOrigins(f.origin)}, user: &routes.UserHandler{TokenService: tokenAuth}, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
 	server.Start()
 	defer server.Close()
 	postAs := func(body, cookie string) (int, []byte) {
@@ -363,6 +369,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	require.Zero(t, count, "owner-uid terminals grant no legacy shared-user access")
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions`).Scan(&count))
 	require.Zero(t, count)
+	personCommandClosed := proveTerminalPersonCommand(t, f, server.URL, opened.ID, runtime.current(opened.ID))
 	type socketMessage struct {
 		kind websocket.MessageType
 		data []byte
@@ -499,6 +506,8 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 	_, _, err = read(owner, ctx)
 	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
 	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
+
+	personCommandClosed()
 
 	// A member who owns the PTY is revoked through the same installed door.
 	// Only guest process effects are fixtures; removal, credentials and fanout

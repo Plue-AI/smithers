@@ -383,7 +383,7 @@ export interface AppController extends IssueFlowsController {
   readonly dismissCard: FormsController["dismissCard"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
   /** T-APP-12 stays dark until the owner-only machine provider supplies this scope. */
-  readonly writeTerminal: (input: { id: string; command: string }) => import("../flows/entries/Declare").CommandResult
+  readonly writeTerminal: (input: { id: string; command: string; person?: { title: string; prompt: string } }) => import("../flows/entries/Declare").CommandResult | Promise<import("../flows/entries/Declare").CommandResult>
   readonly openBranchTerminal?: (branch: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly terminalCards?: TerminalCardSource
   readonly cloudTerminal: CloudTerminalClient
@@ -1667,7 +1667,7 @@ export const createAppController = (
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)
   }) : undefined
   if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
-  const { writeTerminal } = actors.pair(ctx, context => ({ writeTerminal: (input: { id: string; command: string }): import("../flows/entries/Declare").CommandResult => {
+  const { writeTerminal } = actors.pair(ctx, (context, select) => ({ writeTerminal: (input: { id: string; command: string; person?: { title: string; prompt: string } }): import("../flows/entries/Declare").CommandResult | Promise<import("../flows/entries/Declare").CommandResult> => {
     if (context.commandActor !== "user") return "Terminal input is person-only"
     if (installHost) {
       const source = terminalProvider?.source, branch = source?.branch(input.id)
@@ -1677,9 +1677,11 @@ export const createAppController = (
         metadata: () => { const snapshot = services.live!.getSnapshot(`branch:${branch}`); return snapshot?.error ? undefined : snapshot?.data } })
       const model = binding.model()
       if (!model?.viewer_is_owner || model.frozen) return "Terminal is read-only"
+      if (input.person) return select(todoSeam).terminalNewTodo(input.id, input.person)
       binding.input(input.command + "\r")
       return
     }
+    if (input.person) return "Terminal unavailable"
     const result = design.typeTerminal(input.id, input.command, design.viewer())
     return result.ok ? undefined : result.refusal
   } }))

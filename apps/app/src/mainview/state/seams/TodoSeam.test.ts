@@ -1645,3 +1645,32 @@ test("concurrent Stop commands and snapshots retain one persisted admission thro
     expect(h.reports).toEqual([])
   } finally { h.close() }
 })
+
+test("terminal person append persists before launch, deduplicates and waits for execution", async () => {
+  const launch = deferred<Response>()
+  const calls: { url: string; body: unknown }[] = []
+  const h = await harness(async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(String(init?.body)) })
+    return launch.promise
+  })
+  try {
+    const input = { title: fixtures.queued.model.title, prompt: fixtures.queued.model.prompt_revisions[0]!.text }
+    expect(await h.seam.terminalNewTodo("terminal-A", input)).toEqual({ value: "Requested" })
+    expect(h.draft().payload.request).toMatchObject({ state: "requested", operation: "create", body: { terminal_session: "terminal-A" } })
+    await waitFor(() => calls.length === 1)
+    expect(calls[0]).toEqual({ url: "https://install.test/api/terminals/terminal-A/commands", body: { command: "todo.new", payload: { ...input, acceptance: [], place: { mode: "append" } } } })
+    expect(await h.seam.terminalNewTodo("terminal-A", input)).toEqual({ value: "Requested" })
+    expect(calls).toHaveLength(1)
+    await waitFor(() => h.store.collections.toasts.size > 0)
+    expect([...h.store.collections.toasts.values()].some(toast => toast.status === "running")).toBe(true)
+    launch.resolve(json({ state: "accepted", n: 12 }))
+    await waitFor(() => h.observed.has("todo:12"))
+    expect(h.draft().payload.committed).toBeUndefined()
+    expect(h.outcomes).toEqual([])
+    h.observed.get("todo:12")!(fixtures.queued.model)
+    await waitFor(() => h.draft().payload.committed?.n === 12)
+    h.observed.get("todo:12")!(fixtures.in_review.model)
+    await waitFor(() => h.outcomes.length > 0)
+    expect(h.outcomes.at(-1)).toMatchObject({ status: "ok" })
+  } finally { h.close() }
+})
