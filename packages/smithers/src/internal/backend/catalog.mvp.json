@@ -3851,6 +3851,33 @@
       }
     },
     {
+      "name": "egress.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "egress.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/egress-policy"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "egress.session",
       "slash": null,
       "cli": null,

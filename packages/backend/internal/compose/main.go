@@ -948,7 +948,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if reloader, ok := provider.(sandbox.EgressReloader); ok {
 		egressReloader = reloader
 	}
-	egressPolicyService := services.NewRepositoryEgressPolicyService(services.NewPostgresRepositoryEgressPolicyStore(pool), egressReloader)
+	var egressPolicyOptions []services.RepositoryEgressPolicyServiceOption
+	if config.IsSingleOwner(cfg.Auth) {
+		egressPolicyOptions = append(egressPolicyOptions, services.WithRepositoryEgressInstallAuthorization(pool))
+	}
+	egressPolicyService := services.NewRepositoryEgressPolicyService(services.NewPostgresRepositoryEgressPolicyStore(pool), egressReloader, egressPolicyOptions...)
 	// Backstop for micro-VMs whose owning workspace row was cascade-
 	// deleted with its repository: nothing else can see them, because every
 	// other sweep starts from the row that is gone.

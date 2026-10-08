@@ -118,19 +118,31 @@ type RepositoryEgressPolicyUpdate struct {
 // reload of the sandboxes already running when it changes.
 type RepositoryEgressPolicyService struct {
 	q        RepositoryEgressPolicyStore
+	install  *installRepositoryEgressStore
 	reloader sandbox.EgressReloader
 }
 
 // NewRepositoryEgressPolicyService builds the service. reloader is nil when
 // the deployment's sandbox provider cannot change a running proxy.
-func NewRepositoryEgressPolicyService(q RepositoryEgressPolicyStore, reloader sandbox.EgressReloader) *RepositoryEgressPolicyService {
-	return &RepositoryEgressPolicyService{q: q, reloader: reloader}
+func NewRepositoryEgressPolicyService(q RepositoryEgressPolicyStore, reloader sandbox.EgressReloader, options ...RepositoryEgressPolicyServiceOption) *RepositoryEgressPolicyService {
+	s := &RepositoryEgressPolicyService{q: q, reloader: reloader}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // Get reads a repository's allowlist; a repository that never set one has
 // an empty list.
 func (s *RepositoryEgressPolicyService) Get(ctx context.Context, repositoryID int64) (RepositoryEgressPolicy, error) {
-	row, err := s.q.GetRepositoryEgressPolicy(ctx, repositoryID)
+	if s.install != nil {
+		return s.getInstallEgressPolicy(ctx, repositoryID)
+	}
+	return readRepositoryEgressPolicy(ctx, s.q, repositoryID)
+}
+
+func readRepositoryEgressPolicy(ctx context.Context, q RepositoryEgressPolicyQuerier, repositoryID int64) (RepositoryEgressPolicy, error) {
+	row, err := q.GetRepositoryEgressPolicy(ctx, repositoryID)
 	if stdErrors.Is(err, pgx.ErrNoRows) {
 		return RepositoryEgressPolicy{AllowDomains: []string{}}, nil
 	}

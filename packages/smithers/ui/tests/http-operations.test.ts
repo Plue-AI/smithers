@@ -260,3 +260,10 @@ test("private import progress retains the owner person read door", () => {
    http: { method: "POST", path: "/api/oauth2/revoke-all" }
   })
  })
+
+ test("egress policy reading retains its owner-only write-scope door", () => {
+  expect(httpProjections.find(row => row.name === "egress.read")).toMatchObject({
+   hidden: true, visibility: "hidden", minimumRole: "owner", agent: "never", credentialScope: "write:repository", actors: ["person"],
+   http: { method: "GET", path: "/api/repos/{owner}/{repo}/egress-policy" }
+  })
+ })

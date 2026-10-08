@@ -153,7 +153,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if strings.HasPrefix(command, "webhooks.") {
+	if command == "egress.read" {
+		subject = services.InstallRepositoryEgressSubject(repository.ID)
+	} else if strings.HasPrefix(command, "webhooks.") {
 		subject, err = services.InstallWebhookSubject(repository.ID, command, id, delivery, input)
 	} else if command == "repo.topics.update" {
 		value, _ := input.(services.ReplaceRepoTopicsInput)
