@@ -6,6 +6,7 @@ import { join } from "node:path"
 import type { BrowserContext, BrowserType, Page } from "@playwright/test"
 import { OwnerSessionCookies, type OwnerSessionScope } from "./owner-session"
 import { expect, test as realTest } from "../support/test"
+import { registerKeyboardJourney, journeyActivate } from "../support/keyboard-journey-input"
 import { appEntryPath, awaitBoot } from "../support"
 
 type SessionBody = {
@@ -226,7 +227,7 @@ export const restoreAuthenticatedSession = async (page: Page, baseURL: string): 
   await awaitBoot(page, "navigate", startedAt)
   const door = page.locator('[data-flow="sign-in"]').first()
   await expect(door).toBeVisible()
-  await door.click()
+  await journeyActivate(door)
   await finishGitHubOAuth(page, origin)
   await page.waitForLoadState("domcontentloaded")
   await expect.poll(readSession, { timeout: 30_000 }).not.toBeUndefined()
@@ -263,6 +264,8 @@ export const launchAuthenticatedProfile = async (
     })
     context = opened
     const page = opened.pages()[0] ?? await opened.newPage()
+    const keyboard = process.env.SMITHERS_JOURNEY_KEYBOARD === "1" ? registerKeyboardJourney(page, new URL(baseURL).origin) : undefined
+    await keyboard?.ready()
     await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
     const session = await restoreAuthenticatedSession(page, baseURL)
     return {
@@ -270,8 +273,11 @@ export const launchAuthenticatedProfile = async (
       page,
       session,
       close: async () => {
-        await opened.close()
-        await lease.release()
+        try {
+          if (keyboard?.snapshot().inputs.some(input => input.result === "allowed")) keyboard.finish()
+        } finally {
+          try { await opened.close() } finally { await lease.release() }
+        }
       }
     }
   } catch (error) {
@@ -407,17 +413,26 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
     const baseURL = testInfo.project.use.baseURL
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
     const page = context.pages()[0] ?? await context.newPage()
+    const keyboard = process.env.SMITHERS_JOURNEY_KEYBOARD === "1" ? registerKeyboardJourney(page, new URL(baseURL).origin) : undefined
+    await keyboard?.ready()
     await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
     const requiredEnvironment = profileEnvironment
     const profileAvailable = requiredEnvironment === undefined || Boolean(process.env[requiredEnvironment]?.trim())
     try {
       await use(page)
     } finally {
-      if (realAuthKind() === "browser-profile" && profileAvailable) {
-        const restorePage = page.isClosed()
-          ? context.pages().find((candidate) => !candidate.isClosed()) ?? await context.newPage()
-          : page
-        await restoreAuthenticatedSession(restorePage, baseURL)
+      try {
+        if (realAuthKind() === "browser-profile" && profileAvailable) {
+          const restorePage = page.isClosed()
+            ? context.pages().find((candidate) => !candidate.isClosed()) ?? await context.newPage()
+            : page
+          await restoreAuthenticatedSession(restorePage, baseURL)
+        }
+      } finally {
+        if (keyboard) {
+          await testInfo.attach("keyboard-profile", { body: JSON.stringify(keyboard.snapshot()), contentType: "application/json" })
+          if (keyboard.snapshot().inputs.some(input => input.result === "allowed")) keyboard.finish()
+        }
       }
     }
   },

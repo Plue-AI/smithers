@@ -1,3 +1,4 @@
+import { journeyActivate } from "./support/keyboard-journey-input"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { authenticatedTest as test, launchAuthenticatedProfile } from "./auth-permissions/profile"
@@ -43,21 +44,21 @@ test("C-J3-09 reference: Return restores the item; Keep holds Needs you", scenar
   await ssh("git checkout main")
   await expect(returnButton).toBeVisible({ timeout: 1000 })
   await expect.poll(async () => (await todo()).state).toBe("needs_you")
-  await returnButton.click()
+  await journeyActivate(returnButton)
   await expect.poll(async () => (await todo()).state).toBe("working")
   expect(await record()).toEqual(before)
 
   await ssh("git checkout main")
   await expect(returnButton).toBeVisible({ timeout: 1000 })
   await ssh("printf 'recoverable after move\\n' > notes.txt")
-  await returnButton.click()
+  await journeyActivate(returnButton)
   await expect.poll(async () => (await todo()).state).toBe("working")
   expect(await ssh("test ! -e notes.txt && printf absent")).toBe("absent")
   expect(await ssh("jj log --no-graph -r 'all()' -T 'commit_id ++ \"\\n\"' | while read id; do jj file show -r \"$id\" notes.txt 2>/dev/null; done")).toContain("recoverable after move")
 
   await ssh("jj new main")
   await expect(returnButton).toBeVisible({ timeout: 1000 })
-  await page.getByRole("button", { name: "Keep for now", exact: true }).last().click()
+  await journeyActivate(page.getByRole("button", { name: "Keep for now", exact: true }).last())
   const heldUntil = Date.now() + 30_000
   while (Date.now() < heldUntil) {
     expect((await todo()).state).toBe("needs_you")

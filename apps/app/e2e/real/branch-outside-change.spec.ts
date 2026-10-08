@@ -58,7 +58,7 @@ test("C-J3-03 reference: outside burst updates the open card; Restore refuses a 
   await command(page, `/diff ${JSON.stringify({ branch, entry: burst!.id, path: "src/retry.ts" })}`)
   const diff = page.locator('[data-kind="diff"][aria-label="src/retry.ts changes"]').last()
   await expect(diff).toBeVisible()
-  await diff.getByRole("button", { name: "Restore this file", exact: true }).click()
+  await journeyActivate(diff.getByRole("button", { name: "Restore this file", exact: true }))
   await expect.poll(() => ssh("cat src/retry.ts")).toBe(before)
   await expect(file).toHaveAttribute("data-digest", createHash("sha256").update(before).digest("hex"), { timeout: 1000 })
   await expect.poll(async () => (await activity()).some(entry => !initial.has(entry.id) && entry.id !== burst!.id && entry.actor.kind === "person" && entry.actor.login !== "maya")).toBe(true)
@@ -66,7 +66,7 @@ test("C-J3-03 reference: outside burst updates the open card; Restore refuses a 
   await ssh("printf '\\n// later outside edit\\n' >> src/deliver.ts")
   const later = await ssh("cat src/deliver.ts")
   await command(page, `/diff ${JSON.stringify({ branch, entry: burst!.id, path: "src/deliver.ts" })}`)
-  await page.locator('[data-kind="diff"][aria-label="src/deliver.ts changes"]').last().getByRole("button", { name: "Restore this file", exact: true }).click()
+  await journeyActivate(page.locator('[data-kind="diff"][aria-label="src/deliver.ts changes"]').last().getByRole("button", { name: "Restore this file", exact: true }))
   await expect(page.locator('[data-kind="file"][aria-label="src/deliver.ts"] .code-file-outside').last()).toHaveAttribute("data-version", burst!.versions!)
   expect(await ssh("cat src/deliver.ts")).toBe(later)
   // Allow the preceding burst to close before measuring ignored writes.

@@ -1,3 +1,4 @@
+import { journeyActivate, journeyReach, journeyEnter } from "./support/keyboard-journey-input"
 import { fixtureInputText } from "./support/values"
 import type { Locator, Page } from "@playwright/test"
 import { scenario } from "./coverage/types"
@@ -115,7 +116,7 @@ const waitForCompletedRun = async (
     for (const approval of pending) {
       const cardId = approvalCardId(repo, runId, approval.requestId, workspaceId)
       const approve = page.getByTestId(`card-${cardId}`).locator('[data-slot="confirmation-action"][data-decision="approve"]')
-      if (await approve.isVisible().catch(() => false)) await approve.click()
+      if (await approve.isVisible().catch(() => false)) await journeyActivate(approve)
     }
     const answer = await gatewayCall(page, request, repo, "Projection.Snapshot", {
       selector: { _tag: "run-summary", runId }
@@ -163,7 +164,7 @@ configuredGatewayTest(
     await expect(card).toContainText(String(declared!.flowId))
     const row = card.locator(".workflow-list-row").filter({ hasText: String(declared!.flowId) })
     const run = row.getByRole("button", { name: "Run", exact: true })
-    await run.focus()
+    await journeyReach(run)
     await expect(run).toBeFocused()
     await run.press("Enter")
 
@@ -269,7 +270,7 @@ workflowTest(
     const message = form.locator('[data-field="message"] input, [data-field="message"] textarea').first()
     const inputMarker = fixtureInputText(`s15-input-${Date.now().toString(36)}`)
     await expect(message).toBeVisible()
-    await message.fill(inputMarker)
+    await journeyEnter(message, inputMarker)
     const [executeRunId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
       message.press("Enter")
@@ -342,7 +343,7 @@ workflowTest(
       return body?.procedure === "Approval.Submit" && body.payload?.target?._tag === "Node" &&
         body.payload.target.runId === runId && body.payload.target.requestId === pending?.requestId
     })
-    await approve.click()
+    await journeyActivate(approve)
     const decisionResponse = await submitted
     const decisionAnswer = await decisionResponse.json().catch(() => undefined) as {
       readonly ok?: unknown
@@ -398,7 +399,7 @@ workflowTest(
 
     const stop = runCard.getByTestId(`flow-run-stop-${runId}`)
     await expect(stop).toBeVisible()
-    await stop.click()
+    await journeyActivate(stop)
     const terminal = await waitForTerminalRun(page, request, repo, runId, 180_000, workspaceId)
     expect(terminal.status).toBe("cancelled")
     await attachProductionJson(testInfo, "workflow-approval-decision", {
@@ -444,7 +445,7 @@ workflowTest(
 
     const stop = card.getByTestId(`flow-run-stop-${runId}`)
     await expect(stop).toBeVisible()
-    await stop.click()
+    await journeyActivate(stop)
     const cancelled = await waitForTerminalRun(page, request, repo, runId, 180_000, workflowRepo.workspaceId)
     expect(cancelled.status).toBe("cancelled")
     await expect(card).toContainText(/Cancelled|cancelled/)

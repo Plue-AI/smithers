@@ -1,3 +1,4 @@
+import { journeyReach } from "./support/keyboard-journey-input"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { authenticatedTest as test } from "./auth-permissions/profile"
@@ -40,7 +41,7 @@ test("File card keyboard intelligence on the branch machine", scenario("file.int
   const editor = page.getByRole("textbox", { name: "src/b.ts", exact: true }).last()
   await expect(editor).toContainText('add(1, "2")')
   await expect(editor).toHaveAttribute("aria-readonly", "true")
-  await editor.focus()
+  await journeyReach(editor)
   const started = performance.now()
   await page.keyboard.press("Control+Space")
   await expect(page.locator(".cm-tooltip").last()).toContainText("add(x: number, y: number): number", { timeout: 3000 })
@@ -54,7 +55,7 @@ test("File card keyboard intelligence on the branch machine", scenario("file.int
   await openCaller()
   await command(page, `/code.diagnostics ${JSON.stringify({ path: "src/b.ts", repo: branch })}`)
   await expect(editor.locator(".cm-lintRange-error")).toHaveCount(1)
-  await editor.focus()
+  await journeyReach(editor)
   await page.keyboard.press("Control+Shift+m")
   await expect(page.locator(".cm-diagnosticText")).toHaveText("Argument of type 'string' is not assignable to parameter of type 'number'.")
   const diagnostic = editor.locator(".cm-lintRange-error").first()

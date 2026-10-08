@@ -1,3 +1,4 @@
+import { journeyEnter, journeyReach } from "./support/keyboard-journey-input"
 import { nextTurnResponse, sharedReplyFrames } from "./chat-tools/ui"
 import type { Page } from "@playwright/test"
 import { test } from "./support"
@@ -37,7 +38,7 @@ test("C-J9-01 repository answers make private TODOs and save literal Markdown @r
     await expect(draft).toBeVisible()
     await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue(markdown)
     await expect(draft.getByLabel("Title", { exact: true })).not.toHaveValue("")
-    await draft.getByLabel("Title", { exact: true }).fill("Document webhook retries")
+    await journeyEnter(draft.getByLabel("Title", { exact: true }), "Document webhook retries")
     await expect(draft.getByLabel("Place", { exact: true })).toHaveValue("append")
     await expect(alice.locator('.smithers-card[data-kind="draft"]')).toHaveCount(0)
     expect(await f.read("Ben", "/api/todos")).toEqual(before)
@@ -46,7 +47,7 @@ test("C-J9-01 repository answers make private TODOs and save literal Markdown @r
       if (request.method() === "POST" && new URL(request.url()).pathname === "/api/todos") commits.push({ key: request.headers()["idempotency-key"], body: request.postDataJSON() })
     })
     const commit = draft.getByRole("button", { name: "Commit", exact: true })
-    await commit.focus()
+    await journeyReach(commit)
     await ben.keyboard.press("Enter")
     await ben.keyboard.press("Enter")
     await expect.poll(async () => (await f.read("Ben", "/api/todos")).length).toBe(before.length + 1)
@@ -60,7 +61,7 @@ test("C-J9-01 repository answers make private TODOs and save literal Markdown @r
     await expect(draft).toContainText("Committed Document webhook retries")
     for (const page of [ben, alice]) await expect(home(page)).toContainText("Document webhook retries")
     await answer.getByRole("button", { name: "Save to wiki", exact: true }).press("Enter")
-    await ben.getByLabel("Name", { exact: true }).last().fill("Webhook retries answer")
+    await journeyEnter(ben.getByLabel("Name", { exact: true }).last(), "Webhook retries answer")
     await ben.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
     const saved = () => f.sql("SELECT p.id,p.title,p.body,u.username FROM wiki_pages p JOIN users u ON u.id=p.author_id WHERE p.title='Webhook retries answer'")
     await expect.poll(() => saved().length).toBe(1)
@@ -73,7 +74,7 @@ test("C-J9-01 repository answers make private TODOs and save literal Markdown @r
     await expect(ben.locator('.smithers-card[data-kind="draft"]').last().getByLabel("Prompt", { exact: true })).toHaveValue(second)
     await expect(alice.locator('.smithers-card[data-kind="draft"]')).toHaveCount(0)
     const secondDraft = ben.locator('.smithers-card[data-kind="draft"]').last()
-    await secondDraft.getByLabel("Title", { exact: true }).fill("Document redeliver callers")
+    await journeyEnter(secondDraft.getByLabel("Title", { exact: true }), "Document redeliver callers")
     await secondDraft.getByRole("button", { name: "Commit", exact: true }).press("Enter")
     await expect.poll(async () => (await f.read("Ben", "/api/todos")).length).toBe(before.length + 2)
     const secondTodo = (await f.read("Ben", "/api/todos")).at(-1)
@@ -82,7 +83,7 @@ test("C-J9-01 repository answers make private TODOs and save literal Markdown @r
     for (const page of [ben, alice]) await expect(home(page)).toContainText("Document redeliver callers")
     await runSlash(ben, "/wiki.save")
     await expect(ben.getByLabel("Name", { exact: true }).last()).toBeVisible()
-    await ben.getByLabel("Name", { exact: true }).last().fill("Redeliver callers answer")
+    await journeyEnter(ben.getByLabel("Name", { exact: true }).last(), "Redeliver callers answer")
     await ben.getByRole("button", { name: "Save", exact: true }).last().press("Enter")
     await expect.poll(() => f.sql("SELECT body FROM wiki_pages WHERE title='Redeliver callers answer'")).toEqual([{ body: second }])
     expect(await f.read("Ben", "/api/todos")).toHaveLength(before.length + 2)

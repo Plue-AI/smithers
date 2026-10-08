@@ -79,7 +79,7 @@ export const engineOrder = (sql: (query: string) => any[], numbers: readonly num
 export const homeRow = (page: Page, n: number): Locator =>
   home(page).locator(".stack-row").filter({ has: page.locator(".ref", { hasText: new RegExp(`^T${n}$`) }) })
 
-export type Timing = { action: string; n: number; ackMs: number; status: number; ack: unknown; body: unknown; answering: boolean; toastId?: string; pressedAt?: number }
+export type Timing = { action: string; n: number; ackMs: number; dispatchMs?: number; transportMs?: number; network?: { requestStart: number; responseStart: number; responseEnd: number }; status: number; ack: unknown; body: unknown; answering: boolean; toastId?: string; pressedAt?: number }
 
 /**
  * Step 4: Move T4 up once from its Home row's Order menu, pressed twice.
@@ -93,14 +93,17 @@ export const moveUp = async (page: Page, t4: number): Promise<Timing> => {
   await item.evaluate(node => node.addEventListener("click", () => {
     ;(window as any).__j4MovePressedAt = Date.now()
   }, { once: true }))
+  const sent = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === `/api/todos/${t4}`)
+    .then(() => Date.now())
   const acknowledged = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/todos/${t4}`)
     .then(response => ({ response, at: Date.now() }))
   await journeyDoubleActivate(item)
   const { response, at } = await acknowledged
   const clickedAt = await page.evaluate(() => (window as any).__j4MovePressedAt as number)
+  const sentAt = await sent
   const ackMs = at - clickedAt
   const answering = await page.locator('[data-testid="transcript"][aria-busy="true"]').count() > 0
-  return { action: "move", n: t4, ackMs, pressedAt: clickedAt, status: response.status(), ack: await response.json(), body: response.request().postDataJSON(), answering,
+  return { action: "move", n: t4, ackMs, dispatchMs: sentAt - clickedAt, transportMs: at - sentAt, network: response.request().timing(), pressedAt: clickedAt, status: response.status(), ack: await response.json(), body: response.request().postDataJSON(), answering,
     toastId: `toast-todo.request.${await response.request().headerValue("idempotency-key")}` }
 }
 

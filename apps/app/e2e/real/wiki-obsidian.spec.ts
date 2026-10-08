@@ -1,3 +1,4 @@
+import { journeyEnter } from "./support/keyboard-journey-input"
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { scenario } from "./coverage/types"
@@ -49,7 +50,7 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   const card = page.getByTestId("card-settings").last()
   const folder = card.getByLabel("Obsidian folder", { exact: true })
   const setFolder = async (path: string) => {
-    await folder.fill(path)
+    await journeyEnter(folder, path)
     await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
     await expect.poll(async () => (await get("/api/install")).wiki_sync?.obsidian?.path).toBe(path)
   }
@@ -90,7 +91,7 @@ test("Settings syncs a Mac folder in both directions without restart", scenario(
   await writeFile(join(next, filename), appEdit + "New folder decision.\n")
   await expect.poll(async () => (await get(`${api}/${slug}`)).body, { timeout: 70_000 }).toBe(appEdit + "New folder decision.\n")
   expect(await read(join(next, "diagram.png"))).toEqual(attachment)
-  await folder.fill(state!)
+  await journeyEnter(folder, state!)
   await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
   await expect(card.getByRole("alert")).toHaveText("Sync failed")
   await expect(card.locator("details").filter({ hasText: "Obsidian folder refused" })).toHaveCount(1)

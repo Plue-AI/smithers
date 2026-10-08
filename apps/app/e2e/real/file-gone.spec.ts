@@ -1,3 +1,4 @@
+import { journeyReach } from "./support/keyboard-journey-input"
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { promisify } from "node:util"
@@ -64,7 +65,7 @@ test("C-J3-08: deleted Restore, renamed Follow and atomic save on the installed 
     const deletion = await oneEntry(initial, "maya", "src/retry.ts")
     expect(deletion.actor.via).toBe("ssh")
     const afterDelete = new Set((await activity()).map(entry => entry.id))
-    await retry.getByRole("button", { name: "Restore", exact: true }).focus()
+    await journeyReach(retry.getByRole("button", { name: "Restore", exact: true }))
     await page.keyboard.press("Enter")
     await expect.poll(() => ssh("cat src/retry.ts")).toBe(before)
     await expect(retry).not.toContainText("Deleted by")
@@ -75,7 +76,7 @@ test("C-J3-08: deleted Restore, renamed Follow and atomic save on the installed 
     await expect(webhook).toContainText("Renamed to deliver.ts by Maya via SSH", { timeout: 1000 })
     const rename = await oneEntry(afterRestore, "maya", "src/webhook.ts")
     expect(rename.actor.via).toBe("ssh")
-    await webhook.getByRole("button", { name: "Follow", exact: true }).focus()
+    await journeyReach(webhook.getByRole("button", { name: "Follow", exact: true }))
     await page.keyboard.press("Enter")
     const deliver = page.locator('[data-kind="file"][aria-label="src/deliver.ts"]').last()
     await expect(deliver).toHaveAttribute("data-digest", digest(webhookBefore))
