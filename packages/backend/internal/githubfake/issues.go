@@ -109,6 +109,10 @@ func (s *Server) EditIssue(repo string, number int64, login, title, body string)
 func (s *Server) LabelIssue(repo string, number int64, login, label string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.personLabel(repo, number, login, label)
+}
+
+func (s *Server) personLabel(repo string, number int64, login, label string) int64 {
 	key := issueKey(repo, number)
 	if _, pull := s.pulls[key]; s.opened[key] == nil && !pull {
 		return 0

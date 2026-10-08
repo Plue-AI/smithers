@@ -201,6 +201,23 @@ func TestBrowserPages(t *testing.T) {
 			t.Fatal(body, err, bad.StatusCode)
 		}
 	}
+	// A person labels it todo; a repeated label is a second event, never a second label, and a label needs an open issue.
+	for range 2 {
+		labeled, err := http.Post(fake.URL+"/_fake/labels", "application/json", strings.NewReader(`{"repo":"local-owner/demo","number":1,"login":"ben","label":"todo"}`))
+		if err != nil || labeled.StatusCode != 200 {
+			t.Fatal(err, labeled.StatusCode)
+		}
+		labeled.Body.Close()
+	}
+	if issue, _ := fake.Issue("local-owner/demo", 1); len(issue.Labels) != 1 || issue.Labels[0] != "todo" || len(issue.Events) != 2 ||
+		issue.Events[0].Actor != "ben" || issue.Events[0].ViaApp || issue.Events[0].Label != "todo" {
+		t.Fatal(issue.Labels, issue.Events)
+	}
+	for body, status := range map[string]int{`{"repo":"local-owner/demo","number":9,"login":"ben","label":"todo"}`: 404, `{"repo":"local-owner/demo","number":1,"login":"ben"}`: 400, `{"repo":"local-owner/demo","number":1,"label":"todo"}`: 400, `not json`: 400} {
+		if bad, err := http.Post(fake.URL+"/_fake/labels", "application/json", strings.NewReader(body)); err != nil || bad.StatusCode != status {
+			t.Fatal(body, err, bad.StatusCode)
+		}
+	}
 	raw := get("/_fake/writes", 200)
 	var rows []map[string]any
 	if json.Unmarshal([]byte(raw), &rows) != nil || len(rows) == 0 {
