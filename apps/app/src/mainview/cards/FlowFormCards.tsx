@@ -7,6 +7,7 @@ import type { Card } from "../state/AppState"
 import type { CardFamily, RunCommand } from "./CardFamily"
 import { writeOnlyGesture } from "../flows/CommandGesture"
 import { flowArgs } from "../flows/FlowArgs"
+import { takeComposerRestoration } from "../runtime/ComposerFocus"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailure, UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { accountOwnerOf } from "../state/AccountOwner"
@@ -133,6 +134,7 @@ export const FlowFormCardBody = ({
     // Claim the handoff even when it cannot be honored: a request the human moved past must not fire later.
     const requested = handoff?.take(card.id) === true
     const active = node.ownerDocument.activeElement
+    const fromDismissal = requested && takeComposerRestoration(node.ownerDocument) === active
     if (settled || busy) {
       // The control that held focus just disabled (Chrome drops it to <body> on the next frame): hold focus at the form.
       if (active !== null && active !== node && node.contains(active) && active.matches(":disabled")) holdFocus(node)
@@ -148,7 +150,7 @@ export const FlowFormCardBody = ({
     if ((!requested && !fromButton) || (active !== null && node.contains(active))) return
     // The human has moved on when focus rests on some other control; <body> and
     // the composer (hidden once its slash ran) are where the slash door left it.
-    if (!fromButton && active !== null && active !== node.ownerDocument.body && active.closest(".composer-wrap") === null) return
+    if (!fromButton && !fromDismissal && active !== null && active !== node.ownerDocument.body && active.closest(".composer-wrap") === null) return
     firstOpenControl(node)?.focus()
   }, [card.id, card.ordinal, card.payload.via, flow, settled, busy, handoff])
   // DOM bookkeeping, never application state: the field control that owned

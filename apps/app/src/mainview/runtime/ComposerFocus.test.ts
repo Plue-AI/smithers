@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { beforeAll, afterAll, expect, test } from "bun:test"
-import { rememberComposerFocus, restoreComposerFocus } from "./ComposerFocus"
+import { rememberComposerFocus, restoreComposerFocus, takeComposerRestoration } from "./ComposerFocus"
 
 beforeAll(() => GlobalRegistrator.register())
 afterAll(async () => { await GlobalRegistrator.unregister() })
@@ -54,4 +54,12 @@ test("an already-focused composer cannot become its own restoration target", () 
   rememberComposerFocus(document)
   restoreComposerFocus(document, f.fallback)
   expect(document.activeElement).toBe(f.fallback)
+})
+
+for (const changed of [false, true]) test(`a form takes the automatic restoration once unless focus changed: ${changed}`, () => {
+  const f = setup()
+  restoreComposerFocus(document, f.fallback)
+  if (changed) f.fallback.focus()
+  expect(takeComposerRestoration(document)).toBe(changed ? undefined : f.input)
+  expect(takeComposerRestoration(document)).toBeUndefined()
 })

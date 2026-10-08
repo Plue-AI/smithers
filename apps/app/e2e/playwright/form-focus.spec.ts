@@ -4,7 +4,7 @@ import { identityRoute } from "./identity"
 
 /*
  * THE FORM LAW meets the keyboard rule (apps/app/AGENTS.md). CT005 on live
- * main 64998e1a (2026-09-16): Cmd+K, `/files.read`, Enter rendered the Path
+ * main 64998e1a (2026-09-16): Cmd+K, `/file`, Enter rendered the Path
  * form, but the composer hid first, so document.activeElement fell to <body>
  * and Tab walked the shell instead of the field the human was asked for.
  * These run the real shell and flow; the typed text proves the focus, never
@@ -16,23 +16,23 @@ test.beforeEach(async ({ page }) => {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "cloud", "cloud.terminal"], authFlow: "native-handoff", sandbox: null,
   } }))
-  await page.route("**/api/user", identityRoute(null))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "smithersai/smithers" }] } }))
   await page.route("**/api/repos/smithersai/smithers/contents", route => route.fulfill({ json: [] }))
 })
 
 const README = { path: "README.md", name: "README.md", type: "file", encoding: "utf-8", content: "# Smithers\n", size: 11 }
 
-/** Open the repository, then Ctrl+K, `/files.read`, Enter: the Path form for the selected repository. */
+/** Open the repository, then Ctrl+K, `/file`, Enter: the Path form for the selected repository. */
 const askForPath = async (page: Page) => {
   await page.goto("/smithersai/smithers/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   await page.keyboard.press("Control+k")
   const composer = page.getByTestId("composer-input")
   await expect(composer).toBeFocused()
-  await composer.fill("/files.read")
+  await composer.fill("/file")
   await composer.press("Enter")
-  const form = page.locator(".flow-form[data-flow-name='files.read']")
+  const form = page.locator(".flow-form[data-flow-name='file']")
   await expect(form).toBeVisible()
   await expect(composer).toBeHidden()
   return { composer, form, path: form.getByTestId("flow-form-path") }
@@ -88,14 +88,14 @@ test("T1: a restored form after reload does not take the keyboard; Cancel return
   const { path } = await askForPath(page)
   await expect(path).toBeFocused()
   await page.reload()
-  const form = page.locator(".flow-form[data-flow-name='files.read']")
+  const form = page.locator(".flow-form[data-flow-name='file']")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   await expect(form).toBeVisible()
   expect(await activeElement(page)).not.toBe("flow-form-path")
   await form.getByTestId("flow-form-cancel").focus()
   await page.keyboard.press("Enter")
   await expect(form).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeFocused()
+  await expect(page.locator('.smithers-transcript .message-cta[data-flow="sign-in"]').last()).toBeFocused()
 })
 
 /*
