@@ -563,6 +563,19 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			require.NoError(t, response.Body.Close())
 			require.Equal(t, 200, response.StatusCode)
 			require.Equal(t, map[string]any{"onto": onto, "state": "running", "blocking_session": float64(73)}, view["rebase_execution"])
+			require.Equal(t, map[string]any{"onto": "main", "onto_revision": onto}, view["rebase_pending"], "every busy retry must retain the person's pending projection")
+			activityReq, err := http.NewRequest("GET", origin+"/api/branches/"+f.row.ID+"/activity", nil)
+			require.NoError(t, err)
+			activityReq.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+			activityResponse, err := http.DefaultClient.Do(activityReq)
+			require.NoError(t, err)
+			var activity []map[string]any
+			require.NoError(t, json.NewDecoder(activityResponse.Body).Decode(&activity))
+			require.NoError(t, activityResponse.Body.Close())
+			require.Equal(t, http.StatusOK, activityResponse.StatusCode)
+			for _, entry := range activity {
+				require.NotEqual(t, "rebase", entry["kind"], "a busy reply cannot show completed activity before automatic recovery")
+			}
 			previousDue = pending.NextAttemptAt.Time
 		}
 		require.NoError(t, os.Remove(arm))

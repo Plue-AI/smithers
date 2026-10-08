@@ -216,6 +216,16 @@ print('COMPLETED',flush=True)
 	require.NotNil(t, view.Pending)
 	require.Equal(t, writer.ID(), view.Execution.Session)
 
+	// Observe the person's activity while the real blocker still holds. A
+	// completed entry must not appear even transiently on a failed freeze.
+	blockedActivity, err := r.expect("GET", "/api/branches/"+branch+"/activity", "", 200)
+	require.NoError(t, err)
+	var blockedEntries []map[string]any
+	require.NoError(t, json.Unmarshal(blockedActivity, &blockedEntries))
+	for _, entry := range blockedEntries {
+		require.NotEqual(t, "rebase", entry["kind"], "busy cannot publish completed activity while the kernel blocker remains")
+	}
+
 	// No new POST, PollOnce, due-row edit or clock advance. The composed
 	// worker must recover this same persisted request when the kernel releases D.
 	completed, err := reader.ReadString('\n')
