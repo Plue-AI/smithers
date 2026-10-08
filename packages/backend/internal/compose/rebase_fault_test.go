@@ -19,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/stretchr/testify/require"
 )
 
@@ -284,8 +285,9 @@ for i in range(20):
 		old, err := registry.Current(branch)
 		require.NoError(t, err)
 		if killVM {
-			out, err := call("stop", "-t", "0", "-q", machine)
-			require.NoError(t, err, "%s", out)
+			// The owned controller selects the retained workspace metadata and
+			// takes msb's SIGKILL path, without a clean guest shutdown.
+			faultprocess.KillMachine(t, r.workspaceStateRoot, branch, os.Getenv("SMITHERS_CHECK_BUNDLE"))
 			_, err = vm.StartWorkspace(t.Context(), branch)
 			require.NoError(t, err)
 			require.NoError(t, vm.EnsureMachined(t.Context(), branch))
