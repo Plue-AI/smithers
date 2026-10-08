@@ -164,7 +164,7 @@ func TestRepositoryEgressPolicyServicePatchReloadsEveryRunningSandbox(t *testing
 	require.NotNil(t, update.UpdatedAt)
 	assert.Equal(t, []RepositoryEgressReload{
 		{SandboxID: "vm-a", Reloaded: true},
-		{SandboxID: "vm-b", Error: "sandbox vm-b is stopped"},
+		{SandboxID: "vm-b", Error: "sandbox vm-b is stopped", Outcome: "outcomeUnknown"},
 		{SandboxID: "vm-c", Reloaded: true},
 	}, update.Reloads, "a failed reload is reported for its sandbox, not the write")
 	for _, id := range store.live {

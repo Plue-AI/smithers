@@ -1,3 +1,4 @@
+import { Schema } from "effect"
 import { expect, test } from "bun:test"
 import { httpProjections } from "../src/app-operations/http"
 import { generateCatalog } from "../../../../scripts/catalog-mvp"
@@ -266,4 +267,10 @@ test("private import progress retains the owner person read door", () => {
    hidden: true, visibility: "hidden", minimumRole: "owner", agent: "never", credentialScope: "write:repository", actors: ["person"],
    http: { method: "GET", path: "/api/repos/{owner}/{repo}/egress-policy" }
   })
+ })
+
+ test("egress updates retain a typed owner-only mutation", () => {
+  const row = httpProjections.find(row => row.name === "egress.update")!
+  expect(row).toMatchObject({ minimumRole: "owner", agent: "never", credentialScope: "write:repository", actors: ["person"], http: { method: "PATCH", path: "/api/repos/{owner}/{repo}/egress-policy" } })
+  expect(Schema.decodeUnknownSync(row.input)({ add: ["registry.example"], remove: null })).toEqual({ add: ["registry.example"], remove: null })
  })

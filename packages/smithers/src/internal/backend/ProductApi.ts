@@ -5891,6 +5891,7 @@ export type PatchApiReposOwnerRepoEgressPolicyResponse = {
     sandbox_id: string
     reloaded: boolean
     error?: string
+    outcome?: "outcomeUnknown"
   }>
 }
 

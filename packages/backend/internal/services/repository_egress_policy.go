@@ -66,7 +66,11 @@ const repositoryEgressWriteLockKey = "hashtextextended('repository-egress-policy
 // repository's egress write lock. The lock is released when work returns;
 // a connection whose unlock is not confirmed is closed, which releases it.
 func (s *PostgresRepositoryEgressPolicyStore) WithRepositoryEgressWriteLock(ctx context.Context, repositoryID int64, work func(RepositoryEgressPolicyQuerier) error) error {
-	conn, err := s.pool.Acquire(ctx)
+	return withRepositoryEgressConnection(ctx, s.pool, repositoryID, func(conn *pgxpool.Conn) error { return work(db.New(conn)) })
+}
+
+func withRepositoryEgressConnection(ctx context.Context, pool *pgxpool.Pool, repositoryID int64, work func(*pgxpool.Conn) error) error {
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -82,7 +86,7 @@ func (s *PostgresRepositoryEgressPolicyStore) WithRepositoryEgressWriteLock(ctx 
 			_ = conn.Conn().Close(context.WithoutCancel(ctx))
 		}
 	}()
-	return work(db.New(conn))
+	return work(conn)
 }
 
 // EgressAllowDomainsSource reads the allowlist a new or resumed sandbox of a
@@ -104,6 +108,7 @@ type RepositoryEgressReload struct {
 	SandboxID string `json:"sandbox_id"`
 	Reloaded  bool   `json:"reloaded"`
 	Error     string `json:"error,omitempty"`
+	Outcome   string `json:"outcome,omitempty"`
 }
 
 // RepositoryEgressPolicyUpdate is a written policy and the live reload of
@@ -169,55 +174,52 @@ func (s *RepositoryEgressPolicyService) AllowDomains(ctx context.Context, reposi
 	return append([]string(nil), row.AllowDomains...), nil
 }
 
+type RepositoryEgressPatchInput struct {
+	Add    []string `json:"add"`
+	Remove []string `json:"remove"`
+}
+
+func normalizeRepositoryEgressPatch(input RepositoryEgressPatchInput) (RepositoryEgressPatchInput, error) {
+	add, err := NormalizeEgressAllowDomains(input.Add)
+	if err != nil {
+		return RepositoryEgressPatchInput{}, err
+	}
+	remove, err := NormalizeEgressAllowDomains(input.Remove)
+	if err != nil {
+		return RepositoryEgressPatchInput{}, err
+	}
+	if len(add) == 0 && len(remove) == 0 {
+		return RepositoryEgressPatchInput{}, pkgerrors.BadRequest("name a host to add or remove")
+	}
+	for _, domain := range add {
+		if slices.Contains(remove, domain) {
+			return RepositoryEgressPatchInput{}, pkgerrors.BadRequest("egress domain " + strconv.Quote(domain) + " is both added and removed")
+		}
+	}
+	return RepositoryEgressPatchInput{Add: add, Remove: remove}, nil
+}
+
 // Patch adds and removes hosts in one atomic write, then reloads the result
 // into every running sandbox of the repository. Overlapping writers each
 // apply their own change to the list the other left. The durable record is
 // written first and is what a sandbox starts or resumes with, so a reload
 // that fails is reported per sandbox rather than failing the write.
 func (s *RepositoryEgressPolicyService) Patch(ctx context.Context, actor *db.User, repositoryID int64, add, remove []string) (RepositoryEgressPolicyUpdate, error) {
-	add, err := NormalizeEgressAllowDomains(add)
+	input := RepositoryEgressPatchInput{Add: add, Remove: remove}
+	if s.install != nil {
+		return s.patchInstallEgressPolicy(ctx, actor, repositoryID, input)
+	}
+	input, err := normalizeRepositoryEgressPatch(input)
 	if err != nil {
 		return RepositoryEgressPolicyUpdate{}, err
-	}
-	remove, err = NormalizeEgressAllowDomains(remove)
-	if err != nil {
-		return RepositoryEgressPolicyUpdate{}, err
-	}
-	if len(add) == 0 && len(remove) == 0 {
-		return RepositoryEgressPolicyUpdate{}, pkgerrors.BadRequest("name a host to add or remove")
-	}
-	for _, domain := range add {
-		if slices.Contains(remove, domain) {
-			return RepositoryEgressPolicyUpdate{}, pkgerrors.BadRequest("egress domain " + strconv.Quote(domain) + " is both added and removed")
-		}
-	}
-	updatedBy := pgtype.Int8{}
-	if actor != nil {
-		updatedBy = pgtype.Int8{Int64: actor.ID, Valid: true}
 	}
 	var update RepositoryEgressPolicyUpdate
 	err = s.q.WithRepositoryEgressWriteLock(ctx, repositoryID, func(q RepositoryEgressPolicyQuerier) error {
-		row, err := q.PatchRepositoryEgressPolicy(ctx, db.PatchRepositoryEgressPolicyParams{
-			RepositoryID:  repositoryID,
-			UpdatedBy:     updatedBy,
-			AddDomains:    add,
-			RemoveDomains: remove,
-			MaxDomains:    maxRepositoryEgressDomains,
-		})
-		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return pkgerrors.BadRequest("too many egress domains")
-		}
+		row, ids, err := writeRepositoryEgressPolicy(ctx, q, actor, repositoryID, input)
 		if err != nil {
-			return pkgerrors.Internal("write the repository egress policy").WithCause(err)
+			return err
 		}
-		sandboxIDs, err := q.ListRepositoryLiveSandboxIDs(ctx, repositoryID)
-		if err != nil {
-			return pkgerrors.Internal("list the repository's running sandboxes").WithCause(err)
-		}
-		update = RepositoryEgressPolicyUpdate{
-			RepositoryEgressPolicy: repositoryEgressPolicy(row),
-			Reloads:                s.reload(ctx, sandboxIDs, row.AllowDomains),
-		}
+		update = RepositoryEgressPolicyUpdate{RepositoryEgressPolicy: repositoryEgressPolicy(row), Reloads: s.reload(ctx, ids, row.AllowDomains)}
 		return nil
 	})
 	if err != nil {
@@ -228,6 +230,25 @@ func (s *RepositoryEgressPolicyService) Patch(ctx context.Context, actor *db.Use
 		return RepositoryEgressPolicyUpdate{}, pkgerrors.Internal("lock the repository egress policy").WithCause(err)
 	}
 	return update, nil
+}
+
+func writeRepositoryEgressPolicy(ctx context.Context, q RepositoryEgressPolicyQuerier, actor *db.User, repository int64, input RepositoryEgressPatchInput) (db.RepositoryEgressPolicy, []string, error) {
+	updatedBy := pgtype.Int8{}
+	if actor != nil {
+		updatedBy = pgtype.Int8{Int64: actor.ID, Valid: true}
+	}
+	row, err := q.PatchRepositoryEgressPolicy(ctx, db.PatchRepositoryEgressPolicyParams{RepositoryID: repository, UpdatedBy: updatedBy, AddDomains: input.Add, RemoveDomains: input.Remove, MaxDomains: maxRepositoryEgressDomains})
+	if stdErrors.Is(err, pgx.ErrNoRows) {
+		return row, nil, pkgerrors.BadRequest("too many egress domains")
+	}
+	if err != nil {
+		return row, nil, pkgerrors.Internal("write the repository egress policy").WithCause(err)
+	}
+	ids, err := q.ListRepositoryLiveSandboxIDs(ctx, repository)
+	if err != nil {
+		return row, nil, pkgerrors.Internal("list the repository's running sandboxes").WithCause(err)
+	}
+	return row, ids, nil
 }
 
 // reload sends the list to every sandbox at once, each under its own bound,
@@ -249,6 +270,7 @@ func (s *RepositoryEgressPolicyService) reload(ctx context.Context, sandboxIDs [
 			request := sandbox.EgressReloadRequest{ExtraAllowDomains: append([]string{}, domains...)}
 			if _, err := s.reloader.ReloadEgress(reloadCtx, outcome.SandboxID, request); err != nil {
 				outcome.Error = err.Error()
+				outcome.Outcome = "outcomeUnknown"
 				return
 			}
 			outcome.Reloaded = true

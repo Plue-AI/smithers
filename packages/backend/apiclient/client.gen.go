@@ -2446,6 +2446,7 @@ type PatchAPIReposOwnerRepoEgressPolicyResponseReloadsItem struct {
 	SandboxID string  `json:"sandbox_id"`
 	Reloaded  bool    `json:"reloaded"`
 	Error     *string `json:"error,omitempty"`
+	Outcome   *string `json:"outcome,omitempty"`
 }
 
 // GetAPIReposOwnerRepoWorkspacesIDChildrenResponseItem is generated from docs/api/openapi.yaml.

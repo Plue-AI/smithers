@@ -12631,7 +12631,11 @@ paths:
                           type: boolean
                         error:
                           type: string
-                          description: Why this sandbox kept its previous list; absent when it reloaded.
+                          description: Reload error; the policy was committed but the sandbox may have applied it.
+                        outcome:
+                          type: string
+                          enum: [outcomeUnknown]
+                          description: The reload response was lost or failed; no automatic retry.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

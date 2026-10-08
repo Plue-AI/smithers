@@ -23,11 +23,6 @@ type RepositoryEgressPolicyHandler struct {
 	Service RepositoryEgressPolicyRouteService
 }
 
-type patchRepositoryEgressPolicyRequest struct {
-	Add    []string `json:"add"`
-	Remove []string `json:"remove"`
-}
-
 // GetEgressPolicy answers the repository's allowlist.
 func (h *RepositoryEgressPolicyHandler) GetEgressPolicy(w http.ResponseWriter, r *http.Request) {
 	repository := middleware.RepoFromContext(r.Context())
@@ -58,7 +53,7 @@ func (h *RepositoryEgressPolicyHandler) PatchEgressPolicy(w http.ResponseWriter,
 		errors.WriteError(w, errors.Internal("repository context not loaded"))
 		return
 	}
-	var input patchRepositoryEgressPolicyRequest
+	var input services.RepositoryEgressPatchInput
 	if !decodeStrictJSONBody(w, r, &input) {
 		return
 	}

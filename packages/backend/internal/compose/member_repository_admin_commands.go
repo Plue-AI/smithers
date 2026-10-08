@@ -94,7 +94,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 	}
 	var input any = struct{}{}
-	if command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
+	if command == "egress.update" || command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -106,6 +106,10 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			decoder.DisallowUnknownFields()
 		}
 		switch command {
+		case "egress.update":
+			var value services.RepositoryEgressPatchInput
+			err = decoder.Decode(&value)
+			input = value
 		case "webhooks.create":
 			var value services.CreateWebhookInput
 			err = decoder.Decode(&value)
@@ -153,7 +157,10 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "egress.read" {
+	if command == "egress.update" {
+		value, _ := input.(services.RepositoryEgressPatchInput)
+		subject, err = services.InstallRepositoryEgressPatchSubject(repository.ID, value)
+	} else if command == "egress.read" {
 		subject = services.InstallRepositoryEgressSubject(repository.ID)
 	} else if strings.HasPrefix(command, "webhooks.") {
 		subject, err = services.InstallWebhookSubject(repository.ID, command, id, delivery, input)
