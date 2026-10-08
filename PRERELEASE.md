@@ -251,7 +251,7 @@ Also landed: 5e1a8748b5 moved tests off the removed guest read and write. 3fc44e
 |---|---|---|
 | Access | T-ACC-03 | One permission check over every command. |
 | Own agents and terminals | T-AGT-02, T-AGT-03, T-TRM-02, T-TRM-05, T-TRM-06 | A member's Claude Code or Codex session shown on the branch. Terminal sign-in and the Smithers skill. The coding agent's shell in the Terminal card. VS Code Remote. |
-| Stack | T-STK-01, 04, 05, 06, 08, T-MCH-08 | Ordered multi-TODO merge with pre-approval. Stop, Resume and Retry counters. Scratch Rebase and Done. Fork, Drop and Add to stack on a live child. |
+| Stack | T-STK-01, 04, 06, 08, T-MCH-08 | Ordered multi-TODO merge with pre-approval. Scratch Rebase and Done. Fork, Drop and Add to stack on a live child. |
 | Branch card | T-APP-10 | Scratch Rebase and Done. Waiting, rebasing and frozen states. |
 | App | T-APP-21, T-CAT-01 | `/debug-api` on a real install. Command placement and unlisted commands. |
 | Machines | T-MCH-06, T-COL-03 | Admission order and safe idle. The daemon on hosted machines. |
@@ -261,6 +261,8 @@ Also landed: 5e1a8748b5 moved tests off the removed guest read and write. 3fc44e
 | Fast model | T-FM-02 | The Smithers fast-model gateway is not deployed. The quota is undecided. |
 
 ### E. Unverified lines in full
+
+- TODO controls (T-STK-05): Stop/Resume, both Retry pins, retained-capture Drop/recovery, Fork/Add/Drop and reopened-input restart pass the composed Linux install proofs on main. Drop acknowledges within 1 s and releases its machine within 60 s. Real microVM, Mac bundle/launchd, reference-host and owner qualification remain unverified; the process fixture proves orchestration only. J7 scratch rows 13/14 remain pending under T-MCH-08.
 
 - Learning machine isolation (T-FLW-06): no 3f review, no reference-host run; relies on sandboxed isolation and no source publisher on the learning workspace.
 - Guest helper change b596ce787b (`state-read`/`state-write`): three questions are open with smithers-3f. Which uid runs them, and can a repository-code uid write under `/var/lib/smithers/state`? Who creates `managed-hosts/<sha>/`, and with what mode? Does the read need `O_NOFOLLOW`? The host checks `binding.json` by ID, so a forged file only refuses its own machine.
