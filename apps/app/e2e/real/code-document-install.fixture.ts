@@ -123,6 +123,31 @@ if (process.env.SMITHERS_CODE_DOCUMENT_OUTSIDE === "1") {
   await waitFor("outside reconciliation saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
 }
 
+// The installed-daemon steady-state driver ends here. Gap and restart remain
+// separate qualification cases; this result proves neither recovery nor activation.
+if (process.env.SMITHERS_CODE_DOCUMENT_PHASE === "coedit") {
+  // UTF-16 edits cross the production browser/Go/Rust codec seam. The
+  // combining mark and astral characters must survive insertion and deletion
+  // without changing the other member's text or splitting a surrogate pair.
+  const beforeUnicode = benCard.text()
+  const unicode = "🧑🏽‍💻 café e\u0301 漢字 שלום 🌍"
+  benCard.insert(beforeUnicode.length, unicode)
+  await waitFor("Unicode peer interop", () => aliceCard.text() === beforeUnicode + unicode).catch(diagnose)
+  const globe = alice.text().toString().lastIndexOf("🌍")
+  alice.text().delete(globe, 2)
+  const expectedUnicode = beforeUnicode + unicode.slice(0, -2)
+  await waitFor("UTF-16 astral deletion", () => benCard.text() === expectedUnicode && aliceCard.text() === expectedUnicode).catch(diagnose)
+  await waitFor("Unicode edits saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
+  const authors = [...ben.provider.doc.getMap("authors")]
+  const finalText = benCard.text()
+  assert.equal(finalText, aliceCard.text())
+  benCard.saved(); aliceCard.saved()
+  benCard.dispose(); aliceCard.dispose(); ben.provider.dispose(); alice.provider.dispose(); ben.channel.dispose(); alice.channel.dispose()
+  console.log(JSON.stringify({ text: finalText, ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, authors,
+    samples: samples.length, mountedSamples: mountedSamples.length, mountedP95 }))
+  process.exit(0)
+}
+
 // Spec §7.1.1 gap on Ben's subscription alone: an oversized frame ends only
 // that subscription. Ben keeps typing; resubscribing keeps his client id,
 // resends the typing and offers no Reapply.

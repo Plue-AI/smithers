@@ -2,12 +2,14 @@ package compose
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -192,7 +195,12 @@ func TestLiveDocumentBrokerInputs(t *testing.T) {
 	// cgroup subtree; no caller-controlled cgroup path is accepted by the API.
 	capture, err := f.registry.Capture(f.r.ctx, f.branch)
 	require.NoError(t, err)
-	_, err = f.registry.Rebase(f.r.ctx, f.branch, f.actor, capture.Head)
+	// A change cannot rebase onto itself. Make an independent target from
+	// the captured tree inside the unprivileged guest, preserving its bytes.
+	onto := strings.TrimSpace(f.command(t, fmt.Sprintf(`tree=$(git rev-parse '%s^{tree}') && printf 'Independent document security target\n' | git -c user.name=Qualification -c user.email=qualification@example.invalid commit-tree "$tree"`, capture.Head)))
+	require.Len(t, onto, 40)
+	require.NotEqual(t, capture.Head, onto)
+	_, err = f.registry.Rebase(f.r.ctx, f.branch, f.actor, onto)
 	require.NoError(t, err)
 	written, err := probe.Write([]byte("THAWED\n"))
 	require.NoError(t, err)
@@ -231,4 +239,101 @@ func TestLiveDocumentTrustedStartup(t *testing.T) {
 	file, err := f.registry.ReadFile(context.Background(), f.branch, "retry.ts", "")
 	require.NoError(t, err)
 	require.Equal(t, hex.EncodeToString([]byte("retained startup\n")), hex.EncodeToString(file.Content))
+}
+
+// C-DUR-04 K7b: kill the install-owned VM after two real saved receipts,
+// then recover its retained disk through production StartWorkspace. This is
+// separate from daemon-only K7b; a graceful sleep cannot qualify a VM kill.
+func TestLiveCodeDocumentK7bVMReference(t *testing.T) {
+	if os.Getenv("SMITHERS_LIVE_DOCUMENT_K7_VM_REFERENCE") != "1" {
+		t.Skip("K7b VM requires reference Mac and approved main-pinned installed bundle")
+	}
+	t.Setenv("SMITHERS_LIVE_DOCUMENT_SECURITY_REFERENCE", "1")
+	for run := 1; run <= 10; run++ {
+		t.Run(fmt.Sprint(run), func(t *testing.T) {
+			f := liveDocumentReferenceMachine(t)
+			f.command(t, `printf '' > retry.ts`)
+			bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
+			require.NoError(t, err)
+			machine, err := f.vm.WorkspaceMachineIdentity(t.Context(), f.branch)
+			require.NoError(t, err)
+			var alice int64
+			require.NoError(t, f.r.pool.QueryRow(t.Context(), `SELECT id FROM users WHERE lower_username='alice'`).Scan(&alice))
+			tx, err := f.r.pool.Begin(t.Context())
+			require.NoError(t, err)
+			actor, err := machined.RecordActorInTx(t.Context(), tx, f.branch, machine, machined.ActorIdentity{Kind: "person", MemberID: alice, Via: "web"})
+			require.NoError(t, err)
+			require.NoError(t, tx.Commit(t.Context()))
+			open := func(actor []byte) (machined.DocumentStream, wire.Document) {
+				t.Helper()
+				stream, err := f.registry.OpenDocument(t.Context(), f.branch, "retry.ts", actor)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = stream.Close() })
+				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+				defer cancel()
+				for {
+					raw, err := stream.Receive(ctx)
+					require.NoError(t, err)
+					frame, err := wire.DecodeDocumentV2(raw)
+					require.NoError(t, err)
+					if frame.Msg == wire.DocumentEpoch {
+						return stream, frame
+					}
+				}
+			}
+			edit := func(stream machined.DocumentStream, actor, update []byte, saved bool) {
+				t.Helper()
+				raw, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentInput, Actor: actor, Seq: 1, Data: codeSync(2, update)})
+				require.NoError(t, err)
+				require.NoError(t, stream.Send(t.Context(), raw))
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				for {
+					raw, err := stream.Receive(ctx)
+					require.NoError(t, err)
+					frame, err := wire.DecodeDocumentV2(raw)
+					require.NoError(t, err)
+					if (saved && frame.Msg == wire.DocumentSaved && frame.ThroughSeq >= 1) || (!saved && frame.Msg == wire.DocumentSync && bytes.Equal(frame.Data, codeSync(2, update))) {
+						return
+					}
+				}
+			}
+			ben, initial := open(f.actor)
+			aliceStream, peer := open(actor)
+			require.Equal(t, initial.Epoch, peer.Epoch)
+			require.NotEqual(t, initial.ClientID, peer.ClientID)
+			bu, au := codeInsert(initial.ClientID, "BEN-VM-SAVED"), codeInsert(peer.ClientID, "ALICE-VM-SAVED")
+			edit(ben, f.actor, bu, true)
+			edit(aliceStream, actor, au, true)
+			before := f.command(t, `cat retry.ts`)
+			require.Equal(t, 1, strings.Count(before, "BEN-VM-SAVED"))
+			require.Equal(t, 1, strings.Count(before, "ALICE-VM-SAVED"))
+			msb := bundle.Program("bin/msb")
+			require.NoError(t, msb.Check())
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			command := exec.CommandContext(ctx, msb.Path(), "stop", "-t", "0", "-q", machine)
+			command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"}
+			output, err := command.CombinedOutput()
+			cancel()
+			require.NoError(t, err, "%s", output)
+			_, err = f.vm.StartWorkspace(t.Context(), f.branch)
+			require.NoError(t, err)
+			require.NoError(t, f.vm.EnsureMachined(t.Context(), f.branch))
+			require.Equal(t, before, f.command(t, `cat retry.ts`))
+			ben, recovered := open(f.actor)
+			aliceStream, recoveredPeer := open(actor)
+			require.Equal(t, initial.Epoch, recovered.Epoch)
+			require.Equal(t, initial.Epoch, recoveredPeer.Epoch)
+			// Replay the retained original updates, not updates with freshly
+			// assigned IDs. Durable authors must authorize them exactly once.
+			edit(ben, f.actor, bu, false)
+			edit(aliceStream, actor, au, false)
+			_, err = f.registry.Capture(t.Context(), f.branch)
+			require.NoError(t, err)
+			require.Equal(t, before, f.command(t, `cat retry.ts`))
+			evidence, err := json.Marshal(map[string]any{"run": run, "bundle_revision": bundle.Revision(), "bundle_manifest": bundle.ManifestSHA256(), "machine": machine, "epoch": hex.EncodeToString(initial.Epoch[:]), "text": before, "fault": "msb stop -t 0", "broker": "installed", "activation": false})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(f.r.evidence+"/k7b-vm.json", evidence, 0600))
+		})
+	}
 }

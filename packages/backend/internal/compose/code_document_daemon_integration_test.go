@@ -10,16 +10,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
@@ -403,7 +406,7 @@ func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 		for run := 1; run <= 10; run++ {
 			t.Run(fmt.Sprintf("%s/%d", point, run), func(t *testing.T) {
 				armed := point
-				if point == "K7d" {
+				if point == "K7b" || point == "K7d" {
 					armed = ""
 				}
 				f := startRealDocumentInstall(t, armed)
@@ -437,7 +440,13 @@ func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 				// still retains this update, just as the production provider does.
 				_, err := alice.doc.Peer(au)
 				require.NoError(t, err)
-				if point == "K7d" {
+				if point == "K7b" {
+					// Kill only after the actual browser has received saved.
+					// The guest's after-send hook can race the relay's gap and
+					// kill before that receipt crosses the person-facing route.
+					f.documentEvidence(t, "saved-before-kill")
+					f.stopGuest()
+				} else if point == "K7d" {
 					ben.saved(t, 1)
 					f.stopGuest()
 					before := f.diskBytes(t)
@@ -648,4 +657,131 @@ func (f *realDocumentInstall) documentEvidence(t *testing.T, stage string) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(f.evidence, "env-"+stage+".json"), env, 0600))
 	t.Logf("document evidence: %s", f.evidence)
+}
+
+// Drive the production mounted CodeMirror binding and Yjs client against the
+// composed HTTP router and installed daemon, never the scripted document peer.
+// This Linux evidence does not replace the second-Mac C-J3-04/C-PERF-03 run.
+func TestLiveCodeDocumentRealMountedClients(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-install.fixture.ts")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "bun", "run", script)
+	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+f.origin,
+		"SMITHERS_CODE_DOCUMENT_TOPIC="+f.topic, "SMITHERS_CODE_DOCUMENT_PHASE=coedit", "SMITHERS_CODE_DOCUMENT_OUTSIDE=0")
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, "%s", output)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var result struct {
+		Text                    string
+		Ben, Alice              uint32
+		Samples, MountedSamples int
+		MountedP95              float64
+		Authors                 [][]json.RawMessage
+	}
+	require.NoError(t, json.Unmarshal([]byte(lines[len(lines)-1]), &result), "%s", output)
+	require.NotEqual(t, result.Ben, result.Alice)
+	for client, member := range map[uint32]int64{result.Ben: f.ben, result.Alice: f.alice} {
+		found := false
+		for _, pair := range result.Authors {
+			require.Len(t, pair, 2)
+			var key, reference string
+			require.NoError(t, json.Unmarshal(pair[0], &key))
+			if key != fmt.Sprint(client) {
+				continue
+			}
+			require.NoError(t, json.Unmarshal(pair[1], &reference))
+			var raw []byte
+			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT actor FROM machine_actor_references WHERE replace(id::text,'-','')=$1 AND workspace_id::text=$2 AND machine_id=$2`, reference, f.branch).Scan(&raw))
+			var identity machined.ActorIdentity
+			require.NoError(t, json.Unmarshal(raw, &identity))
+			require.Equal(t, machined.ActorIdentity{Kind: "person", MemberID: member, Via: "web"}, identity)
+			found = true
+		}
+		require.True(t, found, "mounted client's author is a committed authenticated member reference")
+	}
+	require.Equal(t, 41, result.Samples)
+	require.Equal(t, 1000, result.MountedSamples)
+	require.Less(t, result.MountedP95, float64(1000))
+	require.Contains(t, result.Text, "ALICE_UNDO_KEEP")
+	require.NotContains(t, result.Text, "BEN_OWN_UNDO")
+	require.Equal(t, result.Text, f.disk(t), "saved mounted editors equal real disk and production read_file")
+	capture, err := f.registry.Capture(t.Context(), f.branch)
+	require.NoError(t, err)
+	require.Len(t, capture.Head, 40)
+	f.documentEvidence(t, "mounted-coedit")
+	require.NoError(t, os.WriteFile(filepath.Join(f.evidence, "mounted-clients.json"), []byte(lines[len(lines)-1]), 0600))
+}
+
+// The real installed Linux daemon must refuse unsafe File subscriptions while
+// another valid subscription keeps editing. Reference member/token/broker
+// isolation remains the separate TestLiveDocumentConfinement requirement.
+func TestLiveCodeDocumentRealPathConfinement(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	ben := f.browser(t, "ben-cookie")
+	ben.sub(t, f.topic)
+	client := ben.assigned(t)
+	ben.edit(t, codeInsert(client, "SAFE-DOCUMENT"))
+	ben.saved(t, 1)
+	before, err := os.ReadFile("/etc/passwd")
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(f.root, "leaf")))
+	require.NoError(t, os.Symlink("/etc", filepath.Join(f.root, "parent")))
+	require.NoError(t, os.Mkdir(filepath.Join(f.root, "directory"), 0750))
+	require.NoError(t, syscall.Mkfifo(filepath.Join(f.root, "fifo"), 0600))
+	socket, err := net.Listen("unix", filepath.Join(f.root, "socket"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = socket.Close() })
+	tx, err := f.pool.Begin(t.Context())
+	require.NoError(t, err)
+	actor, err := machined.RecordActorInTx(t.Context(), tx, f.branch, f.branch, machined.ActorIdentity{Kind: "person", MemberID: f.ben, Via: "web"})
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(t.Context()))
+	for _, path := range []string{"../etc/passwd", "/etc/passwd", "src/../../etc/passwd", "leaf", "parent/passwd", "directory", "fifo", "socket"} {
+		t.Run(path, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			for _, operation := range []string{"open_doc", "read_file", "write_file"} {
+				started := time.Now()
+				var err error
+				switch operation {
+				case "open_doc":
+					var stream machined.DocumentStream
+					stream, err = f.registry.OpenDocument(ctx, f.branch, path, actor)
+					require.Nil(t, stream)
+				case "read_file":
+					_, err = f.registry.ReadFile(ctx, f.branch, path, "")
+				case "write_file":
+					_, err = f.registry.WriteFiles(ctx, f.branch, actor, []machined.FileChange{{Path: path, Content: []byte("FORBIDDEN")}})
+				}
+				require.Error(t, err, operation)
+				if operation == "write_file" && (strings.Contains(path, "..") || strings.HasPrefix(path, "/")) {
+					require.Equal(t, error(wire.BadValue), err, "host codec refuses before daemon dispatch")
+				} else {
+					var refusal *machined.SessionError
+					require.ErrorAs(t, err, &refusal, operation)
+					require.NotEmpty(t, refusal.Code)
+				}
+				require.Less(t, time.Since(started), 100*time.Millisecond, operation)
+			}
+			// The person-facing composed route also refuses these paths; it
+			// cannot turn a refused RPC into an editable File subscription.
+			peer := f.browser(t, "alice-cookie")
+			peer.sub(t, "doc:code:"+f.branch+":"+path)
+			code := "unsupported"
+			if strings.Contains(path, "..") || strings.HasPrefix(path, "/") {
+				code = "unknown_topic"
+			}
+			peer.text(t, fmt.Sprintf(`{"t":"err","id":7,"code":"%s"}`, code))
+		})
+	}
+	after, err := os.ReadFile("/etc/passwd")
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.Equal(t, "SAFE-DOCUMENT", f.disk(t))
+	ben.edit(t, codeInsertAt(client, uint64(len("SAFE-DOCUMENT")), "-STILL-EDITABLE"))
+	ben.savedClientClock(t, client, uint64(len("SAFE-DOCUMENT-STILL-EDITABLE")))
+	require.Equal(t, "-STILL-EDITABLESAFE-DOCUMENT", f.disk(t))
 }
