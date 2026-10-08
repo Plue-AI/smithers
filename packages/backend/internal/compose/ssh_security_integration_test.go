@@ -340,6 +340,7 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		exerciseSSHBrokerSemanticInputs(t, h, client, login, member, uid)
 		exerciseSSHRetainedFilesystemRace(t, client)
 		exerciseSSHRetainedExecutableRace(t, client)
+		exerciseSSHRetainedCwdRace(t, client)
 		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; private socketpair malformed frames, retained wake races and C-COL-04 receipts remain required")
 	})
 }
@@ -359,6 +360,10 @@ func exerciseSSHBrokerSemanticInputs(t *testing.T, h *rootLayerHarness, client *
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			response, e := link.Request(ctx, branch, f.method, f.fields...)
+			if f.hostError != nil {
+				require.ErrorIs(t, e, f.hostError, "invalid selectors must never reach root")
+				return
+			}
 			if f.name == "NUL argv" || f.name == "NUL run" {
 				require.ErrorIs(t, e, wire.BadUTF8, "noncanonical strings must never reach root")
 				return
@@ -440,10 +445,11 @@ func exerciseSSHBrokerSemanticInputs(t *testing.T, h *rootLayerHarness, client *
 }
 
 type sshBrokerEnvelopeFixture struct {
-	name   string
-	method wire.Method
-	fields [][]byte
-	code   byte
+	name      string
+	method    wire.Method
+	fields    [][]byte
+	code      byte
+	hostError error
 }
 
 func sshBrokerEnvelopeFixtures(login string, uid uint32) ([]sshBrokerEnvelopeFixture, func(string, uint32, byte, ...string) [][]byte) {
@@ -465,22 +471,34 @@ func sshBrokerEnvelopeFixtures(login string, uid uint32) ([]sshBrokerEnvelopeFix
 		return append(append(append([][]byte{}, fields[:3]...), wire.Field(4, wire.Struct(wire.Field(1, wire.U16(cols)), wire.Field(2, wire.U16(rows))))), fields[3:]...)
 	}
 	fixtures := []sshBrokerEnvelopeFixture{
-		{"root uid", wire.OpenSession, open("root", 0, 2, "/bin/sh", "-c", "touch /workspace/trm03-root-canary"), 1},
-		{"uid login mismatch", wire.OpenSession, open(login, 20001, 2, "/bin/sh"), 1},
-		{"foreign login", wire.OpenSession, open("not-a-member", uid, 2, "/bin/sh"), 1},
-		{"empty exec", wire.OpenSession, open(login, uid, 2), 1},
-		{"empty executable", wire.OpenSession, open(login, uid, 2, ""), 1},
-		{"NUL argv", wire.OpenSession, open(login, uid, 2, "/bin/sh\x00"), 1},
-		{"sftp executable selection", wire.OpenSession, open(login, uid, 3, "/workspace/trm03-poison/sh"), 1},
-		{"PTY zero columns", wire.OpenSession, withSize(open(login, uid, 1), 0, 24), 1},
-		{"exec PTY dimensions", wire.OpenSession, withSize(open(login, uid, 2, "/bin/sh"), 80, 24), 1},
-		{"zero loopback port", wire.TCPConnect, [][]byte{wire.Field(1, wire.U16(0)), wire.Field(2, actor)}, 1},
-		{"zero close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0))}, 1},
-		{"out of range close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0xffffffff))}, 1},
-		{"foreign close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(2147483647))}, 1},
-		{"foreign attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(2147483647)), wire.Field(2, wire.U64(0))}, 1},
-		{"zero attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(0)), wire.Field(2, wire.U64(0))}, 1},
-		{"NUL run", wire.RegisterRun, [][]byte{wire.Field(1, wire.String("run\x00foreign")), wire.Field(2, wire.U32(1))}, 1},
+		{"root uid", wire.OpenSession, open("root", 0, 2, "/bin/sh", "-c", "touch /workspace/trm03-root-canary"), 1, nil},
+		{"uid login mismatch", wire.OpenSession, open(login, 20001, 2, "/bin/sh"), 1, nil},
+		{"foreign login", wire.OpenSession, open("not-a-member", uid, 2, "/bin/sh"), 1, nil},
+		{"empty exec", wire.OpenSession, open(login, uid, 2), 1, nil},
+		{"empty executable", wire.OpenSession, open(login, uid, 2, ""), 1, nil},
+		{"NUL argv", wire.OpenSession, open(login, uid, 2, "/bin/sh\x00"), 1, nil},
+		{"sftp executable selection", wire.OpenSession, open(login, uid, 3, "/workspace/trm03-poison/sh"), 1, nil},
+		{"PTY zero columns", wire.OpenSession, withSize(open(login, uid, 1), 0, 24), 1, nil},
+		{"exec PTY dimensions", wire.OpenSession, withSize(open(login, uid, 2, "/bin/sh"), 80, 24), 1, nil},
+		{"zero loopback port", wire.TCPConnect, [][]byte{wire.Field(1, wire.U16(0)), wire.Field(2, actor)}, 1, nil},
+		{"zero close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0))}, 1, nil},
+		{"out of range close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0xffffffff))}, 1, nil},
+		{"foreign close", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(2147483647))}, 1, nil},
+		{"foreign attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(2147483647)), wire.Field(2, wire.U64(0))}, 1, nil},
+		{"zero attach", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(0)), wire.Field(2, wire.U64(0))}, 1, nil},
+		{"NUL run", wire.RegisterRun, [][]byte{wire.Field(1, wire.String("run\x00foreign")), wire.Field(2, wire.U32(1))}, 1, nil},
+	}
+
+	// These raw tagged selectors are deliberately absent from the production
+	// protocol. The authenticated Link must reject them before broker use.
+	for _, selector := range []struct{ name, value string }{
+		{"environment selector", "LD_PRELOAD=/workspace/loader.so"},
+		{"cwd selector", "/etc"},
+		{"shell selector", "/workspace/sh"},
+		{"cgroup selector", "../../broker"},
+	} {
+		fields := append(open(login, uid, 2, "/bin/sh"), wire.Field(7, wire.String(selector.value)))
+		fixtures = append(fixtures, sshBrokerEnvelopeFixture{selector.name, wire.OpenSession, fields, 1, wire.UnknownField})
 	}
 
 	return fixtures, open
@@ -494,7 +512,9 @@ func TestSSHBrokerEnvelopeFramingBoundary(t *testing.T) {
 	for _, f := range fixtures {
 		t.Run(f.name, func(t *testing.T) {
 			_, err := wire.RequestFrame(1, f.method, f.fields...)
-			if f.name == "NUL argv" || f.name == "NUL run" {
+			if f.hostError != nil {
+				require.ErrorIs(t, err, f.hostError)
+			} else if f.name == "NUL argv" || f.name == "NUL run" {
 				require.ErrorIs(t, err, wire.BadUTF8)
 			} else {
 				require.NoError(t, err)
@@ -636,5 +656,49 @@ SCRIPT
 			require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(output), "attempt %d", attempt)
 		}
 		require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(command(`id -u; id -g; id -G; pwd; test ! -e /etc/trm03-executable-canary`)))
+	})
+}
+
+// Client cwd and home selectors cannot change privileged startup's fixed cwd,
+// even while the retained member process atomically changes their referent.
+func exerciseSSHRetainedCwdRace(t *testing.T, client *gossh.Client) {
+	t.Helper()
+	t.Run("retained-cwd-selector-race", func(t *testing.T) {
+		command := func(text string) []byte {
+			t.Helper()
+			session, err := client.NewSession()
+			require.NoError(t, err)
+			defer session.Close()
+			out, err := session.CombinedOutput(text)
+			require.NoError(t, err, string(out))
+			return out
+		}
+		command(`set -eu; test ! -e /etc/trm03-cwd-canary; mkdir -p /workspace/trm03-cwd-race/inside; ln -s inside /workspace/trm03-cwd-race/target`)
+		defer command(`rm -rf /workspace/trm03-cwd-race`)
+		racer, err := client.NewSession()
+		require.NoError(t, err)
+		defer racer.Close()
+		var output bytes.Buffer
+		racer.Stdout, racer.Stderr = &output, &output
+		require.NoError(t, racer.Start(`set -eu; cd /workspace/trm03-cwd-race; while test ! -e done; do ln -s /etc next; mv -Tf next target; ln -s inside next; mv -Tf next target; touch ready; done`))
+		defer func() {
+			command(`touch /workspace/trm03-cwd-race/done`)
+			require.NoError(t, racer.Wait(), output.String())
+		}()
+		require.Eventually(t, func() bool {
+			return string(command(`test ! -e /workspace/trm03-cwd-race/ready || printf ready`)) == "ready"
+		}, 5*time.Second, 10*time.Millisecond)
+		for attempt := 0; attempt < 32; attempt++ {
+			session, err := client.NewSession()
+			require.NoError(t, err)
+			for _, name := range []string{"HOME", "PWD", "OLDPWD", "CDPATH"} {
+				require.NoError(t, session.Setenv(name, "/workspace/trm03-cwd-race/target"))
+			}
+			out, err := session.CombinedOutput(`id -u; id -g; id -G; pwd; grep -Eq '^0::/smithers/sessions/s[1-9][0-9]*$' /proc/$$/cgroup; test ! -e /etc/trm03-cwd-canary; if (printf canary > /etc/trm03-cwd-canary) 2>/dev/null; then exit 1; fi`)
+			session.Close()
+			require.NoError(t, err, "attempt %d: %s", attempt, out)
+			require.Equal(t, "20000\n20000\n20000\n/workspace\n", string(out))
+		}
+		require.Equal(t, "member-control\n", string(command(`printf 'member-control\n'; test ! -e /etc/trm03-cwd-canary`)))
 	})
 }
