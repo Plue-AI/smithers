@@ -111,6 +111,23 @@ func TestInstallSSHCommandPostgres(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,write:repository' WHERE token_hash=$1`, tokenHash)
 	require.NoError(t, err)
+	// Current membership is checked before never even when the credential's
+	// scope remains sufficient. Restoring membership admits policy evaluation,
+	// but still cannot authorize an agent to launch SSH.
+	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+	require.NoError(t, err)
+	code, receipt = invoke("ssh", "retry")
+	require.Equal(t, 1, code, receipt)
+	require.Equal(t, "permission", receipt["class"])
+	require.Equal(t, "unauthenticated", receipt["code"])
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, member.ID)
+	require.NoError(t, err)
+	code, receipt = invoke("ssh", "retry")
+	require.Equal(t, 1, code, receipt)
+	require.Equal(t, "never", receipt["class"])
+	require.Equal(t, "never", receipt["code"])
+	_, err = os.Stat(argvFile)
+	require.True(t, os.IsNotExist(err), "scope and role refusals cannot start SSH")
 	dead := catalogCLIInvoker(t, ctx, server.URL, "smithers_"+strings.Repeat("d", 40))
 	code, receipt = dead("ssh", "retry")
 	require.Equal(t, 1, code, receipt)

@@ -85,6 +85,10 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 		{[]string{"todo", "resume", "T2"}, "permission"},
 		{[]string{"todo", "retry", "T2"}, "permission"},
 		{[]string{"merge", "T2", "--reviewed_head_sha", strings.Repeat("a", 40)}, "permission"},
+		// SSH is a real person-only catalog door. The compiled CLI must let
+		// the install reject terminal scope (or a revoked credential) before
+		// considering its never policy, without spawning an SSH process.
+		{[]string{"ssh", "terminal"}, "permission"},
 	} {
 		code, receipt := invoke(fixture.argv...)
 		require.Equal(t, 1, code, fixture.argv)
