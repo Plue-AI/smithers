@@ -294,7 +294,7 @@ describe("host parity — the web and native catalogs against the servers' own c
    * workspace card is the one whose act rides a host door — the terminal
    * tunnel — so it is the card in the transcript here.
    */
-  test("(a‴) a signed-in web page with a workspace card and a TypeScript file card renders no control bound to a flow the web registry lacks", async () => {
+  test("(a‴) a signed-in web page with a TypeScript file card renders no control bound to a flow the web registry lacks", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = scopedController(store, unavailableAgent, {
       bootstrap: WEB,
@@ -302,29 +302,7 @@ describe("host parity — the web and native catalogs against the servers' own c
         new Response(JSON.stringify({ status: "error" }), { status: 404, headers: { "content-type": "application/json" } })
     })
     await controller.adoptSession({ state: "signed-in", login: "codeplanesmithers", admin: false })
-    store.dispatch({
-      type: "card.upsert",
-      actor: "system",
-      card: {
-        id: "workspace-ws-1",
-        kind: "workspace",
-        title: "review · will/smithers",
-        status: "active",
-        createdAt: 0,
-        ordinal: 0,
-        payload: {
-          workspaceId: "ws-1",
-          repo: "will/smithers",
-          name: "review",
-          targetBookmark: "main",
-          status: "running",
-          provisioningStage: null,
-          suspendedAt: null,
-          bookmarkHead: { changeId: "qupxosqw", commitId: "c0ffee1" },
-          sessions: [{ id: "sess-1", status: "running", createdAt: null }]
-        }
-      }
-    })
+
     /*
      * The file card's pointer gestures are bindings to code.hover /
      * code.definition, whose door is the workspace LSP tunnel
@@ -364,11 +342,9 @@ describe("host parity — the web and native catalogs against the servers' own c
           ...[...host.querySelectorAll("[data-flow-activate]")].map((el) => el.getAttribute("data-flow-activate") ?? "")
         ])
       ]
-      // Both cards are on the page: the session act and the file surface are in the sweep.
-      expect(host.querySelector('[data-kind="workspace"]')).not.toBeNull()
+      expect(host.querySelector('[data-kind="workspace"]')).toBeNull()
       expect(host.querySelector('[data-kind="file"]')).not.toBeNull()
-      // T-APP-12 moved terminal sessions off the workspace card; box.suspend is its remaining session act.
-      expect(rendered).toContain("box.suspend")
+
       expect(rendered.filter((name) => !webNames.has(name))).toEqual([])
       // Code-intel flows stay out of the catalog until isolated execution lands (#3461); an open tunnel grants no
       // execution authority, and the file card still shows no developer copy about a missing host.

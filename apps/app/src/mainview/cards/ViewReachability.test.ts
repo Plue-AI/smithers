@@ -21,7 +21,7 @@ const WIRED_VIEWS = {
   "FlowView.tsx": { ticket: "T-APP-05", legacy: ["cards/WorkflowCards.tsx", "cards/FlowContainer.tsx"] },
   "FlowActionView.tsx": { ticket: "T-APP-05", legacy: [] },
   "MembersView.tsx": { ticket: "T-APP-06", legacy: [] },
-  "BranchView.tsx": { ticket: "T-APP-10", legacy: [] },
+  "BranchView.tsx": { ticket: "T-APP-10", legacy: ["cards/WorkspaceCard.tsx", "cards/WorkspaceCard.test.tsx", "cards/CommitCards.tsx", "state/seams/CommitsSeam.ts"] },
   "TerminalView.tsx": { ticket: "T-APP-12", legacy: [] },
   "SecretsView.tsx": { ticket: "T-APP-13", legacy: [] },
   "CodeEditorView.tsx": { ticket: "T-APP-14a", legacy: ["cards/CodeSurface.tsx"] },

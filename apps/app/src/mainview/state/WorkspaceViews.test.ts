@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { cardFrameId, rootFrameId, sharedCopyIdOf } from "./AppState"
 import type { Card, CloudWorkspaceInput } from "./AppState"
 import { createAppStore } from "./AppStore"
-import { isReadOnlyCopy, workingCopyLabel, workspaceCardFacts } from "./WorkspaceViews"
+import { isReadOnlyCopy, workingCopyLabel } from "./WorkspaceViews"
 
 const workspace: CloudWorkspaceInput = {
   id: "computer",
@@ -16,23 +16,9 @@ const workspace: CloudWorkspaceInput = {
   createdAt: null,
   head: { changeId: "change", commitId: "commit" }
 }
-const card: Card = {
-  id: "workspace-computer",
-  kind: "workspace",
-  title: "Computer",
-  status: "active",
-  createdAt: 1,
-  ordinal: 1,
-  payload: {
-    ...workspaceCardFacts(workspace),
-    bookmarkHead: null,
-    sessions: [],
-    files: [],
-    facet: "files"
-  }
-}
+const card: Card = { id: "branch:computer", kind: "branch", title: "Computer", status: "active", createdAt: 1, ordinal: 1, payload: { id: "computer" } }
 
-test("one workspace update drives both live views while frame captures remain fixed, including after restore and restart", async () => {
+test("workspace inventory changes preserve the Branch topic identity across capture, restore and restart", async () => {
   const data = new Map<string, string>()
   const backend = {
     kind: "localStorage" as const,
@@ -66,18 +52,8 @@ test("one workspace update drives both live views while frame captures remain fi
     }
   })
   expect(store.collections.workingCopies.get("workspace:computer")).toMatchObject({ label: "Renamed", state: "failed" })
-  expect(store.collections.cards.get(card.id)).toMatchObject({
-    title: "Renamed · org/repo",
-    payload: {
-      name: "Renamed",
-      status: "failed",
-      head: null,
-      failureMessage: "Stopped by the provider",
-      files: [],
-      facet: "files"
-    }
-  })
-  expect(captured.cards[0]).toMatchObject({ payload: { name: "Computer", status: "running", snapshot: true } })
+  expect(store.collections.cards.get(card.id)).toEqual(expect.objectContaining(card))
+  expect(captured.cards[0]).toMatchObject({ kind: "branch", payload: { id: "computer" } })
 
   // Archive the current facts, then change the live row while that branch is absent.
   await apply({ type: "conversation.cleared", actor: "user", branchId: "next-conversation", notes: [] })
@@ -89,17 +65,17 @@ test("one workspace update drives both live views while frame captures remain fi
     branchId: branchId!,
     frameId: rootFrameId(branchId!)
   })
-  expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { status: "failed", snapshot: true } })
+  expect(store.collections.cards.get(card.id)).toMatchObject({ kind: "branch", payload: { id: "computer" } })
   expect(store.collections.workingCopies.get("workspace:computer")).toMatchObject({ state: "running" })
   await store.dispose?.()
 
   const reopened = await createAppStore(backend)
-  expect(reopened.collections.cards.get(card.id)).toMatchObject({ payload: { status: "failed", snapshot: true } })
+  expect(reopened.collections.cards.get(card.id)).toMatchObject({ kind: "branch", payload: { id: "computer" } })
   expect(reopened.collections.workingCopies.get("workspace:computer")).toMatchObject({ state: "running" })
   await reopened.dispose?.()
 })
 
-test("full rows supersede legacy inventory; leaving the scope captures the last live card facts", async () => {
+test("full rows supersede legacy inventory without overwriting Branch topic state", async () => {
   const store = await createAppStore({
     kind: "localStorage",
     storage: memoryStorage()
@@ -126,11 +102,9 @@ test("full rows supersede legacy inventory; leaving the scope captures the last 
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [], repoId: "org/repo" }).isPersisted
     .promise
   expect(store.collections.workingCopies.size).toBe(0)
-  expect(store.collections.cards.get(card.id)).toMatchObject({
-    payload: { name: "Renamed", status: "suspended" }
-  })
+  expect(store.collections.cards.get(card.id)).toEqual(expect.objectContaining(card))
   await store.dispatch({ type: "workspace.updated", actor: "system", workspace }).isPersisted.promise
-  expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { name: "Computer", status: "running" } })
+  expect(store.collections.cards.get(card.id)).toEqual(expect.objectContaining(card))
   await store.dispose?.()
 })
 

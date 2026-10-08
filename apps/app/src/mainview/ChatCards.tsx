@@ -272,7 +272,7 @@ export const CardView = memo(function CardView({
         </header>
         <div className="smithers-card-body">
           <CardBodyBoundary cardId={card.id} onRunCommand={onRunCommand}>
-          {card.loading && card.kind !== "workspace" ? <ViewSkeleton /> : renderCardBody(card, {
+          {card.loading ? <ViewSkeleton /> : renderCardBody(card, {
             onDecideApproval,
             onConnectGitHub,
             onRunWorkflow,

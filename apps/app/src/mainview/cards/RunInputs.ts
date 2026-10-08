@@ -34,11 +34,11 @@ export const runInputsOf = (card: RunCard, cards: ReadonlyArray<Card>): RunInput
   const memory = runMemoryOf(card.payload.events ?? [])
   const { workspaceId, repo } = card.payload
   const box = workspaceId === undefined ? undefined
-    : cards.find((held): held is Extract<Card, { kind: "workspace" }> => held.kind === "workspace" && held.payload.workspaceId === workspaceId)
+    : cards.find((held): held is Extract<Card, { kind: "branch" }> => held.kind === "branch" && held.payload.id === workspaceId)
   const secrets = cards.find((held): held is Extract<Card, { kind: "secrets" }> => held.kind === "secrets" && held.payload.repo === repo)
   return {
     ...(memory === undefined ? {} : { memory }),
-    ...(workspaceId === undefined ? {} : { runsOn: box?.payload.name ?? workspaceId.slice(0, 8) }),
+    ...(workspaceId === undefined ? {} : { runsOn: box?.title ?? workspaceId.slice(0, 8) }),
     secrets: (secrets?.payload.secrets ?? []).filter((secret) => secret.reconnect !== true)
       .map((secret) => ({ name: secret.name, hosts: secret.hosts }))
   }

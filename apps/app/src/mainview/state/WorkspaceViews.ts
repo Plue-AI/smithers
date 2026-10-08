@@ -1,45 +1,8 @@
 import { and, BTreeIndex, createLiveQueryCollection, createCollection, eq, isUndefined } from "@tanstack/db"
 import { sharedCopyIdOf } from "./AppState"
-import type { Card, CloudRepository, CloudWorkspaceInput, CloudWorkspaceRow, WorkingCopy } from "./AppState"
+import type { Card, CloudRepository, CloudWorkspaceRow, WorkingCopy } from "./AppState"
 import type { StoredCollections } from "./AppStore"
 import { projectRuntimeCard } from "./RuntimeProjection"
-
-/** The workspace row owns header facts; the card owns its loaded facets. */
-export const workspaceCardFacts = (workspace: CloudWorkspaceInput) => ({
-  workspaceId: workspace.id,
-  repo: workspace.repoId,
-  name: workspace.name,
-  targetBookmark: workspace.targetBookmark,
-  status: workspace.status,
-  failureCode: workspace.failureCode ?? null,
-  failureMessage: workspace.failureMessage ?? null,
-  provisioningStage: workspace.provisioningStage,
-  suspendedAt: workspace.suspendedAt,
-  workspaceKind: workspace.kind ?? null,
-  agentSessionId: workspace.agentSessionId ?? null,
-  head: workspace.head ?? null,
-  ahead: workspace.ahead ?? null,
-  behind: workspace.behind ?? null,
-  startedAt: workspace.startedAt ?? null,
-  environment: workspace.environment ?? null,
-  persistence: workspace.persistence ?? null,
-  sshHost: workspace.sshHost ?? null,
-  desktop: workspace.desktop ?? null,
-  lspLanguages: workspace.lspLanguages ?? null
-})
-
-export const projectWorkspaceCard = (card: Card, workspace: CloudWorkspaceInput | undefined): Card =>
-  card.kind !== "workspace" || card.payload.snapshot === true || workspace === undefined ? card : {
-    ...card,
-    title: `${workspace.name} · ${workspace.repoId}`,
-    payload: { ...card.payload, ...workspaceCardFacts(workspace) }
-  }
-
-/** Historical cards retain their captured facts, even when restored into a live branch. */
-export const snapshotCard = (card: Card): Card =>
-  card.kind === "workspace"
-    ? { ...card, payload: { ...card.payload, snapshot: true } }
-    : card
 
 const workspaceCopy = (workspace: CloudWorkspaceRow): WorkingCopy => ({
   id: `workspace:${workspace.id}`,
@@ -123,12 +86,9 @@ export const createWorkspaceViews = (
   stored.approvalRequests.createIndex((request) => request.id, { indexType: BTreeIndex })
   const bindings = createLiveQueryCollection({
     id: "app-card-bindings", startSync: true, gcTime: Infinity, getKey: card => card.id,
-    query: q => q.from({ entry: q.from({ card: stored.cards }).fn.select(({ card }) => ({
-      card, workspaceId: card.kind === "workspace" ? card.payload.workspaceId : undefined
-    })) })
-      .leftJoin({ workspace: stored.cloudWorkspaces }, ({ entry, workspace }) => eq(entry.workspaceId, workspace.id))
+    query: q => q.from({ entry: q.from({ card: stored.cards }).fn.select(({ card }) => ({ card })) })
       .leftJoin({ request: stored.approvalRequests }, ({ entry, request }) => eq(entry.card.id, request.id))
-      .fn.select(({ entry, workspace, request }): Card => projectApprovalCard(projectWorkspaceCard(entry.card, workspace), request))
+      .fn.select(({ entry, request }): Card => projectApprovalCard(entry.card, request))
   })
   // A read index, never a persisted collection or a writable domain authority.
   // Keep one pure selector for single cards and their list memberships. Nested

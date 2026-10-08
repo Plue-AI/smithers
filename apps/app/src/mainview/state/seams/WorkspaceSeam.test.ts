@@ -192,7 +192,7 @@ const harness = async (
   /** Each request's decoded JSON body, keyed `METHOD path` — what the create actually asked plue for. */
   const bodies: Array<{ readonly key: string; readonly body: unknown }> = []
   /** The store as each of the seam's dispatches left it: what one transition did, before the next. */
-  const dispatched: Array<{ readonly type: string; readonly tabs: Array<string>; readonly attached: string | undefined; toast?: unknown }> = []
+  const dispatched: Array<{ readonly type: string; readonly tabs: Array<string>; toast?: unknown }> = []
   const ctx: SeamContext = {
     http: (input, init) => observe((async () => {
       const method = init?.method ?? "GET"
@@ -215,7 +215,7 @@ const harness = async (
     store,
     dispatch: (transition) => {
       const transaction = store.dispatch(transition)
-      dispatched.push({ type: transition.type, tabs: tabsOf(store), attached: payloadOf(store)?.terminalSessionId, toast: structuredClone(store.collections.toasts.get("toast-box.open:ws-1")) })
+      dispatched.push({ type: transition.type, tabs: tabsOf(store),  toast: structuredClone(store.collections.toasts.get("toast-box.open:ws-1")) })
       return transaction
     },
     actor: () => "user",
@@ -261,40 +261,12 @@ const seedWorkspace = async (store: AppStore, workspace: CloudWorkspaceInput = w
   await store.dispatch({ type: "workspace.updated", actor: "system", workspace }).isPersisted.promise
 }
 
-const seedCard = async (store: AppStore, terminalSessionId?: string): Promise<void> => {
-  await store.dispatch({
-    type: "card.upsert",
-    actor: "user",
-    card: {
-      id: "workspace-ws-1",
-      kind: "workspace",
-      title: "review · will/smithers",
-      status: "active",
-      createdAt: 1,
-      ordinal: 0,
-      payload: {
-        workspaceId: "ws-1",
-        repo: "will/smithers",
-        name: "review",
-        targetBookmark: "main",
-        status: "running",
-        provisioningStage: null,
-        bookmarkHead: null,
-
-        sessions: [],
-        ...(terminalSessionId === undefined ? {} : { terminalSessionId })
-      }
-    }
-  }).isPersisted.promise
+const seedCard = async (store: AppStore, _terminalSessionId?: string): Promise<void> => {
+  await store.dispatch({ type: "card.upsert", actor: "user", card: {
+    id: "branch:ws-1", kind: "branch", title: "review", status: "active", createdAt: 1, ordinal: 0, payload: { id: "ws-1" }
+  } }).isPersisted.promise
 }
-
-const cardOf = (store: AppStore, workspaceId = "ws-1") => store.collections.cards.get(`workspace-${workspaceId}`)
-
-/** The workspace card's payload, narrowed; undefined when the card is absent. */
-const payloadOf = (store: AppStore, workspaceId = "ws-1") => {
-  const card = cardOf(store, workspaceId)
-  return card?.kind === "workspace" ? card.payload : undefined
-}
+const cardOf = (store: AppStore, workspaceId = "ws-1") => store.collections.cards.get(`branch:${workspaceId}`)
 
 const workspacesOf = (store: AppStore) => [...store.collections.cloudWorkspaces.values()]
 const copiesOf = (store: AppStore) => [...store.collections.workingCopies.values()].filter((copy) => copy.kind === "workspace")
@@ -476,102 +448,6 @@ describe("workspace seam list", () => {
 })
 
 describe("workspace seam open", () => {
-  test("open creates with the repository's head bookmark, renders the card, and watches until settled", async () => {
-    let polls = 0
-    const { store, seam, requests } = await harness({
-      "POST api/repos/will/smithers/workspaces": json(201, { ...WS_RUNNING, status: "pending", provisioning_stage: "allocating" }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [{ name: "main", target_change_id: "qupxosqw", target_commit_id: "c0ffee1" }], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, [{ id: "snap-1", name: "golden", created_at: "2026-08-01T00:00:00Z" }]),
-      "api/repos/will/smithers/workspace/sessions": json(200, []),
-      "api/repos/will/smithers/workspaces/ws-1": () => {
-        polls += 1
-        return json(200, polls < 2 ? { ...WS_RUNNING, status: "starting" } : WS_RUNNING)
-      }
-    })
-    const result = await seam.openWorkspace()
-    expect(typeof result).toBe("object")
-    expect(store.session().activeRepoKey).toBe("will/smithers#workspace:ws-1")
-    // The create carried the repository's head bookmark as the source.
-    expect(requests[0]).toBe("POST api/repos/will/smithers/workspaces")
-    const card = cardOf(store)
-    expect(card).toEqual(
-      expect.objectContaining({
-        kind: "workspace",
-        title: "review · will/smithers",
-        payload: expect.objectContaining({
-          workspaceId: "ws-1",
-          repo: "will/smithers",
-          name: "review",
-          targetBookmark: "main",
-          bookmarkHead: { changeId: "qupxosqw", commitId: "c0ffee1" },
-
-          sessions: []
-        })
-      })
-    )
-    // The card never lags the collection, whichever landed last — the act's answer or the watch's first poll.
-    expect(payloadOf(store)?.status).toBe(workspacesOf(store)[0]?.status)
-    // The watch settles the row and the card, then stops.
-    await wait(30)
-    expect(workspacesOf(store)[0]).toEqual(expect.objectContaining({ id: "ws-1", status: "running" }))
-    expect(payloadOf(store)?.status).toBe("running")
-    const getPolls = requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length
-    await wait(20)
-    expect(requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length).toBe(getPolls)
-    // Never a kind, an uptime, or a workspace head.
-    expect(JSON.stringify(cardOf(store))).not.toContain("uptime")
-    expect(JSON.stringify(cardOf(store))).not.toContain("workspaceHead")
-  })
-
-  /*
-   * Critique finding 6: the aux loads finished after the watch's first
-   * poll had settled the row, and the final render wrote the create's
-   * `pending` back over the card while the tree read `running`.
-   */
-  test("a poll that settles before the auxiliaries load wins: card, tree, and collection agree and no watch remains", async () => {
-    const delayed = (body: unknown) => async () => {
-      await wait(30)
-      return json(200, body)
-    }
-    const { store, seam, requests } = await harness({
-      "POST api/repos/will/smithers/workspaces": json(202, { ...WS_RUNNING, status: "pending", provisioning_stage: "allocating" }),
-      "api/repos/will/smithers/workspaces/ws-1": json(200, WS_RUNNING),
-      "api/repos/will/smithers/bookmarks": delayed({ items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": delayed([]),
-      "api/repos/will/smithers/workspace/sessions": delayed([])
-    })
-    const result = await seam.openWorkspace()
-    expect(typeof result).toBe("object")
-    expect(workspacesOf(store)[0]?.status).toBe("running")
-    expect(copiesOf(store)[0]?.state).toBe("running")
-    expect(payloadOf(store)?.status).toBe("running")
-    expect(payloadOf(store)?.provisioningStage).toBeNull()
-    const polls = requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length
-    await wait(20)
-    expect(requests.filter((key) => key === "GET api/repos/will/smithers/workspaces/ws-1").length).toBe(polls)
-  })
-
-  test("view renders the collection's status when a poll advanced it during the auxiliaries", async () => {
-    let gets = 0
-    const delayed = (body: unknown) => async () => {
-      await wait(30)
-      return json(200, body)
-    }
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": () => {
-        gets += 1
-        return json(200, gets === 1 ? { ...WS_RUNNING, status: "starting", provisioning_stage: "boot" } : WS_RUNNING)
-      },
-      "api/repos/will/smithers/bookmarks": delayed({ items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": delayed([]),
-      "api/repos/will/smithers/workspace/sessions": delayed([])
-    })
-    await seedWorkspace(store, { ...wsRow, status: "starting", provisioningStage: "boot" })
-    const result = await seam.viewWorkspace("ws-1")
-    expect(typeof result).toBe("object")
-    expect(payloadOf(store)?.status).toBe(workspacesOf(store)[0]?.status)
-    expect(payloadOf(store)?.status).toBe("running")
-  })
 
   test("open names an explicit bookmark and an explicit repo", async () => {
     const { seam, requests } = await harness({
@@ -602,29 +478,6 @@ describe("workspace seam open", () => {
 })
 
 describe("workspace seam acts", () => {
-  test("suspend posts and renders the settled row; a failure rides the card", async () => {
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces/ws-1/suspend": json(200, { ...WS_RUNNING, status: "suspended" })
-    })
-    await seedWorkspace(store)
-    const result = await seam.suspendWorkspace("ws-1")
-    expect(typeof result).toBe("object")
-    expect(workspacesOf(store)[0]?.status).toBe("suspended")
-    expect(copiesOf(store)[0]?.state).toBe("suspended")
-    expect(payloadOf(store)?.status).toBe("suspended")
-  })
-
-  test("suspend failure keeps the refusal on the card", async () => {
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces/ws-1/suspend": json(500, { message: "driver exploded" })
-    })
-    await seedWorkspace(store)
-    const refusal = await seam.suspendWorkspace("ws-1")
-    expect(refusal).toBe("The request to Smithers Cloud failed (500). That's a bug in Smithers, not something you did.")
-    expect(refusal).not.toContain("driver exploded")
-    expect(payloadOf(store)?.error).toBe("The request to Smithers Cloud failed (500). That's a bug in Smithers, not something you did.")
-    expect(workspacesOf(store)[0]?.status).toBe("running")
-  })
 
   test("a bare act resolves the active workspace copy", async () => {
     const { store, seam } = await harness({
@@ -687,85 +540,7 @@ describe("workspace seam acts", () => {
   })
 })
 
-describe("workspace seam snapshots", () => {
-})
 
-describe("workspace seam sessions", () => {
-  test("destroy session detaches the card that pointed at it and closes its tab in the same transaction", async () => {
-    const { store, seam, dispatched } = await harness({
-      "POST api/repos/will/smithers/workspace/sessions/sess-1/destroy": json(204, null),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-    await seedCard(store, "sess-1")
-    const result = await seam.destroySession("sess-1", "ws-1")
-    expect(typeof result).toBe("object")
-    const payload = payloadOf(store)
-    expect(payload?.terminalSessionId).toBeUndefined()
-    expect(payload?.sessions).toEqual([])
-    // As the transition left the store, the card no longer pointed at the session.
-    const destroyed = dispatched.find((entry) => entry.type === "workspace.session.destroyed")
-    expect(destroyed).toEqual({ type: "workspace.session.destroyed", tabs: [], attached: undefined })
-    expect(dispatched[0]?.type).toBe("workspace.session.destroyed")
-  })
-
-  test("destroying a session reads the repository's session list once for every card it refreshes", async () => {
-    const cards = 10
-    let lists = 0
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspace/sessions/sess-0/destroy": json(204, null),
-      "api/repos/will/smithers/workspace/sessions": () => {
-        lists += 1
-        return json(
-          200,
-          Array.from({ length: cards }, (_, index) => ({
-            id: `sess-${index}`,
-            status: "running",
-            workspace_id: `ws-${index}`,
-            created_at: null
-          })).filter((session) => session.id !== "sess-0")
-        )
-      }
-    })
-    for (let index = 0; index < cards; index += 1) {
-      const workspace: CloudWorkspaceInput = { ...wsRow, id: `ws-${index}`, name: `review ${index}` }
-      await seedWorkspace(store, workspace)
-      await store.dispatch({
-        type: "card.upsert",
-        actor: "user",
-        card: {
-          id: `workspace-${workspace.id}`,
-          kind: "workspace",
-          title: workspace.name,
-          status: "active",
-          createdAt: 1,
-          ordinal: index,
-          payload: {
-            workspaceId: workspace.id,
-            repo: workspace.repoId,
-            name: workspace.name,
-            targetBookmark: "main",
-            status: "running",
-            provisioningStage: null,
-            bookmarkHead: null,
-
-            sessions: []
-          }
-        }
-      }).isPersisted.promise
-    }
-
-    const result = await seam.destroySession("sess-0", "ws-0")
-
-    expect(typeof result).toBe("object")
-    /* The list route is repository-wide, so one read refreshes all ten cards. */
-    expect(lists).toBe(1)
-    /* Each card still shows only its own workspace's sessions out of that one snapshot. */
-    expect(payloadOf(store, "ws-0")?.sessions).toEqual([])
-    expect(payloadOf(store, "ws-7")?.sessions.map((session) => session.id)).toEqual(["sess-7"])
-    expect(payloadOf(store, "ws-9")?.sessions.map((session) => session.id)).toEqual(["sess-9"])
-  })
-})
 
 describe("workspace seam watch", () => {
   test("a 404 mid-watch re-reads the repository's list and the row leaves", async () => {
@@ -801,8 +576,6 @@ describe("workspace seam watch", () => {
   })
 })
 
-describe("workspace seam facets", () => {
-})
 
 /*
  * Lane L3: plue#446's header facts and plue#449's facet routes. The DTO
@@ -811,138 +584,6 @@ describe("workspace seam facets", () => {
  * `internal/services/sandbox_egress_audit.go` write.
  */
 describe("workspace seam header facts (plue#446)", () => {
-  test("view parses the live DTO's kind, head, ahead/behind, environment, persistence and ssh host onto the row and the card", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, WS_LIVE),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-    await seam.viewWorkspace("ws-1")
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({
-        id: "ws-1",
-        name: "smithers landing",
-        targetBookmark: "landing/smithers/main",
-        status: "suspended",
-        kind: "container",
-        head: { changeId: "qupxosqwmnrt", commitId: "c0ffee1234567890" },
-        ahead: 0,
-        behind: 0,
-        startedAt: null,
-        /* Lane L3b: a container names no image, and an absent image is null — never an empty reference. */
-        environment: {
-          source: ".smithers/environment.nix",
-          revision: "b3f21c9d4e5a6b7c",
-          closureHash: "sha256-abc",
-          image: null
-        },
-        persistence: "persistent",
-        sshHost: "vm-77@ssh.smithers-cloud.test"
-      })
-    )
-    expect(payloadOf(store)).toEqual(
-      expect.objectContaining({
-        workspaceKind: "container",
-        head: { changeId: "qupxosqwmnrt", commitId: "c0ffee1234567890" },
-        ahead: 0,
-        behind: 0,
-        startedAt: null,
-        /* Lane L3b: a container names no image, and an absent image is null — never an empty reference. */
-        environment: {
-          source: ".smithers/environment.nix",
-          revision: "b3f21c9d4e5a6b7c",
-          closureHash: "sha256-abc",
-          image: null
-        },
-        persistence: "persistent",
-        sshHost: "vm-77@ssh.smithers-cloud.test"
-      })
-    )
-  })
-
-  test("a DTO that answers none of them carries none of them: empty strings and an empty head are absence", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, {
-        ...WS_LIVE,
-        kind: "",
-        environment: { source: "", revision: "", closure_hash: "" },
-        head: { change_id: "", commit_id: "" },
-        ahead: null,
-        behind: null,
-        persistence: "",
-        ssh_host: ""
-      }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-    await seam.viewWorkspace("ws-1")
-    expect(payloadOf(store)).toEqual(
-      expect.objectContaining({
-        workspaceKind: null,
-        head: null,
-        ahead: null,
-        behind: null,
-        environment: null,
-        persistence: null,
-        sshHost: null
-      })
-    )
-  })
-
-  /* Lane L6 (plue#505): the DTO's `lsp.languages`, and a session's `kind` and `language`. */
-  test("the DTO's lsp.languages and a session's kind and language read onto the row and the card", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, { ...WS_LIVE, lsp: { languages: ["typescript"] } }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [
-        { id: "sess-1", workspace_id: "ws-1", status: "running", kind: "terminal", created_at: "2026-09-03T08:00:00Z" },
-        { id: "lsps-1", workspace_id: "ws-1", status: "running", kind: "lsp", language: "typescript", idle_timeout_secs: 600, created_at: "2026-09-03T08:01:00Z" }
-      ])
-    })
-    await seedWorkspace(store)
-    await seam.viewWorkspace("ws-1")
-    expect(workspacesOf(store)[0]?.lspLanguages).toEqual(["typescript"])
-    expect(payloadOf(store)?.lspLanguages).toEqual(["typescript"])
-    expect(payloadOf(store)?.sessions).toEqual([
-      { id: "sess-1", status: "running", createdAt: "2026-09-03T08:00:00Z", kind: "terminal", language: null },
-      { id: "lsps-1", status: "running", createdAt: "2026-09-03T08:01:00Z", kind: "lsp", language: "typescript" }
-    ])
-  })
-
-  test("a DTO without an lsp object carries null (unknown), one with an lsp object and no languages carries an empty list", async () => {
-    const absent = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, WS_LIVE),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(absent.store)
-    await absent.seam.viewWorkspace("ws-1")
-    expect(workspacesOf(absent.store)[0]?.lspLanguages).toBeNull()
-    expect(payloadOf(absent.store)?.lspLanguages).toBeNull()
-    const empty = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, { ...WS_LIVE, lsp: {} }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(empty.store)
-    await empty.seam.viewWorkspace("ws-1")
-    expect(workspacesOf(empty.store)[0]?.lspLanguages).toEqual([])
-    /* The per-user row does not carry the list; what the collection knows stands. */
-    const merged = await harness({
-      "api/repos/will/smithers/workspaces": json(200, [{ ...WS_LIVE, status: "running", lsp: { languages: ["typescript"] } }]),
-      "api/user/workspaces": json(200, [{ ...USER_ROW, workspace_title: "smithers landing", state: "running" }])
-    })
-    await merged.seam.listWorkspaces("will/smithers")
-    await merged.seam.listWorkspaces()
-    expect(workspacesOf(merged.store)[0]?.lspLanguages).toEqual(["typescript"])
-  })
 
   test("a started workspace carries its start time; the per-user row keeps the facts but drops the uptime once it stops running", async () => {
     const { store, seam } = await harness({
@@ -967,53 +608,6 @@ describe("workspace seam header facts (plue#446)", () => {
 })
 
 describe("workspace seam files and services (plue#449)", () => {
-  test("the Files facet reads the workspace's own route and keeps the path it listed", async () => {
-    const { store, seam, urls } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/files": json(200, [
-        { name: "src", path: "src", type: "dir", size: 0 },
-        { name: "latest", path: "latest", type: "symlink", size: 8 },
-        { name: "README.md", path: "README.md", type: "file", size: 42 },
-        { broken: true }
-      ])
-    })
-    await seedWorkspace(store)
-    const result = await seam.listFiles("/", "ws-1")
-    expect(urls).toEqual(["GET api/repos/will/smithers/workspaces/ws-1/files?path="])
-    expect(result).toEqual({ value: "/ in \"review\" (ws-1):\nsrc/\nlatest\nREADME.md" })
-    expect(payloadOf(store)?.files).toEqual([
-      { name: "src", path: "src", type: "dir", size: 0 },
-      { name: "latest", path: "latest", type: "symlink", size: 8 },
-      { name: "README.md", path: "README.md", type: "file", size: 42 }
-    ])
-    expect(payloadOf(store)?.filesPath).toBe("")
-    expect(payloadOf(store)?.facet).toBe("files")
-  })
-
-  test("a subdirectory listing replaces the previous path's rows, and the facet re-reads the path the card holds", async () => {
-    const { store, seam, urls } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/files": (url) =>
-        json(200, url.searchParams.get("path") === "src"
-          ? [{ name: "main.go", path: "src/main.go", type: "file", size: 12 }]
-          : [{ name: "src", path: "src", type: "dir", size: 0 }])
-    })
-    await seedWorkspace(store)
-    await seam.listFiles("src", "ws-1")
-    expect(payloadOf(store)?.files).toEqual([{ name: "main.go", path: "src/main.go", type: "file", size: 12 }])
-    expect(payloadOf(store)?.filesPath).toBe("src")
-    urls.length = 0
-    await seam.setFacet("ws-1", "files")
-    expect(urls).toEqual(["GET api/repos/will/smithers/workspaces/ws-1/files?path=src"])
-  })
-
-  test("a refused listing shows the server's own words and never an empty directory", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/files": json(404, { message: "path not found" })
-    })
-    await seedWorkspace(store)
-    expect(await seam.listFiles("nope", "ws-1")).toBe("path not found")
-    expect(payloadOf(store)?.error).toBe("path not found")
-    expect(payloadOf(store)?.files).toBeUndefined()
-  })
 
   test("box.file reads the workspace's copy into a file card; base64 is stated as binary", async () => {
     const { store, seam, urls } = await harness({
@@ -1065,127 +659,9 @@ describe("workspace seam files and services (plue#449)", () => {
     expect(typeof binary === "object" && binary?.value).not.toContain("AAEC")
     seam.dispose()
   })
-
-  test("the Services facet lists the name, the state, and plue#483's port and url", async () => {
-    const { store, seam, urls } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/services": json(200, [
-        { name: "postgres", state: "running", port: 5432 },
-        { name: "web", state: "failed", port: 3000, url: "https://ws-1.workspaces.smithers-cloud.test" },
-        { name: "" }
-      ])
-    })
-    await seedWorkspace(store)
-    const result = await seam.listServices("ws-1")
-    expect(urls).toEqual(["GET api/repos/will/smithers/workspaces/ws-1/services"])
-    expect(result).toEqual({ value: "\"review\" (ws-1) services: postgres (running), web (failed)." })
-    expect(payloadOf(store)?.services).toEqual([
-      { name: "postgres", state: "running", port: 5432, url: null },
-      { name: "web", state: "failed", port: 3000, url: "https://ws-1.workspaces.smithers-cloud.test" }
-    ])
-  })
-
-  test("a service that publishes neither a port nor a url carries neither — an absent port is never a zero", async () => {
-    /* plue#483 writes both `omitempty`, so a service with no published port answers without the key. */
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/services": json(200, [
-        { name: "worker", state: "running" },
-        { name: "idle", state: "stopped", port: 0, url: "" }
-      ])
-    })
-    await seedWorkspace(store)
-    await seam.listServices("ws-1")
-    expect(payloadOf(store)?.services).toEqual([
-      { name: "worker", state: "running", port: null, url: null },
-      { name: "idle", state: "stopped", port: null, url: null }
-    ])
-  })
-
-  test("a workspace that declares no services says so", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/services": json(200, [])
-    })
-    await seedWorkspace(store)
-    expect(await seam.listServices("ws-1")).toEqual({ value: "\"review\" (ws-1) declares no services." })
-    expect(payloadOf(store)?.services).toEqual([])
-  })
 })
 
 describe("workspace seam egress audit", () => {
-  const CALL = {
-    occurred_at: "2026-09-02T09:15:00Z",
-    host: "api.github.com",
-    method: "POST",
-    path: "/graphql",
-    status: 200,
-    allowed: true,
-    swapped_secret_names: ["GITHUB_TOKEN"]
-  }
-
-  test("the Egress facet reads a page, keeps plue's cursor, and never renders a secret's value", async () => {
-    const { store, seam, urls } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/egress": json(200, [CALL], {
-        link: "</api/repos/will/smithers/workspaces/ws-1/egress?limit=30>; rel=\"first\", "
-          + "</api/repos/will/smithers/workspaces/ws-1/egress?limit=30&cursor=eyJpZCI6MX0>; rel=\"next\""
-      })
-    })
-    await seedWorkspace(store)
-    const result = await seam.setFacet("ws-1", "egress")
-    expect(result).toBeUndefined()
-    expect(urls).toEqual(["GET api/repos/will/smithers/workspaces/ws-1/egress?limit=30"])
-    expect(payloadOf(store)?.egress).toEqual([
-      {
-        occurredAt: "2026-09-02T09:15:00Z",
-        host: "api.github.com",
-        method: "POST",
-        path: "/graphql",
-        status: 200,
-        allowed: true,
-        swappedSecretNames: ["GITHUB_TOKEN"]
-      }
-    ])
-    expect(payloadOf(store)?.egressCursor).toBe("eyJpZCI6MX0")
-    expect(payloadOf(store)?.facet).toBe("egress")
-  })
-
-  test("a cursor loads the older page and appends it; a page with no next link exhausts the cursor", async () => {
-    const older = { ...CALL, occurred_at: "2026-09-02T08:00:00Z", host: "registry.npmjs.org", method: "GET", allowed: false, status: 403, swapped_secret_names: [] }
-    const { store, seam, urls } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/egress": (url) =>
-        url.searchParams.get("cursor") === "eyJpZCI6MX0"
-          ? json(200, [older])
-          : json(200, [CALL], {
-            link: "</api/repos/will/smithers/workspaces/ws-1/egress?limit=30&cursor=eyJpZCI6MX0>; rel=\"next\""
-          })
-    })
-    await seedWorkspace(store)
-    await seam.listEgress("ws-1")
-    urls.length = 0
-    const result = await seam.listEgress("ws-1", "eyJpZCI6MX0")
-    expect(urls).toEqual(["GET api/repos/will/smithers/workspaces/ws-1/egress?limit=30&cursor=eyJpZCI6MX0"])
-    expect(result).toEqual({ value: "2 recorded calls from \"review\" (ws-1) — the card lists them." })
-    expect(payloadOf(store)?.egress?.map((row) => row.host)).toEqual(["api.github.com", "registry.npmjs.org"])
-    expect(payloadOf(store)?.egress?.[1]?.allowed).toBe(false)
-    expect(payloadOf(store)?.egressCursor).toBeNull()
-  })
-
-  test("an audit page Smithers cannot read is an error, never an empty audit", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/egress": json(200, [{ host: 12 }, { nope: true }])
-    })
-    await seedWorkspace(store)
-    expect(await seam.listEgress("ws-1")).toBe("Smithers Cloud answered 2 egress rows in a shape Smithers can't read.")
-    expect(payloadOf(store)?.egress).toBeUndefined()
-    expect(payloadOf(store)?.error).toBe("Smithers Cloud answered 2 egress rows in a shape Smithers can't read.")
-  })
-
-  test("a computer that called nothing says so", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1/egress": json(200, [])
-    })
-    await seedWorkspace(store)
-    expect(await seam.listEgress("ws-1")).toEqual({ value: "\"review\" (ws-1) made no recorded calls." })
-    expect(payloadOf(store)?.egress).toEqual([])
-  })
 })
 
 describe("workspace seam egress_proxy_unavailable", () => {
@@ -1208,35 +684,6 @@ describe("workspace seam egress_proxy_unavailable", () => {
     expect(refusal).toContain("Not your fault")
     expect(refusal).not.toContain("@fucory")
     expect(refusal).not.toContain(INFRA_NOT_YOUR_FAULT)
-  })
-
-  test("the same refusal on an act with a card puts the code on the card, never the server's 5xx words", async () => {
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces/ws-1/resume": json(503, {
-        code: "egress_proxy_unavailable",
-        message: "service unavailable"
-      })
-    })
-    await seedWorkspace(store, { ...wsRow, status: "suspended" })
-    const refusal = await seam.resumeWorkspace("ws-1")
-    expect(refusal).toContain("egress_proxy_unavailable — The request to Smithers Cloud failed (503).")
-    expect(refusal).not.toContain("service unavailable")
-    expect(refusal).toContain("no outbound network")
-    expect(refusal).not.toContain("@fucory")
-    expect(payloadOf(store)?.egressProxyUnavailable).toBe(true)
-    expect(payloadOf(store)?.error).toBe("The request to Smithers Cloud failed (503). Your box would have had no outbound network, so Smithers stopped instead of running it half-connected. Not your fault; worth trying again.")
-  })
-
-  test("a refusal with any other code carries no egress facet and says whose fault it is", async () => {
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces/ws-1/resume": json(409, { code: "operation_in_progress", message: "already resuming" })
-    })
-    await seedWorkspace(store, { ...wsRow, status: "suspended" })
-    const refusal = await seam.resumeWorkspace("ws-1")
-    expect(refusal).toBe("operation_in_progress — The request to Smithers Cloud failed (409). Not ready yet — nothing is wrong.")
-    /* A `wait` refusal is not one the person acts on, so plue's words stay hidden. */
-    expect(refusal).not.toContain("already resuming")
-    expect(payloadOf(store)?.egressProxyUnavailable).toBeUndefined()
   })
 })
 
@@ -1325,87 +772,6 @@ describe("workspace seam environment images", () => {
  * and workspace DTOs carry the guest-reported head.
  */
 describe("workspace seam agent workspaces", () => {
-  const WS_AGENT = {
-    ...WS_RUNNING,
-    kind: "agent",
-    agent_session_id: "asess-7f3c",
-    head: { change_id: "qupxosqwmnrt", commit_id: "c0ffee1234567890" },
-    ahead: 3,
-    behind: 0
-  }
-
-  test("an agent workspace reads its kind and the session that drove it", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, WS_AGENT),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-    await seam.viewWorkspace("ws-1")
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({ kind: "agent", agentSessionId: "asess-7f3c" })
-    )
-    expect(payloadOf(store)?.workspaceKind).toBe("agent")
-    expect(payloadOf(store)?.agentSessionId).toBe("asess-7f3c")
-  })
-
-  test("a workspace no agent drove names no session", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, WS_RUNNING),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-    await seam.viewWorkspace("ws-1")
-    expect(workspacesOf(store)[0]?.agentSessionId ?? null).toBeNull()
-    expect(payloadOf(store)?.agentSessionId ?? null).toBeNull()
-  })
-
-
-  test("a failed DTO carries plue's failure code and message onto the row and the card (plue#482)", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, {
-        ...WS_RUNNING,
-        status: "failed",
-        failure_code: "image_pull_failed",
-        failure_message: "pulling nixos-2405-9f2b1c0d timed out after 300s"
-      }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-
-    await seam.viewWorkspace("ws-1")
-
-    expect(workspacesOf(store)[0]).toEqual(
-      expect.objectContaining({
-        status: "failed",
-        failureCode: "image_pull_failed",
-        failureMessage: "pulling nixos-2405-9f2b1c0d timed out after 300s"
-      })
-    )
-    expect(payloadOf(store)?.failureCode).toBe("image_pull_failed")
-    expect(payloadOf(store)?.failureMessage).toBe("pulling nixos-2405-9f2b1c0d timed out after 300s")
-  })
-
-  test("a workspace that failed with no recorded reason states none — a blank is never filled in", async () => {
-    const { store, seam } = await harness({
-      "api/repos/will/smithers/workspaces/ws-1": json(200, { ...WS_RUNNING, status: "failed" }),
-      "api/repos/will/smithers/bookmarks": json(200, { items: [], next_cursor: "" }),
-      "api/repos/will/smithers/workspace-snapshots": json(200, []),
-      "api/repos/will/smithers/workspace/sessions": json(200, [])
-    })
-    await seedWorkspace(store)
-
-    await seam.viewWorkspace("ws-1")
-
-    expect(payloadOf(store)?.status).toBe("failed")
-    expect(payloadOf(store)?.failureCode).toBeNull()
-    expect(payloadOf(store)?.failureMessage).toBeNull()
-  })
 
   test("a per-user switcher row states its own failure too (plue#482)", async () => {
     const { store, seam } = await harness({
@@ -1427,37 +793,6 @@ describe("workspace seam agent workspaces", () => {
 
 })
 
-describe("workspace seam create refusals", () => {
-  /*
-   * The desktop base image was still registering when this landed, so plue
-   * answers a kind=desktop create with a 409 naming exactly that. It is the
-   * honest state of the system, so it reads verbatim — on the card whose
-   * create affordance was pressed, not only in the answer.
-   */
-  test("a refused create reads the server's own words, verbatim, on the card that offered the kinds", async () => {
-    const message = "no NixOS environment image is registered for kind desktop"
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces": json(409, { message })
-    })
-    await seedWorkspace(store, { ...wsRow, status: "failed" })
-    await seedCard(store)
-    /* The card keeps plue's words verbatim; the answer adds the one line that says whose fault it was. */
-    expect(await seam.openWorkspace("main", "will/smithers", "vm")).toBe(`${message}. Smithers can't do that as asked.`)
-    expect(payloadOf(store)?.error).toBe(message)
-  })
-
-  test("a refused create touches no card of a workspace that did not offer one", async () => {
-    const message = "no NixOS environment image is registered for kind desktop"
-    const { store, seam } = await harness({
-      "POST api/repos/will/smithers/workspaces": json(409, { message })
-    })
-    await seedWorkspace(store)
-    await seedCard(store)
-    /* The card keeps plue's words verbatim; the answer adds the one line that says whose fault it was. */
-    expect(await seam.openWorkspace("main", "will/smithers", "vm")).toBe(`${message}. Smithers can't do that as asked.`)
-    expect(payloadOf(store)?.error).toBeUndefined()
-  })
-})
 
 describe("workspace seam lifecycle cancellation", () => {
   const deferred = <T>(fallback: T) => {
@@ -1710,43 +1045,6 @@ describe("workspace authorization and transition receipts", () => {
     })
   }
 
-  for (const verb of ["suspend", "resume"] as const) {
-    for (const receipt of ["readable", "refused", "malformed"] as const) {
-      test(`${verb} without an updated DTO uses the real ${receipt} reread receipt`, async () => {
-        const { seam, store, requests } = await harness({
-          [`POST api/repos/will/smithers/workspaces/ws-1/${verb}`]: json(200, {}),
-          "GET api/repos/will/smithers/workspaces/ws-1": receipt === "readable"
-            ? json(200, { ...WS_RUNNING, status: "suspended", name: "observed state" })
-            : receipt === "refused" ? json(503, { message: "temporarily unavailable" }) : json(200, { status: "suspended" }),
-          "GET api/repos/will/smithers/workspaces": json(200, [WS_RUNNING])
-        })
-        await seedWorkspace(store)
-        await seedCard(store)
-        const result = verb === "suspend" ? await seam.suspendWorkspace("ws-1") : await seam.resumeWorkspace("ws-1")
-        if (receipt === "readable") {
-          // A resume acknowledgment does not invent 'running': the reread says suspended.
-          expect(result).toEqual({ value: 'Box "observed state" (ws-1) is suspended.' })
-          expect(requests).toEqual([
-            `POST api/repos/will/smithers/workspaces/ws-1/${verb}`, "GET api/repos/will/smithers/workspaces/ws-1"
-          ])
-          expect(workspacesOf(store)[0]?.status).toBe("suspended")
-          expect(payloadOf(store)?.status).toBe("suspended")
-          expect(payloadOf(store)?.name).toBe("observed state")
-        } else {
-          expect(result).toBe(receipt === "refused"
-            ? `Box "review" (ws-1) ${verb}ed, but its new state could not be read — the list was refreshed.`
-            : `Box "review" (ws-1) ${verb}ed, but its answer was malformed — the list was refreshed.`)
-          expect(requests).toEqual([
-            `POST api/repos/will/smithers/workspaces/ws-1/${verb}`, "GET api/repos/will/smithers/workspaces/ws-1",
-            "GET api/repos/will/smithers/workspaces"
-          ])
-          expect(workspacesOf(store)[0]?.status).toBe("running")
-          expect(payloadOf(store)?.status).toBe("running")
-          expect(payloadOf(store)?.name).toBe("review")
-        }
-      })
-    }
-  }
 
   for (const verb of ["suspend", "resume"] as const) {
     test(`${verb} retires an unreadable acknowledgment's held reread after sign-out`, async () => {
@@ -1778,17 +1076,6 @@ describe("workspace authorization and transition receipts", () => {
       expect(storage.written()).toBe(durableAtRetirement)
     })
   }
-
-  test("workspace and directory names remain separate encoded route parameters", async () => {
-    const { seam, store, urls } = await harness({
-      "GET api/repos/team%20name/repo%23x/workspaces/box%2F%CE%B1/files": json(200, [{ name: "hi.txt", path: "src & notes/hi.txt", type: "file", size: 2 }])
-    })
-    await seedWorkspace(store, { ...wsRow, id: "box/α", repoId: "team name/repo#x", name: "encoded box" })
-    expect(await seam.listFiles("src & notes", "box/α")).toEqual({ value: 'src & notes in "encoded box" (box/α):\nhi.txt' })
-    expect(urls).toEqual(["GET api/repos/team%20name/repo%23x/workspaces/box%2F%CE%B1/files?path=src%20%26%20notes"])
-    expect(payloadOf(store, "box/α")?.filesPath).toBe("src & notes")
-    expect(payloadOf(store, "box/α")?.files).toEqual([{ name: "hi.txt", path: "src & notes/hi.txt", type: "file", size: 2 }])
-  })
 })
 
 describe("missing workspace recreation", () => {

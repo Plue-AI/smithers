@@ -109,7 +109,7 @@ submitRuntimeApproval
 } from "./RuntimeProjection"
 import { toolActLine } from "./ToolActLine"
 import { journalPayload } from "./TransitionDiagnostics"
-import { projectWorkspaceCard,sharedCopyOf,snapshotCard } from "./WorkspaceViews"
+import { sharedCopyOf } from "./WorkspaceViews"
 
 /** The domain state whose meaning is defined by this reducer. Journal authority is never a domain row. */
 export const APP_PROJECTION_SCHEMAS = {
@@ -1120,10 +1120,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
       const recordId = position === undefined ? `${revision}` : `${revision}-${position}`
       const activeWorkspaceId = current.activeWorkspaceId ?? DEFAULT_WORKSPACE_ID
       const activeBranchId = current.activeBranchId ?? DEFAULT_BRANCH_ID
-      const currentCard = (card: Card): Card => projectRuntimeCard(projectWorkspaceCard(
-        card, card.kind === "workspace" ? collections.cloudWorkspaces.get(card.payload.workspaceId) : undefined
-      ), [...collections.runtimeRuns.values()], [...collections.runtimeApprovals.values()])
-      const capturedCard = (card: Card): Card => snapshotRuntimeCard(snapshotCard(currentCard(card)),
+      const currentCard = (card: Card): Card => projectRuntimeCard(card, [...collections.runtimeRuns.values()], [...collections.runtimeApprovals.values()])
+      const capturedCard = (card: Card): Card => snapshotRuntimeCard(currentCard(card),
         [...collections.runtimeRuns.values()], [...collections.runtimeApprovals.values()], revision)
       const snapshot = (): FrameSnapshot => ({
         revision,
@@ -1153,7 +1151,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           else collections.messages.update(row.id, (draft) => replace(draft, row))
         }
         for (const savedCard of saved.cards) {
-          const row = snapshotRuntimeCard(snapshotCard(savedCard), [], [], saved.revision)
+          const row = snapshotRuntimeCard(savedCard, [], [], saved.revision)
           if (collections.cards.get(row.id) === undefined) collections.cards.insert(row)
           else collections.cards.update(row.id, (draft) => replace(draft, row))
         }
@@ -3308,7 +3306,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             const removed = new Set(stale)
             // Leaving the live inventory captures the last observed facts once.
             for (const card of collections.cards.values()) {
-              if (card.kind !== "workspace" || !removed.has(card.payload.workspaceId)) continue
+              if (card.kind !== "branch" || !removed.has(card.payload.id)) continue
               const captured = currentCard(card)
               collections.cards.update(card.id, (draft) => {
                 Object.assign(draft, captured)
@@ -3348,20 +3346,12 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           break
         }
         case "workspace.session.destroyed": {
-          // The card stops pointing at the destroyed session.
-          for (const card of collections.cards.values()) {
-            if (card.kind !== "workspace" || card.payload.terminalSessionId !== transition.sessionId) continue
-            collections.cards.update(card.id, (draft) => {
-              if (draft.kind !== "workspace") return
-              delete draft.payload.terminalSessionId
-            })
-          }
           break
         }
         case "workspace.deleted": {
           // Gone is a fact: the card, the collection row and its tree copy leave in one transaction.
           const { workspaceId } = transition
-          const cardId = `workspace-${workspaceId}`
+          const cardId = `branch:${workspaceId}`
           if (collections.cards.get(cardId) !== undefined) collections.cards.delete(cardId)
           if (collections.cloudWorkspaces.get(workspaceId) !== undefined) collections.cloudWorkspaces.delete(workspaceId)
           const copyId = `workspace:${workspaceId}`

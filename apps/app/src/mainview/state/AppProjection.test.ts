@@ -9,7 +9,6 @@ import type { ConfiguredModel,ModelTestRecord } from "@smthrs/rpc/ConfiguredMode
 import type { AppTransition,Card,CloudWorkspaceInput } from "./AppState"
 import { cardFrameId,DEFAULT_BRANCH_ID,parseRepoSelection } from "./AppState"
 import type { RepositoryNotification } from "./RepositoryNotifications"
-import { workspaceCardFacts } from "./WorkspaceViews"
 
 const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "dark" })
 const apply = (state: AppProjectionSnapshot, transition: AppTransition, createdAt = 200): AppProjectionSnapshot =>
@@ -216,14 +215,13 @@ describe("pure app event projection", () => {
     expect(state.workingCopies).toEqual([])
     state = apply(state, { type: "repo.selected", actor: "user", id: "org/repo#workspace:computer" })
     expect(state.sessions[0]!.activeRepoKey).toBe("org/repo#workspace:computer")
-    const card: Card = { id: "workspace-computer", kind: "workspace", title: "Computer", status: "active", createdAt: 1, ordinal: 1,
-      payload: { ...workspaceCardFacts(workspace), bookmarkHead: null, sessions: [], files: [], facet: "files" } }
+    const card: Card = { id: "branch:computer", kind: "branch", title: "Computer", status: "active", createdAt: 1, ordinal: 1, payload: { id: "computer" } }
     state = apply(state, { type: "card.upsert", actor: "system", card })
     state = apply(state, { type: "card.maximized", actor: "user", id: card.id })
     const frameId = cardFrameId(DEFAULT_BRANCH_ID, card.id)
     state = apply(state, { type: "workspace.updated", actor: "system", workspace: { ...workspace, name: "New name" } })
     expect(state.cloudWorkspaces[0]!.name).toBe("New name")
-    expect(state.frames.find(row => row.id === frameId)!.snapshot!.cards[0]!.payload).toMatchObject({ name: "Computer", snapshot: true })
+    expect(state.frames.find(row => row.id === frameId)!.snapshot!.cards[0]!.payload).toMatchObject({ id: "computer" })
   })
 
   test("a repository can be selected through the shared grammar", () => {
@@ -288,10 +286,10 @@ describe("pure app event projection", () => {
     let state = apply(boot(), progress, 100)
     expect(state.toasts).toEqual([])
     state = apply(state, { type: "toast.shown", actor: "system", key: "desktop", title: "Desktop",
-      action: { flow: "box.view", args: "ws-1", label: "Open details" } }, 200)
+      action: { flow: "branch", args: JSON.stringify({ workspaceId: "ws-1", operation: "workspace-view" }), label: "Open details" } }, 200)
     state = apply(state, progress, 300)
     expect(state.toasts[0]).toMatchObject({ title: "Starting", detail: progress.detail, updatedAt: 300, createdAt: 200,
-      action: { flow: "box.view", args: "ws-1", label: "Open details" } })
+      action: { flow: "branch", args: JSON.stringify({ workspaceId: "ws-1", operation: "workspace-view" }), label: "Open details" } })
     state = apply(state, { ...progress, title: undefined, detail: "Activating" }, 350)
     expect(state.toasts[0]!.title).toBe("Starting")
     for (const status of ["ok", "failed", "cancelled"] as const) {

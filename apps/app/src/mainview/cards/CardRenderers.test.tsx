@@ -28,7 +28,7 @@ import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorl
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", ...DEFERRED_CARD_KINDS].includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", ...LEGACY_CARD_KINDS, ...DEFERRED_CARD_KINDS].includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 
@@ -68,7 +68,7 @@ describe("CardRenderers", () => {
     }
   })
 
-  test.each(["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"])(
+  test.each(["workspace", "admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"])(
     "%s restores as a titled tombstone without its saved body or controls", kind => {
       expect(CARD_RENDERERS).not.toHaveProperty(kind)
       expect(CARD_FAMILIES.flatMap(family => Object.keys(family))).not.toContain(kind)

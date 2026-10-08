@@ -257,61 +257,10 @@ describe("held Review PR form request", () => {
  * lane carries parses and states none of them. The service-log contract
  * lands with it.
  */
-describe("the workspace card", () => {
-  const payload = {
-    workspaceId: "ws-1",
-    repo: "will/smithers",
-    name: "review",
-    targetBookmark: "main",
-    status: "running",
-    provisioningStage: null,
-    bookmarkHead: { changeId: "qupxosqw", commitId: "c0ffee1" },
-    sessions: [{ id: "sess-1", status: "running", createdAt: null }]
-  }
-
-  test("a card persisted before plue#446 carries the DTO plus the bookmark head, and defaults nothing", () => {
-    const card = CardSchema.parse({ ...base, kind: "workspace", payload })
-    if (card.kind !== "workspace") return
-    expect(card.payload.status).toBe("running")
-    expect(card.payload.bookmarkHead).toEqual({ changeId: "qupxosqw", commitId: "c0ffee1" })
-    // An unstated field stays absent: the header renders nothing, never a guess.
-    expect(Object.keys(card.payload).sort()).toEqual(Object.keys(payload).sort())
-  })
-
-  test("the post-plue#446 DTO round-trips: the sandbox kind, the workspace's own head, ahead/behind, uptime, the environment, persistence and the ssh host", () => {
-    const richer = {
-      ...payload,
-      workspaceKind: "vm",
-      head: { changeId: "ronvznsk", commitId: "deadbee" },
-      ahead: 2,
-      behind: 1,
-      startedAt: "2026-09-05T08:00:00Z",
-      environment: {
-        source: ".smithers/environment.nix",
-        revision: "4e87ac15",
-        closureHash: "sha256-9f1c",
-        image: "registry.jjhub.tech/env:4e87ac15"
-      },
-      persistence: "persistent",
-      sshHost: "ws-1@ssh.jjhub.tech"
-    }
-    const card = CardSchema.parse({ ...base, kind: "workspace", payload: richer })
-    if (card.kind !== "workspace") return
-    expect(card.payload).toEqual(richer)
-    expect(card.payload.ahead).toBe(2)
-    expect(card.payload.behind).toBe(1)
-  })
-
-  test("a status outside plue's six is rejected", () => {
-    expect(CardSchema.safeParse({ ...base, kind: "workspace", payload: { ...payload, status: "melting" } }).success)
-      .toBe(false)
-  })
-
-  test("the bookmark head may be absent (an unread head is not a fact)", () => {
-    const card = CardSchema.parse({ ...base, kind: "workspace", payload: { ...payload, bookmarkHead: null } })
-    if (card.kind !== "workspace") return
-    expect(card.payload.bookmarkHead).toBeNull()
-  })
+test("recorded workspace cards retain their title and retire their controls", () => {
+  const card = CardSchema.parse({ ...base, title: "Old branch", kind: "workspace", payload: { workspaceId: "ws-1", status: "running" } })
+  expect(card).toMatchObject({ title: "Old branch", kind: "retired", payload: { was: "workspace" } })
+  expect(CardSchema.options.map(option => option.shape.kind.value)).not.toContain("workspace")
 })
 
 describe("the service-log card", () => {
@@ -3036,8 +2985,8 @@ describe("removed presentation compatibility", () => {
       snapshots: [{ id: "old", name: "Old", createdAt: null }]
     })
     const result = CardSchema.parse(old)
-    expect(result.kind).toBe("workspace")
-    expect(result.payload).toMatchObject({ facet: "terminal", snapshot: true, workspaceId: "ws-1" })
+    expect(result.kind).toBe("retired")
+    expect(result.payload).toEqual({ was: "workspace" })
     expect(result.payload).not.toHaveProperty("snapshots")
   })
 })

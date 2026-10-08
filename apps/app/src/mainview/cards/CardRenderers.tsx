@@ -40,7 +40,7 @@ import { triggersCardFamily } from "./TriggersCard"
 import { turnCardFamily } from "./TurnCards"
 import { wikiCardFamily } from "./WikiCards"
 import { flowCardFamily, workflowCardFamily } from "./FlowCard"
-import { workspaceCardFamily } from "./WorkspaceCard"
+import { environmentImagesCardFamily } from "./EnvironmentImagesCard"
 import { settingsCardFamily } from "./SettingsContainer"
 import { membersCardFamily } from "./MembersCard"
 import { commandsCardFamily } from "./CommandsContainer"
@@ -85,7 +85,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   fileCardFamily,
   agentCardFamily,
   flowFormCardFamily,
-  workspaceCardFamily,
+  environmentImagesCardFamily,
   anonymousCeilingCardFamily,
   searchResultsCardFamily,
   wikiCardFamily,
@@ -125,7 +125,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...fileCardFamily,
   ...agentCardFamily,
   ...flowFormCardFamily,
-  ...workspaceCardFamily,
+  ...environmentImagesCardFamily,
   ...anonymousCeilingCardFamily,
   ...searchResultsCardFamily,
   ...wikiCardFamily,

@@ -33,9 +33,9 @@ describe("run inputs", () => {
     expect(memoryWords({ kept: memory.kept, withheld: [] })).toBe("memory · 3 in")
   })
 
-  test("the box by name when its card is open, the secret names its repository can reach, never a refused one", () => {
-    const box = { id: "w", kind: "workspace", title: "", status: "active", createdAt: 0, ordinal: 0,
-      payload: { workspaceId: "ws-1", repo: "smithersai/smithers", name: "box-2", targetBookmark: null, status: "running", provisioningStage: null } } as unknown as Card
+  test("the branch by name when its card is open, the secret names its repository can reach, never a refused one", () => {
+    const box: Card = { id: "branch:ws-1", kind: "branch", title: "box-2", status: "active", createdAt: 0, ordinal: 0,
+      payload: { id: "ws-1" } }
     const secrets = { id: "s", kind: "secrets", title: "", status: "active", createdAt: 0, ordinal: 0,
       payload: { repo: "smithersai/smithers", scope: "repository", secrets: [
         { name: "DEPLOY_TOKEN", hosts: ["api.vercel.com"], matchHeaders: [], updatedAt: null },

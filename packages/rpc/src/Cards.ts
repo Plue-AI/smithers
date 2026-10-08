@@ -1933,137 +1933,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * Lane citc (ADR 0002), completed by lane L3: the workspace card — a
-   * persistent cloud computer bound to a repository bookmark. plue#446 landed,
-   * so the DTO now carries `kind`, `environment`, `head`, `ahead`/`behind`,
-   * `persistence`, `ssh_host` and `started_at`, and the payload carries them
-   * too — every one optional and nullable, so a card written before this lane
-   * parses and an absent field renders NOTHING rather than a guess.
-   * `bookmarkHead` is still the TARGET BOOKMARK's head from the bookmarks
-   * call, labeled as such and distinct from the workspace's own `head`.
-   * plue#449 landed too: `files` and `services` carry what the workspace
-   * routes answered. `egress` is the sandbox egress audit — what the computer
-   * called and with which secret NAMES, never a value.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("workspace"),
-    payload: z.object({
-      workspaceId: z.string(),
-      /** Frame history captures these facts; live cards derive them from the workspace row. */
-      snapshot: z.literal(true).optional(),
-      /** `org/repo` — the repository the workspace is bound to. */
-      repo: z.string(),
-      name: z.string(),
-      targetBookmark: z.string().nullable(),
-      /** plue's six statuses: pending, starting, running, suspended, stopped, failed. */
-      status: z.enum(["pending", "starting", "running", "suspended", "stopped", "failed"]),
-      /**
-       * plue#482: why a `failed` workspace failed — the provider's own code
-       * and message, off the DTO and off the status stream. Absent when the
-       * platform recorded none; never paraphrased.
-       */
-      failureCode: z.string().nullable().optional(),
-      failureMessage: z.string().nullable().optional(),
-      provisioningStage: z.string().nullable(),
-      /** When the workspace last suspended (DTO); optional so older cards parse. */
-      suspendedAt: z.string().nullable().optional(),
-      /** The target bookmark's head from the bookmarks call — the BOOKMARK head, never the workspace head. */
-      bookmarkHead: z.object({
-        changeId: z.string().nullable(),
-        commitId: z.string().nullable()
-      }).nullable(),
-      /**
-       * The sandbox kind the DTO names (`container`, `vm`, `desktop`, and —
-       * RFD-004 — `agent` for the computer an agent run executed in); no
-       * picker, ADR 0002.
-       */
-      workspaceKind: z.string().nullable().optional(),
-      /** The agent session that drove this workspace (RFD-004); absent for a workspace a human opened. */
-      agentSessionId: z.string().nullable().optional(),
-      /** The workspace's OWN head, as the guest last reported it (DTO `head`). */
-      head: WorkspaceHeadSchema.nullable().optional(),
-      /** Commits ahead of / behind the target bookmark (DTO `ahead` / `behind`). */
-      ahead: z.number().int().nullable().optional(),
-      behind: z.number().int().nullable().optional(),
-      /** When the VM last started; the uptime line reads it and is absent when it is null. */
-      startedAt: z.string().nullable().optional(),
-      /** The NixOS environment the DTO points at (`.smithers/environment.nix` and its revision). */
-      environment: WorkspaceEnvironmentSchema.nullable().optional(),
-      /** `persistent` / `ephemeral`, verbatim from the DTO. */
-      persistence: z.string().nullable().optional(),
-      /** `<vm>@<ssh host>` — the copyable line (plue#446). */
-      sshHost: z.string().nullable().optional(),
-      sessions: z.array(
-        z.object({
-          id: z.string(),
-          status: z.string(),
-          createdAt: z.string().nullable(),
-          /** plue #505: `terminal` or `lsp`, and the lsp session's language; absent on rows written before. */
-          kind: z.string().nullable().optional(),
-          language: z.string().nullable().optional()
-        })
-      ),
-      /**
-       * Lane L6 (plue #505): the languages the workspace relays a language
-       * server for (DTO `lsp.languages`); the header states them. Null when
-       * the DTO carried none; absent on cards written before.
-       */
-      lspLanguages: z.array(z.string()).nullable().optional(),
-      /** The Files facet's listing at `filesPath`; absent until the facet loads it. */
-      files: z.array(WorkspaceFileEntrySchema).optional(),
-      /** Which directory `files` lists; `""` is the working copy's root. */
-      filesPath: z.string().optional(),
-      /** The Services facet's rows; absent until the facet loads them. */
-      services: z.array(WorkspaceServiceSchema).optional(),
-      /** The Egress facet's rows, newest first; absent until the facet loads them. */
-      egress: z.array(SandboxEgressRowSchema).optional(),
-      /** plue's opaque next-page cursor; null when the audit is exhausted. */
-      egressCursor: z.string().nullable().optional(),
-      /**
-       * Lane L3b: the DTO's `desktop` object, present only for a desktop
-       * workspace. It carries the relative stream path and the last mint's id
-       * and expiry — never the token, the VNC password, or the credentialed
-       * absolute URL, all of which stay out of anything persisted.
-       */
-      desktop: WorkspaceDesktopSchema.nullable().optional(),
-      /**
-       * Lane L3b: how the desktop session POST refused, plue's status beside
-       * its own words. A 409 (the workspace is not running) is the one the
-       * facet answers with a Resume; a 400 (this kind has no desktop) reads
-       * the message alone.
-       */
-      desktopRefusal: SessionRefusalSchema.nullable().optional(),
-      /**
-       * How far `/desktop` — the one-command open — has got on this box:
-       * creating, resuming, starting, activating, streaming. Present only while a
-       * wait is running, so the card can name the stage and offer a Stop.
-       * A stage is a state, never a credential: the minted stream URL stays
-       * in module memory (apps/app state/seams/DesktopStream.ts).
-       */
-      desktopProgress: z.string().optional(),
-      desktopStage: z.enum(["creating", "resuming", "starting", "activating", "streaming"]).optional(),
-      /**
-       * plue#504: how the terminal session POST refused, on the terminal
-       * facet. The same four facts as `desktopRefusal` — a 503
-       * `guest_not_ready` is the one the seam retries on its own, because the
-       * server asked it to with a `Retry-After`.
-       */
-      terminalRefusal: SessionRefusalSchema.nullable().optional(),
-      /** Which body tab the card shows; the terminal by default. */
-      facet: z.enum(["terminal", "files", "services", "egress", "desktop"]).optional(),
-      /** The plue session the card's Terminal facet (and its tab) is attached to. */
-      terminalSessionId: z.string().optional(),
-      /** The last act's honest refusal, kept on the card. */
-      error: z.string().optional(),
-      /**
-       * The workspace's creation was refused with plue's `egress_proxy_unavailable`
-       * code: the card names that code exactly, never a paraphrase.
-       */
-      egressProxyUnavailable: z.boolean().optional()
-    })
-  }),
-  /*
    * Lane L3b: the environment images a repository has built (ADR 0002 — the
    * environment is stated, never chosen). One row per closure: what kind of
    * sandbox it boots, the closure short, the image, its status, and whether
@@ -2337,6 +2206,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  * @category constants
  */
 export const LEGACY_CARD_KINDS = [
+  "workspace",
   "commit",
   "commit-list",
   "branches",
@@ -2610,9 +2480,6 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
           })
         }
       }
-    }
-    if (row.kind === "workspace" && payload?.facet === "snapshots") {
-      return { ...row, payload: { ...payload, facet: "terminal" } }
     }
 
     if (row.kind === "repository-choice" && typeof payload?.created === "object" && payload.created !== null) {

@@ -11,7 +11,7 @@ T-APP-10 machine admission: the composed PostgreSQL/live boundary and [Branch li
 
 T-APP-10 member attribution: composed PostgreSQL/live tests resolve durable numeric member IDs through the existing roster; the Branch browser fixture verifies the resolved SSH actor in Activity and Files. Five composed tests and two browser tests pass; guest burst ingestion still needs reference-host evidence.
 
-T-APP-10 commit-family cutover: BranchView remains reachable while CommitCards.tsx, CommitsSeam.ts and their tests/commands are deleted. Recorded commit/commit-list cards and forms decode as titled retired history. The complete C-UI-13 replacement receipt still awaits WorkspaceCard cutover.
+T-APP-10 commit-family cutover: BranchView remains reachable while CommitCards.tsx, CommitsSeam.ts and their tests/commands are deleted. Recorded commit/commit-list cards and forms decode as titled retired history. WorkspaceCard.tsx and its test are deleted; recorded workspace cards decode as titled retired history. The deferred environment images body lives separately.
 
 These hermetic UI scenarios do not replace reference-host qualification or check receipts.
 Fixmes await the seeded DesignWorld and complete journey controls; standalone card components are insufficient.
@@ -461,3 +461,5 @@ T-APP-10 pass 6 supplemental install receipt: `TestBranchAddCardComposedInstall/
 T-APP-04 wave 3 (2026-10-07): `SMITHERS_CONFIRMATION_SETTLEMENT=1 go test ./internal/compose -run '^TestDelegatedMergeSettlementNativeInstall$' -count=1 -v` passed on Linux. The browser reaches Merged through the composed install, the GitHub fake creates one real squash commit, and sync advances the native mirrored main to that commit. The queued neighbor remains unlaunched without machine readiness. This does not qualify real GitHub fault/restart recovery, macOS or microVM execution.
 
 T-APP-16 retirement follow-up (#3446): the parity cutover supersedes the temporary private-route restoration above. Shared prompt admission, author-owned Stop and durable replay are the sole reply path; legacy admission returns 404. Chromium Send/Stop button proofs pass shared admission, cancellation and reload without legacy writes. Reference-Mac, microVM and live-model qualification remain pending.
+
+T-APP-10 activity: the composed PostgreSQL sleeping-branch rehearsal opens through the production slash dispatcher, submits Steer and bound Answer from the mounted Branch card, and verifies both authored entries arrive through LiveChannel and render in order. J3’s full rehearsal still refuses the earlier running-branch topic with unsupported; its roster qualification remains separate.

@@ -4,42 +4,8 @@ import { Effect, Fiber, FiberMap, Layer, ManagedRuntime, Schedule, Scope } from 
 import { preparedView, type ViewAction } from "../PreparedView"
 import { refuseCloudSignIn, SIGN_OUT_REFUSAL } from "./CloudSignIn"
 import { actorSharedState } from "../ActorBindings"
-/*
- * The workspaces seam (lane citc, ADR 0002): the persistent cloud computers
- * behind the `/api/cloud/*` proxy.
- *
- *   GET    /api/user/workspaces                          — the per-user list
- *   GET    /api/repos/{o}/{r}/workspaces                 — one repository's list
- *   POST   /api/repos/{o}/{r}/workspaces                 — create-or-reuse { name?, source_bookmark? }
- *   GET    /api/repos/{o}/{r}/workspaces/{id}
- *   POST   /api/repos/{o}/{r}/workspaces/{id}/suspend|resume
- *   DELETE /api/repos/{o}/{r}/workspaces/{id}
- *   GET    /api/repos/{o}/{r}/workspace/sessions         { workspace_id }
- *   POST   /api/repos/{o}/{r}/workspace/sessions         { workspace_id, cols, rows } — a terminal;
- *                                                         { workspace_id, kind: "lsp", language } is CloudLspClient's (lane L6)
- *   GET    /api/repos/{o}/{r}/workspace/sessions/{id}
- *   POST   /api/repos/{o}/{r}/workspace/sessions/{id}/destroy
- *   GET    /api/repos/{o}/{r}/workspaces/{id}/files?path=            — the Files facet
- *   GET    /api/repos/{o}/{r}/workspaces/{id}/files/content?path=    — one file
- *   GET    /api/repos/{o}/{r}/workspaces/{id}/services               — the Services facet
- *   GET    /api/repos/{o}/{r}/workspaces/{id}/egress?limit=&cursor=  — the Egress facet
- *
- * Lane L3: plue#446 and plue#449 landed, so the DTO's kind, environment,
- * head, ahead/behind, persistence, ssh host and started_at are parsed and the
- * Files, Services and Egress facets read their own routes. Lane L6: plue#505
- * landed, so the DTO's `lsp.languages` and a session's `kind` and `language`
- * are parsed too. Every one of those
- * fields is absent-tolerant: a field the wire omits is null on the row and
- * renders NOTHING — no default, no guess. `bookmarkHead` stays the TARGET
- * BOOKMARK's head from the bookmarks call, labeled as such and separate from
- * the workspace's own `head`.
- *
- * Every act refuses a degraded sign-in with the enable wording, and a bare act
- * resolves its workspace from the active working copy (kind "workspace"), else
- * the single loaded one — never a guess. A workspace still settling (pending,
- * starting) is polled until it settles or is gone; a 404 mid-watch refreshes
- * the repository's list.
- */
+/* Retained workspace inventory and recovery. Every opened machine now uses
+ * the Branch card; its topic providers own machine, activity and terminal facts. */
 import {
   CloudWorkspaceRowSchema,
   parseRepoSelection,
@@ -50,7 +16,6 @@ import type {
   CloudWorkspaceInput,
   CloudWorkspaceRow,
   EnvironmentImageRow,
-  SandboxEgressRow,
   WorkspaceEnvironment,
   WorkspaceFileEntry,
   WorkspaceHead,
@@ -62,9 +27,8 @@ import { CARD_CONTENT_CAP, fileValue } from "@smthrs/rpc/FileRead"
 import { listingValue } from "@smthrs/rpc/FileList"
 import { resolveTargetRepo } from "../RepoContext"
 import { loadEgressPage, workspaceEgressPath } from "./EgressSeam"
-import { workspaceCardFacts } from "../WorkspaceViews"
 import { cloudUnreachable, createCloudClient } from "./CloudClient"
-import type { Refusal, StoredRefusal } from "@smthrs/rpc/Refusal"
+import type { Refusal } from "@smthrs/rpc/Refusal"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { SeamContext } from "./SeamContext"
 import { randomUuid } from "../../runtime/RandomUuid"
@@ -136,40 +100,6 @@ export interface WorkspaceSeamDeps {
   /** The watch and session-settle poll interval; tests inject ~0. */
   readonly pollMs?: number
   /** The one-command open's readiness poll interval; tests inject 0. */
-}
-
-interface SessionRow {
-  readonly id: string
-  readonly status: string
-  readonly createdAt: string | null
-  /** plue #505: `terminal` or `lsp`; null on a row that predates the field. */
-  readonly kind: string | null
-  /** The lsp session's language; null on a terminal. */
-  readonly language: string | null
-}
-
-/** The auxiliaries a workspace card renders beside the DTO row. */
-interface CardAux {
-  readonly bookmarkHead: { readonly changeId: string | null; readonly commitId: string | null } | null
-  readonly sessions: ReadonlyArray<SessionRow>
-  readonly files: ReadonlyArray<WorkspaceFileEntry>
-  readonly filesPath: string
-  readonly services: ReadonlyArray<WorkspaceService>
-  readonly egress: ReadonlyArray<SandboxEgressRow>
-  /** plue's next keyset position; an explicit null says the audit is exhausted. */
-  readonly egressCursor: string | null
-  readonly facet?: WorkspaceFacet | undefined
-  /** The attached session; an explicit null override detaches. */
-  readonly terminalSessionId?: string | null | undefined
-  readonly error?: string | undefined
-  /** plue refused an act with `egress_proxy_unavailable`; the card names the code. */
-  readonly egressProxyUnavailable?: boolean | undefined
-  /**
-   * How the terminal session POST refused: the same shape, on the terminal
-   * facet (plue#504). A `wait` fault — `guest_not_ready` is one — is the only
-   * kind the seam retries on its own, because the server asked it to.
-   */
-  readonly terminalRefusal?: StoredRefusal | undefined
 }
 
 const UNSETTLED: ReadonlySet<string> = new Set(["pending", "starting"])
@@ -416,44 +346,7 @@ const parseUserWorkspaceWire = (value: unknown): CloudWorkspaceInput | null => {
   }
 }
 
-/** One bookmark row off the wire; malformed rows drop. */
-const parseBookmark = (value: unknown): { readonly name: string; readonly changeId: string | null; readonly commitId: string | null } | null => {
-  if (!isRecord(value) || typeof value.name !== "string" || value.name === "") return null
-  return {
-    name: value.name,
-    changeId: typeof value.target_change_id === "string" ? value.target_change_id : null,
-    commitId: typeof value.target_commit_id === "string" ? value.target_commit_id : null
-  }
-}
-
-/** One session row off the wire; malformed rows drop. */
-const parseSession = (value: unknown): (SessionRow & { readonly workspaceId: string | null }) | null => {
-  if (!isRecord(value)) return null
-  const id = str(value.id)
-  const status = str(value.status)
-  if (id === null || status === null) return null
-  return {
-    id,
-    status,
-    createdAt: textOrNull(value.created_at),
-    workspaceId: textOrNull(value.workspace_id),
-    kind: textOrNull(value.kind),
-    language: textOrNull(value.language)
-  }
-}
-
-/** A session row as the repository-wide list carries it: it still names its workspace. */
-type RepoSessionRow = SessionRow & { readonly workspaceId: string | null }
-
-/*
- * One workspace's rows out of the repository's list. A row that names no
- * workspace belongs to every card — the list route answers for the whole
- * repository and the wire may omit `workspace_id`.
- */
-const sessionsOf = (rows: ReadonlyArray<RepoSessionRow>, workspaceId: string): ReadonlyArray<SessionRow> =>
-  rows.filter((row) => row.workspaceId === null || row.workspaceId === workspaceId)
-
-const cardIdOf = (workspaceId: string): string => `workspace-${workspaceId}`
+const cardIdOf = (workspaceId: string): string => `branch:${workspaceId}`
 
 const splitRepo = (repoId: string): { readonly owner: string; readonly name: string } => {
   const [owner = "", name = ""] = repoId.split("/")
@@ -560,22 +453,6 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
 
   /* ---- the auxiliaries: absent answers, never inventions ---- */
 
-  const loadBookmarkHead = async (
-    repoId: string,
-    bookmark: string | null
-  ): Promise<{ readonly changeId: string | null; readonly commitId: string | null } | null> => {
-    if (bookmark === null) return null
-    const answer = await getJson(repoPath(repoId, "/bookmarks"))
-    if ("error" in answer) return null
-    const found = arrayOf(answer.body, "bookmarks")
-      .flatMap((entry) => {
-        const parsed = parseBookmark(entry)
-        return parsed === null ? [] : [parsed]
-      })
-      .find((entry) => entry.name === bookmark)
-    return found === undefined ? null : { changeId: found.changeId, commitId: found.commitId }
-  }
-
   const workspacePath = (repoId: string, workspaceId: string, rest: string): string =>
     repoPath(repoId, `/workspaces/${encodeURIComponent(workspaceId)}${rest}`)
 
@@ -606,80 +483,15 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     })
   }
 
-  /*
-   * The repository's whole session list; null = unread. The route is
-   * repository-wide, so a refresh that touches several cards reads it ONCE
-   * and selects each card's rows out of the one snapshot.
-   */
-  const loadRepoSessions = async (repoId: string): Promise<ReadonlyArray<RepoSessionRow> | null> => {
-    const answer = await getJson(repoPath(repoId, "/workspace/sessions"))
-    if ("error" in answer) return null
-    return arrayOf(answer.body, "sessions").flatMap((entry) => {
-      const parsed = parseSession(entry)
-      return parsed === null ? [] : [parsed]
-    })
-  }
-
-  /** One workspace's sessions; null = unread. */
-  const loadSessions = async (repoId: string, workspaceId: string): Promise<ReadonlyArray<SessionRow> | null> => {
-    const rows = await loadRepoSessions(repoId)
-    return rows === null ? null : sessionsOf(rows, workspaceId)
-  }
-
-  /* ---- the card ---- */
-
-  /*
-   * Render one workspace's card: the DTO row plus the auxiliaries. An
-   * override wins; otherwise the existing card's value stands, so a status
-   * poll never blanks the snapshots the open loaded.
-   */
-  const workspaceCard = (workspace: CloudWorkspaceInput, overrides: Partial<CardAux> = {}): Card => {
-    const id = cardIdOf(workspace.id)
+  const workspaceCard = (workspace: CloudWorkspaceInput): Card => {
+    const id = `branch:${workspace.id}`
     const existing = ctx.store.collections.cards.get(id)
-    const prior = existing?.kind === "workspace" ? existing.payload : undefined
-    /*
-     * The collection is the authority: every act dispatches its DTO before
-     * it renders, and a settle poll that landed while an act's auxiliaries
-     * were loading has already advanced the row — the card renders THAT,
-     * never the act's older answer, so the card and the tree agree.
-     */
-    const current = ctx.store.collections.cloudWorkspaces.get(workspace.id) ?? workspace
-    const payload = {
-      ...workspaceCardFacts(current),
-      bookmarkHead: overrides.bookmarkHead !== undefined ? overrides.bookmarkHead : prior?.bookmarkHead ?? null,
-      sessions: overrides.sessions !== undefined ? [...overrides.sessions] : prior?.sessions ?? [],
-      ...(overrides.files !== undefined
-        ? { files: [...overrides.files], filesPath: overrides.filesPath ?? "" }
-        : prior?.files !== undefined ? { files: prior.files, filesPath: prior.filesPath ?? "" } : {}),
-      ...(overrides.services !== undefined
-        ? { services: [...overrides.services] }
-        : prior?.services !== undefined ? { services: prior.services } : {}),
-      ...(overrides.egress !== undefined
-        ? { egress: [...overrides.egress], egressCursor: overrides.egressCursor ?? null }
-        : prior?.egress !== undefined ? { egress: prior.egress, egressCursor: prior.egressCursor ?? null } : {}),
-      ...(overrides.facet !== undefined
-        ? { facet: overrides.facet }
-        : prior?.facet !== undefined ? { facet: prior.facet } : {}),
-      ...(overrides.terminalSessionId !== undefined
-        ? overrides.terminalSessionId === null ? {} : { terminalSessionId: overrides.terminalSessionId }
-        : prior?.terminalSessionId !== undefined ? { terminalSessionId: prior.terminalSessionId } : {}),
-      ...(overrides.error !== undefined ? { error: overrides.error } : {}),
-      ...(overrides.egressProxyUnavailable === true ? { egressProxyUnavailable: true } : {}),
-      ...(overrides.terminalRefusal === undefined ? {} : { terminalRefusal: overrides.terminalRefusal })
-    }
-    const card: Card = {
-      id,
-      kind: "workspace",
-      title: `${current.name} · ${current.repoId}`,
-      status: "active",
-      createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
-      payload
-    }
-    return card
+    return { id, kind: "branch", title: workspace.name, status: "active",
+      createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.nextOrdinal(),
+      payload: { id: workspace.id } }
   }
-  const renderWorkspace = (workspace: CloudWorkspaceInput, overrides: Partial<CardAux> = {}): void => {
-    ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: workspaceCard(workspace, overrides) })
+  const renderWorkspace = (workspace: CloudWorkspaceInput): void => {
+    ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: workspaceCard(workspace) })
   }
 
   /*
@@ -730,8 +542,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
         } })
       }
     }
-    const proxyGone = typeof refusal !== "string" && refusal.code === EGRESS_PROXY_UNAVAILABLE
-    renderWorkspace(workspace, { error, ...(proxyGone ? { egressProxyUnavailable: true } : {}) })
+    renderWorkspace(workspace)
     /*
      * The line that goes back to the transcript, the toast and the model: the
      * code first (the anchor the agent boundary reads), then plue's own words,
@@ -1001,7 +812,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       for (const row of ctx.store.collections.cloudWorkspaces.values()) {
         if (row.repoId !== target.repo || row.status !== "failed") continue
         if (ctx.store.collections.cards.get(cardIdOf(row.id)) === undefined) continue
-        renderWorkspace(row, { error: created.error })
+        renderWorkspace(row)
       }
       /* One sentence for every refusal: the code, plue's own words, then whose fault it was. */
       return refusalSentence(created.refusal)
@@ -1025,15 +836,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       return finishRecovery(recovery.oldId, workspace.id, accountCurrent)
     }
     if (UNSETTLED.has(workspace.status)) watch(workspace.id)
-    const [bookmarkHead, sessions] = await Promise.all([
-      loadBookmarkHead(workspace.repoId, workspace.targetBookmark),
-      loadSessions(workspace.repoId, workspace.id)
-    ])
     if (!accountCurrent()) return SIGN_OUT_REFUSAL
-    renderWorkspace(workspace, {
-      bookmarkHead,
-      ...(sessions === null ? {} : { sessions })
-    })
+    renderWorkspace(workspace)
     return {
       value: `Box "${workspace.name}" (${workspace.id}) is ${workspace.status} on ${workspace.repoId}${
         workspace.targetBookmark === null ? "" : `@${workspace.targetBookmark}`
@@ -1160,15 +964,8 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if (fresh === null) return `Smithers Cloud's answer for box ${workspace.id} was malformed.`
     ctx.dispatch({ type: "workspace.updated", actor: "system", workspace: fresh })
     if (UNSETTLED.has(fresh.status)) watch(fresh.id)
-    const [bookmarkHead, sessions] = await Promise.all([
-      loadBookmarkHead(fresh.repoId, fresh.targetBookmark),
-      loadSessions(fresh.repoId, fresh.id)
-    ])
     if (!current()) return SIGN_OUT_REFUSAL
-    renderWorkspace(fresh, {
-      bookmarkHead,
-      ...(sessions === null ? {} : { sessions })
-    })
+    renderWorkspace(fresh)
     return { value: `Box "${fresh.name}" (${fresh.id}) is ${fresh.status} — the card is current.` }
   }
 
@@ -1232,15 +1029,6 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
      * a dead attachment); the session lists refresh after.
      */
     ctx.dispatch({ type: "workspace.session.destroyed", actor: ctx.actor(), sessionId })
-    /* One repository-wide read is the refresh for every card in it. */
-    const rows = await loadRepoSessions(resolved.repo)
-    if (!current()) return SIGN_OUT_REFUSAL
-    for (const card of ctx.store.collections.cards.values()) {
-      if (card.kind !== "workspace" || card.payload.repo !== resolved.repo) continue
-      const row = ctx.store.collections.cloudWorkspaces.get(card.payload.workspaceId)
-      if (row === undefined) continue
-      renderWorkspace(row, rows === null ? {} : { sessions: sessionsOf(rows, row.id) })
-    }
     return { value: `Session ${sessionId} is destroyed.` }
   }
 
@@ -1283,104 +1071,17 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
    * the card held for the old path — a stale listing under a new path would
    * describe a directory that was never read.
    */
-  const renderFiles = async (
-    workspace: CloudWorkspaceRow,
-    path: string,
-    facet?: WorkspaceFacet
-  ): Promise<string | void> => {
-    const current = currentOperation(workspace.id)
-    const files = await loadFiles(workspace.repoId, workspace.id, path)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if ("error" in files) {
-      renderWorkspace(workspace, { ...(facet === undefined ? {} : { facet }), error: files.error })
-      return files.error
-    }
-    renderWorkspace(workspace, { ...(facet === undefined ? {} : { facet }), files, filesPath: path })
-  }
-
-  const renderServices = async (workspace: CloudWorkspaceRow, facet?: WorkspaceFacet): Promise<string | void> => {
-    const current = currentOperation(workspace.id)
-    const services = await loadServices(workspace.repoId, workspace.id)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if ("error" in services) {
-      renderWorkspace(workspace, { ...(facet === undefined ? {} : { facet }), error: services.error })
-      return services.error
-    }
-    renderWorkspace(workspace, { ...(facet === undefined ? {} : { facet }), services })
-  }
-
-  /*
-   * One page of the egress audit. A cursor APPENDS (the card's "Load older"
-   * walks backwards through plue's keyset); no cursor replaces, so re-opening
-   * the facet re-reads the newest page instead of stacking duplicates.
-   */
-  const renderEgress = async (
-    workspace: CloudWorkspaceRow,
-    cursor?: string,
-    facet?: WorkspaceFacet
-  ): Promise<string | void> => {
-    const current = currentOperation(workspace.id)
-    const page = await loadEgressPage(ctx, workspaceEgressPath(workspace.repoId, workspace.id), cursor)
-    if (!current()) return SIGN_OUT_REFUSAL
-    if ("error" in page) {
-      renderWorkspace(workspace, { ...(facet === undefined ? {} : { facet }), error: page.error })
-      return page.error
-    }
-    const card = ctx.store.collections.cards.get(cardIdOf(workspace.id))
-    const held = card?.kind === "workspace" ? card.payload.egress ?? [] : []
-    renderWorkspace(workspace, {
-      ...(facet === undefined ? {} : { facet }),
-      egress: cursor === undefined || cursor === "" ? page.rows : [...held, ...page.rows],
-      egressCursor: page.nextCursor
-    })
-  }
-
   const setFacet = preparedView(ctx, (workspaceId: string, facet: WorkspaceFacet) => {
-    if (gate() !== undefined) return SIGN_OUT_REFUSAL
+    const refusal = gate()
+    if (refusal !== undefined) return refusal
     const current = currentOperation(workspaceId)
     const row = ctx.store.collections.cloudWorkspaces.get(workspaceId)
-    if (row === undefined) return `Box ${workspaceId} is not loaded — /box.list refreshes the inventory`
-    const existing = ctx.store.collections.cards.get(cardIdOf(row.id))
-    const path = existing?.kind === "workspace" ? existing.payload.filesPath ?? "" : ""
-    const placeholder = workspaceCard(row, { facet })
-    return { id: placeholder.id, title: placeholder.title, pane: workspaceId, placeholder,
-      key: JSON.stringify([placeholder.id, facet, facet === "files" ? path : undefined]),
-      project: card => {
-        if (card.kind !== "workspace") return card
-        const p = card.payload
-        // Preserve current lifecycle; only the requested facet was prefetched.
-        return workspaceCard(row, { facet, ...(facet === "files" ? { files: p.files, filesPath: p.filesPath }
-          : facet === "services" ? { services: p.services } : facet === "egress" ? { egress: p.egress, egressCursor: p.egressCursor }
-          : facet === "terminal" ? { sessions: p.sessions.map(session => ({ ...session, kind: session.kind ?? null, language: session.language ?? null })) } : {}) })
-      },
-      before: async () => {
-        if (!current()) return SIGN_OUT_REFUSAL
-
-      },
-      read: async () => {
-        if (!current()) return SIGN_OUT_REFUSAL
-        let extra: Partial<CardAux> = { facet }
-        if (facet === "terminal") {
-          const sessions = await loadSessions(row.repoId, row.id)
-          if (sessions === null) return "Box sessions couldn't be loaded. Try again."
-          extra = { facet, sessions }
-        } else if (facet === "files") {
-          const files = await loadFiles(row.repoId, row.id, path)
-          if ("error" in files) return files.error
-          extra = { facet, files, filesPath: path }
-        } else if (facet === "services") {
-          const services = await loadServices(row.repoId, row.id)
-          if ("error" in services) return services.error
-          extra = { facet, services }
-        } else if (facet === "egress") {
-          const page = await loadEgressPage(ctx, workspaceEgressPath(row.repoId, row.id))
-          if ("error" in page) return page.error
-          extra = { facet, egress: page.rows, egressCursor: page.nextCursor }
-        }
-        if (!current()) return SIGN_OUT_REFUSAL
-        return { card: workspaceCard(row, extra) }
-      },
-    }
+    if (row === undefined) return "Branch unavailable"
+    const card = workspaceCard(row)
+    const tab = facet === "files" ? "files" : facet === "terminal" ? "terminals" : "activity"
+    const placeholder: Card = { id: card.id, kind: "branch", title: card.title, status: card.status, createdAt: card.createdAt, ordinal: card.ordinal, payload: { id: workspaceId, tab } }
+    return { id: card.id, title: card.title, pane: workspaceId, placeholder,
+      key: JSON.stringify([card.id, tab]), read: async () => current() ? ({ card: placeholder }) : SIGN_OUT_REFUSAL }
   })
 
   const listFiles: WorkspaceSeam["listFiles"] = async (path, workspaceId) => {
@@ -1392,11 +1093,10 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     // `/` is how a human spells the working copy's root; plue's own spelling is the empty path.
     const at = path === undefined || path === "/" ? "" : path
     const current = currentOperation(workspace.id)
-    const failure = await renderFiles(workspace, at, "files")
+    const files = await loadFiles(workspace.repoId, workspace.id, at)
     if (!current()) return SIGN_OUT_REFUSAL
-    if (typeof failure === "string") return failure
-    const card = ctx.store.collections.cards.get(cardIdOf(workspace.id))
-    const files = card?.kind === "workspace" ? card.payload.files ?? [] : []
+    renderWorkspace(workspace)
+    if ("error" in files) return files.error
     return {
       value: listingValue(`"${workspace.name}" (${workspace.id})`, at, files.map((file) => ({
         name: file.name,
@@ -1462,11 +1162,10 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if ("error" in resolved) return resolved.error
     const { workspace } = resolved
     const current = currentOperation(workspace.id)
-    const failure = await renderServices(workspace, "services")
+    const services = await loadServices(workspace.repoId, workspace.id)
     if (!current()) return SIGN_OUT_REFUSAL
-    if (typeof failure === "string") return failure
-    const card = ctx.store.collections.cards.get(cardIdOf(workspace.id))
-    const services = card?.kind === "workspace" ? card.payload.services ?? [] : []
+    renderWorkspace(workspace)
+    if ("error" in services) return services.error
     return {
       value: services.length === 0
         ? `"${workspace.name}" (${workspace.id}) declares no services.`
@@ -1483,11 +1182,11 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     if ("error" in resolved) return resolved.error
     const { workspace } = resolved
     const current = currentOperation(workspace.id)
-    const failure = await renderEgress(workspace, cursor, "egress")
+    const page = await loadEgressPage(ctx, workspaceEgressPath(workspace.repoId, workspace.id), cursor)
     if (!current()) return SIGN_OUT_REFUSAL
-    if (typeof failure === "string") return failure
-    const card = ctx.store.collections.cards.get(cardIdOf(workspace.id))
-    const rows = card?.kind === "workspace" ? card.payload.egress ?? [] : []
+    renderWorkspace(workspace)
+    if ("error" in page) return page.error
+    const rows = page.rows
     return {
       value: rows.length === 0
         ? `"${workspace.name}" (${workspace.id}) made no recorded calls.`

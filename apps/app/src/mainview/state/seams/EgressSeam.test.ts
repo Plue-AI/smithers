@@ -19,7 +19,6 @@ import {
   workspaceEgressPath
 } from "./EgressSeam"
 import type { SeamContext } from "./SeamContext"
-import { createWorkspaceSeam } from "./WorkspaceSeam"
 
 /*
  * The sandbox egress audit seam (lane L3). One route shape serves a workspace
@@ -54,7 +53,6 @@ const CALL = {
 }
 
 const SESSION_PATH = "api/repos/will/smithers/agent-sessions/as-1/egress"
-const WORKSPACE_PATH = "api/repos/will/smithers/workspaces/ws-1/egress"
 const UNREADABLE_PAYLOAD = "Smithers Cloud answered an egress audit payload in a shape Smithers can't read."
 
 const malformedPayloads = [
@@ -282,54 +280,6 @@ describe("egress.session", () => {
     expect(egressLine(parseEgressRow({ ...CALL, swapped_secret_names: [] })!)).toBe(
       "2026-09-02T09:15:00Z · POST api.github.com/graphql · 200 · allowed"
     )
-  })
-})
-
-describe("workspace egress payload failures", () => {
-  test.each(malformedPayloads)("%s preserves previously loaded rows and the cursor", async (_, body) => {
-    let payload = JSON.stringify([CALL])
-    const { store, ctx } = await harness({
-      [WORKSPACE_PATH]: () =>
-        new Response(payload, {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-            link: `</${WORKSPACE_PATH}?limit=30&cursor=older>; rel="next"`
-          }
-        })
-    })
-    await store.dispatch({
-      type: "workspace.updated",
-      actor: "system",
-      workspace: {
-        id: "ws-1",
-        repoId: "will/smithers",
-        name: "review",
-        targetBookmark: "main",
-        status: "running",
-        provisioningStage: null,
-        suspendedAt: null,
-        createdAt: "2026-09-01T00:00:00Z"
-      }
-    })
-    const seam = createWorkspaceSeam(ctx)
-    expect(await seam.setFacet("ws-1", "egress")).toBeUndefined()
-    const card = store.collections.cards.get("workspace-ws-1")
-    expect(card?.kind).toBe("workspace")
-    if (card?.kind !== "workspace") throw new Error("Expected a workspace card")
-    expect(card.payload.egress).toEqual([parseEgressRow(CALL)!])
-    expect(card.payload.egressCursor).toBe("older")
-
-    payload = body
-    for (const cursor of [undefined, "older"]) {
-      expect(await seam.listEgress("ws-1", cursor)).toBe(UNREADABLE_PAYLOAD)
-      const retained = store.collections.cards.get("workspace-ws-1")
-      expect(retained?.kind).toBe("workspace")
-      if (retained?.kind !== "workspace") throw new Error("Expected a workspace card")
-      expect(retained.payload.egress).toEqual(card.payload.egress)
-      expect(retained.payload.egressCursor).toBe("older")
-      expect(retained.payload.error).toBe(UNREADABLE_PAYLOAD)
-    }
   })
 })
 

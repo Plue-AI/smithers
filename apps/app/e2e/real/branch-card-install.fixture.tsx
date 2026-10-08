@@ -192,6 +192,13 @@ try {
   const answered = requests.find(request => request.path === "/api/todos/1/answer")!
   assert.deepEqual(answered.body, { answer: "Include them", wait: "branch-question-1" })
   assert.equal(answered.status, 202, JSON.stringify(answered))
+  await waitFor(() => host.querySelector('[data-kind="steer"]')?.textContent?.includes("Keep retry backoff bounded") === true
+    && host.querySelector('[data-kind="answer"]')?.textContent?.includes("Include them") === true)
+  const activity = live.getSnapshot(`branch:${branch}:activity`)?.data as Array<{ kind: string; text: string; actor: { login: string }; files?: number }>
+  assert.deepEqual(activity.filter(entry => entry.kind === "steer" || entry.kind === "answer").map(entry => ({ kind: entry.kind, text: entry.text, login: entry.actor.login, files: entry.files })), [
+    { kind: "steer", text: "Keep retry backoff bounded", login: "sleepowner", files: undefined },
+    { kind: "answer", text: "Include them", login: "sleepowner", files: undefined }
+  ], "shared live activity retains authored inputs in order without calling them file changes")
   assert.ok(host.querySelector('[data-flow="todo"]'), "real item binding")
   assert.ok(host.querySelector('[data-flow="todo.steer"]'), "real steer binding")
   await waitFor(() => host.querySelector('[data-flow="box.resume"]') !== null)

@@ -2581,9 +2581,9 @@ export const legacyCards = [
         "egressProxyUnavailable": true
       }
     },
-    "expectedKind": "workspace",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "workspace"
   },
   {
     "row": {
