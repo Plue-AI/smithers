@@ -288,6 +288,19 @@ func runMainResetProductionInstall(t *testing.T, enable string) {
 		err := r.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE request_id LIKE $1`, fmt.Sprintf("flow-load:%d:%%:%s", repository, latest)).Scan(&deliveries)
 		return err == nil && deliveries == 1
 	}, 45*time.Second, 100*time.Millisecond, "main-moved must reach the production machine flow loader")
+	// Admission is not completion: the recovered reset must finish the real
+	// guest load and preserve the person's served Active flow, too.
+	require.Eventually(t, func() bool {
+		var loaded, state string
+		err := r.pool.QueryRow(ctx, `SELECT loaded_commit,state FROM flow_loads WHERE repository_id=$1`, repository).Scan(&loaded, &state)
+		return err == nil && loaded == latest && state == "idle"
+	}, 90*time.Second, 200*time.Millisecond, "recovered reset must complete its production flow load: %s", r.logs.String())
+	card, err := r.flowCard("todo")
+	require.NoError(t, err)
+	require.NotEmpty(t, card.version("active"), "reset keeps the served TODO flow usable")
+	var completedDeliveries int
+	require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE request_id LIKE $1`, fmt.Sprintf("flow-load:%d:%%:%s", repository, latest)).Scan(&completedDeliveries))
+	require.Equal(t, 1, completedDeliveries, "completion must not duplicate keyed admission")
 	// A duplicate press uses the persisted reset key, without another stack update.
 	var generation int64
 	require.NoError(t, r.pool.QueryRow(ctx, `SELECT (a->>'main_moved_generation')::bigint FROM mythical_stacks,jsonb_array_elements(attention) a WHERE repository_id=$1 AND a->>'id'=$2`, repository, attention.ID).Scan(&generation))
