@@ -408,7 +408,9 @@
     "outputs": [
       ".github/workflows/drift.yml"
     ],
-    "dependencies": [],
+    "dependencies": [
+      "//:trustedDriftCi"
+    ],
     "source": {
       "file": "PACKAGE.ts"
     }
@@ -27837,6 +27839,31 @@
     }
   },
   {
+    "label": "//:trustedDriftCi",
+    "package": "",
+    "name": "trustedDriftCi",
+    "rule": "GithubCiGen",
+    "kinds": [
+      "build",
+      "lint"
+    ],
+    "mode": "check",
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": ".github/workflows/trusted-drift.yml"
+      }
+    ],
+    "outputs": [
+      ".github/workflows/trusted-drift.yml"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
     "label": "//:tsconfig",
     "package": "",
     "name": "tsconfig",
@@ -37941,6 +37968,10 @@
       {
         "kind": "file",
         "path": "flows/test/coding-metered-steps.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/moved-off-agent-dispatch.test.ts"
       },
       {
         "kind": "glob",
@@ -63441,6 +63472,14 @@
       {
         "kind": "file",
         "path": ".github/actions/trusted-ci-setup-campaign/action.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/trusted-drift.yml"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/trusted-setup-validation.yml"
       },
       {
         "kind": "file",

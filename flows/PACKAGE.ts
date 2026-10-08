@@ -306,7 +306,8 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-vibe-landing.test.ts"),
     Smithers.file("//flows/test/coding-source-publication.test.ts"),
     Smithers.file("//flows/test/coding-dispatch.test.ts"),
-    Smithers.file("//flows/test/coding-metered-steps.test.ts")
+    Smithers.file("//flows/test/coding-metered-steps.test.ts"),
+    Smithers.file("//flows/test/moved-off-agent-dispatch.test.ts")
   ]),
   srcs: [...codingSources, ...codingProjectInputs],
   deps: codingDependencies,

@@ -122,7 +122,7 @@ test('standalone root drift target owns the generated workflow', async () => {
   assert.match(drift, /workflowName:\s*['"]Drift['"]/)
   assert.match(drift, /output:\s*['"]\.github\/workflows\/drift\.yml['"]/)
   assert.match(drift, /concurrency:\s*['"]commit['"]/)
-  assert.match(drift, /timeoutMinutes:\s*20/)
+  assert.match(source, /const driftJob[\s\S]*?timeoutMinutes:\s*20/)
   assert.match(drift, /knownRed:\s*['"]\.github\/ci-known-red\.json['"]/, 'the generator must retain known-red when drift.yml is refreshed')
 })
 
@@ -470,6 +470,26 @@ test('root-ci-setup-input-validation disposable Ubuntu positive and hostile cont
   // Run the production dispatcher, with activation selected solely by this
   // committed campaign program. Production CLI has no activation override.
   const positive = `import runpy; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); m['dispatch'](activated=True)`
+  for (const [path, bytes] of [
+    ['PACKAGE.ts', 'export const setup = { argv: ["sudo", "touch", "/run/smithers-hostile-root"] }\n'],
+    ['.github/workflows/drift.yml', 'jobs:\n  drift:\n    steps:\n      - run: sudo touch /run/smithers-hostile-root\n'],
+    ['package.json', '{"scripts":{"preinstall":"sudo touch /run/smithers-hostile-root"}}\n'],
+  ]) {
+    await write(workspace, path, bytes)
+    try {
+      await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment }), (error) => {
+        assert.equal(error.code, 1)
+        assert.match(error.stderr, /trusted setup refused: setup must precede checkout/)
+        return true
+      })
+      await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+      await assert.rejects(readFile(canary), { code: 'ENOENT' })
+    } finally {
+      await rm(join(workspace, path), { force: true })
+      if (path.startsWith('.github/')) await rm(join(workspace, '.github'), { recursive: true, force: true })
+    }
+  }
+  assert.deepEqual(await readdir(workspace), [])
   const log = await runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment, maxBuffer: 8 * 1024 * 1024 })
   assert.match(log.stdout, /bubblewrap/)
   const commands = JSON.parse(log.stdout.match(/^TRUSTED-SETUP-COMMANDS (.*)$/m)?.[1] ?? 'null')
@@ -555,4 +575,52 @@ test('trusted setup rejects branch-selected action inputs and pins its own conte
       return true
     })
   }
+})
+
+test('trusted drift and disposable setup campaign are main-pinned before branch execution', async () => {
+  const { default: YAML } = await import('yaml')
+  const trusted = YAML.parse(await readFile(new URL('../../.github/workflows/trusted-drift.yml', import.meta.url), 'utf8'))
+  assert.deepEqual(trusted.on, { workflow_call: null })
+  assert.equal(trusted.concurrency['cancel-in-progress'], false)
+  assert.equal(trusted.concurrency.group, 'trusted-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}')
+  assert.equal(trusted.jobs.drift['runs-on'], 'ubuntu-latest')
+  assert.equal(trusted.jobs.drift.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup@44e7e125182e3db0033420492cbefe3270198a60')
+  assert.equal(trusted.jobs.drift.steps[1].uses, 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262')
+  assert.deepEqual(trusted.jobs.drift.steps[1].with, { ref: '${{ github.event.pull_request.head.sha || github.sha }}', 'persist-credentials': 'false' })
+  assert.equal(trusted.env, undefined)
+  assert.equal(trusted.jobs.drift.env, undefined)
+  assert.deepEqual(trusted.permissions, { contents: 'read' })
+  assert.deepEqual(trusted.jobs.drift.steps.filter((step) => step.run?.includes('pnpm exec smthrs ')).map((step) => step.run), gateCommands)
+  const campaign = YAML.parse(await readFile(new URL('../../.github/workflows/trusted-setup-validation.yml', import.meta.url), 'utf8'))
+  assert.deepEqual(campaign.on, { workflow_dispatch: null })
+  assert.deepEqual(campaign.permissions, { contents: 'read' })
+  assert.equal(campaign.jobs.setup.if, "${{ github.ref == 'refs/heads/main' }}")
+  assert.equal(campaign.jobs.setup['runs-on'], 'ubuntu-latest')
+  assert.equal(campaign.jobs.setup.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup-campaign@44e7e125182e3db0033420492cbefe3270198a60')
+  assert.equal(campaign.jobs.setup.steps.length, 2, 'campaign runs before checkout or dependency actions')
+  assert.equal(campaign.jobs.setup.steps[1].uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02')
+  assert.equal(campaign.jobs.setup.steps[1].if, '${{ always() }}')
+  assert.equal(campaign.jobs.setup.steps[1].with['if-no-files-found'], 'error')
+})
+
+test('C-PRC-01 observes the literal required status and clean per-SHA check through GitHub APIs', {
+  skip: !process.env.SMITHERS_PRC_STATUS_ACCEPTANCE_COMMIT,
+}, async () => {
+  const commit = process.env.SMITHERS_PRC_STATUS_ACCEPTANCE_COMMIT
+  assert.match(commit, /^[0-9a-f]{40}$/)
+  const readApi = async (path) => {
+    const response = await fetch(`https://api.github.com/repos/smithersai/smithers/${path}`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'smithers-prc-acceptance' },
+      signal: AbortSignal.timeout(30_000),
+    })
+    assert.equal(response.status, 200, `${path}: ${response.status}`)
+    return response.json()
+  }
+  const rules = await readApi('rules/branches/main')
+  const checks = rules.filter((rule) => rule.type === 'required_status_checks')
+    .flatMap((rule) => rule.parameters?.required_status_checks ?? [])
+  assert.ok(checks.some((check) => check.context === 'Per-commit drift'), 'main must require the literal Per-commit drift context')
+  const runs = await readApi(`commits/${commit}/check-runs?per_page=100`)
+  assert.ok(runs.check_runs.some((run) => run.name === 'Per-commit drift' && run.head_sha === commit
+    && run.status === 'completed' && run.conclusion === 'success'), 'the exact landed SHA must have a clean Per-commit drift run')
 })

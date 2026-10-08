@@ -1,0 +1,24 @@
+name: Trusted setup validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: trusted-setup-${{ github.sha }}-${{ github.run_id }}
+  cancel-in-progress: false
+jobs:
+  setup:
+    name: Root setup input validation
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Main-pinned setup campaign
+        uses: smithersai/smithers/.github/actions/trusted-ci-setup-campaign@44e7e125182e3db0033420492cbefe3270198a60
+      - name: Setup receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: root-ci-setup-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/smithers-setup-campaign/
+          if-no-files-found: error

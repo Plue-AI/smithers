@@ -533,6 +533,43 @@ const nativeFilesystem = [{
 }] as const
 
 // Cheap drift checks retain a verdict for every commit independently of full CI.
+const driftJob = {
+  id: "drift",
+  name: "Per-commit drift",
+  runsOn: ubuntu,
+  // A clean run takes 7-10 minutes on ubuntu-latest; a 10-minute cap
+  // cancelled runs before //:driftCi and //:ci, leaving a SHA with no verdict.
+  timeoutMinutes: 20,
+  toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun] }),
+  steps: [
+    { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
+    { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
+    { name: "Backend access test list drift", verb: Smithers.Verb.Lint, pattern: "//:backendAccessTests" },
+    { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
+    { name: "OpenAPI client drift", verb: Smithers.Verb.Lint, pattern: "//:openapiClients" },
+    { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
+    { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
+    { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
+    { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
+    { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" },
+    { name: "Generated CI workflow", verb: Smithers.Verb.Lint, pattern: "//:ci" }
+  ]
+} as const
+
+const trustedDriftCi = Smithers.GithubCiGen({
+  workflowName: "Trusted drift",
+  output: ".github/workflows/trusted-drift.yml",
+  pushBranches: [],
+  pullRequest: false,
+  workflowDispatch: false,
+  workflowCall: true,
+  concurrency: "commit",
+  knownRed: ".github/ci-known-red.json",
+  mode: "check",
+  requiredJobs: ["drift"],
+  jobs: [{ ...driftJob, trustedSetupRevision: "44e7e125182e3db0033420492cbefe3270198a60" }]
+})
+
 const driftCi = Smithers.GithubCiGen({
   workflowName: "Drift",
   output: ".github/workflows/drift.yml",
@@ -540,29 +577,9 @@ const driftCi = Smithers.GithubCiGen({
   workflowDispatch: false,
   knownRed: ".github/ci-known-red.json",
   mode: "check",
+  deps: [trustedDriftCi],
   requiredJobs: ["drift"],
-  jobs: [{
-    id: "drift",
-    name: "Per-commit drift",
-    runsOn: ubuntu,
-    // A clean run takes 7-10 minutes on ubuntu-latest; a 10-minute cap
-    // cancelled runs before //:driftCi and //:ci, leaving a SHA with no verdict.
-    timeoutMinutes: 20,
-    toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun] }),
-    steps: [
-      { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
-      { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
-      { name: "Backend access test list drift", verb: Smithers.Verb.Lint, pattern: "//:backendAccessTests" },
-      { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
-      { name: "OpenAPI client drift", verb: Smithers.Verb.Lint, pattern: "//:openapiClients" },
-      { name: "Documentation drift", verb: Smithers.Verb.Lint, pattern: "//scripts:docsDrift" },
-      { name: "Declaration baseline", verb: Smithers.Verb.Build, pattern: "//scripts:apiBaseline" },
-      { name: "Conflict markers", verb: Smithers.Verb.Lint, pattern: "//scripts:conflictMarkers" },
-      { name: "Tracked file hygiene", verb: Smithers.Verb.Lint, pattern: "//scripts:trackedHygiene" },
-      { name: "Generated drift workflow", verb: Smithers.Verb.Lint, pattern: "//:driftCi" },
-      { name: "Generated CI workflow", verb: Smithers.Verb.Lint, pattern: "//:ci" }
-    ]
-  }]
+  jobs: [driftJob]
 })
 
 const ci = Smithers.GithubCiGen({
@@ -1325,6 +1342,7 @@ export const Package = Smithers.Package({
     changelog,
     ci,
     driftCi,
+    trustedDriftCi,
     environmentToolchain,
     factoryHarness,
     factoryProjection,

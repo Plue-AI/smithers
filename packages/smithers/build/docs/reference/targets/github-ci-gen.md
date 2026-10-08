@@ -402,3 +402,18 @@ Write mode is non-cacheable.
 - [Writing build files](../../workspace/writing-build-files.md#build-files-declare-targets-never-commands)
 - [Running targets](../../workspace/running-targets.md)
 - [Remote caching](../../workspace/remote-caching.md)
+
+## Trusted engineering setup
+
+The engineering drift caller uses `trustedWorkflowRevision`, a full main commit
+SHA of the fixed `trusted-drift.yml` reusable workflow. The caller passes no
+inputs, environment or secrets. Its `Per-commit drift` result job succeeds only
+when the pinned callee succeeds. `deps` keeps the callee's generated-file check
+in the caller's local graph.
+
+The callee declares `workflowCall: true`, no other triggers, and the job's
+`trustedSetupRevision` pins the fixed setup action to main. Setup precedes
+checkout; checkout then selects the caller's PR head or push SHA without
+persisting credentials. Caller and callee have separate non-cancelling
+concurrency groups. Privileged dispatch refuses execution until its security
+receipts and owner acceptance exist.

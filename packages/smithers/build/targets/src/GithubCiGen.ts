@@ -297,6 +297,12 @@ export const Attrs = Schema.Struct({
   workflowDispatch: Schema.Boolean.pipe(
     Schema.withConstructorDefault(Effect.succeed(true))
   ),
+  /** Call-only workflow whose complete job bytes are pinned by its caller. */
+  workflowCall: Schema.optional(Schema.Boolean),
+  /** Main commit of the fixed engineering drift workflow, never a branch ref. */
+  trustedWorkflowRevision: Schema.optional(Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/))),
+  /** Additional graph checks required before the generated caller is valid. */
+  deps: Schema.optional(Schema.Array(Target.Dependency)),
   /**
    * Lightweight workflows can use `commit` to group by workflow, event, ref and
    * SHA without cancelling any run. Omitted or `ref` keeps the full workflow's
@@ -851,6 +857,7 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
   // `.git/config`, where every target the job runs could read it; no
   // generated step uses git credentials after the checkout, so none is kept.
   const checkoutWith: Record<string, string> = {
+    ...(attrs.workflowCall ? { ref: "${{ github.event.pull_request.head.sha || github.sha }}" } : {}),
     ...(needs.submodules ? { submodules: "recursive" } : {}),
     ...(needs.fetchDepth === undefined ? {} : { "fetch-depth": String(needs.fetchDepth) }),
     "persist-credentials": "false"
@@ -1317,6 +1324,14 @@ const validateJobs = (attrs: Attrs): void => {
   const required = new Set(attrs.requiredJobs)
   validatePublishing(attrs)
   for (const job of attrs.jobs) {
+    if (job.trustedSetupRevision !== undefined) {
+      if (!attrs.workflowCall) {
+        throw new Error("GithubCiGen: trusted root setup requires a main-pinned call-only workflow")
+      }
+      if ([job.toolchain.apt, job.toolchain.docker, job.toolchain.postgres, job.toolchain.nix].some((value) => value !== undefined)) {
+        throw new Error("GithubCiGen: trusted setup forbids privileged setup after branch checkout")
+      }
+    }
     validateJobRunners(job)
     // A lane named in `requiredJobs` is a lane the pipeline promises to run.
     // One that is advisory everywhere fails nothing, so naming it required
@@ -1504,7 +1519,7 @@ export const render = (attrs: Attrs): string => {
   if (attrs.jobs.length === 0) {
     throw new Error("GithubCiGen: write mode needs at least one declared job")
   }
-  if (attrs.pushBranches.length === 0 && !attrs.pullRequest && !attrs.workflowDispatch) {
+  if (attrs.pushBranches.length === 0 && !attrs.pullRequest && !attrs.workflowDispatch && !attrs.workflowCall) {
     throw new Error("GithubCiGen: write mode needs at least one workflow trigger")
   }
   if (attrs.concurrency !== undefined && attrs.concurrency !== "ref" && attrs.concurrency !== "commit") {
@@ -1525,6 +1540,12 @@ export const render = (attrs: Attrs): string => {
   }
   if (attrs.pullRequest) triggers.push("  pull_request:")
   if (attrs.workflowDispatch) triggers.push("  workflow_dispatch:")
+  if (attrs.workflowCall) {
+    if (attrs.pushBranches.length > 0 || attrs.pullRequest || attrs.workflowDispatch || attrs.trustedWorkflowRevision !== undefined) {
+      throw new Error("GithubCiGen: trusted reusable workflow must be call-only")
+    }
+    triggers.push("  workflow_call:")
+  }
   const lines: Array<string> = [
     `name: ${scalar(attrs.workflowName)}`,
     "on:",
@@ -1538,7 +1559,7 @@ export const render = (attrs: Attrs): string => {
     // main run completed for hours (#2085). Superseded PR runs are cancelled;
     // a branch's in-progress run always finishes.
     attrs.concurrency === "commit"
-      ? "  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}"
+      ? "  group: " + (attrs.workflowCall ? "trusted-" : "") + "${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}"
       : "  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.ref }}",
     `  cancel-in-progress: ${
       attrs.concurrency !== "commit" && attrs.cancelInProgress ? "${{ github.event_name == 'pull_request' }}" : "false"
@@ -1550,6 +1571,28 @@ export const render = (attrs: Attrs): string => {
     "  contents: read",
     "jobs:"
   ]
+  if (attrs.trustedWorkflowRevision !== undefined) {
+    if (!/^[a-f0-9]{40}$/.test(attrs.trustedWorkflowRevision) || attrs.jobs.length !== 1 || attrs.jobs[0]?.id !== "drift" ||
+      attrs.jobs[0]?.publishesToCache || attrs.jobs[0]?.trustedSetupRevision !== undefined ||
+      Object.keys(cacheEnvironment(attrs)).length > 0 || attrs.results) {
+      throw new Error("GithubCiGen: trusted drift caller requires a main SHA, one drift job and no credentials")
+    }
+    lines.push(
+      "  trusted-drift:",
+      `    uses: "smithersai/smithers/.github/workflows/trusted-drift.yml@${attrs.trustedWorkflowRevision}"`,
+      "  drift:",
+      '    name: "Per-commit drift"',
+      "    needs: trusted-drift",
+      "    if: ${{ always() }}",
+      '    runs-on: "ubuntu-latest"',
+      "    timeout-minutes: 5",
+      "    steps:",
+      '      - name: "Trusted drift result"',
+      `        run: "test '\${{ needs.trusted-drift.result }}' = 'success'"`,
+      '        shell: "bash"'
+    )
+    return `${lines.join("\n")}\n`
+  }
   const cacheEnv = cacheEnvironment(attrs)
   const writeEnv = writeCacheEnvironment(attrs)
   for (const job of attrs.jobs) {

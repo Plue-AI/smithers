@@ -456,6 +456,8 @@ const driftJob = Smithers.NodeTest({
     Smithers.file("//.github/actions/trusted-ci-setup/action.yml"),
     Smithers.file("//.github/actions/trusted-ci-setup/setup.py"),
     Smithers.file("//.github/actions/trusted-ci-setup-campaign/action.yml"),
+    Smithers.file("//.github/workflows/trusted-drift.yml"),
+    Smithers.file("//.github/workflows/trusted-setup-validation.yml"),
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//package.json"),
     Smithers.file("//scripts/PACKAGE.ts"),
