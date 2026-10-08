@@ -55,8 +55,13 @@ fn fake_agent() {
 }
 
 const ROOT: &str = "requires Linux root and a writable cgroup v2 hierarchy";
-fn require_root() {
+/// Root, and one test at a time. Each test copies the stand-in binary and
+/// then executes it; a fork on another thread in between would hold the
+/// copy's descriptor open and the exec would fail as "text file busy".
+fn require_root() -> std::sync::MutexGuard<'static, ()> {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     assert!(rustix::process::geteuid().is_root(), "{ROOT}");
+    ONE.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct Running(Child);
@@ -253,7 +258,7 @@ const CLAUDE_SESSION: &str = "889e416d-fda3-42c0-869a-56b3ced78a05";
 #[test]
 #[ignore = "requires Linux root and a writable cgroup v2 hierarchy"]
 fn discovery_takes_only_the_owners_agents_linked_to_one_transcript() {
-    require_root();
+    let _one = require_root();
     let machine = Machine::new("discover");
     let home = machine.home("ben");
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);
@@ -370,7 +375,7 @@ fn discovery_takes_only_the_owners_agents_linked_to_one_transcript() {
 #[test]
 #[ignore = "requires Linux root and a writable cgroup v2 hierarchy"]
 fn the_resolver_answers_as_the_owner_from_the_agents_own_files() {
-    require_root();
+    let _one = require_root();
     let machine = Machine::new("resolve");
     let home = machine.home("ben");
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);
@@ -583,7 +588,7 @@ fn the_resolver_answers_as_the_owner_from_the_agents_own_files() {
 #[test]
 #[ignore = "requires Linux root and a writable cgroup v2 hierarchy"]
 fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() {
-    require_root();
+    let _one = require_root();
     let machine = Machine::new("launch");
     let home = machine.home("ben");
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);
@@ -741,7 +746,7 @@ fn a_launched_child_is_exactly_the_owner_and_reads_only_the_owners_transcript() 
 #[test]
 #[ignore = "requires Linux root and a writable cgroup v2 hierarchy"]
 fn discovery_resolution_and_reading_agree_on_one_live_agent_of_a_kernel_cgroup() {
-    require_root();
+    let _one = require_root();
     let machine = Machine::new("slice");
     let home = machine.home("ben");
     let rollout = machine.file(&format!("home/ben/{ROLLOUT}"), BEN, META);

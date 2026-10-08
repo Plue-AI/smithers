@@ -168,7 +168,12 @@ impl<R: Refs> Outbox<R> {
                 self.refs.acknowledge_and_sync(head)?;
             }
         }
-        self.store.remove(ack.seq, ack.outcome == 4)?;
+        // A refused change event is kept for inspection. A refused transcript
+        // record is a member's own text: it is not kept outside their home.
+        self.store.remove(
+            ack.seq,
+            ack.outcome == 4 && !crate::transcript::wire::objectless(&event),
+        )?;
         self.refs.unpin(event.id)?;
         self.sent = None;
         self.haves.clear();

@@ -19,7 +19,15 @@ pub trait Controls {
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
     fn kill(&mut self) -> io::Result<u16>;
+    /// A descriptor to hand to the daemon with the reply to the request just
+    /// handled, taken once. Only a started transcript reader's socket is one.
+    fn descriptor(&mut self) -> Option<std::os::fd::OwnedFd> {
+        None
+    }
 }
+/// Operations with a raw body: session streams, the registry, and transcript
+/// sources (26 list, 27 start a reader, 28 release).
+const RAW: std::ops::RangeInclusive<u8> = 17..=28;
 fn error(code: u8) -> Error {
     Error {
         code,
@@ -42,7 +50,7 @@ fn response(id: &[u8], variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>> {
-    if packet.len() >= 5 && matches!(packet[4], 17..=25) && packet.len() <= 65560 {
+    if packet.len() >= 5 && RAW.contains(&packet[4]) && packet.len() <= 65560 {
         let mut reply = packet[..5].to_vec();
         match controls.stream(packet[4], &packet[5..]) {
             Ok(body) => reply.extend(body),
@@ -116,6 +124,9 @@ struct Presence {
     paths: std::collections::BTreeMap<u32, String>,
     last: Option<Vec<u8>>,
     sent: Option<std::time::Instant>,
+    /// When the daemon last polled sessions, which it does only on an
+    /// authenticated link whose reconciliation and roster are complete.
+    polled: Option<std::time::Instant>,
 }
 #[cfg(target_os = "linux")]
 impl SocketpairBroker {
@@ -133,7 +144,17 @@ impl SocketpairBroker {
         self.call_body(variant, &conn::structure_bytes(fields))
     }
     fn call_body(&self, variant: u8, body: &[u8]) -> crate::hooks::Result<Vec<u8>> {
-        use rustix::net::{recv, send, RecvFlags, SendFlags};
+        self.call_passing(variant, body).map(|(bytes, _)| bytes)
+    }
+    /// One exchange, with the descriptor the broker passed alongside its
+    /// reply when it passed one. A caller that expects none drops it.
+    fn call_passing(
+        &self,
+        variant: u8,
+        body: &[u8],
+    ) -> crate::hooks::Result<(Vec<u8>, Option<std::os::fd::OwnedFd>)> {
+        use rustix::net::{send, RecvFlags, SendFlags};
+        let mut passed = None;
         let mut connection = self.0.lock().map_err(|_| error(12))?;
         let (fd, id, failed) = &mut *connection;
         if *failed {
@@ -143,22 +164,30 @@ impl SocketpairBroker {
         let mut request = id.to_be_bytes().to_vec();
         request.push(variant);
         request.extend_from_slice(body);
-        if request.len()
-            > if matches!(variant, 17..=25) {
-                65560
-            } else {
-                65536
-            }
-        {
+        if request.len() > if RAW.contains(&variant) { 65560 } else { 65536 } {
             return Err(error(1));
         }
         let exchange = (|| -> io::Result<Vec<u8>> {
             if send(&*fd, &request, SendFlags::NOSIGNAL)? != request.len() {
                 return Err(io::ErrorKind::WriteZero.into());
             }
-            let receive = || -> io::Result<Vec<u8>> {
+            let mut receive = || -> io::Result<Vec<u8>> {
                 let mut bytes = vec![0; 65561];
-                let (n, _) = recv(&*fd, &mut bytes, RecvFlags::empty())?;
+                let mut space =
+                    [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+                let mut ancillary = rustix::net::RecvAncillaryBuffer::new(&mut space);
+                let n = rustix::net::recvmsg(
+                    &*fd,
+                    &mut [io::IoSliceMut::new(&mut bytes)],
+                    &mut ancillary,
+                    RecvFlags::CMSG_CLOEXEC,
+                )?
+                .bytes;
+                for message in ancillary.drain() {
+                    if let rustix::net::RecvAncillaryMessage::ScmRights(descriptors) = message {
+                        passed = descriptors.last();
+                    }
+                }
                 if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
@@ -208,7 +237,7 @@ impl SocketpairBroker {
             *failed = true;
             return Err(error(12));
         }
-        Ok(bytes[5..].to_vec())
+        Ok((bytes[5..].to_vec(), passed))
     }
 }
 #[cfg(target_os = "linux")]
@@ -276,6 +305,7 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
             return Ok(());
         }
         let response = handle(&packet[..n], controls)?;
+        let descriptor = controls.descriptor();
         if response.get(4) == Some(&25) {
             let body = &response[5..];
             if body.len() > REGISTRY_LIMIT {
@@ -311,7 +341,27 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
                 rustix::net::sockopt::Timeout::Send,
                 Some(Duration::from_secs(1)),
             )?;
-            if send(fd, &response, SendFlags::NOSIGNAL)? != response.len() {
+            let sent = match &descriptor {
+                // The broker keeps no copy: its end closes when this returns.
+                Some(descriptor) => {
+                    use std::os::fd::AsFd;
+                    let mut space =
+                        [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+                    let mut ancillary = rustix::net::SendAncillaryBuffer::new(&mut space);
+                    let passing = [descriptor.as_fd()];
+                    if !ancillary.push(rustix::net::SendAncillaryMessage::ScmRights(&passing)) {
+                        return Err(io::ErrorKind::InvalidData.into());
+                    }
+                    rustix::net::sendmsg(
+                        fd,
+                        &[io::IoSlice::new(&response)],
+                        &mut ancillary,
+                        SendFlags::NOSIGNAL,
+                    )?
+                }
+                None => send(fd, &response, SendFlags::NOSIGNAL)?,
+            };
+            if sent != response.len() {
                 return Err(io::ErrorKind::WriteZero.into());
             }
         }
@@ -326,6 +376,7 @@ impl crate::hooks::Sessions for SocketpairBroker {
         let mut presence = self.1.lock().map_err(|_| error(12))?;
         presence.last = None;
         presence.sent = None;
+        presence.polled = None;
         Ok(())
     }
     fn ready(&self) -> crate::hooks::Result<()> {
@@ -340,9 +391,11 @@ impl crate::hooks::Sessions for SocketpairBroker {
     }
     fn poll(&self) -> crate::hooks::Result<Vec<conn::Frame>> {
         let mut frames = self.poll_stream(0)?;
-        if let Some(frame) = self.poll_presence(std::time::Instant::now())? {
+        let now = std::time::Instant::now();
+        if let Some(frame) = self.poll_presence(now)? {
             frames.push(frame);
         }
+        self.1.lock().map_err(|_| error(12))?.polled = Some(now);
         Ok(frames)
     }
     fn poll_local(&self, id: u32) -> crate::hooks::Result<Vec<conn::Frame>> {
@@ -422,6 +475,48 @@ impl SocketpairBroker {
             }
         }
         Ok(entries)
+    }
+    /// Whether the daemon is serving sessions to the host right now: it polled
+    /// them within the last two seconds. Work that must not run without an
+    /// authenticated, reconciled link with a synchronized roster waits on this.
+    pub fn serving(&self, now: std::time::Instant) -> bool {
+        self.1.lock().is_ok_and(|presence| {
+            presence
+                .polled
+                .is_some_and(|at| now.saturating_duration_since(at) < Duration::from_secs(2))
+        })
+    }
+    /// Members' own agent sessions there are to read (spec §9.6.6). Asking is
+    /// what makes the broker look; a broker without the import refuses.
+    pub fn transcript_sources(&self) -> crate::hooks::Result<Vec<super::transcripts::Listed>> {
+        super::transcripts::Listed::decode(&self.call_body(26, &[])?).map_err(|_| error(12))
+    }
+    /// Have the broker start the owner's reader for one listed source. The
+    /// startup names what the broker bound the reader to; the socket is the
+    /// reader's, and nothing else ever held it.
+    pub fn transcript_reader(
+        &self,
+        lifetime: [u8; 16],
+    ) -> crate::hooks::Result<(
+        crate::transcript::reader::Startup,
+        std::os::unix::net::UnixStream,
+    )> {
+        let (bytes, socket) = self.call_passing(27, &lifetime)?;
+        let startup: crate::transcript::reader::Startup =
+            serde_json::from_slice(&bytes).map_err(|_| error(12))?;
+        if startup.source.lifetime != lifetime || startup.checkpoint.is_some() {
+            return Err(error(12));
+        }
+        Ok((startup, socket.ok_or_else(|| error(12))?.into()))
+    }
+    /// Give a source back: read to its end, or refused by the host (`stopped`).
+    pub fn transcript_release(
+        &self,
+        lifetime: [u8; 16],
+        stopped: bool,
+    ) -> crate::hooks::Result<()> {
+        self.call_body(28, &[lifetime.as_slice(), &[u8::from(stopped)]].concat())
+            .map(|_| ())
     }
     fn live_sessions(&self) -> crate::hooks::Result<Vec<u32>> {
         let entries = self.registry()?;

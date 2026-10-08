@@ -248,6 +248,21 @@ impl<C: Controls> Sessions<C> {
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
         self.entries.values()
     }
+    /// Whose transcripts the broker may look for in session `id`: a roster
+    /// member's own terminal session that it spawned and still owns. Never a
+    /// coding run (`agent` is the factory's account, not a member), a
+    /// forwarded port or file transfer, or a session fenced for cleanup.
+    pub fn transcript_owner(&self, id: u32) -> Option<(&User, &ProcessIdentity)> {
+        let entry = self.entries.get(&id)?;
+        if entry.user.uid == 19999
+            || !matches!(entry.kind, Kind::Pty | Kind::Exec)
+            || self.fenced.contains(&id)
+            || self.authorize(&entry.user).is_err()
+        {
+            return None;
+        }
+        Some((&entry.user, entry.process.as_ref()?))
+    }
     pub(super) fn bind_process(&mut self, id: u32, process: ProcessIdentity) -> io::Result<()> {
         let entry = self
             .entries

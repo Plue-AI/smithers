@@ -75,6 +75,13 @@ fn decode_checkpoint(bytes: &[u8]) -> io::Result<Checkpoint> {
     Ok(state)
 }
 
+/// Whether a saved checkpoint records that its reader stopped the source for
+/// good: a record it could not frame, or a file that stopped being the
+/// owner's regular file. A stopped source fails every later read.
+pub(super) fn checkpoint_stopped(bytes: &[u8]) -> bool {
+    decode_checkpoint(bytes).is_ok_and(|state| state.stopped)
+}
+
 pub(super) fn validate_reader_checkpoint(
     bytes: &[u8],
     startup: &super::reader::Startup,
@@ -149,6 +156,46 @@ impl CheckpointStore {
             return Err(invalid("checkpoint grew beyond limit"));
         }
         Ok(Some(bytes))
+    }
+
+    /// Forget this source. A checkpoint that is not there is already forgotten.
+    pub fn remove(&self) -> io::Result<()> {
+        match fs::unlinkat(&self.directory, self.name.as_str(), fs::AtFlags::empty()) {
+            Ok(()) => self.directory.sync_all(),
+            Err(rustix::io::Errno::NOENT) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Remove every checkpoint in `directory` but those of `keep`, and every
+    /// half-written one. Source lifetimes are the broker's and end with it, so
+    /// what an earlier boot or a finished agent left is never read again.
+    pub fn sweep(directory: &File, keep: &std::collections::BTreeSet<[u8; 16]>) -> io::Result<()> {
+        let kept: std::collections::BTreeSet<String> = keep
+            .iter()
+            .map(|lifetime| {
+                lifetime
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+                    + ".tail"
+            })
+            .collect();
+        let mut removed = false;
+        for entry in fs::Dir::read_from(directory)? {
+            let entry = entry?;
+            let Ok(name) = entry.file_name().to_str() else {
+                continue;
+            };
+            if (name.ends_with(".tail") || name.ends_with(".tail.tmp")) && !kept.contains(name) {
+                fs::unlinkat(directory, name, fs::AtFlags::empty())?;
+                removed = true;
+            }
+        }
+        if removed {
+            directory.sync_all()?;
+        }
+        Ok(())
     }
 
     pub fn save(&self, bytes: &[u8]) -> io::Result<()> {

@@ -276,6 +276,17 @@ impl Reader {
             failed: false,
         })
     }
+    /// Whether the checkpoint this reader last saved, or a stored one, says the
+    /// source is stopped for good. Reading it again can only fail.
+    pub fn stopped(checkpoint: &[u8]) -> bool {
+        super::linux::checkpoint_stopped(checkpoint)
+    }
+    pub fn source_stopped(&self) -> bool {
+        self.startup
+            .checkpoint
+            .as_ref()
+            .is_some_and(|saved| Self::stopped(saved.as_bytes()))
+    }
     /// `live` checks the current broker session/process lifetime and revocation
     /// before poll and each persistence action. The transport must have a bounded
     /// read/write deadline. Any failure poisons this reader; drop its socket and
@@ -326,13 +337,18 @@ impl Reader {
                     {
                         return Err(invalid());
                     }
+                    // The deadline bounds the peer, not this side's disk.
+                    let began = Instant::now();
                     persist(&bytes)?;
+                    connection.deadline += began.elapsed();
                     events += 1;
                     send(&mut connection, ACK, &[])?;
                 }
                 CHECKPOINT if !checkpoint => {
                     super::linux::validate_reader_checkpoint(&bytes, &self.startup)?;
+                    let began = Instant::now();
                     save(&bytes)?;
+                    connection.deadline += began.elapsed();
                     self.startup.checkpoint =
                         Some(String::from_utf8(bytes).map_err(|_| invalid())?);
                     checkpoint = true;

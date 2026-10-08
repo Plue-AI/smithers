@@ -367,6 +367,21 @@ pub fn run() -> io::Result<()> {
             events: events.clone(),
             sessions: broker.clone(),
         });
+    // Members' own agent sessions (spec §9.6.6). The pump reads only while
+    // this daemon serves a ready link, and ends if the broker has no import.
+    let transcripts = crate::transcript::pump::Pump::new(
+        broker.clone(),
+        events.clone(),
+        private(&state.join("transcripts"))?,
+    )?;
+    let serving = broker.clone();
+    std::thread::Builder::new()
+        .name("transcripts".into())
+        .spawn(move || {
+            crate::transcript::pump::run(transcripts, move || {
+                serving.serving(std::time::Instant::now())
+            })
+        })?;
     let workspace = File::open("/workspace")?;
     crate::confine::probe(&workspace)?;
     let documents_dir = private(&state.join("documents"))?;

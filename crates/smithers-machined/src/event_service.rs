@@ -14,6 +14,9 @@ struct State<R: Refs, B: Bundles> {
     active: bool,
     bursts: u64,
     hints: VecDeque<Frame>,
+    /// Transcript sources whose record the host refused, until the transcript
+    /// pump takes them and stops reading those sources.
+    refused: Vec<[u8; 16]>,
     observer: Option<crate::rebase_observer::Observer>,
 }
 
@@ -47,6 +50,7 @@ impl<R: Refs, B: Bundles> Events<R, B> {
                 active: false,
                 bursts: 0,
                 hints: VecDeque::new(),
+                refused: Vec::new(),
                 observer: None,
             }),
             allocate: Box::new(allocate),
@@ -100,6 +104,16 @@ impl<R: Refs, B: Bundles> Events<R, B> {
             .map_err(|_| io::Error::other("event state poisoned"))?
             .outbox
             .depth())
+    }
+    /// The transcript sources the host has refused since this was last asked.
+    pub fn refused_transcripts(&self) -> io::Result<Vec<[u8; 16]>> {
+        Ok(std::mem::take(
+            &mut self
+                .state
+                .lock()
+                .map_err(|_| io::Error::other("event state poisoned"))?
+                .refused,
+        ))
     }
     fn state(&self) -> hooks::Result<std::sync::MutexGuard<'_, State<R, B>>> {
         self.state
@@ -227,15 +241,23 @@ where
 
     fn poll(&self) -> hooks::Result<Vec<Frame>> {
         let mut state = self.state()?;
-        if !state.active && state.outbox.front().map_err(error)?.is_some() {
-            let stream = (self.allocate)()?;
-            let State {
-                outbox,
-                delivery,
-                active,
-                ..
-            } = &mut *state;
-            *active = delivery.begin(outbox, stream).map_err(error)?;
+        let mut objectless = None;
+        if !state.active {
+            if let Some(front) = state.outbox.front().map_err(error)? {
+                let State {
+                    outbox,
+                    delivery,
+                    active,
+                    ..
+                } = &mut *state;
+                if crate::transcript::wire::objectless(&front) {
+                    objectless = delivery.begin_objectless(outbox).map_err(error)?;
+                    *active = objectless.is_some();
+                } else {
+                    let stream = (self.allocate)()?;
+                    *active = delivery.begin(outbox, stream).map_err(error)?;
+                }
+            }
         }
         let mut frames = Vec::with_capacity(3);
         if let Some(incoming) = &self.incoming {
@@ -243,7 +265,9 @@ where
                 frames.push(frame);
             }
         }
-        if let Some(frame) = state.delivery.next_frame().map_err(error)? {
+        if let Some(frame) = objectless {
+            frames.push(frame);
+        } else if let Some(frame) = state.delivery.next_frame().map_err(error)? {
             frames.push(frame);
         }
         if let Some(hint) = state.hints.pop_front() {
@@ -269,11 +293,26 @@ where
             outbox,
             delivery,
             active,
+            refused,
             ..
         } = &mut *state;
+        // The source of a transcript record the host is refusing for good,
+        // read before the receipt removes the record.
+        let refusal = conn::Acknowledgement::decode(frame)
+            .ok()
+            .filter(|ack| ack.outcome == 4)
+            .and_then(|_| outbox.front().ok().flatten())
+            .and_then(|event| crate::transcript::wire::Source::decode(&event.event).ok())
+            .map(|(source, _)| source.lifetime);
         let result = delivery.receive(outbox, frame).map_err(error)?;
         if frame.kind == 2 {
             *active = false;
+        }
+        if let Some(lifetime) = refusal {
+            // One entry per source; the pump takes them several times a second.
+            if !refused.contains(&lifetime) && refused.len() < 4096 {
+                refused.push(lifetime);
+            }
         }
         if state.outbox.depth() == 0 {
             if let Some(observer) = &mut state.observer { observer.drained(); }

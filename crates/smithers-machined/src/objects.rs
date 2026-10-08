@@ -59,6 +59,24 @@ impl<B: Bundles> Delivery<B> {
         self.sending = Sending::Bundle(event.seq, BundleSender::new(stream, source)?);
         Ok(true)
     }
+    /// The front event when it names no object (a transcript record is text):
+    /// its frame goes out as it is, with no bundle and no object stream before
+    /// it, and the next frame this pump accepts is its receipt. `None` when the
+    /// front event carries objects; `begin` sends those.
+    pub fn begin_objectless<R: crate::outbox::Refs>(
+        &mut self,
+        outbox: &mut crate::outbox::Outbox<R>,
+    ) -> io::Result<Option<Frame>> {
+        if !matches!(self.sending, Sending::Idle) {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let Some(event) = outbox.front()?.filter(crate::transcript::wire::objectless) else {
+            return Ok(None);
+        };
+        let frame = outbox.after_bundle(event.seq)?;
+        self.sending = Sending::Receipt;
+        Ok(Some(frame))
+    }
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
         match &mut self.sending {
             Sending::Bundle(_, sender) => sender.next_frame(),

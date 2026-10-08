@@ -193,6 +193,11 @@ impl Cgroups {
     pub(super) fn contains(&self, id: u32) -> bool {
         self.groups.contains_key(&id)
     }
+    /// The process list of one retained session group, through its held
+    /// directory. No pathname or id comes from a request.
+    pub(super) fn procs(&self, id: u32) -> Option<PathBuf> {
+        Some(held(&self.groups.get(&id)?.directory, "cgroup.procs"))
+    }
     pub fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()> {
         let group = self
             .groups

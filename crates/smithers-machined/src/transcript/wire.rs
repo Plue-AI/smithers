@@ -2,6 +2,12 @@
 use super::Record;
 use crate::conn::{field, fields, tagged, Durable, ProtocolError};
 
+/// Whether a durable event is a transcript record. It is text: it names no
+/// git object, has no pin and travels with no bundle.
+pub fn objectless(event: &Durable) -> bool {
+    event.event.first() == Some(&5)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Source {

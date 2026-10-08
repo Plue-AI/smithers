@@ -184,6 +184,39 @@ fn the_daemon_reads_only_what_the_broker_bound_the_child_to() {
 }
 
 #[test]
+fn slow_persistence_is_the_daemons_time_and_does_not_fail_the_poll() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.root.join("session.jsonl"),
+        b"{\"n\":1}\n{\"n\":2}\n{\"n\":3}\n{\"n\":4}\n{\"n\":5}\n",
+    )
+    .unwrap();
+    let (socket, _child) = spawn();
+    let mut reader = connect(socket, &fixture.startup()).unwrap();
+    // Five outbox appends and a checkpoint, slower together than the two
+    // seconds a reader is given to answer: the reader is not at fault.
+    let began = std::time::Instant::now();
+    let mut texts = vec![];
+    let read = reader.poll(
+        || Ok(()),
+        |event| {
+            std::thread::sleep(Duration::from_millis(450));
+            texts.push(Source::decode(event).unwrap().1.text);
+            Ok(())
+        },
+        |_| {
+            std::thread::sleep(Duration::from_millis(450));
+            Ok(())
+        },
+    );
+    assert!(began.elapsed() > Duration::from_millis(2500));
+    assert_eq!(read.unwrap(), 5);
+    assert_eq!(texts.len(), 5);
+    // The same reader keeps working afterwards.
+    assert_eq!(reader.poll(|| Ok(()), |_| Ok(()), |_| Ok(())).unwrap(), 0);
+}
+
+#[test]
 fn child_socketpair_outbox_checkpoint_restart_and_revoke() {
     let fixture = Fixture::new();
     let (socket, _child) = spawn();

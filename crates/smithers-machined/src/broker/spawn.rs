@@ -271,6 +271,7 @@ pub struct Processes<A> {
     admission: A,
     processes: BTreeMap<u32, Process>,
     prepared: Option<(User, Vec<(String, String)>, Option<File>)>,
+    transcripts: super::transcripts::Transcripts,
 }
 impl<A: Admission> Processes<A> {
     pub fn new(groups: Cgroups, admission: A) -> Self {
@@ -279,7 +280,30 @@ impl<A: Admission> Processes<A> {
             admission,
             processes: BTreeMap::new(),
             prepared: None,
+            transcripts: Default::default(),
         }
+    }
+    /// The registry's sessions with the process list each one's held cgroup
+    /// names. A session whose group is gone has nothing to discover.
+    fn transcript_sessions(
+        &self,
+        sessions: &[super::supervisor::TranscriptSession],
+    ) -> Vec<super::transcripts::Session> {
+        sessions
+            .iter()
+            .filter_map(|(id, user, process)| {
+                Some(super::transcripts::Session {
+                    id: *id,
+                    owner: crate::transcript::launch::Owner {
+                        uid: user.uid,
+                        gid: process.gid,
+                        groups: process.groups.clone(),
+                    },
+                    home: process.home.clone(),
+                    procs: self.groups.procs(*id)?,
+                })
+            })
+            .collect()
     }
     fn process(&mut self, id: u32) -> io::Result<&mut Process> {
         self.processes.get_mut(&id).ok_or_else(invalid)
@@ -643,6 +667,33 @@ impl<A: Admission> Kernel for Processes<A> {
     }
     fn thaw(&mut self) -> io::Result<()> {
         super::control::Controls::thaw(&mut self.groups)
+    }
+    fn transcript_tick(&mut self, live: &mut dyn FnMut(u32) -> bool, now: Instant) {
+        self.transcripts.tick(live, now)
+    }
+    fn transcript_sources(
+        &mut self,
+        sessions: &[super::supervisor::TranscriptSession],
+        now: Instant,
+    ) -> io::Result<Vec<u8>> {
+        // The same providers a session needs: no import on a machine that
+        // could not open the member's terminal.
+        self.admission.available()?;
+        let sessions = self.transcript_sessions(sessions);
+        Ok(self.transcripts.sources(&sessions, now))
+    }
+    fn transcript_reader(
+        &mut self,
+        sessions: &[super::supervisor::TranscriptSession],
+        lifetime: [u8; 16],
+    ) -> io::Result<(Vec<u8>, std::os::fd::OwnedFd)> {
+        self.admission.available()?;
+        let sessions = self.transcript_sessions(sessions);
+        self.transcripts.reader(&sessions, lifetime)
+    }
+    fn transcript_release(&mut self, lifetime: [u8; 16], stopped: bool) -> io::Result<()> {
+        self.transcripts.release(lifetime, stopped);
+        Ok(())
     }
 }
 

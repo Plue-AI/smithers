@@ -55,7 +55,31 @@ pub trait Kernel: Send {
     fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()>;
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
+    /// External transcript import (spec §9.6.6). `live` and `sessions` are the
+    /// registry's own answer to whose terminal sessions these are; no request
+    /// supplies a session, an owner, a pid or a path. A kernel without the
+    /// import refuses it, and nothing is discovered or read.
+    fn transcript_tick(&mut self, _live: &mut dyn FnMut(u32) -> bool, _now: Instant) {}
+    fn transcript_sources(
+        &mut self,
+        _sessions: &[TranscriptSession],
+        _now: Instant,
+    ) -> io::Result<Vec<u8>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    fn transcript_reader(
+        &mut self,
+        _sessions: &[TranscriptSession],
+        _lifetime: [u8; 16],
+    ) -> io::Result<(Vec<u8>, std::os::fd::OwnedFd)> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    fn transcript_release(&mut self, _lifetime: [u8; 16], _stopped: bool) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
 }
+/// A roster member's own terminal session, as the registry holds it.
+pub type TranscriptSession = (u32, User, sessions::ProcessIdentity);
 fn invalid() -> io::Error {
     io::ErrorKind::InvalidInput.into()
 }
@@ -127,6 +151,9 @@ pub struct Supervisor<K> {
     streams: BTreeMap<u32, Stream<K>>,
     next: u32,
     cursor: u32,
+    /// A transcript reader's socket, on its way to the daemon with the reply
+    /// to the request that started the reader.
+    descriptor: Option<std::os::fd::OwnedFd>,
 }
 impl<K: Kernel> Supervisor<K> {
     pub fn new(kernel: K) -> Self {
@@ -137,7 +164,17 @@ impl<K: Kernel> Supervisor<K> {
             streams: BTreeMap::new(),
             next: 1,
             cursor: 0,
+            descriptor: None,
         }
+    }
+    fn transcript_sessions(&self) -> Vec<TranscriptSession> {
+        self.registry
+            .entries()
+            .filter_map(|entry| {
+                let (user, process) = self.registry.transcript_owner(entry.id)?;
+                Some((entry.id, user.clone(), process.clone()))
+            })
+            .collect()
     }
     pub fn entries(&self) -> impl Iterator<Item = &sessions::Entry> {
         self.registry.entries()
@@ -350,7 +387,18 @@ impl<K: Kernel> Supervisor<K> {
 }
 impl<K: Kernel> control::Controls for Supervisor<K> {
     fn tick(&mut self) -> io::Result<()> {
-        self.observe(Instant::now())
+        let now = Instant::now();
+        self.observe(now)?;
+        // A session that ended, or whose member left the roster, loses its
+        // transcript readers here, before the next request is read.
+        let registry = &self.registry;
+        self.kernel.with(|kernel| {
+            kernel.transcript_tick(&mut |id| registry.transcript_owner(id).is_some(), now);
+            Ok(())
+        })
+    }
+    fn descriptor(&mut self) -> Option<std::os::fd::OwnedFd> {
+        self.descriptor.take()
     }
     fn stream(&mut self, op: u8, body: &[u8]) -> io::Result<Vec<u8>> {
         match op {
@@ -395,6 +443,25 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 serde_json::to_vec(&self.entries().collect::<Vec<_>>()).map_err(io::Error::other)
             }
             24 if body.is_empty() => Ok(self.allocate_stream()?.to_be_bytes().to_vec()),
+            26 if body.is_empty() => {
+                let sessions = self.transcript_sessions();
+                self.kernel
+                    .with(|kernel| kernel.transcript_sources(&sessions, Instant::now()))
+            }
+            27 if body.len() == 16 => {
+                let sessions = self.transcript_sessions();
+                let (startup, socket) = self
+                    .kernel
+                    .with(|kernel| kernel.transcript_reader(&sessions, body.try_into().unwrap()))?;
+                self.descriptor = Some(socket);
+                Ok(startup)
+            }
+            28 if body.len() == 17 && body[16] <= 1 => {
+                self.kernel.with(|kernel| {
+                    kernel.transcript_release(body[..16].try_into().unwrap(), body[16] == 1)
+                })?;
+                Ok(vec![])
+            }
             _ => Err(invalid()),
         }
     }
