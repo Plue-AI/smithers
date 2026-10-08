@@ -285,14 +285,12 @@ gh workflow run release.yml --ref main \
 
 Red on the last full pass, d0b0c7b2f0, and not rerun to completion since:
 
+Fresh Linux reruns on d744b5300c: J4 23/0/2 and J7 19/0/2. J7 Drop answered in 121 ms, cancelled its run, closed the PR and released its lane within the 60 s bound; manual conflict rows 18–20 also pass. Evidence: `.artifacts/checks/C-J4/rehearsal/20261008T224515.798912365Z/steps.tsv` and `.artifacts/checks/C-J7/rehearsal/20261008T224516.186743123Z/steps.tsv`. Pending rows and real-machine qualification remain unverified.
+
 | | Rows | Error | Fix |
 |---|---|---|---|
-| J4 | 12 Move T4 above T3 | The move answers 409 "TODO moved; try again". | d9bdb772e2 |
 | J5 | 15, 17 | `source_refused`, as above. Row 17 follows from 15. | f9d3b72e29, ba1a27bc91 |
-| J7 | 9, 10, 11, 12 | `source_refused`, as above. Fork to a scratch branch then has nothing to fork. | f9d3b72e29, ba1a27bc91 |
-| J7 | 18, 19, 20 (70d75088ef) | Manual conflict continuation stays `needs_you` after Branch Done; no rebased PR within 15 minutes. Fresh Linux rerun: 16/3/2; Drop passes with 68 ms acknowledgment and lane release. | T-STK-08; `.artifacts/checks/C-J7/rehearsal/20261008T221743.634124591Z/steps.tsv` |
 | J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | No lane found. Whether 9bb8cd3f9c covers it: not checked. |
-| J4 | 6 One Merge, on T1 (b74a68604e) | T1's merge reads "waiting (pending_work)"; the row wants it waiting on order. | Not checked. |
 
 Red in an earlier pass or a lane rerun, green at d0b0c7b2f0:
 
