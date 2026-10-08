@@ -134,7 +134,7 @@ test("A✓: the agent's Add to stack asks for the person's press and commits not
   } finally { h.controller.dispose() }
 })
 
-test("install live dispatcher refuses absent Branch and Terminal providers before seed or cloud effects", async () => {
+test("install live dispatcher refuses absent read providers and records Rebase transport failure without seed effects", async () => {
   const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined }, true)
   const before = h.controller.design.world()
   try {
@@ -142,13 +142,16 @@ test("install live dispatcher refuses absent Branch and Terminal providers befor
       ["terminal", { branch: "b-retry" }, "Terminal unavailable"],
       ["terminal.watch", { id: "term-retry-1" }, "Terminal unavailable"],
       ["terminal", { operation: "command", id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
-      ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
-      ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"]
+      ["branch", { name: "retry-webhooks" }, "Branch unavailable"]
     ] as const) {
       expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
     }
+    expect(await submit(h, "branch.rebase", { branch: "b-retry" })).toMatchObject({ status: "executed", value: "Requested" })
+    for (let tick = 0; tick < 100 && h.store.session().branchControlRequests?.[0]?.state !== "failed"; tick++) await new Promise(done => setTimeout(done, 5))
+    expect(h.store.session().branchControlRequests).toMatchObject([{ branch: "b-retry", operation: "rebase", state: "failed", error: "Branch unavailable. Smithers can't do that as asked." }])
+    expect(h.store.collections.cards.get("branch:b-retry")).toBeUndefined()
     expect(h.controller.design.world()).toEqual(before)
-  } finally { h.controller.dispose() }
+  } finally { await h.controller.dispose() }
 })
 
 
