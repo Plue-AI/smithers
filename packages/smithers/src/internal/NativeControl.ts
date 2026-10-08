@@ -1769,6 +1769,7 @@ export const make = (
           canExecute,
           authorizeReleasedChildren: releasedChildResume.authorize,
           flows: sources,
+          freshContext: (descriptor) => descriptor.name === "review/change",
           workspaceInstructions: instructions,
           pinnedSources: ["wait", "ask"],
           limits: native.agentLimits === undefined

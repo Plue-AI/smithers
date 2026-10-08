@@ -48,6 +48,7 @@ type Failure interface {
 }
 
 type Launch struct {
+	RunID                 string
 	ApplicationRequestID  string
 	Attempt               int64
 	OwnerGeneration       int64

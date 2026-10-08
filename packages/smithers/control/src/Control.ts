@@ -69,6 +69,8 @@ export interface PlanInput {
  * @since 0.1.0
  */
 export type RunInput = typeof RunInputSchema.Type & {
+  /** Trusted runtime caller reserves the execution identity; absent from public RPC. */
+  readonly reservedRunId?: RunId | undefined
   /** Authenticated actor used only to scope durable idempotency. */
   readonly principal?: Principal | undefined
 }

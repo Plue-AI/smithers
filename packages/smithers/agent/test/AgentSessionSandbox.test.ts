@@ -95,6 +95,7 @@ const completed = Stream.make(
  * this host cannot satisfy the selected confinement boundary.
  */
 interface Host {
+  readonly context?: Pick<AgentSession.Options, "freshContext" | "workspaceInstructions" | "instructions" | "memory" | "system">
   readonly sandbox?: AgentSession.Options["sandbox"]
   readonly flows?: ReadonlyArray<FlowBinding.Source>
   /** The agent's run; the default completes at once. */
@@ -179,6 +180,7 @@ const run = async (
       const runtime = yield* FlowRuntime.FlowRuntime
       const journal = yield* Journal.Journal
       const executor = yield* AgentSession.make({
+        ...host.context,
         limits: { calls: 4 },
         maxFrames: 2,
         quotaPolicy: Safety.quotaPolicy,
@@ -302,6 +304,25 @@ const run = async (
 
 const refusalOf = (launched: Exit.Exit<unknown, unknown>) =>
   Exit.isFailure(launched) ? Cause.squash(launched.cause) : undefined
+
+it("starts an isolated prompt without calling memory or profile providers or inheriting workspace instructions", async () => {
+  let observed: Parameters<Agent.Service["run"]>[0] | undefined
+  const result = await run("Prompt", false, false, true, {
+    context: {
+      freshContext: () => true,
+      workspaceInstructions: [{ path: "/AGENTS.md", text: "implementer canary" }],
+      instructions: () => Effect.die("must not discover profile instructions"),
+      memory: () => Effect.die("must not discover implementation memory"),
+      system: ["implementer system canary"]
+    },
+    agentRun: (options) => { observed = options; return completed }
+  })
+  expect(result.agentRuns).toBe(1)
+  expect(observed?.instructions).toEqual([])
+  expect(observed?.memory).toBeUndefined()
+  expect(observed?.system).toEqual([])
+  expect(observed?.prompt).toBe("Keep the note log tidy.")
+})
 
 describe("AgentSession selected sandbox refusal", () => {
   it("refuses a selected prompt sandbox at launch on a host with no provider, before loading host code", async () => {

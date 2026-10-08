@@ -252,6 +252,7 @@ func (service *Service) launch(
 	callContext, cancel := context.WithTimeout(ctx, service.runtimeCallTimeout)
 	defer cancel()
 	return runtime.Launch(callContext, flowruntime.FlowRuntimeLaunch{
+		RunID:                "dispatch:" + operationID,
 		ApplicationRequestID: operationID, Attempt: attempt, OwnerGeneration: identity.OwnerGeneration,
 		RuntimeArtifactDigest: identity.RuntimeArtifactDigest, SourceRevision: identity.SourceRevision,
 		FlowID: payload.FlowID, Payload: payload.Payload, Pin: payload.Pin,

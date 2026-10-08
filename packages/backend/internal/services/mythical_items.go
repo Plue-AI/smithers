@@ -4477,19 +4477,20 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
+	files, err := st.reviewCandidateFiles(ctx, item)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the immutable review files could not be read: "+err.Error(), st.now), false, nil
+	}
 	next := item
 	checks := mythicalChecksOf(item)
 	checks.Review = &mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead}
-	if len(diff) > mythicalReviewBytes {
+	if len(diff)+len(files) > mythicalReviewBytes {
 		checks.Review.Verdict = "failed: " + mythicalReviewTooLarge
 		next.Checks = checks.encode()
 		return &next, false, nil
 	}
-	// The review never runs in the box the coding agent wrote to: a run loads
-	// its workspace's instruction files (AGENTS.md, via RoleProfile.forRun),
-	// so a file the agent left there would reach the reviewer unframed. It
-	// runs on a fresh lane of the stack's own bookmark, which holds only
-	// landed code; the change arrives only as the framed diff.
+	// Review runs on a fresh lane with no implementation context. Only the
+	// immutable candidate's quoted diff and file export reach its model.
 	placement, refused := st.place(ctx, item)
 	if refused != nil {
 		return refused, false, nil
@@ -4514,8 +4515,8 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
-	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
-		item.PRNumber.Int64, mythicalUntrusted(item.IssueTitle), mythicalUntrusted(diff))
+	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n\n<untrusted-files>\n%s\n</untrusted-files>\n",
+		item.PRNumber.Int64, mythicalUntrusted(item.IssueTitle), mythicalUntrusted(diff), mythicalUntrusted(files))
 	payload, _ := json.Marshal(map[string]string{"args": args})
 	saved, err := st.commit(ctx, next, "review", mythicalReviewFlow, payload)
 	if err != nil {
@@ -4537,6 +4538,45 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 		}
 	}
 	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
+}
+
+// reviewCandidateFiles exports changed regular files from the immutable PR
+// commit. JSON quotes paths and contents; no checkout, filter or working-copy
+// read can substitute implementer-owned bytes after verification.
+func (st *mythicalItemStep) reviewCandidateFiles(ctx context.Context, item db.MythicalItem) (string, error) {
+	names, err := st.r.g.command(ctx, nil, "diff", "--name-only", "-z", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
+	if err != nil {
+		return "", err
+	}
+	files := make(map[string]string)
+	total := 0
+	for _, name := range strings.Split(string(names), "\x00") {
+		if name == "" {
+			continue
+		}
+		// Deleted files have no candidate bytes; their deletion is in the diff.
+		entry, err := st.r.g.git(ctx, "--literal-pathspecs", "ls-tree", item.PRHead, "--", name)
+		if err != nil {
+			return "", err
+		}
+		if entry == "" {
+			continue
+		}
+		if !strings.HasPrefix(entry, "100644 blob ") && !strings.HasPrefix(entry, "100755 blob ") {
+			continue
+		}
+		content, err := st.r.g.command(ctx, nil, "show", "--no-ext-diff", "--no-textconv", item.PRHead+":"+name)
+		if err != nil {
+			return "", err
+		}
+		files[name] = string(content)
+		total += len(name) + len(content)
+		if total > mythicalReviewBytes {
+			break
+		}
+	}
+	exported, err := json.Marshal(files)
+	return string(exported), err
 }
 
 // merge prepares a standing person's approval through the same fenced outbound path.

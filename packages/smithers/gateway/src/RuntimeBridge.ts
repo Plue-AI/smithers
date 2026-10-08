@@ -86,6 +86,7 @@ export const LaunchCommand = Schema.Struct({
   ...common,
   operation: Schema.Literal("launch"),
   attempt: PositiveSafeInteger,
+  runId: Schema.optional(Schema.NonEmptyString),
   runtimeArtifactDigest: Sha256,
   sourceRevision: SourceRevision,
   flowId: Schema.NonEmptyString,
@@ -334,8 +335,9 @@ export const execute = (
           planId: plan.planId,
           digest: plan.digest,
           envelope: plan.envelope,
-          idempotencyKey: idempotencyKey(input, `run:${input.attempt}`),
-          principal
+          idempotencyKey: idempotencyKey(input, `run:${input.runId ?? input.attempt}`),
+          principal,
+          ...(input.runId === undefined ? {} : { reservedRunId: input.runId })
         })
         return {
           operation: input.operation,

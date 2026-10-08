@@ -377,6 +377,7 @@ func (c *Client) command(ctx context.Context, input any) (commandEnvelope, error
 
 func (c *Client) Launch(ctx context.Context, request flowruntime.FlowRuntimeLaunch) (flowruntime.FlowRuntimeLaunchResult, error) {
 	input := struct {
+		RunID                 string           `json:"runId,omitempty"`
 		Protocol              string           `json:"protocol"`
 		Operation             string           `json:"operation"`
 		ApplicationRequestID  string           `json:"applicationRequestId"`
@@ -387,11 +388,14 @@ func (c *Client) Launch(ctx context.Context, request flowruntime.FlowRuntimeLaun
 		FlowID                string           `json:"flowId"`
 		Payload               json.RawMessage  `json:"payload"`
 		Pin                   *flowruntime.Pin `json:"pin,omitempty"`
-	}{flowruntime.FlowRuntimeProtocol, "launch", request.ApplicationRequestID, request.Attempt, request.OwnerGeneration,
+	}{request.RunID, flowruntime.FlowRuntimeProtocol, "launch", request.ApplicationRequestID, request.Attempt, request.OwnerGeneration,
 		request.RuntimeArtifactDigest, request.SourceRevision, request.FlowID, request.Payload, request.Pin}
 	envelope, err := c.command(ctx, input)
 	if err != nil {
 		return flowruntime.FlowRuntimeLaunchResult{}, err
+	}
+	if request.RunID != "" && envelope.Value.Receipt.RunID != "" && envelope.Value.Receipt.RunID != request.RunID {
+		return flowruntime.FlowRuntimeLaunchResult{}, &Error{Code: "invalid_response", Message: "runtime did not retain the reserved run identity"}
 	}
 	return flowruntime.FlowRuntimeLaunchResult{
 		ApplicationRequestID:  envelope.Value.ApplicationRequestID,

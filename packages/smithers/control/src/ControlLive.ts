@@ -207,7 +207,7 @@ const AttributedResumeInput = Schema.Struct({
   principal: Schema.optional(Principal)
 })
 const AttributedRunInput = Schema.Union([
-  Schema.Struct({ ...RunInputSchema.members[0].fields, principal: Schema.optional(Principal) }),
+  Schema.Struct({ ...RunInputSchema.members[0].fields, principal: Schema.optional(Principal), reservedRunId: Schema.optional(Schema.NonEmptyString) }),
   Schema.Struct({ ...RunInputSchema.members[1].fields, principal: Schema.optional(Principal) })
 ])
 const AttributedSignalInput = Schema.Struct({
@@ -1753,7 +1753,7 @@ export const layer: Layer.Layer<
             principal,
             fingerprint("run", principal, input),
             Effect.gen(function*() {
-              const launched = yield* runtime.launch(input.planId, input.digest, input.envelope, principal)
+              const launched = yield* runtime.launch(input.planId, input.digest, input.envelope, principal, input.reservedRunId)
               if (launched._tag === "Parked") {
                 return { ...launched.receipt, receiptId: input.idempotencyKey }
               }

@@ -1868,7 +1868,8 @@ const makeRuntime = (
         planId: string,
         requestedDigest: string,
         envelope: Envelope,
-        principal?: Principal | undefined
+        principal?: Principal | undefined,
+        reservedRunId?: RunId | undefined
       ) {
         const row = yield* requirePlan(planId)
         const plan = yield* storedPlan(row)
@@ -1901,7 +1902,7 @@ const makeRuntime = (
         if (plan.decision !== "approved") return yield* new PlanDenied({ planId })
 
         const sequence = yield* nextSequence("run")
-        const runId = `run-${sequence}`
+        const runId = reservedRunId ?? `run-${sequence}`
         const timestamp = yield* now
         const claimant: Ownership.OwnerId = { ...owner, nonce: randomId() }
         const summary: RunSummary = {

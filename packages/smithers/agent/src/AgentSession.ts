@@ -183,6 +183,8 @@ export interface Options {
   readonly sandbox?:
     | ((selection: Descriptor.SandboxSelection) => Effect.Effect<SandboxOpener, SandboxRefused> | undefined)
     | undefined
+  /** Host policy for runs that must start without workspace, profile or memory context. */
+  readonly freshContext?: ((descriptor: Descriptor.FlowDescriptor) => boolean) | undefined
   /** Workspace AGENTS.md files sent to the relevance gate. */
   readonly workspaceInstructions?: AgentOptions["instructions"]
   /** Host flow sources a judged run must always offer. */
@@ -3577,7 +3579,8 @@ export const make = (
         const pump = yield* Effect.forkChild(
           Effect.forever(Effect.andThen(Effect.sleep(Duration.millis(250)), flush))
         )
-        const memory = options.memory === undefined ? undefined : yield* Action.make({
+        const freshContext = options.freshContext?.(descriptor) === true
+        const memory = freshContext || options.memory === undefined ? undefined : yield* Action.make({
           name: "agent/opening-memory",
           tier: "sealed",
           idempotencyKey: `${payload.runId}:opening-memory`,
@@ -3590,7 +3593,7 @@ export const make = (
             capabilities: card.envelope.capabilities
           })
         })
-        const instructions = options.instructions === undefined ? [] : yield* Action.make({
+        const instructions = freshContext || options.instructions === undefined ? [] : yield* Action.make({
           name: "agent/opening-instructions",
           implementationVersion: "1",
           tier: "sealed",
@@ -3599,10 +3602,10 @@ export const make = (
           error: Schema.Unknown,
           execute: options.instructions({ descriptor, text: flowBody.text, capabilities: card.envelope.capabilities })
         })
-        const system = [...(options.system ?? []), ...instructions, ...(routing?.variant ?? [])]
+        const system = freshContext ? [] : [...(options.system ?? []), ...instructions, ...(routing?.variant ?? [])]
         const outcome = yield* agent.run({
           memory,
-          instructions: options.workspaceInstructions,
+          instructions: freshContext ? [] : options.workspaceInstructions,
           pinnedSources: options.pinnedSources,
           contextWindowTokensFor: contextWindowResolver(seats),
           session: payload.runId,

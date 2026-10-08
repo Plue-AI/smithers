@@ -49,6 +49,25 @@ func writeCommand(t *testing.T, response http.ResponseWriter, operation, request
 	}
 }
 
+func TestClientLaunchCarriesAndChecksReservedRunID(t *testing.T) {
+	client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		var command map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&command); err != nil {
+			t.Fatal(err)
+		}
+		if command["runId"] != "run-1" && command["runId"] != "dispatch:reserved" {
+			t.Fatalf("missing reservation: %#v", command)
+		}
+		writeCommand(t, response, "launch", "request-1")
+	}))
+	for _, runID := range []string{"run-1", "dispatch:reserved"} {
+		_, err := client.Launch(t.Context(), flowruntime.Launch{RunID: runID, ApplicationRequestID: "request-1", Attempt: 1})
+		if (err != nil) != (runID == "dispatch:reserved") {
+			t.Fatalf("reservation %s: %v", runID, err)
+		}
+	}
+}
+
 func TestClientLaunchAuthenticatesAndDecodesCanonicalReceipt(t *testing.T) {
 	client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/runtime/v1/command" || request.Method != http.MethodPost {

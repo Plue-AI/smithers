@@ -326,7 +326,13 @@ const steps = [
     // its answer's first line is the verdict the stack reads.
     step: "review/change",
     teaching: "Your answer's first line is exactly `approve` or `request-changes`",
-    answer: () => done(REVIEW_ANSWER)
+    answer: (_payload, _greeting, all) => all.includes("Review boundary") ? cell([
+      'const write = await ctx.call("write", { path: "REVIEW_MUST_NOT_WRITE", content: "forbidden" });',
+      'if (write.ok !== false || write.error?.code !== "capability_refused") throw new Error("review write was allowed");',
+      'const exec = await ctx.call("bash", { command: "printf REVIEW_MUST_NOT_EXEC" });',
+      'if (exec.ok !== false || exec.error?.code !== "capability_refused") throw new Error("review exec was allowed");',
+      'ctx.done("approve\\n\\nREVIEW_BOUNDARY_TOOL_REFUSALS: write and bash refused");'
+    ].join("\n")) : done(REVIEW_ANSWER)
   }
 ]
 

@@ -128,6 +128,29 @@ describe("RuntimeBridge", () => {
       })
     }))
 
+  it.effect("passes a caller-reserved run identity through the authenticated bridge", () =>
+    Effect.gen(function*() {
+      let seen: Control.RunInput | undefined
+      const keys: Array<string> = []
+      const control = service({ run: (input) => {
+        seen = input
+        keys.push(input.idempotencyKey)
+        return Effect.succeed({ ...accepted, runId: "dispatch:review-attempt-1" })
+      } })
+      const result = yield* RuntimeBridge.execute(config, control, principal, {
+        ...launch, runId: "dispatch:review-attempt-1"
+      })
+      expect(seen).toMatchObject({ reservedRunId: "dispatch:review-attempt-1", principal })
+      expect(result).toMatchObject({ receipt: { runId: "dispatch:review-attempt-1" } })
+      yield* RuntimeBridge.execute(config, control, principal, {
+        ...launch, attempt: 3, runId: "dispatch:review-attempt-1"
+      })
+      expect(keys).toEqual([
+        "bridge:v1:request-1:run:dispatch:review-attempt-1",
+        "bridge:v1:request-1:run:dispatch:review-attempt-1"
+      ])
+    }))
+
   it.effect("launches through Control with stable plan and attempt identities", () =>
     Effect.gen(function*() {
       const calls: Array<unknown> = []

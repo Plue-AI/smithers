@@ -540,7 +540,8 @@ export interface Service {
     planId: string,
     digest: string,
     envelope: Envelope,
-    principal?: Principal | undefined
+    principal?: Principal | undefined,
+    reservedRunId?: RunId | undefined
   ) => Effect.Effect<
     LaunchResult,
     PlanNotFound | PlanDenied | PlanDigestMismatch | EnvelopeMismatch | ClaimLost | PersistenceError
@@ -1181,7 +1182,7 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             }
           }
         ),
-        launch: Effect.fn("ControlRuntime.launch")(function*(planId, requestedDigest, envelope, principal) {
+        launch: Effect.fn("ControlRuntime.launch")(function*(planId, requestedDigest, envelope, principal, reservedRunId) {
           const plan = yield* Effect.fromOption(
             Option.fromNullishOr(plans.get(planId)),
             () => new PlanNotFound({ planId })
@@ -1214,7 +1215,9 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
           if (plan.decision !== "approved") {
             return yield* new PlanDenied({ planId })
           }
-          const runId = `run-${++runSequence}`
+          const sequence = ++runSequence
+          const runId = reservedRunId ?? `run-${sequence}`
+          if (runs.has(runId)) return yield* new PersistenceError({ operation: "reserve a run", message: "Run identity already exists" })
           const fence = `fence-${++fenceSequence}`
           const timestamp = now()
           const summary: RunSummary = {

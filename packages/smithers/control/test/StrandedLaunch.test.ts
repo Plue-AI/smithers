@@ -54,6 +54,7 @@ const retry = (card: PlanCard) =>
     const control = yield* Control
     return yield* control.run({
       _tag: "Plan",
+      reservedRunId: "dispatch:stranded-caller-reservation",
       planId: card.planId,
       digest: card.digest,
       envelope: card.envelope,
@@ -103,4 +104,5 @@ it("relaunches a run whose admitting process died before the launch when the cli
   expect(retried.value.again).toEqual(retried.value.receipt)
   expect(launched).toEqual([retried.value.runId])
   expect(retried.value.status).toBe("running")
+  expect(retried.value.runId).toBe("dispatch:stranded-caller-reservation")
 })
