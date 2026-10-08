@@ -333,7 +333,82 @@ func TestAccessConfirmationProfilesComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 75, editCells)
 	require.Len(t, receipts, 1035)
 
-	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "isolated-confirmation-profiles.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install OAuth and production confirmation dispatcher", "explicit_cards": len(ids), "app_edit_effect_cells": editCells, "cells": receipts, "test_passed": !t.Failed(), "full_C_ACC_02_complete": false}), 0600))
+	// Queued and retrying subjects have no guest destination yet. Their actual
+	// stored revision/drop effects still cross the installed person dispatcher;
+	// paused_at keeps the independent worker outside this observation interval.
+	controlCells := 0
+	for _, a := range actors {
+		if a.profile != "" {
+			continue
+		}
+		for _, state := range []string{"queued", "retrying"} {
+			for _, ownership := range []string{"own", "other-member"} {
+				for _, command := range []string{"todo.amend", "todo.drop"} {
+					t.Run("control-effect/"+a.name+"/"+state+"/"+ownership+"/"+command, func(t *testing.T) {
+						holder := a.member
+						if ownership == "other-member" {
+							holder = actors[0].member
+							if holder == a.member {
+								holder = actors[5].member
+							}
+						}
+						var number int64
+						require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
+ VALUES($1,'todo',$2,'Control effect','Control effect',$3,$3,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number`, repo.ID, state, holder).Scan(&number))
+						path, method, payload := fmt.Sprintf("/api/todos/%d", number), "POST", `{"op":"drop"}`
+						if command == "todo.amend" {
+							method, payload = "PATCH", `{"prompt":"Confirmed amendment","acceptance":["Exactly one revision"]}`
+						}
+						key := fmt.Sprintf("control-%d", number)
+						out := call(t, a, method, path, payload, key, command, 202, "")
+						var receipt map[string]any
+						require.NoError(t, json.Unmarshal(out.Body.Bytes(), &receipt))
+						if a.token != "" {
+							id := receipt["confirmation"].(string)
+							require.Equal(t, "pending", receipt["state"])
+							var priorState string
+							var priorRevisions []byte
+							require.NoError(t, r.pool.QueryRow(ctx, `SELECT state,revisions FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&priorState, &priorRevisions))
+							require.Equal(t, state, priorState)
+							require.JSONEq(t, `[{"text":"Original prompt","acceptance":[]}]`, string(priorRevisions))
+							call(t, people[a.member], "POST", "/api/confirmations/"+id+"/approve", `{}`, key+"-press", command, 200, "")
+							call(t, people[a.member], "POST", "/api/confirmations/"+id+"/approve", `{}`, key+"-press", command, 200, "")
+							replay := call(t, a, method, path, payload, key, command, 202, "")
+							require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"approved"}`, id), replay.Body.String())
+						} else {
+							require.Equal(t, "accepted", receipt["state"])
+							replay := call(t, a, method, path, payload, key, command, 202, "")
+							require.JSONEq(t, out.Body.String(), replay.Body.String())
+						}
+						var actualState string
+						var actualOwner int64
+						var raw []byte
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT state,owner_id,revisions FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, number).Scan(&actualState, &actualOwner, &raw))
+						require.Equal(t, holder, actualOwner)
+						var revisions []struct {
+							Text       string
+							Acceptance []string
+						}
+						require.NoError(t, json.Unmarshal(raw, &revisions))
+						if command == "todo.amend" {
+							require.Len(t, revisions, 2)
+							require.Equal(t, "Original prompt", revisions[0].Text)
+							require.Equal(t, "Confirmed amendment", revisions[1].Text)
+							require.Equal(t, []string{"Exactly one revision"}, revisions[1].Acceptance)
+							call(t, people[a.member], "POST", path, `{"op":"drop"}`, key+"-cleanup", "todo.drop", 202, "")
+						} else {
+							require.Equal(t, "cancelled", actualState)
+							require.Len(t, revisions, 1)
+						}
+						controlCells++
+					})
+				}
+			}
+		}
+	}
+	require.Equal(t, 120, controlCells)
+
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "isolated-confirmation-profiles.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install OAuth and production confirmation dispatcher", "explicit_cards": len(ids), "app_edit_effect_cells": editCells, "queued_retrying_control_effect_cells": controlCells, "cells": receipts, "test_passed": !t.Failed(), "full_C_ACC_02_complete": false}), 0600))
 	t.Logf("confirmation profiles: %d HTTP cells, %d isolated private cards", len(receipts), len(ids))
 }
 
