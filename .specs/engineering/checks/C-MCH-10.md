@@ -29,3 +29,9 @@ Ben and Alice have private homes on machines A and B. Fixture tools write distin
 ## Authored reference-host coverage (2026-10-08)
 
 The helpers run inside `TestInstalledMemberTerminalAndSSHChain`, using its approved-bundle preflight, composed install router, GitHub fake, authenticated terminal WebSocket and real broker. They live in `internal/compose` to reuse the production composition rather than add a second microVM harness. They are not passing reference-host receipts.
+
+The native chain also denies Alice and agent reads of all three fixture login
+files, retains replacement terminals after wake, verifies logins across backend
+recomposition and checks B again after A logs out and B sleeps/wakes. Backend
+recomposition does not replace step 2's physical host-service restart. New-recipe
+recreation and exhaustive daemon-event evidence remain pending.

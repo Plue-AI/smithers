@@ -7,3 +7,10 @@ Automation: `packages/backend/internal/compose/secret_files_real_vm_test.go`, in
 The native chain also observes a literal key at a local provider fixture reached through the production egress relay from a guest placeholder file. It does not contact a real provider account.
 
 Pending reference-host evidence: these authored cases and a coding tool consuming the declared key without sign-in; real-key disk scan; a symlink planted before retained boot. Arbitrary member-planted symlinks are currently refused by the writer, not at declaration; the route rejects known image symlinks. That declaration gap remains open; these tests do not waive it.
+
+Replacement and deletion assertions include the HTTP mutation in their strict
+five-second wall-clock budget; late responses or late guest observation fail.
+The credential chain plants a member-owned target symlink before retained boot,
+declares its secret while the machine sleeps, then verifies the symlink and
+outside target remain unchanged after wake. This is authored native coverage,
+not a passing receipt or a fix for declaration-time symlink validation.

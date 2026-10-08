@@ -281,6 +281,6 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	if check != nil {
 		check(h, client, sshAddress, login, signer, member, uid)
 	}
-	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser)
+	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser, aliceBrowser)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }

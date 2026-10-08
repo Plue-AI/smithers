@@ -34,3 +34,11 @@ Members Ben and Alice. Branches A and B, both awake.
 ## Authored reference-host coverage (2026-10-08)
 
 The helpers run inside `TestInstalledMemberTerminalAndSSHChain`, using its approved-bundle preflight, composed install router, GitHub fake, authenticated terminal WebSocket and real broker. They live in `internal/compose` to reuse the production composition rather than add a second microVM harness. They are not passing reference-host receipts.
+
+The composed native chain now runs two member-terminal workers concurrently:
+1,000 independent creates, append records and atomic replacements in each of
+`.claude`, `.config/gh` and `.npm/_cacache` per machine, plus 1,000 committed
+rows in each directory's DELETE and WAL database. It checks every literal row,
+JSON read, append record and reopened database, including integrity checks.
+`TestInstalledHomeWorkloadFixture` validates the workload on Linux; that is
+supplemental fixture evidence, not this check's real-machine receipt.
