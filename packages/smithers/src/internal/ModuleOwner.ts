@@ -14,4 +14,6 @@ import { Context } from "effect"
 export class ModuleOwner extends Context.Service<ModuleOwner, {
   readonly rootId: string
   readonly flowId: string
+  /** Ordinal of this executor-owned native module launch, when retained. */
+  readonly launchOrdinal?: number | undefined
 }>()("/cli/internal/ModuleOwner") {}

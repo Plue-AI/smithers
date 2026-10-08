@@ -332,6 +332,8 @@ export interface ExecutorOptions {
  * @private
  */
 export interface Platform {
+  /** Modules whose settled launches retain their run for subsequent input. */
+  readonly reenterModules?: ReadonlyArray<string> | undefined
   /** Coding hosts require the registered daemon terminal; never use the native spawn binding. */
   readonly shellTerminal?: "agent" | undefined
   readonly agentLimits?: {
@@ -1480,6 +1482,7 @@ export const make = (
           undefined :
           yield* ModuleAuthority.make(Deferred.await(catalogReady), actionHost, {
             controlJournal,
+            reenterModules: native.reenterModules,
             parks: askPolicy(environment) !== "refuse",
             weights: native.agentLimits?.weights
           })
@@ -1764,6 +1767,7 @@ export const make = (
           )
         }
         const session = AgentSession.make({
+          reenterModules: native.reenterModules,
           sandbox,
           requestNativeCancel,
           canExecute,

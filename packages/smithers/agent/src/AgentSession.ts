@@ -79,7 +79,7 @@ import type * as MemorySource from "@smthrs/memory/Source"
 import * as CanonicalJson from "@smthrs/model/CanonicalJson"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import * as ModelRequest from "@smthrs/model/ModelRequest"
-import type { NotificationQueue } from "@smthrs/notifications"
+import { NotificationQueue } from "@smthrs/notifications"
 import { Node } from "@smthrs/plan"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
@@ -174,6 +174,8 @@ export type SandboxOpener = (session: string) => Effect.Effect<SandboxedRun, unk
  * @since 0.1.0
  */
 export interface Options {
+  /** Host-owned module launches that retain their control run for later input. */
+  readonly reenterModules?: ReadonlyArray<string> | undefined
   /**
    * The host's sandbox providers: the opener for a flow's `sandbox:`
    * selection, `SandboxRefused` when the configured provider cannot honor it,
@@ -2732,6 +2734,9 @@ export const make = (
     const agent = yield* Agent
     const engineRuns = yield* RunStore.RunStore
     const engineState = yield* DurableEngineState.DurableEngineState
+    // Only this executor may turn a completed module into a retained hold.
+    // A repository flow's waiting annotation never grants that policy.
+    const moduleHolds = new WeakSet<FlowRuntime.FlowInstance["Service"]>()
     const scope = yield* Effect.scope
     const services = yield* Effect.context<Services>()
     /** One machine per sandbox-selected run, held across its parks until it settles. */
@@ -3084,7 +3089,8 @@ export const make = (
       runId: string,
       suspended: boolean,
       exit: Exit.Exit<unknown, unknown>,
-      waitingReason?: string
+      waitingReason?: string,
+      moduleHeld = false
     ) =>
       Exit.isSuccess(exit)
         ? settleTerminal(runId, "completed")
@@ -3096,13 +3102,24 @@ export const make = (
         ? suspended
           // A wait the flow declared (a budget or time guard's, an approval's)
           // names its reason on the fact; the engine classifies the rest.
-          ? writeStatus(
-            runId,
-            waitingReason === "approval" ? "waiting-approval" : "parked",
-            undefined,
-            undefined,
-            waitingReason
-          )
+          ? moduleHeld
+            ? journal.transact(Effect.gen(function*() {
+              yield* writeStatus(runId, "parked", undefined, undefined, "event")
+              // Admission and parking use the same writer transaction. Text
+              // admitted just before the park must wake it as surely as text
+              // admitted after it; neither order can leave a pending input idle.
+              const queue = yield* NotificationQueue.NotificationQueue
+              if ((yield* queue.pending(runId)).length > 0) {
+                yield* ControlFacts.commitRun(journal, runtime.resume(runId), sourceId, "control.run.resumed")
+              }
+            }))
+            : writeStatus(
+              runId,
+              waitingReason === "approval" ? "waiting-approval" : "parked",
+              undefined,
+              undefined,
+              waitingReason
+            )
           : settleInterrupted(runId)
         : exit.cause.reasons.some((
             reason
@@ -3434,13 +3451,83 @@ export const make = (
           // on the plan's digest, not the adopted one, so a drifted resume
           // continues that child: unchanged steps replay and only re-keyed
           // ones run again.
-          return yield* executable.flow.execute({ input }, {
-            executionId: moduleExecutionId(payload.runId, card.executionDigest ?? executionDigest)
+          const pinnedDigest = card.executionDigest ?? executionDigest
+          const reenter = options.reenterModules?.includes(card.flowId) === true
+          let ordinal = 0
+          const moduleId = (round: number) =>
+            round === 0
+              ? moduleExecutionId(payload.runId, pinnedDigest)
+              : Digest.digest(Digest.canonical(["control/module/reentry", payload.runId, pinnedDigest, round]))
+          if (reenter) {
+            // The executor, rather than the repository composition, owns the
+            // retained run. Each launch settles its ordinary native child. A
+            // marker in the existing journal selects that child after a crash;
+            // an unfinished child always resumes before another is allocated.
+            let launched = false
+            yield* scanRun(journal, payload.runId, (entries) => {
+              for (const entry of entries) {
+                if (entry.eventType !== "control.module.launched") continue
+                const marker = Schema.decodeUnknownOption(Schema.Struct({
+                  ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+                  executionDigest: Schema.String,
+                  executionId: Schema.String
+                }))(entry.payload)
+                if (
+                  Option.isNone(marker) || marker.value.executionDigest !== pinnedDigest ||
+                  marker.value.executionId !== moduleId(marker.value.ordinal) ||
+                  marker.value.ordinal !== (launched ? ordinal + 1 : 0)
+                ) {
+                  throw new Error("Retained module launch evidence is inconsistent")
+                }
+                ordinal = marker.value.ordinal
+                launched = true
+              }
+            })
+            const queue = yield* NotificationQueue.NotificationQueue
+            if (launched) {
+              const previous = yield* engineRuns.get(moduleId(ordinal)).pipe(
+                Effect.map(Option.some),
+                Effect.catch((error) =>
+                  error.code === "not_found_row"
+                    ? Effect.succeed(Option.none<RunStore.RunRow>()) :
+                    Effect.fail(error)
+                )
+              )
+              if (Option.isSome(previous) && previous.value.status === "completed") {
+                if ((yield* queue.pending(payload.runId)).length === 0) {
+                  moduleHolds.add(instance)
+                  yield* FlowRuntime.annotateWaiting({ reason: "event" })
+                  return yield* Flow.suspend(instance)
+                }
+                ordinal++
+                launched = false
+              }
+            }
+            if (!launched) {
+              yield* journal.emitDurableUnfenced(
+                new JournalEvent.Input({
+                  runId: JournalEvent.RunId.make(payload.runId),
+                  sourceId: JournalEvent.SourceId.make("/control/module-launch"),
+                  sourceSeq: JournalEvent.SourceSeq.make(ordinal),
+                  eventType: "control.module.launched",
+                  payload: { ordinal, executionDigest: pinnedDigest, executionId: moduleId(ordinal) }
+                })
+              )
+            }
+          }
+          const result = yield* executable.flow.execute({ input }, {
+            executionId: moduleId(ordinal)
           }).pipe(
             CapabilitySet.attenuate(patterns(card.envelope.capabilities)),
             Effect.provide(options.budget(envelope)),
             Effect.provide(options.quotaPolicy)
           )
+          if (reenter) {
+            moduleHolds.add(instance)
+            yield* FlowRuntime.annotateWaiting({ reason: "event" })
+            return yield* Flow.suspend(instance)
+          }
+          return result
         }
         const seatIds = yield* approvedSeats(payload.runId, card, descriptor)
         const seatId = seatIds[0]!
@@ -4169,7 +4256,13 @@ export const make = (
               const drive = launchedDrives.get(instance.executionId)
               if (drive !== undefined) drive.settling = !instance.suspended
             }),
-            settle(instance.executionId, instance.suspended, exit, instance.waiting?.reason).pipe(
+            settle(
+              instance.executionId,
+              instance.suspended,
+              exit,
+              instance.waiting?.reason,
+              moduleHolds.has(instance)
+            ).pipe(
               Effect.andThen(Effect.sync(() => {
                 const drive = launchedDrives.get(instance.executionId)
                 if (drive !== undefined) drive.settled = !instance.suspended

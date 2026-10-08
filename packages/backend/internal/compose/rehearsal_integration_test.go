@@ -1991,6 +1991,16 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 // Every production host checks its source with the same confined jj binary,
 // including flow-load hosts that have no candidate/landing binding.
 func provisionRehearsalJJ(root string) error {
+	// Catalog probes can arrive during provisioning. Never make the clone's
+	// empty destination nonempty before its repository materialization settles.
+	for _, metadata := range []string{".git", ".jj/repo"} {
+		if _, err := os.Stat(filepath.Join(root, metadata)); err != nil {
+			if os.IsNotExist(err) {
+				return workspaceapi.ErrWorkspaceSourceUnavailable
+			}
+			return err
+		}
+	}
 	// The confined native helper also invokes jj. Host-home tools are outside
 	// its runtime reads, so provision the exact fixture executable inside .jj,
 	// alongside the protected test-only binding; never grant the host home.

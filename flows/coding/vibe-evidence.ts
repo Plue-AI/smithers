@@ -11,7 +11,7 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import { Poc, PocInput } from "./poc.ts"
 import { PrepareRequest } from "./preparation.ts"
 import { Coordinate, Request } from "./request.ts"
-import { Cursor } from "./request-flow.ts"
+import { Cursor, RequestFeedback } from "./request-flow.ts"
 import { CodingError, RequestInput, type RequestResult, sameRevision } from "./schema.ts"
 import { leafFeedback } from "./todo-route.ts"
 import { VibeEvidence, VibeInput } from "./vibe-schema.ts"
@@ -101,9 +101,12 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       // Canonical Flow.make declarations use the registry's digest-qualified
       // adapter tag; the public name is not a persisted native execution tag.
       todoTag = `registry/entry/${todoDigest}/todo`
-      const bridges = yield* catalog.listRuns({ filters: { flowName: todoTag, parentRunId: owner.rootId }, limit: 2 })
+      // Settled launches remain evidence under this same control run. Only
+      // its active launch can supply a new candidate; ancestry below binds
+      // the selected request to that launch and the attempt's approved pin.
+      const bridges = yield* catalog.listRuns({ filters: { flowName: todoTag, parentRunId: owner.rootId, status: "running" }, limit: 2 })
       if (bridges.cursor !== null || bridges.runs.length !== 1) {
-        return yield* invalid("TODO delivery requires one retained composition in its current attempt")
+        return yield* invalid("TODO delivery requires one active composition launch in its current attempt")
       }
       todoBridge = bridges.runs[0]!.runId
       if (input.requestExecutionId === owner.rootId) {
@@ -264,6 +267,27 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     // prepared child is source-qualified before any correction can mutate code.
     const preparationParent = coordinated ? requestRow.state.parentExecutionId : selected
     if (preparationParent === undefined) return yield* invalid("The inlined request has no retained preparation parent")
+    let initialFeedback = payload.value.feedback ?? ""
+    if (composed && owner.launchOrdinal !== undefined) {
+      const contexts = yield* catalog.listRuns({
+        filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent }, limit: 2
+      })
+      if (contexts.cursor !== null || contexts.runs.length !== 1) {
+        return yield* invalid("The request needs exactly one retained initial feedback receipt")
+      }
+      const contextId = contexts.runs[0]!.runId
+      const context = yield* read(contextId)
+      const contextParents = yield* graph.runParents(contextId)
+      const expected = { prompt: payload.value.prompt, feedback: initialFeedback,
+        ...(payload.value.wiki === undefined ? {} : { wiki: payload.value.wiki }),
+        ...(payload.value.answers === undefined ? {} : { answers: payload.value.answers }) }
+      if (context.state.flowName !== RequestFeedback._tag || context.state.parentExecutionId !== preparationParent ||
+        contextParents.length !== 1 || contextParents[0]!.parentId !== preparationParent ||
+        Digest.canonical(context.state.payload) !== Digest.canonical(expected)) {
+        return yield* invalid("The initial feedback receipt does not match the approved request input")
+      }
+      initialFeedback = yield* completed(context.state, RequestFeedback.successSchema, RequestFeedback.errorSchema)
+    }
     const preparations = yield* catalog.listRuns({
       filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
       limit: 2
@@ -287,8 +311,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       if (
         Option.isNone(preparedInput) || preparedInput.value.prompt !== payload.value.prompt ||
         preparedInput.value.feedback !== (request.route === undefined
-            ? payload.value.feedback ?? ""
-            : leafFeedback(request.route, payload.value.feedback ?? "")) ||
+            ? initialFeedback
+            : leafFeedback(request.route, initialFeedback)) ||
         plan.observedHead === undefined ||
         plan.prompt !== payload.value.prompt
       ) {

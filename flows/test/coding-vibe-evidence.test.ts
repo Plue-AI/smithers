@@ -10,7 +10,7 @@ import { test } from "node:test"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { Poc, type PocResult } from "../coding/poc.ts"
 import { PrepareRequest } from "../coding/preparation.ts"
-import { Coordinate, Request } from "../coding/request.ts"
+import { Coordinate, Request, RequestFeedback } from "../coding/request.ts"
 import {
   checkInputDigest,
   CodingError,
@@ -548,6 +548,8 @@ for (const mode of stackModes) {
 
 const todoAdapter = "registry/entry/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/todo"
 const todoModes = [
+  "initial-feedback", "initial-feedback-missing", "initial-feedback-more", "initial-feedback-wrong-input",
+  "initial-feedback-wrong-parent", "initial-feedback-failed", "initial-feedback-wrong-prepared",
   "valid",
   "customized-request",
   "customized-wrong-base",
@@ -594,6 +596,7 @@ const todoModes = [
 for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ...(inlinedRequest ? ["missing-inline-input", "wrong-inline-input", "wrong-inline-route"] as const : [])]) {
   test(`current TODO delivery evidence (${inlinedRequest ? "inline" : "retained"}): ${mode}`, async () => {
     const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
+    const initial = mode.startsWith("initial-feedback")
     const reentry = mode.startsWith("review-")
     const requestParent = reentry ? "review-round" : "todo-bridge"
     const preparationParent = inlinedRequest ? requestParent : "request"
@@ -678,7 +681,7 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
             PrepareRequest._tag,
             {
               prompt: childInput.prompt,
-              feedback: retained.route === undefined || mode === "wrong-route-feedback"
+              feedback: initial && mode !== "initial-feedback-wrong-prepared" ? "Committed steer" : retained.route === undefined || mode === "wrong-route-feedback"
                 ? childInput.feedback ?? ""
                 : leafFeedback(retained.route, childInput.feedback ?? "")
             },
@@ -687,6 +690,17 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
           )
         ]
       ])
+      if (initial && mode !== "initial-feedback-missing") {
+        const contextPayload = { prompt: mode === "initial-feedback-wrong-input" ? "forged" : childInput.prompt,
+          feedback: childInput.feedback ?? "" }
+        const result = Schema.encodeSync(Schema.toCodecJson(Flow.Result({ success: RequestFeedback.successSchema, error: RequestFeedback.errorSchema })))(
+          new Flow.Complete({ exit: mode === "initial-feedback-failed" ?
+            Exit.fail(new CodingError({ code: "unavailable", message: "fixture" })) : Exit.succeed("Committed steer") })
+        )
+        const parent = mode === "initial-feedback-wrong-parent" ? "foreign" : preparationParent
+        rows.set("initial-context", row("initial-context", RequestFeedback._tag, contextPayload, result, parent))
+        yield* graph.recordRunParent("initial-context", parent)
+      }
       if (reentry) {
         rows.set("review-round", {
           ...row("review-round", "coding/todo-review", { input: stackInput }, undefined, "todo-bridge"),
@@ -721,7 +735,7 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
             Effect.sync(() => {
               const name = options?.filters?.flowName
               if (name === todoAdapter) {
-                assert.deepEqual(options, { filters: { flowName: todoAdapter, parentRunId: root }, limit: 2 })
+                assert.deepEqual(options, { filters: { flowName: todoAdapter, parentRunId: root, status: "running" }, limit: 2 })
                 return listed(
                   todoAdapter,
                   root,
@@ -750,6 +764,11 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
                   mode === "more-requests" ? "next" : null
                 )
               }
+              if (name === RequestFeedback._tag) {
+                assert.deepEqual(options, { filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent }, limit: 2 })
+                return listed(RequestFeedback._tag, preparationParent, mode === "initial-feedback-missing" ? [] : ["initial-context"],
+                  mode === "initial-feedback-more" ? "next" : null)
+              }
               assert.deepEqual(options, {
                 filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
                 limit: 2
@@ -777,7 +796,8 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
           mode === "no-owner" ? effect : effect.pipe(
             Effect.provideService(ModuleOwner, {
               rootId: root,
-              flowId: mode === "wrong-owner" ? "coding/vibe" : "todo"
+              flowId: mode === "wrong-owner" ? "coding/vibe" : "todo",
+              ...(initial ? { launchOrdinal: 1 } : {})
             })
           ),
         Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
@@ -812,7 +832,7 @@ for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ..
     )))
     const outcome = await Effect.runPromise(program)
     if (
-      mode === "resumed-root" || mode === "customized-request" || mode === "valid" || mode === "recovered" ||
+      mode === "initial-feedback" || mode === "resumed-root" || mode === "customized-request" || mode === "valid" || mode === "recovered" ||
       mode === "bug" || mode === "feature" || mode === "review-reentry"
     ) {
       assert.equal(outcome._tag, "Success")

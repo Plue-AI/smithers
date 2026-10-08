@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -157,4 +158,63 @@ func TestTodoRetainedPlanCannotValidateNewCandidate(t *testing.T) {
 	}))
 	require.JSONEq(t, string(after.Plan), string(o.byID(id).Plan))
 	require.Equal(t, "bug", mythicalChecksOf(o.byID(id)).Route, "late route evidence survives candidate submission without replacing its plan")
+}
+
+func TestTodoValidatedSubmissionConsumesOnlyItsCapture(t *testing.T) {
+	for _, kind := range []string{"same", "newer", "stale", "conflict", "reconciled", "question"} {
+		t.Run(kind, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			id := uuidString(o.fileTodo(session, "captured-submission").ID)
+			o.wake()
+			o.projectTodo(o.launcher.last("todo"), jobs.StateWaiting, "current-run", todoPinOne, "")
+			item := o.byID(id)
+			candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "Greet the reader")
+			capture := MachineCapturePending{Head: candidate, Onto: candidate, Base: item.BaseCommit}
+			switch kind {
+			case "newer":
+				capture.Head = o.laneResult(item.WorkspaceID, candidate, map[string]string{"JOURNEY.md": "A newer edit.\n"}, "Keep newer edits")
+				capture.Onto = capture.Head
+			case "stale":
+				capture.Stale = true
+			case "conflict":
+				capture.Conflict = true
+			case "reconciled":
+				capture.ReconciledOnto = item.BaseCommit
+			case "question":
+				capture.ReconcileWaitID = "open-conflict"
+			}
+			tree, err := exec.Command("git", "--git-dir", o.hostDir, "rev-parse", capture.Head+"^{tree}").Output()
+			require.NoError(t, err)
+			capture.Tree = strings.TrimSpace(string(tree))
+			checks := mythicalChecksOf(item)
+			checks.Capture = &capture
+			checks.Steers = []todoSteer{{Text: "Keep retries", By: json.RawMessage(`{"kind":"person","name":"Owner"}`), Attempt: item.Attempt}}
+			item.Checks = checks.encode()
+			_, err = o.service.queries().SaveMythicalItem(t.Context(), item)
+			require.NoError(t, err)
+			checks = mythicalChecksOf(o.byID(id))
+			raw, err := json.Marshal(capture)
+			require.NoError(t, err)
+			_, err = o.service.store.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status,head_commit_id,capture_pending) VALUES($1,$2,$3,'capture','capture-vm','running',$4,$5)`, item.WorkspaceID, o.repoID, o.userID, capture.Head, raw)
+			require.NoError(t, err)
+			submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit, Source: candidate, RequestRunID: "current-run", Summary: "Greet the reader", Plan: json.RawMessage(`{"changes":[{"title":"Greet","atoms":[{"changeId":null,"message":"Greet"}],"checks":[]}]}`)}
+			_, err = o.service.SubmitLane(t.Context(), o.repoID, o.userID, submission)
+			require.NoError(t, err)
+			after := o.byID(id)
+			require.Equal(t, "integrating", after.State)
+			require.Equal(t, candidate, after.CandidateHead)
+			require.Equal(t, item.RequestRunID, after.RequestRunID)
+			require.Equal(t, checks.Steers, mythicalChecksOf(after).Steers, "capture consumption never discards steering history")
+			var pending []byte
+			require.NoError(t, o.service.store.QueryRow(t.Context(), `SELECT capture_pending FROM workspaces WHERE id=$1`, item.WorkspaceID).Scan(&pending))
+			if kind == "same" {
+				require.Nil(t, mythicalChecksOf(after).Capture)
+				require.Empty(t, pending)
+			} else {
+				require.Equal(t, &capture, mythicalChecksOf(after).Capture)
+				require.JSONEq(t, string(raw), string(pending))
+			}
+		})
+	}
 }

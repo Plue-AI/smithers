@@ -40,6 +40,7 @@ export const make = (
     readonly controlJournal: Journal.Service
     /** Whether a refused `park` budget may ask an operator, as the session's `asks` says. */
     readonly parks: boolean
+    readonly reenterModules?: ReadonlyArray<string> | undefined
     readonly weights?: Budget.Weights | undefined
   }
 ) =>
@@ -199,7 +200,26 @@ export const make = (
             verifiedModules.set(rootId, { digest: approved, executable })
           } else verifiedModules.delete(rootId)
         }
-        return { rootId, flowId: card.flowId, envelope: card.envelope }
+        let launchOrdinal: number | undefined
+        if (budgetHost.reenterModules?.includes(card.flowId) === true) {
+          const launches = yield* budgetHost.controlJournal.entries({
+            runId: JournalEvent.RunId.make(rootId), eventTypes: ["control.module.launched"], limit: 1_000
+          }).pipe(Effect.orDie)
+          if (launches.hasMore) return yield* refuse(executionId, "Retained module launches exceed the ancestry lookup limit")
+          for (const entry of launches.entries) {
+            const marker = Schema.decodeUnknownOption(Schema.Struct({
+              ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+              executionDigest: Schema.String, executionId: Schema.String
+            }))(entry.payload)
+            if (Option.isSome(marker) && visited.has(marker.value.executionId)) {
+              if (launchOrdinal !== undefined || marker.value.executionDigest !== approved) {
+                return yield* refuse(executionId, "Retained module launch does not match its approved ancestry")
+              }
+              launchOrdinal = marker.value.ordinal
+            }
+          }
+        }
+        return { rootId, flowId: card.flowId, envelope: card.envelope, launchOrdinal }
       }).pipe(
         // Ownership and pinned source verification are host admission work.
         // A module need not grant itself filesystem reads to let the host
@@ -242,7 +262,7 @@ export const make = (
       register: (flow, handler, options) =>
         engine.register(flow, (payload, executionId) =>
           Effect.scoped(Effect.gen(function*() {
-            const { rootId, flowId, envelope } = yield* owner(executionId)
+            const { rootId, flowId, envelope, launchOrdinal } = yield* owner(executionId)
             const notificationsForRoot = yield* Notifications.make({ runId: rootId, lineageId: rootId }).pipe(
               Effect.provideService(NotificationQueue.NotificationQueue, notifications)
             )
@@ -283,7 +303,9 @@ export const make = (
             yield* shared.resume().pipe(Effect.orDie)
             return yield* handler(payload, executionId).pipe(
               Effect.onExit((exit) =>
-                instance.suspended || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause))
+                instance.suspended || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) ||
+                  (Exit.isSuccess(exit) && flow._tag.startsWith("registry/entry/") && flow._tag.endsWith(`/${flowId}`) &&
+                    budgetHost.reenterModules?.includes(flowId) === true)
                   // Without the record the wait is charged, the conservative side.
                   ? shared.suspend.pipe(
                     Effect.catchCause((cause) => Effect.logWarning("A budget suspension could not be recorded", cause))
@@ -302,7 +324,7 @@ export const make = (
                 capabilityEnvelope: AgentSession.patterns(envelope.capabilities)
               }),
               Effect.provideService(Budget.Budget, shared),
-              Effect.provideService(ModuleOwner, { rootId, flowId }),
+              Effect.provideService(ModuleOwner, { rootId, flowId, launchOrdinal }),
               Effect.provideService(NotificationQueue.NotificationQueue, notifications),
               Effect.provideService(Steering.Source, handlerSteering),
               Effect.provideService(QuotaPolicy.QuotaClassifier, quota),

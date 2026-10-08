@@ -95,6 +95,7 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 }
 
 func TestTodoReviewSteerModelReentry(t *testing.T) {
+	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-06", "review-model-")
 	require.True(t, r.install("install"))
 	_, err := r.member("alice", 202, "write")
@@ -108,6 +109,8 @@ func TestTodoReviewSteerModelReentry(t *testing.T) {
 	require.NoError(t, err)
 	// Two review rounds must re-enter the original run and working copy.
 	for round := 0; round < 2; round++ {
+		priorTurns, err := r.modelTurns()
+		require.NoError(t, err)
 		text := fmt.Sprintf("Also log retry attempt %d", round+1)
 		if round == 0 {
 			_, err := r.fakeControl("/_fake/reviews", map[string]any{
@@ -140,6 +143,14 @@ func TestTodoReviewSteerModelReentry(t *testing.T) {
 		after, err := r.j3Lane(n)
 		require.NoError(t, err)
 		require.Equal(t, before, after, "same run, attempt and working copy after review steer")
+		turns, err := r.modelTurns()
+		require.NoError(t, err)
+		first := slices.IndexFunc(turns[len(priorTurns):], func(turn map[string]any) bool {
+			step, _ := turn["step"].(string)
+			return turn["kind"] == "chat" && strings.HasPrefix(step, "coding/")
+		})
+		require.NotEqual(t, -1, first, "review steering must dispatch implementation")
+		require.Contains(t, turnText(turns[len(priorTurns)+first]), text, "first coding request of the re-entered launch")
 	}
 }
 

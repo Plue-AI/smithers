@@ -291,7 +291,7 @@ for (
   })
 }
 
-const requestSteps = ["coding/prepare-stack-base", "coding/create-stack-base", "coding/install-dependency-pages", "factory/Todo", "coding/PrepareRequest", "coding/admit-retained-source", "coding/CoordinateRequest", "factory/stamp-route", "coding/Request"]
+const requestSteps = ["coding/RequestFeedback", "coding/prepare-stack-base", "coding/create-stack-base", "coding/install-dependency-pages", "factory/Todo", "coding/PrepareRequest", "coding/admit-retained-source", "coding/CoordinateRequest", "factory/stamp-route", "coding/Request"]
 const pauseBoundary = ["coding/todo-pause-requested", "system/wait-for", "coding/todo-resume", "coding/todo-boundary"]
 
 // Composition inspection does not claim the joint guest/Active-source gate.

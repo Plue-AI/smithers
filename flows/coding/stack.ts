@@ -13,7 +13,7 @@
  */
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Option, Schema } from "effect"
 import {
   NativeCoding,
   NativeCodingError,
@@ -23,6 +23,7 @@ import {
   StackCandidate,
   StackProposal
 } from "./native.ts"
+import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { CodingError, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"
@@ -137,7 +138,7 @@ export const observeStackBase = (base: StackBase, result: typeof OperationResult
   })
 }
 
-const transient = (error: NativeCodingError) =>
+const transient = (error: CodingError | NativeCodingError) =>
   error.code === "outcome_unknown" || error.code === "workspace_busy" || error.code === "guest_failure"
 
 /** Imports the tip, creates the working change from the journaled operation, and checks it. */
@@ -166,11 +167,23 @@ export const stackBaseLayer = Layer.mergeAll(
     })
   ),
   CreateStackBase.toLayer(({ base, operation }) =>
-    Effect.flatMap(NativeCoding, (native) => native.apply(operation)).pipe(
+    Effect.gen(function*() {
+      const native = yield* NativeCoding
+      const owner = yield* Effect.serviceOption(ModuleOwner)
+      // Only the executor's journaled continuation skips the initial create.
+      // Keep the existing change and edits; a repository payload cannot claim
+      // a later launch, and historical/fresh requests still create their base.
+      if (Option.isSome(owner) && owner.value.flowId === "todo" && (owner.value.launchOrdinal ?? 0) > 0) {
+        const current = yield* native.read()
+        if (current.head.kind !== "resolved") return yield* refused("The retained working change is unresolved")
+        return current.head
+      }
+      const result = yield* native.apply(operation)
+      return yield* observeStackBase(base, result)
+    }).pipe(
       // Never refresh the request: the native receipt recovers a create whose
       // response was lost; only transient transport failures retry.
-      Action.retry({ times: 2, while: transient }),
-      Effect.flatMap((result) => observeStackBase(base, result))
+      Action.retry({ times: 2, while: transient })
     )
   )
 )

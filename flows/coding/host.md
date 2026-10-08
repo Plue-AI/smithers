@@ -185,3 +185,14 @@ descriptors change; source-authored policy metadata cannot override the host.
 The check returns ordinary receipts and owner findings over immutable exports;
 it never publishes a competing wiki pointer. Target repositories no longer need
 to copy the host's four reviewer source files merely to generate their own wiki.
+
+## Review re-entry
+
+The coding host selects `todo` for the existing agent-session executor's
+`reenterModules` policy. The repository composition settles at delivery. The
+executor retains its control run and workspace, parks on the existing inbox,
+and selects a new native module execution when feedback arrives. Launch
+ordinals and the pinned digest are journaled before execution; a restart
+resumes an unfinished launch, and repeated input cannot allocate another.
+Verification and review remain stack-engine launches. Completed historical
+control runs retain their Retry path.

@@ -524,6 +524,18 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 			next.CandidateBase = seed.Base
 		}
 		next.Summary, next.VibeOutcome, next.State, next.Reason = strings.TrimSpace(input.Summary), "submitted", "integrating", ""
+		// Native edits are captured before the composed delivery hands over its
+		// validated source. That exact snapshot is now the candidate, rather
+		// than a second edited-only continuation waiting behind this steer.
+		// A later edit or an unresolved capture must remain pending.
+		checks := mythicalChecksOf(next)
+		if capture := checks.Capture; composed && capture != nil && capture.Head == input.Source && capture.Onto == input.Source && !capture.Stale && !capture.Conflict && capture.ReconciledOnto == "" && capture.ReconcileWaitID == "" {
+			if _, err := s.store.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1 AND capture_pending->>'head'=$2 AND capture_pending->>'onto'=$2 AND capture_pending->>'tree'=$3 AND COALESCE((capture_pending->>'stale')::boolean,false)=false AND COALESCE((capture_pending->>'conflict')::boolean,false)=false`, input.WorkspaceID, input.Source, capture.Tree); err != nil {
+				return MythicalLaneReceipt{}, err
+			}
+			checks.Capture = nil
+			next.Checks = checks.encode()
+		}
 		saved, err := q.SaveMythicalItem(ctx, next)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue

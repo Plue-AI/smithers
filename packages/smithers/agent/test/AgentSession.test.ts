@@ -19,7 +19,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Control, ControlError, ControlExecutor, ControlLive, ControlRuntime, ControlSchema } from "@smthrs/control"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
-import { Action, Flow, HumanTask, Interpreter, Sleep } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, HumanTask, Interpreter, Sleep } from "@smthrs/flow"
 import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Cell from "@smthrs/harness/Cell"
 import type * as CellCalls from "@smthrs/harness/CellCalls"
@@ -289,6 +289,8 @@ const principal: ControlSchema.Principal = { id: "operator", kind: "test", stamp
 const steerBody = "steer: mention the weather"
 
 interface StackOptions {
+  readonly reenterModules?: ReadonlyArray<string>
+
   readonly modules?: {
     readonly catalog: Executable.Catalog
     readonly layer: Layer.Layer<never, never, Executable.Registration>
@@ -368,6 +370,7 @@ const stack = (options: StackOptions) => {
     })
   ])
   const registration = AgentSession.layer({
+    reenterModules: options.reenterModules,
     quotaPolicy: Safety.quotaPolicy,
     budget: Safety.budget,
     flows: options.bare === true ? undefined : [noteSource, checkSource],
@@ -1736,6 +1739,129 @@ describe("AgentSession", () => {
     expect(result.refusal).toContain("model:")
     expect(result.status).toBe("failed")
   })
+
+  it.each(["after settlement", "before settlement"] as const)(
+    "re-enters settled module launches on the same control run: %s",
+    async (timing) => {
+      const seen: Array<unknown> = []
+      let retainedRunId = ""
+      const gate = Deferred.makeUnsafe<void>()
+      const Read = Action.make("test/Reentry", { payload: {}, success: Schema.Json, error: Schema.Never })
+      const flow = Flow.make("agents/module", {
+        payload: Executable.Payload,
+        success: moduleResult,
+        error: moduleResult,
+        body: () => Read.call({}).pipe(Node.map((value) => ({ value })))
+      })
+      const registration = Interpreter.layer(flow).pipe(Layer.provideMerge(
+        Read.toLayer(() =>
+          Effect.gen(function*() {
+            const queue = yield* NotificationQueue.NotificationQueue
+            const instance = yield* FlowRuntime.FlowInstance
+            const runId = retainedRunId || "run-1"
+            const drained = yield* queue.drain({
+              runId,
+              targetLineageId: runId,
+              boundary: instance.executionId,
+              wouldIdle: false
+            })
+            seen.push(drained)
+            if (seen.length === 1 && timing === "before settlement") yield* Deferred.await(gate)
+            return seen.length
+          })
+        )
+      ))
+      const executable: Executable.Executable = {
+        descriptor: moduleDescriptor,
+        input: undefined,
+        delegate: "test/Module",
+        lowered: { cache: undefined, placement: undefined, priority: undefined },
+        invocation: (
+          input
+        ) => ({
+          flow: moduleDescriptor.name,
+          input,
+          prompt: "",
+          model: null,
+          placement: null,
+          placementOptions: null,
+          capabilities: [],
+          flows: ["test/Module"]
+        } as const),
+        flow,
+        layer: Interpreter.layer(flow)
+      }
+      const outcome = await Effect.runPromise(
+        Effect.gen(function*() {
+          return yield* Effect.gen(function*() {
+            const control = yield* Control.Control
+            const runtime = yield* ControlRuntime.ControlRuntime
+            const journal = yield* Journal.Journal
+            const card = yield* control.plan({ flowId: "agents/module", input: {} })
+            yield* control.approve(card.approval)
+            const receipt = yield* control.run({
+              _tag: "Plan",
+              planId: card.planId,
+              digest: card.digest,
+              envelope: card.envelope,
+              idempotencyKey: "run:reentry"
+            })
+            if (receipt._tag !== "Accepted" || receipt.runId === undefined) {
+              return yield* Effect.die("expected admission")
+            }
+            const runId = receipt.runId
+            retainedRunId = runId
+            if (timing === "after settlement") yield* awaitStatus(runtime, runId, "parked")
+            else {
+              const began = (): Effect.Effect<void> =>
+                seen.length === 1 ? Effect.void : Effect.sleep("10 millis").pipe(Effect.andThen(Effect.suspend(began)))
+              yield* began().pipe(Effect.timeout("20 seconds"))
+            }
+            expect(seen).toHaveLength(1)
+            const input = {
+              runId,
+              message: { messageId: "review-steer", runId, body: "Use backoff", principal, createdAt: 1 },
+              idempotencyKey: "review-steer"
+            }
+            yield* control.steer(input)
+            yield* control.steer(input)
+            yield* Deferred.succeed(gate, void 0)
+            const wait = (): Effect.Effect<void, unknown> =>
+              Effect.gen(function*() {
+                if (seen.length === 2 && (yield* runtime.getRun(runId)).status === "parked") return
+                yield* Effect.sleep("10 millis")
+                return yield* wait()
+              })
+            yield* wait().pipe(Effect.timeout("20 seconds"))
+            yield* control.steer(input)
+            yield* Effect.sleep("50 millis")
+            const page = yield* journal.entries({ runId: JournalEvent.RunId.make(runId), limit: 1000 })
+            return {
+              run: yield* runtime.getRun(runId),
+              launches: page.entries.filter((e) => e.eventType === "control.module.launched")
+            }
+          }).pipe(Effect.provide(stack({
+            gate,
+            notes: [],
+            reenterModules: ["agents/module"],
+            resolve: () => Effect.die("module must not resolve a seat"),
+            modules: {
+              catalog: { executables: [executable], refused: [] },
+              layer: registration
+            }
+          })))
+        }).pipe(Effect.scoped)
+      )
+      expect(outcome.run.status).toBe("parked")
+      expect(outcome.launches.map((e) => e.payload)).toEqual([
+        expect.objectContaining({ ordinal: 0 }),
+        expect.objectContaining({ ordinal: 1 })
+      ])
+      expect(seen).toHaveLength(2)
+      expect(JSON.stringify(seen[1])).toContain("Use backoff")
+    },
+    30_000
+  )
 
   it("leaves a module pending when the host has no executable catalog", async () => {
     const result = await Effect.runPromise(

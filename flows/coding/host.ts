@@ -626,6 +626,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
     {
       ...platform,
       shellTerminal: "agent",
+      reenterModules: options.planning === undefined ? undefined : ["todo"],
       agentLimits: options.planning?.limits,
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),
