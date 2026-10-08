@@ -94,6 +94,8 @@ export const installCloudFixture = async (page: Page, options: CloudFixtureOptio
   await respond("/api/bootstrap", bootstrap)
   await respond("/api/user", { id: 1, username: SCOPED_TEST_USER.login, is_admin: false,
     ...(options.degraded === true ? { token_scopes: ["read:repository"] } : {}) })
+  if (capabilities.includes("install")) await respond("/api/auth/session", { id: 1, username: SCOPED_TEST_USER.login, is_admin: false,
+    ...(options.degraded === true ? { token_scopes: ["read:repository"] } : {}) })
   await respond("/api/billing/balance", {
     state: "ok", allowedToStartWork: true,
     balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 }

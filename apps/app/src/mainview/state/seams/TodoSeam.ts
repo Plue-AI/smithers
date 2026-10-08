@@ -65,10 +65,20 @@ export interface TodoListSnapshots {
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
-    mergedNotices: new Set<string>(), notableModels: new Map<number, TodoCard>(), notableLive: new Set<number>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
+    todoWrites: new Map<number, Promise<unknown>>(), mergedNotices: new Set<string>(), notableModels: new Map<number, TodoCard>(), notableLive: new Set<number>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
     list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
+  // Card requests and source snapshots share one persistence order. Each
+  // operation reads the card only after earlier writes have committed, so a
+  // snapshot cannot erase a request admitted alongside it.
+  const withTodo = <A,>(n: number, body: () => Promise<A>): Promise<A> => {
+    const previous = shared.todoWrites.get(n) ?? Promise.resolve()
+    const next = previous.catch(() => {}).then(body)
+    shared.todoWrites.set(n, next)
+    void next.finally(() => { if (shared.todoWrites.get(n) === next) shared.todoWrites.delete(n) }).catch(() => {})
+    return next
+  }
   const owner = () => ctx.store.collections.identitySessions.get("identity")?.login
   const identity = () => ctx.store.collections.identitySessions.get("identity")
   const current = (login: string | null | undefined, revision: number | undefined) =>
@@ -209,7 +219,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     }
     for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: previous?.waits.find(wait => wait.id === id)?.kind === "question" ? "Answered" : "" })
   }
-  const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {
+  const applyModel = (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => withTodo(n, async () => {
+    if (!live()) return
     const card = entry(n) ?? blank(n)
     // REST snapshots are durable source facts too: admission alone never clears a Draft or a toast.
     // A reload can land between clearing the TODO request and committing its Draft.
@@ -307,12 +318,16 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (live() && original && receipt.outcome) finishNotice(receipt.key, model.title, receipt.outcome)
     }
     if (model.branch && live()) await continueSource(n, live)
-  }
-  const updateRequest = async (cardId: string, request: Request) => {
+  })
+  const updateRequestUnlocked = async (cardId: string, request: Request) => {
     const row = ctx.store.collections.cards.get(cardId)
     if (row?.kind === "draft") await write({ ...row, payload: { ...row.payload, request } })
     if (row?.kind === "todo") await write({ ...row, payload: { ...row.payload,
       requests: [...row.payload.requests.filter(old => old.key !== request.key), request] } })
+  }
+  const updateRequest = (cardId: string, request: Request) => {
+    const card = ctx.store.collections.cards.get(cardId)
+    return card?.kind === "todo" ? withTodo(card.payload.n, () => updateRequestUnlocked(cardId, request)) : updateRequestUnlocked(cardId, request)
   }
   const send = (cardId: string, request: Request): void => {
     if (shared.sending.has(request.key) || request.owner !== owner() || signedIn()) return
@@ -427,16 +442,23 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       finishNotice(request.key, title, { status: "failed", detail: message })
     }
   }
-  const request = async (n: number, operation: Request["operation"], body: Record<string, unknown>, key?: string) => {
-    const refusal = signedIn(); if (refusal) return refusal
-    const row = entry(n) ?? blank(n)
-    const existing = row.payload.requests.find(old => old.owner === owner() && old.operation === operation && canonicalize(old.body) === canonicalize(body))
-    const pending = existing ?? { key: key ?? randomUuid(), owner: owner()!, operation, n, body, state: "requested" as const,
-      ...(["stop", "resume"].includes(operation) && row.payload.model?.run ? { attempt: row.payload.model.run.attempt } : {}) }
-    await updateOrCreate(row, pending)
-    watch(n)
-    if (pending.state !== "accepted" || !shared.sending.has(pending.key)) send(row.id, pending)
-    return { value: "Requested" }
+  const request = (n: number, operation: Request["operation"], body: Record<string, unknown>, key?: string) => {
+    const matches = (old: Request) => old.owner === owner() && old.operation === operation && canonicalize(old.body) === canonicalize(body)
+    const referenced = entry(n)?.payload.requests.find(matches)
+    return withTodo(n, async () => {
+      const refusal = signedIn(); if (refusal) return refusal
+      const row = entry(n) ?? blank(n)
+      const existing = row.payload.requests.find(matches)
+      // A duplicate was addressed to the pending operation even if its receipt
+      // completed while this write waited behind a source snapshot.
+      if (referenced && !existing) return { value: "Requested" }
+      const pending = existing ?? { key: key ?? randomUuid(), owner: owner()!, operation, n, body, state: "requested" as const,
+        ...(["stop", "resume"].includes(operation) && row.payload.model?.run ? { attempt: row.payload.model.run.attempt } : {}) }
+      await updateOrCreate(row, pending)
+      watch(n)
+      if (pending.state !== "accepted" || !shared.sending.has(pending.key)) send(row.id, pending)
+      return { value: "Requested" }
+    })
   }
   const updateOrCreate = async (row: TodoEntry, pending: Request) => write({ ...row, payload: { ...row.payload,
     requests: [...row.payload.requests.filter(old => old.key !== pending.key), pending] } })

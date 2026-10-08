@@ -1602,3 +1602,46 @@ for (const operation of ["stop", "resume"] as const) test(`${operation} surfaces
    expect(render()).not.toContain("Approved by")
   } finally { h.close() }
  })
+
+test("concurrent Stop commands and snapshots retain one persisted admission through execution", async () => {
+  const launch = deferred<Response>()
+  const keys: string[] = []
+  const model: TodoCard = { ...fixtures.working.model, run: { ...fixtures.working.model.run!, executing: true } }
+  const h = await harness(async (_url, init) => {
+    if (!init?.method) return json(model, 200)
+    keys.push(new Headers(init.headers).get("Idempotency-Key")!)
+    return launch.promise
+  })
+  try {
+    await h.seam.applyTodoProjection(12, model)
+    const initial = await Promise.all([
+      h.seam.controlTodo(12, "stop"),
+      h.seam.applyTodoProjection(12, model),
+      h.seam.controlTodo(12, "stop"),
+      h.seam.applyTodoProjection(12, model)
+    ])
+    expect(initial[0]).toEqual({ value: "Requested" })
+    expect(initial[2]).toEqual({ value: "Requested" })
+    await waitFor(() => keys.length > 0)
+    expect(keys).toHaveLength(1)
+    expect(h.todo().payload.requests).toHaveLength(1)
+    launch.resolve(json({ state: "accepted", n: 12, attempt: model.run!.attempt }))
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    await Promise.all([
+      h.seam.controlTodo(12, "stop"),
+      h.seam.applyTodoProjection(12, model),
+      h.seam.controlTodo(12, "stop")
+    ])
+    expect(keys).toHaveLength(1)
+    expect(h.todo().payload.requests).toHaveLength(1)
+    expect(h.outcomes).toEqual([])
+    await Promise.all([
+      h.seam.applyTodoProjection(12, { ...model, state: "paused", pause: { reason: "person", since: "2026-10-08T00:00:00Z" } }),
+      h.seam.controlTodo(12, "stop")
+    ])
+    expect(keys).toHaveLength(1)
+    expect(h.todo().payload.requests).toHaveLength(0)
+    expect(h.outcomes).toEqual([{ key: `todo.request.${keys[0]}`, status: "ok", detail: "Paused" }])
+    expect(h.reports).toEqual([])
+  } finally { h.close() }
+})

@@ -475,9 +475,9 @@ func TestJ3Rehearsal(t *testing.T) {
 			return err
 		}
 		type entry struct {
-			Kind  string `json:"kind"`
-			Text  string `json:"text"`
-			Files *int   `json:"files"`
+			Kind  string            `json:"kind"`
+			Text  string            `json:"text"`
+			Files []json.RawMessage `json:"files"`
 			Actor struct {
 				Kind      string `json:"kind"`
 				Login     string `json:"login"`
