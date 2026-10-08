@@ -1,6 +1,13 @@
-import { expect, test } from "./browserTest"
-import { owner, say } from "./spec/j1-fixtures"
+import { expect, test, type Page } from "./browserTest"
+import { owner as cloudOwner, say } from "./spec/j1-fixtures"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
+
+// Advertise install identity before boot, including its production session door.
+// The cloud fixture's catch-all otherwise answers this install-only route with 404.
+const owner = async (page: Page) => {
+  await cloudOwner(page)
+  await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+}
 
 // HTTP fixtures exercise the install seam and durable card, not loader/merge qualification.
 test("install flow versions retain selection across refresh and reload", async ({ page }) => {
