@@ -592,6 +592,16 @@ export const main = async (args) => {
       `${JSON.stringify(packed, null, 2)}\n`
     )
     const source = sourceRevision(repoRoot)
+    // A dirty candidate is refused later, by publication and by every
+    // installer job, with a message that names no path. Name them here, where
+    // the checkout that produced them still exists.
+    console.log(`release source: ${source.sha}, ${source.dirty ? "DIRTY" : "clean"}`)
+    if (source.dirty) {
+      console.log(
+        "A dirty candidate cannot be published or built into an installer. Paths that differ from the commit:\n" +
+          sourceChanges(repoRoot).map((line) => `  ${line}`).join("\n")
+      )
+    }
     await writeFile(join(outputDirectory, "release-manifest.json"), JSON.stringify({
       schemaVersion: 1,
       source: { sha: source.sha, tag: process.env.RELEASE_TAG ?? null, dirty: source.dirty },
@@ -625,6 +635,21 @@ export const sourceRevision = (root) => {
     if (parents.length !== 1) throw new Error(`release source revision: @ in ${root} has ${parents.length} parents, not one`)
     return { sha: parents[0], dirty: run("jj", ["diff", "--name-only", "-r", "@"]).length > 0 }
   }
+  throw new Error(`release source revision: ${root} has neither .git nor .jj`)
+}
+
+/**
+ * The paths that make a checkout dirty, one line each, as its version control
+ * reports them: `git status --porcelain` lines, or `jj diff --name-only` names.
+ *
+ * {@link sourceRevision} answers only whether the list is empty, which is what
+ * the candidate records. This is what an operator needs when it is not.
+ */
+export const sourceChanges = (root) => {
+  const lines = (command, args) =>
+    execFileSync(command, args, { cwd: root, encoding: "utf8" }).split("\n").filter((line) => line !== "")
+  if (existsSync(join(root, ".git"))) return lines("git", ["status", "--porcelain", "--untracked-files=normal"])
+  if (existsSync(join(root, ".jj"))) return lines("jj", ["diff", "--name-only", "-r", "@"])
   throw new Error(`release source revision: ${root} has neither .git nor .jj`)
 }
 

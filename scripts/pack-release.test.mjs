@@ -21,6 +21,7 @@ import {
   publishedPackages,
   readWorkspaceManifests,
   releaseGroups,
+  sourceChanges,
   sourceRevision,
   workspaceDependencies,
   workspaces
@@ -1023,8 +1024,15 @@ test("the release source revision reads a jj workspace without .git as git reads
     assert.deepEqual(head, { sha: execFileSync("git", ["rev-parse", "HEAD"], { cwd: colocated, encoding: "utf8" }).trim(), dirty: false })
     assert.deepEqual(sourceRevision(lane), head)
 
+    assert.deepEqual(sourceChanges(colocated), [])
+    assert.deepEqual(sourceChanges(lane), [])
     await writeFile(join(lane, "b.txt"), "b\n")
     assert.deepEqual(sourceRevision(lane), { sha: head.sha, dirty: true })
+    // The candidate records only that it is dirty; the pack log names the paths.
+    assert.deepEqual(sourceChanges(lane), ["b.txt"])
+    await writeFile(join(colocated, "c.txt"), "c\n")
+    assert.deepEqual(sourceChanges(colocated), ["?? c.txt"])
+    assert.equal(sourceRevision(colocated).dirty, true)
   } finally {
     await rm(base, { recursive: true, force: true })
   }
