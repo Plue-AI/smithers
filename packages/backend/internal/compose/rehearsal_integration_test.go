@@ -428,18 +428,7 @@ path = "lib.rs"
 			require.FileExists(t, filepath.Join(spa, "index.html"))
 		}
 		if spa != "" {
-			// Optional browser boundary over this same install, not a seeded app.
-			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-				if strings.HasPrefix(request.URL.Path, "/api/") || strings.HasPrefix(request.URL.Path, "/webhooks/") || strings.Contains(request.URL.Path, ".git/") || strings.HasSuffix(request.URL.Path, ".git") || request.URL.Path == "/setup" || strings.HasPrefix(request.URL.Path, "/setup/") {
-					h.ServeHTTP(w, request)
-					return
-				}
-				path := filepath.Join(spa, filepath.Clean("/"+request.URL.Path))
-				if info, err := os.Stat(path); err != nil || info.IsDir() {
-					path = filepath.Join(spa, "index.html")
-				}
-				http.ServeFile(w, request, path)
-			})
+			server.Config.Handler = rehearsalSPAHandler(spa, h)
 		}
 	case err := <-done:
 		t.Fatalf("composition: %v\n%s", err, r.logs.String())
@@ -506,6 +495,30 @@ path = "lib.rs"
 		fmt.Println("rehearsal evidence:", r.evidence)
 	})
 	return r
+}
+
+// rehearsalSPAHandler is the optional browser boundary over the same install,
+// not a seeded app: the built app serves every path the backend does not own.
+// The coding host reaches the model proxy at /model-proxy on this origin.
+func rehearsalSPAHandler(spa string, backend http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		path := request.URL.Path
+		for _, prefix := range []string{"/api/", "/webhooks/", modelproxy.Path + "/", "/setup/"} {
+			if strings.HasPrefix(path, prefix) {
+				backend.ServeHTTP(w, request)
+				return
+			}
+		}
+		if strings.Contains(path, ".git/") || strings.HasSuffix(path, ".git") || path == "/setup" {
+			backend.ServeHTTP(w, request)
+			return
+		}
+		file := filepath.Join(spa, filepath.Clean("/"+path))
+		if info, err := os.Stat(file); err != nil || info.IsDir() {
+			file = filepath.Join(spa, "index.html")
+		}
+		http.ServeFile(w, request, file)
+	})
 }
 
 // request sends one request as the owner's browser, with an Idempotency-Key
