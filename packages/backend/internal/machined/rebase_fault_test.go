@@ -3,8 +3,6 @@ package machined
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +14,7 @@ import (
 // These are host transport controls, not privilege-drop or freeze evidence.
 // The required FaultSuite opts into the acceptance gate below; an ordinary Go
 // run can verify refusals without claiming a C-DUR-04 pass or inventing a kill.
-func TestRebaseFaultRootInputsValidatedBeforeUse(t *testing.T) {
+func TestRebaseFaultTransportInputsRefusedBeforeSend(t *testing.T) {
 	const target = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, cell := range []struct {
 		name, onto string
@@ -130,30 +128,4 @@ func TestRebaseFaultRootInputsValidatedBeforeUse(t *testing.T) {
 		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.Rebase), wire.Field(1, bytes))))}))
 		require.NoError(t, <-done)
 	})
-	rebaseUnavailable(t, "root-inputs", "approved guest startup, actual UID/GID/groups, cgroup freeze, retained symlinks, substituted artifacts and root/outside canaries are not qualified")
-}
-
-// Do not dispatch a destructive test through a fixture broker and describe it
-// as a real freeze/kill. Until that provider is qualified every required cell
-// produces an unavailable observation, without a fabricated CRASH-POINT.
-func TestRebaseCrashThroughDispatcher(t *testing.T) {
-	for _, presence := range []string{"people-present", "people-absent"} {
-		for _, point := range []string{"rebase-post-capture", "rebase-mid", "rebase-post-apply"} {
-			t.Run(presence+"/"+point, func(t *testing.T) {
-				rebaseUnavailable(t, point, "production dispatcher/daemon kill controller with real member writers and qualified broker freeze unavailable")
-			})
-		}
-	}
-}
-
-func rebaseUnavailable(t *testing.T, point, reason string) {
-	t.Helper()
-	// check-run retains this diagnostic in its commit-bound log; this is not a
-	// second receipt writer. Null observations cannot masquerade as zero loss.
-	observation, err := json.Marshal(map[string]any{"check": "C-DUR-04", "case": t.Name(), "point": point, "status": "unavailable", "passing": false, "reason": reason, "marker_observed": false, "steps_rerun": nil, "effects_seen": nil, "writes_acknowledged": nil, "writes_found": nil, "root_execution_qualified": false})
-	require.NoError(t, err)
-	t.Log(string(observation))
-	if os.Getenv("SMITHERS_REBASE_FAULT_REQUIRED") == "1" {
-		t.Error("C-DUR-04 unavailable provider: " + reason)
-	}
 }

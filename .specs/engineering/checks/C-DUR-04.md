@@ -1,7 +1,7 @@
 # C-DUR-04 Daemon, VM or host killed during a burst, capture or document save
 
 Proves: mvp.md §9 Durability, §6.8 Save and recovery guarantees, M-27 ("every change is recoverable from snapshots") · spec.md §7.4.2, §7.4.6, §8.4.3, §9.1.1–9.1.4, §9.2.2, §9.2.5, §9.3.4, §19.1 · Layer: fault · Stage: S2, S3 · Tickets: T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b
-Automation: `packages/backend/internal/machined/fault_test.go` (new) driving `crates/smithers-machined` kill hooks (`SMITHERS_MACHINED_KILL_AT=<point>`, test builds only) · Runs in: CI on a Linux runner with real inotify, cgroups and jj (daemon kills), and the reference host (VM kills)
+Automation: `packages/backend/internal/machined/fault_test.go` and `packages/backend/internal/compose/rebase_fault_test.go` driving `crates/smithers-machined` kill hooks (`SMITHERS_MACHINED_KILL_AT=<point>`, test builds only) · Runs in: CI on a Linux runner with real inotify, cgroups and jj (daemon kills), and the reference host (VM kills)
 
 ## Setup
 - Component owners: T-COL-04a K1/K2; T-COL-03a K3/K3b/K4/K4b/K5a–c; T-COL-03 reference-host K6. T-COL-04 runs the complete S2 matrix with real watcher, host store, PostgreSQL and VM. Fakes never substitute for a full-check pass.
@@ -60,3 +60,27 @@ K1–K6 gate stage 2; K7 and K8 gate stage 3.
 ## Evidence
 
 `.artifacts/checks/C-DUR-04/<UTC timestamp>/`: per kill point and run, the writer log, the working-copy hashes, the head ref before and after, an export of the `activity` and `burst_files` rows, the daemon and host logs, the outbox contents at the kill, for K7 and K8 both clients' texts and the state record or PostgreSQL row before and after, and `env.json` (commit, runner kernel, msb version).
+
+## Rebase qualification (T-REL-04)
+
+The composed reference driver adds `rebase-post-capture`, `rebase-mid` and
+`rebase-post-apply`, each with people present and absent, ten repetitions each.
+`TestRebaseCrashThroughDispatcher` uses guest-init daemon replacement;
+`TestRebaseVMCrashThroughDispatcher` uses real msb force-stop and retained disk.
+The member terminal supplies twenty fsync/close acknowledgements per crossing.
+The person-present crossing also gates a real member writer during the kernel
+freeze. Recovery checks the file HTTP projection, host capture bytes, one
+rebase activity entry with voided approvals, and drained outbox.
+
+Every campaign first runs the inherited C-SEC-02 validations on the same
+approved bundle and refuses skips. The root-input crossing probes production
+member paths, transport selectors, real UID/GID/groups, and substitution of
+member executable inputs against the actual approved bundle. Supplemental
+Linux startup substitution controls do not qualify privileged guest execution.
+The nightly runner requires each exact crossing's marker and final recovery
+observation; setup or sibling output cannot qualify a crossing.
+
+The driver is authored, but its reference-host execution remains outstanding.
+Only a reviewed main-built debug qualification bundle may enable these cases;
+no branch-built executable is installed or run as root. The C-DUR-04 mapping
+remains pending owner approval and authenticated host provenance.

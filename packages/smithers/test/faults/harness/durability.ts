@@ -56,3 +56,25 @@ export function requireReachedGoFault(log: string, name: string, requiredPoints:
     }
   }
 }
+
+
+// Setup has its own passing subtests. Qualify only the destructive crossing,
+// and require its final recovery observation rather than borrowing setup or a
+// sibling's marker/counts. Literal counts match the committed 20-file fixture.
+export function requireRebaseRecoveryObservations(log: string, parent: string, rootOnly = false): void {
+  const cells = rootOnly ? [{ name: `${parent}/crossing`, point: "rebase-post-capture" }]
+    : ["people-present", "people-absent"].flatMap(presence =>
+      ["rebase-post-capture", "rebase-mid", "rebase-post-apply"].flatMap(point =>
+        Array.from({ length: 10 }, (_, run) => ({ name: `${parent}/${presence}/${point}/${String(run + 1).padStart(2, "0")}/crossing`, point }))))
+  requireReachedGoFaultMatrix(log, cells.map(cell => cell.name), rootOnly ? ["rebase-post-capture"] : ["rebase-post-capture", "rebase-mid", "rebase-post-apply"])
+  const events = log.split("\n").filter(Boolean).map(line => JSON.parse(line) as { Test?: string; Output?: string })
+  for (const { name, point } of cells) {
+    requireReachedGoFault(log, name, [point])
+    const output = events.filter(event => event.Test === name).map(event => event.Output ?? "").join("")
+    const observations = [...output.matchAll(/^(?:[ \t]+[^\r\n:]+\.go:\d+: )?CRASH-OBSERVATION (\{[^\r\n]*\})\r?$/gm)]
+      .map(match => JSON.parse(match[1]!) as Record<string, unknown>)
+    assert.equal(observations.length, 1, `required one final rebase recovery observation: ${name}`)
+    assert.deepEqual(observations[0], { point, subject: "branch", writesAcknowledged: 20, writesFound: 20, rebaseEntries: 1, outboxDepth: 0 },
+      `literal rebase recovery observation mismatch: ${name}`)
+  }
+}

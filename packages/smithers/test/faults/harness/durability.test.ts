@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { requireReachedGoFault, requireReachedGoFaultMatrix } from "./durability.ts"
+import { requireReachedGoFault, requireReachedGoFaultMatrix, requireRebaseRecoveryObservations } from "./durability.ts"
 
 const machine = "TestMachineKillRetainsDiskAndRecoveryIsolation"
 const log = (...events: ReadonlyArray<Record<string, string>>) => events.map(event => JSON.stringify(event)).join("\n")
@@ -159,4 +159,45 @@ test("accepts a fault marker bound to its Go subtest log", () => {
   ].map(event => JSON.stringify(event)).join("\n")
   expect(() => requireReachedGoFault(transcript, name, ["host-keyless-crossing"])).not.toThrow()
   expect(() => requireReachedGoFault(transcript.replace(name, "TestHost"), name)).toThrow("logged no kill marker")
+})
+
+
+const rebaseParent = "TestRebaseCrashThroughDispatcher"
+const rebaseCells = ["people-present", "people-absent"].flatMap(presence =>
+  ["rebase-post-capture", "rebase-mid", "rebase-post-apply"].flatMap(point =>
+    Array.from({ length: 10 }, (_, run) => ({ name: `${rebaseParent}/${presence}/${point}/${String(run + 1).padStart(2, "0")}/crossing`, point }))))
+function rebaseRecoveryLog(change: (name: string, observation: Record<string, unknown>) => Record<string, unknown>[] = (_, row) => [row]) {
+  return log({ Action: "pass", Test: `${rebaseParent}/people-present/rebase-mid/Install through Machine ready` },
+    ...rebaseCells.flatMap(({ name, point }) => [
+      { Action: "output", Test: name, Output: `CRASH-POINT ${point} subject vm\n` },
+      ...change(name, { point, subject: "branch", writesAcknowledged: 20, writesFound: 20, rebaseEntries: 1, outboxDepth: 0 })
+        .map(row => ({ Action: "output", Test: name, Output: `    rebase_fault_test.go:300: CRASH-OBSERVATION ${JSON.stringify(row)}\n` })),
+      { Action: "pass", Test: name },
+    ]))
+}
+test("rebase recovery qualifies six exact crossings independently of setup", () => {
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog(), rebaseParent)).not.toThrow()
+})
+test("a reached kill without its final recovery observation cannot qualify", () => {
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog(name => name.includes("people-absent/rebase-mid") ? [] : [{ point: "wrong" }]), rebaseParent)).toThrow()
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog(() => []), rebaseParent)).toThrow("one final rebase recovery observation")
+})
+test.each([
+  { writesFound: 19 }, { writesAcknowledged: 0 }, { writesAcknowledged: null },
+  { rebaseEntries: 2 }, { outboxDepth: 1 }, { point: "rebase-mid" }, { subject: "fixture" },
+])("rebase literal recovery refuses altered counts or identity: %j", changed => {
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog((_, row) => [{ ...row, ...changed }]), rebaseParent))
+    .toThrow("literal rebase recovery observation mismatch")
+})
+test("duplicate recovery observations fail, and a sibling cannot supply a missing one", () => {
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog((_, row) => [row, row]), rebaseParent)).toThrow("one final rebase recovery observation")
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog((name, row) => name.includes("people-absent") ? [] : [row]), rebaseParent)).toThrow("people-absent")
+})
+test("root-input qualification still requires its own destructive crossing", () => {
+  const parent = "TestRebaseFaultRootInputsValidatedBeforeUse"
+  const transcript = log(
+    { Action: "output", Test: `${parent}/crossing`, Output: 'CRASH-POINT rebase-post-capture\nCRASH-OBSERVATION {"point":"rebase-post-capture","subject":"branch","writesAcknowledged":20,"writesFound":20,"rebaseEntries":1,"outboxDepth":0}\n' },
+    { Action: "pass", Test: `${parent}/crossing` })
+  expect(() => requireRebaseRecoveryObservations(transcript, parent, true)).not.toThrow()
+  expect(() => requireRebaseRecoveryObservations(rebaseRecoveryLog(), parent, true)).toThrow("did not pass")
 })

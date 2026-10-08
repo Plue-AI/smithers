@@ -18,7 +18,7 @@ Existing engine/library crash tests are not C-DUR acceptance evidence.
 | C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` and compose `todo_machine_kill_fault_test.go` | Approved reference Mac, microVM |
 | C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts`; `engine/case39-kill-crossing.test.ts` | CI, PostgreSQL 18, fake GitHub |
-| C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
+| C-DUR-04 | backend machined `fault_test.go`; compose `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
 
 These are required paths, not claims of implemented coverage. The approved
 mapping in `scripts/check-commands.json` and authenticated CI results determine
@@ -229,37 +229,63 @@ cd packages/smithers
 pnpm exec vitest run --config vitest.faults.config.ts test/faults/durability-required.test.ts -t 'C-DUR-01: TestTodoStartPauseResumeCrashThroughRoutes'
 ```
 
-### Rebase and root-input availability
+### Composed reference rebase faults
 
-`machined/rebase_fault_test.go` now names all six rebase cells (three points,
-with and without people), plus `TestRebaseFaultRootInputsValidatedBeforeUse`.
-The latter exercises production authenticated host transport validation and
-observes the guest socket staying silent for refused inputs. Its positive
-control checks the exact rebase target and principal fields. These socket
-controls do not execute a guest broker or qualify root execution.
+`compose/rebase_fault_test.go` replaces the unavailable rebase cells with
+`TestRebaseCrashThroughDispatcher` (daemon replacement) and
+`TestRebaseVMCrashThroughDispatcher` (real `msb stop -t 0`). Both cover all
+three points with and without people, ten repetitions per cell. Each run installs the approved bundle,
+starts a TODO through the composed HTTP door, and writes 20 files through the
+real member terminal. Acknowledgements follow write, fsync and close. The
+person-present case holds a gated member writer while the kernel reports
+`frozen 1`; opening its gate must produce no write. The person-absent case
+closes the browser terminal and withdraws its presence before automatic rebase.
+No empty broker or process runtime qualifies these cells.
 
-The required matrix sets `SMITHERS_REBASE_FAULT_REQUIRED=1` for both cases.
-Each unavailable cell logs a JSON observation with `passing:false`, no kill
-marker, and null write/effect counts, and fails. Ordinary targeted Go runs
-verify the host controls and log the same non-passing availability observations.
-Their successful exit is not C-DUR-04 evidence. Existing check-run log/receipt
-handling remains the only receipt mechanism; pending-owner mappings remain
-closed. No branch-built code runs as root.
+The driver uses private qualification arm/hit/exit files already supported by
+main's debug killpoints daemon. It requires the exact hit before daemon exit or
+VM stop, reconnects through the production supervisor, checks `frozen 0`, and
+compares every acknowledged byte and digest through the install's file HTTP
+route and the captured host tree. The head visible at the kill must equal the
+pre-rebase capture or recovered capture. One `todo.rebased` entry and an empty
+outbox are required. Setup subtests cannot supply the crossing's marker or its
+final recovery observation; FaultSuite requires all sixty exact crossings.
 
-Supplemental `TestBranchRebaseNowNativeComposedExecution` controls now use the
-installed daemon over authenticated production transport for retained file and
-directory symlinks, traversal, and an outside-file canary. Refused writes apply
-nothing; a trusted read and the composed HTTP rebase still succeed afterwards.
-The rehearsal broker has no member sessions: write refusals do not qualify
-successful member writes, cgroup freezing, privileged startup or kill recovery.
-These controls remain separate from the required unavailable matrix.
+`TestRebaseFaultRootInputsValidatedBeforeUse` additionally selects the retained
+VM restart crossing. Every reference campaign first executes the inherited
+C-SEC-02 startup, symlink and bounded-envelope cases, refusing skipped or missing
+cases. The composed cases probe retained member symlinks, traversal, hostile
+argv/env targets and forged kill selectors; observe the member UID/GID/groups
+and cgroup; retain an outside canary; and prove the member cannot create a root
+canary. Every control script executes only after the approved image's fixed
+setpriv drops UID/GID/groups. No branch-built executable is installed as root.
 
-Still required: approved guest startup and artifact-substitution controls,
-retained symlink/outside/root canaries, actual UID/GID/groups and broker cgroup
-freeze with real member writers; dispatcher-driven rebase kills and recovery
-through the composed install; approved mini VM kills and owner argv/host
-mappings. The existing composed Rebase now rehearsal qualifies the HTTP and
-presence path separately and cannot replace these observations.
+Supplemental `microsandbox/TestRebaseApprovedRootArtifactSubstitutionRefused`
+uses the production runtime startup boundary for 15 substitutions: changed
+bytes, forged replacement manifests after pinning, and symlinks for msb,
+kernel, jj, export helper and coding host. Refusal precedes executable use and
+state creation; restored approved bytes reach the positive launch control.
+These Linux controls alone do not qualify privileged startup or VM recovery.
+`machined/TestRebaseFaultTransportInputsRefusedBeforeSend` retains the original
+socket refusal controls without claiming root qualification.
+
+On the approved reference Mac, with a main-built debug qualification bundle:
+
+```sh
+SMITHERS_REBASE_FAULT_REQUIRED=1 \
+SMITHERS_REBASE_FAULT_REFERENCE=1 \
+SMITHERS_CHECK_BUNDLE="/absolute/approved/main-bundle" \
+go test -p 4 ./internal/compose \
+  -run '^TestRebase(CrashThroughDispatcher|VMCrashThroughDispatcher|FaultRootInputsValidatedBeforeUse)$' \
+  -count=1 -timeout 4h
+```
+
+Existing check-run receipt handling remains the only qualification receipt
+writer. The driver's per-cell observations live in the rehearsal evidence
+directory. Missing reference selection fails in required mode; ordinary runs
+skip, and FaultSuite rejects skips. Execution on the mini, current bundle
+approval, and authenticated owner mappings remain required. This automation
+has not been executed on the reference host by the Linux lane.
 
 ### Supplemental composed rebase process kills
 
@@ -292,6 +318,5 @@ go test -p 4 ./internal/compose -run '^TestBranchRebaseNativeCrashRecovery$' -co
 
 This is supplemental process recovery evidence. The empty rehearsal broker
 cannot qualify member writes, cgroup freeze, privileged input validation or
-VM recovery. The required `machined/TestRebaseCrashThroughDispatcher` and
-root-input availability observations remain non-passing until those providers
-are qualified; these controls do not enable their check mapping.
+VM recovery. The required composed reference rebase matrix still needs its approved Mac
+execution; supplemental controls do not enable its check mapping.

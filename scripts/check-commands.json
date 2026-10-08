@@ -218,7 +218,7 @@
     },
     "C-DUR-04": {
       "status": "pending-owner",
-      "reason": "Host-ingest controls exist; full K1–K6, presence-aware rebase/root-input qualification and owner-approved argv/host mapping are still required",
+      "reason": "Host-ingest controls and composed reference rebase automation (internal/compose/rebase_fault_test.go) exist; full K1–K6, mini rebase/root-input execution and authenticated owner-approved host mapping are still required",
       "ticket": "T-COL-03"
     },
     "C-DUR-05": {

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
-import { requireReachedGoFaultMatrix } from "./harness/durability.ts"
+import { requireReachedGoFaultMatrix, requireRebaseRecoveryObservations } from "./harness/durability.ts"
 import { githubCrossings, githubPoints, requireGitHubRecoveryObservations } from "./harness/githubFaultMatrix.ts"
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
@@ -19,8 +19,8 @@ const cases = [
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
   ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-production-propose"]],
   ["C-DUR-04", "internal/machined/fault_test.go", null, []],
-  ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseFaultRootInputsValidatedBeforeUse", []],
-  ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
+  ["C-DUR-04", "internal/compose/rebase_fault_test.go", "TestRebaseFaultRootInputsValidatedBeforeUse", []],
+  ["C-DUR-04", "internal/compose/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
 ] as const
 
 // These TypeScript siblings are automatically executed by FaultSuite once
@@ -35,6 +35,7 @@ for (const file of ["host/case40-host-kill-todo-run.test.ts", "engine/case39-kil
 // Keep requiring the composed TODO kill marker until that reference case lands.
 const selected = process.env.SMITHERS_FAULT_HOST === "reference"
   ? [...cases,
+    ["C-DUR-04", "internal/compose/rebase_fault_test.go", "TestRebaseVMCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]] as const,
     ["C-DUR-02", "flowhost/machine_kill_fault_test.go", null, ["machine-mid-command"]] as const,
     ["C-DUR-02", "internal/compose/todo_machine_kill_fault_test.go", "TestTodoMachineKillThroughInstall", ["machine-mid-todo"]] as const]
   : cases
@@ -52,19 +53,19 @@ for (const [check, file, name, points] of selected) {
     // The composed matrix enters the reserved production proposal route and
     // kills the claimed worker at every send/commit/response boundary.
     const githubControl = file === "internal/compose/github_outbound_kill_test.go"
-    const referenceMachine = check === "C-DUR-02"
-    const rebaseFault = file === "internal/machined/rebase_fault_test.go"
+    const referenceMachine = check === "C-DUR-02" || file === "internal/compose/rebase_fault_test.go"
+    const rebaseFault = file === "internal/compose/rebase_fault_test.go"
     const packagedPause = name === "TestTodoStartPauseResumeCrashThroughRoutes"
-    const timeout = githubControl ? (githubRunMinutes + 1) * 60_000 : referenceMachine ? 2_700_000 : packagedPause ? 750_000 : 150_000
+    const timeout = rebaseFault ? 14_500_000 : githubControl ? (githubRunMinutes + 1) * 60_000 : referenceMachine ? 2_700_000 : packagedPause ? 750_000 : 150_000
     const evidenceNames = githubControl
       ? githubCrossings.map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
       : packagedPause ? ["stop", "resume"].map(point => `${name}/${point}`) : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`,
-      "-timeout", githubControl ? `${githubRunMinutes}m` : referenceMachine ? "44m" : packagedPause ? "12m" : "2m"], {
+      "-timeout", rebaseFault ? "4h" : githubControl ? `${githubRunMinutes}m` : referenceMachine ? "44m" : packagedPause ? "12m" : "2m"], {
       cwd: backend,
       env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" }
         : packagedPause ? { ...process.env, SMITHERS_TODO_PAUSE_HOST_KILL: "1" }
-          : rebaseFault ? { ...process.env, SMITHERS_REBASE_FAULT_REQUIRED: "1" } : process.env,
+          : rebaseFault ? { ...process.env, SMITHERS_REBASE_FAULT_REQUIRED: "1", ...(process.env.SMITHERS_FAULT_HOST === "reference" ? { SMITHERS_REBASE_FAULT_REFERENCE: "1" } : {}) } : process.env,
       encoding: "utf8", timeout, maxBuffer: 32 << 20
     })
     // Preserve partial JSON and stderr before checking exit status: crashes,
@@ -74,8 +75,8 @@ for (const [check, file, name, points] of selected) {
     expect(result.error, "Go fault process failed to execute").toBeUndefined()
     expect(result.signal, "Go fault process terminated by a signal").toBeNull()
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
-    requireReachedGoFaultMatrix(result.stdout, evidenceNames, points,
-      name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
+    if (rebaseFault) requireRebaseRecoveryObservations(result.stdout, name!, name === "TestRebaseFaultRootInputsValidatedBeforeUse")
+    else requireReachedGoFaultMatrix(result.stdout, evidenceNames, points)
     if (githubControl) requireGitHubRecoveryObservations(result.stdout)
-  }, file === "internal/compose/github_outbound_kill_test.go" ? (githubRunMinutes + 1.5) * 60_000 : check === "C-DUR-02" ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
+  }, file === "internal/compose/rebase_fault_test.go" ? 14_550_000 : file === "internal/compose/github_outbound_kill_test.go" ? (githubRunMinutes + 1.5) * 60_000 : (check === "C-DUR-02" || file === "internal/compose/rebase_fault_test.go") ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
 }
