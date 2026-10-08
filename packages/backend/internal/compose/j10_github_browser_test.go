@@ -71,6 +71,10 @@ type j10BrowserMember struct {
 }
 
 func runJ10Browser(t *testing.T, check, spec, scenario string) {
+	runPreparedGitHubBrowser(t, check, spec, scenario, nil)
+}
+
+func runPreparedGitHubBrowser(t *testing.T, check, spec, scenario string, prepare func(*rehearsal)) {
 	if os.Getenv("SMITHERS_J10_BROWSER") != "1" {
 		t.Skip("set SMITHERS_J10_BROWSER=1 for the composed C-J10-01 and C-J10-05 browser journeys")
 	}
@@ -103,6 +107,10 @@ func runJ10Browser(t *testing.T, check, spec, scenario string) {
 		require.NotEmpty(t, out)
 		return out
 	}
+	if prepare != nil {
+		prepare(r)
+	}
+	specPath := filepath.ToSlash(filepath.Clean("github-j10/" + spec))
 	commit, _ := exec.Command("/usr/bin/git", "-C", root, "rev-parse", "HEAD").Output()
 	host := j10BrowserHost{Origin: r.origin, Repository: "rehearsal-owner/app", Database: r.pool.Config().ConnString(), Commit: strings.TrimSpace(string(commit)),
 		Members: map[string]j10BrowserMember{"Owner": {Login: "rehearsal-owner", Cookies: cookies(r.jar)}, "Ben": {Login: "ben", Cookies: cookies(ben)}}}
@@ -112,7 +120,7 @@ func runJ10Browser(t *testing.T, check, spec, scenario string) {
 	hostFile := filepath.Join(t.TempDir(), "host.json")
 	require.NoError(t, os.WriteFile(hostFile, data, 0600))
 	evidence := filepath.Join(r.evidence, "playwright")
-	playwright := exec.CommandContext(r.ctx, filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/github-j10/"+spec)
+	playwright := exec.CommandContext(r.ctx, filepath.Join(app, "node_modules/.bin/playwright"), "test", "--config", "playwright.real.config.ts", "e2e/real/"+specPath)
 	playwright.Dir = app
 	environment := slices.DeleteFunc(os.Environ(), func(variable string) bool {
 		return strings.HasPrefix(variable, "SMITHERS_REAL_") || strings.HasPrefix(variable, "SMITHERS_JOURNEY") || strings.HasPrefix(variable, "CI=")
@@ -122,7 +130,7 @@ func runJ10Browser(t *testing.T, check, spec, scenario string) {
 		"SMITHERS_REAL_E2E_REPORT="+filepath.Join(evidence, "results.json"), "SMITHERS_REAL_E2E_ARTIFACTS="+filepath.Join(evidence, "artifacts"))
 	// Both specs are named journeys. Declare the composed install so the
 	// runner admits this rehearsal without claiming reference qualification.
-	playwright.Env = append(playwright.Env, "SMITHERS_JOURNEY=github-j10/"+spec, "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile)
+	playwright.Env = append(playwright.Env, "SMITHERS_JOURNEY="+specPath, "SMITHERS_JOURNEY_COMPOSED_HOST="+hostFile)
 	playwright.Stdout, playwright.Stderr = os.Stdout, os.Stderr
 	began := time.Now()
 	err = playwright.Run()

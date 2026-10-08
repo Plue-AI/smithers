@@ -14,6 +14,7 @@ export const journeySpecs = [
   "wiki-coedit.spec.ts",
   "wiki-decision-follow.spec.ts",
   "todo-from-issue.spec.ts",
+  "fork-drop-install.spec.ts",
   "todo-needs-you.spec.ts",
   "todo-evidence.spec.ts",
   "todo-merge.spec.ts",

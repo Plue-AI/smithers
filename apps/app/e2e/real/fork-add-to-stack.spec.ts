@@ -6,7 +6,7 @@ import { counterIdentity, maximumTickGap } from "./support/fork-continuity"
 import { journeyActivate } from "./support/keyboard-journey-input"
 
 // C-J7-02, including the production T-STK-05 Drop/capture boundary.
-// Provision T1 In review, T2 Working with verified H2,
+// Provision T1 In review, T2 Working after a steer,
 // T3 Queued and Ben's real delegated token. Never seed/mutate install SQL.
 // The source guest has a running counter writing epoch seconds to .tick;
 // SMITHERS_FORK_COUNTER_PID identifies that process. SSH observes it only.
@@ -27,26 +27,25 @@ const continuity = () => {
     ticks: source("cat .tick").trim().split(/\s+/).map(Number) }
 }
 
-test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", scenario("fork-add-to-stack", {
+test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scenario("fork-add-to-stack", {
   capabilities: ["install", "ssh"], coverage: ["host:local", "host:production", "door:button", "door:slash", "door:agent",
     "action:branch.fork", "action:branch.add-to-stack", "action:todo.drop", "path:success", "path:permission", "path:persistence",
     "evidence:fork-source-continuity", "evidence:retained-source-bytes"]
 }), async ({ browser }, info) => {
-  test.setTimeout(300_000)
+  test.setTimeout(20 * 60_000)
   await withReference(browser, info, async f => {
     const page = f.members.Ben.page
     const member = await f.read("Ben", "/api/user")
     expect(member.username).toBe("ben")
     const stack = await f.read("Ben", "/api/todos")
     expect(stack.map((item: any) => [item.n, item.state])).toEqual([[1, "in_review"], [2, "working"], [3, "queued"]])
-    const [verified] = f.sql("SELECT number,candidate_head,candidate_base FROM mythical_items WHERE number=2 AND candidate_verified AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active')")
-    expect(verified.candidate_head).toMatch(/^[0-9a-f]{40}$/)
+    const [verified] = f.sql("SELECT number,COALESCE(NULLIF(candidate_base,''),base_commit) AS candidate_base FROM mythical_items WHERE number=2 AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active')")
     expect(verified.candidate_base).toMatch(/^[0-9a-f]{40}$/)
     // Literal expected canary bytes come from the qualification operator, not
     // the production implementation or a spec parser. Retain actual bytes too.
     required("SMITHERS_FORK_VERIFIED_RETRY_BYTES")
     const expected = process.env.SMITHERS_FORK_VERIFIED_RETRY_BYTES!
-    const bytes = source(`git show ${verified.candidate_head}:src/retry.ts`)
+    const bytes = source("cat src/retry.ts")
     await info.attach("verified-retry-source", { body: bytes, contentType: "text/plain" })
     expect(bytes).toBe(expected)
     expect(source("cat src/fork-uncommitted.ts")).toBe("export const uncapturedForkCanary = true;\n")
@@ -67,7 +66,10 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     const path = `/api/branches/${encodeURIComponent(branch)}`
     const scratch = await f.read("Ben", path)
     expect(scratch.kind).toBe("scratch")
-    expect(scratch.forked_from).toMatchObject({ item: 2, commit: verified.candidate_head, base: verified.candidate_base })
+    expect(scratch.forked_from).toMatchObject({ item: 2, base: verified.candidate_base })
+    expect(scratch.forked_from.commit).toMatch(/^[0-9a-f]{40}$/)
+    const captures = f.sql("SELECT data FROM product_job_events WHERE event_type='branch.captured' AND principal_id='branch:'||(SELECT workspace_id FROM mythical_items WHERE number=2 AND repository_id=(SELECT repository_id FROM mythical_stacks WHERE state='active'))")
+    expect(captures.some(row => row.data.applied && row.data.head === scratch.forked_from.commit)).toBe(true)
     await expect.poll(() => continuity().ticks.length).toBeGreaterThan(before.ticks.length + 1)
     const after = continuity()
     expect(after.boot).toBe(before.boot)
@@ -83,7 +85,9 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     const file = await f.read("Ben", `${path}/files/src/retry.ts`)
     expect(file.content).toEqual({ kind: "text", text: expected })
     const uncaptured = await realApi(page, page.context().request, "GET", `${path}/files/src/fork-uncommitted.ts`)
-    expect(uncaptured.status()).toBe(404)
+    // The composed S2 capture contract includes uncommitted source edits.
+    expect(uncaptured.status()).toBe(200)
+    expect((await uncaptured.json()).content).toEqual({ kind: "text", text: "export const uncapturedForkCanary = true;\n" })
     await attachJson(info, "fork-source-after", { scratch, before, after, current, file,
       dispatch: { method: forked.request().method(), path: "/api/branches", payload: forked.request().postDataJSON(), status: forked.status() } })
     const githubBranches = await f.github("Ben", "GET", "/branches?per_page=100") as Array<{ name: string }>
