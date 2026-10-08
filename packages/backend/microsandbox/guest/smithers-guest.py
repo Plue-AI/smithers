@@ -2229,7 +2229,15 @@ def machined_boot_body(body):
         values = dict(line.split("=", 1) for line in lines)
     except (ValueError, UnicodeError):
         fail(3, "invalid machined boot authority")
-    if (len(values) != len(lines) or set(values) != {"boot_id", "relay_secret", "credential", "topology"}
+    # The host's lane binding, validated as the daemon parses it (boot.rs): a
+    # scratch machine names item 0 alone; only a bound item can be moved off.
+    number, change, moved = (values.get(key) for key in ("item_number", "item_change", "moved_off"))
+    scratch = number in (None, "0") and change is None and moved is None
+    bound = (number is not None and change is not None and re.fullmatch(r"[1-9][0-9]{0,19}", number)
+             and int(number) < 1 << 64 and re.fullmatch(r"[k-z]{32}", change)
+             and (moved is None or re.fullmatch(r"[0-9a-f]{40}", moved)))
+    if (len(values) != len(lines) or not (scratch or bound)
+            or set(values) - {"item_number", "item_change", "moved_off"} != {"boot_id", "relay_secret", "credential", "topology"}
             or not re.fullmatch(r"[0-9a-f]{32}", values["boot_id"])
             or not valid_digest(values["relay_secret"]) or not valid_digest(values["credential"])
             or values["topology"] != "relay"):

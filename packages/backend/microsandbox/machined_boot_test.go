@@ -165,3 +165,41 @@ func TestMachinedCancelledStartupDoesNotMintBoot(t *testing.T) {
 		})
 	}
 }
+
+// The root helper admits the boot file EnsureMachined writes, byte for byte:
+// the daemon's parser (crates/smithers-machined/src/boot.rs) accepts the same
+// item fields. A refusal here means no daemon starts in any real machine.
+func TestGuestMachinedBootAdmitsHostItemBindings(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	check := func(body []byte) ([]byte, error) {
+		cmd := exec.Command(python, "-B", "-c", `import importlib.util,sys
+spec=importlib.util.spec_from_file_location("g",sys.argv[1]);g=importlib.util.module_from_spec(spec);spec.loader.exec_module(g)
+g.machined_boot_body(sys.stdin.buffer.read())`, filepath.Join("guest", "smithers-guest.py"))
+		cmd.Stdin = strings.NewReader(string(body))
+		return cmd.CombinedOutput()
+	}
+	authority := machined.BootAuthority{ID: [16]byte{1}, Secret: [32]byte{2}, Credential: strings.Repeat("03", 32)}
+	change, commit := strings.Repeat("k", 32), strings.Repeat("a", 40)
+	for name, item := range map[string]machined.ItemBinding{
+		"scratch": {}, "item": {Number: 7, Change: change}, "largest item": {Number: 1<<64 - 1, Change: strings.Repeat("z", 32)},
+		"moved off": {Number: 7, Change: change, PreMoveCommit: commit},
+	} {
+		body, err := authority.FileForItem(0, item)
+		require.NoError(t, err, name)
+		out, err := check(body)
+		require.NoError(t, err, "%s: %s", name, out)
+	}
+	for _, fields := range []string{
+		"item_number=7\n", "item_change=" + change + "\n", "item_number=0\nitem_change=" + change + "\n",
+		"item_number=7\nitem_change=main\n", "item_number=07\nitem_change=" + change + "\n",
+		"item_number=18446744073709551616\nitem_change=" + change + "\n", "item_number=-1\nitem_change=" + change + "\n",
+		"moved_off=" + commit + "\n", "item_number=0\nmoved_off=" + commit + "\n",
+		"item_number=7\nitem_change=" + change + "\nmoved_off=" + strings.Repeat("A", 40) + "\n",
+		"item_number=7\nitem_change=" + change + "\nitem_number=7\n", "item_number=0\nexecutable=/workspace/a\n",
+	} {
+		out, err := check(append(authority.File(0), fields...))
+		require.Error(t, err, fields)
+		require.Contains(t, string(out), "invalid machined boot authority", fields)
+	}
+}
