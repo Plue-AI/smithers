@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -89,7 +90,9 @@ func maintenanceInventory(t *testing.T, root string) map[string]string {
 		if err != nil {
 			return err
 		}
-		value := info.Mode().String()
+		identity, ok := info.Sys().(*syscall.Stat_t)
+		require.True(t, ok, "inventory must observe filesystem identity")
+		value := fmt.Sprintf("%s uid=%d gid=%d dev=%d ino=%d", info.Mode(), identity.Uid, identity.Gid, identity.Dev, identity.Ino)
 		if info.Mode()&os.ModeSymlink != 0 {
 			target, err := os.Readlink(path)
 			if err != nil {
@@ -148,7 +151,7 @@ func maintenanceManifest(t *testing.T, directory string, manifest hostbackup.Man
 func TestHostRestorePathConfinement(t *testing.T) {
 	require.NotZero(t, os.Geteuid(), "never execute branch-built code as root")
 	bundle := installedMaintenanceCommand(t)
-	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "replaced state tree", "replaced dump", "replaced manifest", "link loop", "cross-tree link", "fifo dump", "windows entry", "nul entry"} {
+	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "replaced state tree", "replaced dump", "replaced manifest", "link loop", "cross-tree link", "fifo dump", "fifo manifest", "missing manifest", "changed dump", "windows entry", "nul entry"} {
 		t.Run(name, func(t *testing.T) {
 			home, state := ownerHome(t)
 			outside := filepath.Join(home, "outside")
@@ -166,6 +169,13 @@ func TestHostRestorePathConfinement(t *testing.T) {
 			case "nul entry":
 				manifest.Files[0].Path = "state/config/secret\x00suffix"
 				refusal = "unsafe_path: state/config/secret\x00suffix"
+			case "fifo manifest":
+				refusal = "unsafe_path: MANIFEST.json"
+			case "missing manifest":
+				refusal = "missing_file: MANIFEST.json"
+			case "changed dump":
+				maintenanceSeedFile(t, filepath.Join(backup, "postgres.dump"), "PGDMP independently seeded byteX", 0600)
+				refusal = "hash_mismatch: postgres.dump"
 			case "fifo dump":
 				require.NoError(t, os.Remove(filepath.Join(backup, "postgres.dump")))
 				require.NoError(t, unix.Mkfifo(filepath.Join(backup, "postgres.dump"), 0600))
@@ -225,6 +235,13 @@ func TestHostRestorePathConfinement(t *testing.T) {
 			if name == "replaced manifest" {
 				require.NoError(t, os.Rename(filepath.Join(backup, "MANIFEST.json"), filepath.Join(outside, "manifest")))
 				require.NoError(t, os.Symlink(filepath.Join(outside, "manifest"), filepath.Join(backup, "MANIFEST.json")))
+			}
+			switch name {
+			case "fifo manifest":
+				require.NoError(t, os.Remove(filepath.Join(backup, "MANIFEST.json")))
+				require.NoError(t, unix.Mkfifo(filepath.Join(backup, "MANIFEST.json"), 0600))
+			case "missing manifest":
+				require.NoError(t, os.Remove(filepath.Join(backup, "MANIFEST.json")))
 			}
 			before := maintenanceInventory(t, home)
 			require.Equal(t, refusal, runInstalledMaintenance(t, bundle, home, home, nil, "restore", backup))
