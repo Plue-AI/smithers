@@ -199,6 +199,7 @@ func TestJ11Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("3 T5 merged", "POST /api/todos/{T5}/merge; GET /api/todos/{T5}", "202; merged only after GitHub's head-bound squash", "T-STK-04", func() error {
+		waitMonitorMergeReady(t, r, t5)
 		if err := r.merge(t5, head); err != nil {
 			return err
 		}

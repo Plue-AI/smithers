@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,6 +22,11 @@ func TestJ11NativeMergedSettlement(t *testing.T) {
 		t.Skip("enable native merged-run qualification")
 	}
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
+	if os.Getenv("SMITHERS_J11_NATIVE_SETTLEMENT_BROWSER") == "1" {
+		spa, err := filepath.Abs("../../../../apps/app/dist")
+		require.NoError(t, err)
+		t.Setenv("SMITHERS_REHEARSAL_SPA_DIR", spa)
+	}
 	r := newRehearsal(t, "SMITHERS_J11_NATIVE_SETTLEMENT", "C-J11-01", "j11-settlement-")
 	require.True(t, r.install("Install"))
 	source, err := os.ReadFile(filepath.Join(r.root, "flows/todo/flow.ts"))
@@ -75,6 +81,17 @@ func TestJ11NativeMergedSettlement(t *testing.T) {
 	require.Equal(t, "done", inspected["state"])
 	code, refused := invoke("run", "inspect", "missing-workspace:"+card.Run.ID)
 	require.NotZero(t, code, refused)
+	if os.Getenv("SMITHERS_J11_NATIVE_SETTLEMENT_BROWSER") == "1" {
+		cookies, err := json.Marshal(r.jar.Cookies(mustRehearsalURL(r.origin)))
+		require.NoError(t, err)
+		command := exec.CommandContext(r.ctx, "pnpm", "exec", "playwright", "test", "--config", "e2e/real/j11.config.ts", "C-J11-01.spec.ts", "--grep", "canonical merged archive")
+		command.Dir = filepath.Join(r.root, "apps/app")
+		command.Env = append(os.Environ(), "SMITHERS_J11_OUTPUT_DIR="+filepath.Join(r.evidence, "browser"), "SMITHERS_J11_ORIGIN="+r.origin, "SMITHERS_J11_COOKIES="+string(cookies), "SMITHERS_J11_SETTLED_RUN="+qualified)
+		output, err := command.CombinedOutput()
+		t.Log(string(output))
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "browser-settlement.log"), output, 0600))
+		require.NoError(t, err)
+	}
 }
 
 // A review candidate is available before its overridable TODO root settles.

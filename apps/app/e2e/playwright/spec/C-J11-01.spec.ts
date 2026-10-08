@@ -2,6 +2,49 @@ import { expect, test } from "../browserTest"
 import { writeFile } from "node:fs/promises"
 import { say } from "./j1-fixtures"
 
+test("canonical merged archive remains inspectable through monitor and read-only replay", async ({ page, context }, testInfo) => {
+  const origin = process.env.SMITHERS_J11_ORIGIN
+  const id = process.env.SMITHERS_J11_SETTLED_RUN
+  test.skip(!origin || !id, "Run TestJ11NativeMergedSettlement with SMITHERS_J11_NATIVE_SETTLEMENT_BROWSER=1")
+  const cookies: Array<{ Name: string; Value: string }> = JSON.parse(process.env.SMITHERS_J11_COOKIES!)
+  await context.addCookies(cookies.map(c => ({ name: c.Name, value: c.Value, url: origin! })))
+  const response = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
+  expect(response.status()).toBe(200)
+  const archive = await response.json()
+  expect(archive.state).toBe("done")
+  expect(archive.attempts.length).toBeGreaterThan(0)
+  expect(archive.journal.length).toBeGreaterThan(1)
+  await writeFile(testInfo.outputPath("completed-archive.json"), JSON.stringify(archive, null, 2))
+  await page.goto(origin!)
+  await say(page, "/monitor")
+  const card = page.getByTestId(`card-run:${id}`)
+  await expect(card).toBeVisible({ timeout: 30_000 })
+  await card.getByRole("button", { name: "Inspect", exact: true }).press("Enter")
+  const run = page.locator('.mvp-run[data-maximized]')
+  await expect(run).toBeVisible()
+  await expect(run.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+  await expect(run.getByRole("list", { name: "Attempt 1", exact: true })).toBeVisible()
+  await run.getByRole("tab", { name: "Journal", exact: true }).press("Enter")
+  await expect(run.locator(".mvp-run-journal")).toContainText("control.engine.event")
+  const writes: string[] = []
+  page.on("request", request => {
+    if (new URL(request.url()).pathname.startsWith("/api/runs") && request.method() !== "GET") writes.push(request.url())
+  })
+  const slider = run.getByRole("slider", { name: "Run position", exact: true })
+  const historical = page.waitForResponse(r => r.url().includes("/trace") && new URL(r.url()).searchParams.get("at") === "0")
+  await slider.focus()
+  await slider.press("Home")
+  expect((await historical).status()).toBe(200)
+  await expect(run.locator(".mvp-run-journal li")).toHaveCount(1)
+  await slider.press("End")
+  await expect(run.locator(".mvp-run-journal")).toContainText("control.engine.event")
+  expect(writes).toEqual([])
+  const retained = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
+  expect(retained.status()).toBe(200)
+  expect((await retained.json()).journal).toEqual(archive.journal)
+  await page.screenshot({ path: testInfo.outputPath("completed-journal.png") })
+})
+
 // Run with SMITHERS_J11_BROWSER=1 through TestJ11Rehearsal. The install runs
 // the packaged native coding host, real checks and proxy; no API is intercepted.
 test("C-J11-01: Inspect exposes native retries and read-only run evidence", async ({ page, context }, testInfo) => {
