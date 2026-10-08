@@ -377,7 +377,13 @@ func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, facts, 1)
 		withReceipt := append(facts, GitHubSyncStream{LastSuccessAt: health.LastSuccessAt})
-		require.Equal(t, "fresh", aggregateGitHubSyncHealth(withReceipt, s.now()).State, resource)
+		fresh := aggregateGitHubSyncHealth(withReceipt, s.now())
+		require.Equal(t, "fresh", fresh.State, resource)
+		require.Equal(t, health.LastSuccessAt, fresh.LastSuccessAt, resource+" retains the repository receipt")
+		require.WithinDuration(t, time.Unix(1045, 1), fresh.staleAt, 0, resource+" schedules the first-poll boundary")
+		due := aggregateGitHubSyncHealth(withReceipt, s.now().Add(45*time.Second))
+		require.Equal(t, "fresh", due.State, resource+" deadline is inclusive")
+		require.Equal(t, health.LastSuccessAt, due.LastSuccessAt, resource+" retains the receipt at its deadline")
 		require.Equal(t, "stale", aggregateGitHubSyncHealth(withReceipt, s.now().Add(46*time.Second)).State, resource)
 	}
 	for _, stream := range streams[:5] {
