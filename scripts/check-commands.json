@@ -352,8 +352,8 @@
     },
     "C-J10-04": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/github-j10/main-moved-rebase.spec.ts",
-      "ticket": "T-STK-11"
+      "reason": "Automation present: TestRebaseNowRehearsal and TestRebaseNowBrowserRehearsal (apps/app/e2e/real/github-j10/rebase-now.spec.ts); checkpoint, presence and departure execute on the trusted-process install. Reference microVM, complete writer freeze matrix and owner-approved mapping remain pending",
+      "ticket": "T-STK-08"
     },
     "C-J10-05": {
       "status": "pending-owner",
@@ -535,7 +535,7 @@
     },
     "C-J7-03": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_conflict_db_test.go",
+      "reason": "Automation present: TestRebaseManualConflictRehearsal, TestRebaseZeroConflictAttemptsRehearsal and apps/app/e2e/real/github-j10/rebase-done.spec.ts; native TODO and Scratch Done exercise the composed install. Reference microVM, root-input validation and owner-approved mapping remain pending",
       "ticket": "T-STK-08"
     },
     "C-J8-01": {
