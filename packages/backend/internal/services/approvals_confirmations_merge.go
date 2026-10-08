@@ -119,11 +119,10 @@ func (s *MythicalService) prepareMergeConfirmation(ctx context.Context, tx pgx.T
 			merge = map[string]any{"state": "ready", "detail": land.Refused.Message, "on_github": true}
 		}
 	}
-	repositoryRow, owner, err := consumer.repository(ctx, repository)
-	if err != nil {
-		return p, err
-	}
-	gh, err := s.github.Resolve(ctx, repositoryRow, owner, member.ID)
+	// The card reads GitHub as the stack's actor, as MergeReady and the merge
+	// worker do. The asking member needs no GitHub destination of their own;
+	// their authority is decided again when a person approves.
+	gh, err := consumer.stackGitHub(ctx, repository)
 	if err != nil {
 		return p, confirmationUnavailable()
 	}
