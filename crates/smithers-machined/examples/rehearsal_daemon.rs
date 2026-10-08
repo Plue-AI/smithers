@@ -105,6 +105,7 @@ fn main() -> std::io::Result<()> {
                 drop(client);
                 let client = high;
                 let descriptor = client.as_raw_fd();
+                let supervisor = unsafe { libc::getpid() };
                 let broker =
                     std::thread::spawn(move || control::serve(&server, &mut EmptyBroker(0)));
 
@@ -116,10 +117,19 @@ fn main() -> std::io::Result<()> {
                 if let Some(fault) = self.fault.take() {
                     command.env("SMITHERS_MACHINED_KILL_AT", fault);
                 }
-                // Only dup2 runs in the forked child. Each lifetime has its own
-                // production socketpair, so an old reply cannot poison startup.
+                // Only process-lifetime and dup2 syscalls run in the forked child.
+                // Each lifetime has its own production socketpair, so an old
+                // reply cannot poison startup.
                 unsafe {
                     command.pre_exec(move || {
+                        // bwrap owns init; init owns this daemon. Preserve
+                        // that lifetime even when an assertion kills bwrap,
+                        // rather than leaving an orphan with deleted state.
+                        if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0
+                            || libc::getppid() != supervisor
+                        {
+                            return Err(io::ErrorKind::Interrupted.into());
+                        }
                         if libc::dup2(descriptor, 3) < 0 {
                             return Err(io::Error::last_os_error());
                         }

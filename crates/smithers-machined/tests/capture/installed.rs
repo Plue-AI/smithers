@@ -1,5 +1,8 @@
 //! Unprivileged namespace evidence for the shipped executable. The only fake
 //! provider is the empty session census, shared with journey rehearsals.
+//! Busy shared runners can set TMPDIR=/dev/shm to isolate syncfs from unrelated
+//! builds. These are daemon-restart assertions; persistent disk and VM faults
+//! still require the reference guest.
 #![cfg(target_os = "linux")]
 use smithers_machined::conn::{self, Frame};
 use std::{
@@ -27,13 +30,18 @@ struct Host {
     bundle: Vec<u8>,
     captured: Option<[u8; 20]>,
     acknowledge: bool,
+    verify_versions: bool,
     seen: Vec<(u64, [u8; 16])>,
+    events: Vec<conn::Durable>,
     response_id: u32,
 }
 fn guest() -> (Guest, Host) {
     guest_with_fault(None)
 }
 fn guest_with_fault(fault: Option<&str>) -> (Guest, Host) {
+    guest_with_history(fault, 0)
+}
+fn guest_with_history(fault: Option<&str>, operations: usize) -> (Guest, Host) {
     let init = std::env::var("SMITHERS_NAMESPACE_INIT")
         .expect("build rehearsal_daemon and set SMITHERS_NAMESPACE_INIT");
     let root = tempfile::tempdir().unwrap();
@@ -44,7 +52,14 @@ fn guest_with_fault(fault: Option<&str>) -> (Guest, Host) {
     fs::write(root.path().join("outside/f"), b"outside protected sentinel").unwrap();
     fs::write(root.path().join("workspace/.gitignore"), b"d\nswap\n").unwrap();
     let jj = std::env::var("SMITHERS_TEST_JJ").unwrap_or("jj".into());
-    let out = Command::new(&jj)
+    let mut initialize = Command::new(&jj);
+    if operations > 0 {
+        initialize.args([
+            "--config",
+            "debug.operation-timestamp=\"2000-01-01T00:00:00Z\"",
+        ]);
+    }
+    let out = initialize
         .args(["git", "init"])
         .arg(root.path().join("workspace"))
         .output()
@@ -54,6 +69,24 @@ fn guest_with_fault(fault: Option<&str>) -> (Guest, Host) {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
+    for index in 0..operations {
+        let output = Command::new(&jj)
+            .args([
+                "--config",
+                "debug.operation-timestamp=\"2000-01-01T00:00:00Z\"",
+                "describe",
+                "-m",
+                &format!("history {index}"),
+            ])
+            .current_dir(root.path().join("workspace"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     fs::write(root.path().join("workspace/file"), b"outside sentinel").unwrap();
     let output = Command::new(&jj)
         .args(["log", "-r", "@", "--no-graph", "-T", "commit_id"])
@@ -196,7 +229,9 @@ fn guest_with_fault(fault: Option<&str>) -> (Guest, Host) {
             bundle: Vec::new(),
             captured: None,
             acknowledge: true,
+            verify_versions: false,
             seen: Vec::new(),
+            events: Vec::new(),
             response_id: 0,
         },
     )
@@ -262,7 +297,7 @@ fn exchange_result(
     receive_reply(host, stop_at_event)
 }
 fn receive_reply(host: &mut Host, stop_at_event: bool) -> std::io::Result<Vec<u8>> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
     loop {
         assert!(
             std::time::Instant::now() < deadline,
@@ -308,6 +343,21 @@ fn receive_reply(host: &mut Host, stop_at_event: bool) -> std::io::Result<Vec<u8
         }
         if f.kind == 2 && f.payload[0] == 1 {
             let event = conn::Durable::decode(&f.payload).unwrap();
+            if host.verify_versions && event.event[0] == 1 {
+                let fields = conn::fields("burst", &event.event[1..]).unwrap();
+                let commit = fields.iter().find(|(tag, _)| *tag == 4).unwrap().1;
+                let hex: String = commit.iter().map(|b| format!("{b:02x}")).collect();
+                let verified = Command::new("/usr/bin/git")
+                    .arg("-C")
+                    .arg(host.store.path())
+                    .args(["cat-file", "-e", &format!("{hex}^{{commit}}")])
+                    .output()
+                    .unwrap();
+                assert!(
+                    verified.status.success(),
+                    "burst event preceded its versions objects"
+                );
+            }
             host.seen.push((event.seq, event.id));
             if let Some(head) = event.captured_head() {
                 let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
@@ -331,7 +381,9 @@ fn receive_reply(host: &mut Host, stop_at_event: bool) -> std::io::Result<Vec<u8
                 }
                 .write(&mut host.stream)?;
             }
-            if stop_at_event && event.captured_head().is_some() {
+            let captured = event.captured_head().is_some();
+            host.events.push(event);
+            if stop_at_event && captured {
                 return Ok(f.payload);
             }
         }
@@ -418,7 +470,7 @@ fn production_binary_dark_activation_and_confined_read() {
         let refused = call(&mut host, 2, &[conn::field(1, value)]);
         assert_eq!(refused[0], 255);
         assert!(
-            start.elapsed() < Duration::from_secs(1),
+            start.elapsed() < Duration::from_millis(100),
             "special file blocked"
         );
     }
@@ -681,25 +733,36 @@ fn production_capture_killpoints_restart_and_converge_ten_times_each() {
     for fault in ["K3", "K3b", "K5a", "K5b", "K5c"] {
         for iteration in 0..10 {
             eprintln!("fault {fault} iteration {iteration}");
-            let (guest, mut host) = guest_with_fault(Some(fault));
+            let (guest, mut host) = guest_with_fault(Some(&format!("armed:{fault}")));
             let address = host.stream.peer_addr().unwrap();
             let path = guest.root.path().join("run/namespace-daemon.pid");
-            let old: i32 = fs::read_to_string(guest.root.path().join("run/namespace-first.pid"))
+            let old = fs::read_to_string(guest.root.path().join("run/namespace-first.pid"))
                 .unwrap()
-                .parse()
+                .parse::<i32>()
                 .unwrap();
-            let mut expected = b"outside sentinel".to_vec();
-            if fs::read_to_string(&path).unwrap().parse::<i32>().unwrap() == old
-                && exchange_result(&mut host, 5, &[conn::field(1, guest.head)], false).is_ok()
-                && exchange_result(&mut host, 16, &[conn::field(1, [0, 0])], false).is_ok()
-            {
-                expected = b"fault sentinel".to_vec();
-                fs::write(guest.root.path().join("workspace/file"), &expected).unwrap();
-                assert!(
-                    exchange_result(&mut host, 4, &[], false).is_err(),
-                    "{fault} did not kill capture"
-                );
+            assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+            assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+            assert_eq!(call(&mut host, 4, &[])[0], 4);
+            let mut writer_log = vec![];
+            use std::io::Write;
+            for index in 0..20 {
+                let name = format!("fault-{index}");
+                let bytes = format!("logged {fault}/{iteration}/{index}\n").into_bytes();
+                let mut file =
+                    fs::File::create(guest.root.path().join("workspace").join(&name)).unwrap();
+                file.write_all(&bytes).unwrap();
+                file.sync_all().unwrap();
+                drop(file);
+                writer_log.push((name, bytes));
             }
+            // The existing debug-only hook is armed by the trusted supervisor's
+            // private state after every independent write has been fsynced and
+            // logged. Setup captures cannot consume this run's fault.
+            fs::write(guest.root.path().join("state/fault-armed"), fault).unwrap();
+            assert!(
+                exchange_result(&mut host, 4, &[], false).is_err(),
+                "{fault} did not kill capture"
+            );
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
             loop {
                 let new: i32 = fs::read_to_string(&path).unwrap().parse().unwrap();
@@ -735,18 +798,355 @@ fn production_capture_killpoints_restart_and_converge_ten_times_each() {
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            let output = Command::new("/usr/bin/git")
-                .arg("-C")
-                .arg(host.store.path())
-                .args(["show", &format!("{hex}:file")])
-                .output()
-                .unwrap();
-            assert!(output.status.success());
-            assert_eq!(output.stdout, expected, "{fault} lost a logged write");
-            assert_eq!(
-                fs::read(guest.root.path().join("workspace/file")).unwrap(),
-                expected
+            for (name, expected) in writer_log {
+                let output = Command::new("/usr/bin/git")
+                    .arg("-C")
+                    .arg(host.store.path())
+                    .args(["show", &format!("{hex}:{name}")])
+                    .output()
+                    .unwrap();
+                assert!(output.status.success());
+                assert_eq!(output.stdout, expected, "{fault} lost a logged write");
+                assert_eq!(
+                    fs::read(guest.root.path().join("workspace").join(name)).unwrap(),
+                    expected
+                );
+            }
+        }
+    }
+}
+
+// This exercises the real installed cleanup and a jj reader running as member
+// uid in a second unprivileged namespace. A single-id user namespace maps both
+// identities to the lane's host uid, so group permissions and distinct-user
+// access remain the separate privileged oplog.rs qualification.
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; production capture and member namespace jj"]
+fn production_cleanup_keeps_operation_log_readable_in_member_namespace() {
+    let (guest, mut host) = guest_with_history(None, 108);
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    let cleanup = guest.root.path().join("state/oplog.gc");
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    while !cleanup.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "installed maintenance never ran"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(fs::metadata(cleanup).unwrap().len(), 8);
+    let jj = std::env::var("SMITHERS_TEST_JJ").unwrap_or_else(|_| {
+        let output = Command::new("sh")
+            .args(["-c", "command -v jj"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    });
+    let output = Command::new("bwrap")
+        .args(["--tmpfs", "/", "--ro-bind", "/usr", "/usr", "--ro-bind", "/lib", "/lib",
+            "--ro-bind", "/lib64", "/lib64", "--symlink", "usr/bin", "/bin",
+            "--ro-bind", "/etc", "/etc", "--proc", "/proc", "--dev", "/dev",
+            "--unshare-user", "--uid", "20000", "--gid", "20000", "--die-with-parent",
+            "--ro-bind"])
+        .arg(jj).arg("/jj")
+        .arg("--bind").arg(guest.root.path().join("workspace")).arg("/workspace")
+        .args(["--chdir", "/workspace", "--", "/bin/sh", "-c",
+            "test $(id -u) = 20000 && test $(id -g) = 20000 && exec /jj --ignore-working-copy op log --no-graph -T 'id ++ \"\\n\"'"])
+        .env_clear().env("PATH", std::env::var("PATH").unwrap()).env("HOME", "/nonexistent")
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let log = std::str::from_utf8(&output.stdout).unwrap();
+    // The all-zero root operation is not part of the retention count.
+    assert_eq!(
+        log.lines()
+            .filter(|id| id.bytes().any(|b| b != b'0'))
+            .count(),
+        100
+    );
+    assert!(log
+        .lines()
+        .all(|id| id.len() == 128 && id.bytes().all(|b| b.is_ascii_hexdigit())));
+    assert_eq!(
+        fs::read(guest.root.path().join("workspace/file")).unwrap(),
+        b"outside sentinel"
+    );
+}
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; dispatched special-file write refusals"]
+fn production_write_refuses_special_files_without_side_effects() {
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    let workspace = guest.root.path().join("workspace");
+    fs::create_dir(workspace.join("directory")).unwrap();
+    std::os::unix::fs::symlink("/outside/f", workspace.join("symlink")).unwrap();
+    let fifo =
+        std::ffi::CString::new(workspace.join("fifo").as_os_str().as_encoded_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let _socket = std::os::unix::net::UnixListener::bind(workspace.join("socket")).unwrap();
+    for path in [
+        "directory",
+        "symlink",
+        "fifo",
+        "socket",
+        "../outside/f",
+        "/outside/f",
+    ] {
+        for base in [
+            conn::tagged(2, &[]),
+            conn::tagged(1, &[conn::field(1, [0; 32])]),
+        ] {
+            let mut name = (path.len() as u16).to_be_bytes().to_vec();
+            name.extend(path.as_bytes());
+            let start = std::time::Instant::now();
+            let result = call(
+                &mut host,
+                3,
+                &[
+                    conn::field(1, name),
+                    conn::field(2, base),
+                    conn::field(3, [0, 0, 0, 4, b'l', b'o', b's', b't']),
+                    conn::field(4, conn::tagged(1, &[conn::field(1, [0, 0, 0, 1, b'a'])])),
+                ],
+            );
+            assert_eq!(result[0], 255, "accepted {path}");
+            assert!(
+                start.elapsed() < Duration::from_millis(100),
+                "blocked on {path}"
             );
         }
+    }
+    assert!(fs::symlink_metadata(workspace.join("directory"))
+        .unwrap()
+        .is_dir());
+    assert!(fs::symlink_metadata(workspace.join("symlink"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    use std::os::unix::fs::FileTypeExt;
+    assert!(fs::symlink_metadata(workspace.join("fifo"))
+        .unwrap()
+        .file_type()
+        .is_fifo());
+    assert!(fs::symlink_metadata(workspace.join("socket"))
+        .unwrap()
+        .file_type()
+        .is_socket());
+    assert_eq!(
+        fs::read(guest.root.path().join("outside/f")).unwrap(),
+        b"outside protected sentinel"
+    );
+}
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; ten 30-second K4b disconnects"]
+fn production_fifty_bursts_close_offline_and_replay_without_restart() {
+    for iteration in 0..10 {
+        eprintln!("K4b iteration {iteration}");
+        let (guest, mut host) = guest();
+        assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+        assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+        assert_eq!(call(&mut host, 4, &[])[0], 4);
+        host.events.clear();
+        host.verify_versions = true;
+        let pid_path = guest.root.path().join("run/namespace-daemon.pid");
+        let pid = fs::read_to_string(&pid_path).unwrap();
+        let mut writer_log = vec![];
+        // Different authenticated actors keep independent bursts open. Queue
+        // the real writes together, then cut the connection before idle closes
+        // them. The bytes/paths below are the independent writer oracle.
+        for index in 0..50u32 {
+            let path = format!("offline-{index}");
+            let bytes = format!("logged write {iteration}/{index}\n").into_bytes();
+            let mut name = (path.len() as u16).to_be_bytes().to_vec();
+            name.extend(path.as_bytes());
+            let mut content = (bytes.len() as u32).to_be_bytes().to_vec();
+            content.extend(&bytes);
+            let mut reference = vec![0, 0, 0, 16];
+            reference.extend([index as u8 + 1; 16]);
+            Frame {
+                kind: 1,
+                stream: 0,
+                payload: conn::tagged(
+                    1,
+                    &[
+                        conn::field(1, (index + 100).to_be_bytes()),
+                        conn::field(
+                            2,
+                            conn::tagged(
+                                3,
+                                &[
+                                    conn::field(1, name),
+                                    conn::field(2, conn::tagged(2, &[])),
+                                    conn::field(3, content),
+                                    conn::field(4, conn::tagged(1, &[conn::field(1, reference)])),
+                                ],
+                            ),
+                        ),
+                    ],
+                ),
+            }
+            .write(&mut host.stream)
+            .unwrap();
+            writer_log.push((path, bytes));
+        }
+        for index in 0..50u32 {
+            assert_eq!(receive_reply(&mut host, false).unwrap()[0], 3);
+            assert_eq!(host.response_id, index + 100);
+        }
+        assert!(
+            host.events.iter().all(|event| event.event[0] != 1),
+            "burst closed before disconnect; this run cannot qualify K4b"
+        );
+        let address = host.stream.peer_addr().unwrap();
+        host.stream.shutdown(std::net::Shutdown::Both).unwrap();
+        let cut = std::time::Instant::now();
+        // Observe the real durable files while offline, without opening the
+        // store as another writer or calling a handler directly.
+        let outbox = guest.root.path().join("state/outbox");
+        while cut.elapsed() < Duration::from_secs(30) {
+            assert_eq!(
+                fs::read_to_string(&pid_path).unwrap(),
+                pid,
+                "K4b restarted daemon"
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            fs::read_dir(&outbox)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().ends_with(".ev"))
+                .count()
+                >= 50,
+            "50 bursts did not become durable while offline"
+        );
+        eprintln!("K4b reconnect {iteration}");
+        host.bundle.clear();
+        host.stream = TcpStream::connect(address).unwrap();
+        authenticate(&mut host.stream);
+        assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+        let capture = call(&mut host, 4, &[]);
+        assert_eq!(capture[0], 4);
+        let head = conn::fields("result4", &capture[1..]).unwrap()[0]
+            .1
+            .to_vec();
+        let hex: String = head.iter().map(|b| format!("{b:02x}")).collect();
+        let bursts: Vec<_> = host
+            .events
+            .iter()
+            .filter(|event| event.event[0] == 1)
+            .collect();
+        assert_eq!(bursts.len(), 50);
+        let mut identities = std::collections::BTreeSet::new();
+        let mut versions = std::collections::BTreeSet::new();
+        let mut recorded_paths = std::collections::BTreeSet::new();
+        for event in &bursts {
+            assert!(
+                identities.insert((event.seq, event.id)),
+                "duplicate durable event"
+            );
+            let fields = conn::fields("burst", &event.event[1..]).unwrap();
+            assert!(
+                versions.insert(fields[0].1.to_vec()),
+                "duplicate burst identity"
+            );
+            let files = fields.iter().find(|(tag, _)| *tag == 3).unwrap().1;
+            assert_eq!(
+                &files[..2],
+                &[0, 1],
+                "one acknowledged path per actor burst"
+            );
+            let file = conn::fields("burst_file", &files[2..]).unwrap();
+            let name = file.iter().find(|(tag, _)| *tag == 1).unwrap().1;
+            let path = std::str::from_utf8(&name[2..]).unwrap();
+            assert!(
+                recorded_paths.insert(path.to_owned()),
+                "path recorded twice"
+            );
+            let expected = &writer_log.iter().find(|(name, _)| name == path).unwrap().1;
+            use sha2::{Digest, Sha256};
+            assert_eq!(
+                file.iter().find(|(tag, _)| *tag == 6).unwrap().1,
+                Sha256::digest(expected).as_slice()
+            );
+            let commit = fields.iter().find(|(tag, _)| *tag == 4).unwrap().1;
+            let commit: String = commit.iter().map(|b| format!("{b:02x}")).collect();
+            let verified = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(host.store.path())
+                .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
+                .output()
+                .unwrap();
+            assert!(
+                verified.status.success(),
+                "burst preceded its versions objects"
+            );
+            let bytes = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(host.store.path())
+                .args(["show", &format!("{commit}:b/{path}")])
+                .output()
+                .unwrap();
+            assert!(bytes.status.success());
+            assert_eq!(&bytes.stdout, expected);
+        }
+        assert_eq!(recorded_paths.len(), 50);
+        for (path, bytes) in writer_log {
+            assert_eq!(
+                fs::read(guest.root.path().join("workspace").join(&path)).unwrap(),
+                bytes
+            );
+            let captured = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(host.store.path())
+                .args(["show", &format!("{hex}:{path}")])
+                .output()
+                .unwrap();
+            assert!(captured.status.success());
+            assert_eq!(captured.stdout, bytes);
+        }
+        assert!(fs::read_dir(outbox)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| !entry.file_name().to_string_lossy().ends_with(".ev")));
+        assert_eq!(fs::read_to_string(pid_path).unwrap(), pid);
+    }
+}
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; namespace daemon lifetime"]
+fn namespace_init_exit_ends_the_production_daemon() {
+    let (mut guest, _host) = guest();
+    let pid = fs::read_to_string(guest.root.path().join("run/namespace-daemon.pid")).unwrap();
+    guest.child.kill().unwrap();
+    guest.child.wait().unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        match fs::read_to_string(format!("/proc/{}/status", pid.trim())) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Ok(status)
+                if status
+                    .lines()
+                    .any(|line| line.starts_with("State:") && line.contains('Z')) =>
+            {
+                break
+            }
+            Ok(_) => (),
+            Err(error) => panic!("daemon process observation: {error}"),
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon survived its namespace init"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
