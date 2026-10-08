@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -53,6 +54,9 @@ func TestTodoHeldReviewStopResumeComposedInstall(t *testing.T) {
 }
 
 func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState string) {
+	if os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE") == "" {
+		t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todocontrol")
+	}
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -81,7 +85,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 		require.NoError(t, err)
 	}
 	service := services.NewMythicalService(pool, nil)
-	source, digest := strings.Repeat("a", 40), "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
+	source, digest := strings.Repeat("a", 40), rehearsalBuiltinTodoDigest(t)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2,workspace_id='11111111-1111-4111-8111-111111111111',checks=jsonb_set(jsonb_set(checks,'{flowSource}',to_jsonb($3::text)),'{run_attached}','true') WHERE id=$1`, item.ID, digest, source)
 	require.NoError(t, err)
 	activeDigest := digest

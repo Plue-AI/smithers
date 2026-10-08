@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import { DurableEngineState } from "@smthrs/engine-store"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
-import { Flow } from "@smthrs/flow"
+import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect, Exit, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
@@ -585,11 +585,17 @@ const todoModes = [
   "wrong-bridge-input",
   "wrong-approved-input",
   "missing-base",
-  "collected-preparation"
+  "collected-preparation",
+  "review-reentry",
+  "review-cancelled",
+  "review-wrong-parent",
+  "review-collected"
 ] as const
 for (const mode of todoModes) {
   test(`current TODO delivery evidence: ${mode}`, async () => {
     const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
+    const reentry = mode.startsWith("review-")
+    const requestParent = reentry ? "review-round" : "todo-bridge"
     const customized = mode.startsWith("customized-")
     const childInput: typeof RequestInput.Type = customized ?
       {
@@ -605,7 +611,9 @@ for (const mode of todoModes) {
           } :
           stackBase
       } :
-      stackInput
+      reentry
+      ? { ...input }
+      : stackInput
     const program = Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
       const { card } = yield* control.plan({
@@ -656,7 +664,7 @@ for (const mode of todoModes) {
           ),
           status: "running" as const
         }],
-        ["request", row("request", Request._tag, childInput, requestResult(retained), "todo-bridge")],
+        ["request", row("request", Request._tag, childInput, requestResult(retained), requestParent)],
         [
           "preparation",
           row(
@@ -673,6 +681,20 @@ for (const mode of todoModes) {
           )
         ]
       ])
+      if (reentry) {
+        rows.set("review-round", {
+          ...row("review-round", "coding/todo-review", { input: stackInput }, undefined, "todo-bridge"),
+          status: "running"
+        })
+        if (mode === "review-cancelled") {
+          rows.set("review-round", { ...rows.get("review-round")!, cancelRequestedAtMs: 3 })
+        }
+        if (mode === "review-collected") rows.delete("review-round")
+        yield* graph.recordRunParent(
+          "review-round",
+          mode === "review-wrong-parent" ? "other-composition" : "todo-bridge"
+        )
+      }
       if (mode === "root-suspended") rows.set(root, { ...rows.get(root)!, status: "suspended" })
       if (mode === "request-running") rows.set("request", { ...rows.get("request")!, status: "running" })
       if (mode === "bridge-completed") rows.set("todo-bridge", { ...rows.get("todo-bridge")!, status: "completed" })
@@ -682,7 +704,7 @@ for (const mode of todoModes) {
       }
       if (mode === "collected-preparation") rows.delete("preparation")
       yield* graph.recordRunParent("todo-bridge", mode === "wrong-bridge-parent" ? "other-root" : root)
-      yield* graph.recordRunParent("request", mode === "wrong-request-parent" ? "other-composition" : "todo-bridge")
+      yield* graph.recordRunParent("request", mode === "wrong-request-parent" ? "other-composition" : requestParent)
       yield* graph.recordRunParent("preparation", "request")
       if (mode === "ambiguous-parent") yield* graph.recordRunParent("request", "other-parent")
       const catalog: RunCatalogRead.Service = {
@@ -706,10 +728,10 @@ for (const mode of todoModes) {
                 )
               }
               if (name === Request._tag) {
-                assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: "todo-bridge" }, limit: 2 })
+                assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: requestParent }, limit: 2 })
                 return listed(
                   Request._tag,
-                  "todo-bridge",
+                  requestParent,
                   mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
                   mode === "more-requests" ? "next" : null
                 )
@@ -725,12 +747,13 @@ for (const mode of todoModes) {
       if (mode === "foreign-result") Object.assign(supplied.plan, { prompt: "a different planner's result" })
       const evaluate = Effect.gen(function*() {
         const delivery = yield* readTodoDelivery({ request: supplied })
-        assert.deepEqual(delivery, { requestExecutionId: root }, "submission names the approved attempt, not its child")
+        assert.deepEqual(delivery, { requestExecutionId: "request" }, "delivery reads this round’s retained request")
         const evidence = yield* readVibeRequest(
           mode === "foreign-attempt" ? { requestExecutionId: "other-root" } : delivery
         )
         assert.equal(evidence.controlRunId, root)
         assert.equal(evidence.fromStack, true)
+        assert.equal(evidence.stackBase, stackBase.commitId, "review re-entry retains the admitted attempt base")
         assert("preparationExecutionId" in evidence)
         assert.equal(evidence.preparationExecutionId, "preparation")
         assert.deepEqual(evidence.originalSource, original)
@@ -744,6 +767,7 @@ for (const mode of todoModes) {
             })
           ),
         Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
+        Effect.provideService(FlowRuntime.FlowInstance, { executionId: requestParent } as never),
         Effect.provide(RunStore.layerNoop({
           get: (id) =>
             rows.has(id) ? Effect.succeed(rows.get(id)!) : Effect.fail(
@@ -775,7 +799,7 @@ for (const mode of todoModes) {
     const outcome = await Effect.runPromise(program)
     if (
       mode === "resumed-root" || mode === "customized-request" || mode === "valid" || mode === "recovered" ||
-      mode === "bug" || mode === "feature"
+      mode === "bug" || mode === "feature" || mode === "review-reentry"
     ) {
       assert.equal(outcome._tag, "Success")
     } else {

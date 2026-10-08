@@ -6,7 +6,17 @@
  * packaged or overridden, until pinned-source activation (T-FLW-03/04) binds
  * each launch to its attempt (flows/repository/registry.ts).
  */
-import { Request, RequestInput, StackBase, TodoBoundary, TodoDelivery, Vibe, VibeDelivered, VibeError } from "@smthrs/coding"
+import {
+  Request,
+  RequestInput,
+  StackBase,
+  TodoBoundary,
+  TodoDelivery,
+  TodoReview,
+  Vibe,
+  VibeDelivered,
+  VibeError
+} from "@smthrs/coding"
 import { Flow, WaitFor } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Schema } from "effect"
@@ -26,6 +36,11 @@ export default Flow.make("todo", {
       Node.bindPlanned((request) => TodoBoundary.child({}).pipe(Node.andThen(Node.succeed(request)))),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.child(delivery)),
-      Node.bindPlanned((delivered) => TodoBoundary.child({}).pipe(Node.andThen(Node.succeed(delivered))))
+      Node.bindPlanned((delivered) =>
+        Node.succeed(delivered).pipe(
+          Node.andThen(TodoBoundary.child({})),
+          Node.andThen(TodoReview.child({ input }))
+        )
+      )
     )
 })

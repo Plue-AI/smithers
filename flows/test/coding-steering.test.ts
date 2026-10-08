@@ -4,9 +4,10 @@ import { RunNotFound } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
+import { Node } from "@smthrs/plan"
 import * as Registry from "@smthrs/registry/Registry"
-import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
+import { Context, Effect, Layer, ManagedRuntime, Option, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
 import assert from "node:assert/strict"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -24,6 +25,8 @@ import * as NotificationEvent from "../../packages/smithers/notifications/src/No
 import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import * as LocalControl from "../../packages/smithers/src/internal/LocalControl.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
+import { CodingError } from "../coding/schema.ts"
+import { TodoReviewInput, todoReviewLayer } from "../coding/todo.ts"
 import { ApplyNative, EditAtom, Entry, Observe, Prepare } from "../coding/atoms.ts"
 import ImplementAtoms, { atomFlows } from "../coding/implementation/flow.ts"
 import {
@@ -1031,3 +1034,123 @@ test("a steer committed before a TODO answer reaches the first plan request afte
   assert.equal("messages" in request.first, false)
   assert.deepEqual(request.pending.map((n) => n.id), ["request-steer"])
 })
+
+test(
+  "review rendezvous resumes two ordinary child rounds and consumes each control steer once",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "todo-review-rendezvous-"))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    let queue: NotificationQueue.Service | undefined
+    const journal = await journalLayer(join(root, "control.db"))
+    const parent = ManagedRuntime.make(
+      LocalControl.layer(
+        Registry.layerNoop(),
+        { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+        Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+        (native, control, journal) => (queue = routeMessages(native, control, journal))
+      ).pipe(Layer.provideMerge(controlLayer))
+    )
+    t.after(() => parent.dispose())
+    const owner = await parent.runPromise(Effect.gen(function*() {
+      return yield* launch(yield* ControlRuntime.ControlRuntime, "todo")
+    }))
+    const roundIds = new Map<number, string>()
+    const RecordRound = Action.make("fixture/record-review-round", {
+      payload: { round: Schema.Number }, success: Schema.Void, error: CodingError
+    })
+    const Round = Flow.make("fixture/review-round", {
+      payload: { round: Schema.Number }, success: Schema.String, error: CodingError,
+      body: ({ round }) => RecordRound.call({ round }).pipe(Node.andThen(TodoReviewInput.call({})))
+    })
+    const Probe = Flow.make("fixture/review-rendezvous", {
+      payload: {},
+      success: Schema.String,
+      error: CodingError,
+      body: () => Round.child({ round: 1 }).pipe(
+        Node.bindPlanned((first) => Round.child({ round: 2 }).pipe(
+          Node.bindPlanned((second) => Node.succeed({ first, second }))
+        )),
+        Node.map(({ first, second }) => first + "\n" + second)
+      )
+    })
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        Interpreter.layer(Probe),
+        Interpreter.layer(Round),
+        RecordRound.toLayer(({ round }) => Effect.gen(function*() {
+          roundIds.set(round, (yield* FlowRuntime.FlowInstance).executionId)
+        })),
+        todoReviewLayer
+      ).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, queue!)),
+        Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId: "todo" })),
+        Layer.provideMerge(NodeCrypto.layer)
+      )
+    )
+    t.after(() => runtime.dispose())
+    await runtime.runPromise(Effect.gen(function*() {
+      const engine = yield* FlowRuntime.FlowRuntime
+      const started = yield* engine.execute(Probe, { executionId: "review-rendezvous", payload: {}, discard: true })
+      const poll = (tag: "Suspended" | "Complete") =>
+        Effect.gen(function*() {
+          for (let n = 0; n < 500; n++) {
+            const outcome = yield* engine.poll(Probe, started)
+            if (Option.isSome(outcome) && outcome.value._tag === tag) return outcome.value
+            yield* Effect.sleep("10 millis")
+          }
+          throw new Error(`Review rendezvous did not become ${tag}`)
+        })
+      yield* poll("Suspended")
+      yield* engine.resume(Round, roundIds.get(1)!)
+      yield* poll("Suspended")
+      const input = {
+        runId: owner.runId,
+        idempotencyKey: "review-note",
+        message: {
+          runId: owner.runId,
+          messageId: "review-note",
+          createdAt: 0,
+          body: "Use the existing backoff helper",
+          attribution: { by: "member:2" }
+        }
+      }
+      yield* Effect.promise(() =>
+        parent.runPromise(Effect.gen(function*() {
+          const control = yield* ControlRuntime.ControlRuntime
+          const door = yield* Control.Control
+          const request = { ...input, message: { ...input.message, principal: yield* control.stampPrincipal() } }
+          yield* door.steer(request)
+          yield* door.steer(request)
+        }))
+      )
+      yield* engine.resume(Round, roundIds.get(1)!)
+      for (let n = 0; (yield* queue!.pending(owner.runId)).length > 0; n++) {
+        if (n > 500) throw new Error("First review round did not consume its steer")
+        yield* Effect.sleep("10 millis")
+      }
+      yield* poll("Suspended")
+      const second = { ...input, idempotencyKey: "review-note-2",
+        message: { ...input.message, messageId: "review-note-2", body: "Also log retry attempts" } }
+      yield* Effect.promise(() => parent.runPromise(Effect.gen(function*() {
+        const control = yield* ControlRuntime.ControlRuntime
+        const door = yield* Control.Control
+        yield* door.steer({ ...second, message: { ...second.message, principal: yield* control.stampPrincipal() } })
+      })))
+      yield* engine.resume(Round, roundIds.get(2)!)
+      const outcome = yield* poll("Complete")
+      assert.equal(outcome._tag, "Complete")
+      if (outcome._tag === "Complete") {
+        assert.equal(outcome.exit._tag, "Success", JSON.stringify(outcome.exit))
+        if (outcome.exit._tag === "Success") {
+          assert.match(outcome.exit.value, /Use the existing backoff helper/)
+          assert.match(outcome.exit.value, /Also log retry attempts/)
+          assert.equal((outcome.exit.value.match(/Use the existing backoff helper/g) ?? []).length, 1)
+        }
+      }
+      assert.deepEqual(yield* queue!.pending(owner.runId), [])
+    }))
+  }
+)

@@ -27,7 +27,9 @@ export const VibeEvidence = Schema.Struct({
   request: RequestResult,
   // The request started from a stack base the stack service retained: its
   // result goes back to that stack. Absent in evidence read before it existed.
-  fromStack: Schema.optionalKey(Schema.Boolean)
+  fromStack: Schema.optionalKey(Schema.Boolean),
+  // Re-entry keeps the attempt base while its prepared source advances.
+  stackBase: Schema.optionalKey(Revision.fields.commitId)
 })
 export type VibeEvidence = typeof VibeEvidence.Type
 /** Admission is permission to begin cleanup, not a landed or shipped result. */

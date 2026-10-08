@@ -494,6 +494,11 @@ func (s *MythicalService) submitLane(ctx context.Context, repositoryID, userID i
 			return MythicalLaneReceipt{}, pkgerrors.BadRequest("a TODO result must retain its validated check plan")
 		}
 		next := item
+		if composed && item.CandidateHead != "" {
+			// A new candidate in the same run needs a fresh publication and
+			// verification generation; replay above preserves its identity.
+			next.Generation++
+		}
 		if len(input.Plan) > 0 {
 			// Persist the validated request's plan with its candidate: a TODO
 			// composition submits before its root ends, and rebase can begin
@@ -1716,6 +1721,16 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 	if mythicalChecksOf(item).Capture != nil || todoRunAwaitsProposal(item) {
 		return item
 	}
+	// A live TODO is parked for review, not finished. Retain the coding
+	// workspace and journal so a review steer re-enters that exact run.
+	if item.State == "proposed" && item.FlowDigest.Valid && item.RequestOutcome == "" {
+		if review := mythicalChecksOf(item).Review; review != nil && review.Verdict != "" && review.Lane != "" && review.Lane != item.WorkspaceID {
+			if err := s.retireLane(ctx, r, review.Lane); err != nil && ctx.Err() == nil {
+				s.logger.Warn("mythical.review_release_failed", "workspace_id", review.Lane, "error", err)
+			}
+		}
+		return item
+	}
 	// Keep interrupted work for its person. Finished review lanes use the
 	// qualified retirement path until #3572 composes safe-idle release; retaining
 	// them without that observer exhausts capacity and blocks the next TODO.
@@ -2166,8 +2181,14 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	// dispatcher and the host refuse any other code under it.
 	var launchPin *flowruntime.Pin
 	projected := mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase}
+	launchWorkspace := saved.WorkspaceID
+	if phase == "review" {
+		if review := mythicalChecksOf(saved).Review; review != nil && review.Lane != "" {
+			launchWorkspace = review.Lane
+		}
+	}
 	binding := map[string]any{"repositoryId": r.row.RepositoryID, "userId": sponsor,
-		"workspaceId": saved.WorkspaceID, "itemId": id, "generation": saved.Generation}
+		"workspaceId": launchWorkspace, "itemId": id, "generation": saved.Generation}
 	if pin, pinned := mythicalPinOf(saved); pinned {
 		launchPin = &pin
 		projected.FlowDigest, projected.FlowSource = pin.ExecutionDigest, pin.SourceCommit
@@ -2181,12 +2202,12 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	if phase == "review" {
 		// A new isolated review lane distinguishes a retry without allocating
 		// another candidate generation. Replaying admission retains the lane.
-		requestID += ":lane:" + saved.WorkspaceID
+		requestID += ":lane:" + launchWorkspace
 	}
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
 		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: principal},
 		RequestID: requestID,
-		Target: flowruntime.FlowRuntimeTarget{TenantID: tenant, PrincipalID: principal, WorkspaceID: saved.WorkspaceID,
+		Target: flowruntime.FlowRuntimeTarget{TenantID: tenant, PrincipalID: principal, WorkspaceID: launchWorkspace,
 			BindingKind: mythicalBindingKind, BindingID: id},
 		FlowID: flowID, Payload: payload, AuthorizationContext: authorization, Projection: projection,
 		// The owner turned the stack on for this repository; its items run
@@ -2334,8 +2355,11 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 	for _, lane := range lanes {
 		// The list is a snapshot: a lane its item took back since then is
 		// the item's lane again, never retired.
-		if item, err := s.queries().GetMythicalItem(ctx, lane.ItemID); err == nil && item.WorkspaceID == lane.WorkspaceID {
-			continue
+		if item, err := s.queries().GetMythicalItem(ctx, lane.ItemID); err == nil {
+			review := mythicalChecksOf(item).Review
+			if item.WorkspaceID == lane.WorkspaceID || review != nil && review.Lane == lane.WorkspaceID && review.Verdict == "" {
+				continue
+			}
 		}
 		if err := s.retireLane(ctx, r, lane.WorkspaceID); err != nil && ctx.Err() == nil {
 			s.logger.Warn("mythical.lane_release_failed", "workspace_id", lane.WorkspaceID, "error", err)
@@ -4537,7 +4561,8 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		return refused, false, nil
 	}
 	checks.Placement = &placement
-	if next.WorkspaceID != "" {
+	retainCoding := item.FlowDigest.Valid && item.RequestOutcome == ""
+	if next.WorkspaceID != "" && !retainCoding {
 		if err := s.retireLane(ctx, r, next.WorkspaceID); err != nil {
 			return mythicalInfraOutage(item, "launch", "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil
 		}
@@ -4551,9 +4576,11 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace to review on: "+err.Error(), st.now), false, nil
 	}
-	next.WorkspaceID = workspaceID
-	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
-	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	if !retainCoding {
+		next.WorkspaceID = workspaceID
+		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	}
 	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
 	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n\n<untrusted-files>\n%s\n</untrusted-files>\n",
@@ -4746,18 +4773,22 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	if err != nil {
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_binding_unavailable", retryable: !errors.Is(err, pgx.ErrNoRows)}
 	}
-	if item.RepositoryID != repositoryID || mythicalExecutionSponsor(item, stack) != userID || item.WorkspaceID == "" ||
-		(target.WorkspaceID != "" && target.WorkspaceID != item.WorkspaceID) {
+	workspaceID := item.WorkspaceID
+	if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" && target.WorkspaceID == review.Lane {
+		workspaceID = review.Lane
+	}
+	if item.RepositoryID != repositoryID || mythicalExecutionSponsor(item, stack) != userID || workspaceID == "" ||
+		(target.WorkspaceID != "" && target.WorkspaceID != workspaceID) {
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_target_forbidden"}
 	}
 	// The lane is provisioned in the background after its launch is admitted:
 	// a host bound before its checkout exists would pin a source revision the
 	// finished checkout no longer has. Retained stopped lanes already have
 	// that checkout; host start wakes them under the lifecycle lock.
-	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
+	if lane, err := q.GetWorkspace(ctx, workspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
 		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
-	authority := flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
+	authority := flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: workspaceID,
 		CatalogKey: flowhost.CatalogCoding}
 	if pin, pinned := mythicalPinOf(item); pinned {
 		authority.SourceRevision = pin.SourceCommit

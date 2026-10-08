@@ -78,7 +78,7 @@ import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
 import { TodoBoundary, todoPauseLayer } from "./todo-pause.ts"
-import { todoDeliveryLayer, todoLayers } from "./todo.ts"
+import { todoDeliveryLayer, todoReviewLayer, todoLayers } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -741,6 +741,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           requestRegistration,
           todoLayers(evaluator),
           todoDeliveryLayer,
+          todoReviewLayer,
           todoPauseLayer,
           WaitFor.layer,
           Interpreter.layer(TodoBoundary),

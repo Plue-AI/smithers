@@ -14,7 +14,7 @@
  */
 export { default as Request } from "./request-flow.ts"
 export { RequestInput, StackBase } from "./schema.ts"
-export { TodoDelivery } from "./todo.ts"
+export { TodoDelivery, TodoReview } from "./todo.ts"
 export { default as Vibe, VibeError } from "./vibe-flow.ts"
 export { VibeDelivered } from "./vibe-schema.ts"
 export { TodoBoundary } from "./todo-pause.ts"

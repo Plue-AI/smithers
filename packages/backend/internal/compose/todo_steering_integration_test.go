@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +99,9 @@ func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.
 // Real PostgreSQL and the install router/auth; seeded attempt facts qualify
 // the public projection, not production machine source loading.
 func TestTodoOrderedRecovery(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todoordered")
+	if os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE") == "" {
+		t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todoordered")
+	}
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "pin-owner", LowerUsername: "pin-owner", DisplayName: "Owner"})
@@ -113,7 +116,7 @@ func TestTodoOrderedRecovery(t *testing.T) {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: access}))
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
 	require.NoError(t, err)
-	source, digest := strings.Repeat("a", 40), "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
+	source, digest := strings.Repeat("a", 40), rehearsalBuiltinTodoDigest(t)
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(fmt.Sprintf(`{"todo":true,"run_launched":true,"run_attached":true,"flowSource":"%s"}`, source))})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,flow_digest=$3,request_run_id='pinned-run',workspace_id='11111111-1111-4111-8111-111111111111',revisions='[{"text":"Original","acceptance":[],"reason":"create"}]',title='Pinned source' WHERE id=$1`, item.ID, owner.ID, digest)

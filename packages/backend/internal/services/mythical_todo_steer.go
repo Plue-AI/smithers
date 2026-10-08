@@ -246,6 +246,11 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 	}
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		// Match Answer and the stack worker: lock the stack before credentials
+		// or the item, so simultaneous inputs commit without a lock inversion.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, input.Repository); err != nil {
+			return err
+		}
 		q := db.New(tx)
 		person, credential, err := lockTodoRequest(ctx, tx, q, command, input)
 		if err != nil {

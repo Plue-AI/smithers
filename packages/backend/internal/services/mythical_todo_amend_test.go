@@ -154,7 +154,9 @@ func TestTodoAmendHeldLifecycle(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			item, input, ctx := steerFixture()
 			item.State, item.Revisions = state, []byte(`[{"text":"Original","acceptance":[]}]`)
-			item.PausedAt = pgtype.Timestamptz{Time: time.Unix(1, 0), Valid: state == "proposed"}
+			if state == "proposed" {
+				item.PausedAt = pgtype.Timestamptz{Time: time.Unix(1, 0), Valid: true}
+			}
 			amendment := TodoAmendInput{Prompt: "Revised"}
 			text, err := amendment.feedback()
 			require.NoError(t, err)

@@ -88,54 +88,78 @@ func TestTodoRetryOpensANewLaneWhenItsLaneIsRetired(t *testing.T) {
 	assert.Len(t, o.lanes.created, 2)
 }
 
-// An owner's TODO releases its lanes as an issue item does (T-MCH-06,
-// T-MCH-07): once its pull request is open, its coding lane is retired before
-// the review opens a lane of its own, named for the TODO, and the review lane
-// is retired once it answers, so the TODO holds no machine while a person
-// decides.
+// A completed historical run releases its coding lane. A live composition
+// retains its working copy for review re-entry; both release the isolated
+// review lane when the engine review answers.
 func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
-	o, session := newTodoAdmission(t)
-	ctx := context.Background()
-	id := uuidString(o.fileTodo(session, "first").ID)
-	o.wake()
-	item := o.byID(id)
-	require.Equal(t, "running", item.State, item.Reason)
-	coding := item.WorkspaceID
-	tip := o.hostRef("refs/heads/main")
-	candidate := o.laneResult(coding, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
-	// Stands in for the candidate the run records: the engine pins it.
-	_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', candidate_base=$2, candidate_head=$3, candidate_verified=true,
+	for _, mode := range []string{"completed", "live"} {
+		t.Run(mode, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			if mode == "live" {
+				o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			}
+			ctx := context.Background()
+			id := uuidString(o.fileTodo(session, "first").ID)
+			o.wake()
+			item := o.byID(id)
+			require.Equal(t, "running", item.State, item.Reason)
+			coding := item.WorkspaceID
+			tip := o.hostRef("refs/heads/main")
+			candidate := o.laneResult(coding, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
+			// Stands in for the candidate the run records: the engine pins it.
+			_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', candidate_base=$2, candidate_head=$3, candidate_verified=true,
 		summary='✨ feat: greet the reader' WHERE id=$1`, item.ID, tip, candidate)
-	require.NoError(t, err)
-	o.wake()
-	require.Equal(t, "proposing", o.byID(id).State)
-	// Stands in for publication: the pull request is open at the candidate.
-	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed', pr_number=41, pr_head=$2, pr_state='open', reason='' WHERE id=$1`, item.ID, candidate)
-	require.NoError(t, err)
-	o.github.mu.Lock()
-	if o.github.pulls == nil {
-		o.github.pulls = map[int64]*mythicalPull{}
+			require.NoError(t, err)
+			o.wake()
+			require.Equal(t, "proposing", o.byID(id).State)
+			if mode == "completed" {
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET request_outcome='completed' WHERE id=$1`, item.ID)
+				require.NoError(t, err)
+			}
+			// Stands in for publication: the pull request is open at the candidate.
+			_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed', pr_number=41, pr_head=$2, pr_state='open', reason='' WHERE id=$1`, item.ID, candidate)
+			require.NoError(t, err)
+			o.github.mu.Lock()
+			if o.github.pulls == nil {
+				o.github.pulls = map[int64]*mythicalPull{}
+			}
+			o.github.pulls[41] = &mythicalPull{Number: 41, State: "open", HeadSHA: candidate, HeadRef: "smithers/todo-1", MergeableState: "clean"}
+			o.github.mu.Unlock()
+			o.wake()
+
+			item = o.byID(id)
+			require.Equal(t, "proposed", item.State, item.Reason)
+			if mode == "live" {
+				assert.NotContains(t, o.lanes.deleted, coding)
+			} else {
+				assert.Contains(t, o.lanes.deleted, coding)
+			}
+			review := o.launcher.last(mythicalReviewFlow)
+			require.NotEmpty(t, review.RequestID, "the review launched: reason %q checks %s next %v", item.Reason, item.Checks, item.NextAttemptAt)
+			reviewLane := review.Target.WorkspaceID
+			assert.NotEqual(t, coding, reviewLane)
+			if mode == "live" {
+				assert.Equal(t, coding, item.WorkspaceID)
+			} else {
+				assert.Equal(t, reviewLane, item.WorkspaceID)
+			}
+			assert.NotContains(t, o.lanes.deleted, reviewLane)
+			var name string
+			require.NoError(t, o.pool.QueryRow(ctx, `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&name))
+			assert.Equal(t, "TODO 1 review g1", name)
+
+			o.answerReviews(`"request-changes"`)
+			item = o.byID(id)
+			assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
+			if mode == "live" {
+				assert.Equal(t, coding, item.WorkspaceID)
+				assert.True(t, item.Lane.Valid)
+				assert.NotContains(t, o.lanes.deleted, coding)
+			} else {
+				assert.Empty(t, item.WorkspaceID)
+				assert.False(t, item.Lane.Valid)
+			}
+
+		})
 	}
-	o.github.pulls[41] = &mythicalPull{Number: 41, State: "open", HeadSHA: candidate, HeadRef: "smithers/todo-1", MergeableState: "clean"}
-	o.github.mu.Unlock()
-	o.wake()
-
-	item = o.byID(id)
-	require.Equal(t, "proposed", item.State, item.Reason)
-	assert.Contains(t, o.lanes.deleted, coding, "the coding lane is retired before the review starts")
-	review := o.launcher.last(mythicalReviewFlow)
-	require.NotEmpty(t, review.RequestID, "the review launched: reason %q checks %s next %v", item.Reason, item.Checks, item.NextAttemptAt)
-	reviewLane := review.Target.WorkspaceID
-	assert.NotEqual(t, coding, reviewLane)
-	assert.Equal(t, reviewLane, item.WorkspaceID)
-	assert.NotContains(t, o.lanes.deleted, reviewLane)
-	var name string
-	require.NoError(t, o.pool.QueryRow(ctx, `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&name))
-	assert.Equal(t, "TODO 1 review g2", name)
-
-	o.answerReviews(`"request-changes"`)
-	item = o.byID(id)
-	assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
-	assert.Empty(t, item.WorkspaceID, "the TODO holds no machine while a person decides")
-	assert.False(t, item.Lane.Valid)
 }

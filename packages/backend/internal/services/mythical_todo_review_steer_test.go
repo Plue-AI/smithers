@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The todo composition hands its candidate to the stack and ends, so an
-// in_review TODO usually has no live run. Work input must start the next
-// attempt with that input first; reviving the ended run failed the TODO as
-// no_proposal. The dispatcher and stack pass are real; no machine runs.
-func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
+// Review input re-enters the live TODO attempt through the existing durable
+// worker. It never allocates a second request run.
+func TestInReviewInputReentersSameAttempt(t *testing.T) {
 	for _, kind := range []string{"steer", "amend", "review"} {
 		t.Run(kind, func(t *testing.T) {
 			o, synced, row, item := newReviewConsumer(t)
@@ -26,7 +24,7 @@ func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
 			item.CandidateHead = o.hostRef("refs/heads/main")
 			item.CandidateBase, item.PRHead = item.CandidateHead, item.CandidateHead
 			item.CandidateVerified, item.PRState = true, "open"
-			item.RequestOutcome = "completed"
+			item.RequestOutcome = ""
 			checks := mythicalChecksOf(item)
 			checks.FlowSource = o.landedMain()
 			item.Checks = checks.encode()
@@ -51,58 +49,37 @@ func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
 					return err
 				})
 			}
-			require.NoError(t, send())
-			require.NoError(t, send(), "replay must not create another attempt")
-			queued := o.byID(uuidString(item.ID))
-			require.Equal(t, "queued", queued.State, "the ended run is never revived")
-			require.Equal(t, item.Attempt, queued.Attempt, "only durable launch advances the attempt")
-			require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`), "nothing is sent to the ended run")
-			feedback := mythicalChecksOf(queued).Steers
-			require.Len(t, feedback, 1)
-			require.Equal(t, item.Attempt+1, feedback[0].Attempt)
-			require.True(t, feedback[0].ReleasePending)
-			o.wake()
-			started := o.byID(uuidString(item.ID))
-			require.Equal(t, "starting", todoState(started), started.Reason)
-			require.Equal(t, item.Attempt+1, started.Attempt)
-			require.Empty(t, started.RequestOutcome)
-			var raw []byte
-			require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&raw))
-			launch := decodeJSON(t, raw)
-			require.Equal(t, item.FlowDigest.String, launch["pin"].(map[string]any)["executionDigest"], "the next attempt keeps its pin")
-			require.Contains(t, string(raw), text)
-			// The launch carried the input, so the run consumed it. A later
-			// version of the same review (GitHub re-batches its line comments)
-			// is activity only; it is never held for the ended run, which
-			// would block every later review of the PR behind it.
-			require.True(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers[0].InputConsumed, "the launch payload carries the input")
-			if kind == "review" {
-				require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-					_, err := synced.install.consumers[gitHubReviews](ctx, tx, reviewFact(row, 77, "changes-rebatched", "CHANGES_REQUESTED"))
-					return err
-				}))
-				edited := mythicalChecksOf(o.byID(uuidString(item.ID)))
-				require.Len(t, edited.Steers, 1)
-				require.Equal(t, "changes-rebatched", edited.GitHubInputs[0].Version)
-				require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`))
-				require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`))
-			}
 			startWorker()
-			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)
-			peer.mu.Lock()
-			launches, _ := json.Marshal(peer.launches)
-			steers := len(peer.steers)
-			peer.mu.Unlock()
-			require.Contains(t, string(launches), text, "the input is the new run's first message")
-			require.Zero(t, steers)
 			require.NoError(t, send())
-			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`))
+			require.NoError(t, send(), "replay must not create another input")
+			next := o.byID(uuidString(item.ID))
+			require.Equal(t, "running", next.State)
+			require.Equal(t, item.Attempt, next.Attempt)
+			require.Equal(t, item.RequestRunID, next.RequestRunID)
+			require.Equal(t, item.WorkspaceID, next.WorkspaceID)
+			feedback := mythicalChecksOf(next).Steers
+			require.Len(t, feedback, 1)
+			require.Equal(t, item.Attempt, feedback[0].Attempt)
+			require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`))
+			require.Eventually(t, func() bool {
+				peer.mu.Lock()
+				defer peer.mu.Unlock()
+				return len(peer.steers) == 1
+			}, 10*time.Second, 10*time.Millisecond)
+			peer.mu.Lock()
+			require.Equal(t, item.RequestRunID, peer.steers[0]["runId"])
+			raw, err := json.Marshal(peer.steers[0])
+			require.NoError(t, err)
+			require.Contains(t, string(raw), text)
+			require.Empty(t, peer.launches)
+			peer.mu.Unlock()
+
 		})
 	}
 }
 
 // A live run held for review keeps RequestOutcome empty and is steered in
-// place; an ended run behind a merge fence holds the input for the next attempt.
+// place; a reopened run behind a merge fence holds the input for the next attempt.
 func TestInReviewSteerDestinationFollowsRunLiveness(t *testing.T) {
 	live, input, ctx := steerFixture()
 	live.State = "proposed"
@@ -114,6 +91,9 @@ func TestInReviewSteerDestinationFollowsRunLiveness(t *testing.T) {
 
 	ended := live
 	ended.RequestOutcome = "completed"
+	checks := mythicalChecksOf(ended)
+	checks.GitHubReopenedAttempt = ended.Attempt
+	ended.Checks = checks.encode()
 	ended.PendingOp = json.RawMessage(`{"kind":"merge","target":"3","desired":"cccccccccccccccccccccccccccccccccccccccc","state":"intended"}`)
 	next, feedback, deliver, _, err = prepareTodoSteer(ctx, ended, input, nil, nil, time.Now())
 	require.NoError(t, err)

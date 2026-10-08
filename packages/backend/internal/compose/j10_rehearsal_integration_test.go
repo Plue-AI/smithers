@@ -516,11 +516,16 @@ func TestJ10Rehearsal(t *testing.T) {
 	})
 	r.pending("1 Amend updates the same PR", "POST /api/todos {place: amend T2}; GitHub fake PR", "the same PR shows revision 2's prompt, not revision 1's", "T-GH-03, T-STK-06", "amend")
 
-	// J10.2: a teammate's review on GitHub steers the agent.
+	// J10.2: a teammate's review on GitHub steers the same attempt.
+	var reviewLane j3Lane
 	if !r.step("2 Review comment becomes a steer", "GitHub fake: Alice requests changes with a line comment on T2's PR → GET /api/todos/{T2}; SQL product_job_events",
 		"within 60 s T2 reads working with Alice's steer anchored retry-webhooks.md:1; one todo.github_input event for it", "T-GH-04", func() error {
 			if pr2 <= 0 {
 				return fmt.Errorf("blocked by T2's PR")
+			}
+			var err error
+			if reviewLane, err = r.j3Lane(t2); err != nil {
+				return err
 			}
 			began := time.Now()
 			// [CHANGELOG] makes the scripted fix (fake-todo-turns.mjs) change the
@@ -561,7 +566,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("2 The agent's fix updates the PR", "GET /api/todos/{T2}; GitHub fake PR", "T2 back in review; a new PR head under the same PR number; one PR for the branch", "T-GH-04, T-STK-06", func() error {
-		// The steer starts the next attempt; In review counts only with its new head.
+		// The steer re-enters the same attempt; In review counts only with its new head.
 		var v rehearsalTodo
 		for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
 			var err error
@@ -574,6 +579,13 @@ func TestJ10Rehearsal(t *testing.T) {
 			if v.State == "failed" || v.State == "dropped" || time.Now().After(deadline) {
 				return fmt.Errorf("T2 %s with PR #%d at %s after the steer (was %s)", v.State, v.PR.Number, short7(v.PR.Head), short7(head2))
 			}
+		}
+		lane, err := r.j3Lane(t2)
+		if err != nil {
+			return err
+		}
+		if lane != reviewLane {
+			return fmt.Errorf("review steer replaced run/attempt/workspace: %+v → %+v", reviewLane, lane)
 		}
 		if v.PR.Number != pr2 {
 			return fmt.Errorf("the fix opened PR #%d, not #%d", v.PR.Number, pr2)

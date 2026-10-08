@@ -390,6 +390,7 @@ test("a repository copy of the TODO composition loads on the packaged host with 
     "StackBase",
     "TodoBoundary",
     "TodoDelivery",
+    "TodoReview",
     "Vibe",
     "VibeDelivered",
     "VibeError"
@@ -406,7 +407,8 @@ test("a repository copy of the TODO composition loads on the packaged host with 
     "coding/todo-boundary",
     "coding/todo-delivery",
     "coding/Vibe",
-    "coding/todo-boundary"
+    "coding/todo-boundary",
+    "coding/todo-review"
   ])
   // Source discovery and the packaged host measure one version, and it is the
   // composition alone: the steps are the host's, so no coding module is in its

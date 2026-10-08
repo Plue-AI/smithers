@@ -361,7 +361,7 @@ export const landingLayers = Layer.mergeAll(
       }
       const lane = yield* landing.submitLane({
         workspaceId: landing.binding.workspaceId,
-        base: original.parentCommitIds[0]!,
+        base: cleanup.admission.stackBase ?? original.parentCommitIds[0]!,
         source: cleanup.head.commitId,
         requestRunId: cleanup.admission.requestExecutionId || instance.executionId,
         summary: cleanup.summary,

@@ -390,7 +390,9 @@ path = "lib.rs"
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
-		built := buildRehearsalCodingHost(t, node, r.root)
+		fileFixture := !realMicroVM && (enable == "SMITHERS_J3_REHEARSAL" || enable == "SMITHERS_J10_REHEARSAL" ||
+			enable == "SMITHERS_TODO_STEER_MODEL" || enable == reviewSteerEnable)
+		built := buildRehearsalCodingHost(t, node, r.root, fileFixture)
 		registry = &built
 	}
 	if registry != nil {
@@ -457,7 +459,8 @@ path = "lib.rs"
 			select {
 			case err := <-done:
 				require.NoError(t, err)
-			case <-time.After(15 * time.Second):
+			// The composed server allows 30 seconds to drain retained live hosts.
+			case <-time.After(45 * time.Second):
 				t.Error("composition shutdown timed out")
 			}
 		})
@@ -1634,13 +1637,20 @@ func (r *rehearsal) besideChat() <-chan error {
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
 
-// buildRehearsalCodingHost pins the installed coding entry unchanged. Coding
-// writes require its real local daemon client and broker-registered agent;
-// trusted-process execution does not qualify those guest session boundaries.
-func buildRehearsalCodingHost(t *testing.T, node, root string) flowmanifest.Registry {
+// buildRehearsalCodingHost bundles the installed entry for reference guests.
+// The named Linux steer fixtures may inject their file provider; they never
+// qualify the authenticated guest session or machining boundary.
+func buildRehearsalCodingHost(t *testing.T, node, root string, fixture ...bool) flowmanifest.Registry {
 	t.Helper()
 	coding := filepath.Join(t.TempDir(), "smithers-coding-host")
 	build := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
+	if len(fixture) > 0 && fixture[0] {
+		// Only the Linux trusted-process fixture lacks the guest file broker.
+		// Reference microVMs keep the installed entry and authenticated provider.
+		build = exec.Command(node, "--input-type=module", "-e",
+			`const { bundle } = await import(process.argv[1]); await bundle(process.argv[2], process.argv[3]);`,
+			"file://"+filepath.Join(root, "flows/coding/build.mjs"), filepath.Join(root, "flows/test/rehearsal-host.ts"), coding)
+	}
 	build.Dir = root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
@@ -2215,7 +2225,8 @@ func (r *rehearsal) restartBackend() {
 			select {
 			case err := <-done:
 				require.NoError(t, err)
-			case <-time.After(15 * time.Second):
+			// The composed server allows 30 seconds to drain retained live hosts.
+			case <-time.After(45 * time.Second):
 				t.Error("composition shutdown timed out")
 			}
 		})

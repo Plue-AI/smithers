@@ -4,7 +4,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { DurableEngineState } from "@smthrs/engine-store"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
 import { RunState } from "@smthrs/engine-store/RunState"
-import { Action, Flow } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime } from "@smthrs/flow"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect, Exit, Option, Schema } from "effect"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
@@ -49,9 +49,6 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     }
     const owner = currentOwner.value
     const composed = owner.flowId === "todo"
-    if (composed && input.requestExecutionId !== owner.rootId) {
-      return yield* invalid("TODO delivery requires its own current approved attempt")
-    }
     let todoBridge: string | undefined, todoTag: string | undefined, todoDigest: string | undefined
     const store = yield* RunStore.RunStore, graph = yield* DurableEngineState.DurableEngineState
     const control = yield* ControlRuntime, catalog = yield* RunCatalogRead.RunCatalogRead
@@ -70,7 +67,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
           return yield* invalid("Finalization evidence exceeds its bounded native-state lookup")
         }
         const state = Schema.decodeUnknownOption(Schema.fromJsonString(RunState))(row.stateJson)
-        const active = composed && (id === owner.rootId || id === todoBridge)
+        const active = composed && (id === owner.rootId || id === todoBridge ||
+          Option.isSome(state) && state.value.flowName === "coding/todo-review" && row.status === "running")
         if (
           Option.isNone(state) || row.status !== (active ? "running" : "completed") ||
           row.cancelRequestedAtMs !== null || state.value.cancellation !== undefined
@@ -98,15 +96,17 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
         return yield* invalid("TODO delivery requires one retained composition in its current attempt")
       }
       todoBridge = bridges.runs[0]!.runId
-      const children = yield* catalog.listRuns({
-        filters: { flowName: Request._tag, parentRunId: todoBridge },
-        limit: 2
-      })
-      if (children.cursor !== null || children.runs.length !== 1) {
-        return yield* invalid("TODO delivery requires one completed request in its current composition")
+      if (input.requestExecutionId === owner.rootId) {
+        const children = yield* catalog.listRuns({
+          filters: { flowName: Request._tag, parentRunId: todoBridge },
+          limit: 2
+        })
+        if (children.cursor !== null || children.runs.length !== 1) {
+          return yield* invalid("TODO delivery requires one completed request in its current composition")
+        }
+        selected = children.runs[0]!.runId
+        requestRow = yield* read(selected)
       }
-      selected = children.runs[0]!.runId
-      requestRow = yield* read(selected)
     } else if (requestRow.state.flowName === "agent/run") {
       const children = yield* catalog.listRuns({
         filters: { flowName: "coding/request", parentRunId: selected },
@@ -142,7 +142,10 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     const payload = Schema.decodeUnknownOption(RequestInput)(
       inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
     )
-    if (Option.isNone(payload) || (composed && payload.value.base === undefined)) {
+    if (
+      Option.isNone(payload) || (composed && payload.value.base === undefined &&
+        (yield* read(requestRow.state.parentExecutionId ?? "")).state.flowName !== "coding/todo-review")
+    ) {
       return yield* invalid("The request's retained input is invalid")
     }
     const visited = new Set<string>()
@@ -172,7 +175,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
           // child must keep the attempt's admitted source and workspace ref.
           if (
             bridgeInput.value.base === undefined ||
-            Digest.canonical(bridgeInput.value.base) !== Digest.canonical(payload.value.base)
+            payload.value.base !== undefined &&
+              Digest.canonical(bridgeInput.value.base) !== Digest.canonical(payload.value.base)
           ) return yield* invalid("The customized request changed its attempt's admitted source")
           compositionInput = bridgeInput.value
         }
@@ -227,7 +231,10 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
         }
         if (
           composed && (
-            (id === selected && parentId !== todoBridge) || (id === todoBridge && parentId !== owner.rootId) ||
+            (id === selected && parentId !== todoBridge &&
+              (yield* read(parentId)).state.flowName !== "coding/todo-review") ||
+            (id !== selected && id !== todoBridge && entry.state.flowName !== "coding/todo-review") ||
+            (id === todoBridge && parentId !== owner.rootId) ||
             (entry.row.parentRunId !== null && entry.row.parentRunId !== parentId)
           )
         ) {
@@ -273,11 +280,13 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       }
       return {
         ...input,
+        requestExecutionId: composed ? owner.rootId : input.requestExecutionId,
         ...root,
         preparationExecutionId,
         originalSource: plan.observedHead,
         request,
-        fromStack: payload.value.base !== undefined
+        fromStack: composed || payload.value.base !== undefined,
+        ...(compositionInput?.base === undefined ? {} : { stackBase: compositionInput.base.commitId })
       }
     }
     // Compatibility for requests completed before the independent-POC change.
@@ -311,11 +320,13 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     }
     return {
       ...input,
+      requestExecutionId: composed ? owner.rootId : input.requestExecutionId,
       ...root,
       pocExecutionId,
       originalSource: pocResult.source,
       request,
-      fromStack: payload.value.base !== undefined
+      fromStack: composed || payload.value.base !== undefined,
+      ...(compositionInput?.base === undefined ? {} : { stackBase: compositionInput.base.commitId })
     }
   }).pipe(Effect.mapError((error) =>
     error instanceof CodingError ? error : new CodingError({
@@ -338,7 +349,18 @@ export const readTodoDelivery = ({ request }: { readonly request: typeof Request
     if (Option.isNone(owner) || owner.value.flowId !== "todo") {
       return yield* invalid("Only an approved TODO attempt may resolve delivery")
     }
-    const input = { requestExecutionId: owner.value.rootId }
-    yield* readRequestEvidence(input, request)
-    return input
+    const instance = yield* FlowRuntime.FlowInstance
+    const catalog = yield* RunCatalogRead.RunCatalogRead
+    const children = yield* catalog.listRuns({
+      filters: { flowName: Request._tag, parentRunId: instance.executionId },
+      limit: 2
+    }).pipe(
+      Effect.mapError(() => new CodingError({ code: "unavailable", message: "TODO request catalog is unavailable" }))
+    )
+    if (children.cursor !== null || children.runs.length !== 1) {
+      return yield* invalid("TODO delivery requires its own completed request")
+    }
+    const selected = { requestExecutionId: children.runs[0]!.runId }
+    yield* readRequestEvidence(selected, request)
+    return selected
   })
