@@ -34,6 +34,7 @@ struct State {
     fail_spawn: bool,
     fail_before_fork: bool,
     ready_calls: usize,
+    local_ready_calls: Vec<u32>,
     running: BTreeSet<u32>,
     identity: Option<smithers_machined::broker::sessions::ProcessIdentity>,
 }
@@ -60,6 +61,14 @@ impl Kernel for OS {
         if u.login != "agent" && !(u.login == "ben" && u.uid == 20001) {
             return Err(io::ErrorKind::PermissionDenied.into());
         }
+        Ok(())
+    }
+    fn ready_local(&mut self, u: &User, caller: u32) -> io::Result<()> {
+        let mut state = self.0.lock().unwrap();
+        if u.uid != 19999 || state.missing.is_some() {
+            return Err(io::ErrorKind::Unsupported.into());
+        }
+        state.local_ready_calls.push(caller);
         Ok(())
     }
     fn spawn(
@@ -354,7 +363,7 @@ fn replay_offsets_are_atomic_and_stalled_output_is_bounded() {
 }
 #[test]
 fn local_stream_is_scoped_to_kernel_registered_agent_run() {
-    let (mut s, _) = setup();
+    let (mut s, state) = setup();
     roster(&mut s);
     let agent = User {
         login: "agent".into(),
@@ -363,12 +372,15 @@ fn local_stream_is_scoped_to_kernel_registered_agent_run() {
     let parent = open_bound(&mut s, agent, Kind::Exec, Some("run-one"));
     let args = open_bytes("agent", 19999);
     assert!(s.open_local(999, &args).is_err());
+    assert!(state.lock().unwrap().local_ready_calls.is_empty());
     s.session(Request::Register {
         session: parent,
         run: "run-one".into(),
     })
     .unwrap();
     let child = s.open_local(parent, &args).unwrap();
+    assert_eq!(state.lock().unwrap().ready_calls, 1);
+    assert_eq!(state.lock().unwrap().local_ready_calls, vec![parent]);
     let child = u32::from_be_bytes(child[5..9].try_into().unwrap());
     assert_eq!(
         s.entries().find(|e| e.id == child).unwrap().run.as_deref(),

@@ -27,6 +27,11 @@ pub trait Kernel: Send {
     }
     fn recover(&mut self, deadline: Instant) -> io::Result<()>;
     fn ready(&mut self, user: &User) -> io::Result<()>;
+    /// A local child inherits its authenticated caller's startup binding;
+    /// it must not consume a new host admission for the agent UID.
+    fn ready_local(&mut self, _user: &User, _caller: u32) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     /// Failure may leave a child or cgroup. The supervisor retains ownership
     /// and calls kill before forgetting the reservation.
     fn spawn(
@@ -165,7 +170,10 @@ impl<K: Kernel> Supervisor<K> {
         if let Some(caller) = caller {
             self.registry.local_run(19999, caller)?;
         }
-        self.kernel.with(|k| k.ready(&user))?;
+        self.kernel.with(|k| match caller {
+            Some(caller) => k.ready_local(&user, caller),
+            None => k.ready(&user),
+        })?;
         let id = self.allocate_stream()?; // failed spawns never reuse IDs
         let input = Descriptor {
             kernel: self.kernel.clone(),

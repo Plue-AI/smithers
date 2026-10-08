@@ -204,6 +204,21 @@ fn signal_number(signal: u8) -> io::Result<i32> {
         _ => Err(invalid()),
     }
 }
+// /proc/self/fd selects an already-held inode by a broker-generated FD.
+// The file may be unlinked: local children still share the parent's admission,
+// while session-exec rechecks the live token only after dropping privileges.
+fn reopen_binding(binding: &File) -> io::Result<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NONBLOCK)
+        .open(format!("/proc/self/fd/{}", binding.as_raw_fd()))?;
+    let original = binding.metadata()?;
+    let reopened = file.metadata()?;
+    if !reopened.is_file() || original.dev() != reopened.dev() || original.ino() != reopened.ino() {
+        return Err(invalid());
+    }
+    Ok(file)
+}
 struct Process {
     child: Child,
     kind: Kind,
@@ -214,6 +229,7 @@ struct Process {
     exit_observed: bool,
     pending_exit: Option<Exit>,
     cleanup_on_exit: bool,
+    binding: Option<File>,
     identity: Option<super::sessions::ProcessIdentity>,
 }
 impl Process {
@@ -299,6 +315,24 @@ impl<A: Admission> Kernel for Processes<A> {
         self.prepared = Some((user.clone(), environment, binding));
         Ok(())
     }
+    fn ready_local(&mut self, user: &User, caller: u32) -> io::Result<()> {
+        self.prepared = None;
+        if unsafe { libc::geteuid() } != 0 || user.uid != 19999 {
+            return Err(invalid());
+        }
+        account(user)?;
+        self.admission.available()?;
+        let parent = self.process(caller)?;
+        if parent.exit_observed || parent.pending_exit.is_some() {
+            return Err(invalid());
+        }
+        // The supervisor already checked the caller's live registered run.
+        // Reopen only a held host-admitted inode, never a caller pathname.
+        // A fresh file description avoids sharing the launcher's read offset.
+        let binding = reopen_binding(parent.binding.as_ref().ok_or_else(invalid)?)?;
+        self.prepared = Some((user.clone(), vec![], Some(binding)));
+        Ok(())
+    }
     fn spawn(
         &mut self,
         id: u32,
@@ -336,6 +370,7 @@ impl<A: Admission> Kernel for Processes<A> {
         } else {
             args
         };
+        let retained_binding = binding.as_ref().map(File::try_clone).transpose()?;
         let binding = binding
             .map(|f| rustix::io::fcntl_dupfd_cloexec(f, 10))
             .transpose()?;
@@ -461,6 +496,7 @@ impl<A: Admission> Kernel for Processes<A> {
                     exit_observed: false,
                     pending_exit: None,
                     cleanup_on_exit: user.uid == 19999 && kind == Kind::Exec,
+                    binding: retained_binding,
                     identity: None,
                 },
             );
@@ -651,8 +687,31 @@ mod completion_tests {
             exit_observed: false,
             pending_exit: None,
             cleanup_on_exit,
+            binding: None,
             identity: None,
         }
+    }
+
+    #[test]
+    fn local_pty_reopens_the_consumed_parent_binding_at_offset_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("admission");
+        std::fs::write(&path, b"authenticated-parent-binding").unwrap();
+        let mut binding = File::open(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        let mut original = String::new();
+        binding.read_to_string(&mut original).unwrap();
+        assert_eq!(original, "authenticated-parent-binding");
+        for _ in 0..2 {
+            let mut inherited = reopen_binding(&binding).unwrap();
+            let mut bytes = String::new();
+            inherited.read_to_string(&mut bytes).unwrap();
+            assert_eq!(bytes, "authenticated-parent-binding");
+            assert_eq!(inherited.metadata().unwrap().nlink(), 0);
+        }
+        let mut untouched = String::new();
+        binding.read_to_string(&mut untouched).unwrap();
+        assert_eq!(untouched, "");
     }
 
     // Uses real waitpid status and production observation; no output bytes can
@@ -721,6 +780,7 @@ mod completion_tests {
             exit_observed: false,
             pending_exit: None,
             cleanup_on_exit: true,
+            binding: None,
             identity: None,
         };
         let mut bytes = Vec::new();
