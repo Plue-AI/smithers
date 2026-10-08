@@ -2047,10 +2047,18 @@ func installGitStub(t *testing.T, script string) {
 	t.Helper()
 	stubDir := t.TempDir()
 	stubPath := filepath.Join(stubDir, "git")
-	// The stub sees the arguments a caller passed: the hooks pin every
-	// backend git run starts with (hostexec) is dropped first.
+	// The stub sees the arguments a caller passed after checking the security
+	// settings hostexec pins on every backend git run.
 	body := strings.TrimPrefix(script, "#!/bin/sh\n")
-	wrapped := "#!/bin/sh\nif [ \"$1\" = -c ] && [ \"$2\" = core.hooksPath=/dev/null ]; then shift 2; fi\n" + body
+	wrapped := `#!/bin/sh
+for setting in core.hooksPath=/dev/null core.fsmonitor=false core.alternateRefsCommand=; do
+  if [ "$1" != -c ] || [ "$2" != "$setting" ]; then
+    echo "missing hostexec setting: $setting" >&2
+    exit 1
+  fi
+  shift 2
+done
+` + body
 	if err := os.WriteFile(stubPath, []byte(wrapped), 0o755); err != nil {
 		t.Fatalf("write git stub: %v", err)
 	}
