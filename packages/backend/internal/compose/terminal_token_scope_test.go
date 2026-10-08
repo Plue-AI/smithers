@@ -91,9 +91,17 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 	}
 	// Forged attribution and profile hints cannot widen the persisted terminal
 	// authority. Check these at HTTP as well as through the installed CLI parser.
-	for _, path := range []string{"/api/install", "/api/members", "/api/secrets"} {
-		req, err := http.NewRequestWithContext(ctx, "GET", origin+path, nil)
+	for _, fixture := range []struct{ method, path, body string }{
+		{"GET", "/api/install", ""},
+		{"GET", "/api/members", ""},
+		{"GET", "/api/secrets", ""},
+		{"POST", "/api/todos", `{"title":"After","prompt":"Forbidden placement","place":{"mode":"after","n":2}}`},
+	} {
+		path := fixture.path
+		req, err := http.NewRequestWithContext(ctx, fixture.method, origin+path, strings.NewReader(fixture.body))
 		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "terminal-scope-after")
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Smithers-Via", "cli")
 		req.Header.Set("Smithers-Actor-Kind", "person")

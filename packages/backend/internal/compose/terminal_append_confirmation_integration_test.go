@@ -88,6 +88,18 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	require.Zero(t, count("mythical_items"))
 	require.Zero(t, count("product_job_requests"))
 	require.Zero(t, count("workflow_runs"))
+	// Installing the append confirmation consumer must not widen terminal_s1.
+	// Exercise the skill's compiled CLI door as well as the HTTP fixtures below:
+	// placement refusals cannot create another card or launch background work.
+	code, refusal := invoke("todo", "new", "--text", "Forbidden terminal placement", "--before", "T2", "--idempotencyKey", "terminal-confirm-before")
+	require.Equal(t, 1, code, refusal)
+	require.Equal(t, "permission", refusal["class"], refusal)
+	require.Equal(t, "permission", refusal["code"])
+	require.NotContains(t, refusal, "confirmation")
+	require.Equal(t, 1, count("approvals"))
+	require.Zero(t, count("mythical_items"))
+	require.Zero(t, count("product_job_requests"))
+	require.Zero(t, count("workflow_runs"))
 	var credential, kind, via string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT credential_id FROM approvals WHERE id=$1 AND member_id=$2`, id, member.ID).Scan(&credential))
 	require.NotEmpty(t, credential)
@@ -149,13 +161,14 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 		{"POST", "/api/confirmations/" + id + "/approve", `{}`, "other-terminal-confirm-cookie", ""},
 		{"POST", "/api/confirmations", `{"command":"todo.new","payload":{"prompt":"forged explicit create"}}`, "", token},
 		{"POST", "/api/todos", `{"title":"Insert","prompt":"Insert","place":{"mode":"before","n":2}}`, "", token},
+		{"POST", "/api/todos", `{"title":"After","prompt":"After","place":{"mode":"after","n":2}}`, "", token},
 		{"POST", "/api/todos", `{"title":"Amend","prompt":"Amend","place":{"mode":"amend","n":2}}`, "", token},
 	} {
 		status, raw = call(fixture.method, fixture.path, fixture.body, fixture.cookie, fixture.bearer, "terminal-forged")
 		require.Equal(t, 403, status, string(raw))
 		var refusal map[string]any
 		require.NoError(t, json.Unmarshal(raw, &refusal))
-		require.Equal(t, "permission", refusal["class"])
+		require.Equal(t, "permission", refusal["class"], refusal)
 		require.Equal(t, "permission", refusal["code"])
 		require.Zero(t, count("mythical_items"))
 		require.Equal(t, 1, count("approvals"))
