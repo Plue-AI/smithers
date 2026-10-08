@@ -523,14 +523,13 @@ test("C-INS-01 the install works at loopback and at each origin the owner sets, 
         expect(lines.filter(line => line.kind !== "console"), `${origin}: page errors and unhandled rejections`).toEqual([])
         // The signed-out door makes only public bootstrap and session reads.
         expect(lines.filter(line => line.at === "signed-out"), `${origin}: errors before sign-in`).toEqual([])
-        expect(lines.filter(line => line.at === "signed-in" && !/^Failed to load resource: the server responded with a status of \d+/.test(line.text)), `${origin}: console errors after sign-in`).toEqual([])
+        expect(lines.filter(line => line.at === "signed-in"), `${origin}: console errors after sign-in`).toEqual([])
       }
       // An HTTP answer the app logs as failed must not depend on the origin: nothing fails at an owner-set origin that works on loopback.
       const loopbackFailures = report[install.loopback]!.signedIn
       for (const origin of install.ownerSet) expect(report[origin]!.signedIn.filter(failure => !loopbackFailures.includes(failure) && !(origin === removed && failure.startsWith("421 "))),
         `${origin}: requests that fail only off loopback`).toEqual([])
-      // The reference install has every provider; the composed one has no GitHub sync or repository host, and says so.
-      if (install.install === "reference") expect(loopbackFailures, "failed requests on the reference install").toEqual([])
+      expect(loopbackFailures, "failed requests on the install").toEqual([])
     })
   } finally {
     keep("connections.json", connections)

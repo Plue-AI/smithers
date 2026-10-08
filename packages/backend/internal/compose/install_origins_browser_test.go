@@ -31,6 +31,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
+	repositoryengine "github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,9 +163,35 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	// GitHub is the fake: the owner's account, the App installed on the
 	// install's repository, and the App's callback URLs for every origin
 	// (GitHub fixes them when the App is created, §16.3.3).
+	// Author fixture data on the fake GitHub remote; only sync writes the install mirror.
+	repositoryRoot := t.TempDir()
+	engine, err := repositoryengine.OpenLocal(repositoryengine.Config{StoragePath: repositoryRoot, AuthToken: "origins-repo", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH"), InstallMainMirror: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	require.NoError(t, engine.Client().InitRepo(ctx, "will", "canary", "main", true))
+	gitRoot := t.TempDir()
+	sourceRepo := filepath.Join(t.TempDir(), "source")
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.CommandContext(ctx, "git", args...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	git("clone", filepath.Join(repositoryRoot, "will", "canary", ".jj", "repo", "store", "git"), sourceRepo)
+	base, err := engine.Client().GetBookmark(ctx, "will", "canary", "main")
+	require.NoError(t, err)
+	git("-C", sourceRepo, "checkout", "-B", "main", base.TargetCommitID)
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceRepo, ".smithers"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceRepo, ".smithers", "factory.json"), []byte(`{"flows":[],"on":[]}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceRepo, "README.md"), []byte("# Canary"), 0600))
+	git("-C", sourceRepo, "add", ".")
+	git("-C", sourceRepo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Canary")
+	head := git("-C", sourceRepo, "rev-parse", "HEAD")
+	require.NoError(t, os.MkdirAll(filepath.Join(gitRoot, "will"), 0700))
+	git("clone", "--bare", sourceRepo, filepath.Join(gitRoot, "will", "canary.git"))
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	seed := githubfake.Config{AppID: 42, Slug: "install-origins", OwnerLogin: "will", OwnerKind: "user", ClientID: "origins-client",
+	seed := githubfake.Config{GitRoot: gitRoot, AppID: 42, Slug: "install-origins", OwnerLogin: "will", OwnerKind: "user", ClientID: "origins-client",
 		ClientSecret: "origins-secret", WebhookSecret: "origins-webhook", ConversionCode: "origins-manifest",
 		PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
 		Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: repository, Private: true}}}}}
@@ -211,7 +238,7 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo.ID, owner.ID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state,landed_main) VALUES($1,$2,'active',$3)`, repo.ID, owner.ID, strings.Repeat("a", 40))
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state,landed_main) VALUES($1,$2,'active',$3)`, repo.ID, owner.ID, head)
 	require.NoError(t, err)
 	binding := fmt.Sprintf(`{"owner_login":"will","repository_name":"canary","repository_id":%d,"last_access_check_at":"%s"}`, repo.ID, time.Now().UTC().Format(time.RFC3339Nano))
 	for _, setting := range []string{"github.repository", "owner.access"} {
@@ -232,6 +259,29 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	} {
 		t.Setenv(variable, value)
 	}
+	t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", github.URL)
+	assembled, err := composeGitHubSync(pool, credentials, nil, topology{}, newGitHubBudget(topology{}))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repositories SET mirror_destination='will/canary' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO github_app_installations(installation_id) VALUES(91)`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO github_app_installation_repositories(installation_id,github_repository_id) VALUES(91,100)`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO repo_connections(user_id,repo_owner,repo_name,repo_owner_lower,repo_name_lower,license_spdx_id,github_repository_id) VALUES($1,'will','canary','will','canary','MIT',100)`, owner.ID)
+	require.NoError(t, err)
+	_, err = assembled.synced.EnrollGitHubRepo(ctx, services.EnrollGitHubRepoInput{Owner: "will", Repo: "canary", InstallationID: 91, GitHubRepositoryID: 100, MetadataOnly: true})
+	require.NoError(t, err)
+	main := services.NewGitHubMainPullService(q, engine.Client(), assembled.connections, assembled.connections)
+	main.UseInstallPolicy()
+	composeGitHubTodoPolling(services.NewMythicalService(pool, engine.Client()), main, assembled.synced, topology{})
+	composeGitHubInstallAuthority(assembled.synced, credentials, os.Geteuid() != 0)
+	_, err = main.Request(ctx, repo.ID)
+	require.NoError(t, err)
+	require.NoError(t, main.PollOnce(ctx))
+	mirror, err := engine.Client().GetBookmark(ctx, "will", "canary", "main")
+	require.NoError(t, err)
+	require.Equal(t, head, mirror.TargetCommitID)
 	host.Evidence = filepath.Join(root, ".artifacts/checks/C-INS-01/composed", time.Now().UTC().Format("20060102T150405Z"))
 	require.NoError(t, os.MkdirAll(host.Evidence, 0o700))
 	backendLog, err := os.Create(filepath.Join(host.Evidence, "backend.log"))
@@ -244,7 +294,7 @@ func TestInstallOriginsBrowser(t *testing.T) {
 	serving, stop := context.WithCancel(context.Background())
 	finished := make(chan error, 1)
 	go func() {
-		finished <- RunWithOptions(serving, nil, backendLog, backendLog, Options{ChatHost: stackJourneyChatHost{interval: time.Second},
+		finished <- RunWithOptions(serving, nil, backendLog, backendLog, Options{Repository: engine.Client(), ChatHost: stackJourneyChatHost{interval: time.Second},
 			Workspace: new(liveBrowserAdmissionRuntime), HostProfile: &profile, FlowHostProductAPIURL: control})
 	}()
 	t.Cleanup(func() {
