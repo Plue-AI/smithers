@@ -590,6 +590,16 @@ export default Flow.make("todo", {
 	refusedPlan("disabled-wiki-gate")
 	t.Setenv("SMITHERS_FEATURE_FLAGS_WIKI", "true")
 	r.restartBackend()
+	// Recompose with an ordinary chat host that implements no ContextSelector.
+	// The production wiki route must refuse rather than invent a second selector.
+	sharedHost := r.options.ChatHost
+	r.options.ChatHost = unusedChatHost{}
+	r.restartBackend()
+	_, err = r.expect("GET", api+"/generated-runtime", "", 200)
+	require.NoError(t, err)
+	refusedPlan("missing-shared-selector")
+	r.options.ChatHost = sharedHost
+	r.restartBackend()
 	_, err = r.pushGitHubMain("Remove pinned generated declaration", map[string]string{
 		".smithers/coding-project.json": `{"wikiCitations":true}`,
 	})
