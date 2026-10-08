@@ -172,6 +172,9 @@ fn groups() -> Vec<String> {
     names
 }
 fn changed_record(path: &str, login: &str, old: &str, new: &str) -> String {
+    changed_field(path, login, 2, old, new)
+}
+fn changed_field(path: &str, login: &str, index: usize, old: &str, new: &str) -> String {
     let source = fs::read_to_string(path).unwrap();
     let mut found = false;
     let lines: Vec<_> = source
@@ -179,8 +182,8 @@ fn changed_record(path: &str, login: &str, old: &str, new: &str) -> String {
         .map(|line| {
             let mut fields: Vec<_> = line.split(':').collect();
             if fields[0] == login {
-                assert_eq!(fields[2], old);
-                fields[2] = new;
+                assert_eq!(fields[index], old);
+                fields[index] = new;
                 assert!(!found);
                 found = true;
             }
@@ -485,8 +488,7 @@ fn observe_daemon(pid: u32) {
     assert!(status.lines().any(|l| l.trim_end() == "Groups:\t20000"));
 }
 
-fn startup_case(case: &str) {
-    let pinned = fs::File::open(EXE).unwrap();
+fn startup_mutation(case: &str) -> (Option<tempfile::NamedTempFile>, Option<tempfile::TempDir>) {
     let mut overlay = None;
     let mut directory = None;
     match case {
@@ -506,6 +508,21 @@ fn startup_case(case: &str) {
             overlay = Some(file_overlay(
                 "/etc/passwd",
                 changed_record("/etc/passwd", "machined", "19998", "20003").as_bytes(),
+                0o644,
+                0,
+                0,
+            ));
+        }
+        "daemon account gid" | "daemon account home" | "daemon account shell" => {
+            let (index, old, new) = match case {
+                "daemon account gid" => (3, "20000", "0"),
+                "daemon account home" => (5, "/nonexistent", "/workspace"),
+                "daemon account shell" => (6, "/usr/sbin/nologin", "/workspace/sh"),
+                _ => unreachable!(),
+            };
+            overlay = Some(file_overlay(
+                "/etc/passwd",
+                changed_field("/etc/passwd", "machined", index, old, new).as_bytes(),
                 0o644,
                 0,
                 0,
@@ -586,19 +603,19 @@ fn startup_case(case: &str) {
             bind(d.path(), PARENT);
             directory = Some(d);
         }
-        "environment and restart"
-        | "restart ancestor mode"
-        | "restart ancestor symlink"
-        | "restart daemon account uid"
-        | "restart daemon team group"
-        | "restart executable bytes"
-        | "restart executable mode"
-        | "restart executable owner"
-        | "restart boot mode"
-        | "restart boot malformed"
-        | "restart cgroup parent" => (),
+        "environment and restart" => (),
         _ => panic!("unknown startup case"),
     }
+    (overlay, directory)
+}
+
+fn startup_case(case: &str) {
+    let pinned = fs::File::open(EXE).unwrap();
+    let (mut overlay, mut directory) = if case.starts_with("restart ") {
+        (None, None)
+    } else {
+        startup_mutation(case)
+    };
     use std::os::fd::AsRawFd;
     let held = rustix::io::fcntl_dupfd_cloexec(&pinned, 10).unwrap();
     let mut command = Command::new(format!("/proc/self/fd/{}", held.as_raw_fd()));
@@ -676,82 +693,8 @@ fn startup_case(case: &str) {
             .unwrap()
             .lines()
             .any(|l| l == "populated 1"));
-        match case {
-            "restart ancestor mode" => {
-                let d = tempfile::tempdir().unwrap();
-                fs::set_permissions(d.path(), fs::Permissions::from_mode(0o777)).unwrap();
-                bind(d.path(), "/opt/smithers/bin");
-                directory = Some(d);
-            }
-            "restart ancestor symlink" => {
-                let d = tempfile::tempdir().unwrap();
-                std::os::unix::fs::symlink("/workspace", d.path().join("bin")).unwrap();
-                bind(d.path(), "/opt/smithers");
-                directory = Some(d);
-            }
-            "restart daemon account uid" => {
-                overlay = Some(file_overlay(
-                    "/etc/passwd",
-                    changed_record("/etc/passwd", "machined", "19998", "20003").as_bytes(),
-                    0o644,
-                    0,
-                    0,
-                ));
-            }
-            "restart daemon team group" => {
-                overlay = Some(file_overlay(
-                    "/etc/group",
-                    changed_record("/etc/group", "team", "20000", "20003").as_bytes(),
-                    0o644,
-                    0,
-                    0,
-                ));
-            }
-            "restart executable bytes" => {
-                overlay = Some(file_overlay(
-                    EXE,
-                    b"not the installed executable\n",
-                    0o755,
-                    0,
-                    0,
-                ));
-            }
-            "restart executable mode" => {
-                overlay = Some(file_overlay(EXE, &fs::read(EXE).unwrap(), 0o777, 0, 0))
-            }
-            "restart executable owner" => {
-                overlay = Some(file_overlay(
-                    EXE,
-                    &fs::read(EXE).unwrap(),
-                    0o755,
-                    20001,
-                    20001,
-                ))
-            }
-            "restart boot mode" => {
-                overlay = Some(file_overlay(
-                    "/run/smithers/machined/boot",
-                    &fs::read("/run/smithers/machined/boot").unwrap(),
-                    0o644,
-                    19998,
-                    19998,
-                ))
-            }
-            "restart boot malformed" => {
-                overlay = Some(file_overlay(
-                    "/run/smithers/machined/boot",
-                    b"PATH=/workspace\n",
-                    0o400,
-                    19998,
-                    19998,
-                ))
-            }
-            "restart cgroup parent" => {
-                let d = tempfile::tempdir().unwrap();
-                bind(d.path(), PARENT);
-                directory = Some(d);
-            }
-            _ => (),
+        if let Some(mutation) = case.strip_prefix("restart ") {
+            (overlay, directory) = startup_mutation(mutation);
         }
         unsafe {
             assert_eq!(libc::kill(pid as i32, libc::SIGKILL), 0);
@@ -895,6 +838,9 @@ fn TestSessionInstalledRootInputMatrices() {
         "ancestor mode",
         "ancestor symlink",
         "daemon account uid",
+        "daemon account gid",
+        "daemon account home",
+        "daemon account shell",
         "daemon team group",
         "executable bytes",
         "executable mode",
@@ -910,11 +856,17 @@ fn TestSessionInstalledRootInputMatrices() {
         "restart ancestor mode",
         "restart ancestor symlink",
         "restart daemon account uid",
+        "restart daemon account gid",
+        "restart daemon account home",
+        "restart daemon account shell",
         "restart daemon team group",
         "restart executable bytes",
         "restart executable mode",
+        "restart executable setuid",
+        "restart executable symlink",
         "restart executable owner",
         "restart boot mode",
+        "restart boot owner",
         "restart boot malformed",
         "restart cgroup parent",
     ] {
