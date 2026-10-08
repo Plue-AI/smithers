@@ -682,6 +682,57 @@ func TestMaintenanceHealthWakeProductionOwnerHTTP(t *testing.T) {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "quiesce", Value: freeze}))
 	service := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: state})
 	require.NoError(t, composeInstallAdmission(ctx, service, runtime, workspaces))
+	// The isolated installing-owner health door never grants normal TCP
+	// admission, even after its failed guest has been confirmed stopped.
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Install.StateDir = state
+	cfg.Server.PublicURL = "http://localhost:4000"
+	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+	cookie := "health-owner-cookie"
+	cookieHash := sha256.Sum256([]byte(cookie))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: hex.EncodeToString(cookieHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	normalRouter := parallelInstallRouter(cfg, q, pool, &routes.WorkspaceTerminalHandler{Service: workspaces, AllowedOrigins: cfg.Server.AllowedOrigins}, routerExtras{InstallQuiesce: service, Mythical: &routes.MythicalHandler{Service: services.NewMythicalService(pool, nil, services.WithMythicalInstallAuthorization(true))}})
+	assertNormalFrozen := func() {
+		t.Helper()
+		beforeRows := runtime.AdmissionSnapshot()
+		beforeCalls, err := os.ReadFile(calls)
+		require.NoError(t, err)
+		for _, door := range []struct{ path, body string }{
+			{"/api/terminals", fmt.Sprintf(`{"branch":%q}`, branch.ID)},
+			{"/api/todos", `{"title":"Health fence","prompt":"Do work","place":{"mode":"append"}}`},
+			{"/api/todos/1", `{"op":"resume"}`},
+			{"/api/reviews", `{"number":50,"conversation":"main"}`},
+		} {
+			req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+door.path, strings.NewReader(door.body))
+			req.RemoteAddr = "127.0.0.1:52000"
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", cfg.Server.PublicURL)
+			req.Header.Set("Idempotency-Key", "health-fence-"+door.path)
+			req.Header.Set("X-CSRF-Token", "health-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "health-csrf"})
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response := httptest.NewRecorder()
+			normalRouter.ServeHTTP(response, req)
+			require.Equal(t, http.StatusServiceUnavailable, response.Code, door.path+": "+response.Body.String())
+			var refusal struct {
+				Code  string `json:"code"`
+				Class string `json:"class"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &refusal))
+			require.Equal(t, "install_quiesced", refusal.Code)
+			require.Equal(t, "infra", refusal.Class)
+		}
+		require.Equal(t, beforeRows, runtime.AdmissionSnapshot(), "normal doors cannot enqueue during health maintenance")
+		afterCalls, err := os.ReadFile(calls)
+		require.NoError(t, err)
+		require.Equal(t, string(beforeCalls), string(afterCalls), "normal doors cannot launch a runtime command")
+		var requests int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requests))
+		require.Zero(t, requests, "normal doors cannot admit durable work")
+	}
+	assertNormalFrozen()
 	handler := &routes.InstallQuiesceHandler{Owners: q, Service: service}
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
@@ -707,6 +758,7 @@ func TestMaintenanceHealthWakeProductionOwnerHTTP(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(after), "start\nexec\nstop\nlist\n")
 	require.Zero(t, runtime.InUse())
+	assertNormalFrozen()
 	require.Len(t, runtime.AdmissionSnapshot(), 1)
 	require.Equal(t, "released", runtime.AdmissionSnapshot()[0].State)
 	_, err = runtime.Request("person", "workspace:other", "member", "terminal")

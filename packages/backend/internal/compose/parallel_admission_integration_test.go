@@ -119,7 +119,7 @@ type parallelCard struct {
 // observation providers; TestParallelRetainedMachineRelease covers that
 // engine rule with an injected ownership observation.
 func TestParallelAdmissionInstallBoundary(t *testing.T) {
-	testParallelAdmissionInstallBoundary(t, false, false)
+	testParallelAdmissionInstallBoundary(t, false, false, false)
 }
 
 // C-J7-01: a Before request made with no free capacity must win the next
@@ -127,7 +127,7 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 // This runs the install HTTP dispatcher, engine and real runtime admission
 // scheduler; only free-disk measurements and guest boot responses are injected.
 func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
-	testParallelAdmissionInstallBoundary(t, true, false)
+	testParallelAdmissionInstallBoundary(t, true, false, false)
 }
 
 // A confirmed runtime stop frees an occupied slot without increasing capacity.
@@ -136,10 +136,16 @@ func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
 // #3572); retaining its reviewed coding run (#3531) cannot free capacity there.
 // This oracle supplies a real runtime stop, never a fabricated ownership bit.
 func TestTodoBeforeAdmittedWhenHolderStops(t *testing.T) {
-	testParallelAdmissionInstallBoundary(t, true, true)
+	testParallelAdmissionInstallBoundary(t, true, true, false)
 }
 
-func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops bool) {
+// C-MCH-11 concurrent terminal demand across ten retained branches. The
+// unresolved boot is injected; admission, authorization and live sources are real.
+func TestTenBranchTerminalAdmissionInstallBoundary(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, false, false, true)
+}
+
+func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops, matrix bool) {
 	scratch, err := os.MkdirTemp("/tmp", "stk03")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
@@ -198,23 +204,38 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 	// Ben's sleeping scratch branch: a stopped machine the runtime retains.
 	machines, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
-	scratchBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machines, Name: "notes", TargetBookmark: "scratch/ben/notes", Kind: "container", Status: "suspended"})
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, scratchBranch.ID)
-	require.NoError(t, err)
 	root := filepath.Join(scratch, "runtime")
-	sum := sha256.Sum256([]byte(scratchBranch.ID))
-	sleeping := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "workspaces", hex.EncodeToString(sum[:])), 0o700))
+	require.NoError(t, os.MkdirAll(root, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "owner"), []byte("smithers-backend-0123456789abcdef\n"), 0o600))
-	metadata, err := json.Marshal(map[string]any{"version": 1, "id": scratchBranch.ID, "machine": sleeping, "state": "stopped"})
+	count := 1
+	if matrix {
+		count = 10
+	}
+	branches := make([]db.Workspace, 0, count)
+	inventory := make([]map[string]string, 0, count)
+	for i := range count {
+		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machines, Name: fmt.Sprintf("notes-%d", i), TargetBookmark: fmt.Sprintf("scratch/ben/notes-%d", i), Kind: "container", Status: "suspended"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, branch.ID)
+		require.NoError(t, err)
+		sum := sha256.Sum256([]byte(branch.ID))
+		machine := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
+		directory := filepath.Join(root, "workspaces", hex.EncodeToString(sum[:]))
+		require.NoError(t, os.MkdirAll(directory, 0o700))
+		metadata, err := json.Marshal(map[string]any{"version": 1, "id": branch.ID, "machine": machine, "state": "stopped"})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "metadata.json"), metadata, 0o600))
+		branches = append(branches, branch)
+		inventory = append(inventory, map[string]string{"name": machine, "status": "stopped"})
+	}
+	scratchBranch := branches[0]
+	inventoryJSON, err := json.Marshal(inventory)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(root, "workspaces", hex.EncodeToString(sum[:]), "metadata.json"), metadata, 0o600))
 	// Runtime boot/stop responses: every boot or wake stays in flight (holding
 	// its grant) until the test ends; the inventory lists the sleeping machine.
 	release := filepath.Join(scratch, "release-boots")
 	msb := filepath.Join(scratch, "msb")
-	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n create|run|start) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;\n list) printf '[{\"name\":\"%s\",\"status\":\"stopped\"}]\\n' ;;\n *) printf '[]\\n' ;;\nesac\n", release, sleeping)), 0o700))
+	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\n create|run|start) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;\n list) printf '%s\\n' ;;\n *) printf '[]\\n' ;;\nesac\n", release, inventoryJSON)), 0o700))
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
 		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 8})
@@ -274,6 +295,9 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 
 	// The served install: router, live channel and the background workers.
 	cfg := testConfigAllFlagsOn()
+	if matrix {
+		cfg.RateLimit.TerminalOpenPerMin = 100
+	}
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
@@ -329,6 +353,11 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 			byNumber[card.N] = card
 		}
 		return byNumber
+	}
+	if matrix {
+		freeDisk.Store(72 << 30) // exactly one slot
+		exerciseTenBranchTerminals(t, branches, runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk)
+		return
 	}
 	// states maps a TODO number to its state; queued maps a TODO number to
 	// its literal "waiting for a machine #n" position.
@@ -918,4 +947,140 @@ func assertEventually(budget time.Duration, condition func() bool) bool {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *microsandbox.Runtime, serverURL, publicURL, mayaCookie, benCookie string, call func(string, string, string, string) (int, []byte), freeDisk *atomic.Int64) {
+	t.Helper()
+	ctx := t.Context()
+	open := func(branch db.Workspace, cookie string) {
+		t.Helper()
+		code, body := call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, branch.ID), cookie)
+		require.Equal(t, http.StatusAccepted, code, string(body))
+	}
+	// First arrivals establish literal FIFO expectations independently of the
+	// scheduler's ranks. Later requests arrive concurrently on all ten holders.
+	for i, branch := range branches {
+		open(branch, mayaCookie)
+		require.Eventually(t, func() bool {
+			for _, row := range runtime.AdmissionSnapshot() {
+				if row.Holder == "workspace:"+branch.ID {
+					if i == 0 {
+						return row.State == "granted"
+					}
+					return row.State == "waiting" && row.Position == i
+				}
+			}
+			return false
+		}, 5*time.Second, 10*time.Millisecond)
+	}
+	results := make(chan struct {
+		code int
+		body []byte
+	}, 40)
+	var group sync.WaitGroup
+	for i := range 40 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			cookie := mayaCookie
+			if (i/10)%2 == 0 {
+				cookie = benCookie
+			}
+			code, body := call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, branches[i%10].ID), cookie)
+			results <- struct {
+				code int
+				body []byte
+			}{code, body}
+		}()
+	}
+	group.Wait()
+	close(results)
+	for result := range results {
+		require.Equal(t, http.StatusAccepted, result.code, string(result.body))
+	}
+	check := func() bool {
+		rows := runtime.AdmissionSnapshot()
+		if runtime.InUse() != 1 || len(rows) != 20 {
+			return false
+		}
+		for i, branch := range branches {
+			actors := map[string]bool{}
+			for _, row := range rows {
+				if row.Holder != "workspace:"+branch.ID {
+					continue
+				}
+				if row.Class != "person" || actors[row.Actor] {
+					return false
+				}
+				actors[row.Actor] = true
+				if i == 0 {
+					if row.State != "granted" || row.Position != 0 {
+						return false
+					}
+				} else if row.State != "waiting" || row.Position != i {
+					return false
+				}
+			}
+			if len(actors) != 2 {
+				return false
+			}
+		}
+		return true
+	}
+	require.Eventually(t, check, 10*time.Second, 10*time.Millisecond, "50 launches must coalesce into two actors per holder: %+v", runtime.AdmissionSnapshot())
+	// Every member-facing branch response and authenticated live subscription
+	// must expose the same dense FIFO positions. No frame is manufactured.
+	for i, branch := range branches {
+		code, body := call("GET", "/api/branches/"+branch.ID, "", benCookie)
+		require.Equal(t, http.StatusOK, code, string(body))
+		var card services.BranchMachineResponse
+		require.NoError(t, json.Unmarshal(body, &card))
+		require.Equal(t, i, card.Machine.WaitPosition)
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(serverURL, "http")+"/api/live", &websocket.DialOptions{
+			Subprotocols: []string{live.Protocol}, Host: strings.TrimPrefix(publicURL, "http://"),
+			HTTPHeader: http.Header{"Cookie": {"smithers_session=" + benCookie}, "Origin": {publicURL}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, branch.ID))))
+		deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+		for {
+			_, raw, err := conn.Read(deadline)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.NotEqual(t, "err", frame.T, string(raw))
+			if frame.T != "snap" {
+				continue
+			}
+			require.NotNil(t, frame.Cursor)
+			var snapshot struct {
+				Machine struct {
+					State    string `json:"state"`
+					Position int    `json:"position"`
+				} `json:"machine"`
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &snapshot))
+			require.Equal(t, i, snapshot.Machine.Position)
+			if i > 0 {
+				require.Equal(t, "waiting", snapshot.Machine.State)
+			} else {
+				require.Equal(t, "waking", snapshot.Machine.State)
+			}
+			break
+		}
+		cancel()
+		conn.CloseNow()
+	}
+	// Capacity falling below held must neither stop the in-flight boot nor
+	// admit any waiting branch. Read-only doors remain usable during the boot.
+	freeDisk.Store(60 << 30)
+	until := time.Now().Add(2100 * time.Millisecond)
+	for time.Now().Before(until) {
+		require.True(t, check(), "disk pressure changed held ownership: %+v", runtime.AdmissionSnapshot())
+		code, body := call("GET", "/api/todos", "", benCookie)
+		require.Equal(t, http.StatusOK, code, string(body))
+		time.Sleep(20 * time.Millisecond)
+	}
+	freeDisk.Store(72 << 30)
+	require.True(t, check(), "restored capacity cannot spend an unconfirmed slot")
 }
