@@ -29,6 +29,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_merge_profiles_authorization_integration_test.go",
+    "tests": [
+      "TestAccessMergeProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_retained_http_authorization_integration_test.go",
     "tests": [
       "TestRetainedCommandHTTPStateEffectsPostgres",

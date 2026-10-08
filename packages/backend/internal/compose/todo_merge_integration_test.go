@@ -122,7 +122,15 @@ func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
 	testTodoMergeComposedRouteBoundaryPostgres(t, false, false, true)
 }
 
+type accessMergeProfile struct {
+	via, role, subject string
+}
+
 func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, options ...bool) {
+	testTodoMergeProfileComposedRouteBoundaryPostgres(t, confirmations, browserJourney, labelApproval, accessMergeProfile{}, options...)
+}
+
+func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, profile accessMergeProfile, options ...bool) {
 	// Independent installs must never share the stack worker's scratch checkout.
 	t.Setenv("TMPDIR", t.TempDir())
 	explicitHead := []bool{len(options) > 1 && options[1]}
@@ -533,6 +541,23 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	}
 
 	if confirmations {
+		requester, personCookie, foreignCookie := owner, "owner-browser-session", "member-browser-session"
+		if profile.role == "maintainer" {
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+			require.NoError(t, err)
+			requester, personCookie, foreignCookie = member, "member-browser-session", "owner-browser-session"
+		}
+		if profile.subject != "" {
+			holder := requester.ID
+			if profile.subject == "other-member" {
+				holder = member.ID
+				if holder == requester.ID {
+					holder = owner.ID
+				}
+			}
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, before.ID, holder)
+			require.NoError(t, err)
+		}
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1,candidate_base=$2,candidate_head=pr_head,checks=jsonb_set(checks,'{branch}','"smithers/wave"'::jsonb) WHERE id=$1`, before.ID, base)
 		require.NoError(t, err)
 		call := func(method, path, cookie, bearer, key, body string) (int, map[string]any) {
@@ -559,15 +584,30 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		// C-CAT-02: request through the actual source CLI, with a delegated
 		// credential. Discovery, schema parsing and HTTP dispatch all run.
 		if !installBrowser {
-			fake.SetCollaborator(17, "merge-owner", "admin")
+			fake.SetCollaborator(17, requester.Username, "admin")
+			if profile.role == "maintainer" {
+				_, err = pool.Exec(ctx, `UPDATE collaborators SET github_id=17,github_login=$3 WHERE repository_id=$1 AND user_id=$2`, repo.ID, requester.ID, requester.Username)
+				require.NoError(t, err)
+			}
 			fake.SignInAs("merge-login-code", 17)
-			_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(2,$1,'workos','17','{}')`, owner.ID)
+			_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(2,$1,'workos','17','{}')`, requester.ID)
 			require.NoError(t, err)
 			via := "claude-code"
 			if len(explicitHead) > 0 && explicitHead[0] {
 				via = "cli"
 			}
-			pat = confirmationCLILogin(t, ctx, origin, "merge-login-code", via)
+			if profile.via != "" {
+				via = profile.via
+			}
+			if via == "smithers" {
+				issuer := services.NewAuthService(q, config.AuthConfig{Mode: "selfhost"}, nil, nil)
+				issuer.Members = &services.Members{Pool: pool}
+				issued, err := issuer.MintForTurn(ctx, requester.ID, liveAppTurnCredentialFixture(t, pool, requester.ID), 1)
+				require.NoError(t, err)
+				pat = issued.Token
+			} else {
+				pat = confirmationCLILogin(t, ctx, origin, "merge-login-code", via)
+			}
 			digest := sha256.Sum256([]byte(pat))
 			var scopes string
 			require.NoError(t, pool.QueryRow(ctx, `SELECT scopes FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(digest[:])).Scan(&scopes))
@@ -583,7 +623,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		code, receipt := invoke(argv...)
 		require.Equal(t, 3, code, receipt)
 		require.Equal(t, "pending", receipt["state"])
-		require.Equal(t, "Waiting for Merge owner to confirm", receipt["message"])
+		require.Equal(t, "Waiting for "+requester.DisplayName+" to confirm", receipt["message"])
 		require.Len(t, receipt, 3, "the CLI exposes only the receipt and waiting message")
 		id := receipt["confirmation"].(string)
 		aliasBody := `{}`
@@ -603,7 +643,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 				&services.Members{Pool: pool, Credentials: credentials, Minter: connections, Budget: services.NewBudgetTracker()})
 			return
 		}
-		boundRow, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		boundRow, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 		require.NoError(t, err)
 		require.Equal(t, "review_merge", boundRow.Kind)
 		require.Contains(t, boundRow.Revision, pull.Head.SHA)
@@ -645,7 +685,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			require.NoError(t, err)
 			fmt.Println("ACCESS_MERGE_CHANGED")
 			wait("expired")
-			row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+			row, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 			require.NoError(t, err)
 			require.Equal(t, "expired", row.State)
 			require.Empty(t, item().PendingOp)
@@ -656,7 +696,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			id = receipt["confirmation"].(string)
 			fmt.Println("ACCESS_MERGE_CURRENT " + id)
 			wait("approved")
-			row, err = q.GetMemberConfirmation(ctx, id, owner.ID)
+			row, err = q.GetMemberConfirmation(ctx, id, requester.ID)
 			require.NoError(t, err)
 			require.Equal(t, "pending", row.State, "admission is not a completed merge")
 			var operation services.MythicalOutboundOp
@@ -672,7 +712,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			output, err := command.CombinedOutput()
 			t.Log(string(output))
 			require.NoError(t, err)
-			row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+			row, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 			require.NoError(t, err)
 			require.Equal(t, "rejected", row.State)
 			require.Empty(t, item().PendingOp)
@@ -690,17 +730,17 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.Empty(t, item().PendingOp)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "", pat, "agent-press", `{}`)
 		require.Equal(t, 403, status, receipt)
-		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "member-browser-session", "", "foreign-press", `{}`)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", foreignCookie, "", "foreign-press", `{}`)
 		require.Equal(t, 403, status, receipt)
 		// A new generation invalidates the exact revision the agent requested.
 		// The person's stale press must expire it without admitting a merge.
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, before.ID)
 		require.NoError(t, err)
-		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "stale-person-press", `{}`)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", personCookie, "", "stale-person-press", `{}`)
 		require.Equal(t, 409, status, receipt)
 		require.Equal(t, "conflict", receipt["class"])
 		require.Equal(t, "confirmation_resolved", receipt["code"])
-		staleRow, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		staleRow, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 		require.NoError(t, err)
 		require.Equal(t, "expired", staleRow.State)
 		require.Empty(t, item().PendingOp)
@@ -714,9 +754,9 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		movedID := receipt["confirmation"].(string)
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2 WHERE id=$1`, before.ID, strings.Repeat("e", 40))
 		require.NoError(t, err)
-		status, receipt = call("POST", "/api/confirmations/"+movedID+"/approve", "owner-browser-session", "", "moved-head-press", `{}`)
+		status, receipt = call("POST", "/api/confirmations/"+movedID+"/approve", personCookie, "", "moved-head-press", `{}`)
 		require.Equal(t, 409, status, receipt)
-		movedRow, err := q.GetMemberConfirmation(ctx, movedID, owner.ID)
+		movedRow, err := q.GetMemberConfirmation(ctx, movedID, requester.ID)
 		require.NoError(t, err)
 		require.Equal(t, "expired", movedRow.State)
 		require.Empty(t, item().PendingOp)
@@ -729,10 +769,10 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		code, receipt = invoke(argv...)
 		require.Equal(t, 3, code, receipt)
 		id = receipt["confirmation"].(string)
-		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "pending-check-press", `{}`)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", personCookie, "", "pending-check-press", `{}`)
 		require.Equal(t, 409, status, receipt)
 		require.Equal(t, "checks", receipt["code"])
-		pending, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		pending, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 		require.NoError(t, err)
 		require.Equal(t, "pending", pending.State)
 		require.Empty(t, item().PendingOp)
@@ -754,18 +794,18 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 			require.Equal(t, "merge", operation.Kind, "the keyboard press admits the merge")
 		}
 		if !browserJourney {
-			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", personCookie, "", "person-press", `{}`)
 			require.Equal(t, 202, status, receipt)
 			require.Equal(t, "pending", receipt["state"])
 			version := item().Version
-			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+			status, receipt = call("POST", "/api/confirmations/"+id+"/approve", personCookie, "", "person-press", `{}`)
 			require.Equal(t, 202, status, receipt)
 			require.Equal(t, version, item().Version)
 		}
-		status, receipt = call("POST", "/api/confirmations/"+id+"/deny", "owner-browser-session", "", "cancel-in-flight", `{}`)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/deny", personCookie, "", "cancel-in-flight", `{}`)
 		require.Equal(t, 409, status, receipt)
 		require.Equal(t, "merging", receipt["code"])
-		row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		row, err := q.GetMemberConfirmation(ctx, id, requester.ID)
 		require.NoError(t, err)
 		require.Equal(t, "pending", row.State)
 		for _, write := range fake.Writes() {
@@ -783,7 +823,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		confirmationState := func() string {
 			request, err := http.NewRequest("GET", origin+"/api/confirmations", nil)
 			require.NoError(t, err)
-			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: personCookie})
 			response, err := fake.Client().Do(request)
 			require.NoError(t, err)
 			defer response.Body.Close()
