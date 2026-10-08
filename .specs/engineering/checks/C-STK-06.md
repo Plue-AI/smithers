@@ -1,7 +1,7 @@
 # C-STK-06 The PR head's tree is the tree checks ran on; a new item starts on the available prefix
 
 Proves: mvp.md §4.2 Merging ("Each PR is the verified candidate for its item") and Rebase ("checks rerun"), Appendix B.5 (Stack: integrate, Stack: propose) · spec.md §10.3.2, §10.4.1, §10.4.3, §10.4.4, §10.4.5 · Layer: integration · Stage: S1 · Tickets: T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14
-Automation: `packages/backend/internal/services/todo_candidate_flow_db_test.go` (new) · Runs in: reference host (real microVM, real PostgreSQL, packaged guest flow host, fake GitHub); fixture system-operation coverage lands with T-STK-12, built-in run-loop coverage with T-FLW-11
+Automation: `packages/backend/internal/services/todo_candidate_flow_db_test.go` (new); composed replay/Drop: `packages/backend/internal/compose/install_reserved_stack_integration_test.go`, `packages/backend/internal/compose/github_outbound_kill_test.go` · Runs in: reference host (real microVM, real PostgreSQL, packaged guest flow host, fake GitHub); fixture system-operation coverage lands with T-STK-12, built-in run-loop coverage with T-FLW-11
 
 ## Setup
 - For FLW11 QA cases, also use the real built-in composition, packaged NativeCoding operation dispatcher, durable flowdispatch jobs, real guest coding host and PostgreSQL. Fake GitHub/model providers record requests and expose barriers; host watchdog, UTC and backoff clocks are injected. Use separate reviewer contexts on the TODO machine with trusted instruction hashes and immutable candidate exports. Fixed fixtures include hostile root/nested AGENTS.md/config/tool-returned data, sized 98,304/98,305-byte diffs, outsider protected-path policy and missing/no-check build commands.

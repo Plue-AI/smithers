@@ -113,3 +113,19 @@ test("five candidate-fixture kills cannot qualify the production propose boundar
   expect(() => requireReachedGoFaultMatrix(githubLog(), githubNames, [...githubPoints, "github-production-propose"]))
     .toThrow("github-production-propose")
 })
+
+
+test("production GitHub evidence requires each send boundary and late Drop", () => {
+  const kinds = ["push", "open", "body", "merge", "close"]
+  const stages = ["before-send", "potentially-sent", "remote-success"]
+  const points = [...kinds.flatMap(kind => stages.map(stage => `github-${kind}-${stage}`)), "github-open-drop-remote-success"]
+  const names = points.map(point => `TestProduction/${point}/crossing`)
+  const transcript = (missing?: string) => log(...points.flatMap((point, i) => [
+    { Action: "output", Test: names[i]!, Output: `CRASH-POINT ${point === missing ? "other" : point} subject todo\nCRASH-POINT github-production-propose subject todo\n` },
+    { Action: "pass", Test: names[i]! }
+  ]))
+  expect(() => requireReachedGoFaultMatrix(transcript(), names, [...points, "github-production-propose"])).not.toThrow()
+  for (const point of points) {
+    expect(() => requireReachedGoFaultMatrix(transcript(point), names, points)).toThrow(point)
+  }
+})

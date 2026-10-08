@@ -1,10 +1,10 @@
 # C-DUR-03 One pending GitHub operation per item survives restart
 
 Proves: mvp.md §6.1 "Restart", §9 "Durability", §12 item 1 (restart mid-run, recovery receipts) · spec.md §3 (`pending_op`), §12.4.1, §19.1, §19.2 · Layer: fault · Stage: S1, S2 · Tickets: T-GH-09, T-FLW-09, T-REL-04
-Automation: `packages/backend/internal/compose/github_outbound_kill_test.go` · Runs in: CI with real PostgreSQL and githubfake
+Automation: `packages/backend/internal/compose/github_outbound_kill_test.go` · Runs in: reference host with the packaged native writer, real PostgreSQL and githubfake
 
 ## Setup
-Use production install composition, literal expected item rows, a canonical App identity and a bare remote. Prepare one item for each kind: push, open PR, body, merge, close PR.
+Use production install composition, literal expected item rows, a canonical App identity and a bare remote. Prepare one item for each kind: push, open PR, body, merge, close PR. Enter through composed `stack.propose`, `todo.drop` and the merge route. Historical Linux receipts qualify these HTTP boundaries and the restarted production worker with guest observations adapted over a real checked checkout. The current packaged writer requires the reference machine; those receipts do not qualify the reference port.
 
 ## Steps
 1. For every kind, stop the backend process group with SIGKILL before send, after potentially-sent commit, after remote success and before local settlement.

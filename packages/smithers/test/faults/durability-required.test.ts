@@ -7,13 +7,17 @@ import { requireReachedGoFaultMatrix } from "./harness/durability.ts"
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
 const backend = `${root}packages/backend`
+const githubKinds = ["push", "open", "body", "merge", "close"] as const
+const githubStages = ["before-send", "potentially-sent", "remote-success"] as const
+const githubCrossings = githubKinds.flatMap(kind => githubStages.map(stage => `${kind}/${stage}`))
+const githubPoints = githubKinds.flatMap(kind => githubStages.map(stage => `github-${kind}-${stage}`))
 const cases = [
   ["C-DUR-01", "internal/compose/todo_pause_delivery_fault_test.go", "TestTodoStopResumeDeliveryCrashComposed", ["stop-pre-delivery", "stop-delivery", "resume-pre-delivery", "resume-delivery"]],
   ["C-DUR-01", "internal/compose/todo_pause_fault_test.go", "TestTodoStartCrashThroughRoute", ["start"]],
   ["C-DUR-01", "internal/services/todo_pause_fault_test.go", "TestTodoStartPauseResumeCrashThroughRoutes", ["stop", "resume"]],
   ["C-DUR-01", "internal/compose/postgres_kill_fault_test.go", "TestTodoPostgresCrashThroughRoute", ["postgres-transition"]],
   ["C-DUR-03", "internal/compose/todo_merge_fault_test.go", "TestTodoMergeCrashThroughRoute", ["merge-pre-land", "merge-post-land", "merge-post-call"]],
-  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, ["github-push", "github-open", "github-body", "github-merge", "github-close", "github-production-propose"]],
+  ["C-DUR-03", "internal/compose/github_outbound_kill_test.go", null, [...githubPoints, "github-open-drop-remote-success", "github-production-propose"]],
   ["C-DUR-04", "internal/machined/fault_test.go", null, []],
   ["C-DUR-04", "internal/machined/rebase_fault_test.go", "TestRebaseCrashThroughDispatcher", ["rebase-post-capture", "rebase-mid", "rebase-post-apply"]]
 ] as const
@@ -44,17 +48,16 @@ for (const [check, file, name, points] of selected) {
       .matchAll(/^func (Test\w+)\(t \*testing\.T\)/gm)]
       .map((match) => match[1]!).filter((entry) => !entry.includes("Child"))
     expect(names.length, `No acceptance tests in ${file}`).toBeGreaterThan(0)
-    // Candidate controls exercise outbound recovery without qualifying the
-    // sandboxed native proposal binding. They cannot satisfy the production
-    // propose marker, even when every outbound crossing passes.
+    // The composed matrix enters the reserved production proposal route and
+    // kills the claimed worker at every send/commit/response boundary.
     const githubControl = file === "internal/compose/github_outbound_kill_test.go"
     const referenceMachine = check === "C-DUR-02"
-    const timeout = referenceMachine ? 2_700_000 : githubControl ? 750_000 : 150_000
+    const timeout = referenceMachine || githubControl ? 2_700_000 : 150_000
     const evidenceNames = githubControl
-      ? ["push", "open", "body", "merge", "close"].map(kind => `TestGitHubOutboundKillComposedCandidateControl/${kind}/crossing`)
+      ? [...githubCrossings, "open-drop/remote-success"].map(crossing => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
       : names
     const result = spawnSync("go", ["test", "-json", "-count=1", `./${pkg}`, "-run", `^(${names.join("|")})$`,
-      "-timeout", referenceMachine ? "44m" : githubControl ? "12m" : "2m"], {
+      "-timeout", referenceMachine || githubControl ? "44m" : "2m"], {
       cwd: backend,
       env: githubControl ? { ...process.env, SMITHERS_GITHUB_OUTBOUND_KILL: "1" } : process.env,
       encoding: "utf8", timeout, maxBuffer: 32 << 20
@@ -68,5 +71,5 @@ for (const [check, file, name, points] of selected) {
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
     requireReachedGoFaultMatrix(result.stdout, evidenceNames, points,
       name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
-  }, check === "C-DUR-02" ? 2_730_000 : file === "internal/compose/github_outbound_kill_test.go" ? 780_000 : 180_000)
+  }, check === "C-DUR-02" || file === "internal/compose/github_outbound_kill_test.go" ? 2_730_000 : 180_000)
 }
