@@ -84,6 +84,11 @@ func TestGitCaptureObjects(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, appliedBootstrap)
 	require.Equal(t, capture.Head, git("rev-parse", ref))
+	git("update-ref", "-d", ref)
+	bootstrap.InitialBase = capture.Head
+	appliedBootstrap, err = bootstrap.PublishCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.True(t, appliedBootstrap, "a snapshot already admitted by publication may initialize its own ref")
 	// Bootstrap authority never replaces a head that already exists.
 	git("update-ref", ref, capture.Tree)
 	appliedBootstrap, err = bootstrap.PublishCapture(t.Context(), branch, capture)

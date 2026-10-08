@@ -55,7 +55,11 @@ func TestBranchCaptureComposedInstall(t *testing.T) {
 		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
 	}
 }
-func TestBranchFirstCaptureComposedInstall(t *testing.T) { runBranchAddComposed(t, "s2-bootstrap") }
+func TestBranchFirstCaptureComposedInstall(t *testing.T) {
+	for _, mode := range []string{"s2-bootstrap", "s2-head-bootstrap"} {
+		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
+	}
+}
 
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
@@ -123,7 +127,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.NoError(t, err)
 	git("-C", store, "update-ref", "refs/heads/scratch/ben/try", head)
 	git("-C", store, "update-ref", repohost.BranchHeadRef(workspace.ID), head)
-	if remove == "s2-bootstrap" {
+	if remove == "s2-bootstrap" || remove == "s2-head-bootstrap" {
 		git("-C", store, "update-ref", "-d", repohost.BranchHeadRef(workspace.ID))
 	}
 	require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
@@ -266,6 +270,10 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		captured := git("-C", source, "rev-parse", "HEAD")
 		git("-C", store, "fetch", source, captured)
 		tree := git("-C", source, "rev-parse", captured+"^{tree}")
+		if remove == "s2-head-bootstrap" {
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, workspace.ID, captured)
+			require.NoError(t, err)
+		}
 		if strings.HasSuffix(remove, "item-fork") {
 			item, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Source", "Fixed item", []byte(`[{"text":"Fixed item"}]`), []byte(`{"todo":true}`))
 			require.NoError(t, err)
@@ -389,7 +397,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 				require.Equal(t, response.Body.String(), replay.Body.String())
 			}
 		}
-		if remove == "s2-add" || remove == "s2-confirm" || remove == "s2-bootstrap" {
+		if remove == "s2-add" || remove == "s2-confirm" || remove == "s2-bootstrap" || remove == "s2-head-bootstrap" {
 			var ws, seed string
 			require.NoError(t, pool.QueryRow(ctx, `SELECT workspace_id,checks->'seed'->>'captured' FROM mythical_items`).Scan(&ws, &seed))
 			require.Equal(t, workspace.ID, ws)

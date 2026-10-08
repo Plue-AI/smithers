@@ -80,7 +80,7 @@ func (s GitCaptureObjects) PublishCapture(ctx context.Context, branch string, ca
 		return true, nil // repair a projection interrupted after publication
 	}
 	expected := capture.Base
-	if readErr != nil && objectID(s.InitialBase) && capture.Base == s.InitialBase {
+	if readErr != nil && objectID(s.InitialBase) && (capture.Base == s.InitialBase || capture.Head == s.InitialBase) {
 		expected = strings.Repeat("0", 40)
 	}
 	if _, err = burstGit(ctx, repo, 64, "update-ref", ref, capture.Head, expected); err == nil {
@@ -96,7 +96,7 @@ func (s GitCaptureObjects) PublishCapture(ctx context.Context, branch string, ca
 			return false, nil
 		}
 	}
-	return false, fmt.Errorf("publish capture head: %w", err)
+	return false, fmt.Errorf("publish capture head (base=%s admitted=%s head=%s): %w", capture.Base, s.InitialBase, capture.Head, err)
 }
 
 // CommitTree reads an immutable commit as data inside the caller's repository
