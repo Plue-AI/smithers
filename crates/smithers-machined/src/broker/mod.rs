@@ -17,3 +17,6 @@ pub mod spawn;
 
 #[cfg(target_os = "linux")]
 pub mod process_identity;
+
+#[cfg(all(test, target_os = "linux"))]
+mod ssh_acceptance;

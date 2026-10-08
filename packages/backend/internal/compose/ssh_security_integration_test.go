@@ -341,7 +341,8 @@ func TestSSHRootInputsValidatedBeforeUse(t *testing.T) {
 		exerciseSSHRetainedFilesystemRace(t, client)
 		exerciseSSHRetainedExecutableRace(t, client)
 		exerciseSSHRetainedCwdRace(t, client)
-		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; private socketpair malformed frames, retained wake races and C-COL-04 receipts remain required")
+		exerciseSSHRetainedRootInputs(t, h, client, address, login, signer, member, uid)
+		t.Log("C-J3-06 native startup and authenticated semantic-envelope subset; raw private envelopes require broker::ssh_acceptance::TestSSHRawPrivilegedBrokerEnvelopes; retained sleep/wake and queued-key revocation authored here; approved receipts remain required")
 	})
 }
 
