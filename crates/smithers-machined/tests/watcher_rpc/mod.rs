@@ -1097,3 +1097,24 @@ fn idle_observation_drains_real_inotify_and_blocks_open_bursts() {
     assert!(idle().unwrap());
     executor.shutdown().unwrap();
 }
+
+#[test]
+fn completed_daemon_rewrite_settles_metadata_before_queued_save() {
+    let (shared, executor) = setup();
+    let root = shared.f.lock().unwrap().root.clone();
+    // Native jj writes these exact directories. External metadata still uses
+    // the existing debounce test above; only the trusted rewrite hook settles
+    // its observation before thawing and releasing the FIFO lock.
+    fs::create_dir_all(root.join(".jj/repo/op_heads/heads")).unwrap();
+    fs::write(root.join(".jj/repo/op_heads/heads/op1"), b"operation").unwrap();
+    executor.lock.run_blocking("settle rewrite", |cx| {
+        let watcher = cx.hooks.watcher.clone();
+        watcher.settle_rewrite(cx)
+    }).unwrap().unwrap();
+    let response = request(&executor, write_request("queued", None, b"after rewrite", b"maya"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 3);
+    assert_eq!(fs::read(root.join("queued")).unwrap(), b"after rewrite");
+    close(&executor);
+    assert_eq!(burst_commits(&shared).len(), 1);
+    executor.shutdown().unwrap();
+}

@@ -13,7 +13,12 @@ import (
 )
 
 // SessionError names ADR 0004 refusal codes. It is not an HTTP envelope.
-type SessionError struct{ Code, Detail string }
+type SessionError struct {
+	Code, Detail string
+	// Session is the broker-selected blocker, scoped to this connection's boot.
+	// Zero means the daemon did not identify a blocking session.
+	Session uint32
+}
 
 func (e *SessionError) Error() string   { return e.Code + ": " + e.Detail }
 func refused(code, detail string) error { return &SessionError{Code: code, Detail: detail} }

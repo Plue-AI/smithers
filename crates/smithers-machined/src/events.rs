@@ -312,17 +312,27 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
                 .metadata_at
                 .is_some_and(|t| now.saturating_sub(t) >= 200)
         {
-            self.blocked = true;
-            let actor = self
-                .metadata_window
-                .as_ref()
-                .and_then(Window::actor)
-                .map(|(_, actor)| actor);
-            p.moved_off_attributed(actor.as_ref())?;
-            self.metadata_at = None;
-            self.metadata_window = None;
-            self.blocked = false;
+            self.settle_metadata(p)?;
         }
+        Ok(())
+    }
+    /// Only a completed daemon rewrite may bypass the external metadata debounce.
+    /// The provider still verifies the current item; errors retain the barrier.
+    pub fn settle_metadata<P: Provider<A, Blob = B>>(&mut self, p: &mut P) -> io::Result<()> {
+        self.healthy()?;
+        if self.resync_required || self.metadata_at.is_none() {
+            return Ok(());
+        }
+        self.blocked = true;
+        let actor = self
+            .metadata_window
+            .as_ref()
+            .and_then(Window::actor)
+            .map(|(_, actor)| actor);
+        p.moved_off_attributed(actor.as_ref())?;
+        self.metadata_at = None;
+        self.metadata_window = None;
+        self.blocked = false;
         Ok(())
     }
     pub fn metadata(&mut self, now: u64) {

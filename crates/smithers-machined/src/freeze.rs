@@ -19,6 +19,7 @@ pub fn restore(cx: &mut LockCx, actor: &Actor) -> Result<()> {
     let hooks = cx.hooks.clone();
     hooks.core.restore_rewrite(cx)?;
     hooks.documents.reconcile_all(cx, actor)?;
+    hooks.watcher.settle_rewrite(cx)?;
     hooks.broker.thaw()?;
     cx.settle_rewrite()?;
     Ok(())
@@ -57,6 +58,8 @@ fn freeze_for<T>(
                 ..Error::unsupported()
             });
         }
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::killpoint("frozen");
         hooks.documents.flush_all(cx)?;
         hooks.watcher.drain(cx)?;
         hooks.watcher.close_bursts(cx)?;
@@ -87,6 +90,7 @@ fn freeze_for<T>(
     if returning {
         hooks.core.returned_by(actor)?;
     }
+    hooks.watcher.settle_rewrite(cx)?;
     hooks.broker.thaw()?;
     cx.settle_rewrite()?;
     Ok(output)

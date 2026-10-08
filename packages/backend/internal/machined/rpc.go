@@ -49,7 +49,11 @@ func (l *Link) call(ctx context.Context, branch string, method wire.Method, args
 		if v := values[2]; len(v) > 0 {
 			detail = string(v[2:])
 		}
-		return values, &SessionError{Code: codes[values[1][0]], Detail: detail}
+		refusal := &SessionError{Code: codes[values[1][0]], Detail: detail}
+		if session := values[4]; len(session) == 4 {
+			refusal.Session = binary.BigEndian.Uint32(session)
+		}
+		return values, refusal
 	}
 	if result[0] != byte(method) {
 		_ = l.Close()
@@ -219,7 +223,11 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 		if v := e[2]; len(v) > 0 {
 			detail += ": " + string(v[2:])
 		}
-		return result, &SessionError{Code: codes[e[1][0]], Detail: detail}
+		refusal := &SessionError{Code: codes[e[1][0]], Detail: detail}
+		if session := e[4]; len(session) == 4 {
+			refusal.Session = binary.BigEndian.Uint32(session)
+		}
+		return result, refusal
 	}
 	if len(receipts) != len(changes) {
 		return result, wire.BadValue

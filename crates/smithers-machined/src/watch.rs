@@ -584,6 +584,12 @@ impl<
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| w.drain(p, now))
     }
+    fn settle_rewrite(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| {
+            w.drain(p, now)?;
+            w.changes.settle_metadata(p)
+        })
+    }
     /// Called by the document disk adapter on the existing FIFO mutation lock.
     /// Settle outside bytes before a document changes the working-copy path.
     fn before_write(&self, path: &str, actor: &crate::hooks::Actor) -> crate::hooks::Result<()> {

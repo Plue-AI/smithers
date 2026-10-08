@@ -44,6 +44,9 @@ impl Watcher for Fixture {
     fn drain(&self, _: &mut LockCx) -> Result<()> {
         self.step("drain")
     }
+    fn settle_rewrite(&self, _: &mut LockCx) -> Result<()> {
+        self.step("settle metadata")
+    }
     fn close_bursts(&self, _: &mut LockCx) -> Result<()> {
         self.step("close")
     }
@@ -124,6 +127,7 @@ fn rebase_captures_before_rewrite_and_thaws_before_next_writer() {
             "capture",
             "rebase",
             "reconcile",
+            "settle metadata",
             "thaw",
             "next writer"
         ]
@@ -140,6 +144,7 @@ fn rebase_thaws_only_before_rewrite_and_preserves_busy_session() {
         "capture",
         "rebase",
         "reconcile",
+        "settle metadata",
         "thaw",
     ] {
         let (f, executor) = fixture(fail);
@@ -149,7 +154,7 @@ fn rebase_thaws_only_before_rewrite_and_preserves_busy_session() {
             .unwrap()
             .unwrap();
         assert_eq!(response.payload[11], 255, "{fail}");
-        if ["rebase", "reconcile"].contains(&fail) {
+        if ["rebase", "reconcile", "settle metadata"].contains(&fail) {
             assert!(!f.calls().contains(&"thaw"), "{fail}");
         } else {
             assert_eq!(f.calls().last(), Some(&"thaw"), "{fail}");

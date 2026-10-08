@@ -56,6 +56,11 @@ pub trait Watcher: Send + Sync {
     fn drain(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Settle metadata produced by our completed rewrite while sessions remain
+    /// frozen, so queued saves do not hit the outside-move debounce barrier.
+    fn settle_rewrite(&self, _cx: &mut LockCx) -> Result<()> {
+        Ok(())
+    }
     fn close_bursts(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }

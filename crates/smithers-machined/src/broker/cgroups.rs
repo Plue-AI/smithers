@@ -59,6 +59,26 @@ fn read_events(directory: &File) -> io::Result<bool> {
     }
     populated.ok_or_else(|| invalid("missing populated state"))
 }
+// Kernel state is bounded and has exactly one frozen field. Use the same
+// parser for the parent barrier and its session children.
+fn read_frozen(directory: &File) -> io::Result<bool> {
+    let mut events = String::new();
+    leaf(directory, "cgroup.events", false)?
+        .take(4097)
+        .read_to_string(&mut events)?;
+    if events.len() > 4096 {
+        return Err(invalid("oversized cgroup events"));
+    }
+    let values: Vec<_> = events
+        .lines()
+        .filter_map(|line| line.strip_prefix("frozen "))
+        .collect();
+    match values.as_slice() {
+        ["1"] => Ok(true),
+        ["0"] => Ok(false),
+        _ => Err(invalid("invalid frozen state")),
+    }
+}
 struct Group {
     name: String,
     directory: File,
@@ -208,29 +228,24 @@ impl super::control::Controls for Cgroups {
         let result = (|| {
             leaf(&self.parent, "cgroup.freeze", true)?.write_all(b"1")?;
             loop {
-                let mut events = String::new();
-                leaf(&self.parent, "cgroup.events", false)?
-                    .take(4097)
-                    .read_to_string(&mut events)?;
-                if events.len() > 4096 {
-                    return Err(invalid("oversized cgroup events"));
-                }
-                let values: Vec<_> = events
-                    .lines()
-                    .filter_map(|line| line.strip_prefix("frozen "))
-                    .collect();
-                match values.as_slice() {
-                    ["1"] => return Ok(None),
-                    ["0"] => (),
-                    _ => return Err(invalid("invalid frozen state")),
+                if read_frozen(&self.parent)? {
+                    return Ok(None);
                 }
                 if Instant::now() >= deadline {
+                    // Never guess from the first registered session: only a
+                    // populated child whose kernel barrier is still pending
+                    // can be named as the blocking writer.
+                    for (id, group) in &self.groups {
+                        if read_events(&group.directory)? && !read_frozen(&group.directory)? {
+                            return Ok(Some(*id));
+                        }
+                    }
                     return Err(io::Error::new(io::ErrorKind::TimedOut, "freeze timeout"));
                 }
                 std::thread::sleep(Duration::from_millis(1));
             }
         })();
-        if result.is_err() {
+        if !matches!(result, Ok(None)) {
             // Cleanup failure takes precedence; never report a safe timeout if
             // the kernel did not accept thaw.
             super::control::Controls::thaw(self)?;
@@ -244,5 +259,76 @@ impl super::control::Controls for Cgroups {
         let count = u16::try_from(self.groups.len()).map_err(|_| invalid("too many sessions"))?;
         self.recover(Instant::now() + Duration::from_secs(5))?;
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod freeze_tests {
+    use super::*;
+    use crate::broker::control::Controls;
+    fn group(root: &Path, name: &str, events: &str) -> File {
+        let path = root.join(name);
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("cgroup.events"), events).unwrap();
+        fs::write(path.join("cgroup.freeze"), b"0").unwrap();
+        File::open(path).unwrap()
+    }
+    #[test]
+    fn timeout_names_only_populated_unfrozen_session_and_thaws() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = group(root.path(), "parent", "populated 1\nfrozen 0\n");
+        let mut groups = BTreeMap::new();
+        for (id, events) in [
+            (1, "populated 0\nfrozen 0\n"),
+            (2, "populated 1\nfrozen 1\n"),
+            (3, "populated 1\nfrozen 0\n"),
+        ] {
+            let name = id.to_string();
+            groups.insert(
+                id,
+                Group {
+                    directory: group(root.path(), &name, events),
+                    name,
+                },
+            );
+        }
+        let mut controls = Cgroups { parent, groups };
+        assert_eq!(controls.freeze(Duration::from_millis(2)).unwrap(), Some(3));
+        assert_eq!(
+            fs::read(root.path().join("parent/cgroup.freeze")).unwrap(),
+            b"0"
+        );
+        fs::write(
+            root.path().join("parent/cgroup.events"),
+            "populated 1\nfrozen 1\n",
+        )
+        .unwrap();
+        assert_eq!(controls.freeze(Duration::from_millis(2)).unwrap(), None);
+        controls.thaw().unwrap();
+        assert_eq!(
+            fs::read(root.path().join("parent/cgroup.freeze")).unwrap(),
+            b"0"
+        );
+    }
+    #[test]
+    fn malformed_or_unidentified_barrier_refuses_and_thaws() {
+        for events in [
+            "populated 1\nfrozen 0\n",
+            "populated 1\n",
+            "frozen 2\n",
+            "frozen 0\nfrozen 1\n",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let parent = group(root.path(), "parent", events);
+            let mut controls = Cgroups {
+                parent,
+                groups: BTreeMap::new(),
+            };
+            assert!(controls.freeze(Duration::from_millis(2)).is_err());
+            assert_eq!(
+                fs::read(root.path().join("parent/cgroup.freeze")).unwrap(),
+                b"0"
+            );
+        }
     }
 }
