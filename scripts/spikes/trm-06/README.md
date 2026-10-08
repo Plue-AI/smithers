@@ -378,3 +378,10 @@ required, including Darwin descriptor execution.
 Use `--revision <full-main-SHA>` for both repeated builds and the matching base
 overlay. The pin must be an ancestor of fetched `origin/main`; a branch-only SHA
 refuses. This keeps simultaneous fleet fetches from changing the build identity.
+
+To retain two independent builds and compare actual artifact bytes and modes,
+add `--verify-reproducible` to the overlay command. It also compares two complete
+archive hashes and writes `reproducibility.json`. Without the approved base and
+reviewer key, `--build-only --verify-reproducible` checks release inputs only;
+its receipt explicitly remains unaccepted. Divergence preserves both build
+outputs and a NO receipt. Neither mode installs or grants activation authority.

@@ -31,6 +31,43 @@ class BundleAssembly(unittest.TestCase):
         (base / "manifest.json").write_text(json.dumps(manifest))
         return base, manifest
 
+    def test_reproducibility_refuses_changed_independent_build_and_retains_no(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "evidence"
+                calls = []
+                def build(repo, directory, revision):
+                    calls.append(directory)
+                    directory.mkdir()
+                    artifact = directory / "artifact"
+                    artifact.write_bytes(b"second" if changed and len(calls) == 2 else b"main")
+                    artifact.chmod(0o755)
+                    return {"revision": revision, "files": [{"path": "artifact", "mode": 0o755, "sha256": assemble.digest(artifact)}]}
+                with patch.object(assemble, "main_revision", return_value=REVISION), patch.object(assemble, "build_artifacts", side_effect=build):
+                    if changed:
+                        with self.assertRaisesRegex(ValueError, "independent release builds differ"):
+                            assemble.verify_reproducible(Path(temporary), output)
+                        self.assertFalse((output / "reproducibility.json").exists())
+                        self.assertEqual(json.loads((output / "reproducibility-failure.json").read_bytes())["status"], "NO")
+                    else:
+                        result = assemble.verify_reproducible(Path(temporary), output)
+                        self.assertEqual(result["kind"], "release-inputs-only")
+                        self.assertFalse(result["accepted"])
+                        self.assertEqual(result["archives"], [])
+                self.assertEqual(calls, [output / "first", output / "second"])
+                self.assertTrue((output / "first/artifact").exists())
+                self.assertTrue((output / "second/artifact").exists())
+
+    def test_reproducibility_requires_new_output_and_paired_overlay_inputs(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(assemble, "main_revision", return_value=REVISION), patch.object(assemble, "build_artifacts") as build:
+            root = Path(temporary)
+            with self.assertRaisesRegex(ValueError, "must be new"):
+                assemble.verify_reproducible(root, root)
+            for base, key in ((root, None), (None, root)):
+                with self.assertRaisesRegex(ValueError, "both base and reviewer key"):
+                    assemble.verify_reproducible(root, root / "output", base=base, review_key=key)
+            build.assert_not_called()
+
     def test_build_target_does_not_inherit_shared_cache_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

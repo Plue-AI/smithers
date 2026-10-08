@@ -450,6 +450,56 @@ def archive_overlay(repo, root, destination):
             os.close(descriptor)
 
 
+def verify_reproducible(repo, output, revision=None, base=None, review_key=None):
+    """Build twice in independent directories; compare produced bytes, not claims.
+
+    With a real base/key this checks the complete release overlay and archive.
+    Without them it retains release inputs only and explicitly refuses acceptance.
+    """
+    revision = main_revision(repo, revision)
+    if (base is None) != (review_key is None):
+        raise ValueError("complete overlay needs both base and reviewer key")
+    if output.exists() or output.is_symlink():
+        raise ValueError("reproducibility output must be new")
+    output.mkdir()
+    try:
+        builds = []
+        archives = []
+        for name in ("first", "second"):
+            directory = output / name
+            if base is None:
+                result = build_artifacts(repo, directory, revision)
+                identities = {entry["path"]: (entry["mode"], entry["sha256"])
+                              for entry in result["files"]}
+            else:
+                result = assemble(repo, base, directory, review_key, revision)
+                manifest = validate_base(directory, revision, overlay=True)
+                identities = {entry["path"]: (entry["mode"], entry["sha256"], entry.get("symlink"))
+                              for entry in manifest["files"]}
+                archives.append(archive_overlay(repo, directory, output / (name + ".tar.gz")))
+            # Independently read the produced files; do not trust build receipts.
+            for path, identity in identities.items():
+                if digest(directory / path) != identity[1] or stat.S_IMODE((directory / path).stat().st_mode) != identity[0]:
+                    raise ValueError("reproducibility artifact differs from receipt")
+            builds.append((identities, result))
+        if builds[0][0] != builds[1][0]:
+            raise ValueError("independent release builds differ")
+        if archives and archives[0]["sha256"] != archives[1]["sha256"]:
+            raise ValueError("independent complete overlay archives differ")
+        receipt = {"revision": revision, "status": "reproducible",
+                   "kind": "complete-overlay" if base is not None else "release-inputs-only",
+                   "activation": "refused-until-reviewed", "accepted": False,
+                   "builds": [result for _, result in builds], "archives": archives}
+        (output / "reproducibility.json").write_text(json.dumps(receipt, indent=2) + "\n")
+        return receipt
+    except BaseException as error:
+        # Keep failure samples: a NO result is evidence too. No passing receipt.
+        (output / "reproducibility-failure.json").write_text(json.dumps({
+            "revision": revision, "status": "NO", "accepted": False,
+            "failure": str(error)}) + "\n")
+        raise
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path)
@@ -458,9 +508,16 @@ if __name__ == "__main__":
     parser.add_argument("--build-only", action="store_true", help="retain main release inputs without a base bundle or approval key")
     parser.add_argument("--revision", help="pin a full SHA already landed on origin/main")
     parser.add_argument("--archive", type=Path, help="publish a deterministic complete overlay archive")
+    parser.add_argument("--verify-reproducible", action="store_true", help="build twice and retain independent artifact/archive comparisons")
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[3]
-    if args.build_only:
+    if args.verify_reproducible:
+        if args.archive is not None or (args.build_only and (args.base is not None or args.review_key is not None)):
+            parser.error("reproducibility manages its own archives; build-only excludes base/key")
+        if not args.build_only and (args.base is None or args.review_key is None):
+            parser.error("complete reproducibility requires --base and --review-key")
+        result = verify_reproducible(repo, args.output.absolute(), args.revision, args.base, args.review_key)
+    elif args.build_only:
         if args.base is not None or args.review_key is not None or args.archive is not None:
             parser.error("--build-only does not accept base, review key or archive")
         result = build_artifacts(repo, args.output.absolute(), args.revision)
