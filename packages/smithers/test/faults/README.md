@@ -260,3 +260,38 @@ freeze with real member writers; dispatcher-driven rebase kills and recovery
 through the composed install; approved mini VM kills and owner argv/host
 mappings. The existing composed Rebase now rehearsal qualifies the HTTP and
 presence path separately and cannot replace these observations.
+
+### Supplemental composed rebase process kills
+
+`compose/TestBranchRebaseNativeCrashRecovery` runs all three rebase boundaries
+with people present (the composed HTTP Rebase now dispatcher) and absent
+(the automatic stack boundary), using real PostgreSQL, jj and authenticated
+host-to-daemon transport. Each cell consumes a private one-shot qualification
+arm, requires its exact marker, SIGKILLs only its own namespace process,
+restarts with retained daemon state and boot authority, and checks retained
+file bytes, the final captured tree and one `todo.rebased` entry. Verify launch
+is recorded rather than running checks in this test. The supported stack clock
+advances past the persisted outage backoff; daemon and freeze time stay real.
+
+The boundaries are after the capture checkpoint, after the native repository
+transaction but before checkout, and after checkout before the host activity
+entry. Hooks exist only with `killpoints` in debug builds. Ordinary and release
+builds contain none of these selectors.
+
+Run an **unprivileged** qualification example, never install it as root.
+Copy the built executable to a private path before running the test when using
+a shared Cargo target directory; another build can replace its output.
+
+```sh
+cargo build --locked -p smithers-machined --features killpoints --example rehearsal_daemon
+cd packages/backend
+SMITHERS_REBASE_PROCESS_FAULTS=1 \
+SMITHERS_REHEARSAL_MACHINED_BINARY="/absolute/private/rehearsal_daemon" \
+go test -p 4 ./internal/compose -run '^TestBranchRebaseNativeCrashRecovery$' -count=1
+```
+
+This is supplemental process recovery evidence. The empty rehearsal broker
+cannot qualify member writes, cgroup freeze, privileged input validation or
+VM recovery. The required `machined/TestRebaseCrashThroughDispatcher` and
+root-input availability observations remain non-passing until those providers
+are qualified; these controls do not enable their check mapping.

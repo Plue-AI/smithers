@@ -87,7 +87,6 @@ func (l *Link) sendWakeObjects(ctx context.Context, branch, head string) (err er
 		l.boot.nextObject++
 	}
 	stream := l.boot.nextObject
-	l.ready = false
 	l.registry.mu.Unlock()
 	source, err := l.objectExporter(ctx, branch, head, stream)
 	if err != nil {
@@ -96,6 +95,17 @@ func (l *Link) sendWakeObjects(ctx context.Context, branch, head string) (err er
 	if source == nil {
 		return ErrNotReady
 	}
+	// Export/admission can refuse before the peer sees any bundle bytes.
+	// Retain readiness on that path so the stack can retry after its fence
+	// changes. Once transfer starts, only reconciliation can admit mutations.
+	l.registry.mu.Lock()
+	if branch != l.boot.branch || !l.current() {
+		l.registry.mu.Unlock()
+		_ = source.Close()
+		return ErrUnauthorized
+	}
+	l.ready = false
+	l.registry.mu.Unlock()
 	var closeOnce sync.Once
 	closeSource := func() { closeOnce.Do(func() { _ = source.Close() }) }
 	stopRead := context.AfterFunc(ctx, closeSource)

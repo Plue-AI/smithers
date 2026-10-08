@@ -314,3 +314,30 @@ func TestRebaseImportsTargetBeforeClaimGuardAndRewrite(t *testing.T) {
 	<-answered
 	require.NoError(t, link.RequireReady("a"))
 }
+
+func TestRebaseExporterRefusalKeepsReconciledBoot(t *testing.T) {
+	for _, mode := range []string{"nil", "admission-refused"} {
+		t.Run(mode, func(t *testing.T) {
+			r := new(Registry)
+			r.BindObjectExporter(func(context.Context, string, string, uint32) (io.ReadCloser, error) {
+				if mode == "nil" {
+					return nil, nil
+				}
+				return nil, ErrUnauthorized
+			})
+			authority, err := r.MintBoot("a", "vm")
+			require.NoError(t, err)
+			link, peer := connectTest(t, r, "a", authority)
+			require.NoError(t, link.Reconciled())
+			for range 2 {
+				_, err = r.RebaseWithObjects(t.Context(), "a", []byte("stack"), strings.Repeat("a", 40), func(func() error) error {
+					t.Fatal("refused export entered rewrite guard")
+					return nil
+				})
+				require.Error(t, err)
+				require.NoError(t, link.RequireReady("a"), "no bytes were sent; this boot must remain retryable")
+			}
+			requireGuestSilent(t, peer)
+		})
+	}
+}

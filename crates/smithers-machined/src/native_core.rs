@@ -381,7 +381,12 @@ impl Core for NativeCore {
             .as_ref()
             .filter(|item| item.number > 0)
             .map(|item| item.change.as_str());
-        self.native.rebase_bound(onto, change).map_err(hook)
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::killpoint("rebase-post-capture");
+        let head = self.native.rebase_bound(onto, change).map_err(hook)?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::killpoint("rebase-post-apply");
+        Ok(head)
 
     }
 

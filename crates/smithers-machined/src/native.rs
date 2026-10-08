@@ -11,10 +11,12 @@ use jj_lib::{
     merge::Merge,
     merged_tree::MergedTree,
     object_id::{HexPrefix, ObjectId, PrefixResolution},
+    op_store::OperationId,
     repo::{MutableRepo, ReadonlyRepo, Repo},
     rewrite::{rebase_commit, CommitRewriter},
     settings::UserSettings,
     workspace::Workspace,
+    working_copy::WorkingCopyFreshness,
 };
 use pollster::FutureExt;
 use std::{
@@ -507,6 +509,31 @@ impl Repository {
         self.restore_operation(&operation)
     }
     fn restore_operation(&self, operation: &str) -> io::Result<()> {
+        // A killed rewrite can commit the repository operation before checkout.
+        // Complete that interrupted checkout under the recovery barrier before
+        // the existing restore snapshots it. This is only the daemon's private,
+        // validated checkpoint path; ordinary stale snapshots still refuse.
+        let (mut workspace, repo) = self.load()?;
+        // Resolve the bounded checkpoint before changing the working copy.
+        let checkpoint_id = OperationId::try_from_hex(operation)
+            .ok_or_else(|| invalid("invalid recovery operation ID"))?;
+        repo.loader().load_operation(&checkpoint_id).block_on().map_err(invalid)?;
+        let current_id = repo.view().get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing recovery working-copy commit"))?;
+        let current = repo.store().get_commit(current_id).map_err(invalid)?;
+        let old_tree = {
+            let mut locked = workspace.start_working_copy_mutation().block_on().map_err(invalid)?;
+            match WorkingCopyFreshness::check_stale(locked.locked_wc(), &current, &repo)
+                .block_on().map_err(invalid)? {
+                WorkingCopyFreshness::WorkingCopyStale => Some(locked.locked_wc().old_tree().clone()),
+                WorkingCopyFreshness::SiblingOperation => return Err(invalid("recovery has a sibling working-copy operation")),
+                _ => None,
+            }
+        };
+        if let Some(old_tree) = old_tree {
+            workspace.check_out(repo.op_id().clone(), Some(&old_tree), &current)
+                .block_on().map_err(invalid)?;
+        }
         flows_jj::ops::op_restore(&self.root, operation)
             .map_err(|e| invalid(format!("native restore: {e}")))?;
         let (workspace, repo) = self.load()?;
@@ -687,6 +714,10 @@ impl Repository {
             .commit("machined rebase item")
             .block_on()
             .map_err(invalid)?;
+        // The repository operation is durable, but the working copy has not
+        // been checked out. Recovery must restore the captured checkpoint.
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::killpoint("rebase-mid");
         workspace
             .check_out(updated.op_id().clone(), Some(&current.tree()), &rebased)
             .block_on()
@@ -1155,6 +1186,37 @@ pub(crate) mod tests {
         assert_eq!(result.description(), prior.description());
         assert_eq!(result.tree().has_conflict(), conflict);
     }
+    #[test]
+    fn rebase_checkpoint_restores_after_repository_commit_before_checkout() {
+        let (_dir, native) = fixture();
+        fs::write(native.root.join("file"), b"base\n").unwrap();
+        let base = native.snapshot().unwrap().0;
+        child(&native, base, "new main");
+        fs::write(native.root.join("main"), b"new main bytes\n").unwrap();
+        let onto = native.snapshot().unwrap().0;
+        child(&native, base, "owning item");
+        fs::write(native.root.join("file"), b"item bytes\n").unwrap();
+        let captured = native.snapshot().unwrap();
+        native.checkpoint_with_ack(None).unwrap();
+        let (workspace, repo) = native.load().unwrap();
+        let current = Repository::commit(&repo, captured.0).unwrap();
+        let mut tx = repo.start_transaction();
+        let rebased = rebase_commit(tx.repo_mut(), current, vec![CommitId::new(onto.to_vec())])
+            .block_on().unwrap();
+        tx.repo_mut().set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone()).unwrap();
+        tx.repo_mut().rebase_descendants().block_on().unwrap();
+        tx.commit("interrupted rebase before checkout").block_on().unwrap();
+        // Ordinary snapshots still refuse stale state; only the authenticated
+        // checkpoint recovery may finish the checkout and restore its tree.
+        assert!(native.snapshot().is_err());
+        native.restore_with_ack(None).unwrap();
+        assert_eq!(native.snapshot().unwrap().1, captured.1);
+        assert_eq!(fs::read(native.root.join("file")).unwrap(), b"item bytes\n");
+        assert!(!native.root.join("main").exists());
+        native.restore_with_ack(None).unwrap();
+        assert_eq!(native.snapshot().unwrap().1, captured.1);
+    }
+
     #[test]
     fn rebase_bound_item_retains_descendant_bytes_and_change_authority() {
         for conflict in [false, true] {
