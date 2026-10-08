@@ -50,6 +50,17 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.store.session().maximizedCardId).toBeNull()
     } finally { await h.controller.dispose() }
   })
+  test.each(["slash", "button"] as const)("signed-out hosted Settings offers the shared GitHub door before any install read: %s", async door => {
+    const h = await harness({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud"], authFlow: "redirect", sandbox: null })
+    try {
+      await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+      const outcome = door === "slash" ? await h.controller.commands.run("settings") : await h.controller.commands.submit({ name: "settings", payload: {}, actor: "user" })
+      expect(outcome.status).toBe("executed"); await tick()
+      expect(h.store.collections.cards.has("settings")).toBe(false)
+      expect([...h.store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(true)
+      expect(h.requests.filter(request => request.path === "/api/install")).toEqual([])
+    } finally { await h.controller.dispose() }
+  })
   test("hidden owner controls refuse agents and remain absent from slash suggestions", async () => {
     const h = await harness()
     try {

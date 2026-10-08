@@ -37,6 +37,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
   flow({ name: "settings", slash: "/settings", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core",
     actors: ["person"], minimumRole: "owner", http: null, summary: "Model access, machines, GitHub (owner)",
     agentReason: "Install status requires the owner’s person session", agent: "never",
+    payloadRequires: input => input.operation !== "setup" && actions.bootstrap?.capabilities.includes("identity") ? ["signed-in"] : [],
     grammar: args => {
       if (!args?.trim().startsWith("{")) return { payload: {} }
       const parsed = object(args)
