@@ -2,6 +2,7 @@ import { registerKeyboardJourney, journeyTerminalInput } from "./support/keyboar
 import { test, expect } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { command } from "./support/test"
+import { terminalSkillProof } from "./support/terminal-skill-proof"
 
 // Reference-host acceptance: separate, freshly prepared S1 and S2 installs.
 // No seeded card, intercepted route, guest double or qualification override.
@@ -192,9 +193,10 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
       await second.close()
     }
     const runClaude = async (prompt: string, expected: readonly string[], refusal?: { code: string; message: string }) => {
-      const toolProof = `import json,sys; messages=[json.loads(line) for line in sys.stdin]; results=[m for m in messages if m.get('type')=='result']; assert len(results)==1 and results[0].get('subtype')=='success' and not results[0].get('is_error'), 'Claude did not finish successfully'; commands=[block.get('input',{}).get('command','') for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_use']; assert all(any('smthrs '+expected in command for command in commands) for expected in ${JSON.stringify(expected)}); tool_results=[block for message in messages for block in message.get('message',{}).get('content',[]) if isinstance(block,dict) and block.get('type')=='tool_result']; refusal=${refusal ? JSON.stringify(refusal) : "None"}; assert tool_results, 'Claude produced no tool results'; assert refusal is not None or all(not block.get('is_error') for block in tool_results), 'Claude skill tool failed'; assert refusal is None or any(all(value in json.dumps(block) for value in ['permission',refusal['code'],refusal['message']]) for block in tool_results), 'Claude skill did not receive the literal refusal'; print('J6'+'SKILL=executed')`
+      const confirmationCommand = refusal ? undefined : expected.includes("todo new") ? "todo new" : expected.includes("merge") ? "merge" : undefined
+      const toolProof = terminalSkillProof(expected, confirmationCommand, refusal)
       // A successful transcript parser must not hide a failed Claude process.
-      const pipeline = `claude -p ${quote(prompt)} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`
+      const pipeline = `claude -p ${quote(prompt + " Run every smthrs command with --json. A pending confirmation exits 3; report its receipt without retrying or approving.")} --output-format stream-json --verbose | /usr/bin/python3 -c ${quote(toolProof)}`
       const result = await run(`/bin/bash -o pipefail -c ${quote(pipeline)}`, 0)
       expect(result).toMatch(/^J6SKILL=executed\r?$/m)
       return result
@@ -232,6 +234,7 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
     await guestRequest("POST", `/api/confirmations/${pending.id}/approve`, {}, 403, "permission")
     expect(await order()).toEqual([1, 2])
     expect(pending.kind).toBe("one_click")
+    expect(agent.match(/^J6CONFIRMATION=([^\r\n]+)\r?$/m)?.[1]).toBe(pending.id)
     const card = page.locator('[data-kind="confirm"]').filter({ hasText: title })
     await expect(card).toBeVisible()
     await expect(card).toContainText("Claude Code for Ben")
@@ -350,13 +353,17 @@ for (const stage of ["S1", "S1_NO_CONFIRM", "S2"] as const) test(`C-J6-01 ${stag
         return writes.filter(row => row.method === "PUT" && /^\/repos\/[^/]+\/[^/]+\/pulls\/[0-9]+\/merge$/.test(row.path))
       }
       const callsBefore = await mergeCalls()
-      await runClaude(`Use the installed Smithers skill to request merge of T1 at reviewed SHA ${fixture("REVIEWED_SHA")}. Do not approve it.`, ["merge"])
+      const mergeAgent = await runClaude(`Use the installed Smithers skill to request merge of T1 at reviewed SHA ${fixture("REVIEWED_SHA")}. Do not approve it.`, ["merge"])
       expect(await mergeCalls()).toEqual(callsBefore)
       const mergeCard = page.locator('[data-kind="confirm"]').filter({ hasText: `Merge T1 into main?` })
       await expect(mergeCard).toBeVisible()
       await expect(mergeCard).toContainText(fixture("REVIEWED_SHA"))
       const mergeRows = (await confirmations()).filter(row => row.state === "pending" && row.kind === "review_merge")
       expect(mergeRows).toHaveLength(1)
+      expect(mergeAgent.match(/^J6CONFIRMATION=([^\r\n]+)\r?$/m)?.[1]).toBe(mergeRows[0]!.id)
+      await guestRequest("POST", `/api/confirmations/${mergeRows[0]!.id}/approve`, {}, 403, "permission")
+      expect((await confirmations()).find(row => row.id === mergeRows[0]!.id)?.state).toBe("pending")
+      expect(await mergeCalls()).toEqual(callsBefore)
       expect(mergeRows[0]!.revision).toBe(fixture("REVIEWED_SHA"))
       expect(mergeRows[0]!.payload.effect).toBeUndefined()
       const before = await stack()

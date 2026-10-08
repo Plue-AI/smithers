@@ -515,7 +515,7 @@
     },
     "C-J6-01": {
       "status": "pending-owner",
-      "reason": "Native CLI/skill sign-in slice authored in apps/app/e2e/real/terminal-signin.spec.ts and internal/compose/installed_terminal_chain_integration_test.go; full S1/S2 Claude Code, confirmation, placement, Review & merge and presence acceptance still requires approved reference-host execution and person model login",
+      "reason": "Independent S1/S1-no-consumer/S2 Claude skill, answer/steer, placement, private confirmation, merge cancellation and presence driver authored in apps/app/e2e/real/terminal-signin.spec.ts; full acceptance still requires the host person-command channel, guest bearer/isolation inspection and approved reference-host bundle/root-input/revocation execution with person model login",
       "ticket": "T-TRM-02"
     },
     "C-J6-02": {
