@@ -89,3 +89,28 @@ func (l *workspaceMythicalLanes) CaptureDroppedTodo(ctx context.Context, item db
 	}
 	return finish()
 }
+
+// The committed Drop obligation is stack work, not a new person command.
+// Use the stored machine-service identity while preserving the ordinary
+// qualified runtime and publication checks of awake branch capture.
+func (l *workspaceMythicalLanes) PrepareDroppedTodoFork(ctx context.Context, id string, repository int64) error {
+	if l == nil || l.workspaces == nil {
+		return todoControlUnavailable()
+	}
+	s := l.workspaces
+	row, err := s.q.GetWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row.RepositoryID != repository || row.DeletedAt.Valid {
+		return todoControlUnavailable()
+	}
+	owned, err := s.branchMachineOwned(ctx, row.UserID)
+	if err != nil {
+		return err
+	}
+	if !owned {
+		return todoControlUnavailable()
+	}
+	return l.prepareCapturedBranchHead(ctx, row, repository, row.UserID)
+}

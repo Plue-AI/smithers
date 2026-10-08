@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	stdErrors "errors"
 	"fmt"
@@ -131,69 +130,8 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 	return c.buf.Write(p)
 }
 
-// gitSmartRequestBody returns the git RPC request body, transparently
-// gunzipping when the client sent Content-Encoding: gzip. git's remote-curl
-// compresses smart-HTTP request bodies past a size threshold, so a LARGE
-// negotiation (cloning a many-ref mirror wants hundreds of refs) arrives
-// gzipped while a small one arrives as identity. This hop terminates the
-// header — the repo-host proxy request does not forward Content-Encoding —
-// so without decompressing here `git upload-pack` received gzip bytes,
-// exited silently, and every large clone died with "remote end hung up".
-//
-// Every body — identity or gzip — is capped at maxGitRequestBodySize wire
-// bytes via the returned limiter: these routes are mounted on the root router
-// so they bypass the /api MaxBodySize middleware, and without a cap a
-// write-authorized client could stream an unbounded push through the API into
-// repo-host (SSH pushes already enforce a 500 MiB ceiling). Handlers check
-// the limiter after a proxy failure to answer 413.
-func gitSmartRequestBody(r *http.Request) (io.Reader, *gitRequestBodyLimiter, error) {
-	limiter := &gitRequestBodyLimiter{r: r.Body, remaining: maxGitRequestBodySize + 1}
-	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), "gzip") {
-		return limiter, limiter, nil
-	}
-	zr, err := gzip.NewReader(limiter)
-	if err != nil {
-		return nil, nil, errors.BadRequest("malformed gzip request body")
-	}
-	// Cap the DECOMPRESSED size too, to bound a gzip-amplification DoS: a tiny
-	// gzip body can inflate to gigabytes of CPU/bandwidth. 512 MiB comfortably
-	// exceeds a legitimate large push (the receive-pack ceiling defaults to
-	// 500 MiB) while capping the work an attacker can force from a small body;
-	// an over-cap stream truncates and git fails the operation rather than us
-	// doing unbounded work.
-	return io.LimitReader(zr, maxDecompressedGitRequestSize), limiter, nil
-}
-
-// maxDecompressedGitRequestSize bounds gzip-decompressed smart-HTTP request
-// bodies (see gitSmartRequestBody).
-const maxDecompressedGitRequestSize int64 = 512 * 1024 * 1024
-
-// maxGitRequestBodySize bounds the raw wire bytes of a smart-HTTP git RPC
-// request body (see gitSmartRequestBody). Variable so tests can lower it.
-var maxGitRequestBodySize int64 = 512 * 1024 * 1024
-
-var errGitRequestBodyTooLarge = stdErrors.New("git request body exceeds maximum allowed size")
-
-// gitRequestBodyLimiter caps the bytes read from a git RPC request body and
-// records when the cap was exceeded so handlers can answer 413.
-type gitRequestBodyLimiter struct {
-	r         io.Reader
-	remaining int64
-	exceeded  bool
-}
-
-func (l *gitRequestBodyLimiter) Read(p []byte) (int, error) {
-	if l.remaining <= 0 {
-		l.exceeded = true
-		return 0, errGitRequestBodyTooLarge
-	}
-	if int64(len(p)) > l.remaining {
-		p = p[:l.remaining]
-	}
-	n, err := l.r.Read(p)
-	l.remaining -= int64(n)
-	return n, err
-}
+// Variable so route tests can exercise the wire limit.
+var maxGitRequestBodySize int64 = repohost.MaxGitRequestBodySize
 
 func (h *GitSmartHandler) UploadPack(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
@@ -223,7 +161,7 @@ func (h *GitSmartHandler) UploadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestBody, limiter, err := gitSmartRequestBody(r)
+	requestBody, limiter, err := repohost.GitRequestBody(r, maxGitRequestBodySize)
 	if err != nil {
 		result = "error"
 		writeGitHTTPError(w, r, err)
@@ -244,7 +182,7 @@ func (h *GitSmartHandler) UploadPack(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		if limiter.exceeded {
+		if limiter.Exceeded() {
 			writeGitHTTPError(w, r, errors.RequestEntityTooLarge("git request body exceeds maximum allowed size"))
 			return
 		}
@@ -297,7 +235,7 @@ func (h *GitSmartHandler) ReceivePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestBody, limiter, err := gitSmartRequestBody(r)
+	requestBody, limiter, err := repohost.GitRequestBody(r, maxGitRequestBodySize)
 	if err != nil {
 		result = "error"
 		writeGitHTTPError(w, r, err)
@@ -318,7 +256,7 @@ func (h *GitSmartHandler) ReceivePack(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
-		if limiter.exceeded {
+		if limiter.Exceeded() {
 			writeGitHTTPError(w, r, errors.RequestEntityTooLarge("git request body exceeds maximum allowed size"))
 			return
 		}

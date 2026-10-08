@@ -5,14 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -229,11 +232,14 @@ func (l *workspaceMythicalLanes) CapturedHead(ctx context.Context, id string, re
 	if l == nil || l.workspaces == nil {
 		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "verified branch snapshot unavailable")
 	}
-	_, _, _, head, asleep, err := l.workspaces.workspaceSnapshotTarget(ctx, id, repositoryID, userID)
+	row, _, _, head, asleep, err := l.workspaces.workspaceSnapshotTarget(ctx, id, repositoryID, userID)
 	if err != nil {
 		return "", err
 	}
-	if selected := capturedForOperation(ctx, id); selected != "" && selected != head {
+	// Snapshot verification can select an adopted seed with the captured
+	// tree and a stack-owned parent. Fence the machine publication identity,
+	// not that derived seed commit.
+	if selected := capturedForOperation(ctx, id); selected != "" && selected != row.HeadCommitID {
 		return "", branchForkUnavailable("Capture changed")
 	}
 	if !asleep {
@@ -280,6 +286,13 @@ func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id str
 	if err := s.authorizeWorkspaceReadBinding(ctx, row); err != nil {
 		return err
 	}
+	return l.prepareCapturedBranchHead(ctx, row, repository, actor)
+}
+
+// Caller authority is established before this common capture path.
+func (l *workspaceMythicalLanes) prepareCapturedBranchHead(ctx context.Context, row db.Workspace, repository, actor int64) error {
+	s := l.workspaces
+	id := row.ID
 	if row.Status == "stopped" || row.Status == "suspended" {
 		return nil
 	}
@@ -302,9 +315,10 @@ func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id str
 	if err != nil {
 		return err
 	}
-	capture, err := s.branchCapture.Capture(ctx, id)
+	capture, err := captureAwakeBranch(ctx, s.branchCapture, id)
 	head := capture.Head
 	if err != nil {
+		slog.Warn("awake branch capture refused", "workspace_id", id, "error", err)
 		return branchForkUnavailable("Capture unavailable")
 	}
 	current, err := s.q.GetWorkspace(ctx, id)
@@ -322,4 +336,28 @@ func (l *workspaceMythicalLanes) PrepareCapturedHead(ctx context.Context, id str
 	}
 	heads[id] = head
 	return nil
+}
+
+// A member write can leave native delivery draining. ErrNotReady explicitly
+// retains the awake machine and requests another capture. Bound that retry;
+// an authorization or incarnation refusal is terminal.
+func captureAwakeBranch(ctx context.Context, provider BranchCapture, id string) (machined.CaptureResult, error) {
+	captureCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if err := captureCtx.Err(); err != nil {
+			return machined.CaptureResult{}, err
+		}
+		capture, err := provider.Capture(captureCtx, id)
+		if !errors.Is(err, machined.ErrNotReady) {
+			return capture, err
+		}
+		select {
+		case <-captureCtx.Done():
+			return machined.CaptureResult{}, captureCtx.Err()
+		case <-tick.C:
+		}
+	}
 }

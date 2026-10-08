@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 
 	"testing"
 
@@ -151,6 +152,9 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 			require.NoError(t, err)
 			child, err := q.GetMythicalItemByNumber(ctx, f.repoID, added.Number)
 			require.NoError(t, err)
+			identity := regexp.MustCompile(`(?m)^change-id [k-z]{32}$`)
+			beforeIdentity := identity.FindString(f.git(f.hostDir, "cat-file", "commit", mythicalChecksOf(child).Seed.Head))
+			require.NotEmpty(t, beforeIdentity, "adoption mints its own machine item authority")
 			// Adoption replaces the scratch revision with its one-change seed.
 			// Capture must answer that retained head after the branch rename.
 			f.service.lanes = addCaptureFixture{head: mythicalChecksOf(child).Seed.Head}
@@ -202,6 +206,7 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 			require.NoError(t, err)
 			seed := mythicalChecksOf(child).Seed
 			require.NotNil(t, seed)
+			require.Equal(t, beforeIdentity, identity.FindString(f.git(f.hostDir, "cat-file", "commit", seed.Head)), "folding preserves the adopted logical change")
 			wantSource := "source original"
 			if scenario == "steered" || scenario == "captured-after-steer" {
 				wantSource = "source latest"

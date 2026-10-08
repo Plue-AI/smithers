@@ -5108,8 +5108,14 @@ func (s *MythicalService) pin(ctx context.Context, r *mythicalRun, commit string
 func (s *MythicalService) retainFor(ctx context.Context, r *mythicalRun, workspaceID, commit string) (string, error) {
 	ref := repohost.WorkspaceSourceRef(workspaceID, commit)
 	if !r.g.has(ctx, commit) {
-		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, repohost.MythicalBookmarkRef); err != nil {
-			return "", fmt.Errorf("fetch the stack: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		// Adopted and folded seeds are retained outside the linear stack.
+		// Fetch their immutable pin, not the unchanged mythical bookmark.
+		keep := repohost.MythicalReservedRefNS + "keep/" + commit
+		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
+			return "", fmt.Errorf("fetch the retained source: %s", sanitizeMirrorError(err, r.bridge.URL()))
+		}
+		if !r.g.has(ctx, commit) {
+			return "", errors.New("the retained source is unavailable")
 		}
 	}
 	r.bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: strings.Repeat("0", 40), New: commit}},

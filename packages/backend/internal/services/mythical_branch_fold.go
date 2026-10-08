@@ -102,7 +102,20 @@ func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db
 			base = source.CandidateBase
 		}
 		commit.Parents = []string{base}
-		commit.ChangeID = ""
+		// Folding creates a revision of the adopted TODO's one logical change,
+		// never the source machine's captured change identity.
+		seedCommit, err := g.readCommit(ctx, checks.Seed.Head)
+		if err != nil {
+			return err
+		}
+		commit.ChangeID = seedCommit.ChangeID
+		if !mythicalChangeID.MatchString(commit.ChangeID) {
+			// Persisted pre-admission seeds may predate explicit item authority.
+			commit.ChangeID = checks.MachineItemChanges[child.WorkspaceID]
+			if !mythicalChangeID.MatchString(commit.ChangeID) {
+				commit.ChangeID = mythicalChangeIDFor("branch-item", child.WorkspaceID)
+			}
+		}
 		commit.Message = "Fold into fork\n"
 		folded, err := g.writeCommit(ctx, commit)
 		if err != nil {

@@ -56,6 +56,12 @@ func runForkAddToStackBrowser(t *testing.T, enable string) {
 		var attempt int32
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT request_run_id,attempt FROM mythical_items WHERE number=$1`, second).Scan(&run, &attempt))
 		require.NotEmpty(t, run)
+		// Wait for the real review receipt before re-entering its retained run.
+		require.Eventually(t, func() bool {
+			var posted bool
+			return r.pool.QueryRow(r.ctx, `SELECT COALESCE((checks->'review'->>'posted')::boolean,false) FROM mythical_items WHERE number=$1`, second).Scan(&posted) == nil && posted
+		}, 4*time.Minute, 250*time.Millisecond)
+
 		_, err = r.expect("POST", fmt.Sprintf("/api/todos/%d", second), `{"steer":"[HOLD fork-source] [FILE source.md] Improve the retry note."}`, 202)
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = r.release("fork-source"); _ = r.release("fork-third") })
@@ -70,5 +76,9 @@ func runForkAddToStackBrowser(t *testing.T, enable string) {
 		third, err := r.file("Later work", "[HOLD fork-third] [FILE later.md] Add the later note.")
 		require.NoError(t, err)
 		require.EqualValues(t, 3, third)
+		// T1 retains its review executor. T1 and T2 fill these two slots,
+		// keeping T3 queued; Drop must leave a slot for the adopted TODO.
+		_, err = r.expect("PUT", "/api/install", `{"parallel":2}`, 200)
+		require.NoError(t, err)
 	})
 }

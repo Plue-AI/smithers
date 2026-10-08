@@ -281,6 +281,24 @@ func (s *MythicalService) advanceTodoDrop(ctx context.Context, stack db.Mythical
 	if !ok {
 		return todoControlUnavailable()
 	}
+	// Awake adopted branches retain their member writers. Capture before the
+	// stack transaction: publication needs the same locks as folding. The
+	// operation context pins each capture, so a later publication refuses the
+	// transaction instead of folding stale bytes.
+	ctx = withBranchCaptureContext(ctx)
+	if prepare, ok := s.lanes.(interface {
+		PrepareDroppedTodoFork(context.Context, string, int64) error
+	}); ok {
+		var branches []string
+		if err := s.store.QueryRow(ctx, `SELECT COALESCE(array_agg(w.id::text ORDER BY child.stack_position), '{}'::text[]) FROM workspaces w JOIN mythical_items child ON child.workspace_id=w.id::text WHERE w.forked_from_item=$1 AND child.stack_position IS NOT NULL AND child.candidate_head=''`, item.ID).Scan(&branches); err != nil {
+			return err
+		}
+		for _, branch := range branches {
+			if err := prepare.PrepareDroppedTodoFork(ctx, branch, item.RepositoryID); err != nil {
+				return err
+			}
+		}
+	}
 	return capture.CaptureDroppedTodo(ctx, item, func() error {
 		return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 			if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID); err != nil {

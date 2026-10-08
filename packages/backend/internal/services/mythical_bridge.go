@@ -158,6 +158,15 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	var requestBody io.Reader = r.Body
+	if r.Method == http.MethodPost && (rest == "git-upload-pack" || rest == "git-receive-pack") {
+		body, _, err := repohost.GitRequestBody(r, repohost.MaxGitRequestBodySize)
+		if err != nil {
+			http.Error(w, "malformed git request body", http.StatusBadRequest)
+			return
+		}
+		requestBody = body
+	}
 	switch {
 	case r.Method == http.MethodGet && rest == "info/refs":
 		service := r.URL.Query().Get("service")
@@ -181,7 +190,7 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-git-upload-pack-result")
 		w.Header().Set("Cache-Control", "no-cache")
 		counted := &countingWriter{w: w}
-		if err := b.host.ProxyUploadPack(ctx, b.owner, b.repo, r.Body, counted); err != nil {
+		if err := b.host.ProxyUploadPack(ctx, b.owner, b.repo, requestBody, counted); err != nil {
 			if counted.n == 0 {
 				http.Error(w, "repository unavailable", http.StatusBadGateway)
 				return
@@ -189,7 +198,7 @@ func (b *mythicalBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(http.ErrAbortHandler)
 		}
 	case r.Method == http.MethodPost && rest == "git-receive-pack":
-		commands, rebuilt, err := repohost.PeekReceivePackCommands(r.Body)
+		commands, rebuilt, err := repohost.PeekReceivePackCommands(requestBody)
 		if err != nil {
 			http.Error(w, "malformed receive-pack request", http.StatusBadRequest)
 			return

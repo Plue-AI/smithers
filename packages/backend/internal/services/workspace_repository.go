@@ -198,7 +198,25 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 			if decodeErr := json.Unmarshal(contents, &receipt); decodeErr != nil {
 				return pkgerrors.Conflict("workspace repository receipt is invalid")
 			}
-			if validationErr := validateWorkspaceRepositoryReceiptSource(receipt, row, cloneURL, bookmark); validationErr != nil {
+			receiptBookmark := bookmark
+			// Adoption renames the branch, not the repository initialization. Only
+			// the durable item bound to this workspace can retain its original name.
+			if receipt.SourceBookmark != bookmark && s.installQueries != nil {
+				lane, laneErr := s.installQueries.GetMythicalLane(ctx, row.ID)
+				if laneErr == nil && lane.RepositoryID == row.RepositoryID {
+					item, itemErr := s.installQueries.GetMythicalItem(ctx, lane.ItemID)
+					if itemErr == nil && item.WorkspaceID == row.ID && item.RepositoryID == row.RepositoryID {
+						checks := mythicalChecksOf(item)
+						var adoption struct {
+							Branch string `json:"branch"`
+						}
+						if checks.Seed != nil && checks.Branch == row.TargetBookmark && json.Unmarshal([]byte(checks.CreationPayload), &adoption) == nil && strings.HasPrefix(adoption.Branch, scratchBranchPrefix) && adoption.Branch == receipt.SourceBookmark {
+							receiptBookmark = adoption.Branch
+						}
+					}
+				}
+			}
+			if validationErr := validateWorkspaceRepositoryReceiptSource(receipt, row, cloneURL, receiptBookmark); validationErr != nil {
 				return validationErr
 			}
 			jjEntry, hasJJ := root[".jj"]

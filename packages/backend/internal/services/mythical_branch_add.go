@@ -154,7 +154,7 @@ func (s *MythicalService) AddBranchToStack(ctx context.Context, repository, acto
 			return err
 		}
 		commit.Parents = []string{workspace.ForkedFromBase}
-		commit.ChangeID = ""
+		commit.ChangeID = mythicalChangeIDFor("branch-item", workspace.ID)
 		commit.Message = "Add to stack\n"
 		seedHead, err := g.writeCommit(ctx, commit)
 		if err != nil {
