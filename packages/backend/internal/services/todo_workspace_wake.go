@@ -45,7 +45,11 @@ func (s *WorkspaceService) WakeTodoWorkspace(ctx context.Context, itemID, worksp
 		if err != nil {
 			return mythicalFlowFailure{code: "runtime_binding_unavailable", retryable: true}
 		}
-		if item.RepositoryID != repositoryID || item.WorkspaceID != workspaceID || lane.ItemID != item.ID || lane.RepositoryID != repositoryID {
+		boundWorkspace := item.WorkspaceID == workspaceID
+		if review := mythicalChecksOf(item).Review; review != nil && review.Lane == workspaceID {
+			boundWorkspace = review.Verdict == "" && review.Candidate == item.CandidateHead && review.Head == item.PRHead
+		}
+		if item.RepositoryID != repositoryID || !boundWorkspace || lane.ItemID != item.ID || lane.RepositoryID != repositoryID || lane.RetiredAt.Valid {
 			return mythicalFlowFailure{code: "runtime_target_forbidden"}
 		}
 		if item.PausedAt.Valid {

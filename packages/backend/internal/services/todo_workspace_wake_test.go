@@ -35,7 +35,7 @@ func (r *wakeBoundaryRuntime) InspectWorkspace(context.Context, string) (workspa
 	return workspaceapi.Workspace{}, errors.New("guest unavailable")
 }
 func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
-	for _, mode := range []string{"active", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
+	for _, mode := range []string{"active", "review", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
 		t.Run(mode, func(t *testing.T) {
 			id := uuid.New()
 			row := db.Workspace{ID: "retained", RepositoryID: 3, UserID: 9, Status: "suspended"}
@@ -44,7 +44,26 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 				getWorkspaceFn:       func(context.Context, string) (db.Workspace, error) { return row, nil },
 			}, item: db.MythicalItem{ID: pgtype.UUID{Bytes: id, Valid: true}, RepositoryID: 3, WorkspaceID: row.ID, State: "proposed"}}
 			q.lane = db.MythicalLane{ItemID: q.item.ID, RepositoryID: 3, WorkspaceID: row.ID}
+			if mode == "review" || len(mode) > 7 && mode[:7] == "review_" {
+				q.item.WorkspaceID = "implementer"
+				q.item.CandidateHead, q.item.PRHead = "candidate", "published"
+				checks := mythicalChecksOf(q.item)
+				checks.Review = &mythicalReview{Lane: row.ID, Candidate: "candidate", Head: "published"}
+				switch mode {
+				case "review_stale_candidate":
+					checks.Review.Candidate = "old"
+				case "review_stale_head":
+					checks.Review.Head = "old"
+				case "review_settled":
+					checks.Review.Verdict = "approve"
+				case "review_wrong_lane":
+					checks.Review.Lane = "unrelated"
+				}
+				q.item.Checks = checks.encode()
+			}
 			switch mode {
+			case "retired":
+				q.lane.RetiredAt.Valid = true
 			case "deleted":
 				row.DeletedAt.Valid = true
 			case "pending":
@@ -65,7 +84,7 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 			runtime := &wakeBoundaryRuntime{}
 			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
 			require.Error(t, service.WakeTodoWorkspace(context.Background(), id.String(), row.ID, 3, 9))
-			if mode == "active" {
+			if mode == "active" || mode == "review" {
 				require.Equal(t, 1, runtime.inspections)
 			} else {
 				require.Zero(t, runtime.inspections)
