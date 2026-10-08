@@ -24,8 +24,9 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
 	for rows.Next() {
 		var id, state string
 		var todo int64
-		var terminal []byte
-		if err := rows.Scan(&id, &state, &todo, &terminal); err != nil {
+		var terminal, payload []byte
+		var operation string
+		if err := rows.Scan(&id, &state, &todo, &terminal, &operation, &payload); err != nil {
 			return nil, err
 		}
 		storedState := state
@@ -40,7 +41,7 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
 		}
 		actions := []any{}
 		if state == "failed" && s.homeBackground != nil && s.homeBackground.Pool != nil {
-			if storedState == "failed" && s.learningMachines != nil && s.launcher != nil && s.homeBackground.Billing != nil {
+			if storedState == "failed" && s.learningMachines != nil && s.launcher != nil && s.homeBackground.Billing != nil && learningHomeRetryPinAvailable(operation, payload) {
 				actions = append(actions, map[string]any{"tag": "background.retry", "label": "Retry"})
 			}
 			actions = append(actions, map[string]any{"tag": "background.dismiss", "label": "Dismiss"})
@@ -50,7 +51,7 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
 	return runs, rows.Err()
 }
 
-const learningBackgroundQuery = `SELECT * FROM (SELECT r.id,r.state,i.number,r.terminal_receipt FROM product_job_requests r
+const learningBackgroundQuery = `SELECT * FROM (SELECT r.id,r.state,i.number,r.terminal_receipt,r.operation,r.payload FROM product_job_requests r
  JOIN mythical_items i ON i.id::text=r.payload->'target'->>'BindingID' AND i.repository_id=$1
  WHERE r.tenant_id=$2 AND r.operation='flow.runtime.launch'
  AND i.source='todo' AND i.state='landed' AND i.pr_state='merged'
@@ -60,7 +61,7 @@ const learningBackgroundQuery = `SELECT * FROM (SELECT r.id,r.state,i.number,r.t
  AND r.payload->>'flowId'='learning' AND r.payload->'target'->>'BindingKind'='learning'
 
  UNION ALL
- SELECT r.id,r.state,i.number,r.terminal_receipt FROM product_job_requests r
+ SELECT r.id,r.state,i.number,r.terminal_receipt,r.operation,r.payload FROM product_job_requests r
  JOIN mythical_items i ON i.id::text=r.payload->>'item' AND i.repository_id=$1
  WHERE r.tenant_id=$2 AND r.operation='learning.admission'
  AND i.source='todo' AND i.state='landed' AND i.pr_state='merged'
@@ -84,7 +85,7 @@ func (s *HomeBackground) ControlLearning(ctx context.Context, repo, user int64, 
 			return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return apply(ctx, tx) })
 		}
 		var found string
-		if err := tx.QueryRow(ctx, learningBackgroundQuery+` WHERE id::text=$3`, repo, fmt.Sprintf("repository:%d", repo), id).Scan(&found, new(string), new(int64), new([]byte)); err != nil {
+		if err := tx.QueryRow(ctx, learningBackgroundQuery+` WHERE id::text=$3`, repo, fmt.Sprintf("repository:%d", repo), id).Scan(&found, new(string), new(int64), new([]byte), new(string), new([]byte)); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return homeBackgroundError(404, "run_not_found", "user", "Run unavailable")
 			}
@@ -108,10 +109,7 @@ func (s *HomeBackground) ControlLearning(ctx context.Context, repo, user int64, 
 				if err := tx.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE id=$1`, id).Scan(&payload); err != nil {
 					return err
 				}
-				var saved struct {
-					Pin *flowruntime.Pin `json:"pin"`
-				}
-				if json.Unmarshal(payload, &saved) != nil || saved.Pin == nil || !saved.Pin.Valid() || saved.Pin.Flow != "learning" {
+				if !learningHomeRetryPinAvailable(operation, payload) {
 					return homeBackgroundError(409, "run_pin_unavailable", "conflict", "Stored flow version unavailable")
 				}
 				checkpoint = nil
@@ -149,7 +147,7 @@ func (s *HomeBackground) LearningStatus(ctx context.Context, repo int64, id stri
 	var found, state string
 	var number int64
 	var terminal []byte
-	err := s.Pool.QueryRow(ctx, learningBackgroundQuery+` WHERE id::text=$3`, repo, fmt.Sprintf("repository:%d", repo), id).Scan(&found, &state, &number, &terminal)
+	err := s.Pool.QueryRow(ctx, learningBackgroundQuery+` WHERE id::text=$3`, repo, fmt.Sprintf("repository:%d", repo), id).Scan(&found, &state, &number, &terminal, new(string), new([]byte))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, homeBackgroundError(404, "run_not_found", "user", "Run unavailable")
 	}
@@ -174,4 +172,16 @@ func (s *HomeBackground) LearningStatus(ctx context.Context, repo int64, id stri
 		state = "queued"
 	}
 	return map[string]any{"state": state, "run_id": id}, err
+}
+
+// Admission may resolve its first pin in the worker. A launch must retain the
+// original immutable Learning pin before Home can offer or authorize Retry.
+func learningHomeRetryPinAvailable(operation string, payload []byte) bool {
+	if operation == LearningAdmissionOperation {
+		return true
+	}
+	var saved struct {
+		Pin *flowruntime.Pin `json:"pin"`
+	}
+	return json.Unmarshal(payload, &saved) == nil && saved.Pin != nil && saved.Pin.Valid() && saved.Pin.Flow == "learning"
 }

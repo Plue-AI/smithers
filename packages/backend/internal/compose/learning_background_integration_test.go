@@ -220,6 +220,25 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.JSONEq(t, `{"reason":"lint"}`, string(unchanged.TerminalReceipt))
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo' WHERE id=$1`, itemID)
 	require.NoError(t, err)
+	// A retained launch without its immutable Learning pin remains dismissible,
+	// but the Home projection must not offer a Retry the command will refuse.
+	original, err := store.Get(ctx, scope, operation)
+	require.NoError(t, err)
+	for _, pin := range []string{`null`, `{}`, `{"flow":"todo","sourceCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executionDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`} {
+		_, err = pool.Exec(ctx, `UPDATE product_job_requests SET payload=jsonb_set(payload,'{pin}',$2::jsonb) WHERE id=$1`, operation, pin)
+		require.NoError(t, err)
+		runs, err := service.LearningBackgroundRuns(ctx, repo)
+		require.NoError(t, err)
+		require.Equal(t, []map[string]any{{"id": operation, "title": "Learning · T1", "state": "failed", "actions": []any{map[string]any{"tag": "background.dismiss", "label": "Dismiss"}}}}, runs)
+		before, err := store.Get(ctx, scope, operation)
+		require.NoError(t, err)
+		require.Equal(t, 409, post(operation, "retry", "invalid-pin").StatusCode)
+		after, err := store.Get(ctx, scope, operation)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+	}
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET payload=$2 WHERE id=$1`, operation, original.Payload)
+	require.NoError(t, err)
 	for _, missing := range []string{"machines", "launcher", "billing"} {
 		t.Run("missing_"+missing, func(t *testing.T) {
 			switch missing {
