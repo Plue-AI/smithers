@@ -60,3 +60,49 @@ paths:
                   message:
                     type: string
                     enum: [Terminal is unavailable]
+  /api/terminals/{id}/commands:
+    post:
+      x-composition: install
+      summary: Append a TODO from the member's terminal
+      operationId: post_api_terminals_id_commands
+      tags:
+        - Terminals
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [command, payload]
+              properties:
+                command: {type: string, enum: [todo.new]}
+                payload:
+                  allOf:
+                    - $ref: '#/paths/~1api~1todos/post/requestBody/content/application~1json/schema'
+                    - type: object
+                      required: [place]
+                      properties:
+                        place:
+                          type: object
+                          required: [mode]
+                          properties:
+                            mode: {type: string, enum: [append]}
+      responses:
+        '202': {$ref: '#/paths/~1api~1todos/post/responses/202'}
+        '400': {description: Invalid terminal command or TODO payload}
+        '401': {description: A live member session is required}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {description: Terminal not found}
+        '409': {description: Terminal unavailable or idempotency mismatch}
+        '503': {description: Terminal or stack service unavailable}

@@ -22,6 +22,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_machine_head_authorization_integration_test.go",
+    "tests": [
+      "TestAccessMachineHeadGrantsComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_members_browser_test.go",
     "tests": [
       "TestAccessMembersBrowserPostgres"
@@ -31,7 +38,8 @@
     "package": "packages/backend/internal/compose",
     "file": "access_merge_profiles_authorization_integration_test.go",
     "tests": [
-      "TestAccessMergeProfilesComposedPostgres"
+      "TestAccessMergeProfilesComposedPostgres",
+      "TestAccessMergeExplicitProfilesComposedPostgres"
     ]
   },
   {
@@ -561,6 +569,13 @@
     "tests": [
       "TestSecretsWriteComposedInstallPostgres",
       "TestSecretsInstallAPIAndLivePostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "terminal_person_command_integration_test.go",
+    "tests": [
+      "TestTerminalPersonCommandComposedInstall"
     ]
   },
   {

@@ -21,3 +21,20 @@ func TestAccessMergeProfilesComposedPostgres(t *testing.T) {
 		}
 	}
 }
+
+// Explicit creation resolves and confirms Merge itself; no generic-create
+// authority or test-only action consumer participates in this campaign.
+func TestAccessMergeExplicitProfilesComposedPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("composed merge matrix requires PostgreSQL and native helpers")
+	}
+	for _, role := range []string{"owner", "maintainer"} {
+		for _, via := range []string{"cli", "codex", "claude-code", "smithers"} {
+			for _, subject := range []string{"own", "other-member"} {
+				t.Run(role+"/"+via+"/"+subject, func(t *testing.T) {
+					testTodoMergeProfileComposedRouteBoundaryPostgres(t, true, false, false, accessMergeProfile{via: via, role: role, subject: subject, explicit: true})
+				})
+			}
+		}
+	}
+}

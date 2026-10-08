@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -124,6 +125,7 @@ func TestTodoPullLabelApprovalComposedPostgres(t *testing.T) {
 
 type accessMergeProfile struct {
 	via, role, subject string
+	explicit           bool
 }
 
 func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, browserJourney, labelApproval bool, options ...bool) {
@@ -348,6 +350,31 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		membersHandler = &routes.MembersHandler{Service: members}
 	}
 	server.Config.Handler = todoMergeComposeRouterWithAuth(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, authHandler, membersHandler, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
+	type accessObservedRequest struct {
+		path, cookie string
+		bearer       bool
+		commands     []string
+	}
+	var accessRequests []accessObservedRequest
+	var accessRequestsMu sync.Mutex
+	if profile.via != "" {
+		handler := server.Config.Handler
+		server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			if !strings.HasSuffix(request.URL.Path, "/merge") && !strings.HasPrefix(request.URL.Path, "/api/confirmations") {
+				handler.ServeHTTP(w, request)
+				return
+			}
+			observation := accessObservedRequest{path: request.URL.Path, bearer: request.Header.Get("Authorization") != ""}
+			if cookie, err := request.Cookie("smithers_session"); err == nil {
+				observation.cookie = cookie.Value
+			}
+			request = request.WithContext(services.WithAuthorizationObserver(request.Context(), func(command string) { observation.commands = append(observation.commands, command) }))
+			handler.ServeHTTP(w, request)
+			accessRequestsMu.Lock()
+			accessRequests = append(accessRequests, observation)
+			accessRequestsMu.Unlock()
+		})
+	}
 	if installBrowser {
 		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin') ON CONFLICT DO NOTHING`, repo.ID, owner.ID)
 		require.NoError(t, err)
@@ -614,20 +641,81 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 			require.Contains(t, scopes, "via:"+via)
 			require.NotContains(t, scopes, "write:approval")
 		}
+		if profile.via != "" {
+			// Matrix requests use actual browser OAuth sessions as well as the
+			// production CLI/turn issuer. The initial seeded sessions belong only
+			// to the accepted TODO fixture and the legacy regression scenarios.
+			foreign := member
+			permission := "write"
+			if requester.ID == member.ID {
+				foreign, permission = owner, "admin"
+			}
+			fake.SetCollaborator(18, foreign.Username, permission)
+			_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id,profile_data) VALUES(3,$1,'workos','18','{}')`, foreign.ID)
+			require.NoError(t, err)
+			if foreign.ID == member.ID {
+				_, err = pool.Exec(ctx, `UPDATE collaborators SET github_id=18,github_login=$3 WHERE repository_id=$1 AND user_id=$2`, repo.ID, foreign.ID, foreign.Username)
+				require.NoError(t, err)
+			}
+			signIn := func(user db.User, id int64) string {
+				jar, err := cookiejar.New(nil)
+				require.NoError(t, err)
+				browser := &http.Client{Jar: jar, Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+				response, err := browser.Get(origin + "/api/auth/github")
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusFound, response.StatusCode)
+				authorize, err := url.Parse(response.Header.Get("Location"))
+				require.NoError(t, err)
+				code := "session-" + user.Username
+				fake.SignInAs(code, id)
+				response, err = browser.Get(origin + "/api/auth/github/callback?code=" + url.QueryEscape(code) + "&state=" + url.QueryEscape(authorize.Query().Get("state")))
+				require.NoError(t, err)
+				raw, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+				require.Equal(t, http.StatusFound, response.StatusCode, string(raw))
+				host, err := url.Parse(origin)
+				require.NoError(t, err)
+				for _, cookie := range jar.Cookies(host) {
+					if cookie.Name == "smithers_session" {
+						return cookie.Value
+					}
+				}
+				t.Fatal("browser OAuth did not mint a session")
+				return ""
+			}
+			personCookie, foreignCookie = signIn(requester, 17), signIn(foreign, 18)
+		}
 		invoke := catalogCLIInvoker(t, ctx, origin, pat)
+		pendingStatus := 3
+		if profile.explicit {
+			pendingStatus = http.StatusAccepted
+		}
+		requestMerge := func(argv ...string) (int, map[string]any) {
+			if !profile.explicit {
+				return invoke(argv...)
+			}
+			body := fmt.Sprintf(`{"command":"merge","subject":{"kind":"todo","ref":"T%d"},"payload":{"reviewed_head_sha":%q}}`, filed.Number, pull.Head.SHA)
+			return call("POST", "/api/confirmations", "", pat, argv[len(argv)-1], body)
+		}
 		argv := []string{"merge", fmt.Sprintf("T%d", filed.Number)}
 		if len(explicitHead) > 0 && explicitHead[0] {
 			argv = append(argv, "--reviewed_head_sha", pull.Head.SHA)
 		}
 		argv = append(argv, "--idempotencyKey", "confirm-create")
-		code, receipt := invoke(argv...)
-		require.Equal(t, 3, code, receipt)
+		code, receipt := requestMerge(argv...)
+		require.Equal(t, pendingStatus, code, receipt)
 		require.Equal(t, "pending", receipt["state"])
-		require.Equal(t, "Waiting for "+requester.DisplayName+" to confirm", receipt["message"])
-		require.Len(t, receipt, 3, "the CLI exposes only the receipt and waiting message")
+		if profile.explicit {
+			require.Len(t, receipt, 2, "explicit create exposes only the private receipt")
+		} else {
+			require.Equal(t, "Waiting for "+requester.DisplayName+" to confirm", receipt["message"])
+			require.Len(t, receipt, 3, "the CLI exposes only the receipt and waiting message")
+		}
 		id := receipt["confirmation"].(string)
 		aliasBody := `{}`
-		if len(explicitHead) > 0 && explicitHead[0] {
+		if profile.explicit || len(explicitHead) > 0 && explicitHead[0] {
 			aliasBody = fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA)
 		}
 		aliasStatus, aliasReceipt := call(http.MethodPost, "/api/repos/merge-owner/app/mythical/items/"+uuid.UUID(before.ID.Bytes).String()+"/merge", "", pat, "confirm-create", aliasBody)
@@ -648,8 +736,8 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		require.Equal(t, "review_merge", boundRow.Kind)
 		require.Contains(t, boundRow.Revision, pull.Head.SHA)
 
-		replayCode, replay := invoke(argv...)
-		require.Equal(t, 3, replayCode)
+		replayCode, replay := requestMerge(argv...)
+		require.Equal(t, pendingStatus, replayCode)
 		require.Equal(t, receipt, replay, "repeated CLI invocation keeps the same private confirmation")
 		if phaseDir := os.Getenv("SMITHERS_ACCESS_MERGE_PHASE_DIR"); browserJourney && phaseDir != "" {
 			wait := func(name string) {
@@ -691,8 +779,8 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 			require.Empty(t, item().PendingOp)
 			noMerge()
 			argv[len(argv)-1] = "access-current-generation"
-			code, receipt = invoke(argv...)
-			require.Equal(t, 3, code, receipt)
+			code, receipt = requestMerge(argv...)
+			require.Equal(t, pendingStatus, code, receipt)
 			id = receipt["confirmation"].(string)
 			fmt.Println("ACCESS_MERGE_CURRENT " + id)
 			wait("approved")
@@ -722,8 +810,8 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 			// Cancellation completes only this request. Start a fresh delegated
 			// request so the same real browser can also authorize the merge.
 			argv[len(argv)-1] = "browser-after-cancellation"
-			code, receipt = invoke(argv...)
-			require.Equal(t, 3, code, receipt)
+			code, receipt = requestMerge(argv...)
+			require.Equal(t, pendingStatus, code, receipt)
 			id = receipt["confirmation"].(string)
 		}
 		status := 0
@@ -749,8 +837,8 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		}
 		// A moved head with the same generation must expire the card too.
 		argv[len(argv)-1] = "confirm-before-head-move"
-		code, receipt = invoke(argv...)
-		require.Equal(t, 3, code, receipt)
+		code, receipt = requestMerge(argv...)
+		require.Equal(t, pendingStatus, code, receipt)
 		movedID := receipt["confirmation"].(string)
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2 WHERE id=$1`, before.ID, strings.Repeat("e", 40))
 		require.NoError(t, err)
@@ -766,8 +854,8 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "required/unit", "in_progress", "")
 		fake.SetCheck("rehearsal-owner/app", pull.Head.SHA, "optional/lint", "completed", "failure")
 		argv[len(argv)-1] = "confirm-current-generation"
-		code, receipt = invoke(argv...)
-		require.Equal(t, 3, code, receipt)
+		code, receipt = requestMerge(argv...)
+		require.Equal(t, pendingStatus, code, receipt)
 		id = receipt["confirmation"].(string)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", personCookie, "", "pending-check-press", `{}`)
 		require.Equal(t, 409, status, receipt)
@@ -869,6 +957,25 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		require.NoError(t, json.Unmarshal(merges[0].Body, &sent))
 		require.Equal(t, pull.Head.SHA, sent.SHA)
 		require.Equal(t, "squash", sent.Method)
+		if profile.via != "" {
+			accessRequestsMu.Lock()
+			observations := append([]accessObservedRequest(nil), accessRequests...)
+			accessRequestsMu.Unlock()
+			require.NotEmpty(t, observations)
+			for _, request := range observations {
+				press := strings.HasSuffix(request.path, "/approve") || strings.HasSuffix(request.path, "/deny")
+				if press && (request.bearer || request.cookie != personCookie) {
+					require.Empty(t, request.commands, "private ownership/person-session guard: %s", request.path)
+				} else {
+					command := "merge"
+					if request.path == "/api/confirmations" && !request.bearer {
+						command = "confirmations.read"
+					}
+					require.Equal(t, []string{command}, request.commands, "one bound decision before effects or disclosure: %s", request.path)
+				}
+			}
+			t.Logf("merge matrix role=%s via=%s subject=%s explicit=%t: %d observed HTTP decisions, one squash send", profile.role, profile.via, profile.subject, profile.explicit, len(observations))
+		}
 		return
 	}
 
