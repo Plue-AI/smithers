@@ -450,6 +450,79 @@ func TestTodoOrderedRecovery(t *testing.T) {
 		}
 		receiver.mu.Unlock()
 	}
+	// Concurrent HTTP admissions have no prescribed winner. Their durable
+	// committed sequence, rather than goroutine or arrival order, is the oracle.
+	waitID := "concurrent-question"
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+	waits, err := json.Marshal([]services.TodoWait{{ID: waitID, Kind: "question", Prompt: "Which retry limit?", Since: time.Now().UTC(),
+		Signal: &services.TodoWaitSignal{Scope: scope, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID,
+			WorkspaceID: read.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])},
+			Flow: "todo", Run: "pinned-run", Name: "answer:" + waitID}}})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waits)
+	require.NoError(t, err)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, input := range []struct{ path, body, key string }{
+		{"/api/todos/1", `{"steer":"Concurrent steer"}`, "concurrent-steer"},
+		{"/api/todos/1/answer", `{"wait":"concurrent-question","answer":"Concurrent answer"}`, "concurrent-answer"},
+	} {
+		go func() {
+			<-start
+			req, e := http.NewRequest("POST", origin+input.path, strings.NewReader(input.body))
+			if e != nil {
+				results <- e
+				return
+			}
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
+			req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+			req.Header.Set("X-CSRF-Token", "csrf")
+			req.Header.Set("Origin", origin)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", input.key)
+			res, e := http.DefaultClient.Do(req)
+			if e != nil {
+				results <- e
+				return
+			}
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusAccepted {
+				results <- fmt.Errorf("%s: HTTP %d", input.path, res.StatusCode)
+				return
+			}
+			results <- nil
+		}()
+	}
+	close(start)
+	for range 2 {
+		require.NoError(t, <-results)
+	}
+	var committed []string
+	rows, err := pool.Query(ctx, `SELECT COALESCE(request.payload->>'body',request.payload->>'payload')
+	 FROM product_job_requests request JOIN product_job_events event ON event.operation_id=request.id
+	 WHERE event.event_type='operation.accepted' AND
+	 (request.payload->>'body'='Concurrent steer' OR request.payload->>'payload'='Concurrent answer')
+	 ORDER BY event.sequence`)
+	require.NoError(t, err)
+	for rows.Next() {
+		var text string
+		require.NoError(t, rows.Scan(&text))
+		committed = append(committed, text)
+	}
+	require.NoError(t, rows.Err())
+	rows.Close()
+	require.Len(t, committed, 2)
+	require.Eventually(t, func() bool {
+		receiver.mu.Lock()
+		defer receiver.mu.Unlock()
+		var consumed []string
+		for _, text := range receiver.order {
+			if text == "Concurrent steer" || text == "Concurrent answer" {
+				consumed = append(consumed, text)
+			}
+		}
+		return len(consumed) == 2 && consumed[0] == committed[0] && consumed[1] == committed[1]
+	}, 5*time.Second, 10*time.Millisecond, "concurrent delivery must follow committed sequence")
 	// Removing the pinned-flow provider after admission holds the input;
 	// restoring it releases the same identity once through the real worker.
 	seen := func(text string) int {

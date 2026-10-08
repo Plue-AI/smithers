@@ -3,8 +3,6 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -42,51 +40,16 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 	require.Equal(t, question.Waits[0].ID, still.Waits[0].ID)
 	body, err := json.Marshal(map[string]string{"wait": question.Waits[0].ID, "answer": answer})
 	require.NoError(t, err)
-	// Race the two public input doors; the committed stream decides order.
-	type response struct {
-		status int
-		data   []byte
-		err    error
-	}
-	responses := make(chan response, 2)
-	start := make(chan struct{})
-	for _, input := range []struct{ path, body, key string }{
-		{path, `{"steer":"Use exponential backoff"}`, "model-steer-second"},
-		{path + "/answer", string(body), "model-answer"},
-	} {
-		go func() {
-			<-start
-			req, err := http.NewRequest("POST", r.origin+input.path, strings.NewReader(input.body))
-			if err != nil {
-				responses <- response{err: err}
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Origin", r.origin)
-			req.Header.Set("Idempotency-Key", input.key)
-			for _, cookie := range r.jar.Cookies(req.URL) {
-				if cookie.Name == "__csrf" {
-					req.Header.Set("X-CSRF-Token", cookie.Value)
-				}
-			}
-			client := &http.Client{Jar: r.jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect, Transport: r.client.Transport}
-			result, err := client.Do(req)
-			if err != nil {
-				responses <- response{err: err}
-				return
-			}
-			defer result.Body.Close()
-			data, err := io.ReadAll(io.LimitReader(result.Body, 1<<20))
-			r.log("POST %s → %d %s\n", input.path, result.StatusCode, data)
-			responses <- response{status: result.StatusCode, data: data, err: err}
-		}()
-	}
-	close(start)
-	for range 2 {
-		result := <-responses
-		require.NoError(t, result.err)
-		require.Equal(t, 202, result.status, string(result.data))
-	}
+	// Both steers must be committed before dispatch is possible. Racing a
+	// second steer against Answer cannot establish that premise: Answer may
+	// already dispatch the model before the second HTTP admission completes.
+	// TestTodoOrderedRecovery separately races/holds both dispatcher orders.
+	code, data, err := r.keyed("POST", path, `{"steer":"Use exponential backoff"}`, "model-steer-second")
+	require.NoError(t, err)
+	require.Equal(t, 202, code, string(data))
+	code, data, err = r.keyed("POST", path+"/answer", string(body), "model-answer")
+	require.NoError(t, err)
+	require.Equal(t, 202, code, string(data))
 	// Admission sequence is allocated transactionally under the shared stream
 	// lock. The duplicate request has no extra sequence or delivery intent.
 	rows, err := r.pool.Query(r.ctx, `SELECT event.sequence, request.operation, request.payload
@@ -113,7 +76,7 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 	rows.Close()
 	require.Len(t, committed, 3)
 	require.Equal(t, steer, committed[0])
-	require.ElementsMatch(t, []string{secondSteer, answer}, committed[1:])
+	require.Equal(t, []string{steer, secondSteer, answer}, committed)
 	require.Eventually(t, func() bool {
 		turns, err := r.modelTurns()
 		if err != nil {
