@@ -780,7 +780,87 @@ func TestJ4Rehearsal(t *testing.T) {
 		r.actual = strings.Join(settled, "; ")
 		return nil
 	})
-	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
+	r.step("16 Merged since last look", "GET /api/live (home) merge_history; GET and PUT /api/conversations/main/view-state as the owner, then GET as Ben", "the browser derives [T1] after the merge and [] after a new look; Ben, who has not looked, still derives [T1]", "T-APP-01", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		if merged.at.IsZero() {
+			return fmt.Errorf("blocked by row 9: T%d was not merged", t1)
+		}
+		var history []j4Merge
+		if _, err := owner.latest("home", 10*time.Second, func(frame liveFrame) bool {
+			var home struct {
+				MergeHistory []j4Merge `json:"merge_history"`
+			}
+			history = nil
+			if json.Unmarshal(frame.Data, &home) == nil {
+				history = home.MergeHistory
+			}
+			return slices.ContainsFunc(history, func(merge j4Merge) bool { return merge.N == t1 })
+		}); err != nil {
+			return fmt.Errorf("%w: the shared home lists merges %+v, want T%d's", err, history, t1)
+		}
+		const path = "/api/conversations/main/view-state"
+		// derive is HomeContainer's rule: the merges above the member's own
+		// last_seen_seq, which the browser reads from its view state.
+		derive := func(view map[string]any) []int64 {
+			seen, _ := view["last_seen_seq"].(float64)
+			since := []int64{}
+			for _, merge := range history {
+				if float64(merge.Seq) > seen {
+					since = append(since, merge.N)
+				}
+			}
+			return since
+		}
+		read := func(jar http.CookieJar) (map[string]any, error) {
+			data, err := r.expectAs(jar, "GET", path, "", 200)
+			if err != nil {
+				return nil, err
+			}
+			var view map[string]any
+			return view, json.Unmarshal(data, &view)
+		}
+		view, err := read(r.jar)
+		if err != nil {
+			return err
+		}
+		if before := derive(view); !slices.Equal(before, []int64{t1}) {
+			return fmt.Errorf("the owner derives %v merged since the last look, want [T%d] (merges %+v, view %v)", before, t1, history, view)
+		}
+		// After 2 s on screen the browser writes its last look: the newest
+		// merge position, over the rest of its saved view (HomeViewSeam).
+		look := int64(0)
+		for _, merge := range history {
+			look = max(look, merge.Seq)
+		}
+		view["last_seen_seq"] = look
+		body, err := json.Marshal(view)
+		if err != nil {
+			return err
+		}
+		if _, err = r.expect("PUT", path, string(body), 200); err != nil {
+			return err
+		}
+		if view, err = read(r.jar); err != nil {
+			return err
+		}
+		if after := derive(view); len(after) != 0 {
+			return fmt.Errorf("the owner derives %v after a new look at %d, want []", after, look)
+		}
+		if ben == nil {
+			return fmt.Errorf("row 5b did not sign in Ben")
+		}
+		benView, err := read(ben)
+		if err != nil {
+			return err
+		}
+		if theirs := derive(benView); !slices.Equal(theirs, []int64{t1}) {
+			return fmt.Errorf("Ben derives %v after the owner's look, want [T%d]: one member's look changed another's", theirs, t1)
+		}
+		r.actual = fmt.Sprintf("merges %+v; owner [T%d] then [] after looking at %d; Ben [T%d]", history, t1, look, t1)
+		return nil
+	})
 	r.step("17 T2 ready after T1 merges", "GitHub fake PR and write log; GET /api/todos; GitHub main ancestry and diff", "the same T2 PR rebases onto merged main with only t2.md; one ready-for-review change; merge.state ready on T2 only", "T-STK-04, T-STK-08", func() error {
 		if pr2 <= 0 || head2BeforeMerge == "" || node2 == "" {
 			return fmt.Errorf("row 7 did not observe T2's draft PR")
@@ -873,8 +953,56 @@ func TestJ4Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("T%d alone ready; PR #%d head %s rebased onto %s, changes %v, one ready-for-review write", t2, pr2, pull.Head.SHA, main, files)
 		return nil
 	})
-	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
-	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
+	r.step("18 main row synced", "GET /api/github/sync; GET /api/live (home) main row; GET /api/github/sync", "fresh; Home's main row carries a last_success_at the sync served, within one poll (60 s), so 'synced N s ago' is that age and not gold", "T-GH-02", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		health, before, err := r.syncHealth()
+		if err != nil {
+			return err
+		}
+		if health["state"] != "fresh" || before.IsZero() || time.Since(before) > time.Minute {
+			return fmt.Errorf("sync %v, last success %s ago, want fresh within one poll", health["state"], time.Since(before).Round(time.Second))
+		}
+		type mainRow struct {
+			LastSuccessAt string `json:"last_success_at"`
+			Health        string `json:"health"`
+		}
+		var row mainRow
+		var shown time.Time
+		frame, err := owner.latest("home", time.Minute, func(frame liveFrame) bool {
+			var home struct {
+				Main mainRow `json:"main"`
+			}
+			if json.Unmarshal(frame.Data, &home) != nil {
+				return false
+			}
+			row = home.Main
+			shown, _ = time.Parse(time.RFC3339Nano, row.LastSuccessAt)
+			return !shown.Before(before)
+		})
+		if err != nil {
+			return fmt.Errorf("%w: Home's main row reads %+v, the sync's last success is %s", err, row, before.Format(time.RFC3339Nano))
+		}
+		_, after, err := r.syncHealth()
+		if err != nil {
+			return err
+		}
+		// The browser renders N = now − last_success_at on its own clock.
+		age := frame.At.Sub(shown)
+		switch {
+		case shown.After(after):
+			return fmt.Errorf("Home's last_success_at %s is later than any the sync served (%s)", row.LastSuccessAt, after.Format(time.RFC3339Nano))
+		case row.Health != "fresh":
+			return fmt.Errorf("Home's main row is %s with N = %s, want fresh", row.Health, age.Round(time.Second))
+		case age < 0 || age > time.Minute:
+			return fmt.Errorf("'synced N s ago' would read N = %s, want within one poll", age.Round(time.Second))
+		}
+		r.actual = fmt.Sprintf("sync fresh; Home main %s, synced %d s ago at cursor %d", row.Health, int(age.Seconds()), *frame.Cursor)
+		return nil
+	})
+	r.pending("18b Machines in use of capacity", "GET /api/live (home) machines; machine admission", "in_use equals the machines admission holds, of the host profile's capacity (not provable on trusted-process: its runtime counts no machines)", "T-GH-02, T-INS-06", "machine-capacity")
+	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role (not provable on trusted-process: J4 raises no failed background run, and Home offers Retry only on an isolated machine)", "T-APP-01", "background-runs")
 	r.step("20 Ben merges, Alice answers", "GET /api/todos/{T2}; SQL approvals and answer events; member merge refusal from row 9", "Ben's session approved T1; Alice answered T2 once; her merge was 403 with no approval or GitHub write", "T-ACC-02", func() error {
 		if !memberMergeRefused {
 			return fmt.Errorf("Alice's merge refusal was not verified")
@@ -918,4 +1046,10 @@ func TestJ4Rehearsal(t *testing.T) {
 type j4Receipt struct {
 	at   time.Time
 	body string
+}
+
+// j4Merge is one entry of the shared home's merge_history.
+type j4Merge struct {
+	N   int64 `json:"n"`
+	Seq int64 `json:"seq"`
 }
