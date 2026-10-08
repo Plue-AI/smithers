@@ -35,6 +35,7 @@ export const journeySpecs = [
   "fork-add-to-stack.spec.ts",
   "branch-presence.spec.ts",
   "ssh-branch.spec.ts",
+  "terminal-signin.spec.ts",
   "file-gone.spec.ts",
   "file-coedit.spec.ts",
   "file-intelligence.spec.ts",

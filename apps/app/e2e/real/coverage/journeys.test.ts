@@ -19,7 +19,7 @@ for (const spec of ["j1.spec.ts", "keyboard-journeys.spec.ts"] as const) test(`$
 })
 
 test("install and SSH qualification require explicit reference journey selection", () => {
-  for (const spec of ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts", "ssh-branch.spec.ts", "file-gone.spec.ts", "file-intelligence.spec.ts", "github-j10/main-moved-rebase.spec.ts"] as const) {
+  for (const spec of ["fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts", "ssh-branch.spec.ts", "terminal-signin.spec.ts", "file-gone.spec.ts", "file-intelligence.spec.ts", "github-j10/main-moved-rebase.spec.ts"] as const) {
     expect(ignoredJourneys({})).toContain(spec)
     expect(ignoredJourneys({ SMITHERS_JOURNEY: spec })).not.toContain(spec)
     expect(ignoredJourneys({ SMITHERS_JOURNEY: spec })).toHaveLength(journeySpecs.length - 1)
