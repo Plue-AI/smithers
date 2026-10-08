@@ -57,12 +57,17 @@ func TestInstallSSHBranchRosterBoundary(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: machine.ID, OwnerUserID: machineOwner, GranteeUserID: alice.ID, Level: "write"})
 	require.NoError(t, err)
-	_, private, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	signer, err := gossh.NewSignerFromKey(private)
-	require.NoError(t, err)
-	_, err = q.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: alice.ID, Name: "alice", PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
-	require.NoError(t, err)
+	newSigner := func(name string) gossh.Signer {
+		t.Helper()
+		_, private, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		signer, err := gossh.NewSignerFromKey(private)
+		require.NoError(t, err)
+		_, err = q.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: alice.ID, Name: name, PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
+		require.NoError(t, err)
+		return signer
+	}
+	signer := newSigner("alice")
 	a, resolveErr := (&transport.InstallBranchResolver{Database: pool}).ResolveBranch(ctx, alice.ID, "retry")
 	require.NoError(t, resolveErr)
 	require.Equal(t, "alice", a.User)
@@ -155,6 +160,9 @@ func TestInstallSSHBranchRosterBoundary(t *testing.T) {
 		{"identity changed", `UPDATE collaborators SET unix_uid=20042 WHERE user_id=$1`, `UPDATE collaborators SET unix_uid=20041 WHERE user_id=$1`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each independent revocation case uses a real registered key so
+			// earlier handshakes do not exhaust its default credential limit.
+			signer = newSigner(tc.name)
 			// The previous case restored authority, but its asynchronous
 			// revocation can still close a newly accepted connection. Establish
 			// a working positive control before this case removes authority.
