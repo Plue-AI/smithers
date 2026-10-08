@@ -281,7 +281,7 @@ test("run inbox: Needs you names the gate, Answer opens one button per option, a
   test.setTimeout(120_000)
   const { rpc } = await serveGateway(page)
   await boot(page)
-  await command(page, `/runs.attention ${REPO}`)
+  await command(page, `/runs ${JSON.stringify({ operation: "attention", repo: REPO })}`)
   const inbox = page.locator('[data-kind="run-list"]')
   const needsYou = inbox.getByTestId("runs-inbox-needs-you")
   await expect(needsYou).toBeVisible({ timeout: 15_000 })

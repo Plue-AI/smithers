@@ -2,6 +2,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
+import { renderToStaticMarkup } from "react-dom/server"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { Card } from "../state/AppState"
@@ -116,14 +117,17 @@ for (const kind of ["todo", "branch", "flow", "agent", "wiki"] as const) {
   })
 }
 
-test("legacy rows stay unmounted even when a decision callback exists", () => {
+test("legacy rows remain readable and inert even when a decision callback exists", () => {
   const card: Extract<Card, { kind: "approval" }> = {
     id: "legacy", kind: "approval", title: "Owner?", status: "active", ordinal: 0, createdAt: 0,
     payload: { capability: "Owner?", question: { kind: "ask", prompt: "Owner?" } }
   }
   let effects = 0
   const actions = { onDecideApproval: () => { effects++ } } as unknown as CardActions
-  expect(approvalCardFamily.approval.render(card, actions)).toBeNull()
+  const html = renderToStaticMarkup(approvalCardFamily.approval.render(card, actions) as React.ReactElement)
+  expect(html).toContain("Owner?")
+  expect(html).not.toContain("<button")
+  expect(html).not.toContain("<textarea")
   expect(effects).toBe(0)
 })
 

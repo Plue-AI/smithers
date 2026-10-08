@@ -1,5 +1,13 @@
+import { useLiveQuery } from "@tanstack/react-db"
+import { ApprovalAnswerForm } from "./RunsCards"
+import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
+import { describedFailure, FailureNotice } from "../FailureNotice"
+import { runtimeApprovalIdOf, projectRuntimeCard } from "../state/RuntimeProjection"
+import type { CardActions, RunCommand } from "./CardFamily"
+import type { Card } from "../state/AppState"
 import { Data } from "effect"
 import { MemberConfirmationSchema, type MemberConfirmation, type ConfirmCard, type ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
+import { flowArgs } from "../flows/FlowArgs"
 import { cardActions, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardFamily } from "./CardFamily"
 
@@ -49,7 +57,43 @@ export const memberConfirmCardProps = (row: MemberConfirmation, dispatch: CardCo
     ] : [], confirmationUnavailable) }
 }
 
-/** Legacy rows keep their title in the shared shell. No private Confirm payload mounts without actor authority. */
+export const APPROVAL_DECISION_FAILED: UserFailureCopy = {
+  fault: "infra", sentence: "Smithers could not record this decision. Not your fault.", actions: []
+}
+
+const TrustedApprovalBody = ({ card, onDecideApproval, onRunCommand }: {
+  readonly card: Extract<Card, { kind: "approval" }>
+  readonly onDecideApproval: CardActions["onDecideApproval"]
+  readonly onRunCommand: RunCommand
+}) => {
+  const { payload } = card
+  if (!payload.question || card.status === "acted") return <ApprovalRecord card={card} />
+  return <div className="sui-approval-answer-body">
+    <ApprovalAnswerForm question={payload.question} draft={payload.answerDraft}
+      disabled={payload.pending === true}
+      onDraft={value => { if (payload.answerDraft) onRunCommand("form.set", flowArgs("form.set", { cardId: card.id, field: `answer:${payload.answerDraft.question}`, value })) }}
+      onAnswer={answer => onDecideApproval(card.id, "approved", answer, payload.answerDraft?.question)} />
+    {card.status === "error" && payload.error !== undefined ? <FailureNotice className="sui-approval-error" data-testid="approval-decision-failure"
+      failure={describedFailure("approval.decide", APPROVAL_DECISION_FAILED, payload.error)} /> : null}
+  </div>
+}
+
+/** Historical records stay readable and cannot become executable by gaining a callback. */
+const ApprovalRecord = ({ card }: { readonly card: Extract<Card, { kind: "approval" }> }) => <div className="sui-approval-record">
+  <p>{card.body ?? card.payload.detail ?? card.payload.question?.prompt ?? card.payload.capability}</p>
+  {card.payload.question?.options?.length ? <ul>{card.payload.question.options.map(option => <li key={option}>{option}</li>)}</ul> : null}
+</div>
+
+/** Only a current private runtime projection supplies the answer/grant controls. */
+const RuntimeApprovalBody = ({ card, actions }: { readonly card: Extract<Card, { kind: "approval" }>; readonly actions: CardActions & { readonly projectionStore: NonNullable<CardActions["projectionStore"]> } }) => {
+  const { data: approvals } = useLiveQuery(actions.projectionStore.collections.runtimeApprovals)
+  const id = runtimeApprovalIdOf(card)
+  if (card.runtimeView?.revision !== undefined || !id || !approvals.some(row => row.id === id)) return <ApprovalRecord card={card} />
+  const projected = projectRuntimeCard(card, [], approvals)
+  if (projected.kind !== "approval") return <ApprovalRecord card={card} />
+  return <TrustedApprovalBody card={projected} onDecideApproval={actions.onDecideApproval} onRunCommand={actions.onRunCommand} />
+}
+
 export const approvalCardFamily: CardFamily<"approval"> = {
-  approval: { render: () => null, pill: () => "" }
+  approval: { render: (card, actions) => actions.projectionStore ? <RuntimeApprovalBody card={card} actions={{ ...actions, projectionStore: actions.projectionStore }} /> : <ApprovalRecord card={card} />, pill: () => "" }
 }
