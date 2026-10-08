@@ -419,9 +419,13 @@ impl<D: Disk> Documents for Service<D> {
                 {
                     return Err(error(Error::Forged));
                 }
+                #[cfg(all(feature = "killpoints", debug_assertions))]
+                let before = s.host.current_digest(&peer.path);
                 s.host
                     .peer_update(f.stream, by, &bytes, self.now())
                     .map_err(error)?;
+                #[cfg(all(feature = "killpoints", debug_assertions))]
+                let text_changed = before != s.host.current_digest(&s.peers[&f.stream].path);
                 if input.seq != 0 {
                     s.host
                         .require_receipt(f.stream, self.now())
@@ -444,6 +448,12 @@ impl<D: Disk> Documents for Service<D> {
                     }
                 }
                 // No save acknowledgment here: only flush/tick can issue one.
+                #[cfg(all(feature = "killpoints", debug_assertions))]
+                if input.seq != 0 && text_changed {
+                    crate::events::DOCUMENT_EDITED
+                        .store(true, std::sync::atomic::Ordering::Release);
+                    crate::events::killpoint("K7a");
+                }
                 frame(
                     f.stream,
                     Document {

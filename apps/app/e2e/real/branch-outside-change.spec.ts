@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
-import { createHash } from "node:crypto"
 import { promisify } from "node:util"
+import { createHash } from "node:crypto"
 import { authenticatedTest as test } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { awaitBoot, command, expect, realApi } from "./support/test"
@@ -10,15 +10,8 @@ import { openTodo, todoCard } from "./todo/reference"
 import { journeyEnter, journeyActivate } from "./support/keyboard-journey-input"
 import { outsideAwareness, outsideEvents, type OutsideJournalRow } from "./support/outside-awareness"
 
+import { branchSSH as ssh } from "./support/branch-ssh"
 const execute = promisify(execFile)
-// Provisioned reference canary: T2, twelve src files (retry/deliver/a included),
-// Maya's SSH key/session, and Ben's signed-in browser. All writes run in the guest.
-const ssh = async (operation: string) => {
-  const host = process.env.SMITHERS_OUTSIDE_SSH_HOST
-  const port = process.env.SMITHERS_OUTSIDE_SSH_PORT
-  if (!host || host.startsWith("-") || !port || !/^\d+$/.test(port)) throw new Error("Set SMITHERS_OUTSIDE_SSH_HOST and SMITHERS_OUTSIDE_SSH_PORT for Maya's branch")
-  return (await execute("ssh", ["-o", "BatchMode=yes", "-p", port, host, operation], { timeout: 30_000 })).stdout
-}
 type Entry = { id: string; actor: { kind: string; login?: string; via?: string }; files: { path: string }[]; versions?: string }
 
 test("C-J3-03 reference: outside burst updates the open card; Restore refuses a later edit", scenario("branch.outside-change", {

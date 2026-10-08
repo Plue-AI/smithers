@@ -6,6 +6,7 @@ import { test, awaitBoot } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, required, runSlash, realApi, expect, attachJson } from "./todo/reference"
 import { journeyActivate, journeyReach } from "./support/keyboard-journey-input"
+import { branchSSH as ssh } from "./support/branch-ssh"
 
 const execute = promisify(execFile)
 const cardFor = (page: Page, path: string) => page.locator(`[data-kind="file"][aria-label="${path}"]`).last()
@@ -16,11 +17,7 @@ const text = (card: Locator) => card.locator(".cm-content").first().evaluate(ele
   if (!view) throw new Error("Mounted CodeMirror missing")
   return view.state.doc.toString()
 })
-const ssh = async (operation: string) => {
-  const host = required("SMITHERS_OUTSIDE_SSH_HOST"), port = required("SMITHERS_OUTSIDE_SSH_PORT")
-  if (host.startsWith("-") || !/^\d+$/.test(port)) throw new Error("Invalid guest SSH destination")
-  return (await execute("ssh", ["-o", "BatchMode=yes", "-p", port, host, operation], { timeout: 30_000 })).stdout
-}
+
 
 // Qualification daemon stderr is captured by the operator as this guest-user
 // readable file; the test attaches actual merge decisions and session sets.
@@ -207,8 +204,15 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
     await expect(cards[1]!.locator('.code-file-outside')).toContainText("MAYA_OVERLAP_CANARY")
     await expect(cards[1]!.locator('.code-file-current')).toContainText("ALICE_OVERLAP_CANARY")
     const beforeRestart = await ssh("cat retry.ts")
-    await execute(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "stop"], { timeout: 30_000 })
-    await execute(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "start"], { timeout: 60_000 })
+    const installSSH = process.env.SMITHERS_COL08_HOST_SSH
+    if (installSSH) {
+      if (installSSH.startsWith("-")) throw new Error("Invalid install host SSH target")
+      await execute("ssh", ["-o", "BatchMode=yes", installSSH, "smthrs", "host", "stop"], { timeout: 30_000 })
+      await execute("ssh", ["-o", "BatchMode=yes", installSSH, "smthrs", "host", "start"], { timeout: 60_000 })
+    } else {
+      await execute(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "stop"], { timeout: 30_000 })
+      await execute(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "start"], { timeout: 60_000 })
+    }
     await expect.poll(() => ssh("cat retry.ts"), { timeout: 60_000 }).toBe(beforeRestart)
     await expect(cards[0]!.locator('.code-saved')).toHaveText("Saved to the machine", { timeout: 30_000 })
     await terminalRead()

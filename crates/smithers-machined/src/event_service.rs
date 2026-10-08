@@ -100,6 +100,15 @@ where
 {
     #[cfg(all(feature = "killpoints", debug_assertions))]
     fn sent(&self, frame: &Frame) {
+        // Observe the actual socket write, not creation/queueing of a receipt.
+        // K7b is only meaningful once the client can receive `saved`.
+        if crate::events::DOCUMENT_EDITED.load(std::sync::atomic::Ordering::Acquire)
+            && frame.kind == 4
+            && crate::document_payload::Document::decode_v2(&frame.payload)
+                .is_ok_and(|document| document.msg == 6 && document.through_seq != 0)
+        {
+            crate::events::killpoint("K7b");
+        }
         if let Ok(mut state) = self.state.lock() {
             state.delivery.sent(frame);
         }

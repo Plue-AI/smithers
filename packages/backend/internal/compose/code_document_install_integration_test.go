@@ -211,6 +211,12 @@ func (install *codeDocumentInstall) restart(t *testing.T) {
 }
 
 func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall {
+	return startCodeDocumentInstallWithRepository(t, activate, nil, nil)
+}
+
+// A guest callback replaces only the scripted peer, before any document opens.
+// Both variants use the same install router, authorization and relay.
+func startCodeDocumentInstallWithRepository(t *testing.T, activate bool, repository *repohost.Client, guest func(*codeDocumentInstall, *machined.Registry)) *codeDocumentInstall {
 	t.Helper()
 	libraryPath := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
 	require.NotEmpty(t, libraryPath, "the native document library is required")
@@ -269,6 +275,9 @@ func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall 
 		// The install requires a product origin for Flow hosts; none run here.
 		FlowHostProductAPIURL: origin,
 	}
+	if repository != nil {
+		options.Repository = repository
+	}
 	handler, stop := startCodeDocumentProcess(t, options)
 	install := &codeDocumentInstall{origin: origin, branch: branch.ID, topic: "doc:code:" + branch.ID + ":retry.ts", ben: ben, alice: alice, pool: pool, options: options, stop: stop}
 	install.handler.Store(handler)
@@ -278,10 +287,14 @@ func startCodeDocumentInstall(t *testing.T, activate bool) *codeDocumentInstall 
 	server.Start()
 	t.Cleanup(server.Close)
 
-	link, guest := presenceTestLink(t, registry, branch.ID)
+	if guest != nil {
+		guest(install, registry)
+		return install
+	}
+	link, peer := presenceTestLink(t, registry, branch.ID)
 	require.NoError(t, link.Connection.Reconciled())
 	install.daemon = newScriptedDocumentDaemon(t)
-	install.daemon.serve(t, guest)
+	install.daemon.serve(t, peer)
 	return install
 }
 
@@ -330,8 +343,9 @@ func startCodeDocumentProcess(t *testing.T, options Options) (http.Handler, func
 }
 
 type codeDocumentBrowser struct {
-	conn *websocket.Conn
-	doc  *livedocument.Document
+	conn  *websocket.Conn
+	doc   *livedocument.Document
+	epoch string
 }
 
 func (install *codeDocumentInstall) browser(t *testing.T, cookie string) *codeDocumentBrowser {
@@ -355,8 +369,18 @@ func (install *codeDocumentInstall) browser(t *testing.T, cookie string) *codeDo
 }
 
 func (b *codeDocumentBrowser) sub(t *testing.T, topic string) {
+	b.subClient(t, topic, 0)
+}
+
+func (b *codeDocumentBrowser) subClient(t *testing.T, topic string, client uint32) {
 	t.Helper()
-	require.NoError(t, b.conn.Write(t.Context(), websocket.MessageText, []byte(`{"t":"sub","id":7,"topic":"`+topic+`"}`)))
+	frame := map[string]any{"t": "sub", "id": 7, "topic": topic}
+	if client != 0 {
+		frame["client_id"] = client
+	}
+	raw, err := json.Marshal(frame)
+	require.NoError(t, err)
+	require.NoError(t, b.conn.Write(t.Context(), websocket.MessageText, raw))
 }
 
 func (b *codeDocumentBrowser) read(t *testing.T) (websocket.MessageType, []byte) {
@@ -425,6 +449,7 @@ func (b *codeDocumentBrowser) assigned(t *testing.T) uint32 {
 	require.NoError(t, json.Unmarshal(raw, &snap))
 	require.Equal(t, "snap", snap.T, string(raw))
 	require.Len(t, snap.Data.Epoch, 32)
+	b.epoch = snap.Data.Epoch
 	require.NotZero(t, snap.Data.ClientID)
 	// Like the browser provider, ask the daemon for its state (sync step 1).
 	require.NoError(t, b.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{1, 0, 0, 0, 7}, codeSync(0, []byte{0})...)))

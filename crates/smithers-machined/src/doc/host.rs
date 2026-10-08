@@ -1129,6 +1129,12 @@ impl<D: Disk> Host<D> {
             retired_clients: doc.retired_clients.clone(),
         };
         disk.store_record(key, &record)?;
+        // The record is durable, but the working-copy swap has not happened.
+        // A restart must finish this save without inventing an outside edit.
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        if crate::events::DOCUMENT_EDITED.load(std::sync::atomic::Ordering::Acquire) {
+            crate::events::killpoint("K7c");
+        }
         let saved = disk.swap_text(path, key, text.as_bytes(), doc.save_author.actor())?;
         if let Some(token) = saved.displaced {
             // Always leave an inode open until quiet, even if its first read

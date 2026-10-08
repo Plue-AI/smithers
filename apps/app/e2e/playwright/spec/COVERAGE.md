@@ -56,7 +56,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | passing-ui-contract; reference-host-pending | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 | C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts); [reference outside-change](../../real/branch-outside-change.spec.ts) | reference execution pending; retained burst Diff and Restore mounted through the real seam; Compare read available; step 6 checks transcript/model note before tools and successful fresh read or stale_read recovery; Mac/member/run-trace receipts pending | T-COL-04, T-COL-12, T-APP-10 |
-| C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | Browser contract: 1,000 interleaved edits in two member contexts, real boot and /file dispatcher, shared channel, carets, author colours and durable reload/Reapply; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
+| C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts); [real file driver](../../real/file-coedit.spec.ts) | Real driver committed for 400 samples, overlap/Compare, 40 delayed-watcher saves, SSH/agent attribution, host restart, disk read, authors/carets and 60 s reopen; reference execution pending. Browser contract: 1,000 interleaved edits in two member contexts, real boot and /file dispatcher, shared channel, carets, author colours and durable reload/Reapply; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
 | C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | browser-pass real seam HTTP fixture; composed two-worker Answer/Steer ordering and delegated Amend confirmation pass separately; guest model-turn timing pending reference host | T-STK-06 |
 | C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | passing-ui-contract; reference-host-pending | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
@@ -148,8 +148,8 @@ View; full reachability and remaining fixtures await their wiring tickets.
 | C-AGT-02 | [C-AGT-02.spec.ts](C-AGT-02.spec.ts) | mounted-install journal contract fake: light/dark × 1280/390, metadata refusal and reload; the install's own event pump, session receipts, stopped imports, revocation and both members' history are covered in compose (`external_transcript_install_integration_test.go`, `external_transcript_stop_integration_test.go`); the machine's discovery and reader, presence and real sessions are pending T-AGT-02/Mac mini | T-AGT-02, T-AGT-03 |
 | C-COL-01 | [C-COL-01.spec.ts](C-COL-01.spec.ts) | fixme-before-implementation | T-COL-10, T-COL-03r, T-COL-08a, T-COL-08b, T-APP-14a |
 | C-COL-02 | [C-COL-02.spec.ts](C-COL-02.spec.ts) | real composed install: PostgreSQL rollback/retention and ordered replay, held admission, queued reload, one live connection, two historical Home deltas exactly once after a 10 s outage; reference-host latency separate | T-COL-02 |
-| C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | fixme-before-implementation | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
-| C-COL-04 | [C-COL-04.spec.ts](C-COL-04.spec.ts) | fixme-before-implementation | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
+| C-COL-03 | [C-COL-03.spec.ts](C-COL-03.spec.ts) | composed real-daemon capture/rebase/stale-write driver passes; full member freeze/thaw writer matrix and browser qualification pending | T-COL-03r, T-COL-03a, T-COL-03, T-STK-08, T-APP-14a |
+| C-COL-04 | [C-COL-04.spec.ts](C-COL-04.spec.ts) | three composed reference drivers committed for live-document confinement, broker inputs and trusted startup; compile passes, reference microVM execution pending | T-COL-03, T-TRM-07, T-MCH-11, T-COL-03a |
 | C-COL-05 | [C-COL-05.spec.ts](C-COL-05.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-04a, T-APP-10, T-APP-11 |
 
 C-COL-05 also has a passing projection for the mounted Branch Files panel:
@@ -161,7 +161,7 @@ by keyboard and retains it across reload. Watcher faults remain fixme.
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | install REST/live seam: question and completed evidence survive reload, keyed Answer; host/database crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | install REST/live seam: explicit TODO and Run Retry, reload retains interrupted evidence; reference microVM crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | passing install REST/live seam: foreign push after reload, confirmed Drop, late PR link remains terminal; worker/microVM crash receipt separate | T-GH-09, T-FLW-09, T-REL-04 |
-| C-DUR-04 | [C-DUR-04.spec.ts](C-DUR-04.spec.ts) | fixme-before-implementation | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
+| C-DUR-04 | [C-DUR-04.spec.ts](C-DUR-04.spec.ts) | real-daemon K7a-d drivers: 39/40 (K7d receipt timeout); production-provider K7e driver fails new-epoch reassignment; VM/host-mirror kills and browser qualification pending | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
 
 C-DUR-02 also has a passing projection for the mounted recorded interrupted run:
 its Interrupted state and last edited phase survive reload without duplicate cards.
@@ -208,7 +208,7 @@ is lost on reload in the seeded world; persistence remains tracked by T-MCH-08.
 Cycle 20: maintainer admission/reply surfaces and reference-host performance
 evidence remain pending. Home production doors currently refuse with
 “Home provider unavailable”; no passing mutation projection is claimed.
-| C-PERF-03 | [C-PERF-03.spec.ts](C-PERF-03.spec.ts) | Browser contract: 200 ordered markers through mounted editors on a fake host; real LAN/disk qualification pending | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
+| C-PERF-03 | [C-PERF-03.spec.ts](C-PERF-03.spec.ts) | Browser contract: 200 ordered markers through mounted editors on a fake host; real File driver retains the exact 400-sample p95 separately from its 1,000-edit run; second-Mac LAN/disk qualification pending | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
 | C-PERF-04 | [C-PERF-04.spec.ts](C-PERF-04.spec.ts) | fixme-before-implementation | T-COL-04, T-APP-11, T-REL-01 |
 | C-PERF-05 | [C-PERF-05.spec.ts](C-PERF-05.spec.ts) | fixme-before-implementation | T-MCH-06, T-REL-01 |
 | C-PERF-06 | [C-PERF-06.spec.ts](C-PERF-06.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-01 |

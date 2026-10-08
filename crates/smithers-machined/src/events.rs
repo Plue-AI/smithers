@@ -566,6 +566,9 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
     }
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
+pub(crate) static DOCUMENT_EDITED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+#[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) fn killpoint(point: &str) {
     // Keep the reference-host VM hold hook composed with daemon exits.
     pause_fault(point, std::path::Path::new("/var/lib/smithers-machined"));
