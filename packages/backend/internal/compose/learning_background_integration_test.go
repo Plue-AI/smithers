@@ -273,6 +273,42 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.Equal(t, 400, post(operation, "retry", "").StatusCode)
 	require.Equal(t, 404, post(wrongOperation, "dismiss", "").StatusCode)
 	require.Equal(t, 404, post("00000000-0000-0000-0000-000000000001", "retry", "missing").StatusCode)
+	// Separate clients can replay the same durable Retry concurrently after a
+	// reconnect. All receive acceptance, with one external attempt and event.
+	start := make(chan struct{})
+	type retryResponse struct {
+		response *http.Response
+		err      error
+	}
+	responses := make(chan retryResponse, 8)
+	for range 8 {
+		go func() {
+			<-start
+			request, err := http.NewRequestWithContext(ctx, "POST", origin+"/api/runs/"+operation, strings.NewReader(`{"op":"retry"}`))
+			if err != nil {
+				responses <- retryResponse{err: err}
+				return
+			}
+			request.Header.Set("Origin", origin)
+			request.Header.Set("Cookie", "smithers_session=fixture-person; __csrf=learn-csrf")
+			request.Header.Set("X-CSRF-Token", "learn-csrf")
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Idempotency-Key", "retry-one")
+			response, err := server.Client().Do(request)
+			responses <- retryResponse{response, err}
+		}()
+	}
+	close(start)
+	for range 8 {
+		result := <-responses
+		require.NoError(t, result.err)
+		var accepted map[string]any
+		err := json.NewDecoder(result.response.Body).Decode(&accepted)
+		result.response.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 202, result.response.StatusCode)
+		require.Equal(t, map[string]any{"state": "accepted", "run_id": operation}, accepted)
+	}
 	first := post(operation, "retry", "retry-one")
 	require.Equal(t, 202, first.StatusCode)
 	var receipt map[string]any
