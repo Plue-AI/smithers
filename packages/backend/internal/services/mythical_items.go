@@ -645,6 +645,16 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
+			if projection.Phase == "conflict" {
+				stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
+				if err != nil {
+					return err
+				}
+				sponsor := mythicalExecutionSponsor(item, stack)
+				if update.Scope.PrincipalID != "user:"+strconv.FormatInt(sponsor, 10) || !conflictSignalBound(item, &TodoWaitSignal{Scope: update.Scope, Target: update.Checkpoint.Target}) {
+					return nil
+				}
+			}
 			// Drop owns terminal settlement once cancellation is committed.
 			if mythicalChecksOf(item).DropRequested != nil {
 				return nil
@@ -703,7 +713,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			runID := strings.TrimSpace(update.Checkpoint.RunID)
 			// A TODO's runs are bound by run ID. Only its composition's launch
 			// may end without one: refused before any run existed.
-			unstarted := (projection.Phase == "todo" || projection.Phase == "request") && runID == "" && update.State.Terminal()
+			unstarted := (projection.Phase == "todo" || projection.Phase == "request" || projection.Phase == "conflict") && runID == "" && update.State.Terminal()
 			if mythicalTodo(item) && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
 				return nil
 			}
@@ -725,6 +735,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			} else if !mythicalProjectRun(&next, item, projection, update, runID, pinned) {
 				return nil
 			}
+			if projection.Phase == "conflict" && update.State.Terminal() {
+				projectManualConflictWait(&next, s.now().UTC())
+			}
 			// An unknown outside effect stops this attempt until a person retries.
 			// Wait and pause overlays must not hide the executing phase: a
 			// branch wait stays open, but settling it must expose Failed.
@@ -736,7 +749,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				checks := mythicalChecksOf(item)
 				executing = checks.RunLaunched && !checks.RunAttached
 			}
-			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && executing {
+			if projection.Phase != "conflict" && mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && executing {
 				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
 			}
 			// Late failure evidence belongs to the attempt, but cannot undo
@@ -843,6 +856,14 @@ func mythicalSettlePinMismatch(next *db.MythicalItem, item db.MythicalItem, phas
 			return false
 		}
 		next.VerifyOutcome = outage
+	case "conflict":
+		checks := mythicalChecksOf(item)
+		r := checks.ConflictReservation
+		if r == nil || !r.Dispatched || r.Run != item.RequestRunID || r.Outcome != "" {
+			return false
+		}
+		r.Outcome = outage
+		next.Checks = checks.encode()
 	case "review":
 		checks := mythicalChecksOf(item)
 		if !checks.reviewing(item) || checks.Review.RunID != "" {
@@ -879,7 +900,7 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 	case "conflict":
 		checks := mythicalChecksOf(item)
 		reservation := checks.ConflictReservation
-		if !pinned || reservation == nil || !reservation.Dispatched || reservation.Run != item.RequestRunID || (reservation.ResolutionRun != "" && reservation.ResolutionRun != runID) || update.Checkpoint.FlowID != "coding/rebase-conflict" {
+		if !pinned || reservation == nil || !reservation.Dispatched || reservation.Run != item.RequestRunID || (reservation.ResolutionRun != "" && reservation.ResolutionRun != runID) || (update.Checkpoint.FlowID != "coding/rebase-conflict" && !(runID == "" && update.State.Terminal() && update.Checkpoint.FlowID == "")) || !conflictSignalBound(item, &TodoWaitSignal{Scope: update.Scope, Target: update.Checkpoint.Target}) {
 			return false
 		}
 		reservation.ResolutionRun = runID
@@ -3762,6 +3783,11 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		if s.mayExecuteRequestedRebase(ctx, item, onto) {
 			rebase.Rebase.Request = pending.Request
 		}
+	}
+	if reservation := mythicalChecksOf(item).ConflictReservation; reservation != nil && reservation.Done != nil && s.conflictDoneAuthorized(ctx, s.queries(), item) {
+		// The person who completed this retained repair supplied its fresh
+		// capture authority, even if the original rebase credential expired.
+		rebase.Rebase.Request = reservation.Done
 	}
 	var before func(pgx.Tx) error
 	also := func(tx pgx.Tx, saved db.MythicalItem) error {

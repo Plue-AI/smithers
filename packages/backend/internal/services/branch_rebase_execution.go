@@ -37,6 +37,9 @@ func (st *mythicalItemStep) lockNativeRebase(ctx context.Context, tx pgx.Tx, ite
 // Execution requires an awake machine. After its immutable capture is
 // acknowledged, verification may retire a review lane before admission.
 func (st *mythicalItemStep) lockNativeRebaseReceipt(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string) error {
+	if r := mythicalChecksOf(item).ConflictReservation; r != nil && r.Done != nil {
+		return st.lockRebasePrefixAuthority(ctx, tx, item, onto, onto, false, st.s.conflictDoneAuthorized)
+	}
 	return st.lockNativeRebaseState(ctx, tx, item, onto, false)
 }
 
@@ -45,12 +48,25 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 }
 
 func (st *mythicalItemStep) lockNativeRebasePrefix(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto, prefix string, executing bool) error {
+	return st.lockRebasePrefixAuthority(ctx, tx, item, onto, prefix, executing, nil)
+}
+
+func (st *mythicalItemStep) lockConflictCapture(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string) error {
+	return st.lockRebasePrefixAuthority(ctx, tx, item, onto, onto, true, st.s.conflictDoneAuthorized)
+}
+
+func (st *mythicalItemStep) lockRebasePrefixAuthority(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto, prefix string, executing bool, authority func(context.Context, *db.Queries, db.MythicalItem) bool) error {
+	if authority == nil {
+		authority = func(ctx context.Context, _ *db.Queries, current db.MythicalItem) bool {
+			return st.s.mayExecuteRequestedRebase(ctx, current, onto) || st.s.mayRebaseItemAtBoundary(ctx, current)
+		}
+	}
 	// Presence resolves the existing host through its own authority transaction
 	// and SHARE lock on this workspace. Read that live boundary before taking
 	// mutation locks here; otherwise the fence waits on its own presence read.
 	// The locks below still reject any changed item, prefix or machine before
 	// the native mutation starts.
-	if !st.s.mayExecuteRequestedRebase(ctx, item, onto) && !st.s.mayRebaseItemAtBoundary(ctx, item) {
+	if !authority(ctx, st.s.queries(), item) {
 		return fmt.Errorf("rebase authority changed: %w", db.ErrMythicalItemMoved)
 	}
 	var live bool
@@ -84,7 +100,7 @@ func (st *mythicalItemStep) lockNativeRebasePrefix(ctx context.Context, tx pgx.T
 	// The existing host's roster read holds SHARE on the workspace. Read it
 	// while stack/item authority is pinned, before taking the exclusive
 	// workspace fence; taking that fence first deadlocks our own RPC.
-	if !st.s.mayExecuteRequestedRebase(ctx, current, onto) && !st.s.mayRebaseItemAtBoundary(ctx, current) {
+	if !authority(ctx, q, current) {
 		return errors.New("rebase authority changed")
 	}
 	var status, head string

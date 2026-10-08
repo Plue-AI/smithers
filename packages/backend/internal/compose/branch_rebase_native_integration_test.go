@@ -3,6 +3,8 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -104,7 +106,15 @@ func TestNativeCleanRebaseFollowsMainAgainBeforeVerification(t *testing.T) {
 	testBranchRebaseNative(t, false, "", rebaseNativeOptions{AdvanceMain: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout bool }
+func TestFailedRepairStartupDoneNativeComposedInstall(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true, ManualDone: true, FailedRepair: true})
+}
+
+func TestFailedRepairDoneRevokedCredentialNativeComposedInstall(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true, ManualDone: true, FailedRepair: true, RevokeDone: true})
+}
+
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout, FailedRepair, RevokeDone bool }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
@@ -410,6 +420,11 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		defer res.Body.Close()
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+		if state == "unavailable" {
+			require.Equal(t, 404, res.StatusCode, body)
+			require.Equal(t, "rebase_not_found", body["code"])
+			return
+		}
 		require.Equal(t, 200, res.StatusCode, body)
 		require.Equal(t, map[string]any{"onto": onto, "state": state}, body["rebase_execution"])
 	}
@@ -663,8 +678,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		}
 		// This boundary test records engine launches; the host/agent journey
 		// separately exercises real projection and durable repair execution.
-		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{conflictReservation,resolution_run}','"repair-run"') WHERE id=$1`, item.ID)
-		require.NoError(t, err)
+		if !option.FailedRepair {
+			_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{conflictReservation,resolution_run}','"repair-run"') WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+		}
 		if !manualDone {
 			require.NoError(t, os.WriteFile(filepath.Join(guest, "a.txt"), []byte("first and main changed\n"), 0600))
 			// Resolution can precede the real engine's Done projection. Polling
@@ -686,6 +703,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		waitRequest, err := json.Marshal(map[string]string{"kind": "conflict", "conflict_change": repair.Input.Change, "onto_revision": repair.Input.Onto})
 		require.NoError(t, err)
 		update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: launcher.requests[0].Scope, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/rebase-conflict", ExecutionDigest: strings.Repeat("b", 64), Projection: projection, Target: launcher.requests[0].Target, RunID: "repair-run", Run: &flowruntime.Run{RunID: "repair-run", Status: "running", PendingWaits: []flowruntime.PendingWait{{RunID: "repair-step", Token: "repair-token", Name: repair.Input.Name, Request: waitRequest}}}}}
+		if option.FailedRepair {
+			update.State = jobs.StateFailed
+			update.Checkpoint.RunID, update.Checkpoint.Run, update.Checkpoint.FailureCode = "", nil, "runtime_catalog_unavailable"
+		}
 		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
 		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
 		assertCardState("needs_you")
@@ -695,9 +716,33 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			require.NoError(t, os.WriteFile(filepath.Join(guest, "a.txt"), []byte("first and main changed\n"), 0600))
 			doneRequest(repair.Input.Change, repair.Input.Onto, 202)
 			doneRequest(repair.Input.Change, repair.Input.Onto, 202)
-			require.Len(t, launcher.signals, 1, "Done replays the same bound wait")
+			if option.FailedRepair {
+				require.Empty(t, launcher.signals, "failed startup has no run to signal")
+			} else {
+				require.Len(t, launcher.signals, 1, "Done replays the same bound wait")
+			}
 		}
-		for range 5 {
+		if option.RevokeDone {
+			before, err := q.GetWorkspace(ctx, f.row.ID)
+			require.NoError(t, err)
+			oldSession := sha256.Sum256([]byte(f.cookie))
+			_, err = f.pool.Exec(ctx, `DELETE FROM auth_sessions WHERE session_key=$1`, hex.EncodeToString(oldSession[:]))
+			require.NoError(t, err)
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+			after, err := q.GetWorkspace(ctx, f.row.ID)
+			require.NoError(t, err)
+			require.Equal(t, before.HeadCommitID, after.HeadCommitID, "revoked Done must not capture another head")
+			require.Len(t, launcher.requests, 1, "revoked Done must not launch verification")
+			f.cookie = "presence-after-revocation-cookie"
+			newSession := sha256.Sum256([]byte(f.cookie))
+			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: f.user.ID, Username: f.user.Username, SessionKey: hex.EncodeToString(newSession[:]), ExpiresAt: time.Now().Add(time.Hour)})
+			require.NoError(t, err)
+			assertCardState("needs_you")
+			doneRequest(repair.Input.Change, repair.Input.Onto, 202)
+		}
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 			require.NoError(t, err)
 			require.NoError(t, service.PollOnce(ctx))
@@ -706,16 +751,27 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			if current.State == "verifying" {
 				break
 			}
+			time.Sleep(100 * time.Millisecond)
 		}
-		require.Len(t, launcher.signals, 1, "resolution releases the repair launch once")
-		require.Equal(t, "repair-run", launcher.signals[0].RunID)
-		require.Contains(t, launcher.signals[0].Name, "conflict#")
+
+		if option.FailedRepair {
+			require.Empty(t, launcher.signals)
+			require.Len(t, launcher.requests, 2, "one failed repair and one verification, with no new repair attempt")
+		} else {
+			require.Len(t, launcher.signals, 1, "resolution releases the repair launch once")
+			require.Equal(t, "repair-run", launcher.signals[0].RunID)
+			require.Contains(t, launcher.signals[0].Name, "conflict#")
+		}
 		require.Equal(t, "pinned-run", current.RequestRunID)
 		require.EqualValues(t, 1, current.Attempt)
 	}
 	require.Equal(t, "verifying", current.State, "reason=%s checks=%s", current.Reason, current.Checks)
 	if people && !bring {
-		readReceipt("completed")
+		if option.RevokeDone {
+			readReceipt("unavailable")
+		} else {
+			readReceipt("completed")
+		}
 	}
 
 	if option.AdvanceMain {
@@ -870,7 +926,11 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase}', '{"onto":"later-main","name":"main"}') WHERE id=$1`, item.ID)
 	require.NoError(t, err)
 	if people && !bring {
-		readReceipt("completed")
+		if option.RevokeDone {
+			readReceipt("unavailable")
+		} else {
+			readReceipt("completed")
+		}
 	}
 }
 

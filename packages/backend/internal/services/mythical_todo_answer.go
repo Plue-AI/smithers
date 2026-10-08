@@ -387,7 +387,18 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 			}
 			now := s.now().UTC()
 			wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
-			signal := *wait.Signal
+			if manualConflictWaitBound(item, *wait) {
+				info := middleware.AuthInfoFromContext(ctx)
+				if info == nil {
+					return todoControlUnavailable()
+				}
+				checks.ConflictReservation.Done = &mythicalRebaseRequest{User: userID, Credential: middleware.CredentialOf(info), RawScopes: info.RawScopes, Via: info.ViaHint, Head: item.CandidateHead, Generation: item.Generation, By: todoActorRef(ctx, person)}
+				checks.ConflictReservation.DoneCommand = command
+			}
+			var signal TodoWaitSignal
+			if wait.Signal != nil {
+				signal = *wait.Signal
+			}
 			next := item
 			next.Checks = checks.encode()
 			saved, err := q.SaveMythicalItem(ctx, next)
@@ -404,6 +415,10 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 				return err
 			}
 			if err := recordBranchActivity(ctx, tx, saved, "answer:"+input.Wait, "answer", by, input.Answer); err != nil {
+				return err
+			}
+			if wait.Signal == nil {
+				_, err := q.RequestMythicalStack(ctx, repositoryID)
 				return err
 			}
 			payload, _ := json.Marshal(input.Answer)

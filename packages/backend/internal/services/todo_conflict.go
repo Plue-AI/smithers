@@ -60,14 +60,16 @@ func todoConflictWait(item db.MythicalItem, wait flowruntime.PendingWait, update
 // A reservation is durable intent, not evidence that a model executed. The
 // eventual guest continuation must use this identity for replay admission.
 type todoConflictReservation struct {
-	Change        string `json:"change"`
-	Onto          string `json:"onto"`
-	Limit         int    `json:"limit"`
-	Reserved      int    `json:"reserved"`
-	Run           string `json:"run"`
-	Dispatched    bool   `json:"dispatched,omitempty"`
-	ResolutionRun string `json:"resolution_run,omitempty"`
-	Outcome       string `json:"outcome,omitempty"`
+	Change        string                 `json:"change"`
+	Onto          string                 `json:"onto"`
+	Limit         int                    `json:"limit"`
+	Reserved      int                    `json:"reserved"`
+	Run           string                 `json:"run"`
+	Dispatched    bool                   `json:"dispatched,omitempty"`
+	ResolutionRun string                 `json:"resolution_run,omitempty"`
+	Outcome       string                 `json:"outcome,omitempty"`
+	Done          *mythicalRebaseRequest `json:"done,omitempty"`
+	DoneCommand   string                 `json:"done_command,omitempty"`
 }
 
 func conflictAttemptLimit(raw []byte) (int, error) {
@@ -160,7 +162,8 @@ func (s *MythicalService) validateConflictDoneTarget(ctx context.Context, q *db.
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	pin, pinned := mythicalPinOf(item)
-	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || s.host == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || !conflictRunBound(item, wait.Signal, pin.Flow) || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
+	manual := manualConflictWaitBound(item, wait)
+	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || s.host == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || (!manual && (wait.Signal == nil || !conflictRunBound(item, wait.Signal, pin.Flow) || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal))) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	// Older persisted waits may predate reservations. When one is present,
@@ -171,7 +174,7 @@ func (s *MythicalService) validateConflictDoneTarget(ctx context.Context, q *db.
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
-	if err != nil || !stack.ActorUserID.Valid || wait.Signal.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
+	if err != nil || !stack.ActorUserID.Valid || (!manual && wait.Signal.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10)) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	// AnswerTodo holds the stack row lock. Read the same transaction's current

@@ -41,13 +41,28 @@ func (st *mythicalItemStep) continueConflict(ctx context.Context, item db.Mythic
 		return nil, false, err
 	}
 	if len(paths) == 0 {
-		if reservation.Dispatched && reservation.ResolutionRun == "" {
+		manual := reservation.Done != nil
+		if manual && !st.s.conflictDoneAuthorized(ctx, st.s.queries(), item) {
+			// Revocation cannot turn an admitted answer into capture authority.
+			// Retain the conflict and make it answerable by an eligible person.
+			reservation.Done, reservation.DoneCommand = nil, ""
+			for i := range checks.Waits {
+				w := &checks.Waits[i]
+				if w.Kind == "conflict" && w.ConflictChange == reservation.Change && w.OntoRevision == reservation.Onto {
+					w.SettledAt, w.AnsweredBy, w.Answer, w.By = nil, "", "", nil
+				}
+			}
+			next := item
+			next.Checks = checks.encode()
+			return &next, false, nil
+		}
+		if reservation.Dispatched && reservation.ResolutionRun == "" && !manual {
 			return nil, false, nil
 		}
 		// Files may resolve before the engine projects its durable Done wait.
 		// Never queue a signal whose alias has not yet been admitted.
 		signalDone := false
-		if reservation.Dispatched {
+		if reservation.Dispatched && !manual {
 			boundWait := false
 			for _, wait := range checks.Waits {
 				if wait.Kind == "conflict" && wait.Signal != nil && wait.Signal.Run == reservation.ResolutionRun && wait.ConflictChange == reservation.Change && wait.OntoRevision == reservation.Onto {
@@ -73,7 +88,11 @@ func (st *mythicalItemStep) continueConflict(ctx context.Context, item db.Mythic
 		}
 		live.Rebase.Native = &machined.RewriteResult{Head: capture.Head, Inspected: true}
 		err = pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
-			if err := st.lockNativeRebase(ctx, tx, current, reservation.Onto); err != nil {
+			guard := st.lockNativeRebase
+			if manual {
+				guard = st.lockConflictCapture
+			}
+			if err := guard(ctx, tx, current, reservation.Onto); err != nil {
 				return err
 			}
 			signaler, ok := st.s.launcher.(mythicalSignaler)
