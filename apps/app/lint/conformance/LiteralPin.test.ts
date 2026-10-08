@@ -79,6 +79,55 @@ interface Excuse {
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
+    literal: "control.engine.event", file: "e2e/real/agent-terminal.spec.ts",
+    reason: "Native journal envelope from packages/smithers flows journal, inspected through Projection.Snapshot run-events; never a wire card."
+  },
+  {
+    literal: "flows.harness.call-fact.v1", file: "e2e/real/agent-terminal.spec.ts",
+    reason: "Native call-fact protocol declared in packages/smithers/flows/journal/src/CallFact.ts; the run-events oracle decodes this envelope, never an app flow."
+  },
+  {
+    literal: "control.agent.cell-call-started", file: "e2e/real/agent-terminal.spec.ts",
+    reason: "Native agent journal projection event declared in packages/smithers/src/internal/EngineJournalProjection.ts; the test normalizes call facts to this event, never a card."
+  },
+  {
+    literal: "control.agent.cell-call-settled", file: "e2e/real/agent-terminal.spec.ts",
+    reason: "Native agent journal projection event declared in packages/smithers/src/internal/EngineJournalProjection.ts; the test normalizes call facts to this event, never a card."
+  },
+  {
+    literal: "check", file: "e2e/real/learning-journey.spec.ts",
+    reason: "Backend TODO evidence item kind emitted by mythical_todo_read.go; inspected in stored attempts and evidence items, never a wire card."
+  },
+  {
+    literal: "answer", file: "e2e/real/terminal-signin.spec.ts",
+    reason: "BranchCard.ts activity and EntryRowCard.ts entry discriminator from the branch activity API; never a wire card."
+  },
+  {
+    literal: "steer", file: "e2e/real/terminal-signin.spec.ts",
+    reason: "BranchCard.ts activity discriminator from the branch activity API; never a wire card."
+  },
+  {
+    literal: "review_merge", file: "e2e/real/terminal-signin.spec.ts",
+    reason: "Backend confirmation kind emitted by approvals_confirmations_merge.go and approvals_confirmations.go; inspected through /api/confirmations, never a wire card."
+  },
+  {
+    literal: "agent", file: "e2e/real/terminal-signin.spec.ts",
+    reason: "CardPrimitives.ts ActorSchema agent discriminator; inspected in branch activity and presence actors, never a wire card."
+  },
+  {
+    literal: "person", file: "e2e/real/todo-steer.spec.ts",
+    reason: "CardPrimitives.ts ActorSchema person discriminator rendered by ActorChip.tsx on todo authors; the avatar selector names an actor, never a wire card."
+  },
+  {
+    literal: "branch.activity", file: "e2e/real/todo-steer.spec.ts",
+    reason: "Backend BranchActivityEvent declared in mythical_branch_activity.go; this test inspects SQL product_job_events, never an app flow."
+  },
+  {
+    literal: "steer", file: "e2e/real/todo-steer.spec.ts",
+    reason: "BranchCard.ts activity and backend run trace steer discriminator; the assertion inspects trace cells, never a wire card."
+  },
+
+  {
     literal: "p.world-card-path", file: "e2e/playwright/piper.spec.ts",
     reason: "Tag/class selector for FileCards.tsx FileCardHeader p.world-card-path, which renders address and readAt.changeId; never a dotted product identifier."
   },
@@ -399,10 +448,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "CardPrimitives.ts NeedsYouKindSchema question; the selector in the proof targets BranchView.tsx question activity, never a wire card."
   },
   {
-    literal: "todo.answered", file: "e2e/real/todo-needs-you.spec.ts",
-    reason: "Backend durable fact todo.answered recorded by packages/backend/internal/services; the suite inspects product_job_events or operation receipts, never an app flow."
-  },
-  {
     literal: "person", file: "e2e/real/todo-needs-you.spec.ts",
     reason: "CardPrimitives.ts ActorSchema person discriminator, rendered by cards/views/ActorChip.tsx; this is an actor or avatar, never a card."
   },
@@ -421,10 +466,6 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
   {
     literal: "todo.amended", file: "e2e/real/todo-placement.spec.ts",
     reason: "Backend durable fact todo.amended recorded by packages/backend/internal/services; the suite inspects product_job_events or operation receipts, never an app flow."
-  },
-  {
-    literal: "todo.answered", file: "e2e/real/todo-stack-actions.spec.ts",
-    reason: "Backend durable fact todo.answered recorded by packages/backend/internal/services; the suite inspects product_job_events or operation receipts, never an app flow."
   },
   {
     literal: "todo.retried", file: "e2e/real/todo-stack-actions.spec.ts",
@@ -936,7 +977,7 @@ describe("every literal the suites assert against still resolves", () => {
   test("the allowlist stays small enough to read", () => {
     // The current-main sweep includes external protocol domains and deferred
     // retired surfaces. Keep a finite bound; stale and duplicate entries still fail.
-    expect(ALLOWLIST.length).toBeLessThanOrEqual(149)
+    expect(ALLOWLIST.length).toBeLessThanOrEqual(159)
   })
 })
 

@@ -100,7 +100,7 @@ test("C-J5-03 learning proposal changes checks only after a member merges", scen
     const sixth = await waitReview(7)
     expect(sixth.flow_version.digest).toBe(next.id)
     expect(sixth.attempts).toHaveLength(1)
-    const lint = sixth.evidence[0].items.filter((x: any) => x.name === "lint" && ["check", "machine_check"].includes(x.kind))
+    const lint = sixth.evidence[0].items.filter((x: any) => x.name === "lint" && x.kind === "check")
     expect(lint).toHaveLength(1); expect(lint[0].state).toBe("passed")
     const storedSixth = f.sql("SELECT checks FROM mythical_items WHERE number=7")[0].checks
     expect(storedSixth.attempts.flatMap((a: any) => a.failures ?? []).filter((x: any) => x.signature === "check:lint@review")).toEqual([])
