@@ -467,7 +467,7 @@ func (h *BuildCacheHandler) FindMissing(w http.ResponseWriter, r *http.Request) 
 	buildCacheJSON(w, http.StatusOK, map[string][]string{"missing": missing})
 }
 
-type createBuildCacheTokenRequest struct {
+type CreateBuildCacheTokenRequest struct {
 	Name            string `json:"name"`
 	NamespacePrefix string `json:"namespace_prefix"`
 }
@@ -488,7 +488,7 @@ func (h *BuildCacheHandler) CreateReadToken(w http.ResponseWriter, r *http.Reque
 		errors.WriteError(w, errors.Internal("repository context not loaded"))
 		return
 	}
-	var input createBuildCacheTokenRequest
+	var input CreateBuildCacheTokenRequest
 	if r.ContentLength != 0 && r.Body != nil {
 		if !decodeJSONBody(w, r, &input) {
 			return

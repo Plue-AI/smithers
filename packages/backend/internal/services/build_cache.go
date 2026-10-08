@@ -123,6 +123,8 @@ func NewPgxBuildCacheStore(queries *db.Queries, pool *pgxpool.Pool) BuildCacheSt
 // Action entries live in Postgres; artifact bytes live in the blob store under
 // a repository-scoped key, so two repositories never see each other's cache.
 type BuildCacheService struct {
+	install         *installRepositoryMutationStore
+	installAdmitted bool
 	// Configure before serving requests. Nonpositive values select safe defaults.
 	MaxAge             time.Duration
 	MaxRepositoryBytes int64
@@ -134,11 +136,15 @@ type BuildCacheService struct {
 
 // NewBuildCacheService constructs the service. maxArtifactBytes bounds one
 // PUT /cas body; zero selects the protocol default.
-func NewBuildCacheService(store BuildCacheStore, blobs blob.Store, maxArtifactBytes int64) *BuildCacheService {
+func NewBuildCacheService(store BuildCacheStore, blobs blob.Store, maxArtifactBytes int64, options ...func(*BuildCacheService)) *BuildCacheService {
 	if maxArtifactBytes <= 0 || maxArtifactBytes > buildcache.MaxArtifactBodyBytes {
 		maxArtifactBytes = buildcache.DefaultArtifactBodyBytes
 	}
-	return &BuildCacheService{MaxAge: 30 * 24 * time.Hour, MaxRepositoryBytes: 1 << 30, store: store, blobs: blobs, maxArtifactBytes: maxArtifactBytes, now: time.Now}
+	service := &BuildCacheService{MaxAge: 30 * 24 * time.Hour, MaxRepositoryBytes: 1 << 30, store: store, blobs: blobs, maxArtifactBytes: maxArtifactBytes, now: time.Now}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // MaxArtifactBytes is the configured PUT /cas bound.
@@ -513,6 +519,11 @@ func readTokenResponse(repository string, row db.BuildCacheReadToken) BuildCache
 
 // CreateReadToken mints a public read token for one repository.
 func (s *BuildCacheService) CreateReadToken(ctx context.Context, actor *db.User, repository *db.Repository, repositoryFullName, name, endpoint, namespacePrefix string) (BuildCacheReadTokenCreated, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallBuildCacheToken(ctx, s, actor, repository, "cache.tokens.create", InstallBuildCacheTokenSubject(repository, 0, name, namespacePrefix), true, func(ctx context.Context, scoped *BuildCacheService) (BuildCacheReadTokenCreated, error) {
+			return scoped.CreateReadToken(ctx, actor, repository, repositoryFullName, name, endpoint, namespacePrefix)
+		})
+	}
 	if repository == nil {
 		return BuildCacheReadTokenCreated{}, pkgerrors.NotFound("repository not found")
 	}
@@ -548,6 +559,11 @@ func (s *BuildCacheService) CreateReadToken(ctx context.Context, actor *db.User,
 
 // ListReadTokens lists the active public read tokens of one repository.
 func (s *BuildCacheService) ListReadTokens(ctx context.Context, repository *db.Repository, repositoryFullName string) ([]BuildCacheReadTokenResponse, error) {
+	if s.install != nil && !s.installAdmitted {
+		return withInstallBuildCacheToken(ctx, s, nil, repository, "cache.tokens.list", InstallBuildCacheTokenSubject(repository, 0, "", ""), false, func(ctx context.Context, scoped *BuildCacheService) ([]BuildCacheReadTokenResponse, error) {
+			return scoped.ListReadTokens(ctx, repository, repositoryFullName)
+		})
+	}
 	if repository == nil {
 		return nil, pkgerrors.NotFound("repository not found")
 	}
@@ -564,6 +580,12 @@ func (s *BuildCacheService) ListReadTokens(ctx context.Context, repository *db.R
 
 // RevokeReadToken revokes one token; a token of another repository is 404.
 func (s *BuildCacheService) RevokeReadToken(ctx context.Context, repository *db.Repository, id int64) error {
+	if s.install != nil && !s.installAdmitted {
+		_, err := withInstallBuildCacheToken(ctx, s, nil, repository, "cache.tokens.revoke", InstallBuildCacheTokenSubject(repository, id, "", ""), true, func(ctx context.Context, scoped *BuildCacheService) (struct{}, error) {
+			return struct{}{}, scoped.RevokeReadToken(ctx, repository, id)
+		})
+		return err
+	}
 	if repository == nil {
 		return pkgerrors.NotFound("repository not found")
 	}

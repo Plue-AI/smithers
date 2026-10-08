@@ -33,7 +33,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
-	if len(parts) < 5 || (len(parts) > 6 && ((!strings.HasPrefix(command, "webhooks.") || len(parts) > 9) && (command != "devtools.read" || len(parts) > 7))) {
+	if len(parts) < 5 || (len(parts) > 6 && ((!strings.HasPrefix(command, "webhooks.") || len(parts) > 9) && (command != "devtools.read" || len(parts) > 7) && (!strings.HasPrefix(command, "cache.tokens.") || len(parts) > 7))) {
 		refuse(pkgerrors.BadRequest("invalid repository configuration request"))
 		return
 	}
@@ -58,6 +58,13 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 	}
 	subject.RepositoryID = repository.ID
 	var id, delivery int64
+	if command == "cache.tokens.revoke" {
+		id, err = strconv.ParseInt(parts[6], 10, 64)
+		if err != nil || id <= 0 {
+			refuse(pkgerrors.BadRequest("invalid token id"))
+			return
+		}
+	}
 	var selector string
 	if len(parts) >= 6 && (command == "mirror.read" || strings.HasPrefix(command, "webhooks.") || strings.HasPrefix(command, "labels.") || strings.HasPrefix(command, "deploy-keys.")) {
 		id, err = strconv.ParseInt(parts[5], 10, 64)
@@ -94,7 +101,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 	}
 	var input any = struct{}{}
-	if command == "devtools.write" || command == "egress.update" || command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
+	if (command == "cache.tokens.create" && r.ContentLength != 0 && r.Body != nil) || command == "devtools.write" || command == "egress.update" || command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -102,10 +109,14 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		if !strings.HasPrefix(command, "webhooks.") && command != "deploy-keys.create" && command != "repo.topics.update" && command != "devtools.write" {
+		if !strings.HasPrefix(command, "webhooks.") && command != "deploy-keys.create" && command != "repo.topics.update" && command != "devtools.write" && command != "cache.tokens.create" {
 			decoder.DisallowUnknownFields()
 		}
 		switch command {
+		case "cache.tokens.create":
+			var value routes.CreateBuildCacheTokenRequest
+			err = decoder.Decode(&value)
+			input = value
 		case "devtools.write":
 			var value routes.DevtoolsSnapshotWriteRequest
 			err = decoder.Decode(&value)
@@ -161,7 +172,10 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "devtools.write" {
+	if strings.HasPrefix(command, "cache.tokens.") {
+		value, _ := input.(routes.CreateBuildCacheTokenRequest)
+		subject = services.InstallBuildCacheTokenSubject(&repository, id, value.Name, value.NamespacePrefix)
+	} else if command == "devtools.write" {
 		request, _ := input.(routes.DevtoolsSnapshotWriteRequest)
 		var value services.DevtoolsSnapshotWriteInput
 		value, err = routes.DevtoolsSnapshotWriteInput(repository.ID, request)

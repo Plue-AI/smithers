@@ -920,8 +920,13 @@ func buildRouter(
 			// with a first-class credential; the cache routes above never
 			// accept a management call.
 			r.Group(func(r chi.Router) {
+				if config.IsSingleOwner(cfg.Auth) {
+					r.Use(memberCommands(queries))
+				}
 				r.Use(middleware.LoadRepoContext(queries))
-				r.Use(middleware.RefuseRunCredentials)
+				if !config.IsSingleOwner(cfg.Auth) {
+					r.Use(middleware.RefuseRunCredentials)
+				}
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), middleware.RequireRepoPermission(middleware.PermissionWrite), repoAPIQuota).Get("/tokens", buildCacheHandler.ListReadTokens)
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RequireRepoPermission(middleware.PermissionWrite), repoAPIQuota).Post("/tokens", buildCacheHandler.CreateReadToken)
 				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository), middleware.RequireRepoPermission(middleware.PermissionWrite), repoAPIQuota).Delete("/tokens/{id}", buildCacheHandler.RevokeReadToken)

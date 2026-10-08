@@ -313,3 +313,10 @@ test("snapshot upload binds a typed private payload", () => {
  expect(Schema.decodeUnknownSync(row.input)({session_id:"s",kind:"console",payload:{lines:["hello"]}})).toEqual({session_id:"s",kind:"console",payload:{lines:["hello"]}})
  expect(()=>Schema.decodeUnknownSync(row.input)({session_id:"s",kind:"console",payload:null})).toThrow()
 })
+
+test("cache token management retains owner person authority", () => {
+ for (const [name, method, scope] of [["list","GET","read:repository"],["create","POST","write:repository"],["revoke","DELETE","write:repository"]]) expect(httpProjections.find(row=>row.name===`cache.tokens.${name}`)).toMatchObject({minimumRole:"owner",agent:"never",actors:["person"],credentialScope:scope,http:{method},visibility:"hidden",slash:null,cli:null})
+ const create=httpProjections.find(row=>row.name==="cache.tokens.create")!
+ expect(Schema.decodeUnknownSync(create.input)({name:"build",namespace_prefix:"main/"})).toEqual({name:"build",namespace_prefix:"main/"})
+ expect(()=>Schema.decodeUnknownSync(create.input)({namespace_prefix:3})).toThrow()
+})

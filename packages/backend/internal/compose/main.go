@@ -1371,7 +1371,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// A send-upstream repository delivers a landing as a GitHub pull request.
 		GitHubPull: services.NewLandingGitHubPullService(landingService, queries, repoConnectionService, gitHubUserReposService, publicBaseURL, repoConnectionService),
 	}
-	buildCacheService := services.NewBuildCacheService(services.NewPgxBuildCacheStore(queries, pool), blobStore, cfg.Blob.BuildCacheArtifactMaxBytes)
+	var buildCacheOptions []func(*services.BuildCacheService)
+	if config.IsSingleOwner(cfg.Auth) {
+		buildCacheOptions = append(buildCacheOptions, services.WithBuildCacheInstallAuthorization(pool))
+	}
+	buildCacheService := services.NewBuildCacheService(services.NewPgxBuildCacheStore(queries, pool), blobStore, cfg.Blob.BuildCacheArtifactMaxBytes, buildCacheOptions...)
 	buildCacheService.MaxAge = time.Duration(cfg.Blob.BuildCacheMaxAgeDays) * 24 * time.Hour
 	buildCacheService.MaxRepositoryBytes = cfg.Blob.BuildCacheRepoQuotaBytes
 	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}

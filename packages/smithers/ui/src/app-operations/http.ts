@@ -35,6 +35,9 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ repositoryAdmin("cache.tokens.list", "GET", "/api/repos/{owner}/{repo}/build-cache/tokens", NoInput),
+ repositoryAdmin("cache.tokens.create", "POST", "/api/repos/{owner}/{repo}/build-cache/tokens", Schema.Struct({name:optionalText,namespace_prefix:optionalText})),
+ repositoryAdmin("cache.tokens.revoke", "DELETE", "/api/repos/{owner}/{repo}/build-cache/tokens/{id}", NoInput),
  operation({ name:"workspace.command.read", input:NoInput, summary:"Read command result", hidden:true, visibility:"hidden", slash:null, cli:null,
    http:{method:"GET",path:"/api/repos/{owner}/{repo}/workspaces/{id}/command-runs/{operationID}"}, minimumRole:"member", agent:"run", credentialScope:"read:repository", actors:["person","app_agent"] }),
  operation({name:"devtools.write",input:Schema.Struct({session_id:Schema.String,kind:Schema.String,repository_id:Schema.optional(Schema.Union([Schema.Number,Schema.Null])),workspace_id:optionalText,payload:Schema.Record(Schema.String,Schema.Unknown)}),summary:"Save a private snapshot",hidden:true,visibility:"hidden",slash:null,cli:null,http:{method:"POST",path:"/api/repos/{owner}/{repo}/devtools/snapshots"},minimumRole:"member",agent:"run",credentialScope:"write:repository",actors:["person","app_agent"]}),
