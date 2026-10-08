@@ -133,7 +133,12 @@ describe("runs show and runs logs on a live parent run", { timeout: 180_000 }, (
       await writeFile(flow, source)
       const marker = join(root, "holding")
       runner = command(root, ["flow", "start", "parent", "--data", JSON.stringify({ marker }), "--wait"])
-      const runId = await until(() => existsSync(marker) ? controlRun(root)?.run_id : undefined)
+      const runId = await Promise.race([
+        until(() => existsSync(marker) ? controlRun(root)?.run_id : undefined),
+        runner.finished.then(result => {
+          throw new Error(`Flow start exited ${result.code} before its child: ${result.stdout}${result.stderr}`)
+        })
+      ])
 
       const run = await show(root, runId)
       expect(run.status).toBe("running")

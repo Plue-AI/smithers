@@ -567,3 +567,58 @@ func TestBurstWorkspaceAuthorityDoesNotHoldRegistry(t *testing.T) {
 	require.Zero(t, receipts)
 
 }
+
+// Admission holds a workspace authority transaction while calling the registry.
+// An event waiting for that row must not prevent admission or boot revocation.
+func TestBurstWorkspaceLockDoesNotBlockBootRevocation(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	var repository int64
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository))
+	registry := &Registry{}
+	boot, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, boot)
+	objects := &burstObjectFixture{}
+	ingest := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"id":"outside","kind":"outside","via":"tool"}`), nil
+	}}
+	tx, err := pool.Begin(t.Context())
+	require.NoError(t, err)
+	defer tx.Rollback(context.Background())
+	var blocker int
+	require.NoError(t, tx.QueryRow(t.Context(), `SELECT pg_backend_pid()`).Scan(&blocker))
+	_, err = tx.Exec(t.Context(), `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	applied := make(chan error, 1)
+	go func() {
+		_, err := ingest.Apply(ctx, link.Connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch}, Event{Seq: 1, EventID: [16]byte{53}, Payload: burstPayload([16]byte{54}, "locked.ts")})
+		applied <- err
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))`, blocker).Scan(&waiting)
+		return err == nil && waiting
+	}, 3*time.Second, 10*time.Millisecond)
+	revoked := make(chan error, 1)
+	go func() { _, err := registry.MintBoot(branch, "replacement"); revoked <- err }()
+	select {
+	case err := <-revoked:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		cancel()
+		require.NoError(t, tx.Rollback(t.Context()))
+		<-applied
+		<-revoked
+		t.Fatal("workspace row wait blocked boot revocation")
+	}
+	require.NoError(t, tx.Rollback(t.Context()))
+	require.ErrorIs(t, <-applied, ErrUnauthorized)
+	require.Zero(t, objects.publications)
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+		var count int
+		require.NoError(t, pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
+}
