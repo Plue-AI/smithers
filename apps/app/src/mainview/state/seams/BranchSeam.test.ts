@@ -138,3 +138,23 @@ test("TODO admission deltas preserve Branch participants while advancing queued 
   expect(next.terminals).toEqual(waiting.terminals)
   for (const delta of [null, {}, { Type: "private.confirmation", Data: { card } }, { Type: "todo.started", Data: {} }, { Type: "todo.started", Data: { card: { ...card, branch: { ...card.branch, id: "other" } } } }]) expect(() => projectBranch(waiting, delta)).toThrow()
 })
+
+test("committed TODO deltas add and settle rebase pending on the same Branch", () => {
+  const card = { n: 2, title: "Retry webhooks", state: "in_review", place: 2,
+    branch: { id: "b1", name: "Live branch", machine: { state: "asleep" } } }
+  const pending = projectBranch(branch, { Type: "todo.rebase-requested", Data: { card: { ...card, rebase_pending: { onto: "main" } } } })
+  expect(branchModel(pending, [], [], "b1")?.rebase).toEqual({ state: "pending", onto: "main" })
+  const settled = projectBranch(pending, { Type: "todo.rebased", Data: { card } })
+  expect(branchModel(settled, [], [], "b1")?.rebase).toBeUndefined()
+  expect(branchModel(settled, [], [], "b1")?.item?.n).toBe(2)
+  expect(() => projectBranch(pending, { Type: "todo.rebase-requested", Data: { card: { ...card, rebase_pending: { onto: 2 } } } })).toThrow()
+})
+
+
+test("Add to stack facts rename the same scratch Branch without retaining its source line", () => {
+  const scratch = { ...branch, name: "scratch/ben/try", scratch: { forked_from: { kind: "main" } } }
+  const next = projectBranch(scratch, { Type: "todo.created", Data: { card: { n: 3, title: "Try retry", state: "queued", place: 3,
+    branch: { id: "b1", name: "smithers/try-retry", machine: { state: "asleep" } } } } })
+  expect(branchModel(next, [], [], "b1")).toMatchObject({ id: "b1", name: "smithers/try-retry", item: { n: 3, title: "Try retry", place: 3 } })
+  expect(branchModel(next, [], [], "b1")?.scratch).toBeUndefined()
+})

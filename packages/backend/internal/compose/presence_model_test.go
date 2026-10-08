@@ -49,7 +49,7 @@ func TestBranchItemProjection(t *testing.T) {
 	todos[1]["state"] = "merged"
 	delete(todos[1], "place")
 	delete(todos[1], "rebase_pending")
-	projected, err = branchItemProjection(raw, todos)
+	projected, err = branchItemProjection(projected, todos)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"id":"b2","name":"smithers/renamed","machine":{"state":"asleep"},"item":{"n":2,"title":"Retry webhooks","state":"merged","place":0,"step":"Code"}}`, string(projected))
 	projected, err = branchItemProjection(raw, todos[:1])

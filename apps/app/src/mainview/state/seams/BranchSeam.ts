@@ -119,10 +119,12 @@ export function projectBranch(previous: unknown, delta: unknown): unknown {
   if (typeof fact?.Type !== "string" || !fact.Type.startsWith("todo.")) throw new Error("Invalid Branch source fact")
   const card = z.object({ n: z.number().int().positive(), title: z.string(), state: TodoStateSchema,
     place: z.number().int().nonnegative().optional(), branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
-    steps: z.array(z.object({ state: z.string(), label: z.string() })).optional()
+    steps: z.array(z.object({ state: z.string(), label: z.string() })).optional(),
+    rebase_pending: z.object({ onto: z.string() }).optional()
   }).parse(fact.Data?.card)
   if (card.branch.id !== before.id) throw new Error("Branch source binding changed")
   const current = card.steps?.find(step => step.state === "current")
-  return Branch.parse({ ...before, machine: card.branch.machine,
+  return Branch.parse({ ...before, name: card.branch.name, scratch: undefined, machine: card.branch.machine,
+    rebase: card.rebase_pending ? { state: "pending", onto: card.rebase_pending.onto } : undefined,
     item: { n: card.n, title: card.title, state: card.state, place: card.place ?? 0, ...(current ? { step: current.label } : {}) } })
 }

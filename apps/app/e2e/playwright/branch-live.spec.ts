@@ -260,3 +260,44 @@ for (const outcome of ["completed", "failed"] as const) test(`T-APP-10 Sleep rem
   await expect(page.locator('.smithers-card[data-kind="workspace"]')).toHaveCount(0)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
+
+// Full committed TODO facts arrive through the same live topic as branch snapshots.
+test("T-APP-10 committed rebase facts update and settle the mounted Branch card", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/todos/2", route => route.fulfill({ json: { branch: { name: "smithers/retry-webhooks" } } }))
+  await page.route("**/api/branches/smithers%2Fretry-webhooks", route => route.fulfill({ json: { name: "smithers/retry-webhooks", machine: { id: "b-rebase" } } }))
+  const topic = { id: "b-rebase", name: "smithers/retry-webhooks", machine: { state: "asleep" },
+    item: { n: 2, title: "Retry webhooks", state: "in_review", place: 2 }, presence: [], terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost" }
+  let send!: (pending: boolean) => void
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    const isBranch = frame.topic === "branch:b-rebase" || frame.topic === "branch:smithers/retry-webhooks"
+    socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: isBranch ? topic : [] }))
+    if (isBranch) {
+      let cursor = 1
+      send = pending => socket.send(JSON.stringify({ t: "delta", id: frame.id, cursor: ++cursor,
+        data: { Type: pending ? "todo.rebase-requested" : "todo.rebased", Data: { card: {
+          n: 2, title: "Retry webhooks", state: "in_review", place: 2,
+          branch: { id: "b-rebase", name: "smithers/retry-webhooks", machine: { state: "asleep" } },
+          ...(pending ? { rebase_pending: { onto: "main" } } : {})
+        } } } }))
+    }
+  }))
+  await page.goto("/")
+  await fillComposer(page, "/branch T2")
+  await page.getByTestId("composer-send").click()
+  const card = page.getByTestId("card-branch:b-rebase")
+  await expect(card).toContainText("Retry webhooks")
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
+  send(true)
+  await expect(card).toContainText("Rebase pending")
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toBeVisible()
+  send(false)
+  await expect(card).not.toContainText("Rebase pending")
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
+  await expect(card).toContainText("Retry webhooks")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await expect(card).toHaveCount(1)
+})
