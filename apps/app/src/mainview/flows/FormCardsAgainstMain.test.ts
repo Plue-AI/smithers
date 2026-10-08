@@ -342,14 +342,6 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
   })),
-  {
-    flow: "box.open", kind: "sentence", rows: 6,
-    because: "Structured button arguments preserve their explicit repository without inventory (#2082), so malformed JSON and unknown fields receive a grammar diagnostic (two rows). The MVP cut (#3385) removed the desktop kind, so the two `--kind` lines with an unknown kind read \"box.open's kind must be container or vm\". Malformed recovery rejection (099995ffa, #3318) rejects --nope and --summarize rather than treating them as bookmarks (two rows)."
-  },
-  {
-    flow: "box.open", kind: "card", rows: 2,
-    because: "Malformed recovery rejection (099995ffa, #3318) rejects --nope and --summarize rather than prefilling Bookmark with an unknown flag. The form now leaves Bookmark missing on those two lines."
-  },
   ...(["issues.list"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 1,
     because: "A repository-only issues listing now accepts an explicit unloaded repository with the default open filter (#2082), so the obsolete filter error and its incorrect draft disappear."
@@ -537,6 +529,11 @@ describe("the card every slash line opens, against main@origin", () => {
       Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
     ]))).toEqual({ "flow.run.stop": 0, "flow.run.retry": 0, "flow.run.stop-all": 33 })
     expect(rows.some(row => retiredRunDoors.includes(row.flow))).toBe(false)
+    const retiredWorkspaceDoors = ["box.open", "box.view", "box.list"]
+    expect(Object.fromEntries(retiredWorkspaceDoors.map(flow => [flow,
+      Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
+    ]))).toEqual({ "box.open": 27, "box.view": 0, "box.list": 30 })
+    expect(rows.some(row => retiredWorkspaceDoors.includes(row.flow))).toBe(false)
     const lost = rows.filter((row) => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
@@ -590,7 +587,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // github.app and env.view no longer register duplicate Settings doors or their 60 parser diagnostics.
       // github.app.open and github.reconcile retire 60 additional executable-alias diagnostics; saved inputs decode via GitHubPayload.
       // The three retired Runs aliases remove 63 parser diagnostics; the retired workspace catalog removes 33 more; RunsPayload retains recorded source and operation.
-      here: 582 // Diff retires twenty diagnostics; run lifecycle retires thirty-three. Recorded targets remain readable.
+      here: 521 // Workspace navigation retires sixty-one measured diagnostics; recorded recovery targets remain readable.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

@@ -218,3 +218,13 @@ test("union forms select their declared variant and retain the named command on 
   expect(mixed).toEqual({ payload: { branch: "another", ...payload } })
   expect(() => Schema.decodeUnknownSync(input)((mixed as { payload: unknown }).payload)).toThrow()
 })
+
+test("known hidden routing fields stay hidden while missing required inputs stay actionable", () => {
+  const schema = Schema.Struct({ operation: Schema.Literal("recover"), id: Schema.String, command: Schema.String })
+  const hints = { fields: { operation: { hidden: true }, id: { hidden: true } } }
+  const given = { operation: "recover", id: "original" }
+  const fields = formFieldsFor(schema, hints, given)
+  expect(fields.map(field => field.name)).toEqual(["command"])
+  expect(submissionPayload(schema, fields, given, { command: "inspect" })).toEqual({ payload: { ...given, command: "inspect" } })
+  expect(formFieldsFor(schema, hints, { operation: "recover" }).map(field => field.name)).toEqual(["id", "command"])
+})

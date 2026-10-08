@@ -29,8 +29,19 @@ export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     hidden: true,
     discloseToAgent: true,
     grammar: name,
-    agent: "run", input: Schema.Struct({ name: Schema.String }),
-    handler: async ({ name: target }) => {
+    form: { fields: { operation: { hidden: true }, snapshot: { hidden: true }, recoveryOf: { hidden: true } },
+      requires: payload => payload.operation === "workspace-view" ? ["workspaceId"] : payload.operation === "workspace-open" ? undefined : ["name"],
+      args: payload => JSON.stringify(payload) },
+    payloadRequires: payload => payload.operation ? ["signed-in"] : [],
+    agent: "run", input: Schema.Union([
+      Schema.Struct({ name: Schema.String, operation: Schema.optional(Schema.Never), workspaceId: Schema.optional(Schema.Never), bookmark: Schema.optional(Schema.Never), repo: Schema.optional(Schema.Never), kind: Schema.optional(Schema.Never), snapshot: Schema.optional(Schema.Never), recoveryOf: Schema.optional(Schema.Never) }),
+      Schema.Struct({ operation: Schema.Literal("workspace-view"), workspaceId: Schema.String, name: Schema.optional(Schema.Never), bookmark: Schema.optional(Schema.Never), repo: Schema.optional(Schema.Never), kind: Schema.optional(Schema.Never), snapshot: Schema.optional(Schema.Never), recoveryOf: Schema.optional(Schema.Never) }),
+      Schema.Struct({ operation: Schema.Literal("workspace-open"), bookmark: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), kind: Schema.optional(Schema.Literals(["container", "vm"])), snapshot: Schema.optional(Schema.String), recoveryOf: Schema.optional(Schema.String), name: Schema.optional(Schema.Never), workspaceId: Schema.optional(Schema.Never) })
+    ]),
+    handler: async ({ name: target, operation, workspaceId, bookmark, repo, kind, snapshot, recoveryOf }) => {
+      if (operation === "workspace-view") return workspaceId === undefined || actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.viewWorkspace(workspaceId)
+      if (operation === "workspace-open") return actions.bootstrap?.capabilities.includes("install") || !actions.design.enabled ? "Branch unavailable" : actions.openWorkspace(bookmark, repo, kind, snapshot, recoveryOf)
+      if (target === undefined) return "Choose a branch"
       if (actions.openBranch) return actions.openBranch(target)
       if (!branchSeedAvailable(actions)) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)

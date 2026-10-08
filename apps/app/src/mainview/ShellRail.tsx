@@ -68,7 +68,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       // A state label alone cannot grant a command: the mounted TODO's provider
       // must offer that command too (retryability, branch and merge readiness).
       const definition = candidate && todoActionDefinitions(model, viewer.role).find(action => action.tag === candidate.tag && !action.disabled)
-      const action = definition ? { ...candidate!, args: { ...candidate!.args, ...definition.args, ...(definition.tag === "branch" ? { name: definition.command_input.name } : {}) } } : undefined
+      const action = definition ? { ...candidate!, args: { ...candidate!.args, ...definition.args, ...(definition.tag === "branch" ? { name: ("name" in definition.command_input ? definition.command_input.name : undefined) } : {}) } } : undefined
       const tone: TimelineLine["tone"] = model.state === "needs_you" ? "attention" : model.state === "failed" ? "failed"
         : model.state === "starting" || model.state === "working" ? "live" : model.state === "merged" || model.state === "dropped" ? "done" : "quiet"
       return [{ entry_id: entry.card.id, kind: "card", title: model.title, tone, glyph: { state: model.state }, ...(action ? { action } : {}) }]

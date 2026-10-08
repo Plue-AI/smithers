@@ -1,21 +1,26 @@
 import { expect, test } from "bun:test"
 import { flowArgs } from "./FlowArgs"
-import { payloadFor } from "./SlashPayload"
+import { payloadFor as originalPayloadFor } from "./SlashPayload"
+import { createCommandRegistry } from "./Commands"
+import { stubCommandActions } from "./StubCommandActions"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { createAppStore } from "../state/AppStore"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { memoryStorage, unavailableAgent } from "../state/TestFixtures"
 
+const registry = createCommandRegistry(stubCommandActions())
+const payloadFor: typeof originalPayloadFor = (name, args, grammar, known) => originalPayloadFor(name, args, grammar ?? registry.find(name)?.metadata.grammar, known)
+
 const target = "owner/unloaded", ambient = "owner/ambient"
 const cases = [
-  ["box.open", { repo: target, kind: "container" }, { repo: target, kind: "container" }],
-  ["box.open", { bookmark: "feature/work", repo: target, kind: "vm" }, { bookmark: "feature/work", repo: target, kind: "vm" }],
+  ["branch", { operation: "workspace-open", repo: target, kind: "container" }, { operation: "workspace-open", repo: target, kind: "container" }],
+  ["branch", { operation: "workspace-open", bookmark: "feature/work", repo: target, kind: "vm" }, { operation: "workspace-open", bookmark: "feature/work", repo: target, kind: "vm" }],
   // WorkspaceCard's two restore buttons: a snapshot restore and a fresh recovery.
-  ["box.open", { repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }, { repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }],
-  ["box.open", { repo: target, recoveryOf: "ws-1" }, { repo: target, recoveryOf: "ws-1" }],
+  ["branch", { operation: "workspace-open", repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }, { operation: "workspace-open", repo: target, snapshot: "snap-1", recoveryOf: "ws-1", kind: "vm" }],
+  ["branch", { operation: "workspace-open", repo: target, recoveryOf: "ws-1" }, { operation: "workspace-open", repo: target, recoveryOf: "ws-1" }],
   ["prs.review", { number: 42, verdict: "approve", repo: target }, { number: 42, verdict: "approve", text: "", repo: target }],
-  ["box.open", { repo: target }, { repo: target }],
-  ["box.open", { bookmark: "feature/work", repo: target }, { bookmark: "feature/work", repo: target }],
+  ["branch", { operation: "workspace-open", repo: target }, { operation: "workspace-open", repo: target }],
+  ["branch", { operation: "workspace-open", bookmark: "feature/work", repo: target }, { operation: "workspace-open", bookmark: "feature/work", repo: target }],
   ["issues.list", { filter: "open", repo: target }, { filter: "open", repo: target }],
   ["triggers.run", { slug: "nightly", repo: target }, { slug: "nightly", repo: target }],
   ["runs.open", { runId: "jobs/run-1", repo: target, sourceCard: "source-list" }, { runId: "jobs/run-1", repo: target, sourceCard: "source-list" }],
@@ -42,8 +47,8 @@ test("a mirror ref and its explicit repository need no inventory", () => {
 
 test("structured targets retain slash-bearing ids and the originating run card", () => {
   const known = new Set(["feature/work", ambient])
-  expect(payloadFor("box.open", flowArgs("box.open", { bookmark: "feature/work", repo: target }), undefined, known))
-    .toEqual({ payload: { bookmark: "feature/work", repo: target } })
+  expect(payloadFor("branch", flowArgs("branch", { operation: "workspace-open", bookmark: "feature/work", repo: target }), undefined, known))
+    .toEqual({ payload: { operation: "workspace-open", bookmark: "feature/work", repo: target } })
   expect(payloadFor("github.mirror.retry-ref", flowArgs("github.mirror.retry-ref", { ref: "feature/work", repo: target }), undefined, known))
     .toEqual({ payload: { ref: "feature/work", repo: target } })
   const input = { status: "running", flow: "jobs/nightly", repo: target, sourceCard: "original-card" }
@@ -70,7 +75,7 @@ test("human review text and lone slash-bearing identifiers retain their existing
 const createAppController = scopedControllers()
 test.each([
   ["prs.review", "button"], ["prs.review", "form"], ["prs.review", "agent"],
-  ["box.open", "button"], ["box.open", "agent"]
+  ["branch", "button"], ["branch", "agent"]
 ] as const)("%s through %s never routes a typed target through the active repository", async (name, door) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ method: string; path: string; body?: unknown }> = []
@@ -89,7 +94,7 @@ test.each([
   await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "owner", expiresAt: null, scopes: null })
   await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: ambient, org: "owner", ownerKind: "user", name: "ambient", head: null }] })
   await store.dispatch({ type: "repo.selected", actor: "user", id: ambient })
-  const args = name === "prs.review" ? flowArgs(name, { number: 42, verdict: "approve", repo: target }) : name === "box.open" ? flowArgs(name, { repo: target, kind: "container" }) : flowArgs("box.open", { repo: target })
+  const args = name === "prs.review" ? flowArgs(name, { number: 42, verdict: "approve", repo: target }) : flowArgs("branch", { operation: "workspace-open", repo: target, kind: "container" })
   if (door === "form") {
     await controller.commands.run(name, "")
     for (const [field, value] of [["number", "42"], ["verdict", "approve"], ["repo", target]]) {
@@ -105,7 +110,7 @@ test.each([
     }
   } else await controller.commands.run(name, args)
   expect(requests.filter(request => request.path.includes(`/repos/${ambient}/`) && /\/(landings|workspaces)(\/|$)/.test(request.path))).toEqual([])
-  expect(requests.filter(request => request.method === "POST")).toEqual(name === "prs.review" && door === "agent" ? [] : name === "prs.review"
+  expect(requests.filter(request => request.method === "POST")).toEqual(door === "agent" ? [] : name === "prs.review"
     ? [{ method: "POST", path: `/api/repos/${target}/landings/42/reviews`, body: { type: "approve", body: "", commit_id: "reviewed-tip" } }]
     : [{ method: "POST", path: `/api/repos/${target}/workspaces`, body: { kind: "container" } }])
 })

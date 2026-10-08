@@ -8,5 +8,6 @@ export const savedRunLifecycleArgs = (name: string, args?: string): string => {
   let payload: Readonly<Record<string, unknown>> | undefined
   try { const value: unknown = JSON.parse(args ?? ""); if (value && typeof value === "object" && !Array.isArray(value)) payload = value as Record<string, unknown> } catch { /* Recorded slash data. */ }
   const parsed = payload === undefined ? payloadFor(name, args) : { payload }
-  return JSON.stringify({ ...("payload" in parsed ? parsed.payload : {}), operation: historicalRunLifecycle[name] })
+  if ("error" in parsed) return JSON.stringify({ operation: "recorded-invalid" })
+  return JSON.stringify({ ...parsed.payload, operation: historicalRunLifecycle[name] })
 }

@@ -359,7 +359,7 @@ export const OPEN_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>>
   run: ["runs.open"],
   change: ["diff"],
   issue: ["issues.view"],
-  box: ["box.view"],
+  box: ["branch"],
   "secret-name": ["secrets"],
   person: []
 }
@@ -434,7 +434,7 @@ export const refPayload = (kind: SearchItemKind, ref: string): Readonly<Record<s
     case "issue":
       return { number: Number(ref) }
     case "box":
-      return { workspaceId: ref }
+      return { workspaceId: ref, operation: "workspace-view" }
     case "flow":
     case "secret-name":
     case "person":
@@ -447,8 +447,7 @@ const roleOf = (kind: SearchItemKind, name: string): SearchAction["role"] =>
 
 /**
  * Every registered flow that acts on the item, the open flow first. A kind's
- * open and primary flows are named by preference (`box.open`, else
- * `box.view`): the first one registered wins the role, so a hidden
+ * open and primary flows are named by preference (`/branch` for a workspace or branch): the first one registered wins the role, so a hidden
  * alias never doubles a row. A flow whose required input the ref cannot fill
  * is absent, never listed with a form (a button always carries its args).
  */
@@ -465,7 +464,7 @@ export const actionsFor = (item: Pick<SearchItem, "kind" | "ref" | "title">, ent
   const consider = (entry: FlowEntry, preferred: boolean): void => {
     if (!preferred && entry.metadata.visibility === "hidden") return
     const name = nameOf(entry)
-    const form = formFieldsFor(entry.input, entry.metadata.form)
+    const form = formFieldsFor(entry.input, entry.metadata.form, payload)
     if (!form.every((field) => !field.required || fields.has(field.name))) return
     // A namespace flow joins only when the ref fills one of its fields; a kind's own open flow may take nothing (secrets.list).
     if (!preferred && !form.some((field) => fields.has(field.name))) return

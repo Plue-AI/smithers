@@ -22,7 +22,8 @@ export interface FlowInput {
   readonly "run.inspect": { readonly id?: string; readonly branch?: string; readonly answer?: string }
   readonly "debug-api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string; readonly mode?: "read" }
-  readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
+  readonly "branch": { readonly name: string } | { readonly operation: "workspace-open"; readonly bookmark?: string; readonly repo?: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string } | { readonly operation: "workspace-view"; readonly workspaceId: string }
+  readonly "branches": { readonly operation?: "workspace"; readonly repo?: string }
   readonly "flow.new": { readonly description: string; readonly repo: string }
   readonly "file.compare": { readonly path: string }
   readonly "file.restore-deleted": { readonly path: string }
@@ -198,7 +199,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "prs.review": payload => JSON.stringify(payload),
   "github.mirror.retry-ref": payload => JSON.stringify(payload),
 
-  "box.open": payload => JSON.stringify(payload),
+  "branch": payload => JSON.stringify(payload),
+  "branches": payload => JSON.stringify(payload),
   "box.egress": payload => line(token(payload, "workspaceId"), token(payload, "cursor")),
   "egress.allow": payload => line(token(payload, "host"), token(payload, "repo")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),

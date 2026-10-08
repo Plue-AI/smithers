@@ -168,7 +168,7 @@ describe("§2 actions: every action is a registered flow whose input the ref fil
 
   test("a box opens with box.view and has no primary flow; a run resumes on Cmd+Enter", () => {
     const box = actionsFor({ kind: "box", ref: "ws-1", title: "main" }, entries)
-    expect(box.find((action) => action.role === "open")).toMatchObject({ flow: "box.view", args: "ws-1" })
+    expect(box.find((action) => action.role === "open")).toMatchObject({ flow: "branch", args: JSON.stringify({ workspaceId: "ws-1", operation: "workspace-view" }) })
     // A terminal opens on a branch (/terminal), never from a box ref.
     expect(box.some((action) => action.role === "primary")).toBe(false)
     expect(box.map((action) => action.flow)).not.toContain("workspace.rename")

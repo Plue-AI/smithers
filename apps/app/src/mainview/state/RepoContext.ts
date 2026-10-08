@@ -221,7 +221,7 @@ export const defaultBoxBinding = (store: AppStore, repo: string): GatewayBinding
     case "resumable": return found.resumable.length === 1 ? { workspaceId: found.box.id } : { error: `Select a box of ${repo} first.`, choices: found.resumable }
     case "unavailable": return { error: found.error }
     case "settling": return { error: `A box of ${repo} is starting.` }
-    case "none": return { error: `Open a box of ${repo} first: /box.open ${repo}`, noBox: true }
+    case "none": return { error: `No branch is available for ${repo}`, noBox: true }
   }
 }
 

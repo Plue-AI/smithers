@@ -1,3 +1,5 @@
+import { historicalWorkspaceNavigation } from "../../flows/WorkspaceNavigationPayload"
+import { currentFlowName } from "../../flows/FlowName"
 import { Schema } from "effect"
 import type { AgentInvocation } from "../../flows/AgentInvocation"
 import type { CommandGesture } from "../../flows/CommandGesture"
@@ -507,9 +509,16 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
   }
 
   const submitForm: FormsController["submitForm"] = async (cardId, invocation, gesture) => {
-    const card = formCard(cardId)
+    let card = formCard(cardId)
     if (card === undefined) return `There is no form card ${cardId}.`
-    if (card.status === "acted" && card.payload.flow === "box.open" && card.payload.afterBox !== undefined) {
+    const recordedOperation = historicalWorkspaceNavigation[card.payload.flow]
+    if (recordedOperation !== undefined) {
+      // Migrate the recorded target in place. The form id, draft and owner-bound continuation stay intact.
+      await patch(card, { ...card.payload, flow: currentFlowName(card.payload.flow), given: { ...card.payload.given, operation: recordedOperation } }, card.status)
+      card = formCard(cardId)
+      if (card === undefined) return `There is no form card ${cardId}.`
+    }
+    if (card.status === "acted" && card.payload.flow === "branch" && card.payload.afterBox !== undefined) {
       const pending = card.payload.afterBox
       if (ctx.commandActor !== "user" || card.payload.via !== "user") return "Only the person who opened the box can continue this act."
       if (pending.consumed === true) return `Review PR #${pending.number} was already requested.`

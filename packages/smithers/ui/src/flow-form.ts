@@ -218,7 +218,7 @@ export const formFieldsFor = (input: Schema.Top, hints: FormHints | undefined = 
   const ast = formObject(input.ast, payload)
   if (ast === undefined) return []
   const required = hints?.requires?.(payload) ?? []
-  return ast.propertySignatures.filter(signature => unwrapOptional(signature.type).ast._tag !== "Never").filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || !unwrapOptional(signature.type).optional || required.includes(String(signature.name))).map((signature) => {
+  return ast.propertySignatures.filter(signature => unwrapOptional(signature.type).ast._tag !== "Never").filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || payload[String(signature.name)] === undefined && (!unwrapOptional(signature.type).optional || required.includes(String(signature.name)))).map((signature) => {
     const name = String(signature.name)
     const { ast: inner, optional } = unwrapOptional(signature.type)
     const control = controlOf(inner)

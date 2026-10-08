@@ -82,9 +82,9 @@ describe("the repository's default box", () => {
 
   test("no box asks for one to be opened; a failed box is no box", async () => {
     const store = await signedIn()
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}`, noBox: true })
+    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `No branch is available for ${REPO}`, noBox: true })
     await loadBox(store, REPO, BOX_A, "failed")
-    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `Open a box of ${REPO} first: /box.open ${REPO}`, noBox: true })
+    expect(gatewayBindingFor(store, REPO)).toEqual({ error: `No branch is available for ${REPO}`, noBox: true })
   })
 
   test("the selected box wins over the default, whatever its state", async () => {
@@ -142,12 +142,12 @@ describe("a flow launch with no box", () => {
         return json(404, { status: "error" })
       }
     })
-    const refusal = `Open a box of ${REPO} first: /box.open ${REPO}`
+    const refusal = `No branch is available for ${REPO}`
     // The button door: the box form for this repository, and no failure toast.
     controller.runCommand("flow.run", `review ${REPO}`)
     await waitFor(() => store.collections.cards.get("form-box.open") !== undefined)
     const form = store.collections.cards.get("form-box.open")
-    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user" } })
+    expect(form).toMatchObject({ kind: "flow-form", payload: { flow: "branch", via: "user" } })
     if (form?.kind === "flow-form") expect(form.payload.draft).toEqual({ repo: REPO })
     expect([...store.collections.toasts.values()].filter((toast) => toast.status === "failed")).toEqual([])
     expect(workflowCalls).toEqual([])
@@ -205,7 +205,7 @@ describe("a request saved with no box", () => {
         return json(404, { status: "error" })
       }
     })
-    const refusal = `Open a box of ${REPO} first: /box.open ${REPO}`
+    const refusal = `No branch is available for ${REPO}`
     expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", REQUEST_CARD))).status).toBe("executed")
     await waitFor(() => {
       const card = store.collections.cards.get(REQUEST_CARD)

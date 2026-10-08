@@ -4,7 +4,6 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, RepoTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -14,57 +13,6 @@ export const namespace: Namespace = { id: "box", label: "Boxes", summary: "Open 
 
 /** The `workspace.*` flows: the boxes (the design session says box, never computer). */
 export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  /*
-   * Lane citc (ADR 0002): the persistent cloud computers. `box.open`
-   * creates-or-reuses one on a bookmark and renders its card (the transcript
-   * is the review surface); the acts ride the one seam; a bare act resolves
-   * the active workspace copy, else the single loaded one. Destructive acts
-   * are id-scoped and hidden — the card's buttons invoke them.
-   */
-  flow({
-    name: "box.list",
-    summary: "List your boxes",
-    runtime: ["cloud"],
-    args: "[owner/repo]",
-    requires: ["signed-in"],
-    input: RepoTarget,
-    handler: ({ repo }) => actions.listWorkspaces(repo)
-  }),
-  flow({
-    /* Launching a cloud computer is an outbound act: the capability always asks. */
-    name: "box.open",
-    form: {
-      /* A recovery's snapshot and recoveryOf are the restore buttons' routing data (WorkspaceCard), never typed. */
-      fields: {
-        bookmark: { optionsFrom: "bookmarks", kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" },
-        snapshot: { hidden: true }, recoveryOf: { hidden: true }
-      },
-      args: (payload) => line(text(payload, "bookmark"), text(payload, "repo"), flag(payload, "kind"), flag(payload, "snapshot"), flag(payload, "recoveryOf"))
-    },
-    summary: "Open (create or reuse) a Linux box in Smithers Cloud on a bookmark: a real machine with a terminal, files, and services the user can use",
-    runtime: ["cloud"],
-    /* ADR 0002: three sandbox kinds share one option surface, and the kind is the choice. */
-    args: "[bookmark] [owner/repo] [--kind container|vm] [--snapshot id] [--recoveryOf id]",
-    requires: ["signed-in"],
-    input: Schema.Struct({
-      bookmark: Schema.optional(Schema.String),
-      repo: Schema.optional(Schema.String),
-      kind: Schema.optional(Schema.Literals(["container", "vm"])),
-      snapshot: Schema.optional(Schema.String),
-      recoveryOf: Schema.optional(Schema.String)
-    }),
-    handler: ({ bookmark, repo, kind, snapshot, recoveryOf }) => actions.openWorkspace(bookmark, repo, kind, snapshot, recoveryOf)
-  }),
-  flow({
-    name: "box.view",
-    form: { fields: { workspaceId: { optionsFrom: "workspaces" } } },
-    summary: "Open one box's card",
-    runtime: ["cloud"],
-    args: "<workspaceId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ workspaceId: Schema.String }),
-    handler: ({ workspaceId }) => actions.live || actions.bootstrap?.capabilities.includes("install") ? "Branch unavailable" : actions.viewWorkspace(workspaceId)
-  }),
   flow({
     name: "box.suspend", agent: "run", minimumRole: "member", actors: ["person","app_agent"], visibility: "in-card",
     summary: "Sleep this branch",

@@ -769,7 +769,7 @@ export const createWorkflowController = (
   const boxPrerequisite = (repo: string, binding: Extract<GatewayBinding, { readonly error: string }>, act: { readonly flow: string; readonly args?: string; readonly afterBox?: { readonly kind: "prs.triage"; readonly number: number } }, title: string): string | { readonly value: string } => {
     if (binding.choices !== undefined) return refuseOrPickBox(ctx, renderFlowForm, binding, { repo, ...act })
     if (ctx.commandActor === "user" && repositoryBoxOf(store, repo).kind === "none" && selectedBoxBinding(store, repo) === undefined) {
-      const rendered = renderFlowForm?.({ name: "box.open", args: flowArgs("box.open", { repo }), via: "user", title,
+      const rendered = renderFlowForm?.({ name: "branch", args: flowArgs("branch", { repo, operation: "workspace-open" }), via: "user", title, cardId: "form-box.open",
         ...(act.afterBox === undefined ? {} : { cardId: `form-box.open-${act.flow}-${digest(act.args ?? "").slice(0, 16)}`,
           afterBox: { ...act.afterBox, repo } }) })
       if (rendered !== undefined) return { value: formRenderedText(rendered.missing) }

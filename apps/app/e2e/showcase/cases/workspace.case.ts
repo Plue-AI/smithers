@@ -19,7 +19,7 @@ export default showcase({
   order: 118,
   title: "Boxes",
   summary: "A box per branch: its files, services, egress; suspend, resume, delete.",
-  flows: ["box.open", "box.facet", "file", "box.suspend", "box.resume", "box.list", "box.images", "egress.session", "box.delete"],
+  flows: ["branch", "box.facet", "file", "box.suspend", "box.resume", "branches", "box.images", "egress.session", "box.delete"],
   run: async ({ page, app, backend }) => {
     let status = "running"
     let polls = 0
@@ -71,7 +71,7 @@ export default showcase({
     ])
 
     await app.open("/")
-    await app.slash(`/box.open main ${REPO}`)
+    await app.slash(`/branch ${JSON.stringify({ operation: "workspace-open", bookmark: "main", repo: REPO })}`)
     const card = page.getByTestId("card-workspace-ws-1")
     await expect(card).toContainText("Running", { timeout: 20_000 })
     await app.closeComposer()
@@ -96,7 +96,7 @@ export default showcase({
     await app.click(card.getByRole("button", { name: "Resume", exact: true }))
     await expect(card.getByRole("button", { name: "Suspend", exact: true })).toBeVisible({ timeout: 15_000 })
 
-    await app.slash(`/box.list ${REPO}`)
+    await app.slash(`/branches ${JSON.stringify({ operation: "workspace", repo: REPO })}`)
     await app.slash(`/box.images ${REPO}`)
     await app.slash(`/egress.session as-7 ${REPO}`)
     await app.closeComposer()

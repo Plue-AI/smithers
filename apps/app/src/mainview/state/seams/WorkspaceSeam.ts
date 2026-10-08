@@ -544,7 +544,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
     const all = [...cloudWorkspaces.values()]
     if (all.length === 1) return { workspace: all[0]! }
     if (all.length === 0) {
-      return { error: "No box is loaded — /box.open creates one, /box.list refreshes" }
+      return { error: "Branch unavailable" }
     }
     return { error: `Several boxes are loaded (${all.map((row) => row.id).join(", ")}) — name a box id` }
   }

@@ -263,6 +263,11 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
     try { expect((await f.invoke(["flows", ...args])).exitCode).toBe(1); expect(f.seen).toEqual([]) }
     finally { await f.close() }
   })
+  it.each([["branches", "--operation", "workspace"], ["branches", "--repo", "owner/repo"], ["branch", "show", "main", "--operation", "workspace-view", "--workspaceId", "other"]])("Branch CLI refuses browser workspace variants before HTTP: %s", async (...args) => {
+    const f = await fixture()
+    try { expect((await f.invoke(args)).exitCode).toBe(1); expect(f.seen).toEqual([]) }
+    finally { await f.close() }
+  })
   it.each([["--operation", "stop", "--cardId", "run-1"], ["--operation", "retry", "--cardId", "request-1"], ["--operation", "stop-all", "--sourceCard", "private"]])("Flow launch CLI refuses private lifecycle input before HTTP: %s", async (...args) => {
     const f = await fixture()
     try { expect((await f.invoke(["flow", "run", "todo", ...args])).exitCode).toBe(1); expect(f.seen).toEqual([]) }

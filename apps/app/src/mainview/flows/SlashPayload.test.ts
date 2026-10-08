@@ -3,7 +3,6 @@ import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
 import { nameOf } from "./registry"
 import { flowPlanParts, hasGrammar, payloadFor } from "./SlashPayload"
-import { flowArgs } from "./FlowArgs"
 
 /** Registration never invokes a handler, so every controller call answers with nothing. */
 const inertActions = new Proxy({}, { get: () => () => undefined }) as CommandActions
@@ -353,7 +352,8 @@ test("the workspace launch grammar preserves container and VM but rejects deskto
   for (const removed of ["desktop", "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop", "app.download", "app.download.prompt"]) {
     expect(names).not.toContain(removed)
   }
-  expect(names).toContain("box.open")
+  expect(names).toContain("branch")
+  expect(names).not.toContain("box.open")
   for (const folded of ["box.terminal", "box.sessions"]) expect(names).not.toContain(folded)
   expect(names).toContain("terminal")
 })
@@ -374,7 +374,7 @@ describe("box.open recovery grammar", () => {
             expect(payloadFor("box.open", args)).toEqual({ payload })
           }
         }
-        expect(payloadFor("box.open", flowArgs("box.open", payload))).toEqual({ payload })
+        expect(payloadFor("box.open", JSON.stringify(payload))).toEqual({ payload })
       })
     }
   }

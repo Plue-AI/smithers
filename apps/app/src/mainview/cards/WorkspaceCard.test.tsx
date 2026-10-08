@@ -282,8 +282,8 @@ describe("the workspace card", () => {
     click(host, "Open a container box")
     click(host, "Open a vm box")
     expect(commands).toEqual([
-      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container" }) },
-      { name: "box.open", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm" }) },
+      { name: "branch", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "container", operation: "workspace-open" }) },
+      { name: "branch", args: JSON.stringify({ bookmark: "main", repo: "will/smithers", kind: "vm", operation: "workspace-open" }) },
     ])
     host.remove()
   })
@@ -291,7 +291,7 @@ describe("the workspace card", () => {
   test("a workspace with no target bookmark re-opens on its repository alone", () => {
     const { host, commands } = render(workspaceCard({ status: "failed", provisioningStage: null, targetBookmark: null }))
     click(host, "Open a vm box")
-    expect(commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", kind: "vm" }) })
+    expect(commands[0]).toEqual({ name: "branch", args: JSON.stringify({ repo: "will/smithers", kind: "vm", operation: "workspace-open" }) })
     host.remove()
   })
 })
@@ -441,10 +441,10 @@ describe("missing VM recovery actions", () => {
       expect(restore.tagName).toBe("BUTTON");expect(fresh.tagName).toBe("BUTTON")
       restore.focus();expect(document.activeElement).toBe(restore)
       click(view.host,"Restore snapshot")
-      expect(view.commands[0]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", snapshot: "snapshot-retained", recoveryOf: "ws-1", kind: "container" }) })
+      expect(view.commands[0]).toEqual({ name: "branch", args: JSON.stringify({ repo: "will/smithers", snapshot: "snapshot-retained", recoveryOf: "ws-1", kind: "container", operation: "workspace-open" }) })
       fresh.focus();expect(document.activeElement).toBe(fresh)
       click(view.host,"Create fresh box")
-      expect(view.commands[1]).toEqual({ name: "box.open", args: JSON.stringify({ repo: "will/smithers", recoveryOf: "ws-1", kind: "container" }) })
+      expect(view.commands[1]).toEqual({ name: "branch", args: JSON.stringify({ repo: "will/smithers", recoveryOf: "ws-1", kind: "container", operation: "workspace-open" }) })
       const row = controller.store.collections.cloudWorkspaces.get("ws-1")!
       await controller.store.dispatch({ type: "workspace.updated", actor: "system", workspace: { ...row,
         recovery: { ...row.recovery!, request: { id: "intent", name: "retained", actor: "user", bookmark: "main", state: "requested", snapshotId: "snapshot-retained" } } } }).isPersisted.promise

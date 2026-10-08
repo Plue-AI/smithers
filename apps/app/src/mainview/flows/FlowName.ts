@@ -20,6 +20,9 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "box.list": "branches",
+  "box.open": "branch",
+  "box.view": "branch",
   "flow.run.stop": "flow.run",
   "flow.run.retry": "flow.run",
   "flow.run.stop-all": "flow.run",
@@ -164,13 +167,10 @@ export const FLOW_NAMES = [
   "box.egress",
   "box.facet",
   "box.images",
-  "box.list",
-  "box.open",
   "box.resume",
   "box.services",
   "box.session.destroy",
   "box.suspend",
-  "box.view",
   "branches",
   "branch.fork",
   "branch.archive",

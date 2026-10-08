@@ -13,7 +13,7 @@ export const refuseOrPickBox = (
 ): string | { readonly value: string } => {
   if (ctx.commandActor !== "user" || renderFlowForm === undefined) return refusal.error
   if (refusal.noBox === true && openTitle !== undefined) {
-    const rendered = renderFlowForm({ name: "box.open", args: flowArgs("box.open", { repo: act.repo }), via: "user",
+    const rendered = renderFlowForm({ name: "branch", args: flowArgs("branch", { repo: act.repo, operation: "workspace-open" }), via: "user",
       cardId: `form-box.open-${act.flow}`, title: openTitle })
     return rendered === undefined ? refusal.error : { value: `${openTitle}.` }
   }

@@ -77,3 +77,11 @@ it("recorded run lifecycle actions retain explicit targets without another execu
     ["flow.run.stop-all", { repo: "owner/repo", sourceCard: "list-1" }, "stop-all"]
   ] as const) expect(ActionSchema.parse({ tag, args, label: "Run" })).toEqual({ tag: "flow.run", args: { ...args, operation }, label: "Run" })
 })
+
+it("recorded workspace actions retain recovery identity through canonical branches", () => {
+  for (const [tag, args, target, operation] of [
+    ["box.open", { repo: "owner/repo", snapshot: "snap", recoveryOf: "original", kind: "vm" }, "branch", "workspace-open"],
+    ["box.view", { workspaceId: "original" }, "branch", "workspace-view"],
+    ["box.list", { repo: "owner/repo" }, "branches", "workspace"]
+  ] as const) expect(ActionSchema.parse({ tag, args, label: "Branch" })).toEqual({ tag: target, args: { ...args, operation }, label: "Branch" })
+})

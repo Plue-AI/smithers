@@ -69,13 +69,13 @@ describe("a flow typed into the composer states its refusal", () => {
         return json(200, {})
       }
     })
-    controller.send("/env.set NOT_AN_ASSIGNMENT codeplanesmithers/canary-sandbox")
+    controller.send('/branch {"operation":"workspace-open","kind":"desktop"}')
     await settled()
     await settled()
     const failed = failedToasts(store)
     expect(failed.length).toBe(1)
-    expect(failed[0]?.title).toBe(`${controller.commands.find("env.set")!.metadata.summary} didn't run`)
-    expect(failed[0]?.detail).toContain("NAME=value")
+    expect(failed[0]?.title).toBe(`${controller.commands.find("branch")!.metadata.summary} didn't run`)
+    expect(failed[0]?.detail).toContain("vm")
     expect(calls).toBe(0)
   })
 
@@ -215,7 +215,7 @@ describe("a flow typed into the composer states its refusal", () => {
       toastAutoDismissMs: 1
     })
     store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null })
-    controller.send("/box.list")
+    controller.send('/branches {"operation":"workspace"}')
     await settled()
     await settled()
     const prompts = [...store.collections.messages.values()].filter(message => message.action !== undefined)

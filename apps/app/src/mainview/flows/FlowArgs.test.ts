@@ -234,8 +234,8 @@ test("card configuration args round-trip through their production grammars", () 
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],
-    ["box.open", { repo: "owner/repo", kind: "vm" }],
-    ["box.open", { repo: "owner/repo" }],
+    ["branch", { operation: "workspace-open", repo: "owner/repo", kind: "vm" }],
+    ["branch", { operation: "workspace-open", repo: "owner/repo" }],
     ["box.delete", { workspaceId: "w1", confirmName: "My workspace" }],
     ["box.egress", { workspaceId: "w1", cursor: "next" }],
     ["egress.allow", { host: "*.example.com", repo: "owner/repo" }],
@@ -249,7 +249,7 @@ test("card configuration args round-trip through their production grammars", () 
     ["findings.not-useful", { changeId: "c1", findingId: 7 }],
     ["flow.run", { sourceCard: "card1", repo: "owner/repo", operation: "stop-all" }]
   ] as const
-  for (const [name, input] of cases) expect(payloadFor(name, flowArgs(name, input))).toEqual({ payload: input })
+  for (const [name, input] of cases) expect(name === "branch" ? { payload: JSON.parse(flowArgs(name, input)) } : payloadFor(name, flowArgs(name, input))).toEqual({ payload: input })
 })
 
 

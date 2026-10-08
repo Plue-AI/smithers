@@ -310,7 +310,7 @@ export const createCodeIntelSeam = (ctx: SeamContext, options: CodeIntelSeamOpti
       case "unavailable":
         return { refusal: found.error }
       case "none":
-        return { refusal: `Hover and definitions need a running box of ${repo} — /box.open ${repo} first.` }
+        return { refusal: `Code intelligence needs a running branch of ${repo}.` }
     }
   }
 

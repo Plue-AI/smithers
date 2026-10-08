@@ -331,13 +331,13 @@ export const WorkspaceCardBody = ({
       {recovery === undefined ? null : <p className="world-card-row">
         {recovery.snapshotId === undefined ? null : <Button size="sm" variant="outline" disabled={recoveryPending}
           aria-label="Restore snapshot"
-          {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo,
+          {...flowAction(onRunCommand, "branch", flowArgs("branch", { repo: payload.repo,
             snapshot: recovery.snapshotId, recoveryOf: payload.workspaceId,
-            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}) }))}>Restore</Button>}
+            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}), operation: "workspace-open" }))}>Restore</Button>}
         {recovery.createFresh ? <Button size="sm" variant="outline" disabled={recoveryPending}
           aria-label="Create fresh box"
-          {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { repo: payload.repo, recoveryOf: payload.workspaceId,
-            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}) }))}>Create</Button> : null}
+          {...flowAction(onRunCommand, "branch", flowArgs("branch", { repo: payload.repo, recoveryOf: payload.workspaceId,
+            ...(recoveryKind === "container" || recoveryKind === "vm" ? { kind: recoveryKind } : {}), operation: "workspace-open" }))}>Create</Button> : null}
       </p>}
       {recovery?.request?.error === undefined ? null : <FailureNotice className="world-card-empty"
         failure={describedFailure("BoxActRefused", BOX_FAILURE_COPY.BoxActRefused, recovery.request.error)} />}
@@ -358,7 +358,7 @@ export const WorkspaceCardBody = ({
                 size="sm"
                 variant="outline"
                 aria-label={`Open a ${kind} box`}
-                {...flowAction(onRunCommand, "box.open", flowArgs("box.open", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: kind }))}
+                {...flowAction(onRunCommand, "branch", flowArgs("branch", { bookmark: payload.targetBookmark ?? undefined, repo: payload.repo, kind: kind , operation: "workspace-open" }))}
               >
                 {kind} — {says}
               </Button>

@@ -17,7 +17,7 @@ const signedIn = async () => {
   return store
 }
 const wire = (id: string) => ({ id, repository_id: 7, repo_full_name: REPO, name: id === BOX_A ? "pick-a" : "pick-b", slug: id === BOX_A ? "pick-a" : "pick-b", target_bookmark: "main", status: "suspended", provisioning_stage: null, suspended_at: "2026-09-30T00:00:00Z", created_at: "2026-09-01T00:00:00Z" })
-const openForms = (store: Awaited<ReturnType<typeof signedIn>>) => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
+const openForms = (store: Awaited<ReturnType<typeof signedIn>>) => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "branch")
 
 describe("box inventory admission", () => {
   test("an in-progress refresh overrides an older empty observation and failed reads stay retryable", async () => {

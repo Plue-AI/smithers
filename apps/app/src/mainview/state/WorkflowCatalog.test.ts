@@ -71,7 +71,7 @@ test("a repository flow uses the same box prerequisite instead of a transient re
     const outcome = await controller.commands.run("flow.run", `checks/fast ${repo}`)
     expect(outcome.status).toBe("executed")
     expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
-      flow: "box.open", via: "user", draft: { repo }
+      flow: "branch", via: "user", draft: { repo }
     } })
     expect(store.session().surface).toBe("chat")
     expect(calls).toEqual([])
@@ -84,7 +84,7 @@ test("an explicit unlisted repository stays the box form's repository, not its b
     const other = "someone/else"
     expect((await controller.commands.run("flow.run", `review ${other}`)).status).toBe("executed")
     expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: {
-      flow: "box.open", via: "user", draft: { repo: other }
+      flow: "branch", via: "user", draft: { repo: other }
     } })
     const form = store.collections.cards.get("form-box.open")
     if (form?.kind === "flow-form") expect(form.payload.draft).not.toHaveProperty("bookmark")
@@ -97,7 +97,7 @@ test("an agent flow.run with no box keeps the refusal and cannot render a human 
   try {
     const outcome = await controller.commands.runForAgent("flow.run", `checks/fast ${repo}`)
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toContain("Open a box")
+    if (outcome.status === "failed") expect(outcome.error).toContain("No branch is available")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
@@ -107,9 +107,9 @@ test("explicit plan offers a box form while direct background planning keeps its
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     expect((await controller.commands.run("flow.plan", `checks/fast ${repo}`)).status).toBe("executed")
-    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", via: "user", draft: { repo } } })
+    expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "branch", via: "user", draft: { repo } } })
     await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
-    expect(await controller.planFlow("checks/fast", repo)).toContain("Open a box")
+    expect(await controller.planFlow("checks/fast", repo)).toContain("No branch is available")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
     expect(calls).toEqual([])
   } finally { await controller.dispose() }
@@ -120,7 +120,7 @@ test("agent planning refuses a missing box without a human form", async () => {
   try {
     const plan = await controller.commands.runForAgent("flow.plan", `checks/fast ${repo}`)
     expect(plan.status).toBe("failed")
-    if (plan.status === "failed") expect(plan.error).toContain("Open a box")
+    if (plan.status === "failed") expect(plan.error).toContain("No branch is available")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
   } finally { await controller.dispose() }
 })
@@ -129,7 +129,7 @@ test("Review a PR records unavailable host delivery; the agent only requests con
   const { controller, store, calls } = await fixture({ boxStatus: "none" })
   try {
     // The form carries the review it continues (#3119), so its card is scoped to that act.
-    const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "box.open")
+    const boxForms = () => [...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.flow === "branch")
     expect(await controller.commands.run("review", `4 ${repo}`)).toMatchObject({ status: "executed", value: "Requested" })
     await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.title === "Review" && toast.status === "failed"))
     expect(boxForms()).toEqual([])
@@ -158,7 +158,7 @@ test("explicit issue flow inspection and launch offer the existing box form", as
       payload: { number: 9, repo, title: "A bug", state: "open", author: "ada", issueBody: "Details", labels: [], comments: [] } } }).isPersisted.promise
     for (const name of ["issue.flows", "issue.repro", "issue.poc"] as const) {
       expect((await controller.commands.run(name, `9 ${repo}`)).status).toBe("executed")
-      expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "box.open", draft: { repo } } })
+      expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { flow: "branch", draft: { repo } } })
       await store.dispatch({ type: "card.removed", actor: "user", id: "form-box.open" }).isPersisted.promise
     }
     const agent = await controller.commands.runForAgent("issue.repro", `9 ${repo}`)
@@ -177,7 +177,7 @@ test("direct issue controller calls keep no-box refusal semantics and create no 
     for (const result of [
       await controller.inspectIssueFlows(9, repo),
       await controller.runIssueFlow("repro", 9, repo)
-    ]) expect(result).toContain("Open a box")
+    ]) expect(result).toContain("No branch is available")
     expect(store.collections.cards.get("form-box.open")).toBeUndefined()
   } finally { await controller.dispose() }
 })

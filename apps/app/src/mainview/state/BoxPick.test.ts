@@ -159,7 +159,7 @@ test("a retained PR review uses the canonical admission once and stays consumed 
   await waitFor(() => store.session().reviewRequests?.some(request => request.state === "failed") ?? false)
   expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
   expect(store.collections.cards.get(formId)).toMatchObject({ status: "acted", payload: {
-    afterBox: { consumed: true } } })
+    flow: "branch", given: { repo: REPO, operation: "workspace-open" }, afterBox: { consumed: true } } })
   expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
   expect(calls.filter(path => path === "/api/reviews")).toHaveLength(1)
   expect(calls.filter(path => path === `/api/repos/${REPO}`)).toHaveLength(0)
@@ -239,7 +239,7 @@ for (const act of [
   expect(outcome).toEqual({ status: "executed", value: `Open a box for ${REPO}, then retry ${act.label} once it is ready.` })
   expect(store.collections.cards.get(formId)).toMatchObject({ kind: "flow-form",
     title: `Open a box for ${REPO}, then retry ${act.label} once it is ready`,
-    payload: { flow: "box.open", via: "user", draft: { repo: REPO } } })
+    payload: { flow: "branch", via: "user", draft: { repo: REPO } } })
   expect(store.session().activeRepoKey).toBe(REPO)
   expect(inboxRequests(store)).toEqual([])
   expect([...store.collections.cards.values()].filter(card => card.kind === "run-list")).toEqual([])
@@ -257,7 +257,7 @@ for (const flow of ["approvals.list", "runs.list"] as const) test(`${flow} agent
   const controller = createAppController(store, silentAgent, relay.services)
   const outcome = await controller.commands.runForAgent(flow === "approvals.list" ? "runs" : flow, flow === "approvals.list" ? runsArgs("approval-list", REPO) : REPO)
   expect(outcome.status).toBe("failed")
-  if (outcome.status === "failed") expect(outcome.error).toContain(`Open a box of ${REPO} first`)
+  if (outcome.status === "failed") expect(outcome.error).toContain(`No branch is available for ${REPO}`)
   expect(store.collections.cards.get(`form-box.open-${flow}`)).toBeUndefined()
   expect(inboxRequests(store)).toEqual([])
   expect(relay.calls).toEqual([])
