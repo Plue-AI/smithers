@@ -1,11 +1,15 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,12 +17,14 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -66,7 +72,8 @@ func newTranscriptImportFixture(t *testing.T) *transcriptImportFixture {
 		if u.ID == alice.ID {
 			permission = "write"
 		}
-		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,$3)`, repo.ID, u.ID, permission)
+		// Each member has the machine login a terminal session is opened under.
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login) VALUES($1,$2,$3,$4)`, repo.ID, u.ID, permission, u.Username)
 		require.NoError(t, err)
 	}
 	session := func(u db.User) string {
@@ -125,4 +132,69 @@ func newTranscriptImportFixture(t *testing.T) *transcriptImportFixture {
 	fixture.authority, err = fixture.registry.MintBoot(fixture.branch.ID, "vm-external")
 	require.NoError(t, err)
 	return fixture
+}
+
+// deliverTranscript writes one framed record on the authenticated link as the
+// daemon would and returns the frame the host answered with, or the error when
+// the host closed the link instead of settling the record.
+func deliverTranscript(peer net.Conn, seq *uint64, record wire.Transcript, replayOf ...[16]byte) (machined.AckOutcome, [16]byte, error) {
+	payload, err := wire.EncodeTranscript(record)
+	if err != nil {
+		return 0, [16]byte{}, err
+	}
+	*seq++
+	event := machined.Event{Seq: *seq, EventID: [16]byte(uuid.New()), Payload: payload}
+	if len(replayOf) == 1 {
+		event.EventID = replayOf[0]
+	}
+	if err = wire.Write(peer, transcriptEventFrame(event)); err != nil {
+		return 0, event.EventID, err
+	}
+	frame, err := wire.Read(peer)
+	if err != nil {
+		return 0, event.EventID, err
+	}
+	if frame.Kind != wire.Events || len(frame.Payload) == 0 || frame.Payload[0] != 3 {
+		return 0, event.EventID, fmt.Errorf("the host answered a transcript with frame %d", frame.Kind)
+	}
+	fields, err := wire.Fields("ack", frame.Payload[1:])
+	if err != nil {
+		return 0, event.EventID, err
+	}
+	if !bytes.Equal(fields[1], wire.U64(*seq)) || len(fields[2]) != 1 {
+		return 0, event.EventID, errors.New("the host acknowledged another event")
+	}
+	return machined.AckOutcome(fields[2][0]), event.EventID, nil
+}
+
+// externalMessage is the read-only message a member's browser receives for an
+// imported entry: the fields a viewer sees and the ones that say whose it is.
+type externalMessage struct {
+	Origin      string `json:"origin"`
+	ReadOnly    bool   `json:"read_only"`
+	Role        string `json:"role"`
+	Text        string `json:"text"`
+	Status      string `json:"status"`
+	Agent       string `json:"agent_kind"`
+	Profile     string `json:"format_version"`
+	SourceID    string `json:"source_id"`
+	Participant string `json:"participant_id"`
+	Actor       struct {
+		Kind      string `json:"kind"`
+		Login     string `json:"login"`
+		Agent     string `json:"agent"`
+		ForMember struct {
+			Login string `json:"login"`
+		} `json:"for_member"`
+	} `json:"actor"`
+}
+
+// history reads the branch conversation as one signed-in member's browser does.
+func (f *transcriptImportFixture) history(t *testing.T, cookie string) []externalMessage {
+	t.Helper()
+	var conversation struct {
+		Entries []externalMessage `json:"entries"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(f.call("GET", "/api/conversations/"+f.branch.ID, "", cookie, 200)), &conversation))
+	return conversation.Entries
 }

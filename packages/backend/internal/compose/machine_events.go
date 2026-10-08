@@ -38,7 +38,20 @@ func machineBurstObservations(metrics *routes.SmithersMetrics, registry *machine
 	return bursts.Inc
 }
 
+// bindMachineEvents is the install's event pump without transcript import: a
+// transcript record on it is refused as unavailable before any read or write.
 func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), notes *machined.OutsideChangeNotes, moved ...*services.MythicalService) (func(), error) {
+	return machineEvents{}.bind(ctx, registry, pool, host, observeCommitted, notes, moved...)
+}
+
+// machineEvents is what the install's one durable-event consumer writes with.
+type machineEvents struct {
+	// Transcripts imports a member's external agent session (ADR 0004 variant
+	// 5). Nil leaves that import unavailable; every other event is unaffected.
+	Transcripts *TranscriptIngest
+}
+
+func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), notes *machined.OutsideChangeNotes, moved ...*services.MythicalService) (func(), error) {
 	if registry == nil {
 		return func() {}, nil
 	}
@@ -68,6 +81,16 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 				return moved[0].PrepareStoredMovedOffEvent(link.Machine(), func(ctx context.Context, tx pgx.Tx, raw json.RawMessage) (json.RawMessage, error) {
 					return machineMovedActor(ctx, tx, raw, colors)
 				})(ctx, tx, branch, event)
+			}
+			if len(event.Payload) > 0 && event.Payload[0] == 5 {
+				if m.Transcripts == nil {
+					return nil, machined.ErrNotReady
+				}
+				// Each record's owner comes from this link's own boot: the
+				// session receipts of another boot never answer for it.
+				transcripts := *m.Transcripts
+				transcripts.Resolve = installTranscriptSource(link)
+				return transcripts.Write, nil
 			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
 				return nil, machined.ErrNotReady

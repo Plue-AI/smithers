@@ -39,12 +39,12 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	draft := chat.ExternalDraft{ID: "literal-source-offset-0", SourceID: "claude-message-1", Origin: "external", ReadOnly: true, Agent: "claude-code", Profile: "claude-code/2.1.0", Session: "1", Participant: "01000000-0000-0000-0000-000000000000", Owner: fmt.Sprint(ben.ID), Author: "01000000-0000-0000-0000-000000000000", Kind: "assistant", Body: json.RawMessage(`"The answer is 42"`)}
 	fail := true
 	bindings := map[[16]byte]TranscriptBinding{}
-	writer := &TranscriptIngest{Store: store, Resolve: func(_ context.Context, _ pgx.Tx, _ string, session uint32, participant, source [16]byte) (TranscriptBinding, error) {
+	writer := &TranscriptIngest{Store: store, Resolve: func(_ context.Context, _ pgx.Tx, _ string, record wire.Transcript) (TranscriptBinding, error) {
 		if len(bindings) == 0 {
 			return sessionBinding, nil
 		}
-		binding, ok := bindings[source]
-		if !ok || binding.Session != session || binding.Participant != participant {
+		binding, ok := bindings[record.Source]
+		if !ok || binding.Session != record.Session || binding.Participant != record.Participant {
 			return TranscriptBinding{}, machined.ErrUnauthorized
 		}
 		return binding, nil
@@ -134,13 +134,34 @@ func TestExternalImportCommitReplay(t *testing.T) {
 		require.ErrorIs(t, err, machined.ErrNotReady)
 	}
 	ingestor.Write = writer.Write
+	// A record that can never be imported settles as rejected: its receipt
+	// commits with nothing else, so the daemon's outbox moves past it instead
+	// of replaying it in front of every other event on the branch. applied
+	// counts what was imported; rejected counts what was settled and dropped.
+	settled := func(outcome string) (count int) {
+		t.Helper()
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE outcome=$1`, outcome).Scan(&count))
+		return
+	}
+	rejected := 0
+	requireRejected := func(t *testing.T) {
+		t.Helper()
+		ack, err := ingestor.Commit(ctx, connection, branch.ID, event)
+		require.NoError(t, err)
+		require.Equal(t, machined.Acknowledgement{Seq: event.Seq, Outcome: machined.AckRejected}, ack)
+		rejected++
+		require.Equal(t, rejected, settled("rejected"))
+		// The same event again is the same settled answer, not a second receipt.
+		ack, err = ingestor.Commit(ctx, connection, branch.ID, event)
+		require.NoError(t, err)
+		require.Equal(t, machined.AckRejected, ack.Outcome)
+		require.Equal(t, rejected, settled("rejected"))
+	}
 	sessionBinding.Live = false
 	event.Seq++
 	event.EventID[0]++
-	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
-	require.ErrorIs(t, err, machined.ErrUnauthorized)
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
-	require.Equal(t, 2, receipts)
+	requireRejected(t)
+	require.Equal(t, 2, settled("applied"))
 	// A live source pins all identity fields and its adapter release. Forged
 	// bindings refuse at authenticated ingestion before the host sees bytes.
 	sessionBinding.Live = true
@@ -166,11 +187,9 @@ func TestExternalImportCommitReplay(t *testing.T) {
 			tc.alter(&sessionBinding)
 			event.Seq++
 			event.EventID[0]++
-			_, err := ingestor.Commit(ctx, connection, branch.ID, event)
-			require.ErrorIs(t, err, machined.ErrUnauthorized)
+			requireRejected(t)
 			require.Zero(t, normalizations)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
-			require.Equal(t, 2, receipts)
+			require.Equal(t, 2, settled("applied"))
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
 			require.Equal(t, 1, entries)
 			require.JSONEq(t, shared, call("GET", "/api/conversations/"+branch.ID, "", benCookie, 200))
@@ -191,11 +210,11 @@ func TestExternalImportCommitReplay(t *testing.T) {
 			t.Cleanup(func() { _, err := pool.Exec(ctx, tc.restore, ben.ID); require.NoError(t, err) })
 			event.Seq++
 			event.EventID[0]++
-			_, err = ingestor.Commit(ctx, connection, branch.ID, event)
-			require.ErrorIs(t, err, chat.ErrForbidden)
+			// The removed owner's record is dropped; what was already shared stays.
+			requireRejected(t)
 			require.Zero(t, normalizations)
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
-			require.Equal(t, 2, receipts)
+			require.Equal(t, 2, settled("applied"))
+			require.JSONEq(t, shared, call("GET", "/api/conversations/"+branch.ID, "", aliceCookie, 200))
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
 			require.Equal(t, 1, entries)
 		})
@@ -243,9 +262,10 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	event.Payload = payload
 	event.Seq++
 	event.EventID[0]++
-	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
-	require.ErrorIs(t, err, chat.ErrConflict)
+	requireRejected(t)
 	require.Equal(t, 2, adapter.calls)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE transcript_checkpoint IS NOT NULL`).Scan(&receipts))
+	require.Equal(t, 3, receipts, "a changed record must not replace or add a checkpoint")
 
 	// Replacement resets adapter state. Once a newer generation commits,
 	// delayed old-generation records may replay an existing range, but cannot
@@ -278,15 +298,21 @@ func TestExternalImportCommitReplay(t *testing.T) {
 			event.EventID[0]++
 			beforeHistory := call("GET", "/api/conversations/"+branch.ID, "", benCookie, 200)
 			// Drive the refusal through authenticated daemon transport, not a
-			// direct store call. A failed transaction must not acknowledge it.
+			// direct store call. The daemon reads a rejection: the record left
+			// its outbox, and nothing of it was imported or reached the adapter.
 			retiredLink, retiredPeer := externalTranscriptLink(t, registry, branch.ID, authority)
+			retiredCtx, stopRetired := context.WithCancel(ctx)
 			done := make(chan error, 1)
-			go func() { done <- ingestor.Dispatch(ctx, retiredLink, branch.ID) }()
+			go func() { done <- ingestor.Dispatch(retiredCtx, retiredLink, branch.ID) }()
 			require.NoError(t, retiredPeer.SetDeadline(time.Now().Add(3*time.Second)))
 			require.NoError(t, wire.Write(retiredPeer, transcriptEventFrame(event)))
-			_, err = wire.Read(retiredPeer)
-			require.Error(t, err, "retired source received an acknowledgment")
-			require.ErrorIs(t, <-done, chat.ErrCursorConflict)
+			ack, err := wire.Read(retiredPeer)
+			require.NoError(t, err, "a retired source must settle, not hang the branch's link")
+			require.Equal(t, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, []byte{byte(machined.AckRejected)}))}, ack)
+			stopRetired()
+			<-done
+			rejected++
+			require.Equal(t, rejected, settled("rejected"))
 			require.Equal(t, 3, adapter.calls)
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE transcript_checkpoint IS NOT NULL`).Scan(&receipts))
 			require.Equal(t, 4, receipts)
@@ -523,7 +549,7 @@ func TestExternalImportUnavailable(t *testing.T) {
 	for _, missing := range []string{"store", "registry", "adapter", "receipt-store", "writer"} {
 		t.Run(missing, func(t *testing.T) {
 			adapter := &checkpointTestAdapter{}
-			writer := &TranscriptIngest{Store: store, Host: adapter, Resolve: func(context.Context, pgx.Tx, string, uint32, [16]byte, [16]byte) (TranscriptBinding, error) {
+			writer := &TranscriptIngest{Store: store, Host: adapter, Resolve: func(context.Context, pgx.Tx, string, wire.Transcript) (TranscriptBinding, error) {
 				t.Fatal("unavailable ingress reached registry resolution")
 				return TranscriptBinding{}, machined.ErrNotReady
 			}}

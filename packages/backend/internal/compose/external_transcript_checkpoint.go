@@ -28,6 +28,14 @@ type transcriptCheckpoint struct {
 	// its source generation. Later records of that generation are refused
 	// without reaching the adapter.
 	Stopped string `json:"stopped,omitempty"`
+	// The registration every record of this source committed under. A source
+	// is one agent process: its session, participant, profile, owner and boot
+	// never change, so a later record that names others is not this source's.
+	Session     uint32 `json:"session,omitempty"`
+	Participant string `json:"participant,omitempty"`
+	Profile     string `json:"profile,omitempty"`
+	Owner       int64  `json:"owner,omitempty"`
+	Boot        string `json:"boot,omitempty"`
 }
 
 // normalizeHost returns the record's drafts and whether the source generation
@@ -87,7 +95,8 @@ func (s *TranscriptIngest) normalizeHost(ctx context.Context, tx pgx.Tx, branch 
 	if err != nil {
 		return nil, false, err
 	}
-	checkpoint := transcriptCheckpoint{Source: source, Generation: generation, Start: record.Start, End: record.End, Hash: hash}
+	checkpoint := transcriptCheckpoint{Source: source, Generation: generation, Start: record.Start, End: record.End, Hash: hash,
+		Session: record.Session, Participant: uuid.UUID(record.Participant).String(), Profile: record.Profile, Owner: binding.Scope.UserID, Boot: binding.Boot}
 	var drafts []chat.ExternalDraft
 	if replay != nil {
 		checkpoint.State = replay.State

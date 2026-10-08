@@ -2060,7 +2060,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				}
 			}
 		}
-		stopEvents, err := bindMachineEvents(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined), outsideNotes, mythicalService)
+		// A member's own Claude Code or Codex session reaches the branch
+		// conversation through the same pump as every other machine event.
+		transcripts, err := installTranscripts(pool, options.ChatHost)
+		if err != nil {
+			return fmt.Errorf("compose transcript import: %w", err)
+		}
+		stopEvents, err := machineEvents{Transcripts: transcripts}.bind(ctx, options.Machined, pool, repoHostClient, machineBurstObservations(smithersMetrics, options.Machined), outsideNotes, mythicalService)
 		if err != nil {
 			return fmt.Errorf("bind machine events: %w", err)
 		}

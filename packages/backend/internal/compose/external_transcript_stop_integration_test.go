@@ -15,15 +15,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countingTranscriptAdapter is the packaged TypeScript adapter with a call count.
+// countingTranscriptAdapter is the packaged TypeScript host with a count of
+// the records it was asked to normalize.
 type countingTranscriptAdapter struct {
-	host  *chat.HTTPChatHost
+	*chat.HTTPChatHost
 	calls int
 }
 
 func (a *countingTranscriptAdapter) NormalizeExternalTranscript(ctx context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
 	a.calls++
-	return a.host.NormalizeExternalTranscript(ctx, input)
+	return a.HTTPChatHost.NormalizeExternalTranscript(ctx, input)
 }
 
 // A transcript the adapter does not read stops that source and says so in the
@@ -33,15 +34,15 @@ func (a *countingTranscriptAdapter) NormalizeExternalTranscript(ctx context.Cont
 func TestExternalImportStopsUnreadSource(t *testing.T) {
 	fixture := newTranscriptImportFixture(t)
 	pool, ctx, branch := fixture.pool, t.Context(), fixture.branch.ID
-	adapter := &countingTranscriptAdapter{host: packagedTranscriptHost(t)}
+	adapter := &countingTranscriptAdapter{HTTPChatHost: packagedTranscriptHost(t)}
 	scope := chat.Scope{RepositoryID: fixture.repo.ID, UserID: fixture.ben.ID, Owner: "ben"}
 	profiles := map[[16]byte]string{}
-	writer := &TranscriptIngest{Store: fixture.store, Host: adapter, Resolve: func(_ context.Context, _ pgx.Tx, _ string, session uint32, participant, source [16]byte) (TranscriptBinding, error) {
-		profile, ok := profiles[source]
+	writer := &TranscriptIngest{Store: fixture.store, Host: adapter, Resolve: func(_ context.Context, _ pgx.Tx, _ string, record wire.Transcript) (TranscriptBinding, error) {
+		profile, ok := profiles[record.Source]
 		if !ok {
 			return TranscriptBinding{}, machined.ErrUnauthorized
 		}
-		return TranscriptBinding{Scope: scope, Session: session, Participant: participant, Source: source, Profile: profile, Live: true}, nil
+		return TranscriptBinding{Scope: scope, Session: record.Session, Participant: record.Participant, Source: record.Source, Profile: profile, Live: true}, nil
 	}}
 	ingestor := &machined.Ingestor{Pool: pool, Write: writer.Write}
 	link, peer := externalTranscriptLink(t, fixture.registry, branch, fixture.authority)
@@ -59,48 +60,12 @@ func TestExternalImportStopsUnreadSource(t *testing.T) {
 		id := [16]byte{source, 9}
 		profiles[id] = profile
 		end := start + uint64(len(record)) + 1
-		payload, err := wire.EncodeTranscript(wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{source, 7}, Source: id, Profile: profile, Generation: generation, Start: start, End: end, Record: record})
-		require.NoError(t, err)
-		seq++
-		event := machined.Event{Seq: seq, EventID: [16]byte(uuid.New()), Payload: payload}
-		if len(replayOf) == 1 {
-			event.EventID = replayOf[0]
-		}
-		require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
-		frame, err := wire.Read(peer)
+		outcome, event, err := deliverTranscript(peer, &seq, wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{source, 7}, Source: id, Profile: profile, Generation: generation, Start: start, End: end, Record: record}, replayOf...)
 		require.NoError(t, err, "the link closed instead of settling the record")
-		require.Equal(t, wire.Events, frame.Kind)
-		require.Equal(t, byte(3), frame.Payload[0])
-		fields, err := wire.Fields("ack", frame.Payload[1:])
-		require.NoError(t, err)
-		require.Equal(t, wire.U64(seq), fields[1])
-		return machined.AckOutcome(fields[2][0]), event.EventID, end
+		return outcome, event, end
 	}
-	type message struct {
-		Origin   string `json:"origin"`
-		ReadOnly bool   `json:"read_only"`
-		Role     string `json:"role"`
-		Text     string `json:"text"`
-		Status   string `json:"status"`
-		Agent    string `json:"agent_kind"`
-		Profile  string `json:"format_version"`
-		SourceID string `json:"source_id"`
-		Actor    struct {
-			Kind      string `json:"kind"`
-			Agent     string `json:"agent"`
-			ForMember struct {
-				Login string `json:"login"`
-			} `json:"for_member"`
-		} `json:"actor"`
-	}
-	history := func(cookie string) []message {
-		t.Helper()
-		var conversation struct {
-			Entries []message `json:"entries"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(fixture.call("GET", "/api/conversations/"+branch, "", cookie, 200)), &conversation))
-		return conversation.Entries
-	}
+	type message = externalMessage
+	history := func(cookie string) []message { return fixture.history(t, cookie) }
 	receipts := func(where string) (count int) {
 		t.Helper()
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE `+where).Scan(&count))
@@ -130,7 +95,7 @@ func TestExternalImportStopsUnreadSource(t *testing.T) {
 		require.Equal(t, "kept before the stop", entries[0].Text)
 		stopped := entries[1]
 		require.Equal(t, message{Origin: "external", ReadOnly: true, Role: "smithers", Text: "Session transcript line 3 could not be read.", Status: "failed",
-			Agent: "codex", Profile: "codex-rollout/0.160", SourceID: stoppedSource + ":3", Actor: stopped.Actor}, stopped)
+			Agent: "codex", Profile: "codex-rollout/0.160", SourceID: stoppedSource + ":3", Participant: uuid.UUID([16]byte{1, 7}).String(), Actor: stopped.Actor}, stopped)
 		require.Equal(t, "agent", stopped.Actor.Kind)
 		require.Equal(t, "codex", stopped.Actor.Agent)
 		require.Equal(t, "ben", stopped.Actor.ForMember.Login)
