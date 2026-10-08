@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -280,4 +281,48 @@ func testFaultK4bHostConnectionCut(t *testing.T) {
 		t.Logf("K4b branch=%s event=%s burst=%s path=%s versions=%s after_sha256=%s", branch, uuid.UUID(e.event.EventID), e.burst, e.path, e.versions, e.digest)
 	}
 	t.Logf("K4b outage=%s events=50 files=50 receipts=50 duplicate_replays=2 host_restarts=0 scope=host-boundary", time.Since(cutAt))
+}
+
+// C-DUR-04 K7's ticket entry points reuse the real installed-daemon/composed
+// router driver. Importing compose here would create a production package
+// cycle, so the external Go runner is the boundary. No scripted guest or
+// second document implementation is introduced. VM/broker acceptance remains
+// a separate reference-host qualification.
+func TestFaultK7DaemonRecovery(t *testing.T) {
+	selector := "^TestLiveCodeDocumentDaemonKillPoints$"
+	if selected := os.Getenv("SMITHERS_K7_CASE"); selected != "" {
+		valid := false
+		for _, point := range []string{"K7a", "K7b", "K7c", "K7d"} {
+			for run := 1; run <= 10; run++ {
+				if selected == fmt.Sprintf("%s/%d", point, run) {
+					selector += fmt.Sprintf("/^%s$/^%d$", point, run)
+					valid = true
+				}
+			}
+		}
+		require.True(t, valid, "SMITHERS_K7_CASE must name K7a-d and run 1-10")
+	}
+	runFaultK7ComposedInstall(t, selector)
+}
+
+func TestFaultK7NewEpochRecovery(t *testing.T) {
+	runFaultK7ComposedInstall(t, "^TestLiveCodeDocumentNewEpochRecovery$")
+}
+
+func runFaultK7ComposedInstall(t *testing.T, selector string) {
+	t.Helper()
+	if testing.Short() || os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY") == "" {
+		t.Skip("requires the real installed daemon test binary and Linux namespace or reference-host providers")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "go", "test", "-p", "4", "../compose", "-run", selector, "-count=1", "-timeout=14m", "-v")
+	// Cancellation reaps only this runner's process group, including its
+	// nested Go test and disposable non-root guest, not another lane's work.
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error { return syscall.Kill(-command.Process.Pid, syscall.SIGTERM) }
+	command.WaitDelay = 5 * time.Second
+	output, err := command.CombinedOutput()
+	t.Logf("production composed install driver:\n%s", output)
+	require.NoError(t, err, "K7 qualification failed through the real /api/live install router")
 }

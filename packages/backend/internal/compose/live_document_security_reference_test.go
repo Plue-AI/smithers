@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bufio"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -145,6 +146,10 @@ func TestLiveDocumentConfinement(t *testing.T) {
 
 func TestLiveDocumentBrokerInputs(t *testing.T) {
 	f := liveDocumentReferenceMachine(t)
+	f.command(t, `printf 'live broker document\n' > retry.ts`)
+	document, err := f.registry.OpenDocument(f.r.ctx, f.branch, "retry.ts", f.actor)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = document.Close() })
 	link, err := f.registry.Current(f.branch)
 	require.NoError(t, err)
 	sessions := machined.NewSessions(link.Connection, f.branch, f.registry.Sessions(f.branch)).WithActor(f.actor, "").WithPresenceVia("terminal")
@@ -174,12 +179,30 @@ func TestLiveDocumentBrokerInputs(t *testing.T) {
 	for _, group := range strings.Fields(lines[2]) {
 		require.NotEqual(t, "0", group)
 	}
+	// Keep an authorized member process alive through the real freeze/thaw,
+	// rather than qualifying a broker whose session census is already empty.
+	probe, err := sessions.OpenExec(f.r.ctx, f.ben, []string{"/bin/sh", "-c", `printf 'READY\n'; IFS= read -r word; test "$word" = THAWED || exit 1; printf 'THAWED\n'`})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = probe.Close() })
+	reader := bufio.NewReader(probe.Stdout())
+	ready, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "READY\n", ready)
 	// Capture/rewrite drives the installed freeze/thaw dispatch, with its fixed
 	// cgroup subtree; no caller-controlled cgroup path is accepted by the API.
 	capture, err := f.registry.Capture(f.r.ctx, f.branch)
 	require.NoError(t, err)
 	_, err = f.registry.Rebase(f.r.ctx, f.branch, f.actor, capture.Head)
 	require.NoError(t, err)
+	written, err := probe.Write([]byte("THAWED\n"))
+	require.NoError(t, err)
+	require.Equal(t, 7, written)
+	require.NoError(t, probe.CloseWrite())
+	thawed, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "THAWED\n", thawed)
+	require.NoError(t, probe.Wait())
+	require.NoError(t, probe.Close())
 }
 
 func TestLiveDocumentTrustedStartup(t *testing.T) {
