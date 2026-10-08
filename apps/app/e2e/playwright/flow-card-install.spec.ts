@@ -1,3 +1,4 @@
+import { fixtures } from "@smthrs/rpc/fixtures/Todo"
 import { expect, test, type Page } from "./browserTest"
 import { owner as cloudOwner, say } from "./spec/j1-fixtures"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
@@ -50,7 +51,6 @@ test("install flow versions retain selection across refresh and reload", async (
 })
 
 test("Source without a proposal continues after Commit and reload on the served TODO branch", async ({ page }) => {
-  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
   await owner(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
@@ -93,7 +93,6 @@ test("Source without a proposal continues after Commit and reload on the served 
 })
 
 test("Source opens the proposing TODO branch without another Draft or TODO", async ({ page }) => {
-  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
   await owner(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
@@ -130,7 +129,6 @@ test("Source opens the proposing TODO branch without another Draft or TODO", asy
 })
 
 test("proposed built-in edit displays literal diff before one ordinary TODO append", async ({ page }) => {
-  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
   await owner(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null

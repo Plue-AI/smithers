@@ -10,7 +10,7 @@ test("C-SEC-04: pre-claim Setup keeps TODO and Members controls closed", async (
   // HTTP projection only: the composed PostgreSQL tests qualify setup
   // credential validity, claim concurrency and owner permission separately.
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ status: 401,
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ status: 401,
     json: { class: "permission", code: "unauthenticated", message: "Sign in again" } }))
   const model = installFixture()
   model.github = { signed_in: false, app_installed: false }

@@ -13,7 +13,7 @@ const say = async (page: Page, text: string) => {
 // Provider doubles here do not replace the real-host GitHub/LAN qualification.
 test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation and reconnect", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     address: { listen: "mac", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] },
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })),

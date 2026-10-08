@@ -1,9 +1,11 @@
 import { controlTabKey, expect,test } from './browserTest'
+import { installConversationFixture } from './conversationFixture'
 
 test.use({ contextOptions: { reducedMotion: 'reduce' }, actionTimeout: 3_000, navigationTimeout: 10_000 })
 test.setTimeout(30_000)
 
 test('Chat Tab reaches Send and footer controls without trapping focus', async ({ page }) => {
+  await installConversationFixture(page)
   await page.goto('/')
   const chat = page.getByRole('button', { name: 'Chat', exact: true })
   await chat.click()
@@ -11,6 +13,9 @@ test('Chat Tab reaches Send and footer controls without trapping focus', async (
   const queue = page.getByRole('button', { name: 'Queue', exact: true })
   const send = page.getByTestId('composer-send')
   const mode = page.getByRole('button', { name: 'Mode: Normal', exact: true })
+  await input.fill('An earlier answer')
+  await input.press('Enter')
+  await expect(page.getByTestId('transcript')).toContainText('stub: An earlier answer')
   await input.fill('hello there')
   await page.keyboard.press(controlTabKey(page))
   await expect(queue).toBeFocused()
@@ -33,7 +38,12 @@ test('Chat Tab reaches Send and footer controls without trapping focus', async (
   await page.keyboard.press(controlTabKey(page, true))
   await expect(input).toBeFocused()
   await page.keyboard.press(controlTabKey(page, true))
-  await expect(page.locator('.smithers-transcript').getByRole('button', { name: 'Copy message' }).last()).toBeFocused()
+  const copy = page.locator('.smithers-transcript').getByRole('button', { name: 'Copy message' }).last()
+  // The activity rail and toast stack also participate in document order.
+  for (let step = 0; step < 20 && !await copy.evaluate(node => node === document.activeElement); step++) {
+    await page.keyboard.press(controlTabKey(page, true))
+  }
+  await expect(copy).toBeFocused()
 })
 
 test('switching away from Dictation stops capture without reopening Chat', async ({ page }) => {

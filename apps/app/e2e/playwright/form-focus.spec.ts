@@ -4,7 +4,7 @@ import { identityRoute } from "./identity"
 
 /*
  * THE FORM LAW meets the keyboard rule (apps/app/AGENTS.md). CT005 on live
- * main 64998e1a (2026-09-16): Cmd+K, `/file`, Enter rendered the Path
+ * main 64998e1a (2026-09-16): Cmd+K, `/files.read`, Enter rendered the Path
  * form, but the composer hid first, so document.activeElement fell to <body>
  * and Tab walked the shell instead of the field the human was asked for.
  * These run the real shell and flow; the typed text proves the focus, never

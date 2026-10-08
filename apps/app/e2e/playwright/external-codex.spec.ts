@@ -5,6 +5,16 @@ import { fillComposer } from "./composer"
  * M-38 / T-AGT-03: a Codex session run on this machine reads in the conversation through the shell's own
  * components, read-only. The host serves e2e/fixtures/codex-home as Ben Ito's (playwright.config.ts).
  */
+
+async function modelTitles(page: import("@playwright/test").Page) {
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["model.turn"], authFlow: "none", sandbox: null } }))
+  await page.route("**/api/model/stream", route => {
+    const { runId, messages } = route.request().postDataJSON()
+    const count = /This stretch holds (\d+) entries/.exec(messages[0].content)?.[1]
+    return route.fulfill({ contentType: "application/x-ndjson", body: [JSON.stringify({ runId, type: "delta", kind: "text", text: `Fast title for ${count} entries.` }), JSON.stringify({ runId, type: "done", reason: "stop" })].join("\n") })
+  })
+}
+
 const SESSION = "0199e2e0-0000-7000-8000-00000000c0de"
 /** 60 turns of an agent at work: about 550 conversation items, long enough for the timeline to zoom out (#3728). */
 const LONG = "0199e2e0-0000-7000-8000-00000000106e"
@@ -92,6 +102,7 @@ test("a long session's timeline zooms out with distance from the band, and a far
 })
 
 test("the fast model titles a long session's folded lines, marked as written, and short lines keep their own (#3732)", async ({ page }) => {
+  await modelTitles(page)
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto(`/?codex=${LONG}`)
   await expect(page.getByTestId("transcript").getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
@@ -109,6 +120,7 @@ test("the fast model titles a long session's folded lines, marked as written, an
 })
 
 test("below 1,180 px, where the timeline is hidden, no title is asked of the model (#3732)", async ({ page }) => {
+  await modelTitles(page)
   const asked: string[] = []
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/model/stream") asked.push(request.url()) })
   await page.setViewportSize({ width: 1000, height: 1000 })

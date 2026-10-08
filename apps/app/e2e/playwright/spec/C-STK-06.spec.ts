@@ -9,7 +9,7 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 // review reuse, guest execution and GitHub writes need separate backend receipts.
 test("C-STK-06: rebased evidence holds merge until checks pass and submits the displayed head", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {

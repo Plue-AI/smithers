@@ -31,7 +31,7 @@ export function fileCoeditFixture(initial = "") {
         await route.fulfill({ json: views.get(path) ?? { queue: [], instructions: [] } })
       })
       await page.route(/\/api\/conversations\/[^/]+$/, route => route.fulfill({ json: { id: "T12", entries: [] } }))
-      await page.route("**/api/user", route => route.fulfill({ json: { id: login === "Alice" ? 42 : 43, username: login.toLowerCase(), is_admin: false } }))
+      await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: login === "Alice" ? 42 : 43, username: login.toLowerCase(), is_admin: false } }))
       await page.route("**/api/branches/T12/files/retry.ts*", route => route.fulfill({ json: model() }))
       await page.routeWebSocket("**/api/live", socket => {
         let peer: typeof peers[number] | undefined

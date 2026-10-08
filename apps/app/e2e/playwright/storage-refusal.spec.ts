@@ -238,7 +238,7 @@ test("a pre-backend-stamp localStorage conversation survives boot without creati
   })
   await page.goto("/")
   await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await page.getByTestId("composer-input").fill("/agent.list")
+  await page.getByTestId("composer-input").fill("/agents")
   await page.getByTestId("composer-send").click()
   await expect(page.getByTestId("composer-input")).toHaveValue("")
   await page.getByTestId("composer-input").press("Escape")

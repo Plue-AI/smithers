@@ -5,7 +5,7 @@ import { say } from "./j1-fixtures"
 
 test("C-UI-12: Members reads and edits the install roster through its card", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "will", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "will", is_admin: false } }))
   const member = (login: string, role: string, color_index: number) => ({ login, name: login, role, color_index,
     avatar_url: "https://github.com/avatar.png", needs_access: false, suspended: false, actions: [] })
   let members = [member("will", "owner", 0), member("ben", "maintainer", 1)]

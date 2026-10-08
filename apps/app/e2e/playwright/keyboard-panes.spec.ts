@@ -41,8 +41,8 @@ test('edit a Vim buffer and navigate back to the workspace without closing its d
   const navigation = page.locator('.keyboard-pane-number').filter({ hasText: /^0 Navigation$/ })
   const index = await navigation.locator('kbd').textContent()
   await page.keyboard.press(index!)
-  // Signed in, the header carries no account chrome, so the Navigation pane takes focus itself.
-  await expect(page.locator('header.session-navigation[data-keyboard-pane="Navigation"]')).toBeFocused()
+  // Navigation enters the branch control while preserving the Chat draft.
+  await expect(page.locator('header.session-navigation[data-keyboard-pane="Navigation"]').getByRole('button', { name: 'main', exact: true })).toBeFocused()
   await expect(input).toBeVisible()
   await expect(input).toHaveValue('alpha beta')
   await page.keyboard.press('Control+b')

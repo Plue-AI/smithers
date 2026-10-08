@@ -10,7 +10,7 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 export async function recoveryFixture(page: Page, model: TodoCard, run?: MonitorCard) {
   model.owner = { login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png" }
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {

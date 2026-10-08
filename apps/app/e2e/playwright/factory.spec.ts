@@ -363,7 +363,7 @@ test("the drawer's In tab: memory in and withheld, the box it runs on, and the s
   ] }))
   await boot(page)
   // The box's card names it; the secrets card lists the names its sessions may use (never values).
-  await command(page, `/box.view ${FIXTURE_BOX}`)
+  await command(page, `/branch ${JSON.stringify({ operation: "workspace-view", workspaceId: FIXTURE_BOX })}`)
   await expect(page.getByTestId(`card-branch:${FIXTURE_BOX}`)).toContainText(BOX_NAME, { timeout: 15_000 })
   await command(page, `/secrets.list ${REPO}`)
   await expect(page.locator('[data-kind="secrets"]')).toContainText("NPM_TOKEN", { timeout: 15_000 })

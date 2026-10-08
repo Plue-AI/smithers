@@ -7,7 +7,7 @@ import { installFixture } from "../../../src/mainview/state/seams/InstallFixture
 // Composed backend tests separately qualify stream admission and persisted health.
 test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,
       role: "owner", needs_access: false, suspended: false, actions: [] }],

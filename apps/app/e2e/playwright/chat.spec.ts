@@ -1,3 +1,4 @@
+import { installConversationFixture } from "./conversationFixture"
 import { expect,test,type Page } from "./browserTest"
 
 // The summoned composer is transparent around its card and dismisses to the
@@ -102,6 +103,7 @@ test.skip(process.env.SMITHERS_CHAT_STUB === "0", "the stub suite; chat.real.spe
 
 
 test("typing 'say ok' and sending renders the stub reply", async ({ page }) => {
+  await installConversationFixture(page)
   await page.goto("/")
   const input = page.getByTestId("composer-input")
   await expect(input).toBeHidden()
@@ -130,19 +132,20 @@ for (const path of ["/", "/smithersai/smithers/"]) {
     }
   })
 
-  test(`/help displays an unknown-flow refusal and keeps the draft: ${path}`, async ({ page }) => {
+  test(`/unlisted-flow displays an unknown-flow refusal and keeps the draft: ${path}`, async ({ page }) => {
     let turns = 0
     page.on('request', request => { if (request.method() === 'POST' && /\/api\/(?:agent|chat)\/turn/.test(request.url())) turns++ })
     await page.goto(path)
     await page.getByRole('button', { name: 'Chat', exact: true }).click()
-    await page.keyboard.type('/help')
+    await page.keyboard.type('/unlisted-flow')
     await page.keyboard.press('Enter')
-    await expect(page.getByTestId('palette')).toContainText('There is no /help flow.')
-    await expect(page.getByTestId('composer-input')).toHaveValue('/help')
+    await expect(page.getByTestId('palette')).toContainText('There is no /unlisted-flow flow.')
+    await expect(page.getByTestId('composer-input')).toHaveValue('/unlisted-flow')
     expect(turns).toBe(0)
   })
 
   test(`keyboard chat sends a turn and Shift+Enter inserts a newline: ${path}`, async ({ page }) => {
+    await installConversationFixture(page)
     await page.goto(path)
     await expect(page.getByRole("button", { name: "Mode: Normal", exact: true })).toBeVisible()
     await page.keyboard.press("Meta+k")
@@ -159,7 +162,7 @@ for (const path of ["/", "/smithersai/smithers/"]) {
 
     const draft = "What does this repository do? Answer in two sentences."
     await input.fill(draft)
-    const turn = page.waitForRequest(request => request.method() === "POST" && /\/api\/(?:agent|chat)\/turn(?:\?|$)/.test(request.url()), { timeout: 5_000 })
+    const turn = page.waitForRequest(request => request.method() === "POST" && /\/api\/conversations\/main\/prompt(?:\?|$)/.test(request.url()), { timeout: 5_000 })
     await input.press("Enter")
     await turn
     const reply = page.locator('.smithers-chat-message[data-role="assistant"]', { hasText: `stub: ${draft}` })

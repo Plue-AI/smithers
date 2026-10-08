@@ -30,6 +30,7 @@ test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palet
   await page.goto("/")
   await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   const command = async (line: string) => {
+    if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("ControlOrMeta+k")
     await fillComposer(page, line)
     await page.getByTestId("composer-send").press("Enter")
     await expect(page.getByTestId("composer-input")).toHaveValue("")
@@ -48,6 +49,7 @@ test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palet
   await page.keyboard.press("Meta+k")
   await expect(page.getByTestId("palette")).toBeVisible()
   await page.keyboard.press("Escape")
+  await expect(page.getByTestId("palette")).toBeHidden()
   await command("/terminal.watch term-retry-1")
   const watched = page.locator(".terminal-view").last()
   await expect(watched.getByRole("status")).toHaveText("Watching")

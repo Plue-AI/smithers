@@ -94,7 +94,7 @@ for (const secure of [true, false]) test(`C-UI-03 notifications: ${secure ? "loc
     lanes: [{ index: 0, state: "idle" }], limits: { maxParallel: 1 }
   } }))
   await page.route("**/api/repos/smithersai/smithers/mythical/events", route => route.fulfill({ contentType: "text/event-stream", body: ": keepalive\n\n" }))
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
   let t3: TodoCard = { ...fixtures.working.model, n: 3, title: "T3 questions" }
   let t4: TodoCard = { ...fixtures.working.model, n: 4, title: "T4 retry" }
   const topics = new Map<string, { id: number; cursor: number; send: (raw: string) => void }>()

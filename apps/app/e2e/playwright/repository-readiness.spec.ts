@@ -17,7 +17,7 @@ test("a cold catalog request survives reload and keeps progress through its boun
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/user", identityRoute(null))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
   await page.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   let releaseCatalog!: () => void
   const catalog = new Promise<void>(resolve => { releaseCatalog = resolve })
@@ -36,8 +36,8 @@ test("a cold catalog request survives reload and keeps progress through its boun
   })
   await page.goto("/alpha/one/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await command(page, "/files.read /alpha/one/README.md")
-  await command(page, "/files.read /alpha/one/README.md")
+  await command(page, "/file /alpha/one/README.md")
+  await command(page, "/file /alpha/one/README.md")
   const waiting = page.locator('.notice[data-tone="live"]').filter({ hasText: "Loading repository" })
   await expect(waiting).toBeVisible()
   expect(reads).toBe(0)
@@ -67,7 +67,7 @@ test("a command retries an unavailable catalog in background and reconnects acro
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
     capabilities: ["identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/user", identityRoute(null))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
   await page.route("**/api/recommend", route => route.fulfill({ json: { suggestions: [] } }))
   let catalogs = 0
   let release!: () => void
@@ -88,8 +88,8 @@ test("a command retries an unavailable catalog in background and reconnects acro
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   await expect.poll(() => catalogs).toBe(1)
   await expect(page.getByText("The public repository catalog answered HTTP 503.", { exact: false }).first()).toBeVisible()
-  await command(page, "/files.read README.md alpha/one")
-  await command(page, "/files.read README.md alpha/one")
+  await command(page, "/file README.md alpha/one")
+  await command(page, "/file README.md alpha/one")
   await expect.poll(() => catalogs).toBe(2)
   await expect(page.getByText("Sign in with GitHub to continue.", { exact: true })).toHaveCount(0)
   const waiting = page.locator('.notice[data-tone="live"]').filter({ hasText: "Loading repository" })

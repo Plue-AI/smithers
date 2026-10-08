@@ -12,7 +12,7 @@ test("C-ACC-04: roster admission defaults roles and explains missing GitHub acce
   // App-boundary projection through the real Members seam. The composed
   // PostgreSQL/OAuth suite separately qualifies admission and permissions.
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "own", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "own", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   const access = "https://github.com/smithers-mvp-canary/node/settings/access"
   const member = (login: string, role: string, color_index: number) => ({ login, name: login, role, color_index,

@@ -8,7 +8,7 @@ import { say } from "./j1-fixtures"
 test("C-CUT-02: Historical titles survive verified replay and stay out of prompt admissions", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
   let login = "ben"
-  await page.route("**/api/user", route => route.fulfill({ json: { id: login === "ben" ? 1 : 2, username: login, is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: login === "ben" ? 1 : 2, username: login, is_admin: false } }))
   await page.route("**/api/branches?*", route => route.fulfill({ json: [] }))
   await page.route("**/api/agent/conversations", route => route.fulfill({ json: login === "ben" ? history.index : { status: "ok", conversations: [], next: null } }))
   await page.route("**/api/agent/conversations/replay", route => {

@@ -1,17 +1,11 @@
 import { expect, test, type Page } from "./browserTest"
-import { identityRoute, signedOutVisitor, skipSignup } from "./identity"
+import { installConversationFixture } from "./conversationFixture"
+import { fillComposer } from "./composer"
 
-/*
- * The paying path at 390 px (iPhone 12–15 width): the plans card
- * and the out-of-credit card must fit the screen. Nothing may render past the
- * viewport except inside a box that scrolls on its own (the plans table), and
- * every button a person needs is fully on screen and at least 24 px square
- * (WCAG 2.2 AA 2.5.8).
- */
+/* The self-hosted install keeps its existing controls inside a phone viewport. */
 const PHONE = { width: 390, height: 844 }
 const SHOTS = process.env.PHONE_SHOTS
 
-const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) })
 
 const overflow = (page: Page) => page.evaluate(() => {
   const viewport = document.documentElement.clientWidth
@@ -40,36 +34,22 @@ const overflow = (page: Page) => page.evaluate(() => {
 
 
 
-const plans = [
-  { key: "free", display_name: "Free", price_cents: 0, sandboxes: 1, idle: 1800, hours: 4, credit: 0 },
-  { key: "pro", display_name: "Pro", price_cents: 5000, sandboxes: 3, idle: 14400, hours: -1, credit: 5000 },
-  { key: "max", display_name: "Max", price_cents: 50000, sandboxes: 64, idle: 0, hours: -1, credit: 50000 }
-].map(plan => ({ key: plan.key, display_name: plan.display_name, price_cents: plan.price_cents, interval: "monthly",
-  checkout_available: plan.key !== "free", limits: { concurrent_sandboxes: plan.sandboxes, idle_timeout_secs: plan.idle,
-    hours_per_day: plan.hours, private_repos: -1, storage_bytes: -1, ci_minutes: -1, agent_runs: -1, seats: 1,
-    monthly_credit_cents: plan.credit } }))
-
-test("the plans card fits a 390 px phone, hides Max, and states included, remaining and reset credit", async ({ page }) => {
+// M-09 defers Cloud billing; the install's existing Home and Commands fit a phone.
+test("the install fits a 390 px phone without a billing surface", async ({ page }) => {
   await page.setViewportSize(PHONE)
-  await signedOutVisitor(page)
-  // A cloud host with a billing upstream declares its billing routes.
-  await page.route("**/api/bootstrap", route => route.fulfill(json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
-    capabilities: ["identity", "cloud", "agent", "billing.balance", "billing.overview", "billing.plans"], authFlow: "redirect", sandbox: null })))
-  await page.route("**/api/user", identityRoute("adapark"))
-  await page.route("**/api/billing/plans", route => route.fulfill(json({ plans, current_plan_key: "pro" })))
-  await page.route("**/api/billing", route => route.fulfill(json({ credit_balance_cents: 1234, usage_period_end: "2026-10-01T00:00:00Z",
-    sandbox: { plan_key: "pro", concurrent_sandboxes: 3, concurrent_in_use: 1, idle_timeout_secs: 14400, hours_per_day: -1,
-      seconds_used_today: 5400, day_resets_at: "2026-09-26T00:00:00Z" } })))
+  await installConversationFixture(page)
+  const billingReads: string[] = []
+  await page.route(/\/api\/billing(?:\/|\?|$)/, route => { billingReads.push(route.request().url()); return route.fulfill({ status: 404, json: {} }) })
   await page.goto("/")
-  await skipSignup(page)
-  const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.keyboard.press("Control+k")
-  await input.fill("/billing.plans")
-  await input.press("Enter")
-  const line = page.getByTestId("billing-credit-line")
-  await expect(line).toHaveText("Credit left: $12.34 · Included: $50.00 per month · Resets Oct 1")
-  await expect(page.getByText("Max $500.00")).toHaveCount(0)
-  await line.scrollIntoViewIfNeeded()
+  await expect(page.locator(".home")).toBeVisible()
   expect(await overflow(page)).toEqual([])
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/billing-plans.png`, fullPage: true })
+  await fillComposer(page, "/help")
+  await page.getByTestId("composer-input").press("Enter")
+  const commands = page.getByRole("article", { name: "Commands", exact: true })
+  await expect(commands).toBeVisible()
+  await expect(commands.locator("code").filter({ hasText: /^\/billing(?:[ .]|$)/ })).toHaveCount(0)
+  await expect(page.getByTestId("billing-credit-line")).toHaveCount(0)
+  expect(billingReads).toEqual([])
+  expect(await overflow(page)).toEqual([])
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/install-phone.png`, fullPage: true })
 })

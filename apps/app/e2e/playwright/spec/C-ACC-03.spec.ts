@@ -8,7 +8,7 @@ import { SETUP_STEP_IDS } from "@smthrs/rpc/SetupCard"
 // independently of roster changes. PostgreSQL/socket timing has separate receipts.
 test("C-ACC-03: removal keeps TODO history and the Owner cannot be removed", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     address: { listen: "mac", bind: "127.0.0.1", origins: ["http://localhost"] },
     steps: SETUP_STEP_IDS.map(id => ({ id, state: "done" })),
@@ -47,8 +47,11 @@ test("C-ACC-03: removal keeps TODO history and the Owner cannot be removed", asy
   await expect(owner.getByText("Owner", { exact: true })).toBeVisible()
   await expect(owner.getByRole("button", { name: "Remove", exact: true })).toHaveCount(0)
   await expect(owner.getByRole("combobox")).toHaveCount(0)
-  page.once("dialog", dialog => { expect(dialog.message()).toBe("Remove @alice?"); void dialog.accept() })
   await member.getByRole("button", { name: "Remove", exact: true }).press("Enter")
+  const confirmation = member.getByRole("alertdialog", { name: "Remove @alice?", exact: true })
+  await expect(confirmation).toBeVisible()
+  expect(deletes).toBe(0)
+  await confirmation.getByRole("button", { name: "OK", exact: true }).press("Enter")
   await expect(member).toHaveCount(0)
   expect(deletes).toBe(1)
   await page.reload()

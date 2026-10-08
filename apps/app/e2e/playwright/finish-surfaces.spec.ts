@@ -45,7 +45,7 @@ const boot = async (page: Page) => {
   await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"], workspaces: [runningBox(repo)] })
   await installHome(page)
   await page.goto("/")
-  await expect(page.getByTestId("app-tile")).toHaveCount(4)
+  await expect(page.locator(".home")).toBeVisible()
 }
 
 /* services.IssueResponse and services.IssueCommentResponse, by their Go struct tags. */

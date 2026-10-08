@@ -41,7 +41,7 @@ test.beforeEach(async ({ page }) => {
 test("frame URLs survive reload, traverse history, and preserve the card node", async ({ page }) => {
   await page.goto("/")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/agent.list")
+  await sendSlash(page, "/agents")
 
   const card = page.locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()
@@ -94,7 +94,7 @@ test("a maximized Files card reveals pointer and keyboard file navigation with B
   }))
   await page.goto("/")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/files.list / smithersai/smithers")
+  await sendSlash(page, "/files / smithersai/smithers")
 
   const listed = page.getByTestId("transcript").locator('.smithers-card[data-kind="file-list"]')
   const cardId = (await listed.getAttribute("data-testid"))?.replace(/^card-/, "")
@@ -134,7 +134,7 @@ for (const sample of [
     await sendSlash(page, "/theme")
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
   }
-  await sendSlash(page, "/agent.list")
+  await sendSlash(page, "/agents")
 
   const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   const cardId = (await card.getAttribute("data-testid"))?.replace(/^card-/, "")
@@ -190,7 +190,7 @@ test("booted from a repository path, the address bar keeps it while back and for
   const repoUrl = page.url()
   expect(new URL(repoUrl).pathname).toBe("/smithersai/smithers")
   await openWorkspaceChat(page)
-  await sendSlash(page, "/agent.list")
+  await sendSlash(page, "/agents")
 
   const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
   await expect(card).toBeVisible()

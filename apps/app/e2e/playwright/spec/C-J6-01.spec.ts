@@ -11,7 +11,7 @@ import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 test("C-J6-01: a terminal agent acts for Ben and waits for his confirmation", async ({ page }) => {
   test.fixme(true, "Reference-host terminal/packaged skill/Claude Code journey pending; served attribution slice runs below")
   await owner(page)
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
   await page.goto('/smithers-mvp-canary/node')
   await say(page, '/branch T1')
   await page.getByRole('button', { name: 'Terminal', exact: true }).last().press('Enter')
@@ -42,7 +42,7 @@ test("C-J6-01: a terminal agent acts for Ben and waits for his confirmation", as
 // installed terminal/skill/confirmation journey above still needs host evidence.
 test("C-J6-01: served delegated attribution survives reload and person actions keep their identity", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   const ben = { login: "ben", name: "Ben Carter", avatar_url: "https://example.com/ben.png" }
   const delegated = { kind: "agent" as const, id: "agent-session-terminal-ben", agent: "claude-code" as const,

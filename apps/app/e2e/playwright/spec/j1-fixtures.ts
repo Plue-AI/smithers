@@ -5,11 +5,12 @@ import { fillComposer } from "../composer"
 // Owner privilege is required by J1 setup; do not raise the shared member fixture.
 export async function owner(page: Page) {
   await installCloudFixture(page)
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
 }
 export async function say(page: Page, text: string) {
   await fillComposer(page, text)
   await page.keyboard.press("Enter")
+  await expect(page.getByTestId("composer-input")).toHaveValue("")
 }
 export const setup = (page: Page) => page.getByRole("region", { name: "Set up Smithers" })
 export async function sourceReady(page: Page) {
@@ -31,7 +32,7 @@ export async function mergeOwner(page: Page, defaultWrites: boolean[] = []) {
   await page.route("**/api/members", route => route.fulfill({ json: { members: [{ login: "benortiz", name: "Ben", avatar_url: "https://example.com/ben.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/smithers-mvp-canary/node/settings/access" } }))
   let preapproved = false
   // This action requires a maintainer; the shared browser identity has no roster role.
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "benortiz", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "benortiz", is_admin: false } }))
   await page.route("**/api/install", route => {
     if (route.request().method() === "PUT") {
       preapproved = route.request().postDataJSON().todo_preapprove_default

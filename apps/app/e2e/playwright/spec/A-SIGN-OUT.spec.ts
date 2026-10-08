@@ -17,9 +17,9 @@ test("A-SIGN-OUT: server session remains retired after reload", async ({ page })
 
 test("A-SIGN-OUT: confirmed logout returns to sign-in", async ({ page }) => {
   await signedOutVisitor(page)
-  await page.route("**/api/user", identityRoute())
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute())
   await page.route(url => url.pathname === AUTH_LOGOUT_PATH, async route => {
-    await page.route("**/api/user", identityRoute(null))
+    await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
     await route.fulfill({ status: 204 })
   })
   await page.goto("/")

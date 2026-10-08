@@ -51,7 +51,7 @@ test("C-UI-13: Setup View mounts from the install fixture", async ({ page }) => 
       { role: "jev", provider: "Vercel", key: "none" }
     ], chatgpt: false, capacity: 4
   } }))
-  await page.goto("/")
+  await page.goto("/setup")
   const setup = page.getByRole("region", { name: "Set up Smithers" })
   await expect(setup).toBeVisible()
   await expect(setup.getByRole("button", { name: "This Mac only", exact: true })).toBeEnabled()

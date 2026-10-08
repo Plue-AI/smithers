@@ -8,6 +8,6 @@ test("A-HELP: /help lists commands", async ({ page }) => {
   await say(page, "/help")
   const card = page.locator(".smithers-card").last()
   await expect(card.getByText("/help", { exact: true })).toBeVisible()
-  await expect(card.getByText("/search", { exact: true })).toBeVisible()
+  await expect(card.locator("code").filter({ hasText: /^\/search(?: |$)/ })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })

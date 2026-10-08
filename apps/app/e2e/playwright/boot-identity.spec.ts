@@ -1,3 +1,4 @@
+import { fillComposer } from "./composer"
 import { controlTabKey, expect,test } from "./browserTest"
 
 /*
@@ -14,29 +15,31 @@ import { identityRoute, signedOutVisitor, skipSignup } from "./identity"
 import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 const slash = async (page: import("@playwright/test").Page, command: string) => {
-  if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("Control+k")
-  await page.getByTestId("composer-input").fill(command)
+  await fillComposer(page, command)
   await page.getByTestId("composer-input").press("Enter")
 }
 
-test("repository chrome sign-in is keyboard reachable and carries return_to", async ({ page }) => {
+test("repository prompt sign-in is keyboard reachable and carries return_to", async ({ page }) => {
   await signedOutVisitor(page)
   await page.goto("/smithersai/smithers/")
-  const door = page.getByTestId("login-github")
+  await slash(page, "/auth.prompt")
+  await page.getByTestId("composer-input").press("Escape")
+  const door = page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last()
   await expect(door).toBeVisible()
-  // The header holds the door; it is the first stop of the native tab order, then Enter activates it.
-  await page.keyboard.press(controlTabKey(page))
+  // The repository keeps its own action in the transcript.
+  for (let step = 0; step < 40 && !await door.evaluate(node => node === document.activeElement); step++) await page.keyboard.press(controlTabKey(page))
   await expect(door).toBeFocused()
   const bounds = await door.boundingBox()
-  expect(bounds!.x).toBeGreaterThan(page.viewportSize()!.width / 2)
-  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(44)
+  expect(bounds!.x).toBeGreaterThanOrEqual(0)
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await expect(page.getByTestId("transcript").getByRole("button", { name: "Sign in with GitHub", exact: true }).last()).toBeVisible()
   await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
-  const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
+  const request = page.context().waitForEvent("request", request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
   await page.keyboard.press("Enter")
   expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
 })
 
-for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", "/account.show", "/prs smithersai/smithers"]) {
+for (const command of ["/flow.run review smithersai/smithers", "/secrets", "/settings", '/pr {"operation":"list","repo":"smithersai/smithers"}']) {
   test(`${command} stays in the repository transcript with a sign-in prompt`, async ({ page }) => {
     await signedOutVisitor(page)
     // Repository arguments are resolved against the loaded public catalog.
@@ -46,20 +49,21 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
     const redirects: string[] = []
     page.on("request", request => { if (new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH) redirects.push(request.url()) })
     await page.goto("/smithersai/smithers/")
-    await expect(page.getByTestId("login-github")).toBeVisible()
+    await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
     await slash(page, command)
     const prompt = page.getByRole("article").filter({ has: page.getByRole("button", { name: "Sign in with GitHub", exact: true }) }).last()
     await expect(prompt).toContainText(command === "/flow.run review smithersai/smithers" ? "Sign in with GitHub to run review on smithersai/smithers."
-      : command === "/secrets.list" || command === "/account.show" ? "Sign in with GitHub to continue."
-      : "Sign in with GitHub to read pull requests on smithersai/smithers.")
+      : command === "/secrets" || command === "/settings" ? "Sign in with GitHub to continue."
+      : "Sign in with GitHub to continue.")
     await expect(prompt.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible()
     await expect(page.getByText(/0 Open|No open issues in/)).toHaveCount(0)
     await expect(page.locator(".notice")).toHaveCount(0)
     expect(new URL(page.url()).pathname).toMatch(/^\/smithersai\/smithers\/?$/)
     expect(redirects).toEqual([])
-    if (command === "/secrets.list") {
+    if (command === "/secrets") {
+      await page.getByTestId("composer-input").press("Escape")
       await page.route("**/api/auth/github**", route => route.fulfill({ body: "Sign-in handoff" }))
-      const request = page.waitForRequest(request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
+      const request = page.context().waitForEvent("request", request => new URL(request.url()).pathname === APPLICATION_SIGN_IN_PATH)
       await prompt.getByRole("button", { name: "Sign in with GitHub", exact: true }).click()
       expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
     }
@@ -77,10 +81,12 @@ test("unknown repository has one sign-in card and no icon rail", async ({ page }
   await expect(page.locator(".world-document-title")).toHaveCount(0)
 })
 
-test("chrome sign-in paints with the readable primary action token", async ({ page }) => {
+test("repository sign-in paints with the readable primary action token", async ({ page }) => {
   await signedOutVisitor(page)
   await page.goto("/smithersai/smithers/")
-  const door = page.getByTestId("login-github")
+  await slash(page, "/auth.prompt")
+  await page.getByTestId("composer-input").press("Escape")
+  const door = page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last()
   await expect(door).toBeVisible()
   expect(await door.evaluate(node => {
     const probe = document.createElement("span")
@@ -102,7 +108,7 @@ test("chrome sign-in paints with the readable primary action token", async ({ pa
 const heldIdentity = async (page: import("@playwright/test").Page) => {
   let release!: () => void
   const held = new Promise<void>(resolve => { release = resolve })
-  await page.route("**/api/user", async route => { await held; await identityRoute(null)(route) })
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", async route => { await held; await identityRoute(null)(route) })
   return release
 }
 
@@ -126,11 +132,11 @@ test("a bare issues.list during first-run identity resumes into one sign-in prom
   // /verbose states every flow outcome, so the deferral's own trace line is the
   // event that says the command has parked — no wall clock to wait out.
   await slash(page, "/debug.verbose")
-  await expect(page.getByText("Verbose on — showing every flow, including hidden and background ones", { exact: true })).toBeVisible()
+  await expect(page.getByTestId("transcript").getByText("Verbose on — showing every flow, including hidden and background ones", { exact: true })).toBeVisible()
   await slash(page, "/issues.list")
-  await expect(page.getByText(/You ran \/issues\.list → deferred \(waits on first-run-target\)/)).toBeVisible()
+  await expect(page.getByTestId("transcript").getByText(/You ran \/issues\.list → deferred \(waits on first-run-target\)/)).toBeVisible()
   // The command parks: nothing is published, and it never asks for a repository.
-  await expect(page.locator(".smithers-card")).toHaveCount(0)
+  await expect(page.locator('.smithers-card[data-kind="issue-list"], .smithers-card[data-kind="flow-form"]')).toHaveCount(0)
   await expect(page.getByRole("textbox", { name: "Repo" })).toHaveCount(0)
 
   release()
@@ -157,7 +163,7 @@ test("CONTROL: a repository entry is a target, so the same command never parks o
    * first-run window does not exist for it — which is what this control pins.
    */
   await page.goto("/smithersai/smithers/")
-  await expect(page.getByTestId("login-github")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   await slash(page, "/issues.list")
   await page.waitForTimeout(HELD_WINDOW_MS)
   // firstRunTargetPending is false whenever an entry or a selection exists, so

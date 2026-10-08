@@ -109,7 +109,7 @@ test("T1: /change.view renders a landing request's change end to end", async ({ 
   await serve(page)
   await page.goto("/")
 
-  await fillComposer(page, "/change.view qupxosqw")
+  await fillComposer(page, '/diff {"operation":"change","changeId":"qupxosqw"}')
   await page.getByTestId("composer-send").click()
 
   const card = page.getByTestId("card-change-smithersai/smithers-qupxosqw")
@@ -140,7 +140,7 @@ test("T1: /change.diff renders the parent → current pair pinned at the change'
   await serve(page)
   await page.goto("/")
 
-  await fillComposer(page, "/change.diff qupxosqw")
+  await fillComposer(page, '/diff {"operation":"change-diff","changeId":"qupxosqw"}')
   await page.getByTestId("composer-send").click()
 
   const card = page.getByTestId("card-diff-smithersai/smithers-qupxosqw")
@@ -160,13 +160,13 @@ test("T1: a rev-pinned view pins the Diff facet parent → rev N; a rev the chan
   await serve(page)
   await page.goto("/")
 
-  await fillComposer(page, "/change.view qupxosqw 1")
+  await fillComposer(page, '/diff {"operation":"change","changeId":"qupxosqw","rev":1}')
   await page.getByTestId("composer-send").click()
   const card = page.getByTestId("card-change-smithersai/smithers-qupxosqw")
   await expect(card).toBeVisible({ timeout: 15_000 })
   await expect(card.getByLabel("Diff to")).toHaveValue("1")
 
-  await fillComposer(page, "/change.view qupxosqw 2")
+  await fillComposer(page, '/diff {"operation":"change","changeId":"qupxosqw","rev":2}')
   await page.getByTestId("composer-send").click()
   const toast = page.locator('.notify .notice[data-tone="failed"]')
   await expect(toast).toContainText("qupxosqw has no rev 2 — its revisions are 1 → 1.", { timeout: 15_000 })
@@ -176,7 +176,7 @@ test("T1: a degraded sign-in reads a change freely but can't dispatch an agent",
   await serve(page, { degraded: true })
   await page.goto("/")
 
-  await fillComposer(page, "/change.view qupxosqw")
+  await fillComposer(page, '/diff {"operation":"change","changeId":"qupxosqw"}')
   await page.getByTestId("composer-send").click()
   const card = page.getByTestId("card-change-smithersai/smithers-qupxosqw")
   await expect(card).toBeVisible({ timeout: 15_000 })

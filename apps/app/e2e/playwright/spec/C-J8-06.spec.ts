@@ -63,7 +63,7 @@ test("C-J8-06: generated wiki refresh retries and dismissal persist for everyone
 // and generated page publication remain the reference-host scenario above.
 test("C-J8-06: Home follows the install wiki refresh through failure and completion", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))

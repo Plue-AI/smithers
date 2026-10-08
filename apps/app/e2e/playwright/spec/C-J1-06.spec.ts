@@ -17,7 +17,7 @@ for (const [repository, checks] of [
     await installCloudFixture(page, { capabilities: ["identity", "install"], repos: [{
       owner: "smithers-mvp-canary", name: repository, full_name: fullName, default_bookmark: "main", owner_type: "User"
     }] })
-    await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+    await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
     let model: InstallModel = { ...installFixture(), repository: { owner: "smithers-mvp-canary", name: repository }, repositories: [fullName] }
     model = { ...model, steps: model.steps.map(step => step.id === "machine" ? { ...step, state: "running", pct: 20 } : step) }
     await page.route("**/api/install", route => route.fulfill({ json: model }))

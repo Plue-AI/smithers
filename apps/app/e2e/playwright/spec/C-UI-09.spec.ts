@@ -9,7 +9,7 @@ import { installCloudFixture } from "../cloudFixture"
 // macOS WebKit remains a separate receipt.
 test("C-UI-09: Bundled docs open pages and anchors through every door", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   const entries: unknown[] = []
   let cursor = 0
   const retired: string[] = []

@@ -8,7 +8,7 @@ import { owner, say } from "./j1-fixtures"
 test("C-J7-03: an unresolved rebase waits for a clean human resolution", async ({ page }) => {
   test.fixme(true, "Written before implementation: mvp.md J7.4, §4.2 Rebase, §4.1 Needs you; lands with T-STK-08, T-REL-02")
   await owner(page)
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
   await page.goto('/smithers-mvp-canary/node')
   await say(page, '/branch T2')
   await expect(page.getByText('Rebased onto main', { exact: true }).last()).toBeVisible()

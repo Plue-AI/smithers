@@ -1,9 +1,11 @@
-import { installCloudFixture } from "./cloudFixture"
+import { installConversationFixture } from "./conversationFixture"
+import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
 import { expect, test } from "./browserTest"
 
 // Projection proof over the existing durable chat fixture. This is not the
 // C-UI-07 PostgreSQL/packaged-host/SharedEntries acceptance journey.
 test("stored host preflight opens Inspect and survives reload", async ({ page }) => {
+  await installConversationFixture(page, { context: [{ kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567", reason: "Retry implementation" }] })
   await page.goto("/")
   await page.getByRole("button", { name: "Chat", exact: true }).click()
   await page.getByTestId("composer-input").fill("stub-context-preflight")
@@ -13,7 +15,7 @@ test("stored host preflight opens Inspect and survives reload", async ({ page })
   await page.getByTestId("composer-input").press("Escape")
   await context.press("Enter")
   await expect(page.locator(".context-chip").last()).toHaveAttribute("title",
-    "src/webhooks/retry.ts · 0123456789abcdef0123456789abcdef01234567 · Retry implementation")
+    "src/webhooks/retry.ts · 0123456789abcdef0123456789abcdef01234567")
   await page.getByRole("button", { name: "Inspect", exact: true }).last().press("Enter")
   const monitor = page.locator('.mvp-run[data-maximized]')
   await expect(monitor).toBeVisible()
@@ -28,9 +30,8 @@ test("stored host preflight opens Inspect and survives reload", async ({ page })
 
 
 test("Context opens a pinned wiki revision by keyboard and mouse and retains it after reload", async ({ page }) => {
-  await installCloudFixture(page)
-  await page.route("**/api/agent/**", route => route.continue())
-  await page.route("**/api/chat/**", route => route.continue())
+  await installConversationFixture(page, { context: [{ kind: "page", label: "Retries", ref: "retries", revision: "4", reason: "Retry policy" }] })
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   const writes: string[] = []
   page.on("request", request => { if (request.url().includes("/wiki") && request.method() !== "GET") writes.push(request.url()) })
   await page.route("**/api/repos/smithersai/smithers/wiki/navigation/index?*", route => route.fulfill({ json: { pages: [{
@@ -49,7 +50,10 @@ test("Context opens a pinned wiki revision by keyboard and mouse and retains it 
   await page.getByTestId("composer-input").press("Escape")
   await context.press("Enter")
   const item = page.locator('.context-chip[data-flow="wiki.page"]').last()
-  await expect(item).toHaveAttribute("title", "retries · 4 · Retry policy")
+  await expect(item).toHaveAttribute("title", "retries · 4")
+  await page.getByRole("button", { name: "Inspect", exact: true }).last().click()
+  await expect(page.locator('.mvp-run[data-maximized]')).toContainText("Retry policy")
+  await page.getByTestId("card-run:chat-0").locator('[data-flow="card.minimize"]').click()
   await item.press("Enter")
   const content = page.getByTestId("wiki-pinned-content")
   await expect(content).toContainText("Retry three times.")

@@ -76,7 +76,7 @@ test("C-UI-12 TODO: Fork and Open branch reach install providers from a REST-ser
 for (const conflict of [false, true]) test(`C-UI-12 TODO: Discard confirms the displayed outside push before the real seam submits${conflict ? "; stale answer refreshes the newer push" : ""}`, async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   // Discard is a maintainer decision; the shared fixture remains a member.
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png", role: "owner",

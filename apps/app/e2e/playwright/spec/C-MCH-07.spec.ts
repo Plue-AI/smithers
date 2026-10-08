@@ -31,7 +31,7 @@ test("C-MCH-07: New sessions receive all-branches secrets while cards keep value
 test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete", async ({ page }) => {
   const { installCloudFixture } = await import("../cloudFixture")
   await installCloudFixture(page, { capabilities: ["identity", "install", "cloud"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     address: { listen: "mac", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] },
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })),

@@ -1,8 +1,10 @@
+import { installConversationFixture } from "../conversationFixture"
 import { expect, test } from "../browserTest"
 import { say } from "./j1-fixtures"
 
 // mvp.md Appendix A: hermetic command door.
 test("A-CMD-K: ⌘K submits a plain request", async ({ page }) => {
+  await installConversationFixture(page)
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Mode: Normal", exact: true })).toBeVisible()
   await page.keyboard.press("Meta+k")

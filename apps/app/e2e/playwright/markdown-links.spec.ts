@@ -1,4 +1,4 @@
-import { controlTabKey, expect, test, type Locator, type Page } from "./browserTest"
+import { expect, test, type Page } from "./browserTest"
 import { identityRoute } from "./identity"
 
 const command = async (page: Page, line: string) => {
@@ -26,7 +26,7 @@ const markdownFixture = async (page: Page, documentPath: string, markdown: strin
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity", "cloud"], authFlow: "native-handoff", sandbox: null
   } }))
-  await page.route("**/api/user", identityRoute(null))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "alpha/one" }, { name: "beta/two" }] } }))
   await page.route(/\/api\/repos\/(alpha\/one|beta\/two)$/, route => route.fulfill({ json: { default_bookmark: "main" } }))
   await page.route(/\/api\/repos\/(alpha\/one|beta\/two)\/contents(?:\/[^?]*)?(?:\?.*)?$/, route => {
@@ -40,97 +40,54 @@ const markdownFixture = async (page: Page, documentPath: string, markdown: strin
   return reads
 }
 
-const activateLinkWithKeyboard = async (page: Page, link: Locator) => {
-  await expect(link).toBeVisible()
-  for (let step = 0; step < 80; step += 1) {
-    await page.keyboard.press(controlTabKey(page))
-    if (await link.evaluate(node => document.activeElement === node)) break
-  }
-  await expect(link).toBeFocused()
-  await page.keyboard.press("Enter")
-}
-
-// #3132: a README read from alpha/one while the page sits on beta/two opens its own LICENSE, in a card, without leaving the app.
-test("a markdown card's relative link opens its own repository's file instead of the app's 404", async ({ page }) => {
+// §6.8 keeps File as the read-only source editor; rendered citations belong to Wiki.
+test("Markdown source retains its own repository and never activates a source link", async ({ page }) => {
   const reads = await markdownFixture(page, "README.md", README)
   await page.goto("/beta/two/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await command(page, "/files.read README.md alpha/one")
-  const readme = page.getByTestId("card-file-alpha/one-README.md")
-  const editor = readme.locator('[data-testid="markdown-editor"][data-mode="wysiwyg"]')
-  await expect(editor.getByRole("link", { name: "License" })).toBeVisible()
-  const route = page.url()
-
-  await editor.getByRole("link", { name: "License" }).click()
-  await expect(page.getByTestId("card-file-alpha/one-LICENSE")).toContainText("MIT License")
-  expect(page.url()).toBe(route)
-
-  await editor.getByRole("link", { name: "Docs" }).click()
-  await expect(page.locator('[data-kind="file-list"]')).toContainText("guide.md")
-  await editor.getByRole("link", { name: "Bad" }).click()
-  expect(page.url()).toBe(route)
-  await expect(page.getByText("Page not found")).toHaveCount(0)
-  expect(reads).toContain("/api/repos/alpha/one/contents/LICENSE")
-  expect(reads.filter(path => /\/beta\/two\/contents\/(LICENSE|docs)/.test(path))).toEqual([])
-  await expect(editor.getByRole("link", { name: "Home" })).toHaveAttribute("href", "https://example.com/")
+  const location = page.url()
+  await command(page, "/file README.md alpha/one")
+  const card = page.getByTestId("card-file-alpha/one-README.md")
+  await expect(card.locator(".cm-content")).toContainText("[License](LICENSE)")
+  await expect(card.locator(".cm-content")).toContainText("[Bad](javascript:alert(1))")
+  await expect(card.locator(".code-file-view")).toHaveAttribute("data-mode", "read_only")
+  await expect(card.locator('[data-testid="markdown-editor"]')).toHaveCount(0)
+  await expect(card.locator(".cm-content a")).toHaveCount(0)
+  expect(reads.filter(read => !read.endsWith("/.smithers/factory.json"))).toEqual(["/api/repos/alpha/one/contents/README.md"])
+  expect(page.url()).toBe(location)
+  expect(page.context().pages()).toHaveLength(1)
 })
 
-test("keyboard activation resolves nested and parent links from the retained document and bounds file fragments", async ({ page }) => {
-  const path = "docs/guide/README.md"
-  const markdown = "# Guide\n\n[Parent](../LICENSE) · [Next](./next.md#usage) · [Same](README.md#guide) · [Escape](../../../LICENSE)"
+test("nested Markdown source keeps parent links and fragments literal at its repository path", async ({ page }) => {
+  const path = "docs/guide/start.md"
+  const markdown = "# Guide\n\n[Parent](../LICENSE) · [Next](next.md#usage) · [Escape](../../../LICENSE)"
   const reads = await markdownFixture(page, path, markdown)
   await page.goto("/beta/two/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await command(page, `/files.read ${path} alpha/one`)
-  const editor = page.getByTestId(`card-file-alpha/one-${path}`).locator('[data-testid="markdown-editor"][data-mode="wysiwyg"]')
   const location = page.url()
-
-  await activateLinkWithKeyboard(page, editor.getByRole("link", { name: "Parent", exact: true }))
-  await expect(page.getByTestId("card-file-alpha/one-docs/LICENSE")).toContainText("License in docs")
-  await activateLinkWithKeyboard(page, editor.getByRole("link", { name: "Next", exact: true }))
-  await expect(page.getByTestId("card-file-alpha/one-docs/guide/next.md")).toContainText("Next document.")
-  await activateLinkWithKeyboard(page, editor.getByRole("link", { name: "Same", exact: true }))
-  await expect(editor).toContainText("Guide")
+  await command(page, `/file ${path} alpha/one`)
+  const card = page.getByTestId(`card-file-alpha/one-${path}`)
+  await expect(card.locator(".cm-content")).toContainText(markdown.replaceAll("\n", ""))
+  await expect(card.locator(".cm-content a")).toHaveCount(0)
+  expect(reads.filter(read => !read.endsWith("/.smithers/factory.json"))).toEqual([`/api/repos/alpha/one/contents/${path}`])
+  expect(reads.filter(read => read.includes("#") || read.includes("%23") || read.includes("/beta/two/") && !read.endsWith("/.smithers/factory.json"))).toEqual([])
   expect(page.url()).toBe(location)
-  expect(reads).toContain("/api/repos/alpha/one/contents/docs/LICENSE")
-  expect(reads).toContain("/api/repos/alpha/one/contents/docs/guide/next.md")
-  expect(reads.filter(read => read.includes("#") || read.includes("%23") || read.includes("/beta/two/contents/docs/"))).toEqual([])
-
-  const documentReads = () => reads.filter(read => read.startsWith("/api/repos/alpha/one/contents"))
-  const before = documentReads().length
-  await activateLinkWithKeyboard(page, editor.getByRole("link", { name: "Escape", exact: true }))
-  expect(documentReads()).toHaveLength(before)
-  expect(page.url()).toBe(location)
-  await expect(page.getByText("Page not found")).toHaveCount(0)
+  await expect(page.getByText("Page not found", { exact: true })).toHaveCount(0)
 })
 
-test("same-document fragments scroll the real editor while unknown and malformed anchors stay bounded", async ({ page }) => {
-  const markdown = [
-    "# Alpha", "", "[Section](#section)", "",
-    ...Array.from({ length: 60 }, (_, index) => `Paragraph ${index + 1}.\n`),
-    "## Section", "", "[Missing](#missing) · [Malformed](#%zz)"
-  ].join("\n")
-  const reads = await markdownFixture(page, "README.md", markdown)
+test("a Markdown source line opens in the real editor without sending fragment bytes to its read", async ({ page }) => {
+  const lines = ["# Alpha", "", "[Section](#section)", ...Array.from({ length: 100 }, (_, index) => `Paragraph ${index + 1}.`), "## Section", "[Missing](#missing) · [Malformed](#%zz)"]
+  const section = lines.indexOf("## Section") + 1
+  const reads = await markdownFixture(page, "README.md", lines.join("\n"))
   await page.goto("/beta/two/")
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
-  await command(page, "/files.read README.md alpha/one")
-  const editor = page.getByTestId("card-file-alpha/one-README.md").locator('[data-testid="markdown-editor"][data-mode="wysiwyg"]')
-  const heading = editor.getByRole("heading", { name: "Section", exact: true })
-  await expect(editor.getByRole("link", { name: "Section", exact: true })).toBeVisible()
-  await expect(heading).not.toBeInViewport()
   const location = page.url()
-  const documentReads = () => reads.filter(read => read.startsWith("/api/repos/alpha/one/contents"))
-  const before = documentReads().length
-  await editor.getByRole("link", { name: "Section", exact: true }).click()
-  await expect(heading).toBeInViewport()
-  for (const name of ["Missing", "Malformed"]) {
-    const link = editor.getByRole("link", { name, exact: true })
-    await expect(link).toBeInViewport()
-    const y = (await heading.boundingBox())!.y
-    await link.click()
-    expect((await heading.boundingBox())!.y).toBeCloseTo(y, 0)
-    expect(documentReads()).toHaveLength(before)
-    expect(page.url()).toBe(location)
-  }
-  await expect(page.getByText("Page not found")).toHaveCount(0)
+  await command(page, `/file ${JSON.stringify({ path: "README.md", repo: "alpha/one", line: section })}`)
+  const card = page.getByTestId("card-file-alpha/one-README.md")
+  await expect(card.locator(".cm-line", { hasText: "## Section" })).toBeInViewport()
+  await expect(card.locator(".cm-content")).toContainText("[Malformed](#%zz)")
+  await expect(card.locator(".cm-content a")).toHaveCount(0)
+  expect(reads.filter(read => !read.endsWith("/.smithers/factory.json"))).toEqual(["/api/repos/alpha/one/contents/README.md"])
+  expect(page.url()).toBe(location)
+  await expect(page.getByText("Page not found", { exact: true })).toHaveCount(0)
 })

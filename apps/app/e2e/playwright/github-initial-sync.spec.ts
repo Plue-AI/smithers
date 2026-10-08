@@ -5,7 +5,7 @@ import { installCloudFixture } from "./cloudFixture"
 // Reference-host freshness and force-push checks remain separate receipts.
 test("install Home preserves health before the first successful GitHub sync", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })),

@@ -58,8 +58,8 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  await page.reload()
  await say(page, "/agents")
  await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
- await expect(page.locator('[data-agent="app"] [data-flow="files.read"]')).toBeVisible()
- await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
+ await expect(page.locator('[data-agent="app"] [data-flow="file"]')).toBeVisible()
+ await page.locator('[data-agent="app"] [data-flow="file"]').press("Enter")
  await expect(page.getByText("Answer the repository question as Smithers for the prompt author.", { exact: true }).last()).toBeVisible()
  await say(page, "/agent reviewer")
  await expect(page.locator("[data-agent]")).toHaveCount(1)
@@ -119,7 +119,7 @@ test("C-J11-03: the instruction link reads the activated main revision after rel
  })
  const openInstructions = async () => {
   await say(page, "/agents")
-  await page.locator('[data-agent="app"] [data-flow="files.read"]').press("Enter")
+  await page.locator('[data-agent="app"] [data-flow="file"]').press("Enter")
  }
  await page.goto("/smithersai/smithers")
  await openInstructions()
@@ -162,7 +162,7 @@ test("C-J11-03: a member reads agent models and instructions without assignment 
  await expect(page.locator('[data-agent="reviewer"]')).toContainText("model-b")
  await expect(page.getByTestId("agent-source-reviewer")).toHaveText("owner")
  await expect(page.getByTestId("agent-recent-runs-reviewer")).toContainText("review-1 · model-b")
- await expect(page.locator('[data-agent="reviewer"] [data-flow="files.read"]')).toBeVisible()
+ await expect(page.locator('[data-agent="reviewer"] [data-flow="file"]')).toBeVisible()
  await expect(page.getByTestId("agent-model-reviewer")).toHaveCount(0)
  await page.reload()
  await say(page, "/agents")

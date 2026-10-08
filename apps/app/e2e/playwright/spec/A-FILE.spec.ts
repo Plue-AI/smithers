@@ -17,14 +17,13 @@ test("A-FILE: opens and saves a shared file", async ({ page }) => {
 
 // Seeded UI projection; live provider qualification remains above.
 test("A-FILE: mounted controls", async ({ page }) => {
-  await owner(page)
   await page.goto("/")
   await say(page, "/branch T9")
   await say(page, "/file src/webhooks/retry.ts")
-  const content = page.getByRole("region", { name: "File content", exact: true }).last()
+  const content = page.locator(".code-file-editor").last()
   await expect(content).toContainText("await sleep(30_000)")
   await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0)
   await page.reload()
-  await expect(page.getByRole("region", { name: "File content", exact: true }).last()).toContainText("await sleep(30_000)")
+  await expect(page.locator(".code-file-editor").last()).toContainText("await sleep(30_000)")
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })

@@ -10,6 +10,7 @@ for (const theme of ["light", "dark"] as const) test(`retained PR history recove
     balance: { totalUsd: "500", lifetimeChargedUsd: "0", chargeCount: 0 }
   } }))
   const repo = "smithersai/smithers"
+  await page.route(url => url.pathname === `/api/repos/${repo}`, route => route.fulfill({ json: { full_name: repo } }))
   let unavailable = true, historyReads = 0
   const writes: string[] = []
   await page.route(url => url.pathname.includes(`/repos/${repo}/landings/9`), async route => {

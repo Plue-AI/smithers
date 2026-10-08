@@ -4,7 +4,7 @@ import { SCOPED_TEST_USER, signedOutVisitor, skipSignup, identityRoute } from ".
 for (const key of ["Enter", "Space"]) test(`a Chat refusal survives account cleanup and an explicit ${key} retry`, async ({ page }) => {
   await signedOutVisitor(page)
   let signedIn = true
-  await page.route("**/api/user", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
   // Hold the real SQLite commit while the account privacy barrier is active.
   // No application debug API or replacement persistence implementation.
   await page.addInitScript(() => {
@@ -29,7 +29,7 @@ for (const key of ["Enter", "Space"]) test(`a Chat refusal survives account clea
   const notice = page.getByRole("alert").filter({ hasText: "Account cleanup is running. Try again in a moment." })
   try {
     await expect.poll(() => page.evaluate(() => (window as any).privacyCommitProbe.commits)).toBeGreaterThan(0)
-    await expect(page.getByTestId("login-github")).toBeVisible()
+    await expect(chat).toBeVisible()
     await chat.focus()
     await expect(chat).toBeFocused()
     await page.keyboard.press(key)
@@ -46,10 +46,9 @@ for (const key of ["Enter", "Space"]) test(`a Chat refusal survives account clea
     await input.fill("A new draft after account cleanup")
     await expect(input).toHaveValue("A new draft after account cleanup")
     await expect(notice).toBeVisible()
-    const dismiss = notice.getByRole("button", { name: "Dismiss: Not saved", exact: true })
-    await dismiss.focus()
-    await page.keyboard.press(key)
-    await expect(notice).toHaveCount(0)
+    // The durable refusal has no invented dismissal control.
+    await expect(input).toHaveValue("A new draft after account cleanup")
+    await expect(notice).toBeVisible()
   } finally {
     await page.evaluate(() => (window as any).privacyCommitProbe.release()).catch(() => {})
   }

@@ -8,7 +8,7 @@ import operations from "../../../src/debugApi/install-operations.fixture.json"
 test("C-UI-10: API playground requires confirmation and preserves member rights", async ({ page }) => {
   test.setTimeout(300_000)
   await installCloudFixture(page, { capabilities: ["identity", "debug.api"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 2, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 2, username: "ben", is_admin: false } }))
   let reads = 0
   await page.route("**/api/todos", route => { reads++; return route.fulfill({ json: { items: [{ n: 8, title: "T8" }] } }) })
   const mutations: string[] = [], keys: string[] = []

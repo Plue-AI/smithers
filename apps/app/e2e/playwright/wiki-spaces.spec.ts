@@ -32,7 +32,7 @@ const slash = async (page: Page, line: string) => {
 
 
 /** The words a title breaks across lines (none, ever): each word's range must draw as one rect. */
-const brokenWords = (page: Page) => page.locator(".app-tile-title").evaluateAll((nodes) => nodes.flatMap((node) => {
+const brokenWords = (page: Page) => page.locator(".home .stack-title").evaluateAll((nodes) => nodes.flatMap((node) => {
   const text = node.firstChild
   if (!(text instanceof Text)) return []
   const words: string[] = []
@@ -45,16 +45,10 @@ const brokenWords = (page: Page) => page.locator(".app-tile-title").evaluateAll(
   return words
 }))
 
-/** The tiles' rows: the top edge of each tile, so a 4-across grid has one row and a 2×2 grid has two. */
-const tileRows = async (page: Page) => {
-  const boxes = await page.getByTestId("app-tile").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().top)))
-  return [...new Set(boxes)].length
-}
-
 /** Every drawn picture card sits inside its tile. */
-const clippedPictures = (page: Page) => page.locator(".app-tile").evaluateAll((nodes) => nodes.flatMap((node) => {
+const clippedPictures = (page: Page) => page.locator(".home .stack-row").evaluateAll((nodes) => nodes.flatMap((node) => {
   const tile = node.getBoundingClientRect()
-  return [...node.querySelectorAll(".app-picture-card")].filter((card) => card.getBoundingClientRect().right > tile.right + 0.5)
+  return [...node.querySelectorAll("img")].filter((card) => card.getBoundingClientRect().right > tile.right + 0.5)
     .map((card) => `${node.textContent} ${card.className} ${Math.round(card.getBoundingClientRect().right - tile.right)}px over ${Math.round(tile.width)}`)
 }))
 
@@ -191,7 +185,7 @@ test("a generated Wiki citation opens an embedded source at the published revisi
     return route.fulfill(json({ type: "file", path: "src/answer.ts", content: "// Source\nexport const answer = 42\n", encoding: "utf-8" }))
   })
   await page.goto("/")
-  await expect(page.getByTestId("app-tile")).toHaveCount(4)
+  await expect(page.locator(".home")).toBeVisible()
   await slash(page, `/repo.select ${repo}`)
   await slash(page, `/wiki.cloud.open generated-home ${repo}`)
   const view = page.locator(".world-card-workspace").getByTestId("wiki-page")
@@ -212,8 +206,8 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   const fixture = await wikiFixture(page)
   await page.goto("/")
   // The app home (D-18) is up before the chord: the grid, no chat controls strip.
-  await expect(page.getByTestId("app-tile")).toHaveCount(4)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
+  await expect(page.locator(".home")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   // The wiki belongs to the selected repository (the fixture loads one; the selection names it).
   await slash(page, `/repo.select ${repo}`)
   await slash(page, "/wiki.pane")
@@ -259,8 +253,12 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(view.getByRole("link", { name: "start", exact: true })).toHaveCSS("text-decoration-thickness", "2px")
   await page.mouse.move(0, 0)
   await expect(view).not.toContainText("[[")
-  // The home beside the pane reflows to 2×2: no picture clipped, no word broken.
-  expect(await tileRows(page)).toBe(2)
+  // Home remains inside the viewport beside Wiki; its titles and avatars fit.
+  const home = await page.locator(".home").boundingBox()
+  expect(home).not.toBeNull()
+  expect(home!.x).toBeGreaterThanOrEqual(0)
+  expect(home!.x + home!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await expect(page.locator(".home .stack-title").first()).toBeVisible()
   expect(await brokenWords(page)).toEqual([])
   expect(await clippedPictures(page)).toEqual([])
   await expect(pane.locator(".world-document-notice")).toHaveCount(0)
@@ -362,8 +360,8 @@ test("the Wiki card lists the space with its chip and offers a page's History", 
   await wikiFixture(page)
   await page.goto("/")
   // The app home (D-18) is up before the chord: the grid, no chat controls strip.
-  await expect(page.getByTestId("app-tile")).toHaveCount(4)
-  await expect(page.getByRole("button", { name: "Chat", exact: true })).toHaveCount(0)
+  await expect(page.locator(".home")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
   await slash(page, `/repo.select ${repo}`)
   await slash(page, `/wiki.cloud ${repo} --space private`)
   const card = page.getByTestId(`card-wiki-index-${repo}-private`)

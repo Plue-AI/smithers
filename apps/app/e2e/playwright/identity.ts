@@ -70,7 +70,7 @@ export async function signedOutVisitor(page: import("@playwright/test").Page) {
   // Once the visitor signs in, the signup saves and reads back as the backend does.
   await signupProfileRoute(page)
   await page.route("**/api/bootstrap", route => route.fulfill(json({ apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "cloud", "agent"], authFlow: "redirect", sandbox: null })))
-  await page.route("**/api/user", identityRoute(null))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
   await page.route("**/api/user/repos", route => route.fulfill(json({ repos: [] })))
   await page.route(/\/api\/.*(?:issues|landings)(?:\?|$)/, route => route.fulfill(json({ message: "Sign in to read this repository" }, 401)))
 }

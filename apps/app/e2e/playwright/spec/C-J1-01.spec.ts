@@ -26,6 +26,8 @@ test("C-J1-01: Fresh install opens the ordered setup card", async ({ page }) => 
 
 // Implemented UI portion; this does not qualify bundle, launchd or LAN isolation.
 test("C-J1-01: current setup renders detected capacity and ordered steps without an account", async ({ page }) => {
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null } }))
+  await page.route("**/api/auth/session", route => route.fulfill({ json: { user: null } }))
   await page.route("**/api/install", route => route.fulfill({ json: {
     address: { listen: "mac", bind: "127.0.0.1", origins: ["http://localhost:4000"] },
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"]
@@ -38,14 +40,14 @@ test("C-J1-01: current setup renders detected capacity and ordered steps without
       { role: "jev", provider: "Vercel", key: "none" }
     ], chatgpt: false, capacity: 4
   } }))
-  await page.goto("/")
+  await page.goto("/setup")
   const card = page.getByRole("region", { name: "Set up Smithers" })
   await expect(card).toBeVisible()
   await expect(card.locator("ol > li strong")).toHaveText([
     "Address", "GitHub App", "Sign in", "Repository", "Model access", "Source", "Machine"
   ])
   await expect(card.getByText("64 GB · 200 GB free", { exact: true })).toBeVisible()
-  await expect(card.getByRole("button", { name: "Address", exact: true })).toBeEnabled()
+  await expect(card.getByRole("button", { name: "This Mac only", exact: true })).toBeEnabled()
   await expect(card.getByRole("button", { name: "Create GitHub App", exact: true })).toHaveCount(0)
   await expect(card.getByText("This Mac only · 127.0.0.1", { exact: true })).toBeVisible()
   await expect(card).not.toContainText(/VPN|tunnel|Smithers account/)

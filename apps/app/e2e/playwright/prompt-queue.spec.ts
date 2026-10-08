@@ -1,17 +1,12 @@
 import { expect, test } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture"
+import { installConversationFixture } from "./conversationFixture"
 
 // #1944: the queued-prompt strip sits on the composer surface, never bare over the transcript.
 for (const width of [390, 1280]) test(`the queued-prompt strip has the composer's surface at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 800 })
-  await installCloudFixture(page)
   let release = () => {}
   const held = new Promise<void>(resolve => { release = resolve })
-  let turns = 0
-  await page.route(/\/api\/(?:agent|chat)\/turn$/, async route => {
-    if (turns++ === 0) await held
-    await route.continue()
-  })
+  await installConversationFixture(page, { holdFirstTurn: held })
   await page.goto("/")
   const dismiss = page.getByRole("button", { name: "Dismiss", exact: true })
   await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()

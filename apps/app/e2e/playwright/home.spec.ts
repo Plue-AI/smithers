@@ -1,3 +1,4 @@
+import { fixtures } from "@smthrs/rpc/fixtures/Todo"
 import { expect, test } from "./browserTest"
 import type { Page } from "./browserTest"
 import { fillComposer } from "./composer"
@@ -117,7 +118,7 @@ test("T-UI-06 Home sync, actions, keyboard menu and inert text in both Paper the
 
 test("install Home keeps the next Merge after an earlier item merged and exposes reorder controls", async ({ page, baseURL }) => {
   const { installCloudFixture } = await import("./cloudFixture")
-  const { fixtures } = await import("@smthrs/rpc/fixtures/Todo")
+
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
   // Bind each intercepted request to the session that sent it. A teardown
   // request from Ben must never be written into Alice's view after navigation.
@@ -141,9 +142,9 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
     }
     return route.fulfill({ json: memberViews[login] })
   })
-  await page.route("**/api/user", route => {
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => {
     const login = principal(route.request().headers())
-    return route.fulfill({ json: { id: { ben: 1, alice: 2, maya: 3 }[login], username: login, is_admin: false } })
+    return route.fulfill({ json: { id: { ben: 1, alice: 2, maya: 3 }[login], username: login, role: { ben: "maintainer", alice: "member", maya: "owner" }[login], is_admin: false } })
   })
   await page.route("**/api/install", route => route.fulfill({ json: {
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })), capacity: 2, this_mac: { capacity: 2, memory_gb: 16, disk_free_gb: 100 },
@@ -263,7 +264,7 @@ test("install Home keeps main and capacity from the shared live snapshot across 
   const { installCloudFixture } = await import("./cloudFixture")
   const { installFixture } = await import("../../src/mainview/state/seams/InstallFixtures.test-support")
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), capacity: 3 } }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))

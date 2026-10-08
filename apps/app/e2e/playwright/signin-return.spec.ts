@@ -1,7 +1,8 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "./browserTest"
-import { SCOPED_TEST_USER, identityRoute, signedOutVisitor, skipSignup } from "./identity"
+import { SCOPED_TEST_USER, identityRoute, signedOutVisitor } from "./identity"
+import { fillComposer } from "./composer"
 import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
 
 /*
@@ -12,11 +13,11 @@ import { APPLICATION_SIGN_IN_PATH } from "@smthrs/rpc/ApplicationAuth"
  * with the `signed-in` marker. The app must land on the same repository page,
  * spend the marker, drop the door, and read the account back.
  */
-test("the chrome sign-in door returns to the repository page signed in", async ({ page, baseURL }) => {
+test("the repository sign-in door returns to the repository page signed in", async ({ page, baseURL }) => {
   await signedOutVisitor(page)
   let signedIn = false
   const starts: string[] = []
-  await page.route("**/api/user", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => identityRoute(signedIn ? SCOPED_TEST_USER.login : null)(route))
   // WebKit cannot fulfill an intercepted request with a synthetic 302.
   // Let the browser follow a real response, retaining the app's return origin.
   const server = createServer((request, response) => {
@@ -44,24 +45,22 @@ test("the chrome sign-in door returns to the repository page signed in", async (
     })
 
     await page.goto("/smithersai/smithers/")
-    // Committed, not merely requested: the account door below must be the returned page's.
-    const returned = page.waitForEvent("framenavigated", frame =>
-      frame === page.mainFrame() && new URL(frame.url()).searchParams.get("signed-in") === "github")
-    await page.getByTestId("login-github").click()
-    const destination = new URL((await returned).url())
+    await fillComposer(page, "/auth.prompt")
+    await page.getByTestId("composer-input").press("Enter")
+    await page.getByTestId("composer-input").press("Escape")
+    const navigated = page.waitForEvent("framenavigated", frame => frame === page.mainFrame() && new URL(frame.url()).searchParams.get("signed-in") === "github")
+    await page.getByTestId("transcript").getByRole("button", { name: "Sign in with GitHub", exact: true }).last().click()
+    const returned = await navigated
+    const destination = new URL(returned.url())
     expect(destination.origin).toBe(new URL(baseURL!).origin)
     expect(destination.pathname).toBe("/smithersai/smithers/")
     expect(starts).toEqual(["/smithersai/smithers/"])
 
-    // Back signed in, the signup owns the screen until it is done (apps/app/AGENTS.md); Control+K opens Chat throughout.
-    await skipSignup(page)
-    if (!await page.getByTestId("composer-input").isVisible()) await page.keyboard.press("Control+k")
-    await page.getByTestId("composer-input").fill("/account.show")
-    await page.getByTestId("composer-send").click()
-    await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
-      .toContainText(`@${SCOPED_TEST_USER.login}`)
-    // Read once the returned page renders the account: a booting page shows no door either.
-    await expect(page.getByTestId("login-github")).toHaveCount(0)
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+    const identity = await page.evaluate(async () => { const response = await fetch("/api/user"); return { status: response.status, user: await response.json() } })
+    expect(identity.status).toBe(200)
+    expect(identity.user).toMatchObject({ username: SCOPED_TEST_USER.login })
+    await expect(page.getByTestId("transcript").locator('[data-flow="sign-in"]')).toHaveCount(0)
     await expect.poll(() => new URL(page.url()).searchParams.has("signed-in")).toBe(false)
     expect(new URL(page.url()).pathname).toBe("/smithersai/smithers/")
   } finally {

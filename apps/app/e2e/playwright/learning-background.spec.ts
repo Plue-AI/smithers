@@ -7,7 +7,7 @@ import { fillComposer } from "./composer"
 // Literal HTTP/socket responses qualify browser dispatch, not machine isolation.
 test("Home Learning Retry stays usable through launch and completion; Dismiss survives reload", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/todos", route => route.fulfill({ json: [] }))
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))

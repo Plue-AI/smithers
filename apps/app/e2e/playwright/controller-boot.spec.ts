@@ -8,7 +8,7 @@ for (const repo of ["nope/nope", "smithersai/smithres"]) {
       apiVersion: 1, host: "cloud", version: "test", buildSha: "test",
       capabilities: ["identity"], authFlow: "redirect", sandbox: null,
     } }))
-    await page.route("**/api/user", identityRoute(null))
+    await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", identityRoute(null))
     await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: "smithersai/smithers" }] } }))
     await page.route("**/api/auth/github*", route => route.fulfill({ contentType: "text/html", body: "<p>GitHub sign-in route reached</p>" }))
     await page.goto(`/${repo}/`)

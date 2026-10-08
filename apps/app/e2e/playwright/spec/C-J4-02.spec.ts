@@ -16,7 +16,7 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
     if (route.request().method() === "PUT") viewState = route.request().postDataJSON()
     return route.fulfill({ json: viewState })
   })
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,

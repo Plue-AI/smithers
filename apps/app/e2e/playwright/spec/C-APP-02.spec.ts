@@ -100,7 +100,7 @@ for (const role of ["owner", "member"] as const) {
     const { installCloudFixture } = await import("../cloudFixture")
     const { installFixture } = await import("../../../src/mainview/state/seams/InstallFixtures.test-support")
     await installCloudFixture(page, { capabilities: ["identity", "install"] })
-    await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+    await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
     await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
     await page.route("**/api/members", route => route.fulfill({ json: {
       members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,
@@ -126,7 +126,7 @@ for (const role of ["owner", "member"] as const) {
     await page.goto("/")
     await say(page, "/todo T2")
     const card = page.getByRole("article", { name: "TODO T2" }).last()
-    await expect(card.getByRole("button", { name: "Bring in", exact: true })).toHaveCount(0)
+    await expect(card.getByRole("button", { name: "Bring in", exact: true })).toBeVisible()
     const discard = card.getByRole("button", { name: "Discard", exact: true })
     if (role === "member") {
       await expect(discard).toHaveCount(0)
@@ -134,7 +134,10 @@ for (const role of ["owner", "member"] as const) {
       return
     }
     await discard.press("Enter")
-    await discard.press("Enter")
+    const confirm = page.getByRole("button", { name: "Confirm: discard this outside push", exact: true }).last()
+    await expect(confirm).toBeVisible()
+    expect(writes).toEqual([])
+    await confirm.press("Enter")
     await expect.poll(() => writes.length).toBe(1)
     expect(writes[0]!.body).toEqual({ op: "discard-foreign", id: foreign.id, revision: foreign.sha })
     expect(writes[0]!.key).toBeTruthy()

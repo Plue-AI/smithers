@@ -8,7 +8,7 @@ import { owner, say } from "./j1-fixtures"
 test("C-J7-02: scratch work joins the stack before its source is dropped", async ({ page }) => {
   test.fixme(true, "Written before implementation: mvp.md J7.2–J7.3, §6.7, Appendix A, M-22; lands with T-MCH-08, T-STK-05")
   await owner(page)
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
   await page.goto('/smithers-mvp-canary/node')
   await say(page, '/branch T2')
   await page.getByRole('button', { name: 'Fork', exact: true }).last().press('Enter')
