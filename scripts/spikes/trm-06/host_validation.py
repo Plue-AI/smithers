@@ -183,44 +183,55 @@ os.execve('/bin/sh', ['/bin/sh', ENTRY, 'startup-validation'], {'PATH': '/usr/bi
     process = subprocess.Popen(['/usr/bin/python3', '-I', '-S', '-c', prefix + wrapper],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                env={'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}, cwd='/')
-    observation = ''
-    if positive_control(phase, mutation):
-        output = bytearray()
-        deadline = time.monotonic() + 10
-        while len(output) <= 4096 and not output.endswith(b'\n'):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+    output, error, observation = b'', b'', ''
+    try:
+        observation = ''
+        if positive_control(phase, mutation):
+            output = bytearray()
+            deadline = time.monotonic() + 10
+            while len(output) <= 4096 and not output.endswith(b'\n'):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                    process.kill(); process.wait()
+                    raise ValueError('installed startup sample timeout')
+                byte = os.read(process.stdout.fileno(), 1)
+                if not byte:
+                    break
+                output.extend(byte)
+            output = bytes(output)
+            if not output.endswith(b'\n'):
+                _, error = process.communicate(timeout=10)
+                Path('/samples/' + str(index) + '.stdout').write_bytes(output)
+                Path('/samples/' + str(index) + '.stderr').write_bytes(error)
+                raise ValueError('installed startup sample missing')
+            observation = subprocess.check_output(['/bin/ps', '-p', str(process.pid), '-o', 'pid=,uid=,command='],
+                                                  env={'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}).decode()
+            if len(observation.split()) < 3 or observation.split()[:2] != [str(process.pid), '501'] or 'check-startup' not in observation:
                 process.kill(); process.wait()
-                raise ValueError('installed startup sample timeout')
-            byte = os.read(process.stdout.fileno(), 1)
-            if not byte:
-                break
-            output.extend(byte)
-        output = bytes(output)
-        if not output.endswith(b'\n'):
-            _, error = process.communicate(timeout=10)
-            Path('/samples/' + str(index) + '.stdout').write_bytes(output)
-            Path('/samples/' + str(index) + '.stderr').write_bytes(error)
-            raise ValueError('installed startup sample missing')
-        observation = subprocess.check_output(['/bin/ps', '-p', str(process.pid), '-o', 'pid=,uid=,command='],
-                                              env={'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}).decode()
-        if len(observation.split()) < 3 or observation.split()[:2] != [str(process.pid), '501'] or 'check-startup' not in observation:
-            process.kill(); process.wait()
-            raise ValueError('independent gateway UID/command mismatch')
-        tail, error = process.communicate(b'1', timeout=10)
-        output += tail
-    else:
-        try:
-            output, error = process.communicate(b'1', timeout=10)
-        except subprocess.TimeoutExpired:
+                raise ValueError('independent gateway UID/command mismatch')
+            tail, error = process.communicate(b'1', timeout=10)
+            output += tail
+        else:
+            try:
+                output, error = process.communicate(b'1', timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                output, error = process.communicate()
+                Path('/samples/' + str(index) + '.stdout').write_bytes(output)
+                Path('/samples/' + str(index) + '.stderr').write_bytes(error)
+                raise ValueError('installed replacement timeout is not refusal')
+        Path('/samples/' + str(index) + '.stdout').write_bytes(output)
+        Path('/samples/' + str(index) + '.stderr').write_bytes(error)
+        Path('/samples/' + str(index) + '.process').write_text(observation)
+    except BaseException:
+        if process.poll() is None:
             process.kill()
-            output, error = process.communicate()
-            Path('/samples/' + str(index) + '.stdout').write_bytes(output)
-            Path('/samples/' + str(index) + '.stderr').write_bytes(error)
-            raise ValueError('installed replacement timeout is not refusal')
-    Path('/samples/' + str(index) + '.stdout').write_bytes(output)
-    Path('/samples/' + str(index) + '.stderr').write_bytes(error)
-    Path('/samples/' + str(index) + '.process').write_text(observation)
+        tail, error = process.communicate()
+        Path('/samples/' + str(index) + '.stdout').write_bytes(bytes(output))
+        Path('/samples/' + str(index) + '.stdout-tail').write_bytes(tail)
+        Path('/samples/' + str(index) + '.stderr').write_bytes(error)
+        Path('/samples/' + str(index) + '.process').write_text(observation)
+        raise
     lines = error.splitlines(keepends=True)
     if not lines or not lines[0].startswith(b'SCHEDULE '):
         raise ValueError('native schedule did not reach validation barrier: ' + repr(error))
