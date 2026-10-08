@@ -173,6 +173,11 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if err != nil {
 		return empty, 0, err
 	}
+	retained, err := q.ListMythicalUnfoldedMerges(live, repository, stack.LandedMain)
+	if err != nil {
+		return empty, 0, err
+	}
+	items = append(items, retained...)
 	step := mythicalItemStep{s: s, q: q, r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: items}
 	prefix := step.prefix(item)
 	initialBase := mythicalAttemptPrefix(item)

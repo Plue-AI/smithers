@@ -690,6 +690,18 @@ func TestGitHubInboundMergeRebasesNextPublishedPull(t *testing.T) {
 	defer stop()
 	require.NoError(t, synced.pollInstallPull(t.Context(), row, first.PRNumber.Int64))
 	require.Eventually(t, func() bool { return f.item(first.Number.Int64).State == "landed" }, 5*time.Second, 10*time.Millisecond)
+	// The fetched merge commits before the main fold. The retained successor
+	// still has the predecessor's verified prefix, never the old main alone.
+	items, err := db.New(f.pool).ListMythicalStackOrder(t.Context(), f.repoID)
+	require.NoError(t, err)
+	retained, err := db.New(f.pool).ListMythicalUnfoldedMerges(t.Context(), f.repoID, f.main)
+	require.Len(t, retained, 1)
+	items = append(items, retained...)
+	require.NoError(t, err)
+	step := mythicalItemStep{r: &mythicalRun{mainTip: f.main}, items: items}
+	require.Equal(t, first.CandidateHead, step.prefix(second))
+	step.r.mainTip = merged.MergeCommitSHA
+	require.Equal(t, merged.MergeCommitSHA, step.prefix(second))
 	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET workspace_id='', lane=NULL, lane_started_at=NULL WHERE repository_id=$1`, f.repoID)
 	require.NoError(t, err)
 	f.service.SetOrchestration(f.service.github, r.launcher, &fakeMythicalLanes{})

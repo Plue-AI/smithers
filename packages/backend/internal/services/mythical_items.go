@@ -1475,6 +1475,16 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	retained, err := q.ListMythicalUnfoldedMerges(ctx, r.row.RepositoryID, r.mainTip)
+	if err != nil {
+		s.logger.Warn("mythical.unfolded_merges_failed", "error", err)
+		return
+	}
+	for _, landed := range retained {
+		if !slices.ContainsFunc(items, func(item db.MythicalItem) bool { return item.ID == landed.ID }) {
+			items = append(items, landed)
+		}
+	}
 	for _, item := range items {
 		s.advanceMovedReturn(ctx, item)
 	}
@@ -2741,6 +2751,21 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 // available prefix contributes. A stale candidate cannot carry obsolete bytes.
 func (st *mythicalItemStep) prefix(item db.MythicalItem) string {
 	base := st.r.mainTip
+	// Landed rows sort after active rows and leave the placement order. Their
+	// verified chain still supplies the prefix until the main fold replaces
+	// its original base. Walk by immutable parent identity, not row position.
+	for range len(st.items) {
+		advanced := false
+		for _, landed := range st.items {
+			if landed.State == "landed" && landed.CandidateVerified && landed.CandidateHead != "" && landed.CandidateHead != base && landed.CandidateBase == base {
+				base, advanced = landed.CandidateHead, true
+				break
+			}
+		}
+		if !advanced {
+			break
+		}
+	}
 	for _, earlier := range st.items {
 		if earlier.ID == item.ID {
 			break

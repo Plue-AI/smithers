@@ -397,6 +397,19 @@ func (q *Queries) MakeMythicalPlace(ctx context.Context, repositoryID, place int
 	return nil
 }
 
+// ListMythicalUnfoldedMerges retains only the landed candidate chain rooted
+// at the stack's current main. Completed history cannot grow this selection.
+func (q *Queries) ListMythicalUnfoldedMerges(ctx context.Context, repositoryID int64, main string) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `WITH RECURSIVE retained AS (
+ SELECT id, candidate_head FROM mythical_items WHERE repository_id=$1 AND state='landed'
+ AND candidate_verified AND candidate_base=$2 AND candidate_head<>''
+ UNION
+ SELECT item.id, item.candidate_head FROM mythical_items item JOIN retained parent ON item.candidate_base=parent.candidate_head
+ WHERE item.repository_id=$1 AND item.state='landed' AND item.candidate_verified AND item.candidate_head<>''
+ ) SELECT `+mythicalItemColumns+` FROM mythical_items WHERE id IN (SELECT id FROM retained) ORDER BY created_at`, repositoryID, main)
+	return scanMythicalItems(rows, err)
+}
+
 // ListMythicalItemsInStates returns every one of a repository's items in one
 // of states, with no limit.
 func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID int64, states []string) ([]MythicalItem, error) {
