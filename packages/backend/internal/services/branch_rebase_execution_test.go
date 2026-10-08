@@ -26,7 +26,7 @@ type rebaseExecutionFixture struct {
 	wrongCaptureHead bool
 }
 
-func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, member int64, onto string, _ func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
+func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, member int64, onto, base string, _ func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
 	err := guard(func() error {
 		// The authenticated presence reader holds KEY SHARE independently of
 		// native admission. It must finish while the worker fences the rewrite.

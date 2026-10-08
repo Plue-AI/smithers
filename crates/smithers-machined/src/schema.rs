@@ -26,7 +26,7 @@ fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(mat
 "args8" => &[(1,true,"u32")],
 "args9" => &[(1,true,"target")],
 "args10" => &[(1,true,"str"),(2,true,"u32")],
-"args11" => &[(1,true,"oid"),(2,true,"host_actor")],
+"args11" => &[(1,true,"oid"),(2,true,"host_actor"),(3,false,"oid")],
 "args12" => &[(1,true,"host_actor")],
 "args13" => &[(1,true,"str"),(2,false,"host_actor")],
 "args14" => &[(1,true,"u32")],

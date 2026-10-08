@@ -653,22 +653,30 @@ impl Repository {
     }
     /// Validate before the RPC freezes writers. The mutation path checks again
     /// after capture, against the snapshot taken under the shared lock.
-    pub fn validate_rebase(&self, onto: Oid) -> io::Result<()> {
+    pub fn validate_rebase(&self, onto: Oid, base: Option<Oid>) -> io::Result<()> {
         let (workspace, repo) = self.load_rebase_target(onto)?;
-        Self::rebase_commits(&workspace, &repo, onto).map(|_| ())
+        Self::rebase_commits(&workspace, &repo, onto)?;
+        if let Some(base) = base {
+            repo.store().get_commit(&CommitId::from_bytes(&base)).map_err(invalid)?;
+        }
+        Ok(())
     }
     /// Rebase the item change, including already-captured work, onto its new
     /// prefix. An acknowledged capture is a transport checkpoint, not the
     /// item's old parent. Wake reconciliation alone applies that local delta.
     pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
-        self.rebase_bound(onto, None)
+        self.rebase_bound(onto, None, None)
     }
     /// Rebase the owning item, including captured working-copy descendants.
     /// A descendant alone does not contain the item's full delta and dropping
     /// its ancestor would revoke the machine's bound change authority.
-    pub fn rebase_bound(&self, onto: Oid, item: Option<&str>) -> io::Result<Oid> {
+    pub fn rebase_bound(&self, onto: Oid, item: Option<&str>, source_base: Option<Oid>) -> io::Result<Oid> {
         let (mut workspace, repo) = self.load_rebase_target(onto)?;
         let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
+        if source_base.is_some() && item.is_none() {
+            return Err(invalid("verified base requires an owning item"));
+        }
+        let source_base = source_base.map(|id| repo.store().get_commit(&CommitId::from_bytes(&id)).map_err(invalid)).transpose()?;
         let bound = if let Some(change) = item {
             if change.len() != 32 || !change.bytes().all(|c| (b'k'..=b'z').contains(&c)) {
                 return Err(invalid("invalid item change identity"));
@@ -691,9 +699,18 @@ impl Repository {
             return oid(current.id().as_bytes());
         }
         let mut tx = repo.start_transaction();
-        let rebased = if let Some(bound) = bound.as_ref().filter(|bound| bound.id() != current.id()) {
+        let rebased = if let Some(bound) = bound.as_ref().filter(|bound| bound.id() != current.id() || source_base.is_some()) {
             if bound.parent_ids().len() != 1 { return Err(invalid("owning item has no linear base")); }
-            let base = repo.store().get_commit(&bound.parent_ids()[0]).map_err(invalid)?;
+            // Bring-in may parent this native change on a published branch that
+            // already contains its bytes. Use the stack-fenced verified base
+            // for its whole delta, rather than only the last native edit.
+            // A completed rewrite already on this target keeps its new base.
+            let base_id = if bound.parent_ids() == [onto.id().clone()] {
+                onto.id().clone()
+            } else {
+                source_base.as_ref().map(|base| base.id().clone()).unwrap_or_else(|| bound.parent_ids()[0].clone())
+            };
+            let base = repo.store().get_commit(&base_id).map_err(invalid)?;
             let tree = MergedTree::merge(Merge::from_removes_adds(
                 vec![(base.tree(), "before rebase".into())],
                 vec![(current.tree(), "branch".into()), (onto.tree(), "main".into())],
@@ -882,7 +899,7 @@ pub(crate) mod tests {
             .index()
             .has_id(Repository::commit(&repo, target).unwrap().id())
             .unwrap());
-        native.validate_rebase(target).unwrap();
+        native.validate_rebase(target, None).unwrap();
         assert_eq!(native.current().unwrap().0, item);
         let head = native.rebase(target).unwrap();
         let (_, repo) = native.load().unwrap();
@@ -1107,7 +1124,7 @@ pub(crate) mod tests {
         fs::write(root.join("upstream"), b"main edit\n").unwrap();
         let onto = native.snapshot().unwrap().0;
         native.move_to(current).unwrap();
-        let result = native.rebase_bound(onto, Some(&change)).unwrap();
+        let result = native.rebase_bound(onto, Some(&change), None).unwrap();
         let (_, repo) = native.load().unwrap();
         let commit = Repository::commit(&repo, result).unwrap();
         assert_eq!(commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
@@ -1122,7 +1139,7 @@ pub(crate) mod tests {
         ] {
             assert_eq!(fs::read(root.join(name)).unwrap(), bytes);
         }
-        assert_eq!(native.rebase_bound(onto, Some(&change)).unwrap(), result);
+        assert_eq!(native.rebase_bound(onto, Some(&change), None).unwrap(), result);
     }
     #[test]
     fn bound_rebase_retains_conflicts_and_refuses_another_item() {
@@ -1144,10 +1161,10 @@ pub(crate) mod tests {
         let (_, repo) = native.load().unwrap();
         let another = Repository::commit(&repo, onto).unwrap().change_id().reverse_hex();
         native.move_to(current).unwrap();
-        assert!(native.rebase_bound(onto, Some(&another)).is_err());
+        assert!(native.rebase_bound(onto, Some(&another), None).is_err());
         assert_eq!(native.current().unwrap().0, current);
         assert_eq!(fs::read(root.join("shared")).unwrap(), b"item\n");
-        let result = native.rebase_bound(onto, Some(&change)).unwrap();
+        let result = native.rebase_bound(onto, Some(&change), None).unwrap();
         assert!(Repository::commit(&native.load().unwrap().1, result).unwrap().tree().has_conflict());
         assert!(native.descends_from_item(&change).unwrap());
         assert_eq!(fs::read(root.join("second")).unwrap(), b"retained\n");
@@ -1247,7 +1264,7 @@ pub(crate) mod tests {
             if conflict { fs::write(repo.root.join("file"), b"main\n").unwrap(); }
             let onto = repo.snapshot().unwrap().0;
             repo.move_to(descendant).unwrap();
-            let result = repo.rebase_bound(onto, Some(&change)).unwrap();
+            let result = repo.rebase_bound(onto, Some(&change), None).unwrap();
             let (_, loaded) = repo.load().unwrap();
             let result_commit = Repository::commit(&loaded, result).unwrap();
             assert_eq!(result_commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
@@ -1268,6 +1285,45 @@ pub(crate) mod tests {
         }
     }
     #[test]
+    fn rebase_verified_base_retains_brought_in_item_delta() {
+        for (verified, conflict) in [(false, false), (true, false), (true, true)] {
+            let (_dir, repo) = fixture();
+            fs::write(repo.root.join("base"), b"base\n").unwrap();
+            let base = repo.snapshot().unwrap().0;
+            child(&repo, base, "owning item");
+            fs::write(repo.root.join("retry"), b"first retry\n").unwrap();
+            let item = repo.snapshot().unwrap().0;
+            let change = change(&repo, item);
+            child(&repo, base, "Alice's published branch");
+            fs::write(repo.root.join("retry"), b"first retry\n").unwrap();
+            fs::write(repo.root.join("alice"), b"person bytes\n").unwrap();
+            let foreign = repo.snapshot().unwrap().0;
+            repo.move_to(item).unwrap();
+            repo.rebase_bound(foreign, Some(&change), Some(base)).unwrap();
+            fs::write(repo.root.join("retry"), b"log each retry\n").unwrap();
+            let steered = repo.snapshot().unwrap().0;
+            child(&repo, base, "unrelated main move");
+            fs::write(repo.root.join("main"), b"main bytes\n").unwrap();
+            if conflict { fs::write(repo.root.join("retry"), b"main retry\n").unwrap(); }
+            let onto = repo.snapshot().unwrap().0;
+            repo.move_to(steered).unwrap();
+            assert!(repo.validate_rebase(onto, Some([0xff; 20])).is_err());
+            assert_eq!(repo.current().unwrap().0, steered);
+            let result = repo.rebase_bound(onto, Some(&change), verified.then_some(base)).unwrap();
+            let (_, loaded) = repo.load().unwrap();
+            let commit = Repository::commit(&loaded, result).unwrap();
+            assert_eq!(commit.change_id().reverse_hex(), change);
+            assert_eq!(commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
+            assert_eq!(commit.tree().has_conflict(), !verified || conflict);
+            if verified { assert_eq!(fs::read(repo.root.join("alice")).unwrap(), b"person bytes\n"); }
+            assert_eq!(fs::read(repo.root.join("main")).unwrap(), b"main bytes\n");
+            if verified && !conflict {
+                assert_eq!(fs::read(repo.root.join("retry")).unwrap(), b"log each retry\n");
+                assert_eq!(repo.rebase_bound(onto, Some(&change), Some(base)).unwrap(), result);
+            }
+        }
+    }
+    #[test]
     fn journey_conflict_checkout_survives_capture_and_resolution() {
         let (_dir, repo) = fixture();
         fs::write(repo.root.join("JOURNEY.md"), b"Add a greeting to JOURNEY.md\n").unwrap();
@@ -1281,7 +1337,7 @@ pub(crate) mod tests {
         fs::write(repo.root.join("JOURNEY.md"), b"Greeting from new main\n").unwrap();
         let onto = repo.snapshot().unwrap().0;
         repo.move_to(item).unwrap();
-        let conflict = repo.rebase_bound(onto, Some(&change)).unwrap();
+        let conflict = repo.rebase_bound(onto, Some(&change), None).unwrap();
         let (_, loaded) = repo.load().unwrap();
         let git = jj_lib::git::get_git_repo(loaded.store()).unwrap();
         assert_eq!(git.head_id().unwrap().as_bytes(), onto);
@@ -1326,7 +1382,7 @@ pub(crate) mod tests {
             reopened.tree(conflict).is_err(),
             "unresolved trees stay unavailable to clean-tree comparisons"
         );
-        assert!(reopened.validate_rebase(onto).is_err());
+        assert!(reopened.validate_rebase(onto, None).is_err());
         assert_eq!(fs::read(repo.root.join("file")).unwrap(), markers);
         fs::write(repo.root.join("file"), b"item and main resolved\n").unwrap();
         let resolved = reopened.snapshot().unwrap().0;

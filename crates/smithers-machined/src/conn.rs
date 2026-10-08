@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 9;
+pub const PROTOCOL: u16 = 10;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -578,9 +578,9 @@ pub fn open_doc_args(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), Protocol
     Ok((path, actor))
 }
 
-/// Rebase uses the existing ADR 0004 schema; only the onto object and the
-/// authenticated host actor reach unprivileged rewrite code.
-pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), ProtocolError> {
+/// Rebase uses the existing ADR 0004 schema. Targets, an optional verified
+/// source base and the authenticated actor reach unprivileged rewrite code.
+pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor, Option<[u8; 20]>), ProtocolError> {
     let mut check = Cursor(bytes);
     check.value("args11")?;
     if !check.0.is_empty() {
@@ -591,7 +591,9 @@ pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor), Prot
     let onto = c.take(20)?.try_into().unwrap();
     c.take(7)?;
     let n = c.number(4)? as usize;
-    Ok((onto, crate::hooks::Actor::Principal(c.take(n)?.to_vec())))
+    let actor = crate::hooks::Actor::Principal(c.take(n)?.to_vec());
+    let base = if c.0.is_empty() { None } else { c.take(1)?; Some(c.take(20)?.try_into().unwrap()) };
+    Ok((onto, actor, base))
 }
 
 /// Return uses the same authenticated host actor union as rebase.

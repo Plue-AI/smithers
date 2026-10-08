@@ -383,9 +383,17 @@ func (r *Registry) Rebase(ctx context.Context, branch string, actor []byte, onto
 
 // RebaseWithObjects imports the host-admitted target on this authenticated
 // connection before invoking the daemon's single mutation-lock rewrite path.
-func (r *Registry) RebaseWithObjects(ctx context.Context, branch string, actor []byte, onto string, guard func(func() error) error) (RewriteResult, error) {
+func (r *Registry) RebaseWithObjects(ctx context.Context, branch string, actor []byte, onto, base string, guard func(func() error) error) (RewriteResult, error) {
 	if _, err := oid(onto); err != nil || len(actor) == 0 || len(actor) > 1024 {
 		return RewriteResult{}, ErrUnauthorized
+	}
+	var baseField []byte
+	if base != "" {
+		bytes, err := oid(base)
+		if err != nil {
+			return RewriteResult{}, ErrUnauthorized
+		}
+		baseField = wire.Field(3, bytes)
 	}
 	l, err := r.Current(branch)
 	if err != nil {
@@ -409,7 +417,11 @@ func (r *Registry) RebaseWithObjects(ctx context.Context, branch string, actor [
 	err = guard(func() error {
 		var callErr error
 		target, _ := oid(onto)
-		result, callErr = l.rewrite(ctx, branch, wire.Rebase, wire.Field(1, target), wire.Field(2, principal(actor)))
+		fields := [][]byte{wire.Field(1, target), wire.Field(2, principal(actor))}
+		if baseField != nil {
+			fields = append(fields, baseField)
+		}
+		result, callErr = l.rewrite(ctx, branch, wire.Rebase, fields...)
 		return callErr
 	})
 	return result, err

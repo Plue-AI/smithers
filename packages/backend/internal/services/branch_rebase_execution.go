@@ -14,7 +14,7 @@ import (
 // BranchRebaseExecutor uses the authenticated daemon's existing mutation lock,
 // freeze and object transport. The stack worker alone admits and publishes it.
 type BranchRebaseExecutor interface {
-	Rebase(context.Context, string, int64, string, func(pgx.Tx) error, func(func() error) error) (machined.RewriteResult, error)
+	Rebase(context.Context, string, int64, string, string, func(pgx.Tx) error, func(func() error) error) (machined.RewriteResult, error)
 	Capture(context.Context, string) (machined.CaptureResult, error)
 }
 
@@ -106,7 +106,7 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 			_ = tx.Rollback(context.WithoutCancel(ctx))
 		}
 	}()
-	result, err := st.s.branchRebase.Rebase(ctx, item.WorkspaceID, member, onto, func(tx pgx.Tx) error { return st.lockNativeRebase(ctx, tx, item, onto) }, func(rewrite func() error) error {
+	result, err := st.s.branchRebase.Rebase(ctx, item.WorkspaceID, member, onto, item.CandidateBase, func(tx pgx.Tx) error { return st.lockNativeRebase(ctx, tx, item, onto) }, func(rewrite func() error) error {
 		var err error
 		tx, err = st.s.store.Begin(ctx)
 		if err != nil {

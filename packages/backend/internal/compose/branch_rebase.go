@@ -18,7 +18,7 @@ type machineRebase struct {
 	presence *branchPresence
 }
 
-func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, onto string, admit func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
+func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, onto, base string, admit func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
 	if r.pool == nil || r.registry == nil || guard == nil || !r.registry.EventConsumerReady() {
 		return machined.RewriteResult{}, fmt.Errorf("rebase event consumer: %w", machined.ErrNotReady)
 	}
@@ -36,7 +36,7 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 		return machined.RewriteResult{}, err
 	}
 	ctx = context.WithValue(ctx, machineRebaseExportKey{}, machineRebaseExport{branch: branch, target: onto, admit: admit})
-	result, err := r.registry.RebaseWithObjects(ctx, branch, actor, onto, func(rewrite func() error) error {
+	result, err := r.registry.RebaseWithObjects(ctx, branch, actor, onto, base, func(rewrite func() error) error {
 		// Import temporarily fences ordinary daemon requests. The presence
 		// consumer must apply its next complete snapshot before the existing
 		// guard opens the rewrite transaction; otherwise every retry imports

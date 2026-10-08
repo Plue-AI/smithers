@@ -52,7 +52,7 @@ impl Watcher for Fixture {
     }
 }
 impl Core for Fixture {
-    fn validate_rebase(&self, onto: Oid) -> Result<()> {
+    fn validate_rebase(&self, onto: Oid, _base: Option<Oid>) -> Result<()> {
         assert_eq!(onto, [0x11; 20]);
         self.step("validate")
     }
@@ -60,7 +60,7 @@ impl Core for Fixture {
     fn capture_local(&self, _: &mut LockCx) -> Result<()> {
         self.step("capture")
     }
-    fn rebase(&self, _: &mut LockCx, onto: Oid) -> Result<Oid> {
+    fn rebase(&self, _: &mut LockCx, onto: Oid, _base: Option<Oid>) -> Result<Oid> {
         assert_eq!(onto, [0x11; 20]);
         self.step("rebase")?;
         assert_ne!(self.fail, "panic", "native provider panic");

@@ -301,13 +301,14 @@ func TestRebaseImportsTargetBeforeClaimGuardAndRewrite(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, byte(wire.Rebase), method)
 		require.Equal(t, bytes.Repeat([]byte{0xbb}, 20), fields[1])
+		require.Equal(t, bytes.Repeat([]byte{0xdd}, 20), fields[3])
 		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(11, wire.Field(1, bytes.Repeat([]byte{0xcc}, 20)), wire.Field(2, wire.U16(0)))))}))
 		sent = true
 	}()
 	guarded := false
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	result, err := r.RebaseWithObjects(ctx, "a", []byte("host-issued-actor"), strings.Repeat("b", 40), func(rewrite func() error) error {
+	result, err := r.RebaseWithObjects(ctx, "a", []byte("host-issued-actor"), strings.Repeat("b", 40), strings.Repeat("d", 40), func(rewrite func() error) error {
 		<-imported
 		require.NoError(t, link.RequireReady("a"))
 		guarded = true
@@ -337,7 +338,7 @@ func TestRebaseExporterRefusalKeepsReconciledBoot(t *testing.T) {
 			link, peer := connectTest(t, r, "a", authority)
 			require.NoError(t, link.Reconciled())
 			for range 2 {
-				_, err = r.RebaseWithObjects(t.Context(), "a", []byte("stack"), strings.Repeat("a", 40), func(func() error) error {
+				_, err = r.RebaseWithObjects(t.Context(), "a", []byte("stack"), strings.Repeat("a", 40), "", func(func() error) error {
 					t.Fatal("refused export entered rewrite guard")
 					return nil
 				})
@@ -347,4 +348,17 @@ func TestRebaseExporterRefusalKeepsReconciledBoot(t *testing.T) {
 			requireGuestSilent(t, peer)
 		})
 	}
+}
+
+func TestRebaseRejectsMalformedVerifiedBaseBeforeExportOrGuard(t *testing.T) {
+	r := new(Registry)
+	r.BindObjectExporter(func(context.Context, string, string, uint32) (io.ReadCloser, error) {
+		t.Fatal("malformed base reached object export")
+		return nil, nil
+	})
+	_, err := r.RebaseWithObjects(t.Context(), "a", []byte("stack"), strings.Repeat("b", 40), "../invalid", func(func() error) error {
+		t.Fatal("malformed base reached stack guard")
+		return nil
+	})
+	require.ErrorIs(t, err, ErrUnauthorized)
 }

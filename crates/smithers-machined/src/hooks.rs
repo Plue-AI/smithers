@@ -306,7 +306,7 @@ pub trait Core: Send + Sync {
     }
     /// Refuse before freezing unless the native core is ready and onto is
     /// retained locally. This check performs no working-copy mutation.
-    fn validate_rebase(&self, _onto: Oid) -> Result<()> {
+    fn validate_rebase(&self, _onto: Oid, _base: Option<Oid>) -> Result<()> {
         Err(Error::unsupported())
     }
 
@@ -335,7 +335,7 @@ pub trait Core: Send + Sync {
         Err(Error::unsupported())
     }
     /// Native jj rewrite only. RPC owns freeze/capture/reconcile/thaw.
-    fn rebase(&self, _cx: &mut LockCx, _onto: Oid) -> Result<Oid> {
+    fn rebase(&self, _cx: &mut LockCx, _onto: Oid, _base: Option<Oid>) -> Result<Oid> {
         Err(Error::unsupported())
     }
 

@@ -37,7 +37,7 @@ func TestRebaseFaultRootInputsValidatedBeforeUse(t *testing.T) {
 			result, err := r.Rebase(t.Context(), "a", cell.actor, cell.onto)
 			require.Error(t, err)
 			require.Zero(t, result)
-			_, err = r.RebaseWithObjects(t.Context(), "a", cell.actor, cell.onto, func(func() error) error { t.Fatal("invalid root input entered mutation guard"); return nil })
+			_, err = r.RebaseWithObjects(t.Context(), "a", cell.actor, cell.onto, "", func(func() error) error { t.Fatal("invalid root input entered mutation guard"); return nil })
 			require.Error(t, err)
 			requireGuestSilent(t, guest)
 		})
@@ -93,7 +93,7 @@ func TestRebaseFaultRootInputsValidatedBeforeUse(t *testing.T) {
 				if state == "missing object provider" {
 					guard = func(func() error) error { t.Fatal("missing object provider entered mutation guard"); return nil }
 				}
-				_, err = r.RebaseWithObjects(t.Context(), branch, []byte("stack"), target, guard)
+				_, err = r.RebaseWithObjects(t.Context(), branch, []byte("stack"), target, "", guard)
 			} else {
 				_, err = r.Rebase(t.Context(), branch, []byte("stack"), target)
 			}

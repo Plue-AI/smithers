@@ -48,14 +48,14 @@ impl Documents for Machine {
     }
 }
 impl Core for Machine {
-    fn validate_rebase(&self, _: Oid) -> Result<()> {
+    fn validate_rebase(&self, _: Oid, _base: Option<Oid>) -> Result<()> {
         Ok(())
     }
     fn capture_local(&self, _: &mut LockCx) -> Result<()> {
         self.call("capture");
         Ok(())
     }
-    fn rebase(&self, _: &mut LockCx, _: Oid) -> Result<Oid> {
+    fn rebase(&self, _: &mut LockCx, _: Oid, _base: Option<Oid>) -> Result<Oid> {
         self.call("partial rewrite");
         Err(Error::unsupported())
     }

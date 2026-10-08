@@ -197,7 +197,7 @@ func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item 
 				_ = tx.Rollback(context.WithoutCancel(ctx))
 			}
 		}()
-		result, err := st.s.branchRebase.Rebase(ctx, pending.Workspace, pending.Request.User, pending.SHA,
+		result, err := st.s.branchRebase.Rebase(ctx, pending.Workspace, pending.Request.User, pending.SHA, item.CandidateBase,
 			func(tx pgx.Tx) error { return st.lockForeignBring(ctx, tx, item, pending) },
 			func(rewrite func() error) error {
 				var err error

@@ -499,8 +499,8 @@ impl Core for Files {
             _ => self.next.call(cx, method, arguments),
         }
     }
-    fn validate_rebase(&self, onto: hooks::Oid) -> hooks::Result<()> {
-        self.next.validate_rebase(onto)
+    fn validate_rebase(&self, onto: hooks::Oid, base: Option<hooks::Oid>) -> hooks::Result<()> {
+        self.next.validate_rebase(onto, base)
     }
     fn validate_return_to_item(&self) -> hooks::Result<()> {
         self.next.validate_return_to_item()
@@ -514,8 +514,8 @@ impl Core for Files {
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.capture_local(cx)
     }
-    fn rebase(&self, cx: &mut LockCx, onto: hooks::Oid) -> hooks::Result<hooks::Oid> {
-        self.next.rebase(cx, onto)
+    fn rebase(&self, cx: &mut LockCx, onto: hooks::Oid, base: Option<hooks::Oid>) -> hooks::Result<hooks::Oid> {
+        self.next.rebase(cx, onto, base)
     }
     fn rebase_paths(&self, head: hooks::Oid) -> hooks::Result<Option<Vec<String>>> {
         self.next.rebase_paths(head)

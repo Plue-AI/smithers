@@ -1,6 +1,6 @@
 # ADR 0004: The machine daemon's wire contract
 
-Status: accepted at protocol 6 (2026-10-07; smithers-8a rulings 820aa0d89b, 94715a1b07, 7f11af21a8, 02fe2e50a2; smithers-3f independent wire sign-off on #3626, corpus 13de9c59b7). Protocol 7 (36e1705ca0, #3508) is under 3f delta review on #3626; protocol 8 (0e17d29b83, #3567: `status` fields 7 `bursts_idle` and 8 `documents_flushed`) is under 3f delta review on #3567; protocol 9 (f478219e32, #3532: `inspect_conflict` method 18, `status` back to fields 1–8 with no arguments) is under 3f delta review on #3532; every later bump takes a recorded 3f delta review and does not reopen this acceptance. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). The golden frames under `packages/backend/internal/compose/testdata/cocontracts/` gate the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
+Status: accepted at protocol 6 (2026-10-07; smithers-8a rulings 820aa0d89b, 94715a1b07, 7f11af21a8, 02fe2e50a2; smithers-3f independent wire sign-off on #3626, corpus 13de9c59b7). Protocol 7 (36e1705ca0, #3508) is under 3f delta review on #3626; protocol 8 (0e17d29b83, #3567: `status` fields 7 `bursts_idle` and 8 `documents_flushed`) is under 3f delta review on #3567; protocol 9 (f478219e32, #3532: `inspect_conflict` method 18, `status` back to fields 1–8 with no arguments) is under 3f delta review on #3532; protocol 10 (#3532: optional Rebase `source_base` for the fenced whole-TODO delta) awaits 3f post hoc delta review under the parallel-build directive, with approval not claimed; every later bump takes a recorded 3f delta review and does not reopen this acceptance. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). The golden frames under `packages/backend/internal/compose/testdata/cocontracts/` gate the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
 
 ## Context
 
@@ -133,7 +133,7 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `9`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+`protocol` is `10`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues. Protocol 8 adds optional status observations 7 `bursts_idle`
 and 8 `documents_flushed` (T-MCH-06, #3567). Protocol 9 moves conflict inspection to method 18 with two required OIDs and a required paths list ([owner ruling](https://github.com/smithersai/smithers/issues/3532#issuecomment-6052691254)). `status()` takes no arguments, returns only fields 1–8, and never freezes writers. `inspect_conflict` requires ready admission, validates the retained change and target, and freezes writers while draining the watcher and inspecting resolution. There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
@@ -168,7 +168,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 8 | `close_session` | `1 session: u32` | — | T-TRM-07; `unsupported` |
 | 9 | `kill_sessions` | `1 target: union {1 user {1 user: User}, 2 run {1 run: str}, 3 session {1 session: u32}}` | `1 killed: u16` | T-TRM-07; `unsupported` |
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
-| 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid`, `2? paths: list<str>` | T-STK-08; native paths inspected under the rewrite lock |
+| 11 | `rebase` | `1 onto: oid`, `2 actor: Actor`, `3? source_base: oid` | `1 head: oid`, `2? paths: list<str>` | T-STK-08; native paths inspected under the rewrite lock |
 | 12 | `return_to_item` | `1 actor: Actor` | `1 head: oid` | T-COL-05; `unsupported` |
 | 13 | `open_doc` | `1 path: str`, `2 actor: Actor.principal` | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
 | 14 | `close_doc` | `1 stream: u32` | — | T-COL-08a (S3); `unsupported` |
@@ -188,6 +188,8 @@ must prevent session admission, not grant access. `set_roster` is host-only.
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
 T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation. A peer with a different protocol is refused. Capture still flushes, snapshots, publishes and drains before stop.
+
+Rebase field 3 carries the stack-fenced verified base when a native Bring-in changed the physical parent. The daemon merges the whole captured item delta from that immutable base, keeping the bound logical change. Missing base objects refuse before capture; older schemas reject the unknown field before dispatch. The base is unprivileged object data and never reaches the root broker. Requests without field 3 retain their existing decoding.
 
 T-STK-08 uses `inspect_conflict` (18) for native conflict inspection. With the required retained change and onto revision, the daemon freezes broker writers with the fixed one-second deadline, flushes documents and inspects the same logical change under its mutation lock. A changed target is refused; every inspection outcome thaws. Result field 1 `paths` is required even when empty; a missing result is never successful Done. `status()` remains observational and never enters this barrier.
 

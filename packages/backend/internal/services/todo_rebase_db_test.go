@@ -433,7 +433,7 @@ func TestMainMoveUsesCodingBranchDuringIsolatedReview(t *testing.T) {
 // composed HTTP rehearsal supplies the real authenticated native provider.
 type reviewRebaseRefusal struct{ failure error }
 
-func (r reviewRebaseRefusal) Rebase(context.Context, string, int64, string, func(pgx.Tx) error, func(func() error) error) (machined.RewriteResult, error) {
+func (r reviewRebaseRefusal) Rebase(context.Context, string, int64, string, string, func(pgx.Tx) error, func(func() error) error) (machined.RewriteResult, error) {
 	if r.failure != nil {
 		return machined.RewriteResult{}, r.failure
 	}

@@ -288,10 +288,13 @@ impl Core for NativeCore {
         self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
         self.native.current().map(|_| ()).map_err(hook)
     }
-    fn validate_rebase(&self, onto: Oid) -> hooks::Result<()> {
+    fn validate_rebase(&self, onto: Oid, base: Option<Oid>) -> hooks::Result<()> {
         self.require_settled_wake()?;
         self.validate_head(onto)?;
-        self.native.validate_rebase(onto).map_err(hook)
+        if base.is_some() && self.item.as_ref().is_none_or(|item| item.number == 0) {
+            return Err(hooks::Error::unsupported());
+        }
+        self.native.validate_rebase(onto, base).map_err(hook)
     }
     fn returned_by(&self, actor: &Actor) -> hooks::Result<()> {
         let Actor::Principal(reference) = actor else {
@@ -376,7 +379,7 @@ impl Core for NativeCore {
         }
         Ok(())
     }
-    fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
+    fn rebase(&self, _: &mut LockCx, onto: Oid, base: Option<Oid>) -> hooks::Result<Oid> {
         let change = self
             .item
             .as_ref()
@@ -384,7 +387,7 @@ impl Core for NativeCore {
             .map(|item| item.change.as_str());
         #[cfg(all(feature = "killpoints", debug_assertions))]
         crate::events::killpoint("rebase-post-capture");
-        let head = self.native.rebase_bound(onto, change).map_err(hook)?;
+        let head = self.native.rebase_bound(onto, change, base).map_err(hook)?;
         #[cfg(all(feature = "killpoints", debug_assertions))]
         crate::events::killpoint("rebase-post-apply");
         Ok(head)
@@ -2496,12 +2499,12 @@ pub(crate) mod tests {
         assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
         // Neither a second rebase nor a conflicted target overwrites the retained
         // conflict. The operation checkpoint also restores the original change.
-        assert!(core.validate_rebase(onto).is_err());
+        assert!(core.validate_rebase(onto, None).is_err());
         assert_eq!(fs::read_to_string(root.join("conflict")).unwrap(), markers);
         core.native.restore().unwrap();
         assert_eq!(core.native.current().unwrap().0, item);
         assert_eq!(fs::read(root.join("conflict")).unwrap(), b"item version\n");
-        assert!(core.validate_rebase(head).is_err());
+        assert!(core.validate_rebase(head, None).is_err());
         assert_eq!(core.native.current().unwrap().0, item);
         core.native.settled().unwrap();
     }
@@ -2539,6 +2542,42 @@ pub(crate) mod tests {
         let inspection = conn::fields("result18", &response[1].1[1..]).unwrap();
         assert_eq!(inspection.iter().find(|(tag,_)| *tag==1).unwrap().1,[0,0]);
         assert_eq!(fs::read(root.join("conflict")).unwrap(),b"resolved item and main\n");
+    }
+    #[test]
+    fn rebase_rpc_refuses_missing_verified_base_before_capture() {
+        let (dir, mut core) = fixture();
+        let root = dir.path().join("workspace");
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "owning item");
+        fs::write(root.join("item"), b"retained item\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item = Some(crate::boot::ItemBinding { number: 1, change });
+        crate::native::tests::child(&core.native, base, "main");
+        fs::write(root.join("main"), b"main bytes\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        let response = call(core.clone(), 11, &[
+            field(1, onto),
+            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            field(3, [255; 20]),
+        ]);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 255);
+        assert_eq!(core.native.current().unwrap().0, item);
+        assert_eq!(fs::read(root.join("item")).unwrap(), b"retained item\n");
+        assert!(!dir.path().join("state/rewrite.operation").exists());
+        assert_eq!(core.events.depth().unwrap(), 0);
+        let response = call(core.clone(), 11, &[
+            field(1, onto),
+            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            field(3, base),
+        ]);
+        let head = rebased_head(&response);
+        assert!(core.native.descends_from_item(core.item.as_ref().unwrap().change.as_str()).unwrap());
+        assert_eq!(fs::read(root.join("item")).unwrap(), b"retained item\n");
+        assert_eq!(fs::read(root.join("main")).unwrap(), b"main bytes\n");
+        assert_eq!(core.native.current().unwrap().0, head);
     }
     #[test]
     fn rebase_rpc_refuses_missing_self_and_descendant_before_capture() {

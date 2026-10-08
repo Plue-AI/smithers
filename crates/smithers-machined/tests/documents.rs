@@ -1653,7 +1653,7 @@ mod dispatcher {
             fn ready(&self) -> hooks::Result<()> {
                 Ok(())
             }
-            fn validate_rebase(&self, onto: [u8; 20]) -> hooks::Result<()> {
+            fn validate_rebase(&self, onto: [u8; 20], _base: Option<[u8; 20]>) -> hooks::Result<()> {
                 assert_eq!(onto, [17; 20]);
                 Ok(())
             }
@@ -1661,14 +1661,14 @@ mod dispatcher {
                 Ok(())
             }
             fn return_to_item(&self, cx: &mut LockCx) -> hooks::Result<[u8; 20]> {
-                self.rebase(cx, [17; 20])
+                self.rebase(cx, [17; 20], None)
             }
             fn capture_local(&self, _: &mut LockCx) -> hooks::Result<()> {
                 assert_eq!(self.disk.0.lock().unwrap().files["a.rs"], b"abc typing");
                 self.calls.lock().unwrap().push("capture");
                 Ok(())
             }
-            fn rebase(&self, _: &mut LockCx, _: [u8; 20]) -> hooks::Result<[u8; 20]> {
+            fn rebase(&self, _: &mut LockCx, _: [u8; 20], _base: Option<[u8; 20]>) -> hooks::Result<[u8; 20]> {
                 self.calls.lock().unwrap().push("rewrite");
                 self.disk
                     .0

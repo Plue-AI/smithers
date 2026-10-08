@@ -11,7 +11,17 @@ import (
 // A native Bring-in keeps the live TODO composition. Its later steer must
 // deliver through the real stack door after capture advances engine phases.
 func TestLiveCapturedSteerAfterForeignRehearsal(t *testing.T) {
-	r := newRehearsal(t, "SMITHERS_LIVE_STEER_REHEARSAL", "C-J10-live-steer", "live-steer-")
+	rehearseBroughtInFollowMain(t, true)
+}
+func TestBroughtInTodoFollowsMainRehearsal(t *testing.T) {
+	rehearseBroughtInFollowMain(t, false)
+}
+func rehearseBroughtInFollowMain(t *testing.T, steer bool) {
+	flag, check, prefix := "SMITHERS_BRING_FOLLOW_MAIN_REHEARSAL", "C-J10-bring-follow-main", "bring-follow-"
+	if steer {
+		flag, check, prefix = "SMITHERS_LIVE_STEER_REHEARSAL", "C-J10-live-steer", "live-steer-"
+	}
+	r := newRehearsal(t, flag, check, prefix)
 	if !r.install("Install") {
 		return
 	}
@@ -65,57 +75,131 @@ func TestLiveCapturedSteerAfterForeignRehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("Discard then steer", "POST /api/branches/{b}; POST /api/todos/{n}", "Same live attempt publishes its new captured source", "T-STK-08", func() error {
-		sha, wait, err := pushWait("ALICE-DISCARD.md")
+	if steer {
+		if !r.step("Discard then steer", "POST /api/branches/{b}; POST /api/todos/{n}", "Same live attempt publishes its new captured source", "T-STK-08", func() error {
+			sha, wait, err := pushWait("ALICE-DISCARD.md")
+			if err != nil {
+				return err
+			}
+			body, _ := json.Marshal(map[string]string{"op": "discard-foreign", "id": wait, "revision": sha})
+			code, raw, err := r.keyed("POST", "/api/branches/"+url.PathEscape(branch), string(body), r.keyPrefix+"discard")
+			if err != nil || code != 202 {
+				return fmt.Errorf("Discard: %d %s %v", code, raw, err)
+			}
+			for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
+				card, err := r.j10Card(n)
+				if err != nil {
+					return err
+				}
+				if card.State == "in_review" && len(card.Waits) == 0 {
+					break
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("Discard did not settle its wait")
+				}
+			}
+			code, raw, err = r.keyed("POST", fmt.Sprintf("/api/todos/%d", n), `{"steer":"Also log each retry."}`, r.keyPrefix+"steer")
+			if err != nil || code != 202 {
+				return fmt.Errorf("Steer: %d %s %v", code, raw, err)
+			}
+			for deadline := time.Now().Add(5 * time.Minute); ; time.Sleep(time.Second) {
+				card, err := r.j10Card(n)
+				if err != nil {
+					return err
+				}
+				head, err := r.githubGit("rev-parse", "refs/heads/"+branch)
+				if err != nil {
+					return err
+				}
+				if card.State == "in_review" && head != sha && card.PR.Head == head {
+					if card.PR.Number != pr {
+						return fmt.Errorf("Steer replaced PR #%d", pr)
+					}
+					if _, err = r.githubGit("merge-base", "--is-ancestor", sha, head); err == nil {
+						return fmt.Errorf("Steer retained the discarded commit")
+					}
+					bytes, err := r.githubGit("show", head+":alice.md")
+					if err != nil || bytes != "log each retry" {
+						return fmt.Errorf("Bring-in bytes lost: %q %v", bytes, err)
+					}
+					r.actual = fmt.Sprintf("T%d PR #%d replaced the discarded head; retained Alice's brought-in bytes", n, pr)
+					return nil
+				}
+				if card.State == "failed" || time.Now().After(deadline) {
+					return fmt.Errorf("steered T%d is %s at %s", n, card.State, short7(head))
+				}
+			}
+		}) {
+			return
+		}
+	}
+	r.step("Follow main after Bring-in", "Person pushes main; GET /api/todos", "Same PR retains the whole TODO and person bytes", "T-STK-08", func() error {
+		before, err := r.candidate(n)
 		if err != nil {
 			return err
 		}
-		body, _ := json.Marshal(map[string]string{"op": "discard-foreign", "id": wait, "revision": sha})
-		code, raw, err := r.keyed("POST", "/api/branches/"+url.PathEscape(branch), string(body), r.keyPrefix+"discard")
-		if err != nil || code != 202 {
-			return fmt.Errorf("Discard: %d %s %v", code, raw, err)
+		started := time.Now()
+		main, err := r.pushMain("UNRELATED.md", "outside main change\n", "Person moves main")
+		if err != nil {
+			return err
 		}
-		for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Second) {
-			card, err := r.j10Card(n)
+		for deadline := started.Add(time.Minute); ; time.Sleep(time.Second) {
+			after, err := r.candidate(n)
 			if err != nil {
 				return err
 			}
-			if card.State == "in_review" && len(card.Waits) == 0 {
+			if after.Base == main && after.Head != before.Head && time.Now().Before(deadline) {
 				break
 			}
 			if time.Now().After(deadline) {
-				return fmt.Errorf("Discard did not settle its wait")
+				return fmt.Errorf("T%d did not follow main within 60s: %s %s", n, after.State, after.Reason)
 			}
 		}
-		code, raw, err = r.keyed("POST", fmt.Sprintf("/api/todos/%d", n), `{"steer":"Also log each retry."}`, r.keyPrefix+"steer")
-		if err != nil || code != 202 {
-			return fmt.Errorf("Steer: %d %s %v", code, raw, err)
-		}
-		for deadline := time.Now().Add(5 * time.Minute); ; time.Sleep(time.Second) {
+		elapsed := time.Since(started)
+		for deadline := time.Now().Add(8 * time.Minute); ; time.Sleep(time.Second) {
 			card, err := r.j10Card(n)
 			if err != nil {
 				return err
 			}
-			head, err := r.githubGit("rev-parse", "refs/heads/"+branch)
+			pull, err := r.readFakePull(pr)
 			if err != nil {
 				return err
 			}
-			if card.State == "in_review" && head != sha && card.PR.Head == head {
-				if card.PR.Number != pr {
-					return fmt.Errorf("Steer replaced PR #%d", pr)
+			parent, err := r.githubGit("rev-parse", pull.Head.SHA+"^")
+			if err != nil {
+				return err
+			}
+			if card.State == "in_review" && card.Merge.State == "ready" && parent == main && card.PR.Head == pull.Head.SHA {
+				if card.PR.Number != pr || pull.Head.SHA == before.Head {
+					return fmt.Errorf("follow-main replaced PR or retained its old head")
 				}
-				if _, err = r.githubGit("merge-base", "--is-ancestor", sha, head); err == nil {
-					return fmt.Errorf("Steer retained the discarded commit")
+				after, err := r.candidate(n)
+				if err != nil {
+					return err
 				}
-				bytes, err := r.githubGit("show", head+":alice.md")
-				if err != nil || bytes != "log each retry" {
-					return fmt.Errorf("Bring-in bytes lost: %q %v", bytes, err)
+				if !after.Verified || after.Verifies != before.Verifies+1 {
+					return fmt.Errorf("rebased source did not run fresh checks")
 				}
-				r.actual = fmt.Sprintf("T%d PR #%d replaced the discarded head; retained Alice's brought-in bytes", n, pr)
+				for path, want := range map[string]string{"alice.md": "log each retry", "UNRELATED.md": "outside main change"} {
+					got, err := r.githubGit("show", pull.Head.SHA+":"+path)
+					if err != nil || got != want {
+						return fmt.Errorf("lost %s: %q %v", path, got, err)
+					}
+				}
+				if _, err := r.githubGit("show", pull.Head.SHA+":retry-webhooks.md"); err != nil {
+					return fmt.Errorf("lost TODO file: %w", err)
+				}
+				if _, err := r.githubGit("show", pull.Head.SHA+":ALICE-DISCARD.md"); err == nil {
+					return fmt.Errorf("restored discarded bytes")
+				}
+				if r.appMergeWrites(pr) != 0 {
+					return fmt.Errorf("product merged the person's PR")
+				}
+				r.actual = fmt.Sprintf("T%d followed main in %s; same PR #%d, whole TODO, Alice's bytes and fresh checks", n, elapsed, pr)
 				return nil
 			}
 			if card.State == "failed" || time.Now().After(deadline) {
-				return fmt.Errorf("steered T%d is %s at %s", n, card.State, short7(head))
+				return fmt.Errorf("rebased PR did not settle: %+v", card)
 			}
 		}
 	})

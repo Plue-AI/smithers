@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=9;
+const protocol=10;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bac5d878851f283f7a672a6e22d785c482fd07066ee6c0e00320c2ff8ec4de1a'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'32c5feebfe24c101a91548084ec88448b71d92192db84fe072018ede8c695b7c'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'0da66448a6f0bc8c61c2e4fb9428333b88c2ae7397cf90adfc51a0ffe1f812aa'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'b6cdb2b343fb2d7c7df68b32a29af64c977ff5120dcc408cf3d24def165f2e78'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'278db3041dc10c7c84708f1e815d929f39a0f83070011d530fa776e21fa00775'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'0c8911aa7acd97941735c048a42087d5dcd4a49fa995dd918fe24f9cd925f63c'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -99,6 +99,9 @@ emit('req_status_conflict_args',1,req(1,f(1,oid),f(2,oid2)),0,'unknown_field');
 emit('res_inspect_conflict',1,res(18,f(1,list(str('src/a.ts')))),0,'ok','daemon-to-host');
 emit('res_inspect_conflict_resolved',1,res(18,f(1,list())),0,'ok','daemon-to-host');
 emit('res_inspect_conflict_missing_paths',1,res(18),0,'missing_field','daemon-to-host');
+emit('req_rebase_verified_base',1,req(11,f(1,oid),f(2,actor),f(3,oid2)));
+emit('req_rebase_verified_base_truncated',1,req(11,f(1,oid),f(2,actor),f(3,oid2.subarray(0,19))),0,'truncated');
+emit('req_rebase_verified_base_unknown',1,req(11,f(1,oid),f(2,actor),f(4,oid2)),0,'unknown_field');
 emit('res_status_conflict_paths',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),f(9,list())),0,'unknown_field','daemon-to-host');
 emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
 // acked_head is optional: absent before the first acknowledged capture.
