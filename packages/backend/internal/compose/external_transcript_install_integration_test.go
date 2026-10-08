@@ -3,6 +3,7 @@ package compose
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -203,24 +205,108 @@ func TestInstallTranscriptPumpImportsMembersOwnSessions(t *testing.T) {
 	require.Equal(t, machined.AckApplied, outcome)
 	imported++
 
-	// A session the host has no receipt for is not answered: the link closes
-	// with nothing committed, and the record stays with the daemon.
+	// A record that reaches the host a moment before its session's receipt
+	// waits for the receipt on the open link, then imports.
+	early := process{session: 9, participant: [16]byte{0x91}, source: [16]byte{0x92}, profile: "codex-rollout/0.160", generation: 1}
+	opened := make(chan struct{})
+	go func() {
+		defer close(opened)
+		time.Sleep(400 * time.Millisecond)
+		var uid uint32
+		if pool.QueryRow(ctx, `SELECT unix_uid FROM collaborators WHERE user_id=$1`, fixture.alice.ID).Scan(&uid) == nil {
+			_ = sessions.Record(ctx, branch, link.BootID(), 9, machined.SessionUser{Login: fixture.alice.Username, UID: uid}, "terminal")
+		}
+	}()
+	outcome, err = deliver(peer, &early, `{"timestamp":"2026-10-08T05:00:00.000Z","type":"session_meta","payload":{"id":"late","cwd":"/workspace","cli_version":"0.160.1"}}`)
+	<-opened
+	require.NoError(t, err)
+	require.Equal(t, machined.AckApplied, outcome)
+	imported++
+
+	// A session the host never opened has no answer however long the record
+	// waits. It is refused for good after the wait, with only the receipt that
+	// says so: the link stays open and the machine's later events are not held
+	// behind it.
 	receipts := count(`SELECT count(*) FROM machine_event_receipts`)
-	unknown := process{session: 9, participant: [16]byte{0x91}, source: [16]byte{0x92}, profile: "codex-rollout/0.160", generation: 1}
-	_, err = deliver(peer, &unknown, skip)
-	require.Error(t, err, "a session the host never opened was acknowledged")
+	unknown := process{session: 10, participant: [16]byte{0x93}, source: [16]byte{0x94}, profile: "codex-rollout/0.160", generation: 1}
+	asked := time.Now()
+	type settled struct {
+		outcome machined.AckOutcome
+		err     error
+	}
+	waiting := make(chan settled, 1)
+	go func() {
+		outcome, err := deliver(peer, &unknown, skip)
+		waiting <- settled{outcome, err}
+	}()
+	// While the record waits it holds neither the registry nor the branch's
+	// row: presence and stack work on this branch go on.
+	time.Sleep(sessionReceiptWait / 4)
+	free := make(chan error, 1)
+	go func() {
+		if len(fixture.registry.ConnectedBranches()) == 0 {
+			free <- errors.New("the registry lost the connected branch")
+			return
+		}
+		free <- pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			var held string
+			return tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE NOWAIT`, branch).Scan(&held)
+		})
+	}()
+	select {
+	case err := <-free:
+		require.NoError(t, err, "a waiting transcript record held the branch")
+	case <-time.After(sessionReceiptWait / 2):
+		t.Fatal("a waiting transcript record held the registry")
+	}
+	answer := <-waiting
+	outcome, err = answer.outcome, answer.err
+	require.NoError(t, err)
+	require.Equal(t, machined.AckRejected, outcome)
+	require.GreaterOrEqual(t, time.Since(asked), sessionReceiptWait)
+	require.Less(t, time.Since(asked), sessionReceiptWait+3*time.Second)
+	require.Equal(t, receipts+1, count(`SELECT count(*) FROM machine_event_receipts`))
+	require.Equal(t, before, external(fixture.benCookie))
+	select {
+	case <-link.Done():
+		t.Fatal("a record the host could not place closed the link")
+	default:
+	}
+
+	// The adapter host is down. A record is refused for good with nothing of
+	// it written; the next event on the same link is answered.
+	adapter.fault = errors.New("transcript adapter host is not running")
+	downAt := count(`SELECT count(*) FROM chat_turns`)
+	outcome, err = deliver(peer, aliceCodex, skip)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckRejected, outcome)
+	require.Equal(t, downAt, count(`SELECT count(*) FROM chat_turns`))
+	require.Equal(t, imported, count(`SELECT count(*) FROM machine_event_receipts WHERE outcome='applied'`))
+	adapter.fault = nil
+	outcome, err = deliver(peer, aliceCodex, skip)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckApplied, outcome)
+	imported++
+	select {
+	case <-link.Done():
+		t.Fatal("an adapter fault closed the link")
+	default:
+	}
+	// A database fault is not a verdict on the record: it is left unanswered
+	// for the daemon to send again, as every other event is.
+	adapter.fault = &pgconn.PgError{Code: "40001", Message: "could not serialize access"}
+	held := count(`SELECT count(*) FROM machine_event_receipts`)
+	_, err = deliver(peer, aliceCodex, skip)
+	require.Error(t, err, "a record was acknowledged through a database fault")
 	select {
 	case <-link.Done():
 	case <-time.After(3 * time.Second):
-		t.Fatal("the install pump kept a link whose record it could not place")
+		t.Fatal("the pump kept a link after a database fault")
 	}
-	require.Equal(t, receipts, count(`SELECT count(*) FROM machine_event_receipts`))
-	require.Equal(t, before, external(fixture.benCookie))
-	// The daemon reconnects on the same boot and the host opens that session:
-	// the same record now imports. Nothing was lost by waiting.
+	adapter.fault = nil
+	require.Equal(t, held, count(`SELECT count(*) FROM machine_event_receipts`))
 	link, peer = connect(fixture.authority)
-	open(link, 9, fixture.alice, "terminal")
-	outcome, err = deliver(peer, &unknown, `{"timestamp":"2026-10-08T05:00:00.000Z","type":"session_meta","payload":{"id":"late","cwd":"/workspace","cli_version":"0.160.1"}}`)
+	outcome, err = deliver(peer, aliceCodex, skip)
 	require.NoError(t, err)
 	require.Equal(t, machined.AckApplied, outcome)
 	imported++
@@ -325,7 +411,9 @@ func TestInstallTranscriptPumpImportsMembersOwnSessions(t *testing.T) {
 }
 
 // A deployment whose chat host cannot run the adapters composes no transcript
-// import, and the pump refuses a transcript before it reads or stores anything.
+// import. The pump refuses a transcript for good before it reads anything of
+// it: only the receipt that says so is stored, so the machine stops reading
+// that source and its other events are not held behind the record.
 func TestInstallTranscriptsRequireTheAdapterHost(t *testing.T) {
 	fixture := newTranscriptImportFixture(t)
 	transcripts, err := installTranscripts(fixture.pool, fixture.host)
@@ -344,16 +432,23 @@ func TestInstallTranscriptsRequireTheAdapterHost(t *testing.T) {
 	link, peer := externalTranscriptLink(t, fixture.registry, fixture.branch.ID, fixture.authority)
 	require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
 	var seq uint64
-	_, _, err = deliverTranscript(peer, &seq, wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{1}, Source: [16]byte{2}, Profile: "claude-code/2.1", Generation: 1, End: 3, Record: "{}"})
-	require.Error(t, err, "an unavailable import was acknowledged")
+	record := wire.Transcript{Version: 1, Session: 1, Participant: [16]byte{1}, Source: [16]byte{2}, Profile: "claude-code/2.1", Generation: 1, End: 3, Record: "{}"}
+	outcome, id, err := deliverTranscript(peer, &seq, record)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckRejected, outcome)
+	// The daemon lost the receipt and sends the record again: the same answer.
+	seq--
+	outcome, _, err = deliverTranscript(peer, &seq, record, id)
+	require.NoError(t, err)
+	require.Equal(t, machined.AckRejected, outcome)
 	select {
 	case <-link.Done():
-	case <-time.After(3 * time.Second):
-		t.Fatal("the pump kept a link whose transcript it cannot import")
+		t.Fatal("an unavailable import closed the link")
+	default:
 	}
-	var rows int
-	require.NoError(t, fixture.pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM machine_event_receipts)+(SELECT count(*) FROM chat_turns)`).Scan(&rows))
-	require.Zero(t, rows)
+	var receipts, rejected, entries int
+	require.NoError(t, fixture.pool.QueryRow(t.Context(), `SELECT count(*), count(*) FILTER (WHERE outcome='rejected' AND transcript_checkpoint IS NULL AND capture_payload IS NULL), (SELECT count(*) FROM chat_turns) FROM machine_event_receipts`).Scan(&receipts, &rejected, &entries))
+	require.Equal(t, []int{1, 1, 0}, []int{receipts, rejected, entries})
 }
 
 // A stack worker can hold the workspace while inspecting connected machines.

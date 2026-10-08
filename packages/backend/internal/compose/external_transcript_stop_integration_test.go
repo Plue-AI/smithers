@@ -20,10 +20,15 @@ import (
 type countingTranscriptAdapter struct {
 	*chat.HTTPChatHost
 	calls int
+	// fault, while set, is what the adapter host answers instead.
+	fault error
 }
 
 func (a *countingTranscriptAdapter) NormalizeExternalTranscript(ctx context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
 	a.calls++
+	if a.fault != nil {
+		return chat.ExternalNormalized{}, a.fault
+	}
 	return a.HTTPChatHost.NormalizeExternalTranscript(ctx, input)
 }
 

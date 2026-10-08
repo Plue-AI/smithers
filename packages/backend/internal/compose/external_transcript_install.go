@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -33,14 +34,53 @@ func installTranscripts(pool *pgxpool.Pool, host ports.ChatHost) (*TranscriptIng
 	return &TranscriptIngest{Store: store, Host: adapter}, nil
 }
 
+// How long a record waits for its session's receipt, and how often it looks.
+const (
+	sessionReceiptWait = 2 * time.Second
+	sessionReceiptPoll = 100 * time.Millisecond
+)
+
+// awaitTranscriptSession waits, at most sessionReceiptWait, for the receipt of
+// the session a transcript record names. The host writes that receipt when it
+// opens the session, before a member can have started an agent in it, so a
+// record that arrives first is at most a moment early.
+//
+// It runs before the writer takes any lock. It decides nothing: whether the
+// receipt came or not, the writer reads it again and answers. A record that
+// does not decode, or a link with no boot yet, has nothing to wait for.
+func awaitTranscriptSession(ctx context.Context, tx pgx.Tx, branch string, link *machined.Link, event machined.Event) error {
+	record, err := wire.DecodeTranscript(event.Payload)
+	boot := link.BootID()
+	if err != nil || boot == ([16]byte{}) {
+		return nil
+	}
+	for waited := time.Duration(0); ; waited += sessionReceiptPoll {
+		var opened bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM product_job_events WHERE principal_id=$1 AND event_type='branch.session_opened' AND data->>'boot'=$2 AND data->>'session'=$3)`,
+			"branch:"+branch, hex.EncodeToString(boot[:]), strconv.FormatUint(uint64(record.Session), 10)).Scan(&opened); err != nil {
+			return err
+		}
+		if opened || waited >= sessionReceiptWait {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(sessionReceiptPoll):
+		}
+	}
+}
+
 // installTranscriptSource answers who a transcript record belongs to from two
 // facts the host wrote itself: the receipt of the terminal session it opened on
 // this machine boot (machineHost.Record), and the registration the source's
 // earlier records committed under. The daemon supplies only numbers to look up.
 //
-// A session the host has no receipt for yet is not an answer: the record waits.
-// A session that is not a member's own, or a record whose source was registered
-// for another session, participant, profile, owner or boot, is refused for good.
+// A session the host has no receipt for has no answer here; the event pump
+// has already waited a moment for the receipt (awaitTranscriptSession) and
+// settles what is still unanswered as refused. A session that is not a
+// member's own, or a record whose source was registered for another session,
+// participant, profile, owner or boot, is refused for good.
 func installTranscriptSource(link *machined.Link) func(context.Context, pgx.Tx, string, wire.Transcript) (TranscriptBinding, error) {
 	return func(ctx context.Context, tx pgx.Tx, branch string, record wire.Transcript) (TranscriptBinding, error) {
 		boot := link.BootID()

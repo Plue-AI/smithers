@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -40,7 +41,7 @@ func machineBurstObservations(metrics *routes.SmithersMetrics, registry *machine
 }
 
 // bindMachineEvents is the install's event pump without transcript import: a
-// transcript record on it is refused as unavailable before any read or write.
+// transcript record on it is refused for good before any read of it or write.
 func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), notes *machined.OutsideChangeNotes, moved ...*services.MythicalService) (func(), error) {
 	return machineEvents{}.bind(ctx, registry, pool, host, observeCommitted, notes, moved...)
 }
@@ -50,6 +51,43 @@ type machineEvents struct {
 	// Transcripts imports a member's external agent session (ADR 0004 variant
 	// 5). Nil leaves that import unavailable; every other event is unaffected.
 	Transcripts *TranscriptIngest
+}
+
+// settledTranscript makes every transcript record end in an acknowledgement.
+//
+// A machine has one durable queue: its change events wait behind whatever is
+// at the front. A transcript record the host cannot import must therefore not
+// stay there. Whatever the reason replaying the record would not change (no
+// import in this install, an adapter host that is down, a session the host
+// never opened), the record is refused for good: nothing of it is written, the
+// receipt says rejected, and the machine stops reading that source. Only a
+// database fault or a cancelled request leaves the record unanswered, as for
+// every other event, because then nothing at all can be recorded.
+func settledTranscript(write machined.EventWriter) machined.EventWriter {
+	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
+		rejected := machined.Acknowledgement{Seq: event.Seq, Outcome: machined.AckRejected}
+		if write == nil {
+			return rejected, nil
+		}
+		// A refusal part-way through leaves none of the writer's rows behind.
+		attempt, err := tx.Begin(ctx)
+		if err != nil {
+			return machined.Acknowledgement{Seq: event.Seq}, err
+		}
+		ack, err := write(ctx, attempt, branch, event)
+		if err == nil {
+			return ack, attempt.Commit(ctx)
+		}
+		var database *pgconn.PgError
+		if errors.As(err, &database) || ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return machined.Acknowledgement{Seq: event.Seq}, err
+		}
+		if undo := attempt.Rollback(ctx); undo != nil {
+			return machined.Acknowledgement{Seq: event.Seq}, undo
+		}
+		slog.Warn("transcript record refused", "workspace_id", branch, "sequence", event.Seq, "error", err)
+		return rejected, nil
+	}
 }
 
 func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, pool *pgxpool.Pool, host *repohost.Client, observeCommitted func(), notes *machined.OutsideChangeNotes, moved ...*services.MythicalService) (func(), error) {
@@ -93,19 +131,26 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 			}
 			if len(event.Payload) > 0 && event.Payload[0] == 5 {
 				if m.Transcripts == nil {
-					return nil, machined.ErrNotReady
+					return settledTranscript(nil), nil
 				}
 				// Each record's owner comes from this link's own boot: the
 				// session receipts of another boot never answer for it.
 				transcripts := *m.Transcripts
 				transcripts.Resolve = installTranscriptSource(link)
+				// A record can reach the host a moment before its session's
+				// receipt. It waits for the receipt here, before any row lock
+				// and before Ingestor takes the registry fence, so whoever
+				// needs either is not held while this record waits.
+				if err := awaitTranscriptSession(ctx, tx, branch, link, event); err != nil {
+					return nil, err
+				}
 				// A workspace owner may consult the registry while holding
 				// this row. Acquire it before Ingestor takes the registry fence.
 				var workspace string
 				if err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&workspace); err != nil {
 					return nil, err
 				}
-				return transcripts.Write, nil
+				return settledTranscript(transcripts.Write), nil
 			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
 				return nil, machined.ErrNotReady

@@ -586,9 +586,11 @@ func TestExternalImportUnavailable(t *testing.T) {
 		})
 	}
 	t.Run("composed-install-pump", func(t *testing.T) {
-		// Use exactly the event consumer mounted by install main.go. An
-		// authenticated transcript must refuse before receipt preparation while
-		// discovery/reader/source providers are absent, including after replay.
+		// Use exactly the event consumer mounted by install main.go. Without
+		// an import it refuses an authenticated transcript for good before it
+		// reads anything of it, including after replay: the receipt that says
+		// so is all that is stored, and the link is not closed over it. The
+		// machine's change events are never held behind a transcript record.
 		registry := new(machined.Registry)
 		authority, err := registry.MintBoot(branch.ID, "vm-import-pump")
 		require.NoError(t, err)
@@ -603,18 +605,18 @@ func TestExternalImportUnavailable(t *testing.T) {
 			link, peer := externalTranscriptLink(t, registry, branch.ID, authority)
 			require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
 			require.NoError(t, wire.Write(peer, transcriptEventFrame(event)))
-			_, err = wire.Read(peer)
-			require.Error(t, err, "uncomposed transcript was acknowledged")
+			answer, err := wire.Read(peer)
+			require.NoError(t, err)
+			require.Equal(t, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, []byte{byte(machined.AckRejected)}))}, answer)
 			select {
 			case <-link.Done():
-			case <-time.After(3 * time.Second):
-				t.Fatal("install consumer did not close refused transcript link")
+				t.Fatal("install consumer closed the link over an unavailable transcript")
+			default:
 			}
-			var receipts, entries int
-			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+			var receipts, rejected, entries int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE outcome='rejected' AND transcript_checkpoint IS NULL) FROM machine_event_receipts`).Scan(&receipts, &rejected))
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
-			require.Zero(t, receipts)
-			require.Zero(t, entries)
+			require.Equal(t, []int{1, 1, 0}, []int{receipts, rejected, entries})
 		}
 	})
 
