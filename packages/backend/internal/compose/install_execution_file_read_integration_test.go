@@ -92,7 +92,10 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	credentials := services.NewGitHubAppCredentialStore(f.pool, codec)
 	members := &services.Members{Pool: f.pool, Credentials: credentials, Minter: services.NewRepoConnectionService(f.pool, credentials)}
-	router := githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.WorkspaceHandler{Service: service}, routerExtras{Members: &routes.MembersHandler{Service: members}})
+	todos := services.NewMythicalService(f.pool, client)
+	todos.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(service))
+	topics := &liveTopics{changePool: f.pool, queries: f.q, presence: &branchPresence{queries: f.q, members: members, branches: service}, members: members}
+	router := githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.WorkspaceHandler{Service: service}, routerExtras{Members: &routes.MembersHandler{Service: members}, Mythical: &routes.MythicalHandler{Service: todos}, Live: &routes.LiveHandler{Queries: f.q, Topics: topics.resolver}})
 	scopes := "read:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(ws.ID) + "," + middleware.AgentSessionRestrictionScope("file-run")
 	own := f.token(f.owner, "file-own-run", scopes, true)
 	machine := f.token(f.owner, "file-machine", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(ws.ID), true)
@@ -102,6 +105,27 @@ func TestInstallExecutionFileReadsPostgres(t *testing.T) {
 	memberSum := sha256.Sum256([]byte(memberCookie))
 	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(memberSum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	t.Run("member session reads another member's repository work", func(t *testing.T) {
+		alice, err := f.q.CreateUser(f.ctx, db.CreateUserParams{Username: "alice", LowerUsername: "alice"})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, f.repoID, alice.ID)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,base_commit=$3 WHERE id=$1`, itemID, alice.ID, head)
+		require.NoError(t, err)
+		defer func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2 WHERE id=$1`, itemID, f.owner.ID)
+			require.NoError(t, err)
+		}()
+		for _, path := range []string{"/api/todos", "/api/todos/" + fmt.Sprint(number), "/api/repos/gate-owner/app/workspaces/" + ws.ID + "/files", "/api/branches/" + ws.ID + "/files/history.txt", "/api/branches/" + ws.ID + "/diff", "/api/branches/" + ws.ID + "/activity"} {
+			t.Run(path, func(t *testing.T) {
+				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
+				req.AddCookie(&http.Cookie{Name: "session", Value: memberCookie})
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, 200, out.Code, out.Body.String())
+			})
+		}
+	})
 	for _, reader := range []struct{ name, token string }{
 		{"member", ""},
 		{"external", f.token(f.other, "retained-workspace-external", "read:repository,via:codex", true)},
