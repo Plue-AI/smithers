@@ -1,0 +1,180 @@
+{
+  "ticket": "T-COL-08b",
+  "issue": 3630,
+  "lane": "fr14-col08b",
+  "tested_revision": "bd9c2e4cab037ef467379723848737e6b680d36f",
+  "scope": "Revised daemon-only relay component qualification. Composed authenticated /api/live with real PostgreSQL and fake daemon at the branch-connection seam. No product code changed.",
+  "environment": {
+    "preamble": "export LANE=fr14-col08b; source ~/lanes/env.sh; export GOMAXPROCS=8",
+    "compose_preamble": "export SMITHERS_TEST_DATABASE_URL='postgres://smithers@127.0.0.1:55440/postgres?sslmode=disable'; export SMITHERS_TEST_DATABASE_NAMESPACE=fr14_col08b",
+    "ffi_library": "/home/lane/.cache/cargo-target-gate/release/libsmithers_ffi.so"
+  },
+  "checks": [
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/compose -run '^(TestDocRelay|TestMachinedWireGoldenFrames$|TestWorkingTogetherWireContract$)' -count=1 -json",
+      "passed": 11,
+      "passed_including_subtests": 192,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        "TestMachinedWireGoldenFrames",
+        "TestWorkingTogetherWireContract",
+        "TestDocRelayWireContract",
+        "TestDocRelayAuthorization",
+        "TestDocRelayDarkLanding",
+        "TestDocRelayDataOnly",
+        "TestDocRelayRevocation",
+        "TestDocRelayBackpressure",
+        "TestDocRelayOneStreamPerTopic",
+        "TestDocRelayEpochChange",
+        "TestDocRelayReplacementConnection"
+      ],
+      "log": "current-compose.jsonl.gz",
+      "log_sha256": "c7033e904244ca5fc4ad98689dc90eae8085df59c3610956f54279fe5a01bda2"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/live -run '^(TestCodeTopic|TestDocRelay)' -count=1 -json",
+      "passed": 8,
+      "passed_including_subtests": 8,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        "TestCodeTopicOneStreamFansOut",
+        "TestCodeTopicSyncAnswersRequester",
+        "TestCodeTopicRefusalEndsOnlyThatSubscriber",
+        "TestCodeTopicGapKeepsClientIdentity",
+        "TestCodeTopicRestartKeepsOwnedClient",
+        "TestCodeTopicCloseAndReopen",
+        "TestCodeTopicEpochChangeGapsAll",
+        "TestDocRelayAdmissionCache"
+      ],
+      "log": "codetopic.jsonl.gz",
+      "log_sha256": "fd0f797663a3d5da50b59a7800d53b7d05e6a5ac2a903ee6ed15693f5f1a245c"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go test -p 4 ./internal/machined/wire -count=1 -json",
+      "passed": 27,
+      "passed_including_subtests": 295,
+      "failed": 0,
+      "skipped": 0,
+      "tests": [
+        "TestBurstGoldenProjection",
+        "TestDocumentGoldenPayloads",
+        "TestDocumentPayloadBoundaries",
+        "TestSequencedDocumentGoldenPayloads",
+        "TestFieldsUsesCanonicalSchema",
+        "TestStdlibOnly",
+        "TestIndependentAck",
+        "TestMAC",
+        "TestRefusalOrder",
+        "TestReadWrite",
+        "TestMessageBuilders",
+        "TestTaggedValueRefusals",
+        "TestFixedStreamRefusals",
+        "TestStreamIOFailures",
+        "TestPrimitiveFailures",
+        "TestStreamTruncationAndDataBoundaries",
+        "TestWireCorpus",
+        "TestMovedOffReturnedLiteralEvent",
+        "TestMovedOffLiteralEvent",
+        "TestMovedOffAttribution",
+        "TestPresenceSnapshotGolden",
+        "TestReconciledEventLiteralAndRefusals",
+        "TestProtocolThreeSessionAdmissionLiteral",
+        "TestProtocolFourSessionCancellationLiteral",
+        "TestTranscriptLiteralAndRefusals",
+        "TestFileWrittenGoldenProjection",
+        "FuzzFrame"
+      ],
+      "log": "wire.jsonl.gz",
+      "log_sha256": "d2a9ff730bfe62901a76c24b634c1c71a5ae23619075b33df16f520666e8507d"
+    },
+    {
+      "cwd": ".",
+      "command": "cargo test -p smithers-machined --test golden",
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "log": "current-rust.log",
+      "log_sha256": "1ba4fe2377e78b28e7203312c1c7e658fb8b9b1641f91d0049005d6c3ed6d435"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "pnpm exec vitest run test/LiveDoc.test.ts",
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "log": "ts.log",
+      "log_sha256": "784a5e72392ed8afdcb432277d0c1c04f0e3cf860882fdf52a732cc9ce919b10"
+    },
+    {
+      "cwd": "packages/rpc",
+      "command": "pnpm typecheck",
+      "passed": null,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "log": "ts-typecheck.log",
+      "log_sha256": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92"
+    },
+    {
+      "cwd": "packages/backend",
+      "command": "go build -p 4 ./...",
+      "passed": null,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "log": "current-build.log",
+      "log_sha256": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120"
+    },
+    {
+      "cwd": ".",
+      "command": "CARGO_TARGET_DIR=/home/lane/.cache/cargo-target-gate ~/lanes/lane-gates.sh",
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0,
+      "exit_code": 0,
+      "log": "current-gate.log",
+      "log_sha256": "8626351aa75fa9e0aea925fe61eedc3d21fab6aa5ab43242fee57514d8620a49"
+    }
+  ],
+  "activation": {
+    "LiveCodeDocuments": "unchanged; unset in production",
+    "lspConfinementReceipt": "unchanged"
+  },
+  "mirror_recovery": "Not applicable: codedoc.go host mirror deleted in b9553a4fca; revised suite tests daemon relay, not mirror recovery.",
+  "issue_audit": {
+    "state": "open",
+    "read": "2026-10-08 via read-only GitHub REST issue and comments",
+    "writes": "none; lead holds claims"
+  },
+  "blocked_on": [
+    {
+      "item": "ADR 0003 topology/security/TS review and acceptance (T-COL-11)",
+      "source": "docs/architecture/0003-live-code-co-editing.md:3"
+    },
+    {
+      "item": "C-J3-04 real install, second Mac and signed-in members",
+      "source": ".specs/engineering/checks/C-J3-04.md:4"
+    },
+    {
+      "item": "C-DUR-04 K7 real daemon/microVM fault qualification (T-COL-08)",
+      "source": ".specs/engineering/checks/C-DUR-04.md:25"
+    },
+    {
+      "item": "C-PERF-03 reference Mac and second Mac network latency",
+      "source": ".specs/engineering/checks/C-PERF-03.md:4"
+    }
+  ],
+  "limitations": [
+    "Passing fake-daemon component evidence does not establish real disk durability, latency or release-check closure.",
+    "No UI behavior was changed or unblocked; C-COL-01 stale restoration UI fixme remains outside this relay requalification.",
+    "First gate invocation was stopped during redundant local helper compilation; recorded current-gate.log is the successful gate using the existing qualified helper."
+  ],
+  "ticket_complete": false
+}
