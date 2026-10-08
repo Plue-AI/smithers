@@ -1,9 +1,12 @@
-import { expect, test } from "bun:test"
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
+import { afterAll, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { memoryStorage, settled } from "./TestFixtures"
 import { installFixture } from "./seams/InstallFixtures.test-support"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+GlobalRegistrator.register({ url: "http://localhost:4000/setup" })
+afterAll(() => GlobalRegistrator.unregister())
 const controller = scopedControllers()
 for (const host of ["local", "cloud"] as const) for (const install of [false, true]) {
   test(`${host} install=${install}: capability controls setup and seed`, async () => {

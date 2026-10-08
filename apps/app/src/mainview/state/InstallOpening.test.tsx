@@ -7,7 +7,7 @@ import { ControllerTestProvider } from "../ControllerContext"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, settled, silentAgent } from "./TestFixtures"
-GlobalRegistrator.register({ url: "http://localhost:4000/" })
+GlobalRegistrator.register({ url: "http://localhost:4000/setup" })
 afterAll(async () => { await settled(); await GlobalRegistrator.unregister() })
 const createAppController = scopedControllers()
 
@@ -92,7 +92,7 @@ test("Setup Sign in follows the GitHub door after the setup-only identity answer
     button.click(); await settled()
     expect(window.location.pathname).toBe("/api/auth/github")
     expect(host.textContent).not.toContain("Sign-in isn't available")
-  } finally { window.history.replaceState({}, "", "/"); flushSync(() => root.unmount()); host.remove() }
+  } finally { window.history.replaceState({}, "", "/setup"); flushSync(() => root.unmount()); host.remove() }
 })
 
 test("without install capability the seeded Setup and Settings remain usable (#3455)", async () => {
