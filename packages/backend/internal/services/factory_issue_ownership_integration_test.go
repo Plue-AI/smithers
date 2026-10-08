@@ -682,3 +682,66 @@ func TestFactoryIssueOwnershipIsolatedReviewLane(t *testing.T) {
 		})
 	}
 }
+
+// Exercise the real dispatcher and SQL admission, rather than the orchestration's fake launcher.
+func TestFactoryIssueReviewAdmissionUsesRetainedIsolatedLane(t *testing.T) {
+	f := newFactoryOwnershipFixture(t)
+	ctx := context.Background()
+	item := f.o.item(f.issue.Number)
+	item.WorkspaceID = f.workspace
+	item.State = "proposed"
+	item.PRHead, item.CandidateHead = "head", "candidate"
+	reviewLane := uuid.NewString()
+	checks := mythicalChecksOf(item)
+	checks.Review = &mythicalReview{Lane: reviewLane, Head: "head", Candidate: "candidate"}
+	item.Checks = checks.encode()
+	var err error
+	item, err = db.New(f.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'isolated review')`, reviewLane, item.RepositoryID, item.ID)
+	require.NoError(t, err)
+	id := uuidString(item.ID)
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", item.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.o.userID)}
+	sponsor := f.o.userID
+	admit := func(workspace, flow string) error {
+		scope.PrincipalID = fmt.Sprintf("user:%d", sponsor)
+		auth, e := json.Marshal(map[string]any{"repositoryId": item.RepositoryID, "userId": sponsor, "workspaceId": workspace, "itemId": id, "generation": item.Generation})
+		require.NoError(t, e)
+		_, e = f.dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: scope, RequestID: uuid.NewString(), Target: flowruntime.FlowRuntimeTarget{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: workspace, BindingKind: mythicalBindingKind, BindingID: id}, FlowID: flow, Payload: json.RawMessage(`{}`), Projection: json.RawMessage(`{"phase":"review"}`), AuthorizationContext: auth})
+		return e
+	}
+	for _, invalid := range []struct{ workspace, flow string }{{uuid.NewString(), mythicalReviewFlow}, {reviewLane, "coding/request"}} {
+		var refusal *pgconn.PgError
+		require.ErrorAs(t, admit(invalid.workspace, invalid.flow), &refusal)
+		require.Equal(t, "P2082", refusal.Code)
+	}
+	for _, field := range []string{"head", "candidate"} {
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,ARRAY['review',$2::text],'"stale"'::jsonb) WHERE id=$1`, item.ID, field)
+		require.NoError(t, err)
+		var refusal *pgconn.PgError
+		require.ErrorAs(t, admit(reviewLane, mythicalReviewFlow), &refusal)
+		require.Equal(t, "P2082", refusal.Code)
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2::jsonb WHERE id=$1`, item.ID, item.Checks)
+		require.NoError(t, err)
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=now() WHERE workspace_id=$1`, reviewLane)
+	require.NoError(t, err)
+	var refusal *pgconn.PgError
+	require.ErrorAs(t, admit(reviewLane, mythicalReviewFlow), &refusal)
+	require.Equal(t, "P2082", refusal.Code)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=NULL WHERE workspace_id=$1`, reviewLane)
+	require.NoError(t, err)
+	require.NoError(t, admit(reviewLane, mythicalReviewFlow))
+	// Ownership transfers change the member sponsor without impersonating the
+	// actor who originally enabled the stack.
+	owner, err := db.New(f.pool).CreateUser(ctx, db.CreateUserParams{Username: "review-sponsor", LowerUsername: "review-sponsor"})
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET owner_id=$2,revisions='[{}]'::jsonb WHERE id=$1`, item.ID, owner.ID)
+	require.NoError(t, err)
+	require.ErrorAs(t, admit(reviewLane, mythicalReviewFlow), &refusal)
+	require.Equal(t, "P2082", refusal.Code)
+	sponsor = owner.ID
+	require.NoError(t, admit(reviewLane, mythicalReviewFlow))
+
+	require.Equal(t, f.workspace, f.o.item(f.issue.Number).WorkspaceID, "review admission preserves the offering run's coding lane")
+}

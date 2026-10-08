@@ -228,13 +228,17 @@ func (r *rehearsal) bringInReleased(n int64, branch, foreign, wait string) error
 	if err != nil {
 		return err
 	}
-	// A completed review must finish releasing its lane before a host rewrite.
+	// The offering TODO retains its coding workspace. Only the engine's
+	// isolated reviewer must finish releasing its lane before a host rewrite.
 	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
-		var workspace string
-		if err := r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&workspace); err != nil {
+		var activeReview bool
+		if err := r.pool.QueryRow(r.ctx, `SELECT EXISTS(SELECT 1 FROM mythical_lanes l
+   WHERE l.workspace_id=m.checks->'review'->>'lane' AND l.item_id=m.id
+    AND l.repository_id=m.repository_id AND l.retired_at IS NULL)
+   FROM mythical_items m WHERE m.number=$1`, n).Scan(&activeReview); err != nil {
 			return err
 		}
-		if workspace == "" {
+		if !activeReview {
 			break
 		}
 		if time.Now().After(deadline) {
