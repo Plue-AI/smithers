@@ -80,7 +80,9 @@ func projectTodoSteerConsumption(item *db.MythicalItem, projection mythicalProje
 			continue
 		}
 		for i, input := range checks.Steers {
-			if input.Attempt != item.Attempt || input.InputVersion != 0 || input.ReleasePending || input.ID == "" {
+			// GitHub originals begin at version 1; their edits begin at 2.
+			original := input.InputVersion == 0 || (input.InputVersion == 1 && input.GitHubAuthor > 0 && input.EditText == "")
+			if input.Attempt != item.Attempt || !original || input.ReleasePending || input.ID == "" {
 				continue
 			}
 			for _, id := range receipt.IDs {

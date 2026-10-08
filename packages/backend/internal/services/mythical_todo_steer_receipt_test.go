@@ -66,13 +66,19 @@ func TestGitHubEditedSteerReceiptPreservesConsumedRetryFeedback(t *testing.T) {
 }
 
 func TestTodoSteerConsumptionRequiresTheOwningQueuePromotion(t *testing.T) {
-	for _, name := range []string{"consumed", "other run", "other lineage", "other attempt", "held", "edited", "other phase", "admission", "malformed", "empty boundary", "other input"} {
+	for _, name := range []string{"consumed", "GitHub original", "GitHub edited", "unbound version", "other run", "other lineage", "other attempt", "held", "edited", "other phase", "admission", "malformed", "empty boundary", "other input"} {
 		t.Run(name, func(t *testing.T) {
 			input := todoSteer{ID: "input", Text: "Keep this instruction", Attempt: 2}
 			item := db.MythicalItem{Source: "todo", Attempt: 2, RequestRunID: "root"}
 			projection := mythicalProjection{Phase: "todo"}
 			event := flowruntime.Event{RunID: "root", Kind: "flows/notifications/Promoted", Payload: json.RawMessage(`{"boundary":"plan/0","targetLineageId":"root","ids":["input"]}`)}
 			switch name {
+			case "GitHub original":
+				input.InputVersion, input.GitHubAuthor = 1, 77
+			case "GitHub edited":
+				input.InputVersion, input.GitHubAuthor, input.EditText = 2, 77, "new text"
+			case "unbound version":
+				input.InputVersion = 1
 			case "other run":
 				event.RunID = "other"
 			case "other lineage":
@@ -102,7 +108,7 @@ func TestTodoSteerConsumptionRequiresTheOwningQueuePromotion(t *testing.T) {
 			after := mythicalChecksOf(item).Steers
 			require.Len(t, after, 1)
 			require.Equal(t, input.Text, after[0].Text)
-			require.Equal(t, name == "consumed", after[0].InputConsumed)
+			require.Equal(t, name == "consumed" || name == "GitHub original", after[0].InputConsumed)
 		})
 	}
 }
