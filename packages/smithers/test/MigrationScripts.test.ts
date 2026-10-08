@@ -77,10 +77,11 @@ const execute = (root: string, command: string, input: string) =>
 
 describe.skipIf(process.platform === "win32")("migrated scripts through the public CLI", { timeout: 120_000 }, () => {
   it.each([
-    { old: "smithers up simple-workflow.jsx --input \"$INPUT\"", detached: false },
-    { old: "bunx smthrs up .smithers/workflows/simple-workflow.tsx --input='{}' -d", detached: true },
-    { old: "smithers workflow run simple-workflow.jsx -d '{\"topic\":\"legacy data alias\"}'", detached: false }
-  ])("admits the right flow/input and execution mode for $old", async ({ detached, old }) => {
+    { old: "smithers up simple-workflow.jsx --input \"$INPUT\"", detached: false, invalid: false },
+    { old: "bunx smthrs up .smithers/workflows/simple-workflow.tsx --input='{}' -d", detached: true, invalid: true },
+    { old: "smithers workflow run simple-workflow.jsx -d '{\"topic\":\"legacy data alias\"}'", detached: false, invalid: false },
+    { old: 'bunx smthrs up .smithers/workflows/simple-workflow.tsx --input "$INPUT" -d', detached: true, invalid: false }
+  ])("admits the right flow/input and execution mode for $old", async ({ detached, invalid, old }) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-migrated-cli-")))
     roots.push(root)
     await cp(fixture, root, { recursive: true })
@@ -98,20 +99,24 @@ describe.skipIf(process.platform === "win32")("migrated scripts through the publ
     expect(migrated.scripts[0]?.unsupported).toBeUndefined()
     await writeFile(join(root, "package.json"), migrated.text)
     const result = await execute(root, migrated.scripts[0]!.after, input)
-    // This existing module fixture has no CLI executor. An attached start must
-    // report that precise post-admission condition, not a parser/route failure.
-    // Detached start succeeds once the child proves durable admission. Neither
-    // case is evidence that the separate module-execution bridge is complete.
+    // The migrated fixture has no action implementation. Attached execution
+    // reports that durable failure; detached execution acknowledges admission.
     expect({ code: result.code, signal: result.signal }, result.stdout + result.stderr)
-      .toEqual({ code: detached ? 0 : 1, signal: null })
-    const receipt = JSON.parse(result.stdout) as { runId: string; detached?: boolean; logFile?: string }
-    if (detached) expect(receipt.runId).toMatch(/^run-/)
-    else {
-      expect(receipt).toMatchObject({ code: "UnsupportedError" })
-      expect(result.stdout).toContain("no executor took it")
+      .toEqual({ code: invalid || !detached ? 1 : 0, signal: null })
+    const receipt = JSON.parse(result.stdout) as { runId: string; detached?: boolean; logFile?: string; cause?: string }
+    if (invalid) {
+      expect(receipt).toMatchObject({ code: "InvalidInput" })
+      expect(result.stdout).toContain("Missing key")
+      expect(result.stdout).toContain("topic")
+    } else {
+      expect(receipt.runId).toMatch(/^run-/)
+      if (!detached) {
+        expect(receipt).toMatchObject({ _tag: "Accepted", status: "failed" })
+        expect(receipt.cause).toContain('Action "simple-workflow/Research" has no implementation')
+      }
+      expect(receipt.detached === true).toBe(detached)
+      if (detached) expect(receipt.logFile).toBe(join(root, ".flows", "logs", `${receipt.runId}.log`))
     }
-    expect(receipt.detached === true).toBe(detached)
-    if (detached) expect(receipt.logFile).toBe(join(root, ".flows", "logs", `${receipt.runId}.log`))
 
     // Detached admission does not join the child process. Its SQLite stores
     // can still be opening or closing when this reader starts. Use the same
@@ -129,6 +134,11 @@ describe.skipIf(process.platform === "win32")("migrated scripts through the publ
         sqlite: { readonly: true }
       })))
     )
+    if (invalid) {
+      expect(rows).toHaveLength(0)
+      expect(runs).toHaveLength(0)
+      return
+    }
     expect(rows).toHaveLength(1)
     expect(JSON.parse(String(rows[0]!.decoded_input_json))).toEqual(expectedInput)
     expect(JSON.parse(String(rows[0]!.card_json)).flowId).toBe("simple-workflow")
