@@ -28,7 +28,7 @@ type todoLiteralInstall struct {
 	q     *db.Queries
 	item  db.MythicalItem
 	owner int64
-	call  func(*testing.T, string, string, string) (int, map[string]any)
+	call  func(*testing.T, string, string, string, ...string) (int, map[string]any)
 }
 
 func newTodoLiteralInstall(t *testing.T, configure ...func(*services.MythicalService, *pgxpool.Pool)) todoLiteralInstall {
@@ -72,9 +72,13 @@ func newTodoLiteralInstall(t *testing.T, configure ...func(*services.MythicalSer
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,title='Literal projection',stack_position=1 WHERE id=$1`, item.ID, owner.ID)
 	require.NoError(t, err)
 
-	call := func(t *testing.T, method, body, key string) (int, map[string]any) {
+	call := func(t *testing.T, method, body, key string, suffix ...string) (int, map[string]any) {
 		t.Helper()
-		req := httptest.NewRequest(method, cfg.Server.PublicURL+"/api/todos/1", strings.NewReader(body))
+		path := cfg.Server.PublicURL + "/api/todos/1"
+		if len(suffix) > 0 {
+			path += "/" + suffix[0]
+		}
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:51900"
 		req.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "placement-session"})
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "literal-csrf"})
