@@ -137,6 +137,12 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 }
 
 func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
+	return readInstallWorkspaceMetadata(ctx, s, "branch.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (BranchMachineResponse, error) {
+		return scoped.getBranch(ctx, branch, repositoryID, userID)
+	})
+}
+
+func (s *WorkspaceService) getBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
 	if err := s.requireBranchMachineProviders(); err != nil {
 		return BranchMachineResponse{}, err
 	}
@@ -146,6 +152,12 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
+	scoped := *s
+	scoped.q, scoped.transactions = q, tx
+	if s.installQueries != nil {
+		scoped.installQueries = q
+	}
+	s = &scoped
 	var row db.Workspace
 	if _, parseErr := uuid.Parse(branch); parseErr == nil {
 		row, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: branch, RepositoryID: repositoryID})
