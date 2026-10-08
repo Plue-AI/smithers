@@ -254,11 +254,11 @@ func (s *WorkspaceService) failWorkspaceSession(ctx context.Context, sessionID s
 
 // authorizeInstallWorkspaceMetadata preserves the one catalog decision for
 // direct and routed reads, then binds the caller and installed repository.
-func (s *WorkspaceService) authorizeInstallWorkspaceMetadata(ctx context.Context, command string, repositoryID, userID int64) (context.Context, error) {
+func (s *WorkspaceService) authorizeInstallWorkspaceMetadata(ctx context.Context, command string, repositoryID, userID int64, subjects ...InstallSubject) (context.Context, error) {
 	if s.installQueries == nil {
 		return ctx, nil
 	}
-	decision, err := Authorize(ctx, s.installQueries, command)
+	decision, err := Authorize(ctx, s.installQueries, command, subjects...)
 	if err != nil {
 		return ctx, err
 	}
@@ -269,7 +269,7 @@ func (s *WorkspaceService) authorizeInstallWorkspaceMetadata(ctx context.Context
 	if repository != repositoryID || decision.UserID != userID {
 		return ctx, confirmationPermission()
 	}
-	return WithInstallAuthorization(ctx, command, decision), nil
+	return WithInstallAuthorization(ctx, command, decision, subjects...), nil
 }
 
 // GetSession returns a single workspace session by ID. Viewing session status

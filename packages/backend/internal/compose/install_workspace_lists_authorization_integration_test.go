@@ -52,7 +52,10 @@ func TestInstallMemberWorkspaceListsPostgres(t *testing.T) {
 		require.Error(t, err)
 		_, err = service.GetWorkspace(f.ctx, own.ID, f.repoID, f.other.ID)
 		require.Error(t, err)
+		_, err = service.WorkspaceServicePublic(f.ctx, own.ID, f.repoID, f.other.ID, 3000)
+		require.Error(t, err)
 	})
+	require.NoError(t, f.q.SetWorkspaceServicePublic(f.ctx, db.SetWorkspaceServicePublicParams{WorkspaceID: own.ID, Port: 3000, Public: true}))
 	cookie := "workspace-list-member"
 	sum := sha256.Sum256([]byte(cookie))
 	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -87,11 +90,24 @@ func TestInstallMemberWorkspaceListsPostgres(t *testing.T) {
 	app := f.token(f.other, "workspace-list-app", "read:repository,via:smithers,terminal-session:"+liveAppTurnCredentialFixture(t, f.pool, f.other.ID)+"/1", true)
 	run := f.token(f.other, "workspace-list-run", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.LandingWorkspaceScope(own.ID)+","+middleware.AgentSessionRestrictionScope("list-run"), true)
 	machine := f.token(f.other, "workspace-list-machine", "read:repository,"+middleware.RepositoryRestrictionScope(f.repoID)+","+middleware.WorkspaceRestrictionScope(own.ID), true)
+	t.Run("preview decision cannot read a different port", func(t *testing.T) {
+		handler.Service = &workspaceMetadataAdmissionProbe{WorkspaceService: service, before: func() {}, visibilityPort: 3001}
+		defer func() { handler.Service = service }()
+		req := httptest.NewRequest("GET", cfg.Server.PublicURL+"/api/repos/gate-owner/app/workspaces/"+own.ID+"/services/3000/visibility", nil)
+		req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+		commands := []string{}
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Equal(t, []string{"branch.read"}, commands)
+		require.NotContains(t, out.Body.String(), `"public"`)
+	})
 	for _, actor := range []struct {
 		name, bearer, cookie string
 		status               int
 	}{{"person", "", cookie, 200}, {"external", external, "", 200}, {"app", app, "", 200}, {"run", run, "", 403}, {"machine", machine, "", 403}, {"scope", f.token(f.other, "list-scope", "read:user,via:codex", true), "", 403}, {"anonymous", "", "", 404}} {
-		for _, path := range []string{"/api/repos/gate-owner/app/workspaces", "/api/repos/gate-owner/app/workspace/sessions", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID, "/api/repos/gate-owner/app/workspace/sessions/" + foreignSession.ID, "/api/repos/gate-owner/app/workspaces/" + own.ID + "/stream", "/api/repos/gate-owner/app/workspaces/" + foreign.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + foreignSession.ID + "/stream"} {
+		for _, path := range []string{"/api/repos/gate-owner/app/workspaces", "/api/repos/gate-owner/app/workspace/sessions", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID, "/api/repos/gate-owner/app/workspace/sessions/" + foreignSession.ID, "/api/repos/gate-owner/app/workspaces/" + own.ID + "/stream", "/api/repos/gate-owner/app/workspaces/" + foreign.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + foreignSession.ID + "/stream", "/api/repos/gate-owner/app/workspaces/" + own.ID + "/services/3000/visibility", "/api/repos/gate-owner/app/workspaces/" + foreign.ID + "/services/3000/visibility"} {
 			t.Run(actor.name+path, func(t *testing.T) {
 				req := httptest.NewRequest("GET", cfg.Server.PublicURL+path, nil)
 				if actor.bearer != "" {
@@ -124,21 +140,28 @@ func TestInstallMemberWorkspaceListsPostgres(t *testing.T) {
 					router.ServeHTTP(out, req)
 				}
 				status := actor.status
+				if status == 404 && strings.HasSuffix(path, "/visibility") {
+					status = 401
+				}
 				if status == 200 && (strings.Contains(path, foreignSession.ID) || strings.Contains(path, foreign.ID)) {
 					status = 403
 				}
 				require.Equal(t, status, out.Code, out.Body.String())
-				if actor.status == 404 {
+				if status == 404 {
 					require.Empty(t, commands)
 				} else {
 					command := "branches.read"
-					if strings.Contains(path, "/sessions/") || strings.HasSuffix(path, "/stream") {
+					if strings.Contains(path, "/sessions/") || strings.HasSuffix(path, "/stream") || strings.HasSuffix(path, "/visibility") {
 						command = "branch.read"
 					}
 					require.Equal(t, []string{command}, commands)
 				}
 				if status == 200 {
-					require.Contains(t, out.Body.String(), own.ID)
+					if strings.HasSuffix(path, "/visibility") {
+						require.JSONEq(t, `{"public":true}`, out.Body.String())
+					} else {
+						require.Contains(t, out.Body.String(), own.ID)
+					}
 					if strings.HasSuffix(path, "/stream") {
 						require.Contains(t, out.Body.String(), "member-stream-update")
 					}
@@ -151,11 +174,11 @@ func TestInstallMemberWorkspaceListsPostgres(t *testing.T) {
 			})
 		}
 	}
-	for _, path := range []string{"/api/repos/gate-owner/app/workspaces", "/api/repos/gate-owner/app/workspace/sessions", "/api/repos/gate-owner/app/workspaces/" + own.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID + "/stream"} {
+	for _, path := range []string{"/api/repos/gate-owner/app/workspaces", "/api/repos/gate-owner/app/workspace/sessions", "/api/repos/gate-owner/app/workspaces/" + own.ID + "/stream", "/api/repos/gate-owner/app/workspace/sessions/" + ownSession.ID + "/stream", "/api/repos/gate-owner/app/workspaces/" + own.ID + "/services/3000/visibility"} {
 		t.Run("expiry after route admission"+path, func(t *testing.T) {
 			_, err := f.pool.Exec(f.ctx, "UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1", hex.EncodeToString(sum[:]))
 			require.NoError(t, err)
-			probe := &workspaceMetadataAdmissionProbe{WorkspaceRouteService: service, before: func() {
+			probe := &workspaceMetadataAdmissionProbe{WorkspaceService: service, before: func() {
 				_, err := f.pool.Exec(f.ctx, "UPDATE auth_sessions SET expires_at=now()-interval '1 second' WHERE session_key=$1", hex.EncodeToString(sum[:]))
 				require.NoError(t, err)
 			}}
@@ -194,23 +217,32 @@ func (w *workspaceAuthorizationRecorder) Write(body []byte) (int, error) {
 }
 
 type workspaceMetadataAdmissionProbe struct {
-	routes.WorkspaceRouteService
-	before func()
+	*services.WorkspaceService
+	before         func()
+	visibilityPort uint16
 }
 
 func (p *workspaceMetadataAdmissionProbe) GetWorkspace(ctx context.Context, id string, repo, user int64) (services.WorkspaceResponse, error) {
 	p.before()
-	return p.WorkspaceRouteService.GetWorkspace(ctx, id, repo, user)
+	return p.WorkspaceService.GetWorkspace(ctx, id, repo, user)
 }
 func (p *workspaceMetadataAdmissionProbe) GetSession(ctx context.Context, id string, repo, user int64) (services.WorkspaceSessionResponse, error) {
 	p.before()
-	return p.WorkspaceRouteService.GetSession(ctx, id, repo, user)
+	return p.WorkspaceService.GetSession(ctx, id, repo, user)
 }
 func (p *workspaceMetadataAdmissionProbe) ListWorkspaces(ctx context.Context, repo, user int64, page, per int) ([]services.WorkspaceResponse, int64, error) {
 	p.before()
-	return p.WorkspaceRouteService.ListWorkspaces(ctx, repo, user, page, per)
+	return p.WorkspaceService.ListWorkspaces(ctx, repo, user, page, per)
 }
 func (p *workspaceMetadataAdmissionProbe) ListSessions(ctx context.Context, repo, user int64, page, per int) ([]services.WorkspaceSessionResponse, int64, error) {
 	p.before()
-	return p.WorkspaceRouteService.ListSessions(ctx, repo, user, page, per)
+	return p.WorkspaceService.ListSessions(ctx, repo, user, page, per)
+}
+
+func (p *workspaceMetadataAdmissionProbe) WorkspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16) (bool, error) {
+	p.before()
+	if p.visibilityPort != 0 {
+		port = p.visibilityPort
+	}
+	return p.WorkspaceService.WorkspaceServicePublic(ctx, id, repo, user, port)
 }

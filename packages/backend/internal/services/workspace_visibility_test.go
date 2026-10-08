@@ -114,3 +114,12 @@ func TestPublicPreviewRejectsNoncanonicalDomains(t *testing.T) {
 	}
 	require.Zero(t, q.calls)
 }
+
+func TestWorkspaceVisibilityUnavailableService(t *testing.T) {
+	var service *WorkspaceService
+	_, err := service.WorkspaceServicePublic(context.Background(), "11111111-1111-4111-8111-111111111111", 101, 42, 3000)
+	var failure *pkgerrors.APIError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, 500, failure.Status)
+	require.Equal(t, "workspace store unavailable", failure.Message)
+}

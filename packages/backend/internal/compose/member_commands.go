@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -267,6 +268,33 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
+			}
+			if command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				if len(parts) == 9 && parts[4] == "workspaces" && parts[6] == "services" {
+					repository, lookup := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					port, parse := strconv.ParseUint(parts[7], 10, 16)
+					subject := services.InstallWorkspaceVisibilitySubject(repository.ID, parts[5], uint16(port))
+					decision, err := services.Authorize(r.Context(), queries, command, subject)
+					if err != nil {
+						writeConfirmationDispatchError(w, err)
+						return
+					}
+					if lookup != nil {
+						if stdErrors.Is(lookup, pgx.ErrNoRows) {
+							writeConfirmationDispatchError(w, pkgerrors.NotFound("repository not found"))
+						} else {
+							writeConfirmationDispatchError(w, pkgerrors.Internal("load preview repository").WithCause(lookup))
+						}
+						return
+					}
+					if parse != nil || port == 0 {
+						writeConfirmationDispatchError(w, pkgerrors.BadRequest("invalid preview"))
+						return
+					}
+					next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+					return
+				}
 			}
 			if command == "branch.read" && services.InstallExecutionCredential(r.Context()) {
 				subject, err := routes.InstallBranchReadSubject(r, queries)

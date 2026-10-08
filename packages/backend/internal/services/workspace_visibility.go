@@ -51,7 +51,18 @@ func (s *WorkspaceService) SetWorkspaceServicePublic(ctx context.Context, id str
 	}
 	return nil
 }
+
+// InstallWorkspaceVisibilitySubject binds the exact preview consent being read.
+func InstallWorkspaceVisibilitySubject(repository int64, workspace string, port uint16) InstallSubject {
+	return InstallSubject{RepositoryID: repository, WorkspaceID: workspace, Resource: "preview:" + strconv.Itoa(int(port))}
+}
+
 func (s *WorkspaceService) WorkspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16) (bool, error) {
+	return readInstallWorkspaceMetadata(ctx, s, "branch.read", repo, user, func(ctx context.Context, scoped *WorkspaceService) (bool, error) {
+		return scoped.workspaceServicePublic(ctx, id, repo, user, port)
+	}, InstallWorkspaceVisibilitySubject(repo, id, port))
+}
+func (s *WorkspaceService) workspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16) (bool, error) {
 	q, err := s.workspaceVisibilityOwner(ctx, id, repo, user, port)
 	if err != nil {
 		return false, err

@@ -629,6 +629,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/(diff|activity)$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/services/[0-9]+/visibility$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+$`)},
 	// File co-edit has its own actor policy; the service binds the validated batch.
 	{http.MethodPut, "flow.source-coedit", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files/content$`)},

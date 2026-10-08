@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 type workspaceMetadataPage[T any] struct {
@@ -13,8 +14,11 @@ type workspaceMetadataPage[T any] struct {
 // Metadata admission uses the same credential fence as other install reads.
 // The scoped reader uses the transaction's connection, including with pool size
 // one. No connection or authority lock survives into a streaming response.
-func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceService, command string, repository, actor int64, read func(context.Context, *WorkspaceService) (T, error)) (T, error) {
+func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceService, command string, repository, actor int64, read func(context.Context, *WorkspaceService) (T, error), subjects ...InstallSubject) (T, error) {
 	var zero T
+	if s == nil {
+		return zero, pkgerrors.Internal("workspace store unavailable")
+	}
 	if s.installQueries == nil {
 		return read(ctx, s)
 	}
@@ -30,7 +34,7 @@ func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceServic
 	scoped := *s
 	scoped.q = q
 	scoped.installQueries = q
-	ctx, err = scoped.authorizeInstallWorkspaceMetadata(ctx, command, repository, actor)
+	ctx, err = scoped.authorizeInstallWorkspaceMetadata(ctx, command, repository, actor, subjects...)
 	if err != nil {
 		return zero, err
 	}
