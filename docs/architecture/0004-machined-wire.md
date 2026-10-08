@@ -133,9 +133,9 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `7`: protocol 5's exact live-connection rule (8a, 2026-10-07,
-#3626) continues, with the bump required by the compared text-batch addition
-and delete/move mutations below. There is no negotiation or older live protocol accepted. Host and daemon
+`protocol` is `8`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+#3626) continues. Protocol 8 adds optional status observations 7 `bursts_idle`
+and 8 `documents_flushed` (T-MCH-06, #3567). There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
@@ -186,7 +186,7 @@ must prevent session admission, not grant access. `set_roster` is host-only.
 
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
-T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation; older daemons therefore retain their machine instead of authorizing safe-idle release. Capture still flushes, snapshots, publishes and drains before stop.
+T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation. A peer with a different protocol is refused. Capture still flushes, snapshots, publishes and drains before stop.
 
 Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
 (`set_roster`) answers `not_ready`.
