@@ -1222,3 +1222,219 @@ fn production_absent_and_digest_preconditions_preserve_captured_bytes() {
     assert!(output.status.success());
     assert_eq!(output.stdout, updated);
 }
+
+// The current §9.4.1 contract retains and versions a displaced outside save;
+// it never rolls back an irreversible exchange. Exercise the narrow race with
+// the shipped debug hold, not a fixture Disk or a direct control-handler call.
+#[cfg(feature = "killpoints")]
+#[test]
+#[ignore = "requires debug killpoints and SMITHERS_NAMESPACE_INIT; real exchange race"]
+fn production_rename_between_validation_and_exchange_returns_retained_race() {
+    use sha2::{Digest, Sha256};
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    assert_eq!(call(&mut host, 4, &[])[0], 4);
+    host.events.clear();
+    host.verify_versions = true;
+    let initial = b"outside sentinel";
+    let outside = b"independently logged replacement after validation\n";
+    let accepted = b"authenticated replacement\n";
+    let state = guest.root.path().join("state");
+    fs::write(state.join("qualification-write_swap.arm"), []).unwrap();
+    let workspace = guest.root.path().join("workspace");
+    let writer = std::thread::spawn(move || {
+        let marker = state.join("qualification-write_swap.hit");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !marker.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "exchange boundary not reached"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(fs::read(&marker).unwrap(), b"write_swap");
+        assert_eq!(fs::read(workspace.join("file")).unwrap(), initial);
+        fs::write(workspace.join("replacement"), outside).unwrap();
+        fs::File::open(workspace.join("replacement"))
+            .unwrap()
+            .sync_all()
+            .unwrap();
+        fs::rename(workspace.join("replacement"), workspace.join("file")).unwrap();
+        fs::File::open(&workspace).unwrap().sync_all().unwrap();
+        let logged = fs::read(workspace.join("file")).unwrap();
+        assert_eq!(logged, outside);
+        fs::remove_file(marker).unwrap();
+        logged
+    });
+    let mut content = (accepted.len() as u32).to_be_bytes().to_vec();
+    content.extend(accepted);
+    // Queue capture behind the held write on the production FIFO. Its result
+    // must include the accepted bytes and the displaced writer's versions.
+    for (id, request) in [
+        (
+            41u32,
+            conn::tagged(
+                3,
+                &[
+                    conn::field(1, [0, 4, b'f', b'i', b'l', b'e']),
+                    conn::field(
+                        2,
+                        conn::tagged(1, &[conn::field(1, Sha256::digest(initial))]),
+                    ),
+                    conn::field(3, content),
+                    conn::field(4, conn::tagged(1, &[conn::field(1, [0, 0, 0, 1, b'a'])])),
+                ],
+            ),
+        ),
+        (42u32, conn::tagged(4, &[])),
+    ] {
+        Frame {
+            kind: 1,
+            stream: 0,
+            payload: conn::tagged(
+                1,
+                &[conn::field(1, id.to_be_bytes()), conn::field(2, request)],
+            ),
+        }
+        .write(&mut host.stream)
+        .unwrap();
+    }
+    let response = receive_reply(&mut host, false).unwrap();
+    assert_eq!(host.response_id, 41);
+    assert_eq!(
+        response[0], 3,
+        "an exchanged write cannot claim unchanged stale refusal"
+    );
+    let fields = conn::fields("result3", &response[1..]).unwrap();
+    assert_eq!(fields[0].1, Sha256::digest(accepted).as_slice());
+    let raced = conn::fields("raced", fields[1].1).unwrap();
+    assert_eq!(raced[0].1, [0, 4, b'f', b'i', b'l', b'e']);
+    let writer_log = writer.join().unwrap();
+    assert_eq!(raced[1].1, Sha256::digest(&writer_log).as_slice());
+    let capture = receive_reply(&mut host, false).unwrap();
+    assert_eq!(host.response_id, 42);
+    assert_eq!(capture[0], 4);
+    assert_eq!(
+        fs::read(guest.root.path().join("workspace/file")).unwrap(),
+        accepted
+    );
+    let head: String = conn::fields("result4", &capture[1..]).unwrap()[0]
+        .1
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let captured = Command::new("/usr/bin/git")
+        .arg("-C")
+        .arg(host.store.path())
+        .args(["show", &format!("{head}:file")])
+        .output()
+        .unwrap();
+    assert!(captured.status.success());
+    assert_eq!(captured.stdout, accepted);
+    let mut retained = false;
+    for event in host.events.iter().filter(|event| event.event[0] == 1) {
+        let fields = conn::fields("burst", &event.event[1..]).unwrap();
+        let commit: String = fields
+            .iter()
+            .find(|(tag, _)| *tag == 4)
+            .unwrap()
+            .1
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        for side in ["b", "a"] {
+            let version = Command::new("/usr/bin/git")
+                .arg("-C")
+                .arg(host.store.path())
+                .args(["show", &format!("{commit}:{side}/file")])
+                .output()
+                .unwrap();
+            retained |= version.status.success() && version.stdout == writer_log;
+        }
+    }
+    assert!(
+        retained,
+        "displaced outside bytes absent from acknowledged host versions"
+    );
+    assert!(fs::read_dir(guest.root.path().join("state/outbox"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .all(|entry| !entry.file_name().to_string_lossy().ends_with(".ev")));
+}
+
+#[test]
+#[ignore = "requires SMITHERS_NAMESPACE_INIT; production local socket peer credentials"]
+fn production_local_socket_rejects_non_agent_before_write_dispatch() {
+    use std::{
+        io::{Read, Write},
+        os::unix::net::UnixStream,
+    };
+    let (guest, mut host) = guest();
+    assert_eq!(call(&mut host, 5, &[conn::field(1, guest.head)])[0], 5);
+    assert_eq!(call(&mut host, 16, &[conn::field(1, [0, 0])])[0], 16);
+    // This host caller maps to machined, not agent, in the daemon namespace.
+    // Actual agent/member separation and registered-run admission still need
+    // the protected guest; no payload may substitute for SO_PEERCRED here.
+    for forged_actor in [false, true] {
+        let mut fields = vec![
+            conn::field(1, [0, 4, b'f', b'i', b'l', b'e']),
+            conn::field(2, conn::tagged(2, &[])),
+            conn::field(3, [0, 0, 0, 4, b'l', b'o', b's', b't']),
+        ];
+        if forged_actor {
+            fields.push(conn::field(
+                4,
+                conn::tagged(1, &[conn::field(1, [0, 0, 0, 1, b'a'])]),
+            ));
+        }
+        let frame = Frame {
+            kind: 1,
+            stream: 0,
+            payload: conn::tagged(
+                1,
+                &[
+                    conn::field(1, 73u32.to_be_bytes()),
+                    conn::field(2, conn::tagged(3, &fields)),
+                ],
+            ),
+        };
+        let request = if forged_actor {
+            frame.encode()
+        } else {
+            frame.encode_local()
+        }
+        .unwrap();
+        let mut socket = UnixStream::connect(guest.root.path().join("run/machined.sock")).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        match socket.write_all(&request) {
+            Ok(()) => (),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                ) =>
+            {
+                ()
+            }
+            result => panic!("local request: {result:?}"),
+        }
+        let mut byte = [0];
+        match socket.read(&mut byte) {
+            Ok(0) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => (),
+            result => panic!("non-agent received a local response: {result:?}"),
+        }
+        assert_eq!(
+            fs::read(guest.root.path().join("workspace/file")).unwrap(),
+            b"outside sentinel"
+        );
+        assert_eq!(
+            call(&mut host, 1, &[])[0],
+            1,
+            "local refusal killed the host door"
+        );
+    }
+}
