@@ -1,0 +1,66 @@
+{
+  "ticket": "T-UI-19",
+  "issue": 3589,
+  "qualification": "development-only; ticket incomplete",
+  "passingRealRun": "2026-10-08T11-28-15.199Z",
+  "verifiedManifestEntries": 88,
+  "campaigns": {
+    "scriptedBaselinePass": 1,
+    "realDaemonPass": 1,
+    "realDaemonFail": 4
+  },
+  "limits": [
+    "Passing real Linux daemon run uses lane-owned tmpfs: physical storage and reference-host qualification remain pending.",
+    "All four real ordinary-filesystem failures retained; no causal performance conclusion from shared-host trials with different methods/build profiles.",
+    "Fixed flag-on then flag-off order; file grows between phases.",
+    "Original measured SHAs, patches and bundles are preserved; evidence landing SHA is not substituted."
+  ],
+  "checks": {
+    "FileCodeEditorUnits": "50 passed, 0 failed, 1157 filtered; final JUnit write successful",
+    "storiesAndRecovery": "5 passed, 0 failed; 90 screenshots, zero axe violations",
+    "flagOnFixture": "1 passed, 0 failed; earlier port collision retained",
+    "composedSmoke": "parent and three subtests passed, zero failed",
+    "appTypecheck": "passed",
+    "goBuild": "passed",
+    "laneGate": "PASS exit 0: four completed checks, zero failed, one deferred Go-test budget; 98s"
+  },
+  "blockedOn": [
+    {
+      "item": "Reference Mac mini plus second Mac/LAN and actual branch machine campaign",
+      "source": ".specs/engineering/checks/C-UI-14.md:3,6,10"
+    },
+    {
+      "item": "smithers-06 per-screen approve/fix at 1440/390 light/dark, recorded in #3589",
+      "source": ".specs/engineering/tickets/T-UI-19.md:44"
+    }
+  ],
+  "production": {
+    "LiveCodeDocuments": "unset",
+    "lspConfinementReceipt": "unset",
+    "caretsFlag": "off",
+    "issueClosed": false
+  },
+  "deletedFiles": [],
+  "artifacts": [
+    {
+      "file": "campaigns.tar.gz",
+      "bytes": 10482553,
+      "sha256": "86de7e2a4ca71d82e92919bf98934b9afca812f532422d04b0947cfde436b019"
+    },
+    {
+      "file": "logs.tar.gz",
+      "bytes": 100826,
+      "sha256": "39a2a5fea51ddd10a77effecea290b360467132cb6ca9c29e294a46a8e88eb82"
+    },
+    {
+      "file": "observations.json",
+      "bytes": 33881,
+      "sha256": "1ccb25c6660d4616a3330c9fe4d7b6cc617e4a9d0bdcbdbf306f78a2788fb919"
+    },
+    {
+      "file": "stories.tar.gz",
+      "bytes": 1545668,
+      "sha256": "0377902368d5adfc7148015759ff925cebf4440f0f59e8ad09b53c2fe4d3ab4e"
+    }
+  ]
+}

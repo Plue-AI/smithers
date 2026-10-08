@@ -29,7 +29,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-FM-01 | [C-FM-01.spec.ts](C-FM-01.spec.ts) | passed (Chromium; install seam fixtures, host proof in Go) | T-FM-01 |
 | C-FM-02 | [C-FM-02.spec.ts](C-FM-02.spec.ts) | passed (Chromium; quota status seam fixtures, gateway proof in Go) | T-FM-02 |
 | C-MCH-12 | [C-MCH-12.spec.ts](C-MCH-12.spec.ts) | composed-install-browser; native pending | T-MCH-16 |
-| C-UI-14 | [C-UI-14.spec.ts](C-UI-14.spec.ts) | Mounted two-member /file flag on/off and person-colour projection pass; story accessibility passes; opt-in five-minute/member/flag Linux composed Chromium sampler in e2e/real/code-document-latency.campaign.ts (scripted native guest or explicit real Linux daemon with disk convergence); reference-host and second-Mac latency qualification pending | T-UI-19 |
+| C-UI-14 | [C-UI-14.spec.ts](C-UI-14.spec.ts) | Mounted two-member /file flag on/off and person-colour projection pass; story accessibility passes; opt-in five-minute/member/flag Linux composed Chromium sampler in e2e/real/code-document-latency.campaign.ts (requires real Linux daemon and disk convergence; production File container; SHA-bound per-keystroke JSON/CSV); reference-host and second-Mac latency qualification pending | T-UI-19 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
