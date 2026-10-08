@@ -365,3 +365,40 @@ socketpair envelopes, passing reference-host
 revocation receipts remain required. The composed chain is authored, not a passing
 native receipt. C-J3-06 additionally needs the second Mac,
 GitHub key/account exercise and owner-recorded VS Code session.
+
+## Members' own agent sessions (T-AGT-02)
+
+A member's own Codex or Claude Code session reaches the branch conversation as
+ADR 0004 variant-5 `transcript` events (spec §9.6.6). The root broker finds the
+agent process in the member's terminal session and starts children that run as
+the member: one resolves which file is the transcript, one tails it. The
+daemon holds one reader per source, appends each framed record to the durable
+outbox and keeps a checkpoint per source. The host imports a record or answers
+`rejected`; ADR 0004 states what crosses the wire.
+
+### Daemon-local policy
+
+These rules decide what the daemon reads and sends. The host sees only ordinary
+variant-5 records, so none of them is a wire rule and none needs a protocol
+number.
+
+| Policy | Code | Reason |
+| --- | --- | --- |
+| A `rejected` transcript record stops its source for the life of the agent process. | `transcript/pump.rs`, `broker/transcripts.rs` | The host has said this source cannot be imported. Reading on would repeat the refusal for every record. |
+| No transcript is read while 64 durable events of any kind are queued. | `transcript/pump.rs` (`QUEUED`) | The outbox is one queue. A long transcript must not hold a capture or a burst behind it. |
+| A byte that is not UTF-8, and a NUL, is sent as `?`, one byte for one. | `transcript.rs` (`Framer`) | A record must be UTF-8 without NUL. The record stays as long as its line, so its byte range is still the file's and the member sees where the byte was. |
+| An empty or whitespace-only line is carried as leading whitespace of the next record. | `transcript.rs` (`Framer`) | A record is at least one byte. Every byte of the source stays in exactly one record's range, and JSON reads through leading whitespace. |
+| A line longer than 1 MiB stops its source. | `transcript.rs` (`Framer`) | A record cannot be longer. The bytes after it are not guessed at. |
+| The daemon asks the broker and reads four times a second; the broker reads the kernel at most once a second and asks a Claude Code process again every 2 s which file is its session. | `transcript/pump.rs` (`PASS`), `broker/transcripts.rs` | A complete record is in the outbox well inside the 5 s bound, and `/clear` becomes a new source of the same participant. |
+| The daemon reads only while it serves an authenticated, reconciled link with a synchronized roster. | `broker/control.rs` (`serving`) | Without one, nothing is discovered and no home is read. |
+
+### Open before T-AGT-02 is Landed (#3622)
+
+- A line longer than 1 MiB stops its source and nothing is shown to the
+  member. Showing it and reading on needs a rule the wire does not state today.
+- The local `/?codex=` preview stays until the install path's reference-host
+  receipt passes. It is deleted in the commit that records that receipt.
+- Reference-host receipts: `tests/transcript_broker.rs` and
+  `tests/transcript_discovery.rs` with `--ignored` in a microVM, and real
+  Claude Code and Codex sessions in a member's terminal.
+- An agent process is a participant of its entries but is not in presence.

@@ -508,29 +508,63 @@ fn a_source_no_longer_listed_loses_its_reader_and_stale_checkpoints_are_swept() 
 }
 
 #[test]
-fn a_record_that_cannot_be_framed_stops_the_source_after_the_records_before_it() {
-    for bad in [&b"{\"n\":\xff}\n"[..], b"{\"n\":\0}\n", b"\n"] {
-        let fixture = Fixture::new();
-        fixture.append(CODEX, b"{\"n\":1}\n");
-        fixture.append(CODEX, bad);
-        fixture.append(CODEX, b"{\"n\":3}\n");
-        fixture.broker.list(CODEX, false);
-        let mut pump = fixture.pump();
-        until(&mut pump, || !fixture.broker.released().is_empty());
-        // The record before the bad one arrived. Nothing after it did: no
-        // record is skipped silently.
-        assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"], "{bad:?}");
-        assert_eq!(fixture.broker.released(), [(CODEX, true)]);
-        assert_eq!(fixture.checkpoints(), Vec::<String>::new());
-        // It is not retried, whatever the broker still lists.
-        fixture.broker.list(CODEX, false);
-        for _ in 0..3 {
-            pump.pass(Instant::now() + Duration::from_secs(120))
-                .unwrap();
-        }
-        assert_eq!(fixture.broker.started(), [CODEX]);
-        assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"]);
+fn lines_with_bytes_that_cannot_cross_the_wire_reach_the_outbox_and_the_source_goes_on() {
+    let fixture = Fixture::new();
+    // What an agent can write that is not a clean JSON line: a byte that is
+    // not UTF-8, a NUL, an empty line. None of them ends the session's import.
+    fixture.append(
+        CODEX,
+        b"{\"n\":1}\n{\"text\":\"caf\xe9 \0\"}\n\n{\"n\":3}\n",
+    );
+    fixture.broker.list(CODEX, false);
+    let mut pump = fixture.pump();
+    until(&mut pump, || fixture.outbox.records().len() == 3);
+    assert_eq!(
+        fixture.outbox.records(),
+        vec![
+            (CODEX, 1, 0, 8, "{\"n\":1}".to_owned()),
+            // Each unsendable byte is one `?`: the record is as long as its line.
+            (CODEX, 1, 8, 26, "{\"text\":\"caf? ?\"}".to_owned()),
+            // The empty line is the leading space of the record after it.
+            (CODEX, 1, 26, 35, " {\"n\":3}".to_owned()),
+        ]
+    );
+    // The agent keeps writing and is read as before, by the same reader.
+    fixture.append(CODEX, b"{\"n\":4}\n");
+    until(&mut pump, || fixture.outbox.records().len() == 4);
+    assert_eq!(
+        fixture.outbox.records()[3],
+        (CODEX, 1, 35, 43, "{\"n\":4}".to_owned())
+    );
+    assert_eq!(fixture.broker.started(), [CODEX]);
+    assert_eq!(fixture.broker.released(), Vec::<([u8; 16], bool)>::new());
+    assert_eq!(pump.reading(), 1);
+}
+
+#[test]
+fn a_line_longer_than_a_record_stops_the_source_after_the_records_before_it() {
+    let fixture = Fixture::new();
+    fixture.append(CODEX, b"{\"n\":1}\n");
+    let mut long = vec![b'x'; smithers_machined::transcript::MAX_RECORD_BYTES + 1];
+    long.push(b'\n');
+    fixture.append(CODEX, &long);
+    fixture.append(CODEX, b"{\"n\":3}\n");
+    fixture.broker.list(CODEX, false);
+    let mut pump = fixture.pump();
+    until(&mut pump, || !fixture.broker.released().is_empty());
+    // The record before the long line arrived. Nothing after it did: no
+    // record is skipped silently.
+    assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"]);
+    assert_eq!(fixture.broker.released(), [(CODEX, true)]);
+    assert_eq!(fixture.checkpoints(), Vec::<String>::new());
+    // It is not retried, whatever the broker still lists.
+    fixture.broker.list(CODEX, false);
+    for _ in 0..3 {
+        pump.pass(Instant::now() + Duration::from_secs(120))
+            .unwrap();
     }
+    assert_eq!(fixture.broker.started(), [CODEX]);
+    assert_eq!(fixture.outbox.texts(CODEX), ["{\"n\":1}"]);
 }
 
 #[test]

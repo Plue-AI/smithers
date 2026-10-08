@@ -279,12 +279,12 @@ impl Tail {
             return Err(invalid("transcript checkpoint binding mismatch"));
         }
         tail.inode = state.inode;
-        tail.framer = Framer {
-            generation: state.framer.generation,
-            offset: state.framer.offset,
-            pending: state.framer.pending,
-            failed: state.framer.failed,
-        };
+        tail.framer = Framer::restored(
+            state.framer.generation,
+            state.framer.offset,
+            state.framer.pending,
+            state.framer.failed,
+        );
         tail.anchor = state.anchor;
         tail.stopped = state.stopped;
         tail.source = state.source;

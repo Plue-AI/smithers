@@ -353,8 +353,11 @@ fn member_file(path: &str, uid: u32, contents: &str) {
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
 fn append(path: &str, line: &str) {
+    append_bytes(path, format!("{line}\n").as_bytes());
+}
+fn append_bytes(path: &str, bytes: &[u8]) {
     let mut file = OpenOptions::new().append(true).open(path).unwrap();
-    writeln!(file, "{line}").unwrap();
+    file.write_all(bytes).unwrap();
 }
 /// Processes that are this install's daemon binary started as `role` for
 /// `uid`: the owner-uid transcript children the broker launched.
@@ -807,6 +810,27 @@ fn members_agent_sessions_are_imported_through_the_broker_and_the_daemon() {
         (&record.participant, &record.lifetime),
         (&codex.participant, &codex.lifetime)
     );
+
+    // Maya's agent writes a line with a byte that is not UTF-8, a NUL and an
+    // empty line after it. Each unsendable byte arrives as `?`, the empty
+    // line as the leading space of the next record, and her session goes on.
+    append_bytes(
+        &transcript(first_session),
+        b"{\"type\":\"user\",\"text\":\"na\xefve \0\"}\n\n{\"type\":\"user\",\"n\":2}\n",
+    );
+    machine.pass_until(
+        "a line with unsendable bytes",
+        Duration::from_secs(5),
+        |events| events.len() == 6,
+    );
+    assert_eq!(
+        machine.texts(maya)[2..],
+        [
+            r#"{"type":"user","text":"na?ve ?"}"#,
+            r#" {"type":"user","n":2}"#
+        ]
+    );
+    assert_eq!(children("transcript-reader", MAYA).len(), 1);
 
     // A daemon cannot name what to read: an unknown source starts no reader.
     assert_eq!(

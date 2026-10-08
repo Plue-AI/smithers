@@ -126,6 +126,55 @@ test("packaged transcript HTTP normalization preserves inert identities, checkpo
         assert.deepEqual([response.status, await response.json()], [422, { code: "transcript_invalid" }])
       }
     }
+    // What the machine's reader sends for a line it cannot send as written (smithers-machined, transcript.rs): a
+    // byte that is not UTF-8, or a NUL, arrives as `?`, one byte for one, and an empty line arrives as the leading
+    // space of the record after it. Both are ordinary records with the source's own byte ranges: the entry is
+    // shown with the mark in it, and everything the agent writes afterwards is read as before.
+    for (const [fixture, file, profile] of [
+      ["codex-machine-0.160", "rollout.jsonl", "codex-rollout/0.160"],
+      ["claude-code-2.1", "session.jsonl", "claude-code/2.1"]
+    ]) {
+      const records = (await readFile(new URL(`../../../packages/smithers/agent/harness/test/fixtures/external/${fixture}/${file}`, import.meta.url), "utf8")).trimEnd().split("\n")
+      const run = async sent => {
+        let state
+        let offset = 0
+        const entries = []
+        for (const record of sent) {
+          const end = offset + Buffer.byteLength(record) + 1
+          const response = await post({ profile, context, record, start: offset, end, ...(state === undefined ? {} : { state }) })
+          assert.equal(response.status, 200, `${fixture} record at ${offset}: ${await response.clone().text()}`)
+          const output = await response.json()
+          assert.equal(output.state.offset, end)
+          entries.push(...output.entries)
+          state = output.state
+          offset = end
+        }
+        return entries
+      }
+      const written = await run(records)
+      const prompt = written[0].body.text
+      // The record the prompt entry came from: its source id ends in that record's line number.
+      const at = Number(written[0].source_id.split(":")[1]) - 1
+      assert.ok(at > 0 && prompt.length > 8 && records[at].includes(JSON.stringify(prompt).slice(1, -1)))
+      const marked = prompt.slice(0, 3) + "?" + prompt.slice(4, -1) + "?"
+      const sent = records.map((record, index) => {
+        // The owner's prompt held a byte that is not UTF-8 and ended in a NUL.
+        if (index === at) return record.replaceAll(JSON.stringify(prompt).slice(1, -1), JSON.stringify(marked).slice(1, -1))
+        // An empty line came before the next record and before the last one.
+        return index === at + 1 || index === records.length - 1 ? " " + record : record
+      })
+      assert.equal(Buffer.byteLength(sent[at]), Buffer.byteLength(records[at]))
+      const read = await run(sent)
+      // The same entries, in the same order, under the same ids. The prompt shows its marks. A record led by an
+      // empty line starts where that line did; the records after it start one byte later, where they are in the file.
+      assert.equal(read.length, written.length)
+      assert.equal(read[0].body.text, marked)
+      const shifted = entry => entry.source_offset + (Number(entry.source_id.split(":")[1].split("#")[0]) > at + 2 ? 1 : 0)
+      assert.deepEqual(read.slice(1).map(entry => ({ ...entry, body: undefined })), written.slice(1).map(entry => ({ ...entry, body: undefined, source_offset: shifted(entry) })))
+      for (const [index, entry] of written.entries()) {
+        if (!JSON.stringify(entry.body).includes(JSON.stringify(prompt).slice(1, -1))) assert.deepEqual(read[index].body, entry.body)
+      }
+    }
     // A source registered under a release line no decoder reads is refused as an unsupported version before any
     // record is read, at its first record and at a later one alike.
     for (const profile of ["claude-code/2.2", "codex-rollout/0.161"]) {

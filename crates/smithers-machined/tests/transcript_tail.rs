@@ -197,34 +197,101 @@ fn confined_open_refuses_symlinks_hardlinks_and_special_files() {
     );
 }
 
+/// A line longer than a record can be: the one line a reader cannot frame.
+fn too_long() -> Vec<u8> {
+    let mut line = vec![b'x'; smithers_machined::transcript::MAX_RECORD_BYTES + 1];
+    line.push(b'\n');
+    line
+}
+/// Polls until the tail stops the source. A megabyte is read 64 KiB at a time.
+fn until_stopped(
+    tail: &mut Tail,
+    now: Instant,
+    mut persist: impl FnMut(&Record) -> io::Result<()>,
+) -> io::Error {
+    for step in 1..40 {
+        if let Err(error) = tail.poll(now + Duration::from_secs(step), &mut persist) {
+            return error;
+        }
+    }
+    panic!("the tail read past a line longer than a record");
+}
+
 #[test]
-fn missing_source_reconciles_and_malformed_source_stops() {
+fn missing_source_reconciles_and_a_line_too_long_stops_the_source() {
     let fixture = Fixture::new();
     let mut tail = fixture.tail("session.jsonl").unwrap();
     let now = Instant::now();
     assert_eq!(tail.poll(now, |_| panic!()).unwrap(), 0);
-    fixture.write("session.jsonl", b"\xff\n");
-    assert!(tail
-        .poll(now + Duration::from_secs(1), |_| panic!())
-        .is_err());
+    fixture.write("session.jsonl", &too_long());
+    until_stopped(&mut tail, now, |_| panic!());
     fixture.write("session.jsonl", b"{}\n");
     assert!(tail
-        .poll(now + Duration::from_secs(2), |_| panic!())
+        .poll(now + Duration::from_secs(60), |_| panic!())
         .is_err());
 }
 
 #[test]
-fn valid_record_before_malformed_record_is_persisted() {
+fn lines_that_cannot_cross_the_wire_are_read_and_the_source_goes_on() {
     let fixture = Fixture::new();
-    fixture.write("session.jsonl", b"{}\n\xff\n");
+    // Not UTF-8, a NUL, blank lines: none of them stops the source, and
+    // every byte of the file is in one record's range.
+    let written: &[u8] = b"{\"a\":\"\xff\"}\n\n{\"b\":\"\0\"}\n\r\n{\"c\":3}\n";
+    fixture.write("session.jsonl", written);
     let mut tail = fixture.tail("session.jsonl").unwrap();
     let mut records = vec![];
-    assert!(tail
-        .poll(Instant::now(), |r| {
-            records.push(r.clone());
+    let now = Instant::now();
+    assert_eq!(
+        tail.poll(now, |record| {
+            records.push(record.clone());
             Ok(())
         })
-        .is_err());
+        .unwrap(),
+        3
+    );
+    assert_eq!(
+        records
+            .iter()
+            .map(|record| (record.start, record.end, record.text.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (0, 10, "{\"a\":\"?\"}"),
+            (10, 21, " {\"b\":\"?\"}"),
+            (21, 31, "\r {\"c\":3}"),
+        ]
+    );
+    assert_eq!(records.last().unwrap().end, written.len() as u64);
+    // What the agent writes next is read as before.
+    fixture.append(b"{\"d\":4}\n");
+    assert_eq!(
+        tail.poll(now, |record| {
+            records.push(record.clone());
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        records[3],
+        Record {
+            generation: 1,
+            start: 31,
+            end: 39,
+            text: "{\"d\":4}".into()
+        }
+    );
+}
+
+#[test]
+fn valid_record_before_a_line_too_long_is_persisted() {
+    let fixture = Fixture::new();
+    fixture.write("session.jsonl", &[b"{}\n".as_slice(), &too_long()].concat());
+    let mut tail = fixture.tail("session.jsonl").unwrap();
+    let mut records = vec![];
+    until_stopped(&mut tail, Instant::now(), |r| {
+        records.push(r.clone());
+        Ok(())
+    });
     assert_eq!(
         records,
         vec![Record {
@@ -238,9 +305,9 @@ fn valid_record_before_malformed_record_is_persisted() {
 }
 
 #[test]
-fn persistence_failure_before_malformed_input_preserves_replay() {
+fn persistence_failure_before_a_line_too_long_preserves_replay() {
     let fixture = Fixture::new();
-    fixture.write("session.jsonl", b"{}\n\xff\n");
+    fixture.write("session.jsonl", &[b"{}\n".as_slice(), &too_long()].concat());
     let mut tail = fixture.tail("session.jsonl").unwrap();
     let now = Instant::now();
     let mut attempted = vec![];
@@ -251,12 +318,10 @@ fn persistence_failure_before_malformed_input_preserves_replay() {
         })
         .is_err());
     let mut replay = vec![];
-    assert!(tail
-        .poll(now, |r| {
-            replay.push(r.clone());
-            Ok(())
-        })
-        .is_err());
+    until_stopped(&mut tail, now, |r| {
+        replay.push(r.clone());
+        Ok(())
+    });
     assert_eq!(attempted, replay);
     assert_eq!(
         replay,
@@ -664,19 +729,25 @@ fn durable_checkpoint_remains_on_held_directory_and_refuses_links() {
     assert!(forged.load().is_err());
 }
 #[test]
-fn checkpoint_preserves_malformed_and_revoked_refusals_after_restart() {
+fn checkpoint_preserves_too_long_and_revoked_refusals_after_restart() {
     let f = Fixture::new();
-    f.write("session.jsonl", b"{}\n\0\nignored trailing bytes\n");
+    f.write(
+        "session.jsonl",
+        &[b"{}\n".as_slice(), &too_long(), b"ignored trailing bytes\n"].concat(),
+    );
     let (store, mut outbox) = durable(&f);
     let mut tail = f.tail("session.jsonl").unwrap();
-    assert!(tail
-        .poll_durable(
-            Instant::now(),
+    let now = Instant::now();
+    let stopped = (1..40).any(|step| {
+        tail.poll_durable(
+            now + Duration::from_secs(step),
             &source(),
             |event| outbox.append(event, None).map(|_| ()),
-            |state| store.save(state)
+            |state| store.save(state),
         )
-        .is_err());
+        .is_err()
+    });
+    assert!(stopped, "the tail read past a line longer than a record");
     assert!(outbox.front().unwrap().is_some()); // valid preceding record survives
     let mut restored = recover(&f, &store.load().unwrap().unwrap()).unwrap();
     assert!(restored

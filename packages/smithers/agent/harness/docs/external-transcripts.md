@@ -235,8 +235,10 @@ a tail would. It reaches the network, so it runs only with
   processes, not yet in a microVM with the real CLIs.
 - Claude Code started through a Node launcher is not found: its executable is
   `node`. The native install is.
-- A line over 1 MiB, an empty line or bytes that are not UTF-8 stop the
-  source in the machine. No entry says so yet; that needs a wire addition.
+- A byte that is not UTF-8, or a NUL, reaches a decoder as `?`, one byte for
+  one, and an empty line as leading whitespace of the next record. Neither
+  stops a source.
+- A line over 1 MiB stops its source in the machine. No entry says so yet.
 - An agent process is a participant of its entries but is not yet in
   presence; that needs a wire addition too.
 - smithers-38 has not signed off the exports or the §21.1 evidence.
