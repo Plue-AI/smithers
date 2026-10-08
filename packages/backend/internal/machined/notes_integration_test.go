@@ -175,9 +175,31 @@ func TestOutsideNotesDispatcherToolsReference(t *testing.T) {
 		require.NotEmpty(t, os.Getenv(key), key)
 	}
 	require.Equal(t, "1", os.Getenv("SMITHERS_REAL_HEADED"))
+	require.Equal(t, "1", os.Getenv("SMITHERS_PINNED_CLOSURE_MICROVM"), "the dispatcher fault leg requires a real bundled microVM")
 	_, source, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	app := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../..", "apps/app"))
+	// Run the independently composed real-guest transport fault leg first.
+	// It only uses githubfake and never replaces the guest tool provider.
+	faultCtx, faultCancel := context.WithTimeout(t.Context(), 30*time.Minute)
+	defer faultCancel()
+	faults := exec.CommandContext(faultCtx, "go", "test", "-p", "4", "./internal/compose", "-run", "^TestOutsideNotesPinnedDispatcherMicroVM$", "-count=1", "-timeout=30m", "-json")
+	faults.Dir = filepath.Clean(filepath.Join(app, "../../packages/backend"))
+	faults.Env = append(os.Environ(), "GOMAXPROCS=8")
+	faultOutput, faultErr := faults.CombinedOutput()
+	require.NoError(t, faultErr, string(faultOutput))
+	passed := false
+	for _, line := range strings.Split(string(faultOutput), "\n") {
+		var event struct {
+			Action string
+			Test   string
+		}
+		if json.Unmarshal([]byte(line), &event) == nil && event.Test == "TestOutsideNotesPinnedDispatcherMicroVM" {
+			require.NotEqual(t, "skip", event.Action, "real guest fault proof must execute")
+			passed = passed || event.Action == "pass"
+		}
+	}
+	require.True(t, passed, "missing composed dispatcher/tool fault receipt")
 	report := filepath.Join(t.TempDir(), "outside-notes-playwright.json")
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Minute)
 	defer cancel()
