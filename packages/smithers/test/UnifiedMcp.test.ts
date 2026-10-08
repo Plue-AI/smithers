@@ -158,9 +158,10 @@ it(
     const host = await install()
     const server = await serve(root, hostEnvironment(root, host.origin))
     try {
-      // M-36 / Appendix A: human documentation includes the person-only command.
-      expect(await readFile(new URL("../../../apps/site/src/data/help/debug/api.txt", import.meta.url), "utf8"))
-        .toContain("Usage: smthrs debug api")
+      // The documented raw API CLI remains available; the UI-only playground
+      // has no CLI alias and stays absent from MCP below.
+      expect(await readFile(new URL("../../../apps/site/src/data/help/api.txt", import.meta.url), "utf8"))
+        .toContain("Usage: smthrs api")
       const listed = await server.request("tools/list", {})
       expect(listed?.tools?.map((tool) => tool.name)).toContain("search_tools")
       for (
