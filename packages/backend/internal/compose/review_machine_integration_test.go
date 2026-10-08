@@ -261,6 +261,25 @@ esac
 			require.Equal(t, 2, row.Position)
 		}
 	}
+	var homeSocket *websocket.Conn
+	if successfulTerminal {
+		home, _, e := websocket.Dial(ctx, "ws"+strings.TrimPrefix(terminalServer.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"session=review-cookie"}}})
+		require.NoError(t, e)
+		sendPresenceFrame(t, home, `{"t":"sub","id":2,"topic":"home"}`)
+		frame := readPresenceFrame(t, home)
+		require.Equal(t, "snap", frame.T, "%+v", frame)
+		var card struct {
+			BackgroundRuns []struct{ ID, Title, State, Detail string } `json:"background_runs"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &card))
+		require.Len(t, card.BackgroundRuns, 1)
+		require.Equal(t, admission.OperationID, card.BackgroundRuns[0].ID)
+		require.Equal(t, "Review · #50", card.BackgroundRuns[0].Title)
+		require.Equal(t, "waiting", card.BackgroundRuns[0].State)
+		require.Equal(t, "waiting for a machine #2", card.BackgroundRuns[0].Detail)
+		homeSocket = home
+		defer home.CloseNow()
+	}
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(terminalServer.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"session=review-cookie"}}})
 	require.NoError(t, err)
 	defer conn.CloseNow()
@@ -366,6 +385,26 @@ esac
 		op, e := store.Get(ctx, scope, admission.OperationID)
 		return e == nil && op.State == jobs.StateCompleted
 	}, 10*time.Second, 10*time.Millisecond)
+	if successfulTerminal {
+		runs, e := service.BackgroundRuns(ctx, repository)
+		require.NoError(t, e)
+		require.Empty(t, runs, "a completed review disappears from Home")
+		for {
+			frame := readPresenceFrame(t, homeSocket)
+			require.NotEqual(t, "err", frame.T)
+			if frame.T != "snap" {
+				continue
+			}
+			var card struct {
+				BackgroundRuns []json.RawMessage `json:"background_runs"`
+			}
+			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			if len(card.BackgroundRuns) == 0 {
+				break
+			}
+		}
+
+	}
 	runtime.mu.Lock()
 	require.Zero(t, queue.InUse(), "confirmed retirement releases the review slot")
 	for _, row := range queue.AdmissionSnapshot() {

@@ -263,7 +263,18 @@ func (s *MythicalService) BackgroundRuns(ctx context.Context, repository int64) 
 		}
 		result = append(result, run)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if s.reviews != nil {
+		reviews, err := s.reviews.homeRuns(ctx, repository)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, reviews...)
+	}
+	return result, nil
 }
 
 func (s *HomeBackground) Status(ctx context.Context, repo, id int64) (HomeBackgroundReceipt, error) {

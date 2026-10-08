@@ -342,3 +342,15 @@ func (m *reviewMachine) ResolveFlowHostTarget(ctx context.Context, target flowru
 }
 
 var _ services.ReviewMachine = (*reviewMachine)(nil)
+
+// QueuePosition uses the same allocator as terminals and TODO attempts.
+func (m *reviewMachine) QueuePosition(operation string) int {
+	if queue, ok := m.workspace.(reviewMachineAdmission); ok {
+		for _, request := range queue.AdmissionSnapshot() {
+			if request.Actor == operation && request.Class == "background" && request.State == "waiting" {
+				return request.Position
+			}
+		}
+	}
+	return 0
+}
