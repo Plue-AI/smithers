@@ -125,8 +125,9 @@ func (st *mythicalItemStep) reserveConflict(ctx context.Context, item db.Mythica
 }
 
 // ConflictValidation binds native unresolved-path inspection to the retained
-// change, target and attempt. A provider must inspect jj's conflict state in
-// the authenticated guest under its mutation lock, never grep host files.
+// change, target and attempt. A provider inspects native conflict state in the
+// authenticated guest under its mutation lock, or in the verified retained
+// snapshot of an asleep branch. File contents alone are not conflict evidence.
 type ConflictValidation struct {
 	Workspace, Change, Onto, Run, Digest string
 }
