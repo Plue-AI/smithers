@@ -101,6 +101,7 @@ export const TodoCardSchema = z.object({
   run: z.object({
     id: z.string(),
     attempt: z.number().int().positive(),
+    executing: z.boolean().optional(),
     indicators: z.array(z.object({ tone: z.enum(["wait", "thrash"]), text: z.string() }))
   }).optional(),
   waits: z.array(TodoWaitSchema),

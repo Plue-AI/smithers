@@ -266,7 +266,7 @@ type TodoModel = {
               state: "done" | "current" | "next" | "failed" | "waiting" | "paused" }
           | { id: "merge"; kind: "wait"; state: "held" | "done" | "next"; since?: string } )[]
                                                   // the run's trailing wait for merge (spec §10.4.1)
-  run?: { id: string; attempt: number
+  run?: { id: string; attempt: number; executing?: boolean // same committed fact as Stop; held live In review counts
           indicators: { tone: "wait" | "thrash"; text: string }[] }
                                                   // "Waiting for a person since 10:42";
                                                   // "Thrashing: TestRetryBackoff failed 3×" (spec §11.6.4)

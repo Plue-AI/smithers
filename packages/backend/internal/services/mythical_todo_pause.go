@@ -33,6 +33,22 @@ type todoPause struct {
 	Wait       *TodoWaitSignal `json:"wait,omitempty"`
 }
 
+// The same committed run fact drives Stop admission and the installed card.
+// A composition held for stack events remains live after its PR is proposed;
+// retained run IDs on ended attempts never confer execution authority.
+func todoRunExecuting(item db.MythicalItem) bool {
+	checks := mythicalChecksOf(item)
+	if !checks.RunLaunched || !checks.RunAttached || item.RequestRunID == "" || item.RequestOutcome != "" || item.PausedAt.Valid {
+		return false
+	}
+	switch item.State {
+	case "running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying", "proposed":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.CredentialKind() != middleware.CredentialPerson {
@@ -65,7 +81,7 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 			return err
 		}
 		checks := mythicalChecksOf(item)
-		facts := todoControlFacts{Executing: item.State == "running" && checks.RunAttached && item.RequestOutcome == "" && !item.PausedAt.Valid,
+		facts := todoControlFacts{Executing: todoRunExecuting(item),
 			Paused: item.PausedAt.Valid && checks.Pause != nil && checks.Pause.Wait != nil && !checks.Pause.Resuming}
 		for _, wait := range todoOpenWaits(item) {
 			facts.Waits = append(facts.Waits, wait.Kind)

@@ -31,7 +31,7 @@ type todoLiteralInstall struct {
 	call  func(*testing.T, string, string, string) (int, map[string]any)
 }
 
-func newTodoLiteralInstall(t *testing.T) todoLiteralInstall {
+func newTodoLiteralInstall(t *testing.T, configure ...func(*services.MythicalService, *pgxpool.Pool)) todoLiteralInstall {
 	t.Helper()
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -62,6 +62,9 @@ func newTodoLiteralInstall(t *testing.T) todoLiteralInstall {
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewMythicalService(pool, nil)
+	for _, apply := range configure {
+		apply(service, pool)
+	}
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 
 	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo, State: "queued", Checks: []byte(`{"todo":true}`)})

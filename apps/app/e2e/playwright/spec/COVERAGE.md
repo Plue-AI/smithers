@@ -38,7 +38,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; [reference observer](../../real/fresh-repository.spec.ts) authored, Mac execution pending | T-MCH-10, T-FLW-02 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-07 (no-tools model draft, unopened issue, edit/place/commit; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
-| C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
+| C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | Stop/Resume/Retry and terminal guards through app seam; full engine matrix and guest proof pending | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: mounted merged-TODO receipt navigation passes in Chromium; merge/background-learning journey remains fixme | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | mounted UI passes; real microVM Retry and reference-host receipt pending on mini | T-APP-01 |
@@ -93,7 +93,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | Partial: composed-install steps 1, 3-5 pass in TestParallelAdmissionInstallBoundary (engine, scheduler, terminal door, live positions); real Settings card → install dispatcher passes; step 2 safe-idle release and this browser journey remain fixme pending T-MCH-06 | T-STK-03 |
-| C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | Stop/Resume app seam and current-flow Retry; microVM proof pending | T-STK-05 |
+| C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | Working/held In review Stop/Resume app seam and current-flow Retry; microVM proof pending | T-STK-05 |
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | composed-install Chromium: external fold, retained note and keyboard OK; reference rebase qualification pending | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | passing install REST/live seam: rebased checks hold, retained review, reload, displayed-head merge; guest/tree/reference-host receipts separate | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |

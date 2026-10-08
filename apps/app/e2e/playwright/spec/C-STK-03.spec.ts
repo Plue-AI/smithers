@@ -5,11 +5,13 @@ import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 
 // Real installed app seam and card against a controlled HTTP provider. Durable
 // execution and PostgreSQL admission have separate tests; this is not a microVM receipt.
-test("C-STK-03: Stop and Resume retain the run across reload and wait for execution", async ({ page }) => {
+for (const initialState of ["working", "in_review"] as const) test(`C-STK-03: Stop and Resume retain the ${initialState} run across reload and wait for execution`, async ({ page }) => {
   test.setTimeout(120_000)
   await issueTodoInstall(page)
   const model = structuredClone(fixtures.working.model)
   model.n = 1
+  model.state = initialState
+  model.run!.executing = true
   const originalRun = structuredClone(model.run)
   const originalSteps = structuredClone(model.steps)
   const originalEvidence = structuredClone(model.evidence)
@@ -35,7 +37,7 @@ test("C-STK-03: Stop and Resume retain the run across reload and wait for execut
   await say(page, "/todo T1")
   expect(writes).toHaveLength(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
-  await expect(card().locator("header .state")).toContainText("Working")
+  await expect(card().locator("header .state")).toContainText(initialState === "working" ? "Working" : "In review")
   admit()
   await expect(notice).toBeVisible()
   model.state = "paused"

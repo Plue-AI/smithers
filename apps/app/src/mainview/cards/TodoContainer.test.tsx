@@ -483,3 +483,18 @@ test("a served Bring in asks for confirmation with its bound revision; a member 
     expect(confirmations).toEqual([["branch.bring-in", JSON.stringify({ branch: "todo/12", id: wait.id, revision: wait.sha }), "bring in this outside push", "Bring in this outside push?"]])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+test("a held In review run offers Stop from the served fact; ended runs and run waits refuse it", () => {
+  for (const state of ["in_review", "working", "needs_you"] as const) {
+    for (const executing of [true, false]) {
+      for (const waits of [[], fixtures.needs_you.model.waits, fixtures.foreign_push.model.waits]) {
+        const model: TodoCard = { ...fixtures.in_review.model, state, waits, run: { ...fixtures.in_review.model.run!, executing } }
+        const h = mount(model)
+        const allowed = executing && waits.every(wait => wait.kind !== "question" && wait.kind !== "approval")
+        expect(h.props.actions.some(action => action.tag === "todo.stop")).toBe(allowed)
+        h.props.onAction("todo.stop")
+        expect(h.dispatches).toEqual(allowed ? [{ tag: "todo.stop", input: { n: 12 } }] : [])
+      }
+    }
+  }
+})

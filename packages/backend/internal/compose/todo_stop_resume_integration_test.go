@@ -45,7 +45,14 @@ func (r *pauseReceiver) Signal(ctx context.Context, input flowruntime.Signal) (f
 	return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
 func TestTodoStopResumeComposedInstall(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todocontrol")
+	testTodoStopResumeComposedInstall(t, "running", "working")
+}
+
+func TestTodoHeldReviewStopResumeComposedInstall(t *testing.T) {
+	testTodoStopResumeComposedInstall(t, "proposed", "in_review")
+}
+
+func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState string) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -65,10 +72,14 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
-	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "running", Checks: []byte(`{"todo":true,"run_launched":true,"run_attached":false}`)})
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: engineState, Checks: []byte(`{"todo":true,"run_launched":true,"run_attached":false}`)})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',number=1,owner_id=$2,attempt=1,request_run_id='run-1',title='Interrupted',stack_position=1 WHERE id=$1`, item.ID, owner.ID)
 	require.NoError(t, err)
+	if engineState == "proposed" {
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_number=41,pr_state='open',pr_head=repeat('c',40),pr_url='https://github.com/owner/app/pull/41' WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+	}
 	service := services.NewMythicalService(pool, nil)
 	source, digest := strings.Repeat("a", 40), "e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d"
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2,workspace_id='11111111-1111-4111-8111-111111111111',checks=jsonb_set(jsonb_set(checks,'{flowSource}',to_jsonb($3::text)),'{run_attached}','true') WHERE id=$1`, item.ID, digest, source)
@@ -128,6 +139,7 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 		{"question", `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}','[{"id":"q","kind":"question","prompt":"Which?","since":"2026-10-06T00:00:00Z"}]') WHERE id=$1`, 409},
 		{"approval", `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}','[{"id":"a","kind":"approval","prompt":"Allow?","since":"2026-10-06T00:00:00Z"}]') WHERE id=$1`, 409},
 		{"starting", `UPDATE mythical_items SET checks=jsonb_set(checks,'{run_attached}','false') WHERE id=$1`, 409},
+		{"ended run", `UPDATE mythical_items SET request_outcome='validated' WHERE id=$1`, 409},
 		{"failed", `UPDATE mythical_items SET state='blocked' WHERE id=$1`, 409},
 		{"unknown protocol", `UPDATE mythical_items SET flow_digest=repeat('f',64) WHERE id=$1`, 503},
 	} {
@@ -141,7 +153,7 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 			after, err := q.GetMythicalItem(ctx, item.ID)
 			require.NoError(t, err)
 			require.Equal(t, before, after)
-			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,flow_digest=$4 WHERE id=$1`, item.ID, original.State, original.Checks, original.FlowDigest)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,flow_digest=$4,request_outcome=$5 WHERE id=$1`, item.ID, original.State, original.Checks, original.FlowDigest, original.RequestOutcome)
 			require.NoError(t, err)
 		})
 	}
@@ -180,12 +192,13 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	status, card := call("GET", "", "")
 	require.Equal(t, 200, status, card)
-	require.Equal(t, "working", card["state"])
+	require.Equal(t, productState, card["state"])
+	require.Equal(t, true, card["run"].(map[string]any)["executing"])
 	status, receipt := call("POST", `{"op":"stop"}`, "stop-1")
 	require.Equal(t, 202, status, receipt)
 	status, card = call("GET", "", "")
 	require.Equal(t, 200, status, card)
-	require.Equal(t, "working", card["state"])
+	require.Equal(t, productState, card["state"])
 	require.Equal(t, "requested", card["stop"])
 	status, replay := call("POST", `{"op":"stop"}`, "stop-1")
 	require.Equal(t, 202, status, replay)
@@ -235,7 +248,7 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 			invalid.mutate(&wait)
 			projectWaits([]flowruntime.PendingWait{wait})
 			_, card := call("GET", "", "")
-			require.Equal(t, "working", card["state"])
+			require.Equal(t, productState, card["state"])
 			require.Equal(t, "requested", card["stop"])
 			require.NotContains(t, card, "pause")
 			saved, err := q.GetMythicalItem(ctx, item.ID)
@@ -247,11 +260,20 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	}
 	project("resume#99")
 	_, card = call("GET", "", "")
-	require.Equal(t, "working", card["state"])
+	require.Equal(t, productState, card["state"])
 	projectWaits([]flowruntime.PendingWait{{RunID: "child", Token: "durable-token", Name: "resume", Attempt: 1, Reason: "approval", Request: json.RawMessage(`"{\"kind\":\"pause\",\"name\":\"resume#1\"}"`)}})
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
 	require.Equal(t, "person", card["pause"].(map[string]any)["reason"])
+	if engineState == "proposed" {
+		require.EqualValues(t, 41, card["pr"].(map[string]any)["number"])
+		require.Equal(t, strings.Repeat("c", 40), card["pr"].(map[string]any)["head"])
+		require.Equal(t, false, card["pr"].(map[string]any)["draft"])
+		parked, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, "open", parked.PRState)
+	}
+
 	require.Equal(t, map[string]any{"flow_name": "todo", "source_commit": source, "digest": digest}, card["flow_version"])
 	// A new Active version arrives while the original run is stopped. Resume
 	// must signal that same run without reading Active or rewriting its pin.
@@ -336,7 +358,7 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	}
 	project("resume#1")
 	_, card = call("GET", "", "")
-	require.Equal(t, "working", card["state"])
+	require.Equal(t, productState, card["state"])
 	project("resume#2")
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
@@ -370,7 +392,7 @@ func TestTodoStopResumeComposedInstall(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond)
 	project("")
 	_, card = call("GET", "", "")
-	require.Equal(t, "working", card["state"])
+	require.Equal(t, productState, card["state"])
 	require.NotContains(t, card, "control_failure")
 	saved, err = q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)

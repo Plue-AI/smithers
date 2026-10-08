@@ -320,7 +320,7 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 				}
 			}
 		}
-		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": indicators}
+		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "executing": todoRunExecuting(item), "indicators": indicators}
 	}
 	// A merged or dropped TODO has left the stack: it has no place, so its
 	// card never reads "Next to merge".
