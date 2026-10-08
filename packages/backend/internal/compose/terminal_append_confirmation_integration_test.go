@@ -16,9 +16,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,6 +40,16 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	todos.SetTodoFlow(func(ctx context.Context, repository int64, _ string) (string, error) {
 		return services.ActiveFlowDigest(ctx, q, repository, "todo")
 	})
+	todos.EnableTodoSteering()
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: todos,
+		Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Fatal("terminal HTTP admission must not wait for a guest")
+			return nil, nil
+		})})
+	require.NoError(t, err)
+	todos.SetLauncher(dispatcher)
 	approvals := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
 	server := httptest.NewUnstartedServer(nil)
 	cfg := testConfigAllFlagsOn()
@@ -116,11 +129,11 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	sum := sha256.Sum256([]byte("other-terminal-confirm-cookie"))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: other.ID, Username: other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
-	call := func(method, path, body, cookie, bearer, key string) (int, []byte) {
+	callAt := func(origin, method, path, body, cookie, bearer, key string) (int, []byte) {
 		t.Helper()
-		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, strings.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, method, origin+path, strings.NewReader(body))
 		require.NoError(t, err)
-		req.Header.Set("Origin", server.URL)
+		req.Header.Set("Origin", origin)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-CSRF-Token", "csrf")
 		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
@@ -141,6 +154,9 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 		raw, err := io.ReadAll(response.Body)
 		require.NoError(t, err)
 		return response.StatusCode, raw
+	}
+	call := func(method, path, body, cookie, bearer, key string) (int, []byte) {
+		return callAt(server.URL, method, path, body, cookie, bearer, key)
 	}
 	status, raw := call("GET", "/api/confirmations", "", "replacement-cookie", "", "")
 	require.Equal(t, 200, status, string(raw))
@@ -197,7 +213,20 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	var state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, id).Scan(&state))
 	require.Equal(t, "approved", state)
-	t.Log(fmt.Sprintf("one private append confirmation; one TODO by member %d after two presses", member.ID))
+	if phase == "" {
+		withoutConsumer := httptest.NewUnstartedServer(nil)
+		missingConfig := *cfg
+		missingConfig.Server.PublicURL = "http://" + withoutConsumer.Listener.Addr().String()
+		missingConfig.Server.AllowedOrigins = []string{missingConfig.Server.PublicURL}
+		withoutConsumer.Config.Handler = githubAppSetupComposeRouter(&missingConfig, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: services.NewApprovalsService(q)})
+		withoutConsumer.Start()
+		defer withoutConsumer.Close()
+		missing := func(body, key string) (int, []byte) {
+			return callAt(withoutConsumer.URL, "POST", "/api/todos", body, "", token, key)
+		}
+		exerciseTerminalRealServiceMatrix(t, ctx, pool, member, repository, token, invoke, call, missing)
+	}
+	t.Log(fmt.Sprintf("initial append: one private confirmation; one TODO by member %d after two presses", member.ID))
 }
 
 func waitTerminalConfirmBrowser(t *testing.T, directory, name string) {

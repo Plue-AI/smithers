@@ -66,3 +66,14 @@ Out:
 4. Decisions: smithers-3f approves route/query consumer classifications, fixture expectations and Go API compatibility; smithers-b8 approves app/CLI removals and CLI API changes; smithers-38 approves TS flow/RPC seams; Will decides product policy and smithers-8a resolves spec conflicts.
 5. Owner pre-review questions (review post hoc under the parallel-build directive; recorded owner answers stand): smithers-3f: Which trial/receipt, recommendation and session routes retain callers? Does health removal preserve diagnostics in both compositions? Do kept admission paths refuse unavailable machines? smithers-b8: Which app/CLI consumers remain? Does repo report removal affect a kept command? smithers-38: Which imports keep shared flow modules alive? Which failure codes remain reachable? No UI view changes require smithers-06 review.
 6. Security: smithers-3f reviews contributor trust, machine-only non-root execution and unavailable-provider refusal in the production boundary tests. This ticket adds or changes no root step and consumes no root-step inputs; generators and fixtures run unprivileged. A root scope change must list each input's main/branch source and name a validation test for every branch input before proceeding.
+
+## T-CAT-01 executable reconciliation (2026-10-08)
+
+The installed coding composition in `flows/coding/host.ts` still registers the
+Cut setup/evaluation/candidate/check machinery even where HTTP routes and app
+doors are removed. T-CUT-01 owns its Cut surface contract; remove these executable
+registrations with their installed consumers, preserving the mvp.md §14
+issue/review machinery and history decoders. The exact source groups and the
+strict production registry reproduction are recorded in
+[T-CAT-01](T-CAT-01.md#runtime-reconciliation-2026-10-08-fr16-ca01). Reserved names
+in `SystemFlows` are not proof that a Cut executable may ship.

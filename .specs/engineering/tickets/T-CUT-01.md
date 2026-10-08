@@ -106,3 +106,15 @@ Fail when:
   - open issues #3338 (signup video) and #3336 (issue-sweep card) contradict §8, and should be closed or re-scoped with the evidence from this ticket.
 - **Shared code:** `flows/entries/runs.ts` and `issue.ts` hold both cut and kept entries. Delete entries, not files.
 - **Falsifiable:** if `rg -l "SetupChecklist|SignupCards|BurndownCard|SubagentGrid|AdminCards|RegistrationCard" apps/app/src` returns anything after the change, the cut is incomplete.
+
+## T-CAT-01 executable reconciliation (2026-10-08)
+
+The app Cut inventory is not the executable inventory. At `45383fd7c1`, the
+production coding host still mounts 30 Appendix C Cut tags from
+`flows/repository/setup.ts` (10), `evaluation.ts` (6), `activation.ts` (6) and
+`checks.ts` (8), plus unlisted setup and CI/Feature/Chores aliases. Reconcile the
+surface contract here with T-CUT-02's installed composition removal and
+T-CUT-03's retained issue/review machinery. Full reproduction and placement
+ownership are in [T-CAT-01](T-CAT-01.md#runtime-reconciliation-2026-10-08-fr16-ca01).
+C-CAT-01 remains failed while these registrations are present; no policy waiver
+or fixture relabeling is authorized by this note.

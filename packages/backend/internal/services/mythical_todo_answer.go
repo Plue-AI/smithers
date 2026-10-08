@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -341,6 +342,11 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 			checks := mythicalChecksOf(item)
 			index := -1
 			for i, wait := range checks.Waits {
+				if wait.ID == input.Wait && wait.Kind != "question" && wait.Kind != "conflict" {
+					if _, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation(); terminal {
+						return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
+					}
+				}
 				if wait.ID == input.Wait && (wait.Kind == "question" || wait.Kind == "conflict") {
 					index = i
 				}

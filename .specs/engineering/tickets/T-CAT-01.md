@@ -152,3 +152,30 @@ Fail when:
 - Risk: incur 0.5.1 has no hidden flag; a skill installed for a non-MVP group confirms drift.
 - Appendix B shorthand (`.edit`, `runs.graph.*`) needs expansion; a kept id failing the allowlist confirms a wrong rule.
 - smithers-38 signs off any public TypeScript API diff; smithers-b8 the CLI and skill contract.
+
+## Runtime reconciliation (2026-10-08, fr16-ca01)
+
+At `45383fd7c1`, `node scripts/catalog-runtime.ts --inventory` followed by
+`auditRuntimeTags` reports 322 registration violations across native, coding and
+coding-with-wiki hosts: 169 distinct `(tag, reason)` pairs (109 placement, 30 Cut,
+30 unlisted, zero Replaced). These are failed acceptance, not a passing catalog
+receipt. `coding/Request` and `coding/Vibe` are absent. E-19 retains the separate
+verify and review engine launches; do not remove those to satisfy the older
+Replaced wording in this ticket.
+
+The owning work is reconciled as follows; none of these assignments exempts a
+registration from `catalog-allowlist.ts`:
+
+| Registration | Owning ticket and required change |
+| --- | --- |
+| 30 Cut registrations from `flows/repository/{setup,evaluation,activation,checks}.ts`, mounted by `flows/coding/host.ts` | T-CUT-01 #3435 owns the surface contract; T-CUT-02 #3509 owns removal from the installed executable composition. Preserve the issue/review machinery required by mvp.md §14, its security boundaries, and old-history decoding. Removing app doors alone does not pass C-CAT-01. |
+| Unlisted `repository-jobs/{ci,feature,chores}` and `repository/setup` executable aliases | Same Cut ownership. Reserving a system name in `flow_catalog.go` does not authorize executable registration. |
+| Retained repository jobs, triggers, inspection, replies, delivery and changes registered on Machine despite Install rows | T-CUT-03 owns hidden/deferred doors; T-CAT-01 still requires actual runtime placement. Keep mvp.md §14 machinery. Hiding a door or changing the observer's runtime label is not relocation. |
+| Native source/stack operations, delivery/landing actions, wiki publication and reuse registered on Machine despite Install rows | T-CAT-01 placement acceptance remains open; T-FLW-11 composition and owning native/wiki providers must place these on the Install boundary. Do not change Appendix C to bless the observed placement or weaken the rule that people merge and only GitHub sync writes mirrored main. |
+| Newly introduced waits, conflict flows, learning wrappers, coding aliases and `registry/entry/<digest>/…` wrappers have no literal Appendix C entry | T-CAT-01 and each tag's implementing ticket must add reviewed product rows with source and actual intended runtime. Generated wrapper admission must retain source provenance; an arbitrary wildcard is not a catalog entry. |
+
+Reproduce against a checkout with the native filesystem helper available:
+`node --no-warnings scripts/catalog-runtime.ts --inventory` and
+`bun scripts/catalog-allowlist.ts --runtime`. The latter must exit nonzero until
+all remaining placement, Cut and unlisted violations are removed. App/CLI-only
+acceptance does not replace this gate.

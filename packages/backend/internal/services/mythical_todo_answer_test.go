@@ -383,6 +383,21 @@ func TestTodoAnswerByATerminalCredential(t *testing.T) {
 			require.Equal(t, "needs_you", todoState(o.byID(uuidString(item.ID))))
 			require.Empty(t, launcher.sent())
 
+			// Stored approval waits are outside terminal scope even through the
+			// service door; no request hint can reclassify them as questions.
+			own := registerTestInstallCredential(t, o.pool, terminalContext(ben, branch, "5e550000-0000-4000-8000-000000000001", tc.hint), o.repoID)
+			_, err = o.pool.Exec(context.Background(), `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits,0,kind}','"approval"') WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+			before := o.byID(uuidString(item.ID))
+			require.ErrorAs(t, o.service.AnswerTodo(own, o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}), &refused)
+			require.Equal(t, 403, refused.Status)
+			require.Equal(t, "permission", refused.Class)
+			require.Equal(t, "permission", refused.Code)
+			require.Equal(t, before, o.byID(uuidString(item.ID)))
+			require.Empty(t, launcher.sent())
+			_, err = o.pool.Exec(context.Background(), `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits,0,kind}','"question"') WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+
 			// Its own branch's TODO: answered for Ben, by the terminal or its agent.
 			require.NoError(t, o.service.AnswerTodo(registerTestInstallCredential(t, o.pool, terminalContext(ben, branch, "5e550000-0000-4000-8000-000000000001", tc.hint), o.repoID), o.repoID, ben, n, TodoAnswerInput{Wait: wait.ID, Answer: "the retry helper"}))
 			item = o.byID(uuidString(item.ID))
