@@ -121,7 +121,9 @@ describe("the generated product API client", () => {
     // Includes the revision-bound flow and agent edit confirmation doors (#3498).
     // Includes installed model sign-in (#3564), bound execution trace facts
     // and repository access doors (#3492) in the current OpenAPI inventory.
-    expect(expected).toHaveLength(563)
+    // Includes confirmed, attributed install issue comments (d5618796c7, #3492).
+    expect(expected).toHaveLength(564)
+    expect(spec.paths["/api/issues/{number}/comments"]).toHaveProperty("post.operationId", "post_api_issues_number_comments")
     expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
     // Retained branch activity is served without waking its machine (#3568).
     expect(spec.paths["/api/branches/{b}/activity"]).toHaveProperty("get.operationId", "get_api_branches_activity")
