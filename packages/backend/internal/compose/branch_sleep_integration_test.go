@@ -842,7 +842,25 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.NotNil(t, completedRequest.Machine)
 	require.Equal(t, "suspended", completedRequest.Machine.Status)
 	requestOp = "wake"
-	wakeRefused := control("wake-without-admission")
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo' WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	var wakeRefused jobs.RequestReceipt
+	t.Run("mounted Wake observes the worker failure", func(t *testing.T) {
+		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
+		require.NoError(t, err)
+		command := exec.CommandContext(t.Context(), "bun", "run", script)
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+server.URL, "SMITHERS_BRANCH_CARD_ID="+id,
+			"SMITHERS_BRANCH_CARD_SUBJECT="+id, "SMITHERS_BRANCH_MACHINE_CONTROL=wake")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		for _, line := range strings.Split(string(output), "\n") {
+			if operation, found := strings.CutPrefix(line, "MACHINE_CARD_OPERATION="); found {
+				wakeRefused.OperationID = operation
+			}
+		}
+		require.NotEmpty(t, wakeRefused.OperationID, string(output))
+		t.Log(string(output))
+	})
 	require.Eventually(t, func() bool {
 		operation, err := jobStore.Get(ctx, scope, wakeRefused.OperationID)
 		return err == nil && operation.State == jobs.StateFailed

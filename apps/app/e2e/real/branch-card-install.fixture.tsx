@@ -6,6 +6,7 @@ const origin = process.env.SMITHERS_BRANCH_CARD_ORIGIN!
 const branch = process.env.SMITHERS_BRANCH_CARD_ID!
 const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
 const scratchFork = process.env.SMITHERS_BRANCH_CARD_FORK === "1"
+const machineControl = process.env.SMITHERS_BRANCH_MACHINE_CONTROL
 const newTerminal = process.env.SMITHERS_BRANCH_CARD_TERMINAL === "1"
 const agentAdd = process.env.SMITHERS_BRANCH_CARD_AGENT === "1"
 const addToStack = process.env.SMITHERS_BRANCH_CARD_ADD === "1"
@@ -69,7 +70,21 @@ try {
   assert.equal(card.kind, "branch")
   if (card.kind !== "branch") throw new Error("Expected Branch")
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
-  if (scratchFork) {
+  if (machineControl) {
+    assert.equal(machineControl, "wake")
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "sleepowner/demo", org: "sleepowner", ownerKind: "user", name: "demo", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "sleepowner/demo" }).isPersisted.promise
+    await waitFor(() => host.querySelector('[data-flow="box.resume"]') !== null)
+    await act(async () => (host.querySelector('[data-flow="box.resume"]') as HTMLButtonElement).click())
+    await waitFor(() => store.session().branchControlRequests?.some(request => request.state === "failed") === true)
+    const row = store.session().branchControlRequests![0]!
+    assert.equal(row.error, "Branch request failed")
+    assert.equal(row.workspace, branch)
+    assert.ok(requests.some(request => request.method === "GET" && request.path === `/api/repos/sleepowner/demo/workspaces/${branch}/command-runs/${row.operationId}` && request.status === 200))
+    assert.equal(requests.filter(request => request.method === "POST").length, 1)
+    console.log(`MACHINE_CARD_OPERATION=${row.operationId}`)
+    console.log("PASS mounted Wake through production dispatcher, PostgreSQL admission and real failed execution receipt")
+  } else if (scratchFork) {
     await waitFor(() => host.querySelector('[data-flow="branch.fork"]') !== null)
     await act(async () => (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click())
     await waitFor(() => requests.some(request => request.method === "POST" && request.path === "/api/branches"))

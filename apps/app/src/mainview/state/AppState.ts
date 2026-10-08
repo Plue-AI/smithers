@@ -922,6 +922,10 @@ export const SessionSchema = z.object({
   sharedPrompts: z.array(SharedPromptSchema).optional(),
   uiInstructionsSeen: z.array(z.string()).optional(),
   branchNavigation: BranchNavigationSchema.optional(),
+  branchControlRequests: z.array(z.object({ key: z.string(), owner: z.string(), origin: z.string(), branch: z.string(),
+    operation: z.enum(["sleep", "wake"]), state: z.enum(["requested", "accepted", "completed", "failed"]),
+    workspace: z.string().optional(), operationId: z.string().optional(), repo: z.string().optional(), settled: z.boolean().optional(), error: z.string().optional()
+  })).optional(),
   terminalRequests: z.array(z.object({
     id: z.string(), owner: z.string(), repo: z.string(), branch: z.string(), branchId: z.string().optional(), session: z.string().optional(), uncertain: z.boolean().optional(),
     state: z.enum(["requested", "running", "completed", "failed"]), error: z.string().optional()
@@ -1454,6 +1458,7 @@ export type AppTransition =
   | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
   | { type: "home.background.requests.changed"; actor: Actor; requests: NonNullable<Session["homeBackgroundRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "branch.control.requests.changed"; actor: Actor; requests: NonNullable<Session["branchControlRequests"]> }
   | { type: "terminal.requests.changed"; actor: Actor; requests: NonNullable<Session["terminalRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "order.requests.changed"; actor: Actor; requests: NonNullable<Session["orderRequests"]> }

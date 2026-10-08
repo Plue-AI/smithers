@@ -84,6 +84,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "github.sync.request.changed": z.object({ type: z.literal("github.sync.request.changed"), actor: ActorSchema, request: SessionSchema.shape.githubSyncRequest }).strict(),
   "home.background.requests.changed": z.object({ type: z.literal("home.background.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.homeBackgroundRequests.unwrap() }).strict(),
   "stack.wiki.requests.changed": z.object({ type: z.literal("stack.wiki.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiRequests.unwrap() }).strict(),
+  "branch.control.requests.changed": z.object({ type: z.literal("branch.control.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.branchControlRequests.unwrap() }).strict(),
   "terminal.requests.changed": z.object({ type: z.literal("terminal.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.terminalRequests.unwrap() }).strict(),
   "wiki.saves.changed": z.object({ type: z.literal("wiki.saves.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiSaves.unwrap() }).strict(),
   "first-run.dismissed": z.object({ type: z.literal("first-run.dismissed"), actor: ActorSchema }).strict(),

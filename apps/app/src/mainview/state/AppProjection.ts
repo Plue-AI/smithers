@@ -230,6 +230,7 @@ export const APP_TRANSITION_TYPES = {
   "home.background.requests.changed": true,
   "stack.wiki.requests.changed": true,
   "github.sync.request.changed": true,
+  "branch.control.requests.changed": true,
   "terminal.requests.changed": true,
   "wiki.saves.changed": true,
   "order.requests.changed": true,
@@ -776,6 +777,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.flowInventoryRequest
     delete draft.runOpenRequests
     delete draft.issueTodoRequests
+    delete draft.branchControlRequests
     delete draft.codingProviderRequests
     delete draft.repositoryImports
     delete draft.secretRequests
@@ -2191,6 +2193,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "stack.wiki.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.wikiRequests = transition.requests })
+          break
+        }
+        case "branch.control.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.branchControlRequests = transition.requests })
           break
         }
         case "terminal.requests.changed": {

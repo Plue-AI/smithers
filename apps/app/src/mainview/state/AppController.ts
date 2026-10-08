@@ -1071,6 +1071,7 @@ export const createAppController = (
   // refuses one whose provider it did not compose. Other hosts have no branch machine and bind none.
   const branchControlOptions = services.branchControlOptions ?? (installHost ? { ready: () => true } : undefined)
   const branchControls = branchControlOptions ? createBranchControlsSeam(seamCtx, branchControlOptions) : undefined
+  if (branchControls) ctx.onDispose(branchControls.dispose)
   const pendingSshReads = new Set<() => void>()
   ctx.onDispose(() => { for (const cancel of pendingSshReads) cancel() })
   const branchSshLine: AppController["branchSshLine"] = installHost ? async (target, signal) => {

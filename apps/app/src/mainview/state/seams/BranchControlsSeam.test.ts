@@ -1,23 +1,139 @@
 import { expect, test } from "bun:test"
 import { createBranchControlsSeam } from "./BranchControlsSeam"
-import type { SeamContext } from "./SeamContext"
+import { createAppStore } from "../AppStore"
+import { memoryStorage } from "../TestFixtures"
+import type { SeamFetch } from "./SeamContext"
 
-test("branch controls send an idempotent HTTP command without secure-context UUID support", async () => {
+const until = async (predicate: () => boolean) => {
+  for (let i = 0; i < 250 && !predicate(); i++) await new Promise(resolve => setTimeout(resolve, 10))
+  expect(predicate()).toBe(true)
+}
+const boot = async (http: SeamFetch, storage = memoryStorage(), origin = "http://mini.lan:4000") => {
+  const store = await createAppStore({ kind: "localStorage", storage })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "ben/demo", org: "ben", ownerKind: "user", name: "demo", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "ben/demo" }).isPersisted.promise
+  const done: string[] = [], errors: string[] = []
+  const seam = createBranchControlsSeam({ store, dispatch: store.dispatch, http, baseUrl: origin, actor: () => "user", nextOrdinal: () => store.nextOrdinal(),
+    withToast: async (key, _title, _done, work, _quiet, current) => {
+      const result = await work()
+      if (current?.() !== false) { done.push(key); if (typeof result === "string") errors.push(result) }
+      return result
+    } }, { ready: () => true })
+  return { store, seam, done, errors, storage, row: () => store.session().branchControlRequests?.[0] }
+}
+const admission = (key: string) => Response.json({ state: "accepted", operationId: "operation-1", requestId: `b-1:${key}` }, { status: 202 })
+
+test("persist before unresolved launch; duplicate sleep joins; settlement waits for execution", async () => {
+  let release!: (response: Response) => void, state = "running"
+  const keys: string[] = [], reads: string[] = []
+  const h = await boot(async (url, init) => {
+    if (init?.method === "POST") { keys.push(new Headers(init.headers).get("Idempotency-Key")!); return new Promise(resolve => { release = resolve }) }
+    reads.push(url); return Response.json({ operationId: "operation-1", state })
+  })
+  try {
+    expect(await Promise.all([h.seam.request("sleep", "my branch"), h.seam.request("sleep", "my branch")])).toEqual([{ value: "Requested" }, { value: "Requested" }])
+    expect(h.row()?.state).toBe("requested"); expect(keys).toHaveLength(1); expect(h.done).toEqual([])
+    release(admission(keys[0]!))
+    await until(() => h.row()?.state === "accepted" && reads.length === 1)
+    expect(reads).toEqual(["http://mini.lan:4000/api/repos/ben/demo/workspaces/b-1/command-runs/operation-1"])
+    expect(h.done).toEqual([])
+    state = "completed"
+    await until(() => h.row()?.state === "completed" && h.done.length === 1)
+    expect(h.errors).toEqual([])
+  } finally { h.seam.dispose() }
+})
+
+test("reload replays unacknowledged key; accepted reload observes only", async () => {
+  const first = await boot(async () => new Promise<Response>(() => {}))
+  await first.seam.request("wake", "smithers/retry")
+  const key = first.row()!.key
+  first.seam.dispose()
+  const keys: string[] = []
+  const second = await boot(async (_url, init) => {
+    if (init?.method === "POST") { keys.push(new Headers(init.headers).get("Idempotency-Key")!); return admission(keys[0]!) }
+    return new Promise<Response>(() => {})
+  }, first.storage)
+  await until(() => second.row()?.state === "accepted")
+  second.seam.dispose()
+  let writes = 0
+  const third = await boot(async (_url, init) => { if (init?.method === "POST") writes++; return Response.json({ operationId: "operation-1", state: "completed" }) }, first.storage)
+  try {
+    await until(() => third.row()?.state === "completed")
+    expect(keys).toEqual([key]); expect(writes).toBe(0)
+  } finally { third.seam.dispose() }
+})
+
+for (const state of ["failed", "uncertain", "cancelled"]) test(`execution ${state} persists a visible failure and permits retry`, async () => {
+  let posts = 0
+  const h = await boot(async (_url, init) => {
+    if (init?.method === "POST") { posts++; return admission(new Headers(init.headers).get("Idempotency-Key")!) }
+    return Response.json({ operationId: "operation-1", state, error: "Branch request failed" })
+  })
+  try {
+    await h.seam.request("wake", "smithers/retry")
+    await until(() => h.row()?.state === "failed" && h.done.length === 1)
+    expect(h.errors).toEqual(["Branch request failed"])
+    await h.seam.request("wake", "smithers/retry")
+    await until(() => posts === (state === "uncertain" ? 1 : 2) && h.done.length === 2)
+  } finally { h.seam.dispose() }
+})
+
+test("account change discards an earlier launch; a different origin never replays it", async () => {
+  let release!: (response: Response) => void
+  const h = await boot(async () => new Promise(resolve => { release = resolve }))
+  await h.seam.request("sleep", "smithers/retry")
+  await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+  release(admission("old-account-key")); await new Promise(resolve => setTimeout(resolve, 20))
+  expect(h.row()?.state).not.toBe("accepted"); expect(h.done).toEqual([])
+  h.seam.dispose()
+  let writes = 0
+  const other = await boot(async () => { writes++; return new Response("{}") }, h.storage, "http://other.test")
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(writes).toBe(0); other.seam.dispose()
+})
+
+test("branch controls retain an idempotency key without secure-context UUID support", async () => {
   const descriptor = Object.getOwnPropertyDescriptor(crypto, "randomUUID")
   Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined })
   const requests: Array<{ url: string; init?: RequestInit }> = []
+  const h = await boot(async (url, init) => { requests.push({ url, init }); return new Promise<Response>(() => {}) })
   try {
-    const seam = createBranchControlsSeam({ baseUrl: "http://mini.lan:4000", http: async (url: string, init?: RequestInit) => {
-      requests.push({ url, init })
-      return Response.json({ state: "requested" }, { status: 202 })
-    } } as unknown as SeamContext, { ready: () => true })
-    expect(await seam.request("sleep", "my branch")).toEqual({ value: "Requested" })
+    expect(await h.seam.request("sleep", "my branch")).toEqual({ value: "Requested" })
     expect(requests).toHaveLength(1)
     expect(requests[0]!.url).toBe("http://mini.lan:4000/api/branches/my%20branch")
     expect(JSON.parse(String(requests[0]!.init!.body))).toEqual({ op: "sleep" })
     expect(new Headers(requests[0]!.init!.headers).get("Idempotency-Key")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   } finally {
+    h.seam.dispose()
     if (descriptor) Object.defineProperty(crypto, "randomUUID", descriptor)
     else delete (crypto as { randomUUID?: unknown }).randomUUID
   }
+})
+
+test("a lost receipt read retries observation without repeating the admitted action", async () => {
+  let writes = 0, reads = 0
+  const h = await boot(async (_url, init) => {
+    if (init?.method === "POST") { writes++; return admission(new Headers(init.headers).get("Idempotency-Key")!) }
+    reads++
+    return reads === 1 ? new Response("offline", { status: 503 }) : Response.json({ operationId: "operation-1", state: "completed" })
+  })
+  try {
+    await h.seam.request("sleep", "smithers/retry")
+    await until(() => h.row()?.state === "failed")
+    const key = h.row()!.key
+    await h.seam.request("sleep", "smithers/retry")
+    await until(() => h.row()?.state === "completed")
+    expect(writes).toBe(1); expect(reads).toBe(2); expect(h.row()?.key).toBe(key)
+  } finally { h.seam.dispose() }
+})
+
+test("an unresolved rebase never serializes an unrelated machine control behind its network", async () => {
+  const operations: unknown[] = []
+  const h = await boot(async (_url, init) => { operations.push(JSON.parse(String(init?.body))); return new Promise<Response>(() => {}) })
+  try {
+    void h.seam.request("rebase", "smithers/retry")
+    expect(await h.seam.request("sleep", "smithers/retry")).toEqual({ value: "Requested" })
+    expect(operations).toEqual([{ rebase: true }, { op: "sleep" }])
+  } finally { h.seam.dispose() }
 })

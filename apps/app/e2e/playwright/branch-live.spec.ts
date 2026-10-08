@@ -205,3 +205,58 @@ test("install Branch agent step opens its admitted run inline through the shared
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes.filter(url => url.includes("/api/branches") || url.includes("/api/runs/"))).toEqual([])
 })
+
+for (const outcome of ["completed", "failed"] as const) test(`T-APP-10 Sleep remains background through launch, reload and ${outcome} execution`, async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  let releaseLaunch!: () => void
+  const heldLaunch = new Promise<void>(resolve => { releaseLaunch = resolve })
+  const posts: string[] = []
+  let state: string = "running", reads = 0
+  await page.route("**/api/branches/smithers%2Fretry-webhooks", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { name: "smithers/retry-webhooks", machine: { id: "b-control" } } })
+    const key = route.request().headers()["idempotency-key"]!
+    posts.push(key)
+    expect(route.request().postDataJSON()).toEqual({ op: "sleep" })
+    await heldLaunch
+    await route.fulfill({ status: 202, json: { operationId: "machine-operation", requestId: `b-control:${key}`, state: "accepted" } })
+  })
+  await page.route("**/api/repos/smithersai/smithers/workspaces/b-control/command-runs/machine-operation", route => {
+    reads++
+    return route.fulfill({ json: { operationId: "machine-operation", state, ...(state === "failed" ? { error: "Branch request failed" } : {}) } })
+  })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    const data = frame.topic === "branch:b-control" ? { id: "b-control", name: "smithers/retry-webhooks", machine: { state: "awake" }, scratch: { forked_from: { kind: "main" } }, presence: [], terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost" } : []
+    socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
+  }))
+  await page.goto("/smithersai/smithers")
+  await fillComposer(page, "/branch smithers/retry-webhooks")
+  await page.getByTestId("composer-send").click()
+  const card = page.getByTestId("card-branch:b-control")
+  const sleep = card.getByRole("button", { name: "Sleep", exact: true })
+  await expect(sleep).toBeVisible()
+  await sleep.press("Enter")
+  await expect.poll(() => posts.length).toBe(1)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  const notice = page.locator('[data-notice^="toast-branch.request."]')
+  await expect(notice).toHaveAttribute("data-tone", "live")
+  await fillComposer(page, "Chat stays usable")
+  await expect(page.getByTestId("composer-input")).toHaveValue("Chat stays usable")
+  await sleep.press("Enter")
+  expect(posts).toHaveLength(1)
+  releaseLaunch()
+  await expect.poll(() => reads).toBeGreaterThan(0)
+  await expect(notice).toHaveAttribute("data-tone", "live")
+  await page.reload()
+  await expect(page.getByTestId("card-branch:b-control")).toBeVisible()
+  await expect(notice).toHaveAttribute("data-tone", "live")
+  expect(posts).toHaveLength(1)
+  state = outcome
+  await expect(notice).toHaveAttribute("data-tone", outcome === "completed" ? "done" : "failed")
+  if (outcome === "failed") await expect(notice).toContainText("Branch request failed")
+  await expect(page.getByTestId("card-branch:b-control")).toHaveCount(1)
+  await expect(page.locator('.smithers-card[data-kind="workspace"]')).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
