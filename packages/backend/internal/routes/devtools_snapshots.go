@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 
@@ -36,7 +34,7 @@ type DevtoolsSnapshotRouteQuerier interface {
 // DevtoolsSnapshotsHandler handles repo-scoped devtools snapshot routes.
 type DevtoolsSnapshotsHandler struct {
 	Queries DevtoolsSnapshotRouteQuerier
-	Reader  *services.DevtoolsSnapshotReader
+	Reader  *services.DevtoolsSnapshotAPI
 	// Enabled gates the devtools snapshot surface. It is resolved once from
 	// the canonical config (feature_flags.devtools_snapshot_enabled, which
 	// defaults to false) and wired in by the caller — never read from the
@@ -44,7 +42,7 @@ type DevtoolsSnapshotsHandler struct {
 	Enabled bool
 }
 
-type postDevtoolsSnapshotRequest struct {
+type DevtoolsSnapshotWriteRequest struct {
 	RepositoryID *int64          `json:"repository_id,omitempty"`
 	Kind         string          `json:"kind"`
 	SessionID    string          `json:"session_id"`
@@ -79,7 +77,7 @@ func RegisterDevtoolsSnapshotRoutes(r chi.Router, queries *db.Queries, readRepo,
 		return
 	}
 
-	handler := &DevtoolsSnapshotsHandler{Queries: queries, Enabled: enabled, Reader: services.NewDevtoolsSnapshotReader(queries, installPools...)}
+	handler := &DevtoolsSnapshotsHandler{Queries: queries, Enabled: enabled, Reader: services.NewDevtoolsSnapshotAPI(queries, installPools...)}
 	r.With(writeRepo...).Post("/devtools/snapshots", handler.PostSnapshot)
 	r.With(readRepo...).Get("/devtools/snapshots", handler.GetSnapshots)
 	r.With(readRepo...).Get("/devtools/snapshots/latest", handler.GetSnapshots)
@@ -103,66 +101,21 @@ func (h *DevtoolsSnapshotsHandler) PostSnapshot(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	var req postDevtoolsSnapshotRequest
+	var req DevtoolsSnapshotWriteRequest
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 
-	if req.RepositoryID != nil && *req.RepositoryID != repo.ID {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("repository_id does not match repository route"))
-		return
-	}
-
-	kind, apiErr := normalizeDevtoolsSnapshotKind(req.Kind)
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	sessionID, apiErr := validateRequiredUUID(req.SessionID, "session_id")
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	// Verify the session belongs to the repository resolved from the route.
-	// Without this check a caller with write access to any repo could supply
-	// another tenant's session_id and, because UpsertDevtoolsSnapshot rebinds
-	// repository_id on conflict, overwrite/rebind that tenant's snapshot row.
-	// Return NotFound (not Forbidden) on mismatch so we do not confirm the
-	// existence of another tenant's session.
-	session, err := h.Queries.GetAgentSession(r.Context(), sessionID)
+	input, err := DevtoolsSnapshotWriteInput(repo.ID, req)
 	if err != nil {
-		if stderrors.Is(err, pgx.ErrNoRows) {
-			pkgerrors.WriteError(w, pkgerrors.NotFound("agent session not found"))
-			return
-		}
 		writeRouteError(w, r, err)
 		return
 	}
-	if session.RepositoryID != repo.ID {
-		pkgerrors.WriteError(w, pkgerrors.NotFound("agent session not found"))
-		return
+	api := h.Reader
+	if api == nil {
+		api = services.NewDevtoolsSnapshotAPI(h.Queries)
 	}
-
-	workspaceID, apiErr := validateOptionalUUID(req.WorkspaceID, "workspace_id")
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	payload, apiErr := normalizeDevtoolsSnapshotPayload(req.Payload, workspaceID)
-	if apiErr != nil {
-		pkgerrors.WriteError(w, apiErr)
-		return
-	}
-
-	snapshot, err := h.Queries.UpsertDevtoolsSnapshot(r.Context(), db.UpsertDevtoolsSnapshotParams{
-		SessionID:    sessionID,
-		RepositoryID: repo.ID,
-		Kind:         kind,
-		Payload:      payload,
-	})
+	snapshot, err := api.Write(r.Context(), repo.ID, middleware.UserFromContext(r.Context()).ID, input)
 	if err != nil {
 		writeRouteError(w, r, err)
 		return
@@ -172,6 +125,37 @@ func (h *DevtoolsSnapshotsHandler) PostSnapshot(w http.ResponseWriter, r *http.R
 		ID:        devtoolsSnapshotID(snapshot),
 		CreatedAt: snapshot.Timestamp,
 	})
+}
+
+// DevtoolsSnapshotWriteInput normalizes the same typed payload at admission and execution.
+func DevtoolsSnapshotWriteInput(repository int64, req DevtoolsSnapshotWriteRequest) (services.DevtoolsSnapshotWriteInput, error) {
+	var in services.DevtoolsSnapshotWriteInput
+	if req.RepositoryID != nil && *req.RepositoryID != repository {
+		return in, pkgerrors.BadRequest("repository_id does not match repository route")
+	}
+	kind, err := normalizeDevtoolsSnapshotKind(req.Kind)
+	if err != nil {
+		return in, err
+	}
+	in.Kind = kind
+	session, err := validateRequiredUUID(req.SessionID, "session_id")
+	if err != nil {
+		return in, err
+	}
+	in.SessionID = session
+	workspace, err := validateOptionalUUID(req.WorkspaceID, "workspace_id")
+	if err != nil {
+		return in, err
+	}
+	if workspace != nil {
+		in.WorkspaceID = *workspace
+	}
+	payload, err := normalizeDevtoolsSnapshotPayload(req.Payload, workspace)
+	if err != nil {
+		return in, err
+	}
+	in.Payload = payload
+	return in, nil
 }
 
 // GetSnapshots handles GET /api/repos/{owner}/{repo}/devtools/snapshots and
@@ -200,7 +184,7 @@ func (h *DevtoolsSnapshotsHandler) GetSnapshots(w http.ResponseWriter, r *http.R
 	}
 	reader := h.Reader
 	if reader == nil {
-		reader = services.NewDevtoolsSnapshotReader(h.Queries)
+		reader = services.NewDevtoolsSnapshotAPI(h.Queries)
 	}
 	rows, err := reader.Read(r.Context(), repo.ID, middleware.UserFromContext(r.Context()).ID, input)
 	if err != nil {

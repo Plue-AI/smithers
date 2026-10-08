@@ -306,3 +306,10 @@ test("repository archive and unarchive remain owner person mutations", () => {
 test("private snapshots have no external or system actor door", () => {
  expect(httpProjections.find(row => row.name === "devtools.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"read:repository",visibility:"hidden",slash:null,cli:null})
 })
+
+test("snapshot upload binds a typed private payload", () => {
+ const row=httpProjections.find(row=>row.name==="devtools.write")!
+ expect(row).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"write:repository",visibility:"hidden",slash:null,cli:null})
+ expect(Schema.decodeUnknownSync(row.input)({session_id:"s",kind:"console",payload:{lines:["hello"]}})).toEqual({session_id:"s",kind:"console",payload:{lines:["hello"]}})
+ expect(()=>Schema.decodeUnknownSync(row.input)({session_id:"s",kind:"console",payload:null})).toThrow()
+})

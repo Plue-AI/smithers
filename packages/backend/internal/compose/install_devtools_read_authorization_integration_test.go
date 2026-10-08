@@ -136,7 +136,7 @@ func TestInstallDevtoolsReadAuthorizationPostgres(t *testing.T) {
 		}()
 		call(t, "", "session_id="+own, "devtools-member", "", 404)
 	})
-	reader := services.NewDevtoolsSnapshotReader(q, pool)
+	reader := services.NewDevtoolsSnapshotAPI(q, pool)
 	authenticated := func() context.Context {
 		return middleware.ContextWithAuthInfo(f.ctx, &middleware.AuthInfo{User: &f.other, SessionHash: hash})
 	}

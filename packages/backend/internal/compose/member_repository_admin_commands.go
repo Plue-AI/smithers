@@ -94,7 +94,7 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 	}
 	var input any = struct{}{}
-	if command == "egress.update" || command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
+	if command == "devtools.write" || command == "egress.update" || command == "webhooks.create" || command == "webhooks.update" || command == "repo.topics.update" || command == "labels.create" || command == "labels.update" || command == "protected-bookmarks.upsert" || command == "variables.set" || command == "deploy-keys.create" {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, middleware.MaxRequestBodySize))
 		if err != nil {
 			refuse(pkgerrors.BadRequest("invalid configuration body"))
@@ -102,10 +102,14 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		}
 		r.Body = io.NopCloser(bytes.NewReader(raw))
 		decoder := json.NewDecoder(bytes.NewReader(raw))
-		if !strings.HasPrefix(command, "webhooks.") && command != "deploy-keys.create" && command != "repo.topics.update" {
+		if !strings.HasPrefix(command, "webhooks.") && command != "deploy-keys.create" && command != "repo.topics.update" && command != "devtools.write" {
 			decoder.DisallowUnknownFields()
 		}
 		switch command {
+		case "devtools.write":
+			var value routes.DevtoolsSnapshotWriteRequest
+			err = decoder.Decode(&value)
+			input = value
 		case "egress.update":
 			var value services.RepositoryEgressPatchInput
 			err = decoder.Decode(&value)
@@ -157,7 +161,12 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 			return
 		}
 	}
-	if command == "devtools.read" {
+	if command == "devtools.write" {
+		request, _ := input.(routes.DevtoolsSnapshotWriteRequest)
+		var value services.DevtoolsSnapshotWriteInput
+		value, err = routes.DevtoolsSnapshotWriteInput(repository.ID, request)
+		subject = services.InstallDevtoolsSnapshotWriteSubject(repository.ID, value)
+	} else if command == "devtools.read" {
 		var value services.DevtoolsSnapshotReadInput
 		value, err = routes.DevtoolsSnapshotReadInput(r, repository.ID)
 		subject = services.InstallDevtoolsSnapshotReadSubject(repository.ID, value)
