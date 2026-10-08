@@ -95,7 +95,7 @@ test("TS fake relay replays literal golden frames through the sole channel and m
   }
 })
 
-test("two File cards opened through files.read converge on literal 1000-edit packets, outside text and reconnect", async () => {
+test("two File cards opened through file converge on literal 1000-edit packets, outside text and reconnect", async () => {
   const fixture = JSON.parse(readFileSync(new URL("./co-edit.frames.json", import.meta.url), "utf8")) as {
     seed: number[]; frames: number[][]; outside: number[]; complete: number[]; saved: string; expected: string; outsideExpected: string
   }
@@ -122,7 +122,7 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
       resources.push(() => controller.dispose())
       await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
       await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/repo", org: "acme", ownerKind: "org", name: "repo", head: { bookmark: "main", changeId: "change-12", commitId: "commit-12" } }] }).isPersisted.promise
-      expect((await controller.commands.run("files.read", "retry.ts acme/repo --ref T12")).status).toBe("executed")
+      expect((await controller.commands.run("file", "retry.ts acme/repo --ref T12")).status).toBe("executed")
       const opened = [...store.collections.cards.values()].find(item => item.kind === "file")!
       expect(opened).toMatchObject({ kind: "file", payload: { repo: "acme/repo", ref: "T12", path: "retry.ts", content: "" } })
       expect(reads).toEqual(["/api/repos/acme/repo/contents/retry.ts?ref=T12"])
@@ -224,7 +224,7 @@ test("File recovery buttons cross the registered dispatcher and branch transport
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/repo", org: "acme", ownerKind: "org", name: "repo", head: { bookmark: "main", changeId: "change-12", commitId: "commit-12" } }] }).isPersisted.promise
-    expect((await controller.commands.run("files.read", "retry.ts acme/repo --ref T12")).status).toBe("executed")
+    expect((await controller.commands.run("file", "retry.ts acme/repo --ref T12")).status).toBe("executed")
     const opened = [...store.collections.cards.values()].find(item => item.kind === "file")!
     expect(calls).toEqual([["/api/repos/acme/repo/contents/.smithers/factory.json", null], ["/api/repos/acme/repo/home", null], ["/api/repos/acme/repo/contents/retry.ts?ref=T12", null]])
     calls.length = 0
