@@ -1034,10 +1034,11 @@ pub(crate) mod tests {
                 ),
             };
             let mut output = Vec::new();
+            let mut cx = LockCx::new(hooks);
             rpc::serve_one(
                 &mut std::io::Cursor::new(frame.encode().unwrap()),
                 &mut output,
-                &mut LockCx::new(hooks),
+                &mut cx,
             )
             .unwrap();
             let response = Frame::decode(&output).unwrap();
@@ -1055,6 +1056,45 @@ pub(crate) mod tests {
                 "{missing}"
             );
             assert!(core.validate_coding_write().is_err(), "{missing}");
+            // Exercise the same authenticated coding-batch dispatcher used by
+            // write/edit/apply_patch, after the failed Return. A readiness
+            // refusal must never release the moved-off hold or reach disk.
+            let files =
+                crate::files::Files::fixture(std::fs::File::open(&root).unwrap(), core.clone());
+            let admitted = cx.epoch.load(std::sync::atomic::Ordering::SeqCst);
+            for _ in 0..2 {
+                let response = crate::local::batch_response(
+                    &mut cx,
+                    &files,
+                    74,
+                    vec![crate::hooks::FileWrite {
+                        path: "notes.txt".into(),
+                        // Literal SHA-256 of "keep after move\n", computed independently.
+                        base: crate::hooks::Base::Digest([
+                            224, 145, 228, 145, 113, 137, 199, 136, 59, 135, 112, 223,
+                            146, 163, 25, 118, 123, 117, 204, 213, 81, 56, 218, 245,
+                            119, 224, 208, 221, 102, 251, 2, 249,
+                        ]),
+                        content: Some(b"must never land".to_vec()),
+                    }],
+                    Actor::Principal(vec![7; 16]),
+                    admitted,
+                );
+                let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+                assert_eq!(value[0], 255, "{missing}");
+                assert_eq!(
+                    conn::fields("error", &value[1..]).unwrap()[0].1,
+                    if missing == "binding" { [2] } else { [10] },
+                    "{missing}"
+                );
+                assert_eq!(core.native.current().unwrap().0, before, "{missing}");
+                assert_eq!(core.git.acknowledged().unwrap(), Some(item), "{missing}");
+                assert_eq!(
+                    fs::read(root.join("notes.txt")).unwrap(),
+                    b"keep after move\n",
+                    "{missing}"
+                );
+            }
         }
     }
     #[test]
