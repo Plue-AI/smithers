@@ -62,11 +62,13 @@ test("the mounted install rail reads the real seams and Hide runs toast.dismiss 
     fetchImpl: async input => {
       const path = new URL(String(input), "https://install.test").pathname
       reads.push(path)
-      return path === "/api/install" ? Response.json(installFixture())
+      return path === "/api/auth/session" ? Response.json({ id: 1, username: "smithersai", is_admin: false })
+        : path === "/api/install" ? Response.json(installFixture())
         : path === "/api/todos" ? Response.json([todoFixtures.working.model, todoFixtures.needs_you.model])
         : new Response("", { status: 404 })
     },
   })
+  await controller.loadSession()
   await store.dispatch({ type: "toast.shown", actor: "system", key: "checks", title: "Checks failed", sourceCard: "checks-entry" }).isPersisted.promise
   await store.dispatch({ type: "toast.resolved", actor: "system", key: "checks", title: "Checks failed", detail: "TestRetry failed", status: "failed" }).isPersisted.promise
   const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider>
@@ -74,6 +76,8 @@ test("the mounted install rail reads the real seams and Hide runs toast.dismiss 
   </MessageScrollerProvider></ControllerTestProvider>)
   await waitFor(() => host.querySelector('[data-entry="home"] .tl-text b')?.textContent === "smithersai/smithers")
   expect(controller.design.enabled).toBe(false)
+  expect(reads).toContain("/api/auth/session")
+  expect(reads).not.toContain("/api/user")
   expect(reads).toContain("/api/install")
   expect(reads).toContain("/api/todos")
   expect(host.querySelector('[data-entry="home"] .tl-text')?.textContent).toBe("smithersai/smithers1 need you · 1 working")
@@ -271,10 +275,12 @@ test("the install shell keeps a missing TODO entry's notice visible without its 
     fetchImpl: async (input, init) => {
       const path = new URL(String(input), "https://install.test").pathname
       if (init?.method && init.method !== "GET") writes.push(path)
-      return path === "/api/install" ? Response.json(installFixture())
+      return path === "/api/auth/session" ? Response.json({ id: 1, username: "smithersai", is_admin: false })
+        : path === "/api/install" ? Response.json(installFixture())
         : path === "/api/todos" ? Response.json([]) : new Response("", { status: 404 })
     }
   })
+  await controller.loadSession()
   await store.dispatch({ type: "toast.shown", actor: "system", key: "old-todo", title: "Checks failed", sourceCard: "todo:24",
     action: { flow: "todo.retry", args: "T24", label: "Retry" } }).isPersisted.promise
   await store.dispatch({ type: "toast.resolved", actor: "system", key: "old-todo", title: "Checks failed", detail: "Lint failed", status: "failed" }).isPersisted.promise
@@ -380,7 +386,7 @@ test("member toast hiding leaves shared lines present and timeline leases use pr
         if (init?.method === "PUT") { view = JSON.parse(String(init.body)); writes.push(view) }
         return Response.json(view)
       }
-      return path === "/api/user" ? Response.json({ id: 1, username: "smithersai", is_admin: false }) : path === "/api/conversations/main" ? Response.json({ id: "main", entries: [{ id: "turn", author: 2, authorLogin: "alice", runId: "run", prompt: "Check tests", title: "Check tests", tone: "failed", state: "failed", frames: [] }] })
+      return path === "/api/auth/session" ? Response.json({ id: 1, username: "smithersai", is_admin: false }) : path === "/api/conversations/main" ? Response.json({ id: "main", entries: [{ id: "turn", author: 2, authorLogin: "alice", runId: "run", prompt: "Check tests", title: "Check tests", tone: "failed", state: "failed", frames: [] }] })
         : path === "/api/install" ? Response.json(installFixture()) : path === "/api/todos" ? Response.json([]) : new Response("", { status: 404 })
     }
   })
