@@ -405,7 +405,16 @@ def main():
     if operation in ("cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-child-owner"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            names = sorted(os.listdir(parent))
+            # cgroup v2 exposes regular kernel control files alongside child
+            # directories. Inspect entries without following links before
+            # selecting groups; never interpret those files as session IDs.
+            names = []
+            for name in sorted(os.listdir(parent)):
+                info = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode):
+                    raise ValueError("symlinked live cgroup child")
+                if stat.S_ISDIR(info.st_mode):
+                    names.append(name)
             if not names or any(len(name) != 18 or not name.startswith("s-") or any(c not in "0123456789abcdef" for c in name[2:]) for name in names):
                 raise ValueError("invalid live cgroup children")
             for name in names:

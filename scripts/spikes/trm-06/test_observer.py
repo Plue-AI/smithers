@@ -75,15 +75,21 @@ class ObserverReceipt(unittest.TestCase):
 
     def test_live_child_mutations_hold_original_groups_and_refuse_foreign_names(self):
         for mode in ("cgroup-live-child-replaced", "cgroup-live-child-writable"):
-            for invalid in (False, True):
+            for invalid in (False, "foreign", "symlink"):
                 with self.subTest(mode=mode, invalid=invalid), tempfile.TemporaryDirectory() as temporary:
                     parent = Path(temporary)
                     names = ["s-0000000000000001", "s-0000000000000002"]
                     for name in names:
                         (parent / name).mkdir(mode=0o755)
                     originals = {name: (parent / name).stat().st_ino for name in names}
-                    if invalid:
+                    controls = {name: b"kernel-control-fixture\n" for name in
+                                ("cgroup.events", "cgroup.procs", "cgroup.kill", "cgroup.controllers")}
+                    for name, contents in controls.items():
+                        (parent / name).write_bytes(contents)
+                    if invalid == "foreign":
                         (parent / "foreign").mkdir()
+                    elif invalid == "symlink":
+                        (parent / "s-0000000000000003").symlink_to(parent / names[0])
                     original_open, original_stat = os.open, os.fstat
                     def own_open(path, flags, *args, **kwargs):
                         self.assertTrue(flags & os.O_NOFOLLOW)
@@ -113,6 +119,8 @@ class ObserverReceipt(unittest.TestCase):
                         else:
                             self.assertEqual(child.stat().st_ino, originals[name])
                             self.assertEqual(child.stat().st_mode & 0o777, 0o777 if not invalid else 0o755)
+                    for name, contents in controls.items():
+                        self.assertEqual((parent / name).read_bytes(), contents)
 
     def test_live_cgroup_ancestor_preserves_original_session_inode(self):
         for mode in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"):
@@ -154,6 +162,8 @@ class ObserverReceipt(unittest.TestCase):
                 sessions.chmod(0o755)
                 child = sessions / "s-0000000000000001"
                 child.mkdir(mode=0o755)
+                for name in ("cgroup.events", "cgroup.procs", "cgroup.kill"):
+                    (sessions / name).write_bytes(b"kernel-control-fixture\n")
                 sentinel = root / "outside"
                 sentinel.write_bytes(b"outside-fixture\0")
                 before = sentinel.stat()

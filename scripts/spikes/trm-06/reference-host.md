@@ -194,3 +194,9 @@ the same installed authenticated admission/refusal and original-descriptor
 revocation campaign; retain raw mutation, refusal and drain observations.
 Local syscall-selection regressions substitute fchown because the lane is
 unprivileged; they are not installed ownership or revocation evidence.
+
+Live child mutations enumerate directories with descriptor-relative, no-follow
+metadata checks. Kernel control files (`cgroup.events`, `cgroup.procs`,
+`cgroup.kill`, etc.) are not session children. Foreign directories and symlinks
+refuse before mutation. Local regressions include those kernel-file entries
+and verify their bytes remain unchanged; installed execution is still required.
