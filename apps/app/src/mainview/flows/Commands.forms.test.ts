@@ -1,3 +1,4 @@
+import { savedDiffArgs } from "./DiffPayload"
 import { githubArgs } from "./GitHubPayload"
 /*
  * THE FORM LAW at the door (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
@@ -149,9 +150,9 @@ describe("THE FORM LAW — the slash door and the button door", () => {
   test("partial JSON slash inputs open usable forms instead of failing the command", async () => {
     const { store, controller } = await boot()
     try {
-      for (const flow of ["issue.add-flow", "files.open-diff"] as const) {
+      for (const flow of ["issue.add-flow", "diff"] as const) {
         for (const args of ["7", "0", '"hello world"', "500000", "null", "[]", "{invalid", "{}"]) {
-          const outcome = await controller.commands.run(flow, args)
+          const outcome = await controller.commands.run(flow, flow === "diff" ? savedDiffArgs("files.open-diff", args) : args)
           expect(outcome.status).toBe("form")
           expect(formOf(store, flow)?.payload.fields.length).toBeGreaterThan(0)
         }
@@ -161,9 +162,9 @@ describe("THE FORM LAW — the slash door and the button door", () => {
       expect(formOf(store, "issue.add-flow")?.payload.draft).toMatchObject({ number: 7 })
       expect(payloadFor("issue.add-flow", '{"number":7,"description":"add a flow"}')).toEqual({ payload: { number: 7, description: "add a flow" } })
       expect(payloadFor("files.open-diff", '{"cardId":"card-1","path":"src/main.ts"}')).toEqual({ payload: { cardId: "card-1", path: "src/main.ts" } })
-      const diff = await controller.commands.run("files.open-diff", '{"cardId":"card-1"}')
+      const diff = await controller.commands.run("diff", savedDiffArgs("files.open-diff", '{"cardId":"card-1"}'))
       expect(diff.status).toBe("form")
-      expect(formOf(store, "files.open-diff")?.payload.draft).toMatchObject({ cardId: "card-1" })
+      expect(formOf(store, "diff")?.payload.given).toMatchObject({ cardId: "card-1" })
     } finally {
       await controller.dispose()
     }
@@ -505,7 +506,7 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
       }
     }) as CommandActions
     const registry = createCommandRegistry(recording)
-    await registry.submit({ name: "change.diff", payload: { changeId: "c1", to: "1" }, actor: "user", display: "c1 1" })
+    await registry.submit({ name: "diff", payload: { changeId: "c1", to: "1", operation: "change-diff" }, actor: "user", display: "c1 1" })
     expect(calls.filter((call) => call.action === "diffChange")).toEqual([
       { action: "diffChange", args: ["c1", undefined, "1", undefined] }
     ])
@@ -514,19 +515,16 @@ describe("THE FORM LAW — every flow's form submits its own named payload", () 
   test("the form door submits the draft by name and keeps the assembled line for display only", async () => {
     const { store, controller } = await boot()
     const submitted = spyOn(controller.commands, "submit").mockResolvedValue({ status: "executed" })
-    expect(await execute(controller, "change.diff")).toContain("rendered a form")
-    const card = formOf(store, "change.diff")!
+    expect((await controller.commands.run("diff", '{"operation":"change-diff"}')).status).toBe("form")
+    const card = formOf(store, "diff")!
     await controller.commands.run("form.set", `${card.id} changeId c1`)
     await controller.commands.run("form.set", `${card.id} to 1`)
     const acknowledged = await controller.commands.run("form.submit", card.id)
     const submission = submitted.mock.calls[0]?.[0]
-    expect(submission?.payload).toEqual({ changeId: "c1", to: "1" })
-    // The line withholds `to` (behind the unset `from` slot it would read back as `from`), so it
-    // parses back to exactly what it carries.
-    expect(submission?.display).toBe("c1")
-    expect(payloadFor("change.diff", submission?.display)).toEqual({ payload: { changeId: "c1" } })
-    // The acknowledgment names the withheld value, so the run's `to` is never hidden behind the line.
-    expect(acknowledged).toEqual({ status: "executed", value: "submitted /change.diff c1 (+to)" })
+    expect(submission?.payload).toEqual({ operation: "change-diff", changeId: "c1", to: "1" })
+    expect(JSON.parse(submission!.display!)).toEqual({ operation: "change-diff", changeId: "c1", to: "1" })
+    expect(payloadFor("diff", submission?.display)).toEqual({ payload: submission?.payload })
+    expect(acknowledged.status).toBe("executed")
   })
 })
 

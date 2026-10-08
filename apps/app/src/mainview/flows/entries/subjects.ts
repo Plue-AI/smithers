@@ -114,8 +114,22 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       } }),
     flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
-      agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),
-      handler: ({ subject, branch, path, entry }) => {
+      form: {
+        fields: { operation: { hidden: true }, cardId: { hidden: true } },
+        requires: payload => payload.operation === "file" ? ["cardId", "path"] : payload.operation === "pins" ? ["changeId", "from", "to"] : payload.operation === "checks" ? ["changeId", "seq"] : payload.operation ? ["changeId"] : undefined,
+        optionalFields: payload => payload.operation === "change-diff" ? ["from", "to", "path"] : payload.operation === "change" ? ["rev"] : [],
+        args: payload => JSON.stringify(payload)
+      },
+      payloadRequires: payload => payload.operation && payload.operation !== "file" ? ["signed-in"] : [],
+      agent: "run", input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String),
+        operation: Schema.optional(Schema.Literals(["change", "change-diff", "pins", "checks", "file"])), changeId: Schema.optional(Schema.String), rev: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), from: Schema.optional(Schema.String), to: Schema.optional(Schema.String), seq: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), cardId: Schema.optional(Schema.String) }),
+      handler: ({ subject, branch, path, entry, operation, changeId, rev, from, to, seq, cardId }) => {
+        if (operation === "file") return cardId && path ? actions.openDiffFile(cardId, path) : "Select a diff and file"
+        if (operation === "change") return changeId ? actions.viewChange(changeId, rev) : "Choose a change"
+        if (operation === "change-diff") return changeId ? actions.diffChange(changeId, from, to, path) : "Choose a change"
+        if (operation === "pins") return changeId && from && to ? actions.setChangePins(changeId, from, to) : "Choose revision pins"
+        if (operation === "checks") return changeId && seq !== undefined ? actions.checksOfChangeAt(changeId, seq) : "Choose a revision"
+
         if (realFiles()) return entry !== undefined ? "Burst diff unavailable" : actions.branchDiff(branch ?? subject)
         const world = design.world()
         const wanted = path ?? subject ?? ""

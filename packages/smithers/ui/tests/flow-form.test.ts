@@ -202,3 +202,19 @@ describe("hidden variant routing inputs", () => {
     expect(formFieldsFor(input, hints, { operation: "tree" }).map(field => field.name)).toEqual(["path", "copy"])
   })
 })
+
+test("union forms select their declared variant and retain the named command on submission", () => {
+  const input = Schema.Union([
+    Schema.Struct({ branch: Schema.String, operation: Schema.optional(Schema.Never), id: Schema.optional(Schema.Never), command: Schema.optional(Schema.Never) }),
+    Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String })
+  ])
+  expect(formFieldsFor(input).map(field => field.name)).toEqual(["branch"])
+  const payload = { operation: "command", id: "terminal-1", command: "printf hello" }
+  const fields = formFieldsFor(input, undefined, payload)
+  expect(fields.map(field => field.name)).toEqual(["operation", "id", "command"])
+  expect(submissionPayload(input, fields, payload, draftFrom(fields, payload))).toEqual({ payload })
+  expect(formFieldsFor(input, undefined, { operation: "invented" })).toEqual([])
+  const mixed = submissionPayload(input, fields, { ...payload, branch: "another" }, draftFrom(fields, payload))
+  expect(mixed).toEqual({ payload: { branch: "another", ...payload } })
+  expect(() => Schema.decodeUnknownSync(input)((mixed as { payload: unknown }).payload)).toThrow()
+})

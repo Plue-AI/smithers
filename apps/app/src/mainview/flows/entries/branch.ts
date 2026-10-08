@@ -84,7 +84,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         return result.ok ? undefined : result.refusal
       } }),
     flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: { method: "POST", path: "/api/terminals" }, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), agent: "run", input: Schema.Union([
+      grammar: field("branch"), form: { fields: { operation: { hidden: true }, id: { hidden: true }, command: { hidden: true } }, requires: payload => payload.operation === "command" ? ["id", "command"] : ["branch"], args: payload => JSON.stringify(payload) }, agent: "run", input: Schema.Union([
         Schema.Struct({ branch: Schema.String, operation: Schema.optional(Schema.Never), id: Schema.optional(Schema.Never), command: Schema.optional(Schema.Never) }),
         Schema.Struct({ branch: Schema.optional(Schema.Never), operation: Schema.Literal("command"), id: Schema.String, command: Schema.String })
       ]),

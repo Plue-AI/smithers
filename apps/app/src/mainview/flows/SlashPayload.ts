@@ -981,6 +981,12 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * with a colon of its own keeps working; the parser stays first-token-is-path.
    */
   "files.implementation-diff": (args) => optional("changeId", args),
+  "diff": args => {
+    const value = args?.trim() ?? ""
+    if (!value) return ok({})
+    if (value.startsWith("{")) { try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? ok(parsed) : no("Enter a JSON object") } catch { return no("Enter a JSON object") } }
+    return ok({ subject: value })
+  },
   "files.open-diff": (args) => {
     try {
       const value: unknown = JSON.parse(args ?? "")

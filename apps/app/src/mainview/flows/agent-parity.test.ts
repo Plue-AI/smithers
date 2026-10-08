@@ -1,3 +1,4 @@
+import { savedDiffArgs } from "./DiffPayload"
 import { agentVisibleCatalog } from "./agentTools"
 /*
  * The three-door law (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
@@ -128,8 +129,8 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.coding.select", args: "run-1 storage", confirm: false },
   /* The issue-sweep board's reader state is free; starting the sweep launches agents, so it confirms. */
   { name: "files", args: '{"operation":"tree","copy":"shared:will/smithers"}', confirm: false },
-  { name: "change.pins", args: "c1 parent current", confirm: false },
-  { name: "change.checks", args: "c1 1", confirm: false },
+  { name: "diff", args: savedDiffArgs("change.pins", "c1 parent current"), confirm: false },
+  { name: "diff", args: savedDiffArgs("change.checks", "c1 1"), confirm: false },
   { name: "box.facet", args: "ws-1 files", confirm: false },
   { name: "change.facet", args: "c1 diff", confirm: false },
   { name: "flow.run.retry", args: "card-1", confirm: true },
@@ -354,15 +355,14 @@ describe("the three-door law", () => {
     expect(messages(store).at(-1)?.text).toBe("Smithers Cloud is already signed in as will.")
   })
 
-  test("a cloud refusal offers the current host sign-in button and names cloud.prompt to the agent", async () => {
+  test("a retained change read offers sign-in to the person while the agent uses the conversation host", async () => {
     const { store, controller } = await boot()
     cloudSession(store, "signed-out", null)
     await settle(2)
-    const agent = await execute(controller, "change.view", "change-1")
-    expect(agent).toStartWith("failed: Sign in to Smithers Cloud to continue")
-    expect(agent).toContain("cloud.prompt")
-    expect(agent).not.toContain("/cloud.sign-in")
-    const human = await controller.commands.run("change.view", "change-1")
+    const agent = await execute(controller, "diff", savedDiffArgs("change.view", "change-1"))
+    expect(agent).toBe("failed: this command runs on the conversation host")
+    expect(controller.commands.find("cloud.prompt")).toBeDefined()
+    const human = await controller.commands.run("diff", savedDiffArgs("change.view", "change-1"))
     expect(human).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
   })
 
@@ -372,15 +372,15 @@ describe("the three-door law", () => {
       cloudSession(store, "signed-out", null)
       const flow = host.host === "cloud" ? "sign-in" : "cloud.sign-in"
       try {
-        for (const name of ["change.view"] as const) {
-          const outcome = await controller.commands.run(name, name === "change.view" ? "change-1" : undefined)
+        for (const name of ["diff"] as const) {
+          const outcome = await controller.commands.run(name, savedDiffArgs("change.view", "change-1"))
           expect(outcome).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
           const step = messages(store).at(-1)
           expect(step?.action?.flow).toBe(flow)
           expect(controller.commands.find(step!.action!.flow)).toBeDefined()
           expect(step?.text).not.toContain("/cloud.sign-in")
         }
-        expect(await execute(controller, "change.view", "change-1")).toContain("cloud.prompt")
+        expect(await execute(controller, "diff", savedDiffArgs("change.view", "change-1"))).toBe("failed: this command runs on the conversation host")
         expect(messages(store).at(-1)?.action?.flow).toBe(flow)
       } finally { controller.dispose() }
     })

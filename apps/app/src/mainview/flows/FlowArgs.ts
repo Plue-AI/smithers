@@ -3,6 +3,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "diff": { readonly operation?: "change" | "change-diff" | "pins" | "checks" | "file"; readonly subject?: string; readonly branch?: string; readonly path?: string; readonly entry?: string; readonly changeId?: string; readonly rev?: number; readonly from?: string; readonly to?: string; readonly seq?: number; readonly cardId?: string }
   readonly "runs": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["runs"]>
   readonly "github": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["github"]>
   readonly "background.retry": { readonly id: string }
@@ -52,7 +53,6 @@ export interface FlowInput {
   readonly "egress.allow": { readonly host: string; readonly repo: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
-  readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["secrets"]>
@@ -86,7 +86,6 @@ export interface FlowInput {
   readonly "runs.open": { readonly runId: string; readonly repo?: string; readonly sourceCard?: string; readonly requestId?: string }
   readonly "runs.trace.select": { readonly runId: string; readonly nodeId: string; readonly seq?: number; readonly sourceCard?: string }
   readonly "tutorial.live.inspect": { readonly cardId: string; readonly eventId: string }
-  readonly "files.open-diff": { readonly cardId: string; readonly path: string }
   readonly "issues.view": { readonly number: number; readonly repo?: string; readonly source?: "smithers-cloud" | "github" }
   readonly "prs.view": { readonly number: number; readonly repo?: string }
   readonly "prs.tab": { readonly cardId: string; readonly tab: "conversation" | "commits" | "checks" | "files" }
@@ -116,14 +115,7 @@ export interface FlowInput {
     readonly input?: Readonly<Record<string, unknown>>
   }
   /** `<changeId> [from] [to] [path]` — the path is the rest of the line, so it may hold a space. */
-  readonly "change.diff": {
-    readonly changeId: string
-    readonly from?: string
-    readonly to?: string
-    readonly path?: string
-  }
   /** `<changeId> <from> <to>` — a revision pin never holds whitespace. */
-  readonly "change.pins": { readonly changeId: string; readonly from: string; readonly to: string }
   readonly "change.facet": { readonly changeId: string; readonly facet: string }
   /** `<changeId> <path>` — the path is the rest of the line. */
   readonly "change.resolve": { readonly changeId: string; readonly path: string }
@@ -174,6 +166,7 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  * of the line.
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
+  "diff": payload => JSON.stringify(payload),
   "background.retry": payload => token(payload, "id")!,
   "background.dismiss": payload => token(payload, "id")!,
   "approval.approve": payload => token(payload, "cardId")!,
@@ -217,7 +210,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "egress.allow": payload => line(token(payload, "host"), token(payload, "repo")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
-  "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "runs": payload => JSON.stringify(payload),
@@ -243,7 +235,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "runs.open": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "requestId"), token(payload, "runId"), token(payload, "repo")),
   "runs.trace.select": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId"), token(payload, "nodeId"), token(payload, "seq")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
-  "files.open-diff": (payload) => JSON.stringify(payload),
   "debug-api": payload => JSON.stringify(payload),
   "docs": payload => payload.mode === "read" ? JSON.stringify(payload) : token(payload, "page") ?? "",
   "run.inspect": payload => JSON.stringify(payload),
@@ -265,8 +256,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
     payload.input === undefined ? undefined : JSON.stringify(payload.input)),
   "flow.plan": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "against"), token(payload, "name"), token(payload, "repo"),
     payload.input === undefined ? undefined : JSON.stringify(payload.input)),
-  "change.diff": (payload) => line(token(payload, "changeId"), token(payload, "from"), token(payload, "to"), token(payload, "path")),
-  "change.pins": (payload) => line(token(payload, "changeId"), token(payload, "from"), token(payload, "to")),
   "change.facet": (payload) => line(token(payload, "changeId"), token(payload, "facet")),
   "change.resolve": (payload) => line(token(payload, "changeId"), token(payload, "path")),
   "form.set": (payload) => line(token(payload, "cardId"), token(payload, "field"), token(payload, "value")),

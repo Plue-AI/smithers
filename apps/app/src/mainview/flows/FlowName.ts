@@ -20,6 +20,12 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "change.view": "diff",
+  "change.diff": "diff",
+  "change.pins": "diff",
+  "change.checks": "diff",
+  "files.open-diff": "diff",
+
   "files.list": "files",
   "repo.tree": "files",
   "box.files": "files",
@@ -176,12 +182,8 @@ export const FLOW_NAMES = [
   "card.history.forward",
   "card.maximize",
   "card.minimize",
-  "change.checks",
-  "change.diff",
   "change.facet",
-  "change.pins",
   "change.resolve",
-  "change.view",
   "chat",
   "chat.copy-message",
   "chat.dictate",
@@ -208,7 +210,6 @@ export const FLOW_NAMES = [
   "docs",
   "egress.allow",
   "egress.session",
-  "files.open-diff",
   "findings.not-useful",
   "findings.please-fix",
   "flow",

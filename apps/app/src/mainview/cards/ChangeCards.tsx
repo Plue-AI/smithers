@@ -175,9 +175,9 @@ const ChangeDiffFacet = ({ card, onRunCommand }: { readonly card: ChangeCard } &
             <select
               className="sui-input"
               aria-label="Diff from"
-              {...flowProps("change.pins")}
+              {...flowProps("diff")}
               value={from}
-              onChange={(event) => onRunCommand("change.pins", flowArgs("change.pins", { changeId: payload.changeId, from: event.target.value, to }))}
+              onChange={(event) => onRunCommand("diff", flowArgs("diff", { ...{ changeId: payload.changeId, from: event.target.value, to }, operation: "pins" }))}
             >
               <option value="parent">parent</option>
               {payload.revisions.map((revision) => <option key={revision.seq} value={String(revision.seq)}>rev {revision.seq}</option>)}
@@ -186,9 +186,9 @@ const ChangeDiffFacet = ({ card, onRunCommand }: { readonly card: ChangeCard } &
             <select
               className="sui-input"
               aria-label="Diff to"
-              {...flowProps("change.pins")}
+              {...flowProps("diff")}
               value={to}
-              onChange={(event) => onRunCommand("change.pins", flowArgs("change.pins", { changeId: payload.changeId, from, to: event.target.value }))}
+              onChange={(event) => onRunCommand("diff", flowArgs("diff", { ...{ changeId: payload.changeId, from, to: event.target.value }, operation: "pins" }))}
             >
               {payload.revisions.map((revision) => <option key={revision.seq} value={String(revision.seq)}>rev {revision.seq}</option>)}
               <option value="current">current</option>
@@ -201,7 +201,7 @@ const ChangeDiffFacet = ({ card, onRunCommand }: { readonly card: ChangeCard } &
                     size="sm"
                     variant="ghost"
                     aria-label="Show the whole diff, parent to current"
-                    {...flowAction(onRunCommand, "change.pins", flowArgs("change.pins", { changeId: payload.changeId, from: "parent", to: "current" }))}
+                    {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ changeId: payload.changeId, from: "parent", to: "current" }, operation: "pins" }))}
                   >
                     show all
                   </Button>
@@ -235,7 +235,7 @@ const ChangeDiffFacet = ({ card, onRunCommand }: { readonly card: ChangeCard } &
                   variant="ghost"
                   size="sm"
                   aria-label={`Open the diff of ${file.path}`}
-                  {...flowAction(onRunCommand, "change.diff", flowArgs("change.diff", { changeId: payload.changeId, from, to, path: file.path }))}
+                  {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ changeId: payload.changeId, from, to, path: file.path }, operation: "change-diff" }))}
                 >
                   <span className="world-card-title">{file.path}</span>
                 </Button>
@@ -279,9 +279,9 @@ const ChangeChecksFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
             <select
               className="sui-input"
               aria-label="Checks at revision"
-              {...flowProps("change.checks")}
+              {...flowProps("diff")}
               value={at === null ? "" : String(at)}
-              onChange={(event) => onRunCommand("change.checks", flowArgs("change.checks", { changeId: payload.changeId, seq: Number(event.target.value) }))}
+              onChange={(event) => onRunCommand("diff", flowArgs("diff", { ...{ changeId: payload.changeId, seq: Number(event.target.value) }, operation: "checks" }))}
             >
               {payload.revisions.map((candidate) => <option key={candidate.seq} value={String(candidate.seq)}>rev {candidate.seq}</option>)}
             </select>
@@ -474,7 +474,7 @@ const ChangeReviewFacet = ({ card, onRunCommand }: { readonly card: ChangeCard }
               size="sm"
               variant="ghost"
               aria-label="Show the whole diff, parent to current"
-              {...flowAction(onRunCommand, "change.pins", flowArgs("change.pins", { changeId: payload.changeId, from: "parent", to: "current" }))}
+              {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ changeId: payload.changeId, from: "parent", to: "current" }, operation: "pins" }))}
             >
               show all
             </Button>
@@ -596,7 +596,7 @@ const ChangeHistoryFacet = ({ card, onRunCommand }: { readonly card: ChangeCard 
                 size="sm"
                 variant="ghost"
                 aria-label={`Diff rev ${revision.seq} to current`}
-                {...flowAction(onRunCommand, "change.pins", flowArgs("change.pins", { changeId: payload.changeId, from: String(revision.seq), to: "current" }))}
+                {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ changeId: payload.changeId, from: String(revision.seq), to: "current" }, operation: "pins" }))}
               >
                 Diff to current
               </Button>
@@ -955,7 +955,7 @@ export const ChangeCardBody = ({
           size="sm"
           variant="outline"
           aria-label="Open the full diff card"
-          {...flowAction(onRunCommand, "change.diff", payload.changeId)}
+          {...flowAction(onRunCommand, "diff", flowArgs("diff", { changeId: payload.changeId, operation: "change-diff" }))}
         >
           <GitPullRequest size={12} aria-hidden="true" /> Full diff
         </Button>
@@ -999,7 +999,7 @@ export const DiffCardBody = ({
               <li key={file.path} className="world-card-row">
                 <FileDiff size={14} aria-hidden="true" />
                 <span className="world-card-title">{file.path}</span>
-                {!file.isBinary && file.changeType !== "deleted" && payload.pin.commitId !== null ? <Button variant="ghost" size="sm"  {...flowAction(onRunCommand, "files.open-diff", flowArgs("files.open-diff", { cardId: card.id, path: file.path }))}>Open file</Button> : null}
+                {!file.isBinary && file.changeType !== "deleted" && payload.pin.commitId !== null ? <Button variant="ghost" size="sm"  {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ cardId: card.id, path: file.path }, operation: "file" }))}>Open file</Button> : null}
                 <span className="world-card-path">
                   {file.changeType} · +{file.additions} −{file.deletions}
                   {file.conflicted === true ? " · conflicted" : ""}
@@ -1030,7 +1030,7 @@ export const DiffCardBody = ({
               <Button
                 variant="ghost"
                 size="sm"
-                {...flowAction(onRunCommand, "change.diff", flowArgs("change.diff", { changeId: payload.changeId, from: payload.from, to: payload.to, path: file.path }))}
+                {...flowAction(onRunCommand, "diff", flowArgs("diff", { ...{ changeId: payload.changeId, from: payload.from, to: payload.to, path: file.path }, operation: "change-diff" }))}
               >
                 Read it
               </Button>

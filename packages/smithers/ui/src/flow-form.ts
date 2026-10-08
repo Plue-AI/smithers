@@ -198,11 +198,27 @@ const controlOf = (ast: SchemaAST.AST): Pick<FormField, "kind" | "options"> => {
  *
  * @category derivation
  */
+/** Select a declared struct variant from its literal routing fields, without running a codec. */
+const formObject = (ast: SchemaAST.AST, payload: Readonly<Record<string, unknown>>): SchemaAST.Objects | undefined => {
+  if (ast._tag === "Objects") return ast
+  if (ast._tag !== "Union") return undefined
+  return ast.types.filter((member): member is SchemaAST.Objects => member._tag === "Objects").find(member =>
+    member.propertySignatures.every(signature => {
+      const value = payload[String(signature.name)]
+      if (value === undefined) return true
+      const inner = unwrapOptional(signature.type).ast
+      if (inner._tag === "Never") return false
+      const literals = literalOptions(inner)
+      return literals === undefined || literals.some(option => option.value === String(value))
+    })
+  )
+}
+
 export const formFieldsFor = (input: Schema.Top, hints: FormHints | undefined = undefined, payload: Readonly<Record<string, unknown>> = {}): ReadonlyArray<FormField> => {
-  const ast = input.ast
-  if (ast._tag !== "Objects") return []
+  const ast = formObject(input.ast, payload)
+  if (ast === undefined) return []
   const required = hints?.requires?.(payload) ?? []
-  return ast.propertySignatures.filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || !unwrapOptional(signature.type).optional || required.includes(String(signature.name))).map((signature) => {
+  return ast.propertySignatures.filter(signature => unwrapOptional(signature.type).ast._tag !== "Never").filter(signature => hints?.fields?.[String(signature.name)]?.hidden !== true || !unwrapOptional(signature.type).optional || required.includes(String(signature.name))).map((signature) => {
     const name = String(signature.name)
     const { ast: inner, optional } = unwrapOptional(signature.type)
     const control = controlOf(inner)
@@ -327,10 +343,10 @@ interface PropertyShape {
 }
 
 /** The flow's input struct as the submission reads it: one shape per property, in schema order. */
-const inputShape = (input: Schema.Top): ReadonlyMap<string, PropertyShape> => {
-  const ast = input.ast
+const inputShape = (input: Schema.Top, payload: Readonly<Record<string, unknown>> = {}): ReadonlyMap<string, PropertyShape> => {
+  const ast = formObject(input.ast, payload)
   const shape = new Map<string, PropertyShape>()
-  if (ast._tag !== "Objects") return shape
+  if (ast === undefined) return shape
   for (const signature of ast.propertySignatures) {
     const { ast: inner, optional } = unwrapOptional(signature.type)
     shape.set(String(signature.name), { optional, tag: inner._tag, ast: inner })
@@ -388,7 +404,7 @@ export const submissionPayload = (
   draft: FormDraft,
   arrays: ArrayEncoding = "words"
 ): Submission => {
-  const shape = inputShape(input)
+  const shape = inputShape(input, { ...given, ...draft })
   const represented = new Set(fields.map((field) => field.name))
   // What the form could not represent stays exactly as the invocation gave it.
   const payload: Record<string, unknown> = Object.fromEntries(

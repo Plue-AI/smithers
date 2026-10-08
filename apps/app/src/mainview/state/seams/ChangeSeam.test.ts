@@ -898,7 +898,7 @@ describe("createChangeSeam", () => {
     const { seam, requests } = await harness({ [CHANGE_ROUTE]: json(200, CHANGE) })
     expect(textOf(await seam.diffChange("qupxosqw", "1", "9"))).toBe("qupxosqw has no rev 9 — its revisions are 1 → 2.")
     expect(textOf(await seam.diffChange("qupxosqw", "x", "2"))).toBe(
-      "change.diff's from pin is \"parent\" or a revision number — not \"x\""
+      "Diff's from pin is \"parent\" or a revision number — not \"x\""
     )
     expect(requests.some((request) => request.includes("/diff"))).toBe(false)
 
@@ -1304,7 +1304,7 @@ describe("createChangeSeam", () => {
   test("change.facet on an unread change names the way out", async () => {
     const { seam } = await harness({})
     expect(await seam.setFacet("qupxosqw", "checks")).toBe(
-      "Change qupxosqw is not loaded — /change.view qupxosqw reads it first"
+      "Change qupxosqw is not loaded"
     )
   })
 
@@ -1461,7 +1461,7 @@ describe("change repository resolution", () => {
     requests.length = 0
 
     expect(await seam.setFacet("qupxosqw", "checks", "will/smithers")).toBe(
-      "Change qupxosqw is not loaded — /change.view qupxosqw reads it first"
+      "Change qupxosqw is not loaded"
     )
     await store.eventHistory()
     expect(store.collections.cards.get("change-ana/other-qupxosqw")).toEqual(foreignCard)

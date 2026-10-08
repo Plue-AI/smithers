@@ -103,7 +103,7 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
 /** Each change burst's Diff; the burst id rides as `args` so the View tells rows apart. */
 export const changeActionDefinitions = (model: BranchModel): CardActionDefinition[] =>
   model.activity.filter(entry => entry.kind === "change")
-    .map(entry => ({ tag: "diff", label: "Diff", args: { burst: entry.id }, command_input: undefined }))
+    .map(entry => ({ tag: "diff", label: "Diff", args: { burst: entry.id }, command_input: { branch: model.name, entry: entry.id } }))
 
 /** View selections use the same durable card transition on installs and demos. */
 function persistBranchView(controller: ReturnType<typeof useController>, card: CardOf<"branch">, patch: { tab?: string }) {

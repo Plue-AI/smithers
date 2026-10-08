@@ -109,7 +109,7 @@ describe("branch presses", () => {
     expect(burst.text).toBe("Changed outside Smithers")
     expect(burst.files).toBe(12)
     expect(burst.actor.kind).toBe("outside")
-    expect(changeActionDefinitions(model)).toEqual([{ tag: "diff", label: "Diff", args: { burst: burst.id }, command_input: undefined }])
+    expect(changeActionDefinitions(model)).toEqual([{ tag: "diff", label: "Diff", args: { burst: burst.id }, command_input: { branch: model.name, entry: burst.id } }])
   })
 
   test("the SSH line uses the first address's host, else localhost", () => {

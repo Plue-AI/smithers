@@ -68,24 +68,24 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
 
 
   test("change.pins carries both pins", () => {
-    roundTrip("change.pins", { changeId: "ch-1", from: "parent", to: "current" }, "ch-1 parent current", {
+    roundTrip("diff", { ...{ changeId: "ch-1", from: "parent", to: "current" }, operation: "pins" }, JSON.stringify({ ...{ changeId: "ch-1", from: "parent", to: "current" }, operation: "pins" }), { ...{
       changeId: "ch-1",
       from: "parent",
       to: "current"
-    })
+    }, operation: "pins" })
   })
 
   test("change.diff carries a path that holds a space", () => {
-    roundTrip("change.diff", { changeId: "ch-1", from: "parent", to: "current", path: "src/my notes.md" }, "ch-1 parent current src/my notes.md", {
+    roundTrip("diff", { ...{ changeId: "ch-1", from: "parent", to: "current", path: "src/my notes.md" }, operation: "change-diff" }, JSON.stringify({ ...{ changeId: "ch-1", from: "parent", to: "current", path: "src/my notes.md" }, operation: "change-diff" }), { ...{
       changeId: "ch-1",
       from: "parent",
       to: "current",
       path: "src/my notes.md"
-    })
+    }, operation: "change-diff" })
   })
 
   test("change.diff without pins is the change's own diff", () => {
-    roundTrip("change.diff", { changeId: "ch-1" }, "ch-1", { changeId: "ch-1" })
+    roundTrip("diff", { ...{ changeId: "ch-1" }, operation: "change-diff" }, JSON.stringify({ ...{ changeId: "ch-1" }, operation: "change-diff" }), { ...{ changeId: "ch-1" }, operation: "change-diff" })
   })
 
   test("change.resolve carries a conflicted path that holds a space", () => {
@@ -114,8 +114,7 @@ describe("FlowName — the seam's names are the registry's names", () => {
   test("every flow with a typed input is a declared flow", () => {
     const declared = new Set<string>(FLOW_NAMES)
     const named: ReadonlyArray<FlowWithInput> = [
-      "change.diff",
-      "change.pins",
+      "diff",
       "change.resolve",
       "form.set",
     ]
@@ -166,7 +165,7 @@ test("source-qualified flow input preserves arbitrary JSON", () => {
 
 test("opening a diff file preserves a frame id and a path containing spaces", () => {
   const input = { cardId: "diff-frame", path: "src/my file.ts" }
-  expect(payloadFor("files.open-diff", flowArgs("files.open-diff", input))).toEqual({ payload: input })
+  expect(payloadFor("diff", flowArgs("diff", { ...input, operation: "file" }))).toEqual({ payload: { ...input, operation: "file" } })
 })
 
 
@@ -231,7 +230,7 @@ test("the Pause button's values are what triggers.pause's own grammar reads back
 
 test("card configuration args round-trip through their production grammars", () => {
   const cases = [
-    ["change.checks", { changeId: "c1", seq: 3 }],
+    ["diff", { changeId: "c1", seq: 3, operation: "checks" }],
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],

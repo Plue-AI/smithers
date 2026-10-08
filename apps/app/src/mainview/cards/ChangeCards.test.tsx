@@ -1,3 +1,4 @@
+import { savedDiffArgs } from "../flows/DiffPayload"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
@@ -299,7 +300,7 @@ describe("the change card", () => {
     expect(text).toContain("src/app.ts")
     expect(text).toContain("+1 −1")
     click(host, "Open the diff of src/app.ts")
-    expect(commands).toEqual([{ name: "change.diff", args: "qupxosqw parent current src/app.ts" }])
+    expect(commands).toEqual([{ name: "diff", args: savedDiffArgs("change.diff", "qupxosqw parent current src/app.ts") }])
     /* No revisions recorded: no pickers to pick from. */
     expect(host.querySelector("select")).toBeNull()
     host.remove()
@@ -318,8 +319,8 @@ describe("the change card", () => {
     choose(host, "Diff to", "current")
     click(host, "Show the diff since my last review")
     expect(commands).toEqual([
-      { name: "change.pins", args: "qupxosqw parent 2" },
-      { name: "change.pins", args: "qupxosqw 1 current" },
+      { name: "diff", args: savedDiffArgs("change.pins", "qupxosqw parent 2") },
+      { name: "diff", args: savedDiffArgs("change.pins", "qupxosqw 1 current") },
       { name: "review.since-mine", args: "qupxosqw" }
     ])
     host.remove()
@@ -327,7 +328,7 @@ describe("the change card", () => {
     const since = renderChange(liveCard({ diff: { from: "1", to: "current", files: [], sinceReview: { reviewer: "will", seq: 1 } } }))
     expect(since.host.textContent ?? "").toContain("since your review at rev 1 → current")
     click(since.host, "show all")
-    expect(since.commands).toEqual([{ name: "change.pins", args: "qupxosqw parent current" }])
+    expect(since.commands).toEqual([{ name: "diff", args: savedDiffArgs("change.pins", "qupxosqw parent current") }])
     since.host.remove()
   })
 
@@ -381,11 +382,11 @@ describe("the change card", () => {
     expect(rows[2]).toContain("landed")
     expect(rows[2]).toContain("landing #42 · by will · approved by ana at rev 2 · " + timeLabel(Date.parse("2026-09-01T12:00:00Z")))
     /* rev 1 offers Diff to current; the current revision does not. rev 2 carries the snapshot; rev 1 does not. */
-    expect(host.querySelectorAll('button[data-flow="change.pins"]')).toHaveLength(1)
+    expect(host.querySelectorAll('button[data-flow="diff"][aria-label^="Diff rev"]')).toHaveLength(1)
     expect(host.querySelectorAll('button[data-flow="change.open-computer"]')).toHaveLength(0)
     click(host, "Diff rev 1 to current")
     expect(commands).toEqual([
-      { name: "change.pins", args: "qupxosqw 1 current" },
+      { name: "diff", args: savedDiffArgs("change.pins", "qupxosqw 1 current") },
     ])
     host.remove()
   })
@@ -501,7 +502,7 @@ describe("the change card", () => {
     expect((host.querySelector('select[aria-label="Checks at revision"]') as HTMLSelectElement).value).toBe("2")
     choose(host, "Checks at revision", "1")
     expect(commands).toEqual([
-      { name: "change.checks", args: "qupxosqw 1" },
+      { name: "diff", args: savedDiffArgs("change.checks", "qupxosqw 1") },
     ])
     host.remove()
 
@@ -689,7 +690,7 @@ describe("the change card", () => {
     const { host, commands } = renderChange(changeCard())
     click(host, "Open the full diff card")
     expect(commands).toEqual([
-      { name: "change.diff", args: "qupxosqw" }
+      { name: "diff", args: savedDiffArgs("change.diff", "qupxosqw") }
     ])
     host.remove()
   })
@@ -697,7 +698,7 @@ describe("the change card", () => {
   test("a retained legacy Change opens its recorded change through the shared diff flow", () => {
     const { host, commands } = renderChange(changeCard({ repo: "practice:smithersai/hello-server", stack: null, changeId: "live-change" }))
     click(host, "Open the full diff card")
-    expect(commands).toEqual([{ name: "change.diff", args: "live-change" }])
+    expect(commands).toEqual([{ name: "diff", args: savedDiffArgs("change.diff", "live-change") }])
     host.remove()
   })
 
@@ -921,7 +922,7 @@ describe("the diff card", () => {
     )
     expect(host.textContent ?? "").toContain("src/big.ts's hunk is 500 lines — it rides by reference")
     click(host, "Read it")
-    expect(commands).toEqual([{ name: "change.diff", args: "qupxosqw parent current src/big.ts" }])
+    expect(commands).toEqual([{ name: "diff", args: savedDiffArgs("change.diff", "qupxosqw parent current src/big.ts") }])
     host.remove()
   })
 

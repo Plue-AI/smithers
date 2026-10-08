@@ -666,7 +666,7 @@ const resolvePins = (
   const bySeq = (token: string, side: "from" | "to"): ChangeRevision | { readonly error: string } => {
     const seq = Number(token)
     if (!Number.isInteger(seq) || seq <= 0) {
-      return { error: `change.diff's ${side} pin is "parent"${side === "to" ? ", \"current\"," : ""} or a revision number — not "${token}"` }
+      return { error: `Diff's ${side} pin is "parent"${side === "to" ? ", \"current\"," : ""} or a revision number — not "${token}"` }
     }
     const revision = revisions.find((candidate) => candidate.seq === seq)
     if (revision === undefined) {
@@ -1211,7 +1211,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const refusal = gate()
     if (refusal !== undefined) return refusal
     const current = captureCloudOwner(ctx)
-    if (changeId.trim() === "") return "change.view needs a change id: /change.view <changeId>"
+    if (changeId.trim() === "") return "Choose a change"
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const error = await surfaceChange(
@@ -1280,7 +1280,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const refusal = gate()
     if (refusal !== undefined) return refusal
     const current = captureCloudOwner(ctx)
-    if (changeId.trim() === "") return "change.diff needs a change id: /change.diff <changeId>"
+    if (changeId.trim() === "") return "Choose a change"
     const fromPin = from === undefined || from === "" ? DEFAULT_PINS.from : from
     const toPin = to === undefined || to === "" ? DEFAULT_PINS.to : to
     const resolved = resolveRepo(changeId, repo)
@@ -1354,7 +1354,7 @@ export const createChangeSeam = (ctx: SeamContext, deps: ChangeSeamDeps = {}): C
     const resolved = resolveRepo(changeId, repo)
     if ("error" in resolved) return resolved.error
     const row = ctx.store.collections.changes.get(changeRowId(resolved.repo, changeId))
-    if (row === undefined) return `Change ${changeId} is not loaded — /change.view ${changeId} reads it first`
+    if (row === undefined) return `Change ${changeId} is not loaded`
     renderChange(row, undefined, { facet })
     return
   }

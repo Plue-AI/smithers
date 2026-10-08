@@ -376,16 +376,8 @@ const DECLARED: ReadonlyArray<DeclaredMove> = [
     because: "The same skip on the approval's own optional repository. The door is hidden, so no one types these lines; the rows move because the rule is the schema's, not the door's."
   },
   {
-    flow: "files.open-diff", kind: "sentence", rows: 1,
-    because: "A quoted scalar is not a diff payload; the form now explains that the user must select a diff and file instead of throwing (#2554)."
-  },
-  {
     flow: "issue.add-flow", kind: "card", rows: 5,
     because: "Four scalar JSON lines now open a form instead of throwing (#2554), beside the existing row that skips the optional repository before the description."
-  },
-  {
-    flow: "files.open-diff", kind: "card", rows: 4,
-    because: "Four scalar JSON lines now open a form to collect the diff and file instead of throwing during dispatch (#2554)."
   },
   {
     flow: "issues.create", kind: "card", rows: 36,
@@ -535,6 +527,11 @@ describe("the card every slash line opens, against main@origin", () => {
       Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
     ]))).toEqual({ "files.read": 8, "files.list": 10, "box.file": 10, "box.files": 12, "repo.tree": 0 })
     expect(rows.some(row => retiredFileDoors.includes(row.flow))).toBe(false)
+    const retiredDiffDoors = ["change.view", "change.diff", "change.pins", "change.checks", "files.open-diff"]
+    expect(Object.fromEntries(retiredDiffDoors.map(flow => [flow,
+      Object.entries(baseline.rows).filter(([name, [index]]) => name.startsWith(`${flow}::`) && index !== -1).length
+    ]))).toEqual({ "change.view": 14, "change.diff": 0, "change.pins": 4, "change.checks": 1, "files.open-diff": 0 })
+    expect(rows.some(row => retiredDiffDoors.includes(row.flow))).toBe(false)
     const lost = rows.filter((row) => {
       const at = baseline.rows[key(row)]
       return at !== undefined && at[0] !== -1 && row.error === null
@@ -588,7 +585,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // github.app and env.view no longer register duplicate Settings doors or their 60 parser diagnostics.
       // github.app.open and github.reconcile retire 60 additional executable-alias diagnostics; saved inputs decode via GitHubPayload.
       // The three retired Runs aliases remove 63 parser diagnostics; the retired workspace catalog removes 33 more; RunsPayload retains recorded source and operation.
-      here: 635 // Forty executable file-alias diagnostics retire; saved source and workspace inputs decode to canonical doors.
+      here: 615 // Twenty further executable Diff-alias diagnostics retire; recorded change, pin and frame targets remain readable.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

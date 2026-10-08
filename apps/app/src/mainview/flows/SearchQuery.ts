@@ -357,7 +357,7 @@ export const OPEN_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>>
   note: ["wiki.select"],
   history: ["stack"],
   run: ["runs.open"],
-  change: ["change.view"],
+  change: ["diff"],
   issue: ["issues.view"],
   box: ["box.view"],
   "secret-name": ["secrets"],
@@ -430,7 +430,7 @@ export const refPayload = (kind: SearchItemKind, ref: string): Readonly<Record<s
     case "run":
       return runSearchPayload(ref)
     case "change":
-      return { changeId: ref }
+      return { changeId: ref, operation: "change" }
     case "issue":
       return { number: Number(ref) }
     case "box":

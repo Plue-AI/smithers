@@ -58,7 +58,7 @@ export default showcase({
   order: 110,
   title: "Change",
   summary: "Triage findings, settle review comments, ask a reviewer, read the diff.",
-  flows: ["change.view", "change.facet", "findings.please-fix", "findings.not-useful", "review.done", "review.ack", "review.request", "review.unrequest", "change.diff"],
+  flows: ["diff", "change.facet", "findings.please-fix", "findings.not-useful", "review.done", "review.ack", "review.request", "review.unrequest"],
   run: async ({ page, app, backend }) => {
     const landing = "open"
     const lands: Array<unknown> = []

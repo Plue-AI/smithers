@@ -58,3 +58,14 @@ it("saved directory and workspace actions retain scope on canonical file doors",
   ["repo.tree", "files", "tree", { copy: "ws-1", path: "src" }]
  ] as const) expect(ActionSchema.parse({ tag, label: "Open", args })).toEqual({ tag: current, label: "Open", args: { ...args, operation } })
 })
+
+
+it.each([
+  ["change.view", "change", { changeId: "ch-1", rev: "3" }],
+  ["change.diff", "change-diff", { changeId: "ch-1", from: "parent", to: "3", path: "src/my notes.md" }],
+  ["change.pins", "pins", { changeId: "ch-1", from: "2", to: "current" }],
+  ["change.checks", "checks", { changeId: "ch-1", seq: "3" }],
+  ["files.open-diff", "file", { cardId: "frame-1", path: "src/my notes.md" }]
+])("recorded Diff controls retain their explicit targets: %s", (tag, operation, args) => {
+  expect(ActionSchema.parse({ tag, label: "Open", args })).toMatchObject({ tag: "diff", args: { ...args, operation } })
+})
