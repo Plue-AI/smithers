@@ -1918,7 +1918,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The same owner-scoped model host runs the plan step's wiki selection.
 	// Without one the route refuses; planning never falls back to a second selector.
 	contextSelector, _ := options.ChatHost.(ports.ContextSelector)
-	wikiSelectionHandler := wikiSelection{queries: queries, wiki: wikiService, selector: contextSelector}
+	wikiSelectionHandler := wikiSelection{queries: queries, wiki: wikiService, selector: contextSelector, evidence: mythicalService}
 	if cfg.Install.StateDir == "" {
 		cfg.Install.StateDir = strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
 	}

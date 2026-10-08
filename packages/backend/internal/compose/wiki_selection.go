@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,11 @@ type wikiSelection struct {
 	queries  *db.Queries
 	wiki     *services.WikiService
 	selector ports.ContextSelector
+	// The same TODO provider renders attempt evidence in the install. Refuse
+	// before selecting context when that publication contract is not composed.
+	evidence interface {
+		Todo(context.Context, int64, int64) (map[string]any, error)
+	}
 }
 
 // wikiSelectionPage is one selected page, most relevant first. Revision is
@@ -65,7 +71,7 @@ func (h wikiSelection) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeConfirmationDispatchError(w, &services.AccessError{Status: http.StatusBadRequest, Class: "user", Code: "invalid_request", Message: "A plan's wiki selection needs its prompt"})
 		return
 	}
-	if h.wiki == nil || h.selector == nil {
+	if h.wiki == nil || h.selector == nil || h.evidence == nil {
 		writeConfirmationDispatchError(w, wikiSelectionUnavailable())
 		return
 	}

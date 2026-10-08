@@ -62,17 +62,21 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 	privatePage, err := wiki.CreateWikiPage(privateContext, &f.owner, "gate-owner", "app", services.CreateWikiPageInput{Title: "Private decision", Slug: "private-decision", Body: "private-wiki-only-marker"})
 	require.NoError(t, err)
 	selector := &recordedSelector{result: `{"context":[{"kind":"page","label":"Retry policy","ref":"retry-policy","revision":"1","reason":"Retry decision"}],"candidates":[],"model":"owner-fast","durationMs":3}`}
-	router := func(cfgWiki bool, selector ports.ContextSelector) http.Handler {
+	router := func(cfgWiki bool, selector ports.ContextSelector, missingEvidence ...bool) http.Handler {
 		cfg := testConfigAllFlagsOn()
 		cfg.FeatureFlags.Wiki = cfgWiki
 		cfg.Auth.Mode, cfg.Auth.SessionCookieName = "selfhost", "session"
 		cfg.Server.PublicURL = "http://example.com"
 		cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
+		var evidence routes.TodoRouteService = services.NewMythicalService(f.pool, nil)
+		if len(missingEvidence) > 0 && missingEvidence[0] {
+			evidence = nil
+		}
 		return buildRouterCompat(cfg, f.q, f.pool,
 			&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 			&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, wiki, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
-			routerExtras{WikiSelection: wikiSelection{queries: f.q, wiki: wiki, selector: selector}})
+			routerExtras{WikiSelection: wikiSelection{queries: f.q, wiki: wiki, selector: selector, evidence: evidence}})
 	}
 	served := router(true, selector)
 
@@ -148,6 +152,13 @@ func TestWikiPlanningSelectionComposedRoutePostgres(t *testing.T) {
 			})
 		}
 	}
+	t.Run("missing evidence provider refuses before selection", func(t *testing.T) {
+		out, decisions := call(router(true, selector, true), "own", "POST", "/selection", `{"prompt":"Retry failed webhook deliveries"}`)
+		require.Equal(t, 503, out.Code, out.Body.String())
+		require.Contains(t, out.Body.String(), `"code":"unavailable"`)
+		require.Equal(t, []string{"wiki.read"}, decisions)
+		require.Empty(t, selector.inputs, "no selector call without attempt evidence")
+	})
 	t.Run("the own run reads the page it will cite", func(t *testing.T) {
 		out, decisions := call(served, "own", "GET", "/retry-policy", "")
 		require.Equal(t, 200, out.Code, out.Body.String())

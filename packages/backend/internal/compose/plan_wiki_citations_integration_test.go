@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -574,8 +575,10 @@ export default Flow.make("todo", {
 		_, err = r.waitTodoWithin(number, 8*time.Minute, "failed")
 		require.NoError(t, err)
 		var missing bool
-		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT NOT (checks ? 'planReceipt') FROM mythical_items WHERE number=$1`, number).Scan(&missing))
+		var citations json.RawMessage
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT NOT (checks ? 'planReceipt'),COALESCE(plan->'wikiCitations','[]'::jsonb) FROM mythical_items WHERE number=$1`, number).Scan(&missing, &citations))
 		require.True(t, missing, "unavailable wiki dependencies cannot publish a successful plan")
+		require.JSONEq(t, `[]`, string(citations), "a refused plan must not retain citations")
 		card, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
 		require.NoError(t, err)
 		require.NotContains(t, string(card), `"kind":"wiki"`)
@@ -600,6 +603,50 @@ export default Flow.make("todo", {
 	refusedPlan("missing-shared-selector")
 	r.options.ChatHost = sharedHost
 	r.restartBackend()
+	// Keep the real wiki, selector, authorization and TODO evidence routes.
+	// Only the planning selection binding lacks its evidence provider. The
+	// composed router runs its normal credential gate before this handler.
+	q := db.New(r.pool)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = r.server.URL
+	selector, ok := sharedHost.(ports.ContextSelector)
+	require.True(t, ok)
+	missingEvidence := buildRouterCompat(cfg, q, r.pool,
+		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, services.NewWikiService(q, nil), &routes.GitSmartHandler{Service: &mockRouterGitService{}},
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
+		routerExtras{WikiSelection: wikiSelection{queries: q, wiki: services.NewWikiService(q, nil), selector: selector}})
+	upstream := *r.serving.Load()
+	observed := make(chan *httptest.ResponseRecorder, 1)
+	var withoutEvidence http.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method != "POST" || request.URL.Path != api+"/selection" {
+			upstream.ServeHTTP(w, request)
+			return
+		}
+		result := httptest.NewRecorder()
+		missingEvidence.ServeHTTP(result, request)
+		select {
+		case observed <- result:
+		default:
+		}
+		for key, values := range result.Header() {
+			w.Header()[key] = values
+		}
+		w.WriteHeader(result.Code)
+		_, _ = w.Write(result.Body.Bytes())
+	})
+	r.serving.Store(&withoutEvidence)
+	t.Cleanup(func() { r.serving.Store(&upstream) })
+	refusedPlan("missing-evidence-provider")
+	r.serving.Store(&upstream)
+	select {
+	case result := <-observed:
+		require.Equal(t, http.StatusServiceUnavailable, result.Code, result.Body.String())
+		require.Contains(t, result.Body.String(), `"code":"unavailable"`)
+	default:
+		t.Fatal("the planner never reached the missing evidence-provider crossing")
+	}
 	_, err = r.pushGitHubMain("Remove pinned generated declaration", map[string]string{
 		".smithers/coding-project.json": `{"wikiCitations":true}`,
 	})
