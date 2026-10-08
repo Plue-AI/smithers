@@ -34,6 +34,7 @@ export const journeySpecs = [
   "todo-placement.spec.ts",
   "fork-add-to-stack.spec.ts",
   "branch-presence.spec.ts",
+  "agent-terminal.spec.ts",
   "ssh-branch.spec.ts",
   "terminal-signin.spec.ts",
   "file-gone.spec.ts",
