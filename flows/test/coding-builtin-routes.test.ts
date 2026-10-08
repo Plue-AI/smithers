@@ -124,6 +124,7 @@ test("a repository with no flows of its own serves the stack's review on the cod
 test("without the built-in routes the same repository fails the host's startup check", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   assert.deepEqual((await startup(repositoryPath, stateRoot, "defaults")).missing, [
+    "coding/rebase-conflict",
     "coding/verify",
     "coding/wiki",
     "flow-load"
