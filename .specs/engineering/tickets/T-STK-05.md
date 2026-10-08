@@ -107,7 +107,6 @@ Fail when:
 - Risk: a model call in flight delays the boundary past 60 s (§10.7.1). Observation: stop-to-paused time over 60 s in the integration log; then the agent step needs a cancel token.
 - Risk: a run parked in `paused` for days holds a durable wait. T-FLW-11's restart test of 50 waiting runs covers it.
 - Resolved: the index now lists T-FLW-03 as a dependency.
-- Execution evidence (2026-10-08, fr14-stk05-r5): composed live Drop/Fork HTTP and C-J7-02 mounted Chromium passed, but a second browser run stalled before Fork after a retained in-review run accepted a steer. Delivery completed; no next coding turn occurred within 6 minutes. The root stayed suspended on an event with `control.steer.enqueued` in its retained journal. Keep this as an unresolved same-run continuation defect under #3530; a successful Drop receipt does not qualify retained execution. Reproduce with `SMITHERS_TEST_DATABASE_URL=<lane PostgreSQL> SMITHERS_SKIP_SPA_BUILD=1 pnpm --dir apps/app exec playwright test e2e/playwright/spec/C-J7-02.spec.ts`. Evidence: `.artifacts/checks/C-J7-02/rehearsal/20261008T113818.045032041Z`; the retired reviewer also reports `runtime_target_forbidden`, with causality unproven.
 
 ## Security preconditions and inherited root inputs
 
