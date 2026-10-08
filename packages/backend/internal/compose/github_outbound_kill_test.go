@@ -120,6 +120,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					// An accepted proposal replay while its slot is unsettled requests
 					// the same work, and cannot replace the durable operation.
 					path, bearer, body := proposalPath, proposalBearer, proposalBody
+					var proposalReceipt []byte
 					var beforeReplay []byte
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&beforeReplay))
 					for range 3 {
@@ -133,6 +134,11 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						_ = response.Body.Close()
 						require.NoError(t, err)
 						require.Equal(t, 202, response.StatusCode, string(raw))
+						if proposalReceipt == nil {
+							proposalReceipt = raw
+						} else {
+							require.JSONEq(t, string(proposalReceipt), string(raw))
+						}
 					}
 					var afterReplay []byte
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&afterReplay))
@@ -334,6 +340,32 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					require.EqualValues(t, 1, settled, "one committed settlement fact across restart")
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT generation FROM mythical_items WHERE number=$1`, number).Scan(&retainedGeneration))
 					require.Equal(t, generation, retainedGeneration, "replay and recovery never allocate another candidate")
+					// Replay the original accepted request after crash recovery, including
+					// after Drop. It returns its receipt without scheduling publication again.
+					restarted.close()
+					writesBeforeReplay := len(r.fake.Writes())
+					var requestsBeforeReplay int64
+					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
+					for range 3 {
+						request, err := http.NewRequest("POST", r.origin+path, strings.NewReader(body))
+						require.NoError(t, err)
+						request.Header.Set("Authorization", bearer)
+						request.Header.Set("Content-Type", "application/json")
+						response, err := http.DefaultClient.Do(request)
+						require.NoError(t, err)
+						raw, err := io.ReadAll(response.Body)
+						_ = response.Body.Close()
+						require.NoError(t, err)
+						require.Equal(t, 202, response.StatusCode, string(raw))
+						require.JSONEq(t, string(proposalReceipt), string(raw))
+					}
+					var requestsAfterReplay int64
+					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfterReplay))
+					require.Equal(t, requestsBeforeReplay, requestsAfterReplay, "settled replay creates no durable work")
+					require.Len(t, r.fake.Writes(), writesBeforeReplay)
+					var settledSlot []byte
+					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&settledSlot))
+					require.Empty(t, settledSlot, "settled replay cannot recreate an outbound slot")
 					status, card, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
 					require.NoError(t, err)
 					require.Equal(t, 200, status, string(card))
