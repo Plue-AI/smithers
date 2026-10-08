@@ -125,7 +125,8 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
   const outcome = scenario === "failed" ? "failed" : "completed"
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   let release!: () => void, state = "running", admitted = false, rejectLaunch = scenario === "launch failure retry"
-  const writes: string[] = [], receiptKeys: string[] = []
+  const writes: string[] = [], receiptKeys: string[] = [], commands: string[] = []
+  page.on("console", message => { if (message.type() === "debug") commands.push(message.text()) })
   await page.route("**/api/branches/smithers%2Fretry", async route => {
     if (route.request().method() === "GET") return route.fulfill({ json: { name: "smithers/retry", machine: { id: "b-rebase" } } })
     writes.push(route.request().headers()["idempotency-key"]!)
@@ -154,12 +155,17 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
   }))
   await page.goto("/")
   await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+  await fillComposer(page, "/debug.verbose")
+  await page.getByTestId("composer-send").click()
   await say(page, "/branch smithers/retry")
   const card = page.getByTestId("card-branch:b-rebase")
   await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
   const running = page.locator('.notice[data-tone="live"]').filter({ hasText: "Rebase" })
   await expect(running).toBeVisible()
   await say(page, "/branch.rebase smithers/retry")
+  // Clearing the draft precedes command admission. Keep launch unresolved until
+  // the duplicate has actually returned Requested through the shared flow.
+  await expect.poll(() => commands.filter(line => line.includes("You ran /branch.rebase smithers/retry [hidden] → executed (Requested)")).length).toBe(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes).toHaveLength(1)
   expect(receiptKeys).toEqual([])
