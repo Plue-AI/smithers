@@ -522,6 +522,27 @@ func TestPresenceBranchRefreshCommittedInstallAddress(t *testing.T) {
 
 // Fork metadata is already stored by the stack service. Captured reads expose it
 // on the same topic and a subsequent item binding replaces the scratch facts.
+// A TODO's lane keeps the stack's bookmark, an internal identity. Its Branch
+// card names the TODO's branch, smithers/<slug>, and copies the SSH line that
+// logs in by the slug (spec §8.1.1, §8.10.1).
+func TestPresenceTodoBranchNameAndSSHLogin(t *testing.T) {
+	f := presenceInstall(t)
+	lane, err := db.New(f.pool).GetMythicalLane(t.Context(), f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET target_bookmark='mythical', name='TODO 1 attempt 1 g1' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET workspace_id=$2 WHERE id=$1`, lane.ItemID, f.row.ID)
+	require.NoError(t, err)
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	first := readPresenceFrame(t, conn)
+	require.Equal(t, "snap", first.T, string(first.Data))
+	require.Contains(t, string(first.Data), `"name":"smithers/retry-webhooks"`)
+	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 retry-webhooks@localhost"`)
+	require.NotContains(t, string(first.Data), `mythical`)
+	require.NotContains(t, string(first.Data), `attempt 1`)
+}
+
 func TestPresenceScratchSourceAndItemCutover(t *testing.T) {
 	f := presenceInstall(t)
 	q := db.New(f.pool)
