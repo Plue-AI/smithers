@@ -150,3 +150,12 @@ Every guest fixture invocation also retains numbered raw output and operation,
 timestamp, byte-count and error metadata before evaluation. Failed startup or
 fixture parsing therefore keeps its NO artifacts. Missing evidence storage is
 an error, rather than a passing control with discarded observations.
+
+
+Unsupported-kernel handoff: the installed command
+`run.sh root-session-input-validation-no-landlock` now provides the executable
+variant. Provision its kernel through the approved ordinary main release bundle;
+the campaign never installs or selects a caller-supplied kernel. Keep the actual
+ABI/errno/kernel observation, SSH and explicit broker refusal, independent
+process/canary/sentinel samples and incomplete receipt. The campaign is unrun;
+no no-Landlock reference receipt is claimed.

@@ -187,3 +187,9 @@ class LauncherRaces(unittest.TestCase):
                     os.close(fd)
                     if write is not None:
                         os.close(write)
+
+
+if __name__ == "__main__":
+    if os.geteuid() == 0:
+        raise SystemExit("run launcher controls unprivileged")
+    unittest.main()

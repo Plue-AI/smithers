@@ -131,7 +131,7 @@ func installedMain(ctx context.Context, operation string) error {
 	if err != nil {
 		return err
 	}
-	if operation == "check-install" || operation == "check-session" {
+	if operation == "check-install" || operation == "check-session" || operation == "check-no-landlock" {
 		return runRootValidation(ctx, authority, root, home, operation)
 	}
 	if operation == "measure" {

@@ -9,6 +9,9 @@ if [ "$0" = "/usr/local/lib/smithers/current/share/trm06/run.sh" ]; then
     if [ "$#" -eq 1 ] && [ "$1" = "root-session-input-validation" ]; then
         exec /usr/bin/python3 -I -S /usr/local/lib/smithers/current/share/trm06/launcher.py check-session
     fi
+    if [ "$#" -eq 1 ] && [ "$1" = "root-session-input-validation-no-landlock" ]; then
+        exec /usr/bin/python3 -I -S /usr/local/lib/smithers/current/share/trm06/launcher.py check-no-landlock
+    fi
     if [ "$#" -eq 1 ] && [ "$1" = "measure" ]; then
         exec /usr/bin/python3 -I -S /usr/local/lib/smithers/current/share/trm06/launcher.py measure
     fi

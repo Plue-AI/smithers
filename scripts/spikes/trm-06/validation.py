@@ -222,6 +222,15 @@ def main():
     if operation == "drain":
         print(json.dumps({"sample": sample(), "observation": observed_drain() if OBSERVER.exists() else None}))
         return
+    if operation == "landlock-kernel":
+        # Independent kernel capability observation, not supervisor policy and
+        # not a seccomp injection. Linux ARM64/x86-64 assign this syscall 444.
+        import ctypes
+        kernel = ctypes.CDLL(None, use_errno=True)
+        ctypes.set_errno(0)
+        abi = kernel.syscall(ctypes.c_long(444), ctypes.c_void_p(0), ctypes.c_size_t(0), ctypes.c_uint(1))
+        print(json.dumps({"abi": abi, "errno": ctypes.get_errno(), "kernel": os.uname().release, "outside": fingerprint()}))
+        return
     if operation == "fingerprint":
         print(json.dumps({"outside": fingerprint()}))
         return

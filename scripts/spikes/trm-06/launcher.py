@@ -131,7 +131,7 @@ def main():
             if relative == "bin/trm06-gateway":
                 gateway = fd
         operation = sys.argv[1] if len(sys.argv) == 2 else ""
-        if operation not in ("run", "revoke", "flow", "measure", "check-install", "check-session"):
+        if operation not in ("run", "revoke", "flow", "measure", "check-install", "check-session", "check-no-landlock"):
             raise ValueError("invalid operation")
         # Refuse replacements already visible before exec. The held executable
         # also prevents a final post-check replacement selecting other bytes.

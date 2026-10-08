@@ -172,7 +172,7 @@ This observer remains unrun on real cgroups; missing observations remain NO. `la
 `run.sh root-prototype-install-validation` and
 `run.sh root-session-input-validation` run disposable real-VM fixture subsets.
 They deliberately return incomplete (78), preserve partial receipts, and never
-issue PASS: installed artifact replacement/races, unsupported Landlock, installed cgroup/path races and independent restart ordering, and the
+issue PASS: installed artifact replacement/races, installed cgroup/path races and independent restart ordering, and the
 full malformed-input/cgroup-race matrix still need executable controls and real
 execution. They use the same five-check approval gate, with no validation bypass;
 initial validation authorization needs security-owner resolution.
@@ -219,7 +219,7 @@ The session-root campaign now also runs fresh disposable fixtures replacing
 cgroup parent before init restart. It requires an explicit device-envelope or
 startup-log refusal and unchanged outside/member-canary samples. These controls
 are implemented but unrun; they do not supply accepted root receipts. Unsupported
-Landlock and the complete artifact/cgroup race matrix remain unfinished.
+Landlock execution and the complete artifact/cgroup race matrix remain unfinished.
 
 Session children create a private mount namespace before dropping credentials:
 all mounts become read-only, with writable top-level bind mounts only for the
@@ -244,3 +244,27 @@ Already-empty groups still require a raw held-descriptor zero sample. The root
 campaign preserves restart samples on probe failure and continues to return an
 explicit incomplete result for its unimplemented controls. Real reference-host
 execution, clock observations and automatic VS Code reconnect remain pending.
+
+
+## Unsupported-kernel installed variant
+
+`run.sh root-session-input-validation-no-landlock` uses the same installed
+launcher, five-check approval, fresh DefaultImage, nil environments and real
+relay as the other root campaigns. Supply an approved main release bundle with
+a kernel that reports Landlock ABI 1/2, ENOSYS or EOPNOTSUPP. The installed
+observer independently invokes the kernel version syscall and records its
+release, ABI and errno. ABI >=3, missing samples and permission errors refuse
+this campaign rather than masquerading as unsupported-kernel evidence.
+
+The campaign requires a valid member exec and SFTP request to be refused by the
+real SSH listener, an explicit authenticated broker refusal, no member process
+or payload canary, and unchanged outside bytes/owner/mode. Raw observations live
+in the scenario evidence directory. It remains an incomplete, unaccepted root
+receipt: execution on the approved unsupported kernel and the remaining host
+launcher/cgroup race matrices are still required. No alternate kernel, image,
+branch executable, seccomp shim or activation bypass is selected by the command.
+
+Run the supplemental launcher matrix directly with
+`python3 scripts/spikes/trm-06/test_launcher_races.py`; its executable entrypoint
+now runs the eight tests (including actual fd exec/environment observations).
+These Linux results do not replace installed Darwin launcher evidence.

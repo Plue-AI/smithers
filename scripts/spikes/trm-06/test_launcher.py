@@ -25,7 +25,7 @@ class LauncherRefusal(unittest.TestCase):
                 canary.write_text(f"#!/bin/sh\nprintf canary >> '{sentinel}'\nexit 0\n")
                 canary.chmod(0o755)
             for script in ["run.sh", "revoke.sh", "flow.sh"]:
-                for mode in ["", "root-prototype-install-validation", "root-session-input-validation", "--install", "--accept", "--artifact=branch"]:
+                for mode in ["", "root-prototype-install-validation", "root-session-input-validation", "root-session-input-validation-no-landlock", "--install", "--accept", "--artifact=branch"]:
                     with self.subTest(script=script, mode=mode):
                         env = {"PATH": str(base), "HOME": str(base), "PYTHONPATH": str(base),
                                "TRM06_ACCEPTED": "1", "TRM06_BUNDLE": str(base), "TRM06_RECEIPTS": str(base)}
