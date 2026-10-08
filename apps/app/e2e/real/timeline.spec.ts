@@ -197,3 +197,52 @@ test("shared attention and live entries preserve actions and private hiding", as
     await expect(alice.getByTestId("composer-input")).toBeEditable()
   } finally { for (const context of contexts) await context.close() }
 })
+
+// The Go driver supplies a historical reviewed PR on the GitHub fake. Only
+// initial state is seeded; reads, publication and private confirmation are real.
+test("a historical reviewed TODO exposes Merge only to its owner", async ({ browser }) => {
+  const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
+    origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>; todos: { ready: number }
+  }
+  const contexts = []
+  try {
+    for (const who of ["Maya", "Alice"]) {
+      const context = await browser.newContext({ baseURL: host.origin, viewport: { width: 1440, height: 1000 } })
+      contexts.push(context)
+      await context.addCookies(host.members[who]!.map(cookie => ({ ...cookie, url: host.origin })))
+      const page = await context.newPage()
+      await page.goto(`/${host.repository}`)
+      const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${host.todos.ready}"]`)
+      await expect(line).toHaveCount(1)
+      await expect(line).toHaveAttribute("data-tone", "quiet")
+      const history = await memberRequest(page, "GET", "/api/conversations/main")
+      expect(history.status).toBe(200)
+      expect(history.body.entries.find((entry: any) => entry.subject?.n === host.todos.ready)?.subject).toMatchObject({ state: "in_review", tone: "quiet" })
+      const merge = line.getByRole("button", { name: "Merge", exact: true })
+      if (who === "Alice") {
+        await expect(merge).toHaveCount(0)
+        await expect(page.getByRole("region", { name: `Merge T${host.todos.ready} into main?`, exact: true })).toHaveCount(0)
+      } else {
+        await expect(merge).toBeVisible()
+        const writes: string[] = []
+        page.on("request", request => {
+          if (request.method() === "POST" && /\/api\/todos\/\d+\/merge$/.test(new URL(request.url()).pathname)) writes.push(request.url())
+        })
+        await merge.press("Enter")
+        await expect(page.getByRole("region", { name: `Merge T${host.todos.ready} into main?`, exact: true }).last().getByRole("button", { name: "Merge", exact: true })).toBeVisible()
+        expect(writes).toEqual([])
+        const shared = await memberRequest(page, "GET", "/api/conversations/main")
+        expect(shared.body.entries.flatMap((entry: any) => entry.frames ?? []).some((frame: any) => frame.card?.kind === "confirm")).toBe(false)
+        const todo = await memberRequest(page, "GET", `/api/todos/${host.todos.ready}`)
+        expect(todo.status).toBe(200)
+        // A different stack order invalidates the earlier row action and a
+        // stale press is refused by the production route before GitHub writes.
+        expect((await memberRequest(page, "POST", `/api/todos/${host.todos.ready}`, { op: "move", direction: "down" }, "ready-stale-order")).status).toBe(202)
+        await expect(merge).toHaveCount(0)
+        expect((await memberRequest(page, "POST", `/api/todos/${host.todos.ready}/merge`, { reviewed_head_sha: todo.body.pr.head }, "ready-stale-merge")).status).toBe(409)
+      }
+      if (!await page.getByTestId("composer-input").isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).press("Enter")
+      await expect(page.getByTestId("composer-input")).toBeEditable()
+    }
+  } finally { for (const context of contexts) await context.close() }
+})
