@@ -11,13 +11,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/smithersai/smithers/packages/backend/workspaceconformance"
 )
@@ -44,7 +47,69 @@ func realRuntime(t *testing.T, root string) *Runtime {
 	runtime, err := New(context.Background(), config)
 	require.NoError(t, err)
 	t.Cleanup(func() { sweepOwner(t, runtime) })
+	bindMachineHost(t, runtime)
 	return runtime
+}
+
+// machineHosts keeps one host repository per runtime state root, so a runtime
+// reopened over the same state finds its branches' heads again.
+var machineHosts sync.Map
+
+// bindMachineHost gives an installed runtime the host half its daemon needs,
+// from the providers the install composes (compose/main.go): the repository
+// holding each branch's authoritative head, bundle transfer in both
+// directions, the lane binding and the durable-event consumer. Only the
+// install database is absent: every branch seeds from one empty commit, each
+// workspace is a scratch lane, and events are acknowledged without a
+// projection. A runtime without a bundle starts no daemon and binds nothing.
+func bindMachineHost(t *testing.T, runtime *Runtime) {
+	t.Helper()
+	if runtime.config.Bundle == nil {
+		return
+	}
+	git := func(repository string, args ...string) string {
+		out, err := hostexec.Git(t.Context(), append([]string{"-C", repository}, args...)...).CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+		return strings.TrimSpace(string(out))
+	}
+	type repository struct{ path, seed string }
+	created := repository{path: t.TempDir()}
+	stored, loaded := machineHosts.LoadOrStore(runtime.root, &created)
+	host := stored.(*repository)
+	if !loaded {
+		git(host.path, "init", "--quiet", "--bare")
+		host.seed = git(host.path, "-c", "user.name=Smithers", "-c", "user.email=smithers@example.invalid", "commit-tree", "-m", "empty source",
+			git(host.path, "hash-object", "-w", "-t", "tree", "/dev/null"))
+		t.Cleanup(func() { machineHosts.Delete(runtime.root) })
+	}
+	objects := machined.HostObjects{Visit: func(_ context.Context, _ string, visit func(string) error) error { return visit(host.path) }}
+	runtime.machined.BindObjectImporter(objects.Import)
+	runtime.machined.BindObjectExporter(machined.GitBundleExporter(func(context.Context, string) (string, error) { return host.path, nil }))
+	runtime.BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error) { return machined.ItemBinding{}, nil })
+	runtime.BindMachinedHost(func(ctx context.Context, branch string) (string, error) { return objects.Head(ctx, branch, host.seed) })
+	stop, err := runtime.machined.ConsumeEvents(context.Background(), func(_ context.Context, _ *machined.Link, _ string, event machined.Event) (machined.Acknowledgement, error) {
+		return machined.Acknowledgement{Seq: event.Seq, Outcome: machined.AckApplied}, nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(stop)
+}
+
+// preparedRuntime initializes each new workspace's repository the way the
+// workspace service does for an empty source (initializeEmptyRuntimeRepository),
+// so the daemon has a working copy to open on the first file operation.
+type preparedRuntime struct{ *Runtime }
+
+func (p preparedRuntime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
+	created, err := p.Runtime.CreateWorkspace(ctx, spec)
+	if err != nil {
+		return created, err
+	}
+	result, err := p.ExecuteCommand(ctx, spec.ID, workspaceapi.Command{Args: []string{"/bin/sh", "-ec",
+		"git init --quiet . && git symbolic-ref HEAD refs/heads/main && jj git init --colocate . 2>&1"}})
+	if err == nil && result.ExitCode != 0 {
+		err = fmt.Errorf("initialize workspace repository: exit %d: %s%s", result.ExitCode, result.Stdout, result.Stderr)
+	}
+	return created, err
 }
 
 // sweepOwner removes every machine and snapshot this test's owner created,
@@ -78,23 +143,34 @@ func operation(id string) context.Context {
 	return workspaceapi.WithOperation(context.Background(), workspaceapi.Operation{TenantID: "owner", PrincipalID: "owner", OperationID: id})
 }
 
+// The file facet runs only through the admitted daemon, which an installed
+// bundle starts: without one there is no reader or writer to conform. Branch
+// ids are UUIDs, as the install's are; object transfer refuses any other.
 func TestRealMicroVMWorkspaceConformance(t *testing.T) {
 	runtime := realRuntime(t, t.TempDir())
+	if runtime.config.Bundle == nil {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_CHECK_BUNDLE is required: workspace files are read and written only by the bundle's daemon")
+		}
+		t.Skip("SMITHERS_CHECK_BUNDLE is not set: workspace files are read and written only by the bundle's daemon")
+	}
 	workspaceconformance.RunCore(t, workspaceconformance.CoreHarness{
-		Runtime: runtime,
+		Runtime: preparedRuntime{runtime},
 		Reopen: func() (workspaceapi.WorkspaceRuntime, error) {
 			if err := runtime.Close(); err != nil {
 				return nil, err
 			}
 			reopened, err := New(context.Background(), runtime.config)
-			if err == nil {
-				runtime = reopened
-				t.Cleanup(func() { sweepOwner(t, reopened) })
+			if err != nil {
+				return nil, err
 			}
-			return reopened, err
+			runtime = reopened
+			t.Cleanup(func() { sweepOwner(t, reopened) })
+			bindMachineHost(t, reopened)
+			return preparedRuntime{reopened}, nil
 		},
 		Context:       operation,
-		Spec:          workspaceapi.WorkspaceSpec{ID: "microvm-conformance"},
+		Spec:          workspaceapi.WorkspaceSpec{ID: "0f6f3c2a-7c1d-4e0b-9a51-6d2e8b3f4a01"},
 		CreateStates:  []workspaceapi.WorkspaceState{workspaceapi.WorkspaceRunning},
 		Command:       workspaceapi.Command{Args: []string{"/bin/sh", "-c", "printf conformance-ok"}},
 		WantStdout:    "conformance-ok",
@@ -110,9 +186,9 @@ func TestRealMicroVMWorkspaceConformance(t *testing.T) {
 		},
 	})
 	workspaceconformance.RunColdSnapshots(t, workspaceconformance.SnapshotHarness{
-		Runtime: runtime, Snapshots: runtime, Context: operation,
-		Source:   workspaceapi.WorkspaceSpec{ID: "microvm-snapshot-source"},
-		Fork:     workspaceapi.WorkspaceSpec{ID: "microvm-snapshot-fork"},
+		Runtime: preparedRuntime{runtime}, Snapshots: runtime, Context: operation,
+		Source:   workspaceapi.WorkspaceSpec{ID: "0f6f3c2a-7c1d-4e0b-9a51-6d2e8b3f4a02"},
+		Fork:     workspaceapi.WorkspaceSpec{ID: "0f6f3c2a-7c1d-4e0b-9a51-6d2e8b3f4a03"},
 		Snapshot: workspaceapi.ColdSnapshotSpec{ID: "microvm-snapshot"},
 		FilePath: "snapshot/fixture.txt", FileContent: []byte("snapshot fixture\n"), FileMode: 0o600,
 	})
@@ -140,6 +216,13 @@ func TestRealMicroVMGuestFacts(t *testing.T) {
 	require.Equal(t, 3, result.ExitCode)
 	require.Equal(t, "Linux aarch64\nagent\n/workspace\n/var/tmp/smithers\n", result.Stdout)
 	require.Equal(t, "err\n", result.Stderr)
+
+	// /run is memory-backed: the guest helper refuses boot authority, tokens
+	// and the team environment on a disk that a snapshot or capture would copy.
+	result, err = runtime.ExecuteCommand(ctx, "microvm-facts", workspaceapi.Command{Args: []string{"/bin/sh", "-c",
+		`stat -f -c %T /run; stat -c '%a %U' /run; grep -c ' /run tmpfs .*nosuid,nodev,noexec' /proc/mounts`}})
+	require.NoError(t, err)
+	require.Equal(t, "tmpfs\n755 root\n1\n", result.Stdout, result.Stderr)
 
 	// The host is unreachable except through the declared bridge ports, and
 	// the internet is denied.

@@ -52,6 +52,13 @@ const (
 	guestTempDir  = "/var/tmp/smithers"
 	guestUser     = "agent"
 	guestUID      = 19999
+
+	// guestRunMount makes the guest's /run memory-backed, as on any booted
+	// Linux. The guest helper keeps boot authority, session tokens and the team
+	// environment below /run/smithers and refuses them on disk
+	// (require_secret_tmpfs checks /run itself): there they would enter a
+	// snapshot or capture. msb mounts it root-owned, mode 0755, at every boot.
+	guestRunMount = "/run:64M:nosuid,nodev,noexec"
 )
 
 // DefaultImage is the L0 image: node:26.5.0-trixie (Debian 13, glibc 2.41,
@@ -745,7 +752,7 @@ func (r *Runtime) admitRunningLocked(maximum int) error {
 func (r *Runtime) machineFlags(workspaceID string) []string {
 	args := []string{"-n", r.machineName(workspaceID), "-c", strconv.Itoa(r.config.CPUs), "-m", strconv.Itoa(r.config.MemoryMiB) + "M", "-q",
 		// Deny every destination but the backend's own loopback listener.
-		"--no-net"}
+		"--no-net", "--tmpfs", guestRunMount}
 	for _, port := range r.config.HostPorts {
 		args = append(args, "--net-rule", fmt.Sprintf("allow@host:tcp:%d", port))
 	}

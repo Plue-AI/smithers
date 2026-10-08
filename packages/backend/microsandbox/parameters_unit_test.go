@@ -342,6 +342,7 @@ func TestMemberPolicyParameters(t *testing.T) {
 	require.Equal(t, 19999, guestUID)
 	runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 4096}, owner: "smithers-backend-12345678", holder: "fixture"}
 	require.NotContains(t, runtime.machineFlags("branch-a"), "--mount-dir")
+	require.Contains(t, strings.Join(runtime.machineFlags("branch-a"), " "), " --tmpfs /run:64M:nosuid,nodev,noexec", "the guest helper keeps secrets and boot authority only on a memory-backed /run")
 	require.NotContains(t, strings.Join(runtime.machineFlags("branch-a"), " "), "/home")
 	key, body, err := recipeKey("", toolchainLayer{})
 	require.NoError(t, err)
