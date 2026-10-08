@@ -105,7 +105,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	// sanitized Unix login (which may gain a collision suffix).
 	h.expect("POST", "/api/repos/rehearsal-owner/app/wiki", `{"title":"Terminal scope","slug":"terminal-scope","body":"Read through the packaged skill"}`, 201)
 	testInstalledTerminalCLIAndSkill(t, term, "rehearsal-owner")
-	testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
+	carolBrowser := testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
 	testInstalledSecretFiles(t, h, branch, term, benBrowser, aliceBrowser)
 	installedShell(t, term, fmt.Sprintf(`test "$(cat "$HOME/.config/mch/relay")" = MCH_RELAY_KEY && test "$(curl --silent --show-error --fail --noproxy '' --proxy "$http_proxy" -H "x-api-key: $(cat "$HOME/.config/mch/relay")" %q)" = provider-fixture-ok`, provider.URL))
 	select {
@@ -238,7 +238,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 		check(h, client, sshAddress, login, signer, member, uid)
 	}
 	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser, aliceBrowser)
-	testInstalledTerminalPendingAPI(t, h, branch, benBrowser)
+	testInstalledTerminalPendingAPI(t, h, branch, benBrowser, carolBrowser)
 	testInstalledTerminalRootInputs(t, h, branch, benBrowser, aliceBrowser)
 	testInstalledTerminalRemovalDuringWake(t, h, branch, benBrowser)
 	testInstalledTerminalOwnerWatch(t, h, branch, benBrowser, aliceBrowser, sshAddress, login)

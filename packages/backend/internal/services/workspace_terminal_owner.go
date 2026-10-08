@@ -124,7 +124,8 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	// Serialize membership allocation with removal until the session is bound.
+	// Serialize identity and credential allocation with removal. Startup
+	// rechecks authorization after the broker replies.
 	if err = s.branchMachineProviders.Membership(ctx, tx, repo, member); err != nil {
 		return nil, err
 	}
@@ -138,6 +139,12 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	}
 	credential := &terminalCredential{registry: s.terminalCredentials, issuer: s.credentialIssuer, tokens: s.q, writer: writer, workspaceID: row.ID, sessionID: id, userID: member, repositoryID: repo, url: strings.TrimRight(s.gitBaseURL, "/"), ownerUID: user.UID}
 	if err = s.installTerminalCredential(ctx, credential); err != nil {
+		return nil, err
+	}
+	// Do not hold roster locks across a pending broker response: removal must
+	// commit and cancel startup within its five-second bound.
+	if err = tx.Commit(ctx); err != nil {
+		credential.Close()
 		return nil, err
 	}
 	// The installed member runtime seals the exact credential binding before
@@ -160,7 +167,7 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 		credential.Close()
 		return nil, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if _, err = s.AuthorizeTerminalBranch(ctx, row.ID, repo, member); err != nil {
 		_ = terminal.Close()
 		credential.Close()
 		return nil, err

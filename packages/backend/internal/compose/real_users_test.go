@@ -39,7 +39,7 @@ for path in ("/home/ben", "/home/ben/.claude/.credentials.json", "/home/ben/.cod
 MCHDENIED
 `
 
-func testInstalledUsers(t *testing.T, h *rootLayerHarness, branch string, term *rehearsalTerminal, benBrowser, aliceBrowser http.CookieJar) {
+func testInstalledUsers(t *testing.T, h *rootLayerHarness, branch string, term *rehearsalTerminal, benBrowser, aliceBrowser http.CookieJar) http.CookieJar {
 	t.Helper()
 	installedShell(t, term, `test "$(stat -c '%u:%g:%a' "$HOME")" = "$(id -u):$(id -u):700" && test "$(stat -c '%u:%g' /workspace)" = 0:20000 && test "$(stat -c %a /workspace)" = 2775 && ! command -v sudo && ! command -v su && test -z "$(find / -xdev -type f -perm /6000 2>/dev/null)" && test -z "$(getcap -r / 2>/dev/null)" && ! mount | grep -E ' on /home(/| )'`)
 	installedShell(t, term, `printf 'private-home-fixture\n' > "$HOME/.mch-private" && printf 'member\n' > /workspace/mch-team.txt && test "$(stat -c '%g:%a' /workspace/mch-team.txt)" = 20000:664 && for i in $(seq 1 10); do jj st && git status || exit 1; done`)
@@ -68,4 +68,5 @@ func testInstalledUsers(t *testing.T, h *rootLayerHarness, branch string, term *
 	code, body := h.request("GET", "/api/repos/rehearsal-owner/app/workspaces/"+branch+"/ssh?user=root", "", "")
 	require.Equal(t, 400, code, string(body))
 	require.Contains(t, string(body), "workspace_ssh_user_invalid")
+	return carolBrowser
 }

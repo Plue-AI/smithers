@@ -43,21 +43,26 @@ if sys.argv[2] == "save":
 else:
     baseline = set(json.loads(p.read_text()))
     expected = int(sys.argv[2])
+    uid = int(sys.argv[3])
     deadline = time.monotonic() + 5
     while True:
         rows = inventory()
         current = set(rows)
         if baseline <= current and len(current - baseline) == expected:
             for group in current - baseline:
-                assert all(row == ([20001]*4, [20001]*4, [20000]) for row in rows[group]), (group, rows[group])
+                assert all(row == ([uid]*4, [uid]*4, [20000]) for row in rows[group]), (group, rows[group])
             break
         assert time.monotonic() < deadline, (baseline, current, expected)
         time.sleep(.02)
 `
 
-func installedTerminalInventory(t *testing.T, observer *rehearsalTerminal, prefix, mode string) {
+func installedTerminalInventory(t *testing.T, observer *rehearsalTerminal, prefix, mode string, ownerUID ...uint32) {
 	t.Helper()
-	installedShell(t, observer, "python3 - "+fmt.Sprintf("%q %q", prefix+".inventory", mode)+" <<'TRMINVENTORY'\n"+installedTerminalSessionInventory+"\nTRMINVENTORY\n")
+	uid := uint32(20001)
+	if len(ownerUID) > 0 {
+		uid = ownerUID[0]
+	}
+	installedShell(t, observer, "python3 - "+fmt.Sprintf("%q %q %d", prefix+".inventory", mode, uid)+" <<'TRMINVENTORY'\n"+installedTerminalSessionInventory+"\nTRMINVENTORY\n")
 }
 
 // Coordinate at the guest executable's startup boundary, after the real broker

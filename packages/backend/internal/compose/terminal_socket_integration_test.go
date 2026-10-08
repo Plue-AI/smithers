@@ -289,7 +289,12 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 			}
 		}()
 	}
-	status, body = post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
+	cookie := f.cookie
+	if len(pending) > 0 && pending[0] == "member removal" {
+		runtime.member = microsandbox.MemberIdentity{Login: "alice", UID: 20002, Active: true}
+		cookie = "alice-terminal-cookie"
+	}
+	status, body = postAs(fmt.Sprintf(`{"branch":%q}`, f.row.ID), cookie)
 	require.Equal(t, 202, status, string(body))
 	var opened struct{ ID string }
 	require.NoError(t, json.Unmarshal(body, &opened))
@@ -309,7 +314,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-CSRF-Token", "csrf")
 			req.Header.Set("Cookie", "session="+f.cookie+"; __csrf=csrf")
-			res, err := http.DefaultClient.Do(req)
+			res, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 			require.NoError(t, err)
 			defer res.Body.Close()
 			raw, err := io.ReadAll(res.Body)
@@ -322,7 +327,11 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 			require.Equal(t, 201, code, string(raw))
 			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT id FROM access_tokens WHERE name='pending-successor'`).Scan(&successorID))
 		}
-		code, raw := api("DELETE", fmt.Sprintf("/api/user/tokens/%d", tokenID), "")
+		path := fmt.Sprintf("/api/user/tokens/%d", tokenID)
+		if pending[0] == "member removal" {
+			path = "/api/members/alice"
+		}
+		code, raw := api("DELETE", path, "")
 		require.Equal(t, 204, code, string(raw))
 		close(release)
 		release = nil
@@ -545,7 +554,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...st
 
 // SQL and the installed token API are real; only the guest reply is held.
 func TestTerminalPendingOpenTokenAPI(t *testing.T) {
-	for _, mode := range []string{"revocation", "rotation"} {
+	for _, mode := range []string{"revocation", "rotation", "member removal"} {
 		t.Run(mode, func(t *testing.T) { testOwnerTerminalComposed(t, false, mode) })
 	}
 }
