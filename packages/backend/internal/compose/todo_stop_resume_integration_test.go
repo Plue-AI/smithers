@@ -331,7 +331,9 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	token := "smithers_" + strings.Repeat("d", 40)
 	tokenBytes := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(tokenBytes[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "pause-agent", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	// Delegated Stop/Resume follows catalog policy; a read-only credential
+	// must still refuse both controls before recording any runtime intent.
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "pause-agent", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	for _, op := range []string{"stop", "resume"} {
 		req, err := http.NewRequest("POST", origin+"/api/todos/1", strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
