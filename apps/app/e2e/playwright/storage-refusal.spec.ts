@@ -99,7 +99,8 @@ const queryDatabase = (page: Page, sql: string, reopen = false, executeTimeoutMs
     } finally {
       if (reopen) {
         try {
-          if (initialized) await send({ type: "close" })
+          // Closing can flush the physical write; it needs that write's budget.
+          if (initialized) await send({ type: "close" }, executeTimeoutMs)
         } finally {
           worker.terminate()
         }
@@ -310,6 +311,7 @@ test("the running app offers the same private download through an embedded slash
 })
 
 test("oversized physical event authority refuses without loading its bytes and the human reset reopens a fresh OPFS store", async ({ page: appPage }) => {
+  test.setTimeout(120_000)
   await trackDatabaseWorker(appPage)
   await appPage.goto("/")
   await expect(appPage.getByTestId("composer-input")).toBeAttached()
@@ -319,8 +321,9 @@ test("oversized physical event authority refuses without loading its bytes and t
   // Wait for its commit once; a timeout must never retry this physical mutation.
   await queryDatabase(page, `INSERT INTO smithers_collection_rows (collection_id, row_key, version_key, value)
     VALUES ('app-events', 's:oversized-evidence', 'oversized-v1', CAST(zeroblob(${bytes}) AS TEXT))`, true, 30_000)
+  // This byte-length proof scans the entire oversized value in the test worker.
   const sizeQuery = "SELECT length(CAST(value AS BLOB)) AS bytes, version_key FROM smithers_collection_rows WHERE collection_id = 'app-events' AND row_key = 's:oversized-evidence'"
-  expect(await queryDatabase(page, sizeQuery, true)).toEqual([{ bytes, version_key: "oversized-v1" }])
+  expect(await queryDatabase(page, sizeQuery, true, 30_000)).toEqual([{ bytes, version_key: "oversized-v1" }])
   await page.goto("/")
   // CI observed the 64 MiB OPFS refusal at 4.9 s, just before the default
   // assertion expired. Allow the physical read and React error panel to settle.
@@ -329,11 +332,11 @@ test("oversized physical event authority refuses without loading its bytes and t
   await page.getByText("Details", { exact: true }).click()
   await expect(page.getByText("The app-events store exceeds", { exact: false })).toBeVisible()
   await expect(page.getByTestId("composer-input")).toHaveCount(0)
-  expect(await queryDatabase(page, sizeQuery, true)).toEqual([{ bytes, version_key: "oversized-v1" }])
+  expect(await queryDatabase(page, sizeQuery, true, 30_000)).toEqual([{ bytes, version_key: "oversized-v1" }])
   await page.getByRole("button", { name: "Reset this browser's data", exact: true }).click()
   await expect(page.getByRole("button", { name: "Confirm: erase this browser's data", exact: true })).toBeVisible()
   // Arming the action alone does not change the committed physical source.
-  expect(await queryDatabase(page, sizeQuery, true)).toEqual([{ bytes, version_key: "oversized-v1" }])
+  expect(await queryDatabase(page, sizeQuery, true, 30_000)).toEqual([{ bytes, version_key: "oversized-v1" }])
   await page.getByRole("button", { name: "Confirm: erase this browser's data", exact: true }).click()
   await expect(page.getByTestId("composer-input")).toBeAttached()
   expect(await page.evaluate(() => localStorage.getItem("smithers-mvp.persistenceBackend"))).toBe("opfs")
