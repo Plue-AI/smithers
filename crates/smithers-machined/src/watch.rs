@@ -39,6 +39,15 @@ const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_MAGICLINKS)
     .union(ResolveFlags::NO_SYMLINKS)
     .union(ResolveFlags::NO_XDEV);
+// A queued directory/file event can name an inode that has since become a
+// symlink or moved outside the held workspace. Such an entry is excluded from
+// the public regular-file watcher; kernel confinement is never retried loosely.
+pub(crate) fn replaced_entry(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::ENOENT | libc::ENOTDIR | libc::ELOOP | libc::EXDEV)
+    )
+}
 fn open(root: &File, path: &Path, directory: bool) -> io::Result<File> {
     Ok(fs::openat2(
         root,
@@ -91,6 +100,7 @@ impl<I: Ignore> Inotify<I> {
         let held = match open(&self.root, path, true) {
             Ok(f) => f,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) if !metadata && path != Path::new(".") && replaced_entry(&e) => return Ok(()),
             Err(e) => return Err(e),
         };
         let wd = inotify::add_watch(

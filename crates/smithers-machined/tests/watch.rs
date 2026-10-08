@@ -206,3 +206,38 @@ fn retained_document_save_inodes_are_not_file_activity() {
     assert!(!scan.contains(&saved));
     assert!(scan.contains(&ordinary));
 }
+
+#[test]
+fn ignore_batch_excludes_replaced_symlink_parent_without_hiding_regular_paths() {
+    use smithers_machined::ignore::Ignore;
+    let f = Fixture::new();
+    std::os::unix::fs::symlink("/etc", f.0.join("replaced")).unwrap();
+    fs::write(f.0.join("ordinary"), b"visible").unwrap();
+    let mut ignore = GitIgnore::new(f.0.clone(), "/usr/bin/git".into(), vec![]).unwrap();
+    assert_eq!(
+        ignore
+            .batch(&[
+                ("replaced/".into(), true),
+                ("ordinary".into(), false),
+                ("node_modules/hidden".into(), false),
+            ])
+            .unwrap(),
+        vec![true, false, true]
+    );
+    fs::remove_file(f.0.join("replaced")).unwrap();
+    fs::create_dir(f.0.join("replaced")).unwrap();
+    fs::write(f.0.join("replaced/file"), b"returned").unwrap();
+    assert_eq!(
+        ignore.batch(&[("replaced/file".into(), false)]).unwrap(),
+        vec![false]
+    );
+    let mut watcher = f.watcher();
+    assert_eq!(
+        watcher.read("replaced/file").unwrap(),
+        Some(b"returned".to_vec())
+    );
+    fs::rename(f.0.join("replaced"), f.0.join("held")).unwrap();
+    std::os::unix::fs::symlink("/etc", f.0.join("replaced")).unwrap();
+    assert!(watcher.read("replaced/passwd").is_err());
+    watcher.rearm().unwrap();
+}

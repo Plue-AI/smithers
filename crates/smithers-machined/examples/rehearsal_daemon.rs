@@ -71,16 +71,21 @@ fn main() -> std::io::Result<()> {
             return Err(io::Error::last_os_error());
         }
     }
-    std::thread::spawn(move || {
-        let _ = control::serve(&parent, &mut EmptyBroker(0));
-    });
+    let installed = std::env::args().nth(1).as_deref() == Some("--installed");
+    if !installed {
+        std::thread::spawn(move || {
+            let _ = control::serve(&parent, &mut EmptyBroker(0));
+        });
+    }
     println!("{port}");
-    // Optional boundary mode execs the packaged binary rather than calling its
+    // Optional boundary mode launches the packaged binary rather than calling its
     // entrypoint in this fixture process. The namespace supplies this fixed
     // path; never use this fixture as a privileged guest broker.
-    if std::env::args().nth(1).as_deref() == Some("--installed") {
+    if installed {
         use smithers_machined::broker::lifecycle::{self, Process};
-        struct NamespaceInit;
+        struct NamespaceInit {
+            fault: Option<String>,
+        }
         impl Process for NamespaceInit {
             fn kill_sessions(&mut self) -> io::Result<()> {
                 // This fixture never admits sessions. Real descendant cleanup
@@ -89,20 +94,61 @@ fn main() -> std::io::Result<()> {
             }
             fn run_daemon(&mut self) -> io::Result<(i32, Duration)> {
                 let start = std::time::Instant::now();
-                let mut child = std::process::Command::new("/opt/smithers/bin/smithers-machined")
+                use std::os::unix::process::CommandExt;
+                let (server, client) = rustix::net::socketpair(
+                    rustix::net::AddressFamily::UNIX,
+                    rustix::net::SocketType::SEQPACKET,
+                    rustix::net::SocketFlags::CLOEXEC,
+                    None,
+                )?;
+                let high = rustix::io::fcntl_dupfd_cloexec(&client, 10)?;
+                drop(client);
+                let client = high;
+                let descriptor = client.as_raw_fd();
+                let broker =
+                    std::thread::spawn(move || control::serve(&server, &mut EmptyBroker(0)));
+
+                let mut command = std::process::Command::new("/opt/smithers/bin/smithers-machined");
+                command
                     .arg("daemon")
                     .env_clear()
-                    .env("PATH", "/usr/bin:/bin")
-                    .spawn()?;
+                    .env("PATH", "/usr/bin:/bin");
+                if let Some(fault) = self.fault.take() {
+                    command.env("SMITHERS_MACHINED_KILL_AT", fault);
+                }
+                // Only dup2 runs in the forked child. Each lifetime has its own
+                // production socketpair, so an old reply cannot poison startup.
+                unsafe {
+                    command.pre_exec(move || {
+                        if libc::dup2(descriptor, 3) < 0 {
+                            return Err(io::Error::last_os_error());
+                        }
+                        Ok(())
+                    });
+                }
+                let mut child = command.spawn()?;
+                drop(client);
                 std::fs::write("/run/smithers/namespace-daemon.pid", child.id().to_string())?;
+                if !std::path::Path::new("/run/smithers/namespace-first.pid").exists() {
+                    std::fs::write("/run/smithers/namespace-first.pid", child.id().to_string())?;
+                }
                 let status = child.wait()?;
+                let _ = broker.join();
+                if !std::path::Path::new("/run/smithers/namespace-first.status").exists() {
+                    std::fs::write(
+                        "/run/smithers/namespace-first.status",
+                        status.code().unwrap_or(1).to_string(),
+                    )?;
+                }
                 Ok((status.code().unwrap_or(1), start.elapsed()))
             }
             fn delay(&mut self, duration: Duration) {
                 std::thread::sleep(duration);
             }
         }
-        return lifecycle::supervise(&mut NamespaceInit);
+        return lifecycle::supervise(&mut NamespaceInit {
+            fault: std::env::args().nth(2),
+        });
     }
     smithers_machined::installed::run()
 }

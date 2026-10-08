@@ -113,7 +113,7 @@ fn retained_operation_log_is_readable_by_member_uid() {
     assert_eq!(metadata.uid(), 19998);
     assert_eq!(metadata.gid(), 20000);
     assert_eq!(metadata.mode() & 0o070, 0o070);
-    let mut command = Command::new("/usr/bin/jj");
+    let mut command = Command::new("/usr/local/bin/jj");
     command
         .args([
             "op",
@@ -126,8 +126,7 @@ fn retained_operation_log_is_readable_by_member_uid() {
         ])
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
-        .env("HOME", "/home/member")
-        .current_dir("/workspace");
+        .env("HOME", "/home/member");
     // SAFETY: only identity syscalls run between fork and exec. No repository
     // command or branch executable runs in the root launcher.
     unsafe {
@@ -137,6 +136,9 @@ fn retained_operation_log_is_readable_by_member_uid() {
                 || libc::setresgid(gid, gid, gid) != 0
                 || libc::setresuid(20000, 20000, 20000) != 0
             {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::chdir(c"/workspace".as_ptr()) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())

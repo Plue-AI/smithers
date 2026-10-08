@@ -184,10 +184,10 @@ impl NativeCore {
     }
     pub fn observe_moved_off(&self, actor: &Actor) -> hooks::Result<()> {
         let item = self.item.as_ref().ok_or_else(hooks::Error::unsupported)?;
-        self.native.snapshot().map_err(hook)?;
         if item.number == 0 {
             return Ok(());
         }
+        self.native.snapshot().map_err(hook)?;
         let mut prior = self.moved.lock().unwrap_or_else(|e| e.into_inner());
         let next = crate::moved_off::detect_position(
             &format!("T{}", item.number),
@@ -839,6 +839,18 @@ pub(crate) mod tests {
             drop(fact);
             assert_eq!(core.validate_coding_write().is_err(), moved, "{case}");
         }
+    }
+    #[test]
+    fn scratch_metadata_observation_does_not_snapshot_pending_writes() {
+        let (dir, core) = fixture();
+        let before = core.native.current().unwrap();
+        fs::write(dir.path().join("workspace/pending"), b"pending scratch bytes").unwrap();
+        core.observe_moved_off(&Actor::Outside).unwrap();
+        assert_eq!(core.native.current().unwrap(), before);
+        assert_eq!(
+            fs::read(dir.path().join("workspace/pending")).unwrap(),
+            b"pending scratch bytes"
+        );
     }
     #[test]
     fn coding_write_guard_requires_binding_and_refuses_off_item_after_snapshot() {

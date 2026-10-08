@@ -128,7 +128,7 @@ impl Ignore for GitIgnore {
             ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()?;
         child.stdin.take().unwrap().write_all(&input)?;
         let mut output = vec![];
@@ -138,7 +138,30 @@ impl Ignore for GitIgnore {
             .unwrap()
             .take(8193)
             .read_to_end(&mut output)?;
+        let mut stderr = Vec::new();
+        child
+            .stderr
+            .take()
+            .unwrap()
+            .take(8193)
+            .read_to_end(&mut stderr)?;
         let status = child.wait()?;
+        // Git refuses an event path whose directory became a symlink after
+        // inotify queued it. Exclude that nonregular path, and independently
+        // classify the rest of the batch; other provider failures stay closed.
+        if status.code() == Some(128)
+            && stderr.len() <= 8192
+            && stderr.starts_with(b"fatal: pathspec '")
+            && stderr.ends_with(b"' is beyond a symbolic link\n")
+        {
+            if paths.len() == 1 {
+                return Ok(vec![true]);
+            }
+            return paths
+                .iter()
+                .map(|path| self.batch(std::slice::from_ref(path)).map(|value| value[0]))
+                .collect();
+        }
         if output.len() > 8192 || !matches!(status.code(), Some(0) | Some(1)) {
             return Err(io::Error::other("ignore provider failed"));
         }

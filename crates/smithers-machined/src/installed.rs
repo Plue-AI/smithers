@@ -127,7 +127,11 @@ impl Provider<Actor> for Ports {
         })
     }
     fn read(&mut self, path: &str) -> io::Result<Option<(Vec<u8>, u32)>> {
-        let (parent, name) = crate::confine::parent(&self.workspace, path)?;
+        let (parent, name) = match crate::confine::parent(&self.workspace, path) {
+            Ok(parent) => parent,
+            Err(error) if crate::watch::replaced_entry(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
         let mut f = match crate::confine::open(
             &parent,
             &name,
@@ -135,10 +139,13 @@ impl Provider<Actor> for Ports {
             rustix::fs::Mode::empty(),
         ) {
             Ok(f) => f,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) if crate::watch::replaced_entry(&e) => return Ok(None),
             Err(e) => return Err(e),
         };
         let m = f.metadata()?;
+        if !m.is_file() {
+            return Ok(None);
+        }
         let bytes = crate::confine::read(&mut f, conn::MAX_FILE_BYTES)?;
         if bytes.len() > conn::MAX_FILE_BYTES {
             return Err(io::ErrorKind::InvalidData.into());
