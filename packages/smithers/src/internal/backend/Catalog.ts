@@ -212,7 +212,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
         entry = entry && "run" in entry ? { ...mounted, root: entry } : mounted
         parent.set(word, entry)
       }
-      if (!("_group" in entry)) throw new Error(`Cannot mount catalog group ${word}`)
+      if (!("_group" in entry)) throw new Refused({ fault: "bug", code: "catalog_group_conflict", message: `Cannot mount catalog group ${word}` })
       parent = entry.commands
     }
     const existing = parent.get(leaf)

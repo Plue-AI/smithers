@@ -132,6 +132,44 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.idempotencyKeys[2]).toMatch(/^[a-f0-9-]{36}$/)
     } finally { await f.close() }
   })
+  it.each([
+    [JSON.stringify({ type: "done", reason: "stop" }), "draft_response_invalid"],
+    [JSON.stringify({ runId: "draft", type: "tool_call" }), "draft_failed"],
+    [JSON.stringify({ runId: "draft", type: "delta", kind: "text", text: "{}" }), "draft_incomplete"],
+    [
+      [
+        JSON.stringify({ runId: "draft", type: "delta", kind: "text", text: "{}" }),
+        JSON.stringify({ runId: "draft", type: "done", reason: "stop" })
+      ].join("\n"),
+      "draft_invalid"
+    ],
+    [
+      [
+        JSON.stringify({ runId: "draft", type: "done", reason: "stop" }),
+        JSON.stringify({ runId: "draft", type: "delta", kind: "text", text: "extra" })
+      ].join("\n"),
+      "draft_response_after_completion"
+    ]
+  ])("reports the draft refusal %s as %s without creating a TODO", async (wire, code) => {
+    const f = await fixture(200, (_method: string, path: string) =>
+      path === "/api/issues/12"
+        ? {
+          issue_digest: "a".repeat(64),
+          make_todo_allowed: true,
+          issue: { number: 12, title: "Bug", body: "Body", html_url: "https://github.com/owner/repo/issues/12" },
+          comments: []
+        }
+        : wire)
+    try {
+      const result = await f.invoke(["todo", "from-issue", "12"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toEqual({ code: "backend_protocol", message: "Could not draft this issue" })
+      expect(f.seen.map((call) => (call as { path: string }).path)).toEqual(["/api/issues/12", "/api/model/stream"])
+    } finally {
+      await f.close()
+    }
+  })
+
   it.each([false, undefined])("refuses outsider or absent draft authority before asking a model: %s", async allowed => {
     const f = await fixture(200, { make_todo_allowed: allowed })
     try {
