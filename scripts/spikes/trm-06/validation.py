@@ -239,14 +239,14 @@ STARTUP_MUTATIONS = {
 }
 for label, target in (("boot", "/run/smithers/trm06/boot.json"),
                       ("supervisor", "/opt/smithers/prototype/supervisor")):
-    for mutation in ("hardlink", "fifo", "directory"):
+    for mutation in ("hardlink", "fifo", "directory", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 STARTUP_MUTATIONS["startup-boot-identity"] = ("/run/smithers/trm06/boot.json", "identity")
 for label, target in (("boot-parent", "/run/smithers/trm06"),
                       ("boot-ancestor", "/run/smithers"),
                       ("supervisor-parent", "/opt/smithers/prototype"),
                       ("supervisor-ancestor", "/opt/smithers")):
-    for mutation in ("symlink", "clone", "writable"):
+    for mutation in ("symlink", "clone", "writable", "owner"):
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 
 
@@ -255,10 +255,13 @@ def mutate_startup(target, mutation):
     # Ordinary-file tests reuse these syscalls; they confer no root authority.
     import shutil
     path = Path(target)
-    if mutation == "writable":
+    if mutation in ("writable", "owner"):
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         try:
-            os.fchmod(fd, 0o777 if stat.S_ISDIR(os.fstat(fd).st_mode) else 0o666)
+            if mutation == "owner":
+                os.fchown(fd, 20001, 20001)
+            else:
+                os.fchmod(fd, 0o777 if stat.S_ISDIR(os.fstat(fd).st_mode) else 0o666)
         finally:
             os.close(fd)
     elif mutation == "hardlink":

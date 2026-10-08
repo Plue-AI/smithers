@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("observer", Path(__file__).with_name("validation.py"))
 observer = importlib.util.module_from_spec(spec)
@@ -13,7 +14,7 @@ spec.loader.exec_module(observer)
 
 class StartupMutations(unittest.TestCase):
     def test_every_installed_selector_changes_the_intended_object(self):
-        self.assertEqual(len(observer.STARTUP_MUTATIONS), 22)
+        self.assertEqual(len(observer.STARTUP_MUTATIONS), 28)
         for name, (target, mutation) in observer.STARTUP_MUTATIONS.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
@@ -38,7 +39,18 @@ class StartupMutations(unittest.TestCase):
                 # it is explicitly not root-boundary evidence.
                 if mutation == "identity":
                     path.chmod(0o600)
-                observer.mutate_startup(str(path), mutation)
+                if mutation == "owner":
+                    # Ownership changes need root on the installed guest. Observe
+                    # the exact descriptor and fixed IDs without elevating here.
+                    def owner(fd, uid, gid):
+                        self.assertEqual((uid, gid), (20001, 20001))
+                        self.assertEqual(os.fstat(fd).st_ino, original.st_ino)
+                    with patch.object(observer.os, "fchown", side_effect=owner) as changed:
+                        observer.mutate_startup(str(path), mutation)
+                        changed.assert_called_once()
+                    self.assertEqual(path.stat().st_mode, original.st_mode)
+                else:
+                    observer.mutate_startup(str(path), mutation)
                 if mutation == "identity":
                     path.chmod(original.st_mode & 0o777)
                 if mutation == "clone":

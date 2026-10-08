@@ -90,18 +90,28 @@ func (r relayControl) revoke(ctx context.Context) error {
 // Cancellation closes the actual transport; it cannot leave a ten-second
 // control exchange running behind a five-second host revocation deadline.
 func confirmRevocation(ctx context.Context, connection net.Conn) error {
+	return confirmSessionTermination(ctx, connection, map[string]string{"type": "kill_sessions"})
+}
+
+func confirmSessionTermination(ctx context.Context, connection net.Conn, request map[string]string) error {
 	deadline := time.Now().Add(5 * time.Second)
-	if callerDeadline, ok := ctx.Deadline(); ok && callerDeadline.Before(deadline) {
-		deadline = callerDeadline
+	if caller, ok := ctx.Deadline(); ok && caller.Before(deadline) {
+		deadline = caller
 	}
 	stop := context.AfterFunc(ctx, func() { connection.Close() })
 	defer stop()
-	reply, err := controlExchangeUntil(connection, map[string]string{"type": "kill_sessions"}, deadline)
+	reply, err := controlExchangeUntil(connection, request, deadline)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
+	// A socket deadline can fire just before context's timer goroutine publishes
+	// cancellation. Preserve the caller's expired deadline in that ordering too.
+	if caller, ok := ctx.Deadline(); ok && !time.Now().Before(caller) && err != nil {
+		connection.Close()
+		return context.DeadlineExceeded
+	}
 	if err == nil && !reply.OK {
-		return errors.New("guest revocation not confirmed")
+		return errors.New("guest termination not confirmed")
 	}
 	return err
 }
@@ -216,4 +226,10 @@ func strictControlReply(body []byte, reply *controlReply) error {
 		return errors.New("invalid refusal reply")
 	}
 	return nil
+}
+
+// Close uses the same authenticated transport and bounded confirmation as
+// revocation. Only the installed broker's returned session is selected.
+func confirmSessionClose(ctx context.Context, connection net.Conn, session string) error {
+	return confirmSessionTermination(ctx, connection, map[string]string{"type": "close_session", "id": session})
 }

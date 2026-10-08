@@ -200,3 +200,22 @@ metadata checks. Kernel control files (`cgroup.events`, `cgroup.procs`,
 `cgroup.kill`, etc.) are not session children. Foreign directories and symlinks
 refuse before mutation. Local regressions include those kernel-file entries
 and verify their bytes remain unchanged; installed execution is still required.
+
+Pass-4 close controls (unrun): each of the nine live cgroup replacement,
+mode and ownership controls now runs twice in fresh machines, once with
+`kill_sessions` and once with `close_session` followed by `kill_sessions`, selecting only the session ID
+returned by the authenticated installed broker. The close campaign uses the
+same original-descriptor observer, five-second bound, foreground/background
+positive control, explicit admission refusal and outside sentinel comparison.
+`-close` evidence directories distinguish these controls from revocation.
+Close must leave foreground/background exec processes alive and owned (§9.6.3);
+subsequent revocation must drain them. Both operations require strict `ok:true` replies; caller cancellation closes
+the actual transport. These controls require installed execution before any
+acceptance claim. A failed scenario no longer prevents later fresh-machine
+scenarios from retaining evidence; cancellation still stops the campaign.
+
+Startup ownership controls (unrun): the fixed boot and supervisor leaves,
+parents and ancestors also change to 20001:20001 while retaining their bytes,
+mode and inode. All six controls use installed fixture dispatch and the actual
+init restart/refusal boundary. The local mutation regression substitutes only
+fchown, verifying its held inode and fixed IDs; it grants no root authority.

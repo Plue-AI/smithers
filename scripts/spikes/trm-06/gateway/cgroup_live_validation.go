@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ func cgroupLiveFixture(scenario string) bool {
 // Installed authenticated relay only. Mutation happens after enrollment, while
 // both foreground and lingering processes are independently observed. The
 // observer holds the original events descriptors before the path is changed.
-func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string) error {
+func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl bool) error {
 	if !cgroupLiveFixture(scenario) {
 		return errAuthority
 	}
@@ -34,8 +35,12 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 		return err
 	}
 	defer stream.Close()
-	if _, err = controlExchange(stream, map[string]any{"type": "open_session", "kind": "exec", "argv": []string{"/bin/sh", "-c", "nohup sleep 10000 >/dev/null 2>&1 & exec sleep 100"}}); err != nil {
+	opened, err := controlExchange(stream, map[string]any{"type": "open_session", "kind": "exec", "argv": []string{"/bin/sh", "-c", "nohup sleep 10000 >/dev/null 2>&1 & exec sleep 100"}})
+	if err != nil {
 		return err
+	}
+	if opened.Session == "" {
+		return errors.New("live control lacked owned session identity")
 	}
 	var old guestSnapshot
 	ready := time.Now().Add(2 * time.Second)
@@ -93,6 +98,27 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 	}
 	if string(refused) == `{"transport_closed":true}` {
 		return errors.New("live cgroup replacement lacked explicit admission refusal")
+	}
+	var closeErr error
+	if closeControl {
+		var connection net.Conn
+		connection, closeErr = control.connect(ctx)
+		if closeErr == nil {
+			closeErr = confirmSessionClose(ctx, connection, opened.Session)
+			connection.Close()
+		}
+
+		closed, sampleErr := observe("sample")
+		if err = retain("live-after-close", closed); err != nil {
+			return errors.Join(closeErr, sampleErr, err)
+		}
+		if closeErr != nil || sampleErr != nil {
+			return errors.Join(closeErr, sampleErr)
+		}
+		var remaining guestSnapshot
+		if json.Unmarshal(closed, &remaining) != nil || len(remaining.Processes) < 2 {
+			return errors.New("close forgot or killed lingering exec processes")
+		}
 	}
 	invoked := time.Now().UTC()
 	revokeErr := control.revoke(ctx)

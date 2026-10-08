@@ -84,11 +84,19 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		scenarios = append(scenarios, "environment-all")
 		scenarios = append(scenarios, startupMutationScenarios()...)
 	}
+	var campaignErrors []error
 	type scenarioReceipt struct {
 		Scenario string `json:"scenario"`
 		Evidence string `json:"evidence"`
 		Status   string `json:"status"`
 		Failure  string `json:"failure,omitempty"`
+	}
+	if operation == "check-session" {
+		for _, scenario := range append([]string(nil), scenarios...) {
+			if cgroupLiveFixture(scenario) {
+				scenarios = append(scenarios, scenario+"-close")
+			}
+		}
 	}
 	completed := make([]scenarioReceipt, 0, len(scenarios))
 	for _, scenario := range scenarios {
@@ -106,8 +114,14 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		completed = append(completed, result)
 		receipt["scenarios"] = completed
 		if err != nil {
-			return err
+			campaignErrors = append(campaignErrors, fmt.Errorf("%s: %w", scenario, err))
 		}
+		if ctx.Err() != nil {
+			return errors.Join(append(campaignErrors, ctx.Err())...)
+		}
+	}
+	if len(campaignErrors) != 0 {
+		return errors.Join(campaignErrors...)
 	}
 	receipt["status"] = "partial-pass"
 	receipt["accepted"] = false
@@ -186,12 +200,12 @@ func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
 func startupMutationScenarios() []string {
 	scenarios := []string{"startup-boot-identity"}
 	for _, leaf := range []string{"boot", "supervisor"} {
-		for _, mutation := range []string{"hardlink", "fifo", "directory"} {
+		for _, mutation := range []string{"hardlink", "fifo", "directory", "owner"} {
 			scenarios = append(scenarios, "startup-"+leaf+"-"+mutation)
 		}
 	}
 	for _, parent := range []string{"boot-parent", "boot-ancestor", "supervisor-parent", "supervisor-ancestor"} {
-		for _, mutation := range []string{"symlink", "clone", "writable"} {
+		for _, mutation := range []string{"symlink", "clone", "writable", "owner"} {
 			scenarios = append(scenarios, "startup-"+parent+"-"+mutation)
 		}
 	}
@@ -219,6 +233,14 @@ func cgroupRestartFixture(scenario string) bool {
 }
 
 func validationScenario(ctx context.Context, a *installedAuthority, runtime *microsandbox.Runtime, runtimeRoot, home, fixture, scenario, operation, evidence string) error {
+	closeControl := false
+	if strings.HasSuffix(scenario, "-close") {
+		scenario = strings.TrimSuffix(scenario, "-close")
+		if operation != "check-session" || !cgroupLiveFixture(scenario) {
+			return errAuthority
+		}
+		closeControl = true
+	}
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return err
@@ -347,7 +369,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return validateNoLandlockBoundary(ctx, control, observe, before, evidence)
 	}
 	if cgroupLiveFixture(scenario) {
-		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence)
+		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {

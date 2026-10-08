@@ -260,7 +260,7 @@ func TestRootObservationsRetainFailureAndRefuseLostEvidence(t *testing.T) {
 
 func TestInstalledStartupMatrixHasEveryLiteralMutation(t *testing.T) {
 	names := startupMutationScenarios()
-	if len(names) != 19 {
+	if len(names) != 25 {
 		t.Fatalf("startup controls: %d", len(names))
 	}
 	seen := map[string]bool{}
