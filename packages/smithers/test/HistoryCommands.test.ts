@@ -471,7 +471,7 @@ describe("durable history CLI", () => {
   )
 
   it.skipIf(spawnSync("jj", ["--version"], { stdio: "ignore" }).status !== 0)(
-    "restores a bookmark moved during the run with rewind --whole-repo",
+    "restores a bookmark moved during the run through whole-repository recovery",
     async () => {
       const root = await fixture(true)
       const jj = (...args: Array<string>) =>
@@ -518,9 +518,9 @@ describe("durable history CLI", () => {
       })
       jj("bookmark", "set", "release", "-r", "root()", "--allow-backwards")
 
-      const result = await serve(root, ["rewind", "run-1", "--at", "3", "--yes", "--whole-repo"])
+      const result = await History.mutate(root, "run-1", { sequence: 3, wholeRepo: true }, "rewind")
 
-      expect(result.exitCode).toBe(0)
+      expect(result).toHaveProperty("auditId")
       expect(jj("log", "--no-graph", "-r", "release", "-T", "commit_id")).toBe(before)
     }
   )
@@ -545,15 +545,22 @@ describe("durable history CLI", () => {
     expect((await History.read(root, "run-1", { sequence: 0 }, false)).entryCount).toBe(0)
   })
 
-  it("previews a suffix and requires explicit confirmation before rewind", async () => {
+  it("retains recovery previews while refusing the removed user-facing rewind door", async () => {
     const root = await fixture()
-    const preview = await serve(root, ["rewind", "run-1", "--at", "1", "--preview"])
-    expect(preview.exitCode).toBe(0)
-    expect(preview.output).toContain("\"entriesToArchive\": 1")
-    const refused = await serve(root, ["rewind", "run-1", "--at", "1"])
-    expect(refused.exitCode).toBe(2)
-    expect(refused.output).toContain("--yes")
+    const before = await readFile(join(root, ".flows", "engine.db"))
+    const preview = await History.preview(root, "run-1", { sequence: 1 })
+    expect(preview).toMatchObject({ entriesToArchive: 1, requiresConfirmation: true })
+    expect(await readFile(join(root, ".flows", "engine.db"))).toEqual(before)
+    for (const flags of [[], ["--preview"], ["--yes"]]) {
+      const refused = await serve(root, ["rewind", "run-1", "--at", "1", ...flags])
+      expect(refused.exitCode).toBe(1)
+      expect(JSON.parse(refused.output)).toMatchObject({
+        code: "COMMAND_NOT_FOUND",
+        message: "'rewind' is not a command for 'runs'."
+      })
+    }
     expect((await History.read(root, "run-1", {}, true)).entryCount).toBe(2)
+    expect(await readFile(join(root, ".flows", "engine.db"))).toEqual(before)
   })
 
   it("keeps remote requests from creating local state", async () => {
