@@ -1,4 +1,5 @@
 import { expect, test } from "../browserTest"
+import { say } from "./j1-fixtures"
 import { installCloudFixture } from "../cloudFixture"
 import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
@@ -9,6 +10,7 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 test("C-STK-06: rebased evidence holds merge until checks pass and submits the displayed head", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,
@@ -37,7 +39,7 @@ test("C-STK-06: rebased evidence holds merge until checks pass and submits the d
     return route.fulfill({ status: 202, json: { state: "accepted", n: 1 } })
   })
   await page.goto("/")
-  await page.getByRole("button", { name: "Card model contracts", exact: true }).first().click()
+  await say(page, "/todo T1")
   const card = () => page.getByRole("article", { name: "TODO T1" }).last()
   await expect(card()).toContainText("8b1e204")
   await expect(card().getByRole("button", { name: "Merge", exact: true })).toBeEnabled()

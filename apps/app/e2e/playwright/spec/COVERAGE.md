@@ -96,14 +96,14 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-03 | [C-STK-03.spec.ts](C-STK-03.spec.ts), [current-flow Retry](todo-current-flow.spec.ts) | Working/held In review Stop/Resume app seam and current-flow Retry; microVM proof pending | T-STK-05 |
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | composed-install Chromium: external fold, retained note and keyboard OK; reference rebase qualification pending | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
-| C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | passing install REST/live seam: rebased checks hold, retained review, reload, displayed-head merge; guest/tree/reference-host receipts separate | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
+| C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | passing install session + `/todo T1` REST/live seam: rebased checks hold, retained review, reload, displayed-head merge; guest/tree/reference-host receipts separate | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
 | C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |
 | C-STK-08 | [C-STK-08.spec.ts](C-STK-08.spec.ts) | app seam: independent waits, Resume failure/retry, terminal projection; host proof separate | T-STK-01 / T-STK-05 |
 | C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | passing REST seam UI; complete folded backend and reference-host receipts remain separate | T-STK-04 |
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
-| C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | passing install REST/live seam: confirmed Drop, 202 stays working, late PR link, terminal reload; production-dispatcher crash receipt separate | T-GH-09, T-GH-01 |
+| C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | passing install session + `/todo T1` REST/live seam: confirmed Drop, 202 stays working, late PR link, terminal reload; production-dispatcher crash receipt separate | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | composed-install PostgreSQL browser, synced PR approvals and reload; native campaign | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | full-journey fixme retained; supplemental Home focus and notification disclosure/resize pass; composed J4 keyboard Move has API/PostgreSQL ordering and one-event proof; reference Chromium/WebKit journeys remain pending | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | App copy journey and all 19 View modules / 275 fixtures pass: 2,200 inline/maximized, light/dark, 1440/390px renders; zero copy violations | T-CAT-01 |

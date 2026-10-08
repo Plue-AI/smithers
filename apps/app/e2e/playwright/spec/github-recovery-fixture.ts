@@ -11,6 +11,7 @@ export async function recoveryFixture(page: Page, model: TodoCard, run?: Monitor
   model.owner = { login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png" }
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route("**/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
   await page.route("**/api/members", route => route.fulfill({ json: {
     members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,
@@ -47,7 +48,7 @@ export async function recoveryFixture(page: Page, model: TodoCard, run?: Monitor
     writes, card,
     async open() {
       await page.goto("/")
-      await page.getByRole("button", { name: "Card model contracts", exact: true }).first().click()
+      await say(page, "/todo T1")
       await expect(card()).toBeVisible()
       await page.getByRole("button", { name: "Chat", exact: true }).click()
     },
