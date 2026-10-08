@@ -386,7 +386,7 @@ path = "lib.rs"
 				startFault = new(atomic.Bool)
 				startFault.Store(true)
 			}
-			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
+			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -1853,6 +1853,7 @@ type bindingProcessRuntime struct {
 	daemons           *machined.Registry
 	pool              *pgxpool.Pool
 	daemonBinary      string
+	repository        *repohost.Client
 	failNextTodoStart *atomic.Bool
 }
 
@@ -1886,10 +1887,13 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 	if err != nil {
 		return err
 	}
-	// The connection belongs to the retained machine, not to one host launch.
-	// A failed or completed launch cancels ctx; the next stack boundary still
-	// needs this boot for capture/rebase. Test cleanup retires the process.
-	return startRehearsalMachined(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item)
+	// The transport belongs to the retained machine, not one launch.
+	// Resolve its host-authorized head before native wake; cleanup retires it.
+	head, err := machineBranchHead(r.pool, r.repository)(ctx, id)
+	if err != nil {
+		return err
+	}
+	return startRehearsalMachinedWith(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item, &rehearsalRestart{HostHead: head})
 }
 
 func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {

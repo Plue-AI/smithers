@@ -42,7 +42,9 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 // These options are test-only; the default rehearsal remains a single boot.
 type rehearsalRestart struct {
 	State, Run, KillAt string
-	Exited             chan error
+	// HostHead comes from the production machineBranchHead provider.
+	HostHead string
+	Exited   chan error
 }
 
 func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding, restart *rehearsalRestart, retirement ...func(func())) (result error) {
@@ -179,6 +181,9 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	head, err := headCommand.Output()
 	if err != nil {
 		return err
+	}
+	if restart != nil && restart.HostHead != "" {
+		head = []byte(restart.HostHead)
 	}
 	headBytes, err := hex.DecodeString(strings.TrimSpace(string(head)))
 	if err != nil || len(headBytes) != 20 {

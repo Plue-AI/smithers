@@ -38,6 +38,7 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	require.NotEmpty(t, workspace)
 	firstCard, err := r.todo(first)
 	require.NoError(t, err)
+	movedAt := time.Now()
 	_, err = r.fakeControl("/_fake/merge", map[string]any{"repo": "rehearsal-owner/app", "number": firstCard.PR.Number})
 	require.NoError(t, err)
 	_, err = r.waitTodoWithin(first, time.Minute, "merged")
@@ -45,7 +46,7 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	main, err := r.githubMain()
 	require.NoError(t, err)
 	// 60 s bounds following main, independently of the checks and PR write.
-	deadline := time.Now().Add(time.Minute)
+	deadline := movedAt.Add(time.Minute)
 	for {
 		after, err := r.candidate(second)
 		require.NoError(t, err)
