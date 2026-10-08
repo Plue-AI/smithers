@@ -13,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/stretchr/testify/require"
 )
 
@@ -103,13 +105,67 @@ func runMainResetProductionInstall(t *testing.T, enable string) {
 	require.NoError(t, refusal.Body.Close())
 	require.Equal(t, 403, refusal.StatusCode, string(refusedBody))
 	require.Contains(t, string(refusedBody), `"code":"never"`)
-	for i, permission := range []string{"admin", "write"} {
-		member, err := r.member(fmt.Sprintf("reset-person-%d", i), int64(820+i), permission)
+	// Owner-only Reset remains person-only for every production delegated profile.
+	issuer := services.NewAuthService(q, config.AuthConfig{Mode: "selfhost"}, nil, nil)
+	issuer.Members = &services.Members{Pool: r.pool}
+	resetCells := []map[string]any{}
+	for i, permission := range []string{"owner", "admin", "write"} {
+		jar := http.CookieJar(r.jar)
+		login := "rehearsal-owner"
+		if permission != "owner" {
+			login = fmt.Sprintf("reset-person-%d", i)
+			jar, err = r.member(login, int64(820+i), permission)
+			require.NoError(t, err)
+			refused, err := r.expectAs(jar, "POST", "/api/stack/attention/"+attention.ID, fmt.Sprintf(`{"old":%q,"new":%q}`, old, rewritten), 403)
+			require.NoError(t, err)
+			require.Contains(t, string(refused), `"code":"permission"`)
+			resetCells = append(resetCells, map[string]any{"role": permission, "profile": "session", "status": 403, "effects": 0})
+		}
+		user, err := q.GetUserByLowerUsername(ctx, login)
 		require.NoError(t, err)
-		refused, err := r.expectAs(member, "POST", "/api/stack/attention/"+attention.ID, fmt.Sprintf(`{"old":%q,"new":%q}`, old, rewritten), 403)
-		require.NoError(t, err)
-		require.Contains(t, string(refused), `"code":"permission"`)
+		for _, via := range []string{"cli", "codex", "claude-code", "smithers"} {
+			t.Run("reset-access/"+permission+"/"+via, func(t *testing.T) {
+				bearer := ""
+				if via == "smithers" {
+					token, err := issuer.MintForTurn(ctx, user.ID, liveAppTurnCredentialFixture(t, r.pool, user.ID), 1)
+					require.NoError(t, err)
+					bearer = token.Token
+				} else {
+					raw, err := r.expectAs(jar, "POST", "/api/user/tokens", fmt.Sprintf(`{"name":"reset-%s","via":%q,"scopes":["repo","user"]}`, via, via), 201)
+					require.NoError(t, err)
+					var token struct{ Token string }
+					require.NoError(t, json.Unmarshal(raw, &token))
+					bearer = token.Token
+				}
+				req, err := http.NewRequestWithContext(ctx, "POST", r.origin+"/api/stack/attention/"+attention.ID, strings.NewReader(fmt.Sprintf(`{"old":%q,"new":%q}`, old, rewritten)))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer "+bearer)
+				req.Header.Set("Content-Type", "application/json")
+				out, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				defer out.Body.Close()
+				raw, err := io.ReadAll(out.Body)
+				require.NoError(t, err)
+				require.Equal(t, 403, out.StatusCode, string(raw))
+				code := "never"
+				if permission != "owner" {
+					code = "permission"
+				}
+				require.Contains(t, string(raw), `"code":"`+code+`"`)
+				observed, err := r.repoClient.GetBookmark(ctx, "rehearsal-owner", "app", "main")
+				require.NoError(t, err)
+				require.Equal(t, old, observed.TargetCommitID)
+				var unsettled bool
+				require.NoError(t, r.pool.QueryRow(ctx, `SELECT a->>'settled_at' IS NULL FROM mythical_stacks,jsonb_array_elements(attention) a WHERE repository_id=$1 AND a->>'id'=$2`, repository, attention.ID).Scan(&unsettled))
+				require.True(t, unsettled)
+				resetCells = append(resetCells, map[string]any{"role": permission, "profile": via, "status": 403, "code": code, "effects": 0})
+			})
+		}
 	}
+	require.Len(t, resetCells, 14)
+	rawCells, err := json.MarshalIndent(resetCells, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "reset-access-matrix.json"), rawCells, 0600))
 	// An owner press bound to an outdated GitHub tip refreshes the same attention.
 	latest := git("commit-tree", tree, "-m", "Second rewrite")
 	git("update-ref", "refs/heads/main", latest)
