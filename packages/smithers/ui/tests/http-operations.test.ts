@@ -253,3 +253,10 @@ test("private import progress retains the owner person read door", () => {
     visibility: "hidden", cli: null, slash: null, http: { method: "GET", path: "/api/github/import/{id}" }
   })
 })
+
+ test("OAuth app revocation retains its scoped first-party credential door", () => {
+  expect(httpProjections.find(row => row.name === "account.oauth.revoke")).toMatchObject({
+   hidden: true, visibility: "hidden", slash: null, cli: null, minimumRole: "member", agent: "run", credentialScope: "write:user", actors: ["external_agent"],
+   http: { method: "POST", path: "/api/oauth2/revoke-all" }
+  })
+ })

@@ -74,7 +74,7 @@ func InstallAccountMutationSubject(repository, userID int64, command string, res
 	case "account.email.add":
 		_, valid = input.(AddEmailRequest)
 		valid = valid && resourceID == 0
-	case "account.email.delete", "account.email.verify", "account.connection.delete":
+	case "account.email.delete", "account.email.verify", "account.connection.delete", "account.oauth.revoke":
 		_, valid = input.(struct{})
 		valid = valid && resourceID > 0
 	}

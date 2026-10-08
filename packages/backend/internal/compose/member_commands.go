@@ -83,7 +83,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 			}
 
-			if command == "account.profile.update" || command == "account.notifications.update" || command == "account.connection.delete" || command == "account.signup.update" || command == "account.device.register" || command == "account.device.delete" || command == "account.email.add" || command == "account.email.delete" || command == "account.email.verify" || command == "account.inbox.read" || command == "account.inbox.read-all" || command == "account.inbox.preferences" {
+			if command == "account.oauth.revoke" || command == "account.profile.update" || command == "account.notifications.update" || command == "account.connection.delete" || command == "account.signup.update" || command == "account.device.register" || command == "account.device.delete" || command == "account.email.add" || command == "account.email.delete" || command == "account.email.verify" || command == "account.inbox.read" || command == "account.inbox.read-all" || command == "account.inbox.preferences" {
 				admitInstallAccountMutation(w, r, queries, command, next)
 				return
 			}

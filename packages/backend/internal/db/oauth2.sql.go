@@ -395,7 +395,8 @@ SELECT t.id, t.token_hash, t.app_id, t.user_id, t.scopes, t.expires_at, t.create
 FROM oauth2_access_tokens t
 JOIN oauth2_applications a ON a.id = t.app_id
 WHERE t.token_hash = $1
-  AND t.expires_at > NOW()
+  -- Final admission must use wall time, not the transaction start time.
+  AND t.expires_at > clock_timestamp()
   AND a.client_id = 'smithers_first_party_apps'
 `
 

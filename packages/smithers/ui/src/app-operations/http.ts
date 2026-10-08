@@ -35,6 +35,8 @@ const accountWrite = (name: string, method: "POST" | "PATCH" | "PUT" | "DELETE",
 const optionalText = Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 
 export const httpProjections = [
+ operation({ name: "account.oauth.revoke", input: NoInput, summary: "Revoke app access", hidden: true, visibility: "hidden", slash: null, cli: null,
+   http: { method: "POST", path: "/api/oauth2/revoke-all" }, minimumRole: "member", agent: "run", credentialScope: "write:user", actors: ["external_agent"] }),
  read("github.import-read", "/api/github/import/{id}", "never", "owner"),
  repositoryAdmin("webhooks.test", "POST", "/api/repos/{owner}/{repo}/hooks/{id}/tests", NoInput, "write:repository"),
  repositoryAdmin("webhooks.list", "GET", "/api/repos/{owner}/{repo}/hooks", NoInput, "write:repository"),

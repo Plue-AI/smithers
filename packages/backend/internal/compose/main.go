@@ -1747,7 +1747,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Config: cfg.FeatureFlags,
 	}
 
-	oauth2Service := services.NewOAuth2ServiceWithPool(queries, pool)
+	var oauth2Options []services.OAuth2ServiceOption
+	if config.IsSingleOwner(cfg.Auth) {
+		oauth2Options = append(oauth2Options, services.WithOAuth2InstallAuthorization(pool))
+	}
+	oauth2Service := services.NewOAuth2ServiceWithPool(queries, pool, oauth2Options...)
 	devAutoAuthorizeUserID := int64(0)
 	if strings.EqualFold(os.Getenv("SMITHERS_ENABLE_E2E_TEST_ROUTES"), "true") {
 		devAutoAuthorizeUserID = 1

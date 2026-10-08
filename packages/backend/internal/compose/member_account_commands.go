@@ -23,7 +23,14 @@ func admitInstallAccountMutation(w http.ResponseWriter, r *http.Request, q *db.Q
 	}
 	var input any = struct{}{}
 	var resource int64
-	if command == "account.connection.delete" || command == "account.email.delete" || command == "account.email.verify" || command == "account.inbox.read" {
+	if command == "account.oauth.revoke" {
+		info := middleware.AuthInfoFromContext(r.Context())
+		if info == nil || !info.IsTokenAuth || info.TokenSource != middleware.TokenSourceOAuth2AccessToken || info.OAuth2AppID <= 0 {
+			refuse(pkgerrors.Forbidden("oauth2 access token required"))
+			return
+		}
+		resource = info.OAuth2AppID
+	} else if command == "account.connection.delete" || command == "account.email.delete" || command == "account.email.verify" || command == "account.inbox.read" {
 		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 		var err error
 		index := len(parts) - 1

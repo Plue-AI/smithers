@@ -84,7 +84,8 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/oauth2/revoke-all:
     post:
-      summary: POST /api/oauth2/revoke-all
+      summary: Revoke the current app’s account grants
+      description: Requires a live first-party OAuth access token with write:user. Revokes that app’s access and refresh tokens for the authenticated account atomically; other apps and accounts retain their grants.
       operationId: post_api_oauth2_revoke_all
       tags:
         - OAuth2

@@ -2819,7 +2819,7 @@ export const postApiOauth2Revoke = (transport: Transport): Promise<PostApiOauth2
 
 export type PostApiOauth2RevokeAllResponse = AnyJSON
 
-/** POST /api/oauth2/revoke-all */
+/** POST /api/oauth2/revoke-all: Revoke the current app’s account grants */
 export const postApiOauth2RevokeAll = (transport: Transport): Promise<PostApiOauth2RevokeAllResponse> =>
   transport.request("POST", `/api/oauth2/revoke-all`) as Promise<PostApiOauth2RevokeAllResponse>
 

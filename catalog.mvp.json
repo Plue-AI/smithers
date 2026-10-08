@@ -395,6 +395,33 @@
       }
     },
     {
+      "name": "account.oauth.revoke",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:user",
+      "agent": "run",
+      "summary": "Revoke app access",
+      "http": {
+        "method": "POST",
+        "path": "/api/oauth2/revoke-all"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "account.profile.update",
       "slash": null,
       "cli": null,

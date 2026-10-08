@@ -89,6 +89,7 @@ type OAuth2AuthorizeResult struct {
 // OAuth2Service handles OAuth2 provider operations.
 type OAuth2Service struct {
 	queries     OAuth2Querier
+	install     *installAccountMutationStore
 	revocations revocation.Publisher
 	now         func() time.Time
 	// inTx runs fn in one transaction and commits only when fn returns nil.
@@ -97,19 +98,23 @@ type OAuth2Service struct {
 }
 
 // NewOAuth2Service creates a new OAuth2Service instance.
-func NewOAuth2Service(q OAuth2Querier) *OAuth2Service {
-	return &OAuth2Service{
+func NewOAuth2Service(q OAuth2Querier, options ...OAuth2ServiceOption) *OAuth2Service {
+	s := &OAuth2Service{
 		queries: q,
 		now:     func() time.Time { return time.Now().UTC() },
 	}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // NewOAuth2ServiceWithPool returns an OAuth2Service whose one-time grant
 // redemptions (authorization code, refresh token) consume the grant and write
 // the new token pair in one transaction, so a failed insert never spends the
 // grant.
-func NewOAuth2ServiceWithPool(q OAuth2Querier, pool *pgxpool.Pool) *OAuth2Service {
-	s := NewOAuth2Service(q)
+func NewOAuth2ServiceWithPool(q OAuth2Querier, pool *pgxpool.Pool, options ...OAuth2ServiceOption) *OAuth2Service {
+	s := NewOAuth2Service(q, options...)
 	if pool == nil {
 		return s
 	}
@@ -635,14 +640,21 @@ func (s *OAuth2Service) RevokeToken(ctx context.Context, clientID, clientSecret,
 // RevokeAllByAppAndUser deletes every access token and refresh token issued
 // to the given OAuth2 application for the given user.
 func (s *OAuth2Service) RevokeAllByAppAndUser(ctx context.Context, appID, userID int64) error {
-	if err := s.queries.DeleteOAuth2RefreshTokensByAppAndUser(ctx, db.DeleteOAuth2RefreshTokensByAppAndUserParams{
+	if s.install != nil {
+		return s.revokeInstallOAuth2AppTokens(ctx, appID, userID)
+	}
+	return s.transact(ctx, func(q OAuth2Querier) error { return revokeOAuth2AppTokens(ctx, q, appID, userID) })
+}
+
+func revokeOAuth2AppTokens(ctx context.Context, q OAuth2Querier, appID, userID int64) error {
+	if err := q.DeleteOAuth2RefreshTokensByAppAndUser(ctx, db.DeleteOAuth2RefreshTokensByAppAndUserParams{
 		AppID:  appID,
 		UserID: userID,
 	}); err != nil {
 		return pkgerrors.Internal("failed to revoke tokens").WithCause(err)
 	}
 
-	if err := s.queries.DeleteOAuth2AccessTokensByAppAndUser(ctx, db.DeleteOAuth2AccessTokensByAppAndUserParams{
+	if err := q.DeleteOAuth2AccessTokensByAppAndUser(ctx, db.DeleteOAuth2AccessTokensByAppAndUserParams{
 		AppID:  appID,
 		UserID: userID,
 	}); err != nil {
