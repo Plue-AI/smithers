@@ -103,6 +103,15 @@ approval commits the TODO; it retains the original issue snapshot even after
 GitHub edits. The credential needs `read:repository` and `write:repository`,
 plus `read:user` and `write:user` for the model call.
 
+Read the repository wiki through the packaged CLI:
+
+```sh
+smthrs wiki show --owner ben --repo demo
+smthrs wiki page terminal-scope --owner ben --repo demo
+```
+
+These commands read current public-space pages; they do not create a missing page.
+
 A branch terminal opened from
 the app is signed in: it sets `SMITHERS_URL` (the API origin when
 `SMITHERS_API_ORIGIN` is unset) and `SMITHERS_TOKEN_FILE`, the terminal's own

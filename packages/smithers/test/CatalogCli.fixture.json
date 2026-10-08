@@ -703,6 +703,31 @@
       ],
       "method": "GET",
       "path": "/api/branches/main/files/README.md"
+    },
+    {
+      "argv": [
+        "wiki",
+        "show",
+        "--owner",
+        "ben",
+        "--repo",
+        "demo"
+      ],
+      "method": "GET",
+      "path": "/api/repos/ben/demo/wiki"
+    },
+    {
+      "argv": [
+        "wiki",
+        "page",
+        "terminal-scope",
+        "--owner",
+        "ben",
+        "--repo",
+        "demo"
+      ],
+      "method": "GET",
+      "path": "/api/repos/ben/demo/wiki/terminal-scope"
     }
   ],
   "unavailable": [
@@ -722,15 +747,6 @@
     [
       "pr",
       "12"
-    ],
-    [
-      "wiki",
-      "show"
-    ],
-    [
-      "wiki",
-      "page",
-      "Home"
     ],
     [
       "wiki",

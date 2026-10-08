@@ -33,7 +33,7 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 	invoke := cli.invoke
 	skill, err := os.ReadFile("../../../smithers/skills/smithers/SKILL.md")
 	require.NoError(t, err)
-	for _, command := range []string{"smthrs todo new", "smthrs todo drop", "smthrs merge"} {
+	for _, command := range []string{"smthrs todo new", "smthrs todo drop", "smthrs merge", "smthrs wiki show", "smthrs wiki page"} {
 		require.Contains(t, string(skill), "`"+command+"`", "the packaged skill must advertise the exercised production command")
 	}
 
@@ -44,7 +44,25 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 		require.Equal(t, "delegated", identity["credential_kind"])
 		require.Equal(t, "terminal", identity["via"])
 		require.NotContains(t, identity, "token")
+		code, index := invoke("wiki", "show", "--owner", "ben", "--repo", "demo")
+		require.Zero(t, code, index)
+		pages, ok := index["items"].([]any)
+		require.True(t, ok, index)
+		require.Len(t, pages, 1)
+		require.Equal(t, "terminal-scope", pages[0].(map[string]any)["slug"])
+		code, page := invoke("wiki", "page", "terminal-scope", "--owner", "ben", "--repo", "demo")
+		require.Zero(t, code, page)
+		require.Equal(t, "Terminal scope", page["title"])
+		require.Equal(t, "Read through the packaged skill", page["body"])
 		exercisePackagedTerminalFileRefusals(t, cli, origin, token)
+	}
+	if closed {
+		for _, argv := range [][]string{{"wiki", "show", "--owner", "ben", "--repo", "demo"}, {"wiki", "page", "terminal-scope", "--owner", "ben", "--repo", "demo"}} {
+			code, receipt := invoke(argv...)
+			require.Equal(t, 1, code)
+			require.Equal(t, "permission", receipt["class"])
+			require.Equal(t, "unauthenticated", receipt["code"])
+		}
 	}
 	for _, fixture := range []struct {
 		argv []string
@@ -133,8 +151,13 @@ func newPackagedTerminalCLI(t *testing.T, ctx context.Context, origin, token str
 			require.ErrorAs(t, err, &exit, string(output))
 			code = exit.ExitCode()
 		}
-		var result map[string]any
-		require.NoError(t, json.Unmarshal(output, &result), string(output))
+		var decoded any
+		require.NoError(t, json.Unmarshal(output, &decoded), string(output))
+		if items, ok := decoded.([]any); ok {
+			return code, map[string]any{"items": items}
+		}
+		result, ok := decoded.(map[string]any)
+		require.True(t, ok, string(output))
 		return code, result
 	}
 	return cli

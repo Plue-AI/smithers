@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,6 +19,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -198,6 +200,11 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy()))(svc)
 		svc.EnableMachineAdmission(func(context.Context) (int64, error) { return 1 << 40, nil })
 	}
+	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: "http://example.com", SigningKey: bytes.Repeat([]byte{0x32}, 32)})
+	require.NoError(t, err)
+	wiki := services.NewWikiService(q, nil, services.WithWikiContent(content), services.WithWikiInstallAuthorization(q))
+	_, err = wiki.CreateWikiPage(ctx, &owner, "ben", "demo", services.CreateWikiPageInput{Title: "Terminal scope", Slug: "terminal-scope", Body: "Read through the packaged skill"})
+	require.NoError(t, err)
 	var origin string
 	open := func(service *services.WorkspaceService, refused bool, session string) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
@@ -207,7 +214,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		cfg.Server.PublicURL = origin
 		cfg.Server.AllowedOrigins = []string{origin}
 		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
-		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}})
+		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, wiki: wiki, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}})
 		server.Start()
 		t.Cleanup(server.Close)
 		url := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/repos/ben/demo/workspace/sessions/" + session + "/terminal"

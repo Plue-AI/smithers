@@ -103,6 +103,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 
 	// The install owner's API identity is the literal OAuth fixture, not the
 	// sanitized Unix login (which may gain a collision suffix).
+	h.expect("POST", "/api/repos/rehearsal-owner/app/wiki", `{"title":"Terminal scope","slug":"terminal-scope","body":"Read through the packaged skill"}`, 201)
 	testInstalledTerminalCLIAndSkill(t, term, "rehearsal-owner")
 	testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
 	testInstalledSecretFiles(t, h, branch, term, benBrowser, aliceBrowser)

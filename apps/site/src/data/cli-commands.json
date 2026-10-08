@@ -2531,12 +2531,22 @@
         "options": {
           "type": "object",
           "properties": {
-            "revision": {
+            "owner": {
               "anyOf": [
                 {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
                 },
                 {
                   "type": "null"
@@ -2550,6 +2560,8 @@
             }
           },
           "required": [
+            "owner",
+            "repo",
             "verbose"
           ],
           "additionalProperties": false
@@ -2607,6 +2619,28 @@
         "options": {
           "type": "object",
           "properties": {
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
@@ -2614,6 +2648,8 @@
             }
           },
           "required": [
+            "owner",
+            "repo",
             "verbose"
           ],
           "additionalProperties": false

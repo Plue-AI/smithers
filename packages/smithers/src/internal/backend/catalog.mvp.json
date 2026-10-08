@@ -13936,7 +13936,11 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open the wiki",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/wiki",
+        "query": {}
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -13956,6 +13960,28 @@
               ]
             },
             "id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
               "anyOf": [
                 {
                   "type": "string",
@@ -14818,7 +14844,11 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open or create a page",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/wiki/{name}",
+        "query": {}
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -14833,6 +14863,28 @@
                 {
                   "type": "integer",
                   "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "owner": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
                 },
                 {
                   "type": "null"

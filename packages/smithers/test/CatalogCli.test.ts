@@ -96,7 +96,9 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
   it.each([
     ["file", "README.md", "--operation", "workspace"],
     ["files", "--operation", "tree", "--copy", "copy-1"],
-    ["file", "README.md", "--repo", "another/repo"]
+    ["file", "README.md", "--repo", "another/repo"],
+    ["wiki", "page", "Home", "--owner", "ben", "--repo", "demo", "--revision", "2"],
+    ["wiki", "show", "--owner", "ben", "--repo", "demo", "--operation", "proposal", "--id", "proposal-1"]
   ])("refuses an unsupported browser variant before HTTP: %j", async (...argv) => {
     const f = await fixture()
     try {

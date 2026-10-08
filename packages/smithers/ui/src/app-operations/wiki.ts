@@ -27,10 +27,10 @@ const Space = Schema.Literals(["public", "private"])
 export const wikiSurfaceOperations = [
   operation({
     name: "wiki",
-     slash: "/wiki", cli: ["wiki","show"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open the wiki",
-    agent: "run", input: Schema.Struct({ operation: Schema.optional(Schema.Literal("proposal")), id: Schema.optional(Schema.NonEmptyString) }),
+     slash: "/wiki", cli: ["wiki","show"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/repos/{owner}/{repo}/wiki", query: {} }, summary: "Open the wiki",
+    agent: "run", input: Schema.Struct({ operation: Schema.optional(Schema.Literal("proposal")), id: Schema.optional(Schema.NonEmptyString), owner: Schema.optional(Schema.NonEmptyString), repo: Schema.optional(Schema.NonEmptyString) }),
     grammar: (args?: string) => { if (!args?.trim()) return { payload: {} }; try { return { payload: JSON.parse(args) } } catch { return { error: "Enter a JSON object" } } },
-    form: { fields: { operation: { hidden: true }, id: { hidden: true } }, args: payload => JSON.stringify(payload) }
+    form: { fields: { operation: { hidden: true }, id: { hidden: true }, owner: { hidden: true }, repo: { hidden: true } }, args: payload => JSON.stringify(payload) }
   })
 ] as const
 

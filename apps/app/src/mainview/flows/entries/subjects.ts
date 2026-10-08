@@ -169,8 +169,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         return result.ok ? { value: result.ack } : result.refusal
       }
     })),
-    flow({ name: "wiki.page",   slash: "/wiki.page", cli: ["wiki","page"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open or create a page", args: "<name>", discloseToAgent: true,
-      grammar: positional("name"), agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString, revision: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))) }),
+    flow({ name: "wiki.page",   slash: "/wiki.page", cli: ["wiki","page"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/repos/{owner}/{repo}/wiki/{name}", query: {} }, summary: "Open or create a page", args: "<name>", discloseToAgent: true,
+      form: { fields: { owner: { hidden: true }, repo: { hidden: true } } },
+      grammar: positional("name"), agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString, revision: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))), owner: Schema.optional(Schema.NonEmptyString), repo: Schema.optional(Schema.NonEmptyString) }),
       handler: ({ name, revision }) => {
         if (revision !== undefined || install()) return actions.openWikiPage(name, revision)
         const page = findWikiPage(design.world(), name)
