@@ -129,6 +129,8 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				var fact map[string]any
 				require.NoError(t, json.Unmarshal(data, &fact))
 				require.EqualValues(t, 1, fact["n"])
+				require.Equal(t, from, fact["from"])
+				require.Equal(t, from, fact["to"])
 				require.Equal(t, "run-1", fact["run"])
 				actor := fact["actor"].(map[string]any)
 				require.Equal(t, "person", actor["kind"])

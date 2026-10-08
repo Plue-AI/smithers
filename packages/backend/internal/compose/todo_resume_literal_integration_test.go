@@ -127,6 +127,13 @@ func TestTodoResumeTransitionLiteralCases(t *testing.T) {
 					expected = "needs_you"
 				}
 				require.Equal(t, expected, card["state"])
+				var factRaw []byte
+				require.NoError(t, h.pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.resume.requested' ORDER BY sequence DESC LIMIT 1`).Scan(&factRaw))
+				var fact map[string]any
+				require.NoError(t, json.Unmarshal(factRaw, &fact))
+				require.Equal(t, from, fact["from"])
+				require.Equal(t, expected, fact["to"])
+				require.Equal(t, "maya", fact["actor"].(map[string]any)["login"])
 				require.Contains(t, card, "pause", "admission is not completion")
 				replayStatus, replay := h.call(t, "POST", `{"op":"resume"}`, key)
 				require.Equal(t, 202, replayStatus, replay)

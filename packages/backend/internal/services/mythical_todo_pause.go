@@ -81,6 +81,7 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 			return err
 		}
 		checks := mythicalChecksOf(item)
+		from := todoState(item)
 		facts := todoControlFacts{Executing: todoRunExecuting(item),
 			Paused: item.PausedAt.Valid && checks.Pause != nil && checks.Pause.Wait != nil && !checks.Pause.Resuming}
 		for _, wait := range todoOpenWaits(item) {
@@ -145,7 +146,7 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 			return err
 		}
 		receipt = TodoControlReceipt{State: "accepted", Attempt: item.Attempt}
-		if err := s.recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, map[string]any{"item": id, "n": number, "run": item.RequestRunID, "actor": todoActor(ctx, person)}); err != nil {
+		if err := s.recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, map[string]any{"item": id, "n": number, "run": item.RequestRunID, "from": from, "to": todoState(saved), "actor": todoActor(ctx, person)}); err != nil {
 			return err
 		}
 		s.itemChanged(ctx, q, stack, saved.ID)
@@ -228,16 +229,20 @@ func (s *MythicalService) projectTodoPauseReceipt(ctx context.Context, update fl
 				return err
 			}
 			checks := mythicalChecksOf(item)
+			from := todoState(item)
 			pause := checks.Pause
 			if pause == nil || !pause.Requested || pause.Run != p.Run || item.RequestRunID != p.Run || item.Attempt != p.Attempt || pause.Generation != p.Generation {
 				return nil
 			}
 			if update.State == jobs.StateCompleted {
-				if p.Op != "resume" {
+				if p.Op != "resume" || pause.Delivered {
 					return nil
 				}
 				pause.Delivered = true
 			} else if p.Op == "resume" {
+				if !pause.Resuming && pause.FailureOp == "resume" && pause.Failure == "Resume failed" {
+					return nil
+				}
 				pause.Failure, pause.FailureOp = "Resume failed", "resume"
 				pause.Resuming = false
 				if pause.At != nil {
@@ -246,6 +251,8 @@ func (s *MythicalService) projectTodoPauseReceipt(ctx context.Context, update fl
 			} else if pause.At == nil {
 				pause.Requested = false
 				pause.Failure, pause.FailureOp = "Stop failed", "stop"
+			} else {
+				return nil
 			}
 			item.Checks = checks.encode()
 			saved, err := q.SaveMythicalItem(ctx, item)
@@ -253,6 +260,18 @@ func (s *MythicalService) projectTodoPauseReceipt(ctx context.Context, update fl
 				continue
 			}
 			if err != nil {
+				return err
+			}
+			kind := "todo." + p.Op + ".failed"
+			if update.State == jobs.StateCompleted {
+				kind = "todo.resume.delivered"
+			}
+			fact, err := json.Marshal(map[string]any{"item": p.ItemID, "n": saved.Number.Int64, "run": p.Run,
+				"from": from, "to": todoState(saved), "actor": map[string]string{"kind": "system", "id": "smithers"}})
+			if err != nil {
+				return err
+			}
+			if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), kind, todoState(saved), fact); err != nil {
 				return err
 			}
 			stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
