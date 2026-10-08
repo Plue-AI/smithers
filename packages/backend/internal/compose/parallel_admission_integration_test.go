@@ -115,14 +115,12 @@ type parallelCard struct {
 // TestParallelAdmissionInstallBoundary is C-STK-02 (T-STK-03, #3572) on the
 // composed install: real PostgreSQL, the production router, stack engine
 // loop, flow dispatcher, owner terminal door and the T-MCH-06 microsandbox
-// admission queue. Only host measurements (free disk) and runtime boot/stop
-// responses (a recording msb whose boots never finish, and a flow host that
-// answers on a granted machine) are injected. Expectations are literal.
+// admission queue. Host measurements, idle clock and guest responses are
+// injected; step 2 starts from a retained reviewed candidate. Expectations are
+// literal. Fresh/retained guest qualification is a separate physical receipt.
 //
-// Step 2 runs its placement only. T1 reaching in_review and holding its slot
-// until safe-idle release waits for T-MCH-06's production safe-idle
-// observation providers; TestParallelRetainedMachineRelease covers that
-// engine rule with an injected ownership observation.
+// Step 2 observes automatic capture and confirmed stop through the install
+// idle providers. Native guest/root qualification remains C-SEC-02 evidence.
 func TestParallelAdmissionInstallBoundary(t *testing.T) {
 	testParallelAdmissionInstallBoundary(t, false, false, false)
 }
@@ -242,12 +240,20 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 	// Runtime boot/stop responses: every boot or wake stays in flight (holding
 	// its grant) until the test ends; the inventory lists the sleeping machine.
 	release := filepath.Join(scratch, "release-boots")
+	firstBoot := filepath.Join(scratch, "first-boot")
 	stopPending := filepath.Join(scratch, "stop-pending")
 	stopAcknowledged := filepath.Join(scratch, "stop-acknowledged")
 	msb := filepath.Join(scratch, "msb")
 	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf(`#!/bin/sh
 case "$1" in
- create|run|start) while [ ! -f %q ]; do sleep 0.05; done; exit 1 ;;
+ create|run|start)
+  while [ ! -f %q ]; do
+   if [ -f %q ]; then case "$*" in *"$(cat %q)"*) exit 0 ;; esac; fi
+   sleep 0.05
+  done; exit 1 ;;
+ exec)
+  case "$*" in *final-capture-fence*) printf 'FENCED\n'; dd bs=1 count=1 of=/dev/null 2>/dev/null ;;
+  *) cat >/dev/null; printf '[]\n' ;; esac ;;
  stop) touch %q; printf '[]\n' ;;
  list)
   if [ -f %q ]; then
@@ -257,11 +263,12 @@ case "$1" in
   fi ;;
  *) printf '[]\n' ;;
 esac
-`, release, stopAcknowledged, stopPending, stopPending, inventoryJSON)), 0o700))
+`, release, firstBoot, firstBoot, stopAcknowledged, stopPending, stopPending, inventoryJSON)), 0o700))
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
-	runtime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
+	machineRuntime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
 		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 8})
 	require.NoError(t, err)
+	runtime := &parallelIdleRuntime{Runtime: machineRuntime}
 	t.Cleanup(func() { _ = runtime.Close() })
 
 	// The install composition (compose/main.go): the owner setting, capacity
@@ -343,6 +350,9 @@ esac
 	router := parallelInstallRouter(cfg, q, pool, terminals, routerExtras{GitHubAppSetup: setup, Mythical: &routes.MythicalHandler{Service: stack}, Live: liveHandler})
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
+	if os.Getenv("SMITHERS_PARALLEL_BROWSER_DIR") != "" {
+		fmt.Println("PARALLEL_BROWSER_READY " + server.URL)
+	}
 	go func() {
 		worker, stop := context.WithCancel(liveContext)
 		defer stop()
@@ -381,7 +391,7 @@ esac
 	}
 	if matrix {
 		freeDisk.Store(72 << 30) // exactly one slot
-		exerciseTenBranchTerminals(t, branches, runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk, queuedSSHProbe(t, pool, workspaces, cfg, ben.ID))
+		exerciseTenBranchTerminals(t, branches, runtime.Runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk, queuedSSHProbe(t, pool, workspaces, cfg, ben.ID))
 		return
 	}
 	// states maps a TODO number to its state; queued maps a TODO number to
@@ -422,6 +432,7 @@ esac
 	}
 	settle("step 1", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued"}, map[int]int{3: 1, 4: 2, 5: 3})
 	require.Equal(t, 2, runtime.InUse())
+	parallelBrowserCheckpoint(t, "working")
 
 	// The live channel: every Home snapshot names the literal waiting order,
 	// in stack order, and the effective limit the owner sees.
@@ -538,9 +549,8 @@ esac
 		require.Equal(t, want, runtime.InUse(), step)
 	}
 
-	// Step 2, placement only: T6 is filed after T5 but placed Before T2. It
-	// waits ahead of T3 without taking a slot from the two holders. (Its
-	// admission after T1's safe-idle release is pending T-MCH-06.)
+	// Step 2: T6 is filed after T5 but placed Before T2. It waits ahead
+	// of T3 while both existing machines remain held.
 	beforeTarget := 2
 	beforeOrder := []int{1, 6, 2, 3, 4, 5}
 	if beforeCapacityRecovery {
@@ -564,6 +574,7 @@ esac
 	todoSnapshot("step 2", 3, 2)
 	todoSnapshot("step 2", 6, 1)
 	held("step 2", 2)
+	parallelBrowserCheckpoint(t, "placed")
 
 	if beforeCapacityRecovery {
 		// Release an occupied slot or increase disk capacity. The runtime
@@ -711,8 +722,30 @@ esac
 		return
 	}
 
+	// The reviewed candidate is prior-step input to this admission check.
+	// Release uses the production safety observer, daemon capture/publication
+	// and runtime stop observation, not a direct grant or stop call.
+	retainedObservations := 0
+	parallelAutomaticIdleRelease(t, pool, workspaces, stack, runtime, host, repo.ID, maya.ID, stopPending, stopAcknowledged, firstBoot, readDisk, func() {
+		settle("in review holds until observed stop", map[int]string{1: "in_review", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "queued"}, map[int]int{6: 1, 3: 2, 4: 3, 5: 4})
+		homeSnapshot("in review retains slot", homeView{Order: beforeOrder, Positions: map[int]int{6: 1, 3: 2, 4: 3, 5: 4}, Parallel: 2})
+		held("in review retains slot", 2)
+		retainedObservations++
+		if retainedObservations == 1 {
+			parallelBrowserCheckpoint(t, "reviewed")
+		} else {
+			parallelBrowserCheckpoint(t, "stopping")
+		}
+	})
+	settle("step 2 released", map[int]string{1: "in_review", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
+	homeSnapshot("step 2 released", homeView{Order: beforeOrder, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 2})
+	todoSnapshot("step 2 released", 6, 0)
+	held("step 2 released", 2)
+	parallelBrowserCheckpoint(t, "released")
+	parallelBrowserCheckpoint(t, "settings")
+
 	// Step 3: the owner raises the request to 8. Capacity 3 clamps it, and
-	// the third machine goes to the next TODO in stack order: T6, not T3.
+	// the third machine goes to the next TODO in stack order: T3, after T6.
 	code, body = call("PUT", "/api/install", `{"parallel":8}`, mayaCookie)
 	require.Equal(t, 200, code, string(body))
 	var install struct {
@@ -723,16 +756,17 @@ esac
 	saved, err := q.GetInstallParallel(ctx)
 	require.NoError(t, err)
 	require.JSONEq(t, `8`, string(saved))
-	settle("step 3", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
-	homeSnapshot("step 3", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 3})
-	todoSnapshot("step 3", 3, 1)
+	settle("step 3", map[int]string{1: "in_review", 2: "working", 3: "working", 4: "queued", 5: "queued", 6: "working"}, map[int]int{4: 1, 5: 2})
+	homeSnapshot("step 3", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 1, 5: 2}, Parallel: 3})
+	todoSnapshot("step 3", 4, 1)
 	todoSnapshot("step 3", 6, 0)
 	held("step 3", 3)
+	parallelBrowserCheckpoint(t, "raised")
 
 	// Step 4: free disk falls to capacity 2, then 0, while three TODO machines
 	// are held. Nothing is preempted and nothing new is granted; the saved
 	// request stays 8.
-	working := map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}
+	working := map[int]string{1: "in_review", 2: "working", 3: "working", 4: "queued", 5: "queued", 6: "working"}
 	for _, fixture := range []struct {
 		free     int64
 		parallel int
@@ -752,12 +786,15 @@ esac
 			held(step, 3)
 			time.Sleep(200 * time.Millisecond)
 		}
-		settle(step, working, map[int]int{3: 1, 4: 2, 5: 3})
-		homeSnapshot(step, homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: fixture.parallel})
+		settle(step, working, map[int]int{4: 1, 5: 2})
+		homeSnapshot(step, homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 1, 5: 2}, Parallel: fixture.parallel})
 		code, body = call("GET", "/api/install", "", mayaCookie)
 		require.Equal(t, 200, code, string(body))
 		require.NoError(t, json.Unmarshal(body, &install))
 		require.Equal(t, 8, install.Parallel, step)
+		if fixture.parallel == 0 {
+			parallelBrowserCheckpoint(t, "zero")
+		}
 	}
 
 	// Step 5: Ben opens a terminal on his sleeping scratch branch through the
@@ -767,7 +804,7 @@ esac
 	homeConn := dial("home")
 	kind, before := readHome(homeConn)
 	require.Equal(t, "snap", kind)
-	require.Equal(t, homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 2}, before)
+	require.Equal(t, homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 1, 5: 2}, Parallel: 2}, before)
 	// Keep a real TODO subscription open across the person dispatch.
 	// Its cursors must identify committed source events, including replay;
 	// a refreshed seeded card cannot satisfy this acceptance boundary.
@@ -787,9 +824,9 @@ esac
 			}
 		}
 	}
-	thirdItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 3)
+	thirdItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 4)
 	require.NoError(t, err)
-	todoConn := dial("todo:3")
+	todoConn := dial("todo:4")
 	todoBefore := readFrame(todoConn)
 	require.Equal(t, "snap", todoBefore.T)
 	readQueueDelta := func(conn *websocket.Conn, previous int64) live.Frame {
@@ -808,7 +845,7 @@ esac
 			if data.Card.Queue == nil || data.Card.Queue.Position != 2 {
 				continue
 			}
-			require.Equal(t, 3, data.Card.N)
+			require.Equal(t, 4, data.Card.N)
 			require.Equal(t, "machine", data.Card.Queue.Reason)
 			var committed []byte
 			require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3`,
@@ -819,7 +856,7 @@ esac
 	}
 	code, body = call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, scratchBranch.ID), benCookie)
 	require.Equal(t, 202, code, string(body))
-	shifted := homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 2, 4: 3, 5: 4}, Parallel: -1}
+	shifted := homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 2, 5: 3}, Parallel: -1}
 	before.Parallel = -1
 	for {
 		kind, got := readHome(homeConn)
@@ -833,9 +870,9 @@ esac
 	todoShift := readQueueDelta(todoConn, int64(*todoBefore.Cursor))
 	// Reconnect from the pre-dispatch cursor: the production journal replays
 	// the same fact instead of synthesizing a new queue state or cursor.
-	replayConn := dial("todo:3")
+	replayConn := dial("todo:4")
 	require.Equal(t, "snap", readFrame(replayConn).T)
-	require.NoError(t, replayConn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:3","cursor":%d}`, *todoBefore.Cursor))))
+	require.NoError(t, replayConn.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:4","cursor":%d}`, *todoBefore.Cursor))))
 	replayed := readQueueDelta(replayConn, int64(*todoBefore.Cursor))
 	require.Equal(t, *todoShift.Cursor, *replayed.Cursor)
 	require.JSONEq(t, string(todoShift.Data), string(replayed.Data))
@@ -950,9 +987,10 @@ esac
 	require.Len(t, waitingActors, 2)
 	held("concurrent terminal requests", 3)
 	readBranchPlace(1, "asleep")
-	settle("step 5 waiting", working, map[int]int{3: 2, 4: 3, 5: 4})
-	todoSnapshot("step 5 waiting", 3, 2)
+	settle("step 5 waiting", working, map[int]int{4: 2, 5: 3})
+	todoSnapshot("step 5 waiting", 4, 2)
 	held("step 5 waiting", 3)
+	parallelBrowserCheckpoint(t, "person")
 	var browser *exec.Cmd
 	var browserOutput *bufio.Scanner
 	var browserErrors bytes.Buffer
@@ -990,9 +1028,10 @@ esac
 	// Ben's person request is granted before it; T3 starts and waits #1.
 	freeDisk.Store(168 << 30)
 	require.True(t, assertEventually(15*time.Second, func() bool { return runtime.AdmissionHeld("workspace:" + scratchBranch.ID) }), "Ben's wake is granted: %s %+v", scratchBranch.ID, runtime.AdmissionSnapshot())
-	settle("step 5 granted", map[int]string{1: "working", 2: "working", 3: "starting", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
-	homeSnapshot("step 5 granted", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 4})
+	settle("step 5 granted", map[int]string{1: "in_review", 2: "working", 3: "working", 4: "starting", 5: "queued", 6: "working"}, map[int]int{4: 1, 5: 2})
+	homeSnapshot("step 5 granted", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 1, 5: 2}, Parallel: 4})
 	held("step 5 granted", 4)
+	parallelBrowserCheckpoint(t, "granted")
 	readBranchPlace(0, "waking")
 	// The already-mounted branch subscriber must observe the actual grant,
 	// rather than relying on a fresh GET or an intercepted browser frame.
@@ -1090,6 +1129,8 @@ func parallelInstallRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Pool
 			args[i] = reflect.ValueOf(q)
 		case in == reflect.TypeOf(pool):
 			args[i] = reflect.ValueOf(pool)
+		case in == reflect.TypeOf(&routes.UserHandler{}):
+			args[i] = reflect.ValueOf(&routes.UserHandler{ProfileService: services.NewUserService(q)})
 		case in == reflect.TypeOf(&routes.WorkspaceHandler{}) && terminal != nil:
 			args[i] = reflect.ValueOf(&routes.WorkspaceHandler{Service: terminal.Service.(*services.WorkspaceService)})
 		case in == reflect.TypeOf(terminal) && terminal != nil:

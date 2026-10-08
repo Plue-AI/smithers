@@ -36,8 +36,15 @@ func (r *Runtime) SyncTodoAdmission(scope string, holders []string, limit int) e
 		}
 	}
 	for _, holder := range holders {
-		if _, err := r.requestLocked("todo", holder, holder, "machine"); err != nil {
-			return err
+		// A stack refresh retains the current TODO demand. Re-filing it
+		// during capture/stop would turn its granted row into a new wake,
+		// putting an occupied reviewed branch back in the waiting line.
+		existing := r.admission[holder]
+		retained := existing != nil && existing.held && existing.rows[holder] != nil && existing.rows[holder].State == "granted"
+		if !retained {
+			if _, err := r.requestLocked("todo", holder, holder, "machine"); err != nil {
+				return err
+			}
 		}
 		h := r.admission[holder]
 		h.todoScope, h.todoLimit = scope, max(0, limit)

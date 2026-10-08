@@ -214,3 +214,38 @@ func TestTodoGrantRechecksParallelAfterReadiness(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "workspace:2", second.Holder)
 }
+
+func TestTodoProjectionRetainsGrantedDemandDuringAutomaticRelease(t *testing.T) {
+	for _, phase := range []string{"capture", "stop"} {
+		t.Run(phase, func(t *testing.T) {
+			r, p := admissionFixture()
+			require.NoError(t, r.SyncTodoAdmission("repo", []string{"todo:1", "todo:6"}, 1))
+			require.NoError(t, r.TransferTodoAdmission("todo:1", "workspace:1"))
+			grant, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.Equal(t, "workspace:1", grant.Holder)
+			h := r.admission["workspace:1"]
+			if phase == "capture" {
+				h.idlePreparing = true
+			} else {
+				h.releasing = time.Now()
+			}
+			require.NoError(t, r.SyncTodoAdmission("repo", []string{"workspace:1", "todo:6"}, 1))
+			require.True(t, r.AdmissionHeld("workspace:1"))
+			for _, row := range r.AdmissionSnapshot() {
+				if row.Holder == "workspace:1" {
+					require.Equal(t, "granted", row.State)
+					require.Zero(t, row.Position)
+				}
+				if row.Holder == "todo:6" {
+					require.Equal(t, "waiting", row.State)
+					require.Equal(t, 1, row.Position)
+				}
+			}
+			// An actual new wake still waits for the retained machine's stop.
+			wake, err := r.Request("person", "workspace:1", "person:2", "terminal")
+			require.NoError(t, err)
+			require.Equal(t, "waiting", wake.State)
+		})
+	}
+}

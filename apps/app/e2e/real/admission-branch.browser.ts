@@ -44,7 +44,7 @@ try {
   console.log("ADMISSION_BROWSER_WAITING")
   await expect(card).toContainText("Waking", { timeout: 60000 })
   await expect(card).not.toContainText("Waiting for a machine")
-  await expect(stack.locator('li[data-state="starting"]')).toContainText("T3")
+  await expect(stack.locator('li[data-state="starting"]')).toContainText("T4")
   await expect(stack).toContainText("waiting for a machine #1")
   const granted = await page.evaluate(() => (window as unknown as { admission: { cursor(): number } }).admission.cursor())
   expect(granted).toBeGreaterThan(cursor)
