@@ -1,28 +1,33 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 14:06 PDT
-main          992ca6aa8b when written
+Updated       2026-10-08 14:33 PDT
+main          43e26fff08 when written
 
+Publish       CANNOT PUBLISH YET. Dry run #4 decides, about 15:00 PDT.
 Real machine  The machine daemon starts, admits its session and lands writes in
               a real VM on main. Proven on this MacBook at 99a4356a1a. All
               eight defects found today are fixed.
-Real install  NOT YET PROVEN. No TODO has run on a real install. The install
-              run on this MacBook is building its bundle.
-Journeys      7 of 11 have no failed row, on Linux fixtures, at d0b0c7b2f0.
-              Red (pass/fail/pending): J4 22/1/2, J5 18/2/0, J7 11/4/6, J10 35/1/4.
-              Those four are rerunning on main 4881e80270 since 14:02 PDT.
+Real install  NOT YET PROVEN. No TODO has run on a real install. The bundle for
+              the run on this MacBook is still building. 32 GiB free now; the
+              first start needs 44.
+Journeys      RERUNNING on main 0489b1c08c since 14:31 PDT: J4, J7, J3, J10, J5.
+              Earlier runs went red when the first TODO reached review
+              (`source_refused`). Cause found, fixed on main: f9d3b72e29, ba1a27bc91.
+              Last runs, before the fix (pass/fail/pending):
+              b74a68604e  J1 21/0/0, J2 14/0/0, J3 13/1/5, J4 7/2/0
+              4881e80270  J4 2/1/0, J7 3/1/0, J10 9/1/0, J5 10/9/0
 Doneish       No. It needs one real install that takes a TODO to a merged PR, and
               all 11 journeys passing on one commit. Neither exists.
-Dry run       NOT GREEN. Version 1.0.0-rc.1, cut 4cac606955.
-              #1 37837413419 failed: changelog gate, and the Mac bundle was
-              never uploaded (hidden directory). Fixed on main, 86881fe0d0.
-              #2 37842512795 and #3 37843714479 are running on the cut.
-              #3 is the first that can deliver the bundle.
-Tag push      Publishes npm under `next` and nothing else. It cannot publish
-              after a failed build, pack or smoke. Homebrew and installer
-              signing are skipped. No GitHub Release is created.
-              (smithers-8a read the workflow at 86881fe0d0.)
+Dry runs      Version 1.0.0-rc.1. None is green.
+              #4 37846701537 running on 0489b1c08c since 14:25 PDT. It reaches
+                 the smoke test about 14:40 and ends about 15:00.
+              #3 37843714479 FAILED at pack and smoke-test: the smoke script
+                 imported a template removed on 10-01. Fixed in 0489b1c08c.
+              #1 failed. #2 runs the old workflow and will end red.
+Tag push      Publishes npm under `next` and nothing else. No publish after a
+              failed build, pack or smoke. Homebrew and installer signing are
+              skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
 
 Ships         npm packages under `next`. The Apple Silicon server bundle is an
               artifact of the tag's Release run. No Homebrew. No public download.
@@ -30,13 +35,12 @@ To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
               44 GiB free on your home volume for one machine (76 for two)
               until the owner has signed in. With less, a fresh install
               refuses to start (`host_capacity_zero`). Commands: section 6.
-No Mac mini   The Mac mini will not be online (Will, today).
-No Cloud      Smithers Cloud cannot run a TODO.
-Real run      One, on this MacBook: 37 GiB free now. It clears caches to hold
-              44 for the first start.
+No mini,      The Mac mini will not be online (Will, today). Smithers Cloud
+no Cloud      cannot run a TODO.
 
-Needs Will    Now: nothing.
-              When the last dry run is green: the tag push under Publish.
+Needs Will    Now: nothing required. Optional: say yes to using your model keys
+              if the install run should also run a TODO with a real model.
+              When a dry run is green on the final cut: the tag push, section 6.
 ```
 
 ## 1. What works
