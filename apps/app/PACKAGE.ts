@@ -358,6 +358,9 @@ const journeyForkAddToStack = referenceJourney("fork-add-to-stack.spec.ts")
 const journeySshBranch = referenceJourney("ssh-branch.spec.ts")
 const journeyInstallOrigins = referenceJourney("install-origins.spec.ts")
 const journeyFileIntelligence = referenceJourney("file-intelligence.spec.ts")
+const journeyForkDropInstall = referenceJourney("fork-drop-install.spec.ts")
+const journeyGitHubForeignPush = referenceJourney("github-j10/foreign-push.spec.ts")
+const journeyGitHubMainMovedRebase = referenceJourney("github-j10/main-moved-rebase.spec.ts")
 
 
 /** Dark reference-host journeys; wildcard selections omit these gates. */
@@ -592,5 +595,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, journeyFlowSourceRun, journeyWikiDecisionFollow, journeyBranchPresence, journeyDuplicateLaunch, journeyFileCoedit, journeyHome, journeyTodoMergeOrder, journeyTodoPlacement, journeyFlowActivation, journeyFileGone, journeyGitHubSyncHealth, journeyForkAddToStack, journeySshBranch, journeyInstallOrigins, journeyFileIntelligence, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, journeyFlowSourceRun, journeyWikiDecisionFollow, journeyBranchPresence, journeyDuplicateLaunch, journeyFileCoedit, journeyHome, journeyTodoMergeOrder, journeyTodoPlacement, journeyFlowActivation, journeyFileGone, journeyGitHubSyncHealth, journeyForkAddToStack, journeySshBranch, journeyInstallOrigins, journeyFileIntelligence, journeyForkDropInstall, journeyGitHubForeignPush, journeyGitHubMainMovedRebase, proofRecord, proofPage, webSources, ...securityReview }
 })
