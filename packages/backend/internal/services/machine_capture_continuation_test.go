@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/stretchr/testify/require"
 )
 
@@ -239,6 +240,50 @@ func TestCapturedSubmittedCandidateDoesNotWaitForItsSteer(t *testing.T) {
 			var pending []byte
 			require.NoError(t, f.pool.QueryRow(ctx, `SELECT capture_pending FROM workspaces WHERE id=$1`, branch).Scan(&pending))
 			require.Empty(t, pending)
+		})
+	}
+}
+
+func TestCapturedContinuationRetainsBroughtInCandidateAncestry(t *testing.T) {
+	f := newMythicalFixture(t)
+	main := f.commit("main", map[string]string{"main.md": "main"})
+	prefix := f.commit("T1", map[string]string{"first.md": "first"})
+	f.run("checkout", "--quiet", "--detach", main)
+	equivalent := f.commit("T1 on GitHub", map[string]string{"first.md": "first"})
+	candidate := f.commit("T2 brought in", map[string]string{"second.md": "second"})
+	head := f.commit("T2 steered", map[string]string{"second.md": "updated"})
+	item := db.MythicalItem{WorkspaceID: "10000000-0000-4000-8000-000000000001", CandidateBase: prefix, CandidateHead: candidate}
+	step := mythicalItemStep{r: &mythicalRun{g: f.git}}
+	require.NotEqual(t, prefix, equivalent)
+	for _, name := range []string{"retained candidate", "no source ref", "wrong source ref", "wrong captured base", "unrelated head", "missing candidate", "original prefix"} {
+		t.Run(name, func(t *testing.T) {
+			copy := item
+			capture := MachineCapturePending{Head: head, Base: candidate, SourceRef: repohost.WorkspaceSourceRef(item.WorkspaceID, head)}
+			switch name {
+			case "no source ref":
+				capture.SourceRef = ""
+			case "wrong source ref":
+				capture.SourceRef = repohost.WorkspaceSourceRef(item.WorkspaceID, candidate)
+			case "wrong captured base":
+				capture.Base = equivalent
+			case "unrelated head":
+				capture.Head = equivalent
+				capture.SourceRef = repohost.WorkspaceSourceRef(item.WorkspaceID, equivalent)
+			case "missing candidate":
+				copy.CandidateHead = strings.Repeat("f", 40)
+				capture.Base = copy.CandidateHead
+			case "original prefix":
+				copy.CandidateBase = main
+				capture.SourceRef = ""
+			}
+			accepted, err := step.capturedContinuationContainsBase(t.Context(), copy, capture)
+			if name == "missing candidate" {
+				require.Error(t, err)
+				require.False(t, accepted)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, name == "retained candidate" || name == "original prefix", accepted)
 		})
 	}
 }

@@ -96,7 +96,7 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	if commit.Tree != capture.Tree {
 		return nil, false, errors.New("captured tree differs from its retained commit")
 	}
-	containsBase, err := st.r.g.isAncestor(ctx, item.CandidateBase, capture.Head)
+	containsBase, err := st.capturedContinuationContainsBase(ctx, item, *capture)
 	if err != nil {
 		return nil, false, err
 	}
@@ -200,4 +200,18 @@ func (st *mythicalItemStep) consumeSubmittedCapture(ctx context.Context, item db
 		return nil, false, err
 	}
 	return &saved, true, nil
+}
+
+func (st *mythicalItemStep) capturedContinuationContainsBase(ctx context.Context, item db.MythicalItem, capture MachineCapturePending) (bool, error) {
+	containsBase, err := st.r.g.isAncestor(ctx, item.CandidateBase, capture.Head)
+	if err != nil || containsBase {
+		return containsBase, err
+	}
+	// Bring-in can retain a verified candidate whose GitHub parent contains
+	// earlier-item bytes under a different commit identity. New edits must
+	// descend from that exact retained candidate, never assert an equivalent tree.
+	if capture.SourceRef == repohost.WorkspaceSourceRef(item.WorkspaceID, capture.Head) && capture.Base == item.CandidateHead && codingCommitID.MatchString(item.CandidateHead) {
+		return st.r.g.isAncestor(ctx, item.CandidateHead, capture.Head)
+	}
+	return false, nil
 }
