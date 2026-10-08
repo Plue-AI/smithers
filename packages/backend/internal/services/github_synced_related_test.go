@@ -258,7 +258,7 @@ func TestGitHubRelatedRetrySharesOneOwner(t *testing.T) {
 		}
 	})
 	pulls := 0
-	s.install.requestPulls = func(context.Context, db.GithubSyncedRepo) error { pulls++; return nil }
+	s.install.requestPulls = func(context.Context, db.GithubSyncedRepo, bool) error { pulls++; return nil }
 	s.install.requiredPulls = func(context.Context, db.GithubSyncedRepo) ([]GitHubSyncStream, error) { return nil, nil }
 	s.install.requiredPullFacts = func(context.Context, db.GithubSyncedRepo, string) ([]GitHubSyncStream, error) { return nil, nil }
 	streams := requiredGitHubSyncStreams{repository: s, checks: s.PullFactStreams("checks"), reviews: s.PullFactStreams("reviews")}

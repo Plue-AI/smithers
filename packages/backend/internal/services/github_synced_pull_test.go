@@ -413,6 +413,7 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 		count = len(calls)
 		for range 3 {
 			hint()
+			require.NoError(t, s.RetryStreams(ctx))
 			retry, err = stack.fetchInstallPullHint(ctx, item)
 			require.NoError(t, err)
 			require.WithinDuration(t, now.Add(90*time.Second), retry, time.Second)
@@ -433,6 +434,83 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	require.Len(t, calls, count)
 	hint()
 	require.Empty(t, stack.installPullHints.pending)
+}
+
+// Sync Retry must refresh a PR even while its TODO waits for verification.
+// An expired phase deadline is not proof that advance will perform a PR read.
+func TestGitHubPullRetryReadsWhileVerificationWaits(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	ctx, q := t.Context(), db.New(pool)
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "retry-verifying", LowerUsername: "retry-verifying"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repositories SET mirror_destination='factory/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, user.ID, 1, false)
+	require.NoError(t, err)
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "verifying"})
+	require.NoError(t, err)
+	item.PRNumber = pgtype.Int8{Int64: 7, Valid: true}
+	item.NextAttemptAt = pgtype.Timestamptz{Time: time.Now().Add(-time.Second), Valid: true}
+	item, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	stack := NewMythicalService(pool, nil)
+	stack.UseInstallGitHubPolling(s)
+	allowFetched(s)
+	var calls []string
+	failure := false
+	during := func() {}
+	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
+		return func(_ context.Context, resource string, _ url.Values, _ string) (GitHubSyncedRepoConditionalPage, error) {
+			calls = append(calls, resource)
+			during()
+			if failure {
+				return GitHubSyncedRepoConditionalPage{}, errors.New("temporary network failure")
+			}
+			body := json.RawMessage(`[]`)
+			if resource == "pulls/7" {
+				body = json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", strings.Repeat("a", 40), 1))
+			} else if strings.HasSuffix(resource, "/check-runs") {
+				body = json.RawMessage(`{"check_runs":[]}`)
+			}
+			return GitHubSyncedRepoConditionalPage{Body: body}, nil
+		}
+	})
+	require.NoError(t, s.RetryStreams(ctx))
+	require.Empty(t, calls, "Retry acknowledges before any provider read")
+	stack.advanceItems(ctx, &mythicalRun{row: db.MythicalStack{RepositoryID: repo.ID, MaxParallel: 1}})
+	require.Equal(t, []string{"pulls/7", "commits/" + strings.Repeat("a", 40) + "/check-runs", "commits/" + strings.Repeat("a", 40) + "/statuses", "pulls/7/reviews", "pulls/7/comments", "issues/7/comments"}, calls)
+	latest, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, item, latest, "refresh does not complete verification or change its deadline")
+	for _, resource := range []string{"pulls", "checks", "reviews"} {
+		streams, err := stack.requiredInstallPullResources(ctx, row, resource)
+		require.NoError(t, err)
+		require.Len(t, streams, 1)
+		require.NotNil(t, streams[0].LastSuccessAt, resource)
+	}
+	stack.advanceItems(ctx, &mythicalRun{row: db.MythicalStack{RepositoryID: repo.ID, MaxParallel: 1}})
+	require.Len(t, calls, 6, "the hint is consumed once while verification still waits")
+	for _, racing := range []bool{false, true} {
+		failure = true
+		require.NoError(t, s.RetryStreams(ctx))
+		if racing {
+			during = func() {
+				during = func() {}
+				require.NoError(t, s.RetryStreams(ctx))
+			}
+		}
+		_, err := stack.fetchInstallPullHint(ctx, item)
+		require.ErrorContains(t, err, "temporary network failure")
+		failure = false
+		if !racing {
+			require.NoError(t, s.RetryStreams(ctx))
+		}
+		before := len(calls)
+		stack.advanceItems(ctx, &mythicalRun{row: db.MythicalStack{RepositoryID: repo.ID, MaxParallel: 1}})
+		require.Len(t, calls, before+6, "explicit Retry admits a new read before transient backoff, including one arriving during the failed read")
+	}
 }
 
 func TestGitHubPullCloserHTTPReceipt(t *testing.T) {

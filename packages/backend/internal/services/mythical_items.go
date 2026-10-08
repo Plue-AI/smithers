@@ -1674,13 +1674,18 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			r.dueAt(step.now.Add(time.Second))
 			continue
 		}
-		if !needsDropRead && item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+		if !needsDropRead {
+			// A due phase need not read GitHub: verification, capture and
+			// native continuation can remain waiting. An admitted fetch hint
+			// refreshes the PR independently of that phase's deadline.
 			if retryAt, err := s.fetchInstallPullHint(ctx, item); !retryAt.IsZero() {
 				r.dueAt(retryAt)
 				if err != nil {
 					s.logger.Warn("mythical.pull_hint_failed", "item", uuidString(item.ID), "error", err)
 				}
 			}
+		}
+		if !needsDropRead && item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
 			r.dueAt(item.NextAttemptAt.Time)
 			continue
 		}

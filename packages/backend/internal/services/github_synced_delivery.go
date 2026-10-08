@@ -54,7 +54,7 @@ type gitHubInstallSync struct {
 	streams           map[gitHubStreamKey]gitHubPollState
 	etags             map[gitHubPageKey]gitHubPageValidator
 	wake              chan struct{}
-	requestPulls      func(context.Context, db.GithubSyncedRepo) error
+	requestPulls      func(context.Context, db.GithubSyncedRepo, bool) error
 	requiredPulls     func(context.Context, db.GithubSyncedRepo) ([]GitHubSyncStream, error)
 	pullFacts         bool
 	requiredPullFacts func(context.Context, db.GithubSyncedRepo, string) ([]GitHubSyncStream, error)
@@ -85,6 +85,10 @@ func (s *GitHubSyncedRepoService) authorizeFetched(ctx context.Context, row db.G
 }
 
 func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githubRepoID int64, resources ...string) error {
+	return s.requestInstallFetchMode(ctx, githubRepoID, false, resources...)
+}
+
+func (s *GitHubSyncedRepoService) requestInstallFetchMode(ctx context.Context, githubRepoID int64, explicitRetry bool, resources ...string) error {
 	if githubRepoID <= 0 {
 		return nil
 	}
@@ -106,7 +110,7 @@ func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githu
 	var pullErr error
 	for _, resource := range resources {
 		if resource == GitHubRepoMetadataPulls && s.install.requestPulls != nil {
-			pullErr = s.install.requestPulls(ctx, row)
+			pullErr = s.install.requestPulls(ctx, row, explicitRetry)
 			break
 		}
 	}

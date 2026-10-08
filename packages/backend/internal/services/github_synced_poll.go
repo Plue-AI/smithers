@@ -183,7 +183,8 @@ func (s *GitHubSyncedRepoService) RequiredStreams(ctx context.Context) ([]GitHub
 }
 
 // RetryStreams schedules the existing readers and returns before HTTP. Fetch
-// hints cannot reset cadence, ETags, failed-read backoff or shared admission.
+// Retry retains cadence, ETags and shared admission. Its explicit request
+// supersedes a transient per-TODO fetch delay; webhook hints keep that delay.
 func (s *GitHubSyncedRepoService) RetryStreams(ctx context.Context) error {
 	rows, err := s.readyInstallSyncRows(ctx)
 	if err != nil {
@@ -191,7 +192,7 @@ func (s *GitHubSyncedRepoService) RetryStreams(ctx context.Context) error {
 	}
 	var failures []error
 	for _, row := range rows {
-		if err := s.requestInstallFetch(ctx, row.GithubRepositoryID.Int64); err != nil {
+		if err := s.requestInstallFetchMode(ctx, row.GithubRepositoryID.Int64, true); err != nil {
 			failures = append(failures, err)
 		}
 	}

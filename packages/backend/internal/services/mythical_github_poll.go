@@ -134,8 +134,9 @@ func (r *mythicalDropRead) matches(source db.GithubSyncedRepo) bool {
 // Hints belong to the existing stack worker. They do not change an item's
 // next_attempt_at: an early fetch must not postpone its regular 45-second read.
 type mythicalPullHint struct {
-	row     db.GithubSyncedRepo
-	retryAt time.Time
+	row           db.GithubSyncedRepo
+	retryAt       time.Time
+	explicitRetry bool
 }
 type mythicalPullHints struct {
 	mu      sync.Mutex
@@ -143,7 +144,7 @@ type mythicalPullHints struct {
 	wake    chan struct{}
 }
 
-func (s *MythicalService) requestInstallPulls(ctx context.Context, row db.GithubSyncedRepo) error {
+func (s *MythicalService) requestInstallPulls(ctx context.Context, row db.GithubSyncedRepo, explicitRetry bool) error {
 	synced := s.installGitHubSync
 	if synced == nil || synced.install == nil || synced.install.authorize == nil {
 		return nil // A webhook is acknowledged, but cannot activate a dark provider.
@@ -177,6 +178,11 @@ func (s *MythicalService) requestInstallPulls(ctx context.Context, row db.Github
 			}
 			hint := s.installPullHints.pending[item.ID]
 			hint.row = row
+			if explicitRetry {
+				// A new admitted Retry requests a read now. Shared stream and
+				// resource pauses are rechecked by the reader, never cleared.
+				hint.retryAt, hint.explicitRetry = time.Time{}, true
+			}
 			s.installPullHints.pending[item.ID] = hint
 			requested = true
 		}
@@ -237,7 +243,9 @@ func (s *MythicalService) fetchInstallPullHint(ctx context.Context, item db.Myth
 		hint.retryAt = mythicalStepFailedDue(err, s.now())
 		hints.mu.Lock()
 		newer, exists := hints.pending[item.ID]
-		if !exists || newer.row.ID == hint.row.ID && newer.row.InstallationID == hint.row.InstallationID {
+		if !exists || newer.row.ID == hint.row.ID && newer.row.InstallationID == hint.row.InstallationID && !newer.explicitRetry {
+			// An older failed read cannot delay a newer explicit Retry.
+			hint.explicitRetry = false
 			hints.pending[item.ID] = hint
 		}
 		hints.mu.Unlock()
