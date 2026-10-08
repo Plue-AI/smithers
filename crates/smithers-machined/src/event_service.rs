@@ -14,6 +14,7 @@ struct State<R: Refs, B: Bundles> {
     active: bool,
     bursts: u64,
     hints: VecDeque<Frame>,
+    observer: Option<crate::rebase_observer::Observer>,
 }
 
 pub struct Events<R: Refs, B: Bundles> {
@@ -46,10 +47,19 @@ impl<R: Refs, B: Bundles> Events<R, B> {
                 active: false,
                 bursts: 0,
                 hints: VecDeque::new(),
+                observer: None,
             }),
             allocate: Box::new(allocate),
             incoming: None,
         })
+    }
+
+    /// The installed daemon opens this private log, never a member-selected path.
+    pub fn observe_rebases(&self, boot: [u8; 16], log: std::fs::File) -> io::Result<()> {
+        let mut state = self.state.lock().map_err(|_| io::Error::other("event state poisoned"))?;
+        if state.observer.is_some() { return Err(io::ErrorKind::AlreadyExists.into()); }
+        state.observer = Some(crate::rebase_observer::Observer::new(boot, log));
+        Ok(())
     }
 
     pub fn with_incoming(mut self, store: std::sync::Arc<dyn crate::incoming::Store>) -> Self {
@@ -118,6 +128,20 @@ where
         }
     }
 
+    fn rebase_started(&self, onto: Oid, request: u32) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(observer) = &mut state.observer { observer.started(onto, request); }
+        }
+    }
+    fn rebase_finished(&self, failed: bool) {
+        if let Ok(mut state) = self.state.lock() {
+            let depth = state.outbox.depth();
+            let pending = state.observer.as_ref().and_then(|o| o.capture_sequence())
+                .map(|sequence| state.outbox.contains_sequence(sequence));
+            if let Some(observer) = &mut state.observer { observer.finished(failed, pending, depth); }
+        }
+    }
+
     fn presence(&self, payload: &[u8]) -> hooks::Result<()> {
         let frame = Frame {
             kind: 3,
@@ -152,6 +176,9 @@ where
     fn append(&self, event: &[u8], pin: Option<Oid>) -> hooks::Result<(u64, [u8; 16])> {
         let mut state = self.state()?;
         let receipt = state.outbox.append(event, pin).map_err(error)?;
+        if event.first() == Some(&2) {
+            if let Some(observer) = &mut state.observer { observer.captured(receipt.0, receipt.1); }
+        }
         if event.first() == Some(&1) {
             state.bursts = state.bursts.wrapping_add(1);
         }
@@ -247,6 +274,9 @@ where
         let result = delivery.receive(outbox, frame).map_err(error)?;
         if frame.kind == 2 {
             *active = false;
+        }
+        if state.outbox.depth() == 0 {
+            if let Some(observer) = &mut state.observer { observer.drained(); }
         }
         Ok(result)
     }

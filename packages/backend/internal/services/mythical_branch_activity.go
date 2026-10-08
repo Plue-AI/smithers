@@ -24,11 +24,23 @@ const BranchActivityEvent = "branch.activity"
 // topic's readers. actor is a rendered TodoCard actor (todoActor) or a stored
 // participant the branch actor renderer resolves. An item with no branch
 // records none.
-func recordBranchActivity(ctx context.Context, tx pgx.Tx, item db.MythicalItem, id, kind string, actor json.RawMessage, text string) error {
+type branchRebaseEvidence struct {
+	ReceiptID        string
+	OntoRevision     string
+	HeadChanged      bool
+	ApprovalsCleared bool
+}
+
+func recordBranchActivity(ctx context.Context, tx pgx.Tx, item db.MythicalItem, id, kind string, actor json.RawMessage, text string, rebase ...branchRebaseEvidence) error {
 	if item.WorkspaceID == "" || len(actor) == 0 {
 		return nil
 	}
-	data, err := json.Marshal(map[string]any{"id": id, "kind": kind, "actor": actor, "text": text, "n": item.Number.Int64})
+	entry := map[string]any{"id": id, "kind": kind, "actor": actor, "text": text, "n": item.Number.Int64}
+	if len(rebase) == 1 {
+		entry["receipt_id"], entry["onto_revision"] = rebase[0].ReceiptID, rebase[0].OntoRevision
+		entry["head_changed"], entry["approvals_cleared"] = rebase[0].HeadChanged, rebase[0].ApprovalsCleared
+	}
+	data, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}

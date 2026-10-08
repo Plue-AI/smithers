@@ -61,3 +61,5 @@ pub mod native_core;
 pub mod session_environment;
 
 mod wake_journal;
+
+mod rebase_observer;

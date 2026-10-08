@@ -34,6 +34,14 @@ func (l *Link) call(ctx context.Context, branch string, method wire.Method, args
 	if err != nil {
 		return nil, err
 	}
+	result, err := callResultFields(f, method)
+	if err == wire.BadValue {
+		_ = l.Close()
+	}
+	return result, err
+}
+
+func callResultFields(f wire.Frame, method wire.Method) (map[byte][]byte, error) {
 	fields, err := wire.Fields("response", f.Payload[1:])
 	if err != nil {
 		return nil, err
@@ -56,7 +64,6 @@ func (l *Link) call(ctx context.Context, branch string, method wire.Method, args
 		return values, refusal
 	}
 	if result[0] != byte(method) {
-		_ = l.Close()
 		return nil, wire.BadValue
 	}
 	return wire.Fields(fmt.Sprintf("result%d", method), result[1:])
@@ -458,11 +465,29 @@ func (r *Registry) rewrite(ctx context.Context, branch string, method wire.Metho
 	return l.rewrite(ctx, branch, method, args...)
 }
 func (l *Link) rewrite(ctx context.Context, branch string, method wire.Method, args ...[]byte) (RewriteResult, error) {
-	fields, err := l.call(ctx, branch, method, args...)
+	frame, err := l.Request(ctx, branch, method, args...)
 	if err != nil {
 		return RewriteResult{}, err
 	}
+	fields, err := callResultFields(frame, method)
+	if err != nil {
+		if err == wire.BadValue {
+			_ = l.Close()
+		}
+		return RewriteResult{}, err
+	}
 	result := RewriteResult{Head: hex.EncodeToString(fields[1])}
+	if method == wire.Rebase {
+		envelope, err := wire.Fields("response", frame.Payload[1:])
+		if err != nil {
+			return RewriteResult{}, err
+		}
+		arguments, err := wire.Fields("args11", wire.Struct(args...))
+		if err != nil {
+			return RewriteResult{}, err
+		}
+		result.ReceiptID = fmt.Sprintf("%x:%x:%08x", l.boot.id, arguments[1], binary.BigEndian.Uint32(envelope[1]))
+	}
 	if list, found := fields[2]; found {
 		result.Inspected = true
 		result.Paths = decodeNativePaths(list)

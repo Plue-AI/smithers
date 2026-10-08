@@ -100,7 +100,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		selector = " AND sequence>$3"
 		args = append(args, cursor)
 	}
-	rows, err := t.changePool.Query(ctx, `SELECT sequence,recorded_at,jsonb_strip_nulls(jsonb_build_object('id',data->>'id','kind',data->>'kind','actor',data->'actor','files',CASE WHEN e.event_type<>'`+services.BranchActivityEvent+`' THEN COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb) END,'versions',data->>'versions','text',data->>'text')) FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type IN ('branch.burst','branch.moved-off','`+services.BranchActivityEvent+`')`+selector+` ORDER BY sequence `+order, args...)
+	rows, err := t.changePool.Query(ctx, `SELECT sequence,recorded_at,jsonb_strip_nulls(jsonb_build_object('id',data->>'id','kind',data->>'kind','actor',data->'actor','files',CASE WHEN e.event_type<>'`+services.BranchActivityEvent+`' THEN COALESCE((SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('path',f.path,'change',f.change,'before_blob',f.before_blob,'after_blob',f.after_blob)) ORDER BY f.path) FROM burst_files f WHERE f.event_id=e.event_id),'[]'::jsonb) END,'versions',data->>'versions','text',data->>'text','receipt_id',data->>'receipt_id','onto_revision',data->>'onto_revision','head_changed',data->'head_changed','approvals_cleared',data->'approvals_cleared')) FROM product_job_events e WHERE tenant_id=$1 AND principal_id=$2 AND event_type IN ('branch.burst','branch.moved-off','`+services.BranchActivityEvent+`')`+selector+` ORDER BY sequence `+order, args...)
 	if err != nil {
 		return live.LogPage{}, err
 	}
@@ -173,6 +173,14 @@ func (t *liveTopics) changeActorResolver(ctx context.Context) func(json.RawMessa
 		}
 		if err := json.Unmarshal(raw, &participant); err != nil {
 			return nil, err
+		}
+		if participant.Kind == "system" {
+			var actor map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &actor); err != nil {
+				return nil, err
+			}
+			actor["color_index"] = json.RawMessage(`7`)
+			return json.Marshal(actor)
 		}
 		if (participant.Kind != "person" && (participant.Kind != "agent" || participant.AgentKind == "")) || participant.Login != "" {
 			return raw, nil

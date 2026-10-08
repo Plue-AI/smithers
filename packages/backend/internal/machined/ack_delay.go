@@ -83,7 +83,7 @@ func (r *Registry) ReadAckDelay(branch string) (AckDelayReceipt, error) {
 	defer r.ackDelayMu.Unlock()
 	d := r.ackDelays[branch]
 	if d == nil {
-		return AckDelayReceipt{Branch: branch, State: "idle"}, nil
+		return AckDelayReceipt{Branch: branch, Boot: hex.EncodeToString(link.boot.id[:]), State: "idle"}, nil
 	}
 	if d.link != link {
 		return AckDelayReceipt{}, ErrUnauthorized

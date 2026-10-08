@@ -341,6 +341,17 @@ pub fn run() -> io::Result<()> {
         Events::new(outbox, git.clone(), move || allocator.allocate_stream())?
             .with_incoming(Arc::new(git.clone())),
     );
+    // Fixed daemon-owned state; no branch path or root step is introduced.
+    use std::os::unix::fs::OpenOptionsExt;
+    let log = std::fs::OpenOptions::new().create(true).append(true).mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(state.join("rebase.jsonl"))?;
+    let metadata = log.metadata()?;
+    use std::os::unix::fs::MetadataExt;
+    if !metadata.is_file() || metadata.uid() != 19998 || metadata.mode() & 0o777 != 0o600 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    events.observe_rebases(boot.identity.boot, log)?;
     let core =
         Arc::new(crate::native_core::NativeCore {
             item: boot.item.clone(),

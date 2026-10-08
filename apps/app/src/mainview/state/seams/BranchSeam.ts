@@ -39,6 +39,13 @@ export function branchFileMachineScope(value: unknown, branch: string): { sleepi
 const Activity = z.array(z.object({ id: z.string(), actor: ActorSchema, asked_by: ActorSchema.optional(), kind: z.enum(["step", "steer", "question", "answer", "edit", "change", "github", "rebase", "read", "context"]), text: z.string(), items: z.array(z.string()).optional(), files: z.number().int().nonnegative().optional(), github: z.boolean().optional(), at: z.string() }))
 const Files = z.array(z.object({ path: z.string(), change: z.enum(["added", "modified", "deleted", "renamed"]), renamed_to: z.string().optional(), authors: z.array(ActorSchema) }))
 
+// Diagnostic rebase receipts are served by the same activity feed. Keep its
+// strict entry decoding while Views receive only their existing display props.
+const ServedActivityEntry = BranchActivityEntry.extend({
+  receipt_id: z.string().optional(), onto_revision: z.string().regex(/^[a-f0-9]{40}$/).optional(),
+  head_changed: z.boolean().optional(), approvals_cleared: z.boolean().optional()
+})
+
 /** Decode the durable change stream at the socket boundary, with roster-owned names. */
 function participantActor(value: unknown, context: ActorContext) {
   const rendered = ActorSchema.safeParse(value)
@@ -51,7 +58,7 @@ function participantActor(value: unknown, context: ActorContext) {
 function activityRows(value: unknown, context: ActorContext): unknown {
   if (!Array.isArray(value)) return value
   return value.map(row => {
-    const entry = BranchActivityEntry.safeParse(row)
+    const entry = ServedActivityEntry.safeParse(row)
     if (!entry.success) return row
     const actor = participantActor(entry.data.actor, context)
     return { id: entry.data.id, at: entry.data.at, actor,

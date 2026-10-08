@@ -16,6 +16,10 @@ func TestAckDelayReadyConnectionFence(t *testing.T) {
 	_, err = r.AckDelay("branch", 10000, "", "")
 	require.ErrorIs(t, err, ErrNotReady)
 	require.NoError(t, link.Connection.Reconciled())
+	idle, err := r.ReadAckDelay("branch")
+	require.NoError(t, err)
+	require.Equal(t, "idle", idle.State)
+	require.Len(t, idle.Boot, 32, "normal holds also bind their authenticated guest clock")
 	first, err := r.AckDelay("branch", 10000, "", "")
 	require.NoError(t, err)
 	for _, invalid := range []int{-1, 1, 9999, 10001} {

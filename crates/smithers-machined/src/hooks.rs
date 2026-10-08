@@ -237,6 +237,9 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Diagnostic observations use the production mutation/outbox boundaries.
+    fn rebase_started(&self, _onto: Oid, _request: u32) {}
+    fn rebase_finished(&self, _failed: bool) {}
     /// Fault builds observe completed socket writes, never queued frames.
     #[cfg(all(feature = "killpoints", debug_assertions))]
     fn sent(&self, _frame: &Frame) {}

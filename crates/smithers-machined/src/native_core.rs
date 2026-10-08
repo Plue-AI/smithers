@@ -2329,6 +2329,8 @@ pub(crate) mod tests {
     #[test]
     fn rebase_rpc_preserves_acknowledged_item_and_uncaptured_work() {
         let (dir, core) = fixture();
+        let log_path = dir.path().join("rebase.jsonl");
+        core.events.observe_rebases([7; 16], fs::File::create(&log_path).unwrap()).unwrap();
         let root = dir.path().join("workspace");
         fs::write(root.join("base"), b"base bytes\n").unwrap();
         let base = core.native.snapshot().unwrap().0;
@@ -2370,6 +2372,22 @@ pub(crate) mod tests {
             Some(item),
             "a local rewrite cannot invent a host acknowledgement"
         );
+        let rows: Vec<serde_json::Value> = fs::read_to_string(log_path).unwrap().lines()
+            .map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["phase"], "held");
+        assert_eq!(rows[1]["phase"], "thawed");
+        assert_eq!(rows[0]["id"], rows[1]["id"]);
+        assert_eq!(rows[0]["start"], rows[1]["start"]);
+        assert_eq!(rows[0]["clock"], format!("guest monotonic:{}", "07".repeat(16)));
+        assert_eq!(rows[0]["onto"], onto.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+        assert_eq!(rows[1]["capture"]["boot"], "07".repeat(16));
+        assert_eq!(rows[1]["localSnapshotQueued"], true);
+        assert_eq!(rows[1]["acknowledgedBeforeThaw"], false);
+        assert_eq!(rows[1]["failed"], false);
+        assert!(rows[1]["end"].as_f64().unwrap() >= rows[0]["start"].as_f64().unwrap());
+        assert_eq!(rows[1]["capture"]["sequence"].as_u64(), Some(core.events.next_sequence().unwrap() - 1));
+
     }
     fn rebase(core: &Arc<NativeCore>, onto: Oid) -> Frame {
         call(

@@ -28,10 +28,11 @@ export function configuration(env) {
 /** Logs are an export of the installed guest observer, like the warm-wake host
  * log. A partial tail, duplicate receipt or foreign branch cannot qualify. The
  * occupied-rebase producer belongs to T-STK-08; no script invents its evidence. */
-export async function observations(path, branch, onto) {
+export async function observations(path, branch, onto, boot) {
+  if (!/^[a-f0-9]{32}$/.test(boot ?? '')) throw new Error('authenticated guest boot required')
   const text = await readFile(path, 'utf8')
   const lines = text.split('\n'); lines.pop()
-  return lines.filter(Boolean).map(line => JSON.parse(line)).filter(row => row.branch === branch && row.onto === onto)
+  return lines.filter(Boolean).map(line => JSON.parse(line)).filter(row => row.boot === boot && row.onto === onto).map(row => ({ ...row, branch }))
 }
 
 /** The observed barrier and completion must describe the same guest rewrite. */
@@ -112,12 +113,12 @@ export async function run(env = process.env, { persist = false } = {}) {
       } while (performance.now() < deadline)
       throw new Error('production rebase observation timed out')
     }
-    let main, typed, baseline, hold, held, armed
+    let main, typed, baseline, hold, held, armed, observedBoot
     const guestSSH = async command => (await execute('/usr/bin/ssh', ['-i', config.identity, '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-p', '2222', '--', config.destination, command], { timeout: 30000, maxBuffer: 4 << 20 })).stdout.trim()
     if (await guestSSH('git -C .smithers-perf-main symbolic-ref --short HEAD') !== 'main') throw new Error('scratch fixture must be on main')
     const remote = await guestSSH('git -C .smithers-perf-main remote get-url origin')
     if (![ `https://github.com/${env.SMITHERS_PERF_REPOSITORY}.git`, `git@github.com:${env.SMITHERS_PERF_REPOSITORY}.git` ].includes(remote)) throw new Error('scratch fixture remote differs from configured repository')
-    const records = () => observations(env.SMITHERS_PERF_REBASE_LOG, config.branch, main)
+    const records = () => observations(env.SMITHERS_PERF_REBASE_LOG, config.branch, main, observedBoot)
     const memberRead = async path => {
       const response = await context.request.get(`${config.origin}${path}`, { maxRedirects: 0, timeout: 10000 })
       if (response.status() !== 200) throw new Error(`GET ${path}: ${response.status()}`)
@@ -125,7 +126,12 @@ export async function run(env = process.env, { persist = false } = {}) {
     }
     result.metricsCrossCheck = { before: await ownerRequest('/api/install/metrics', 'GET', 200) }
     const boundary = {
-      async acknowledgementWindow(ms) { armed = await config.delay.arm(ms) },
+      async acknowledgementWindow(ms) {
+        armed = await config.delay.arm(ms)
+        if (ms) observedBoot = armed.boot
+        else observedBoot = (await config.delay.read()).boot
+        if (!/^[a-f0-9]{32}$/.test(observedBoot ?? '')) throw new Error('authenticated guest boot unavailable')
+      },
       async pushScratchMain(i, withheld) {
         // Fixture clone and its GitHub login live inside the guest. The Mac
         // executes only SSH; scratch commands never run on the Mac or as root.
@@ -176,6 +182,8 @@ export async function run(env = process.env, { persist = false } = {}) {
         await page.waitForFunction(marker => document.querySelector('.cm-content')?.textContent.includes(marker), typed)
         const entries = (await memberRead(`/api/branches/${config.branch}/activity`)).filter(entry => !baseline.has(entry.id) && entry.kind === 'rebase')
         if (entries.length !== 1 || entries[0].onto_revision !== onto || entries[0].receipt_id !== hold.id) throw new Error('T-STK-08 activity receipt unavailable or mismatched')
+        hold.headChanged = entries[0].head_changed
+        hold.approvalsCleared = entries[0].approvals_cleared
         const todo = await memberRead(`/api/todos/${config.todo}`)
         if (todo.rebase_pending) throw new Error('rebase remains pending')
         return { id: hold.id, onto, headChanged: hold.headChanged, approvalsCleared: hold.approvalsCleared, marker: hold.marker, activity: entries.map(entry => ({ ...entry, onto })) }

@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
@@ -34,6 +35,12 @@ import (
 // PostgreSQL and the composed member HTTP door are real. This is Linux process
 // evidence, not the reference microVM/broker writer matrix.
 func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
+	testBranchRebaseNative(t, true, "")
+}
+
+// Real composed person HTTP door, installed daemon, native jj and durable
+// outbox. EmptyBroker does not qualify cgroup freezing or the Mac budget.
+func TestPerfGuestRebaseObservations(t *testing.T) {
 	testBranchRebaseNative(t, true, "")
 }
 
@@ -59,6 +66,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
 	}
+	observe := t.Name() == "TestPerfGuestRebaseObservations"
 	t.Setenv("TMPDIR", t.TempDir())
 	f := presenceInstall(t)
 	q, ctx := db.New(f.pool), t.Context()
@@ -187,6 +195,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	}
 	boots := make(chan bootResult, 2)
 	state, run := t.TempDir(), t.TempDir()
+	t.Cleanup(func() {
+		if t.Failed() {
+			data, _ := os.ReadFile(filepath.Join(state, "rebase.jsonl"))
+			t.Logf("guest observations: %s", data)
+		}
+	})
 	var stopDaemon func()
 	var faultBootMu sync.Mutex
 	startFaultDaemon := func() error {
@@ -199,7 +213,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	for range 2 {
 		go func() {
 			var err error
-			if point == "" {
+			if point == "" && !observe {
 				err = runtime.ensureDaemon(ctx, f.row.ID, guest)
 			} else {
 				faultBootMu.Lock()
@@ -265,7 +279,9 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfgHTTP.Server.PublicURL, cfgHTTP.Server.AllowedOrigins = origin, []string{origin}
-	server.Config.Handler = todoMergeComposeRouter(cfgHTTP, q, f.pool, &routes.MythicalHandler{Service: service})
+	topics := &liveTopics{changePool: f.pool, queries: q, presence: f.p, todos: service}
+	channel := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }, Topics: topics.resolver, Presence: f.p.session}
+	server.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: f.pool}, Owners: q, Roster: q, Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }}, &routes.WorkspaceHandler{Service: f.p.branches}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, AckDelay: &routes.InstallAckDelayHandler{Queries: q, Registry: registry}, Live: channel})
 	server.Start()
 	t.Cleanup(server.Close)
 	readReceipt := func(state string) {
@@ -282,6 +298,30 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	}
 	if point != "" {
 		require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-"+point+".arm"), nil, 0600))
+	}
+	var delay machined.AckDelayReceipt
+	ackRequest := func(method, body string) machined.AckDelayReceipt {
+		req, err := http.NewRequest(method, origin+"/api/install/ack-delay?branch="+f.row.ID, strings.NewReader(body))
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		var receipt machined.AckDelayReceipt
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&receipt))
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		return receipt
+	}
+	if observe {
+		// An ordinary member write makes this rewrite's pre-capture distinct.
+		// No database writer or native capture call substitutes for the guest.
+		require.NoError(t, os.WriteFile(filepath.Join(guest, "perf-uncommitted.txt"), []byte("queued before rebase\n"), 0600))
+		delay = ackRequest("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`)
+		require.Equal(t, "armed", delay.State)
 	}
 	if people {
 		for range 2 {
@@ -342,6 +382,21 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 			require.Equal(t, want, string(bytes), path)
 		}
 	}
+	if observe {
+		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+		require.NoError(t, err)
+		done := make(chan error, 1)
+		go func() { done <- service.PollOnce(ctx) }()
+		require.Eventually(t, func() bool {
+			data, _ := os.ReadFile(filepath.Join(state, "rebase.jsonl"))
+			return strings.Contains(string(data), `"phase":"thawed"`)
+		}, 5*time.Second, 10*time.Millisecond)
+		receipt := ackRequest("GET", "")
+		require.Equal(t, delay.ID, receipt.ID)
+		require.Contains(t, []string{"armed", "withheld"}, receipt.State, "guest thaw must precede host ACK")
+		require.NoError(t, <-done)
+
+	}
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 		require.NoError(t, err)
@@ -375,6 +430,68 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	var entries int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&entries))
 	require.Equal(t, 1, entries)
+	if observe {
+		require.Eventually(t, func() bool { delay = ackRequest("GET", ""); return delay.State == "acknowledged" }, 30*time.Second, 50*time.Millisecond)
+		require.GreaterOrEqual(t, delay.WithheldMS, float64(10000))
+		data, err := os.ReadFile(filepath.Join(state, "rebase.jsonl"))
+		require.NoError(t, err)
+		var rows []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var row map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &row))
+			rows = append(rows, row)
+		}
+		require.Len(t, rows, 3, "%s", data)
+		var receiptID, revision string
+		require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->>'receipt_id',data->>'onto_revision' FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&receiptID, &revision))
+		require.Equal(t, rows[0]["id"], receiptID)
+		require.Equal(t, onto, revision)
+		req, err := http.NewRequest("GET", origin+"/api/branches/"+f.row.ID+"/activity", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		var activity []map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&activity))
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		var rebases []map[string]any
+		for _, entry := range activity {
+			if entry["kind"] == "rebase" {
+				rebases = append(rebases, entry)
+			}
+		}
+		require.Len(t, rebases, 1)
+		require.Equal(t, receiptID, rebases[0]["receipt_id"])
+		require.Equal(t, onto, rebases[0]["onto_revision"])
+		require.Equal(t, true, rebases[0]["head_changed"])
+		require.Equal(t, true, rebases[0]["approvals_cleared"])
+		require.Equal(t, map[string]any{"kind": "system", "id": "stack", "color_index": float64(7)}, rebases[0]["actor"])
+
+		require.Equal(t, "held", rows[0]["phase"])
+		require.Equal(t, "thawed", rows[1]["phase"])
+		require.Equal(t, "drained", rows[2]["phase"])
+		for _, row := range rows[1:] {
+			require.Equal(t, rows[0]["id"], row["id"])
+			require.Equal(t, rows[0]["start"], row["start"])
+			require.Equal(t, rows[0]["clock"], row["clock"])
+			require.Equal(t, onto, row["onto"])
+		}
+		require.Equal(t, false, rows[1]["failed"])
+		require.Equal(t, true, rows[1]["localSnapshotQueued"])
+		require.Equal(t, rows[1]["capture"], rows[2]["capture"])
+		require.Equal(t, float64(0), rows[2]["outboxDepth"])
+		capture := rows[1]["capture"].(map[string]any)
+		require.Equal(t, rows[0]["boot"], capture["boot"])
+		require.Equal(t, delay.Boot, capture["boot"])
+		require.Equal(t, delay.Event, capture["event"])
+		require.Equal(t, float64(delay.Sequence), capture["sequence"])
+		require.Equal(t, false, rows[1]["acknowledgedBeforeThaw"])
+
+		require.Len(t, capture["event"], 32)
+		require.Greater(t, capture["sequence"].(float64), float64(0))
+		require.GreaterOrEqual(t, rows[1]["end"].(float64), rows[0]["start"].(float64))
+	}
 	// Recovery still observes this exact completed rewrite after the pending
 	// destination changes. A newer request cannot settle an older toast.
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase}', '{"onto":"later-main","name":"main"}') WHERE id=$1`, item.ID)

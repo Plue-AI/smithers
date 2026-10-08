@@ -117,6 +117,9 @@ impl<R: Refs> Outbox<R> {
             .map(|seq| Durable::decode(&self.store.read(seq, self.owner)?).map_err(|_| invalid()))
             .transpose()
     }
+    pub(crate) fn contains_sequence(&self, sequence: u64) -> bool {
+        self.store.sequences().any(|seq| seq == sequence)
+    }
     pub fn contains_capture(&self, head: Oid) -> io::Result<bool> {
         for seq in self.store.sequences() {
             if Durable::decode(&self.store.read(seq, self.owner)?)

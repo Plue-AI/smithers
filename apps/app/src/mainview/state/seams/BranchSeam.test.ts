@@ -158,3 +158,11 @@ test("Add to stack facts rename the same scratch Branch without retaining its so
   expect(branchModel(next, [], [], "b1")).toMatchObject({ id: "b1", name: "smithers/try-retry", item: { n: 3, title: "Try retry", place: 3 } })
   expect(branchModel(next, [], [], "b1")?.scratch).toBeUndefined()
 })
+
+ test("receipt-bound system rebase remains visible through the real Branch seam", () => {
+  const event = { id: "rebase-1", at: "2026-10-08T08:00:00Z", kind: "rebase", actor: { kind: "system", id: "stack", color_index: 7 },
+    text: "Rebased onto main", files: [], receipt_id: "boot:target:00000001", onto_revision: "a".repeat(40), head_changed: true, approvals_cleared: true }
+  const model = branchModel(branch, [event], [], "b1")!
+  expect(model.activity).toEqual([{ id: event.id, at: event.at, kind: "rebase", actor: { kind: "system", color_index: 7 }, text: "Rebased onto main", files: 0, actions: [] }])
+  expect(branchModel(branch, [{ ...event, onto_revision: "main" }], [], "b1")).toBeUndefined()
+ })

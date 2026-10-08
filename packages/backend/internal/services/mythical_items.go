@@ -3439,8 +3439,11 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	// generation is verified and proposed (§10.5.3).
 	rebase := mythicalChecksOf(next)
 	name := st.ontoName(onto)
-	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true}
+	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true, HeadChanged: item.CandidateHead != rebased}
 	if pending := mythicalChecksOf(item).Rebase; pending != nil {
+		if pending.Native != nil {
+			rebase.Rebase.ReceiptID = pending.Native.ReceiptID
+		}
 		if !pending.Since.IsZero() {
 			rebase.Rebase.Since = pending.Since
 		}
@@ -3526,11 +3529,24 @@ func (s *MythicalService) recordTodoRebased(ctx context.Context, tx pgx.Tx, save
 	if !mythicalTodo(saved) || !saved.Number.Valid {
 		return nil
 	}
+	receiptID := ""
+	if rebase := mythicalChecksOf(saved).Rebase; rebase != nil {
+		receiptID = rebase.ReceiptID
+	}
 	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
-		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
-		"by": rebaseRequester(saved), "text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
-	_, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.rebased", todoState(saved), fact)
-	return err
+		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_revision": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
+		"receipt_id": receiptID,
+		"by":         rebaseRequester(saved), "text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
+	id := uuid.NewString()
+	if _, err := s.recordTodoFact(ctx, tx, saved, id, "todo.rebased", todoState(saved), fact); err != nil {
+		return err
+	}
+	evidence := branchRebaseEvidence{ReceiptID: receiptID, OntoRevision: saved.CandidateBase}
+	if rebase := mythicalChecksOf(saved).Rebase; rebase != nil {
+		evidence.HeadChanged = rebase.HeadChanged
+		evidence.ApprovalsCleared = rebase.HeadChanged
+	}
+	return recordBranchActivity(ctx, tx, saved, id, "rebase", json.RawMessage(`{"kind":"system","id":"stack"}`), "Rebased onto "+onto, evidence)
 }
 
 // fetchOnto makes a prefix commit readable for a rebase: main's tip is
@@ -5926,12 +5942,14 @@ type mythicalChecks struct {
 // earlier TODO T<k>) and Since when the prefix moved under the item. It is
 // pending until Rebased: the candidate was rebased and its checks launched.
 type mythicalRebase struct {
-	Onto    string                  `json:"onto"`
-	Name    string                  `json:"name"`
-	Since   time.Time               `json:"since"`
-	Rebased bool                    `json:"rebased,omitempty"`
-	Request *mythicalRebaseRequest  `json:"request,omitempty"`
-	Native  *machined.RewriteResult `json:"native,omitempty"`
+	ReceiptID   string                  `json:"receipt_id,omitempty"`
+	HeadChanged bool                    `json:"head_changed,omitempty"`
+	Onto        string                  `json:"onto"`
+	Name        string                  `json:"name"`
+	Since       time.Time               `json:"since"`
+	Rebased     bool                    `json:"rebased,omitempty"`
+	Request     *mythicalRebaseRequest  `json:"request,omitempty"`
+	Native      *machined.RewriteResult `json:"native,omitempty"`
 }
 
 // rebuilding reports an item in review whose pull request rebuilds after a

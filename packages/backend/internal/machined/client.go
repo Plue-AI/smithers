@@ -68,6 +68,7 @@ type ReconcileResult struct {
 	Paths   []string
 }
 type RewriteResult struct {
+	ReceiptID string `json:"receipt_id,omitempty"`
 	Head      string
 	Paths     []string
 	Inspected bool

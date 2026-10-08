@@ -345,6 +345,14 @@ test("registered live terminal links dispatch Watch and disappear with unavailab
     await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "delta", id: activityFrame.id, cursor: 2, data: [{ id: "second-burst", at: "2026-10-06T12:01:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [] }] }) }))
     expect(live.getSnapshot("branch:b1:activity")?.data).toHaveLength(2)
     expect(frames.filter(frame => frame.topic === "branch:b1:activity")).toHaveLength(subscriptions)
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "delta", id: activityFrame.id, cursor: 3, data: [{
+      id: "rebase-receipt", at: "2026-10-08T10:00:00Z", kind: "rebase", actor: { kind: "system", id: "stack", color_index: 7 },
+      text: "Rebased onto main", files: [], receipt_id: "boot:target:00000001", onto_revision: "a".repeat(40), head_changed: true, approvals_cleared: true
+    }] }) }))
+    expect(host.textContent).toContain("Rebased onto main")
+    expect(host.textContent?.split("Rebased onto main")).toHaveLength(2)
+    expect(live.getSnapshot("branch:b1:activity")?.data).toHaveLength(3)
+
     expect(provider.source.branch("t-ben")).toBe("b1")
     const link = host.querySelector<HTMLButtonElement>('[data-flow="terminal.watch"]')!
     expect(link.textContent).toBe("Ben's shell")
