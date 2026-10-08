@@ -69,6 +69,11 @@ func (s *MythicalService) RebaseBranch(ctx context.Context, repository, actor in
 	if !input.Rebase {
 		return s.answerBranchConflict(ctx, repository, actor, branch, input)
 	}
+	if _, err := branchTodoNumber(ctx, s.store, repository, branch); errors.Is(err, pgx.ErrNoRows) {
+		return s.requestScratchRebase(ctx, repository, actor, branch, input)
+	} else if err != nil {
+		return TodoControlReceipt{}, err
+	}
 	return s.requestBranchRebase(ctx, repository, actor, branch, input)
 }
 
@@ -77,7 +82,7 @@ func (s *MythicalService) RebaseBranch(ctx context.Context, repository, actor in
 func (s *MythicalService) answerBranchConflict(ctx context.Context, repository, actor int64, branch string, input BranchRebaseInput) (TodoControlReceipt, error) {
 	number, err := branchTodoNumber(ctx, s.store, repository, branch)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return TodoControlReceipt{}, &BranchError{409, "stale_conflict", "conflict", "The conflict target changed"}
+		return s.answerScratchConflict(ctx, repository, actor, branch, input)
 	}
 	if err != nil {
 		return TodoControlReceipt{}, err

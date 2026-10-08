@@ -1636,6 +1636,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool, presence: presence, ensureReady: func(ctx context.Context, branch string) error {
 				q := db.New(pool)
 				lane, err := q.GetMythicalLane(ctx, branch)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return workspaceService.EnsureScratchRebaseDaemon(ctx, branch)
+				}
 				if err != nil {
 					return err
 				}

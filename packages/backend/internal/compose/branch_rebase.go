@@ -2,7 +2,9 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,15 +53,37 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 		// The private durable binding, including its original principal, is
 		// authority for host restart. The browser reader accepts live hosts
 		// only and must not acquire a new wake side effect.
-		if err := r.pool.QueryRow(ctx, `SELECT tenant_id,principal_id,binding_kind,binding_id FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND state<>'retired' AND binding_kind=$3`, branch, flowhost.CatalogCoding, flowdispatch.StackBindingKind).Scan(&target.TenantID, &target.PrincipalID, &target.BindingKind, &target.BindingID); err != nil {
-			return machined.RewriteResult{}, err
-		}
-		ready, err := r.presence.dispatcher.StartHost(ctx, target)
-		if err != nil {
-			return machined.RewriteResult{}, err
-		}
-		if !ready {
-			return machined.RewriteResult{}, machined.ErrNotReady
+		lookup := r.pool.QueryRow(ctx, `SELECT tenant_id,principal_id,binding_kind,binding_id FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND state<>'retired' AND binding_kind IN ($3,'browser-flow')`, branch, flowhost.CatalogCoding, flowdispatch.StackBindingKind).Scan(&target.TenantID, &target.PrincipalID, &target.BindingKind, &target.BindingID)
+		if errors.Is(lookup, pgx.ErrNoRows) {
+			// Scratch has no coding run to resume. It still requires the full
+			// composed source census below; absence never becomes agent-alone.
+			row, err := r.presence.queries.GetWorkspace(ctx, branch)
+			if err != nil || !row.IsFork || !strings.HasPrefix(row.TargetBookmark, "scratch/") {
+				return machined.RewriteResult{}, machined.ErrNotReady
+			}
+			_, slug, err := installRepository(ctx, r.presence.queries)
+			if err != nil {
+				return machined.RewriteResult{}, err
+			}
+			target = flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", member), WorkspaceID: branch, BindingKind: "browser-flow", BindingID: slug}
+			ready, err := r.presence.dispatcher.StartHost(ctx, target)
+			if err != nil {
+				return machined.RewriteResult{}, err
+			}
+			if !ready {
+				return machined.RewriteResult{}, machined.ErrNotReady
+			}
+		} else {
+			if lookup != nil {
+				return machined.RewriteResult{}, lookup
+			}
+			ready, err := r.presence.dispatcher.StartHost(ctx, target)
+			if err != nil {
+				return machined.RewriteResult{}, err
+			}
+			if !ready {
+				return machined.RewriteResult{}, machined.ErrNotReady
+			}
 		}
 	}
 	actor, err := machined.CommitActor(ctx, r.pool, branch, link.Machine(), func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
@@ -95,6 +119,13 @@ func (r machineRebase) Capture(ctx context.Context, branch string) (machined.Cap
 		return machined.CaptureResult{}, machined.ErrNotReady
 	}
 	return r.registry.Capture(ctx, branch)
+}
+
+func (r machineRebase) InspectConflict(ctx context.Context, branch, change, onto string) ([]string, error) {
+	if r.registry == nil {
+		return nil, machined.ErrNotReady
+	}
+	return r.registry.InspectConflict(ctx, branch, change, onto)
 }
 
 // Only the stack executor can select an import target. The exporter rechecks

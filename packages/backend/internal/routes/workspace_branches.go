@@ -436,6 +436,21 @@ func (h *BranchHandler) GetBranch(w http.ResponseWriter, r *http.Request) {
 		writeBranchError(w, r, err)
 		return
 	}
+	if key := r.URL.Query().Get("rebase_request"); key != "" {
+		receipts, ok := h.Rebases.(interface {
+			ScratchRebaseExecution(context.Context, int64, int64, string, string) (services.BranchRebaseExecution, error)
+		})
+		if !ok {
+			writeBranchError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "Rebase receipt unavailable"))
+			return
+		}
+		execution, err := receipts.ScratchRebaseExecution(r.Context(), repository, user, branch, key)
+		if err != nil {
+			writeBranchError(w, r, err)
+			return
+		}
+		row.RebaseExecution = &execution
+	}
 	pkgerrors.WriteJSON(w, http.StatusOK, row)
 }
 

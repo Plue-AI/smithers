@@ -293,7 +293,7 @@ func (r *Registry) Capture(ctx context.Context, branch string) (CaptureResult, e
 				return CaptureResult{}, ErrNotReady
 			}
 			if hex.EncodeToString(status[5]) != result.Head {
-				return CaptureResult{}, fmt.Errorf("capture head was not acknowledged")
+				return CaptureResult{}, fmt.Errorf("capture head was not acknowledged: %w", ErrNotReady)
 			}
 			return result, nil
 		}

@@ -291,8 +291,11 @@ impl Core for NativeCore {
     fn validate_rebase(&self, onto: Oid, base: Option<Oid>) -> hooks::Result<()> {
         self.require_settled_wake()?;
         self.validate_head(onto)?;
-        if base.is_some() && self.item.as_ref().is_none_or(|item| item.number == 0) {
+        if base.is_some() && self.item.is_none() {
             return Err(hooks::Error::unsupported());
+        }
+        if let Some(base) = base.filter(|_| self.item.as_ref().is_some_and(|item| item.number == 0)) {
+            self.native.validate_scratch_rebase(onto, base).map_err(hook)?;
         }
         self.native.validate_rebase(onto, base).map_err(hook)
     }
@@ -2673,6 +2676,44 @@ pub(crate) mod tests {
         assert_eq!(fs::read(root.join("item")).unwrap(), b"retained item\n");
         assert_eq!(fs::read(root.join("main")).unwrap(), b"main bytes\n");
         assert_eq!(core.native.current().unwrap().0, head);
+    }
+    #[test]
+    fn rebase_rpc_scratch_base_refuses_unrelated_revision_before_capture() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "scratch first capture");
+        fs::write(root.join("first"), b"first scratch bytes\n").unwrap();
+        let first = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, first, "scratch later capture");
+        fs::write(root.join("later"), b"later scratch bytes\n").unwrap();
+        let before = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "source moved");
+        fs::write(root.join("source"), b"new source bytes\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(before).unwrap();
+        let response = call(core.clone(), 11, &[
+            field(1, onto),
+            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            field(3, onto),
+        ]);
+        let fields = conn::fields("response", &response.payload[1..]).unwrap();
+        assert_eq!(fields[1].1[0], 255);
+        assert_eq!(core.native.current().unwrap().0, before);
+        assert_eq!(fs::read(root.join("first")).unwrap(), b"first scratch bytes\n");
+        assert!(!dir.path().join("state/rewrite.operation").exists());
+        assert_eq!(core.events.depth().unwrap(), 0);
+        let response = call(core.clone(), 11, &[
+            field(1, onto),
+            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+            field(3, base),
+        ]);
+        let head = rebased_head(&response);
+        assert_eq!(core.native.current().unwrap().0, head);
+        assert_eq!(fs::read(root.join("first")).unwrap(), b"first scratch bytes\n");
+        assert_eq!(fs::read(root.join("later")).unwrap(), b"later scratch bytes\n");
+        assert_eq!(fs::read(root.join("source")).unwrap(), b"new source bytes\n");
+        assert_eq!(core.item.as_ref().unwrap().number, 0);
     }
     #[test]
     fn rebase_rpc_refuses_missing_self_and_descendant_before_capture() {

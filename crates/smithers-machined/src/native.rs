@@ -681,16 +681,35 @@ impl Repository {
     pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
         self.rebase_bound(onto, None, None)
     }
+    /// Check the host-admitted Scratch base before capture or filesystem writes.
+    pub fn validate_scratch_rebase(&self, onto: Oid, base: Oid) -> io::Result<()> {
+        let (workspace, repo) = self.load_rebase_target(onto)?;
+        let (current, target) = Self::rebase_commits(&workspace, &repo, onto)?;
+        let base = repo.store().get_commit(&CommitId::from_bytes(&base)).map_err(invalid)?;
+        if current.parent_ids() != [target.id().clone()]
+            && !repo.index().is_ancestor(base.id(), current.id()).block_on().map_err(invalid)? {
+            return Err(invalid("scratch rebase base is not an ancestor"));
+        }
+        Ok(())
+    }
     /// Rebase the owning item, including captured working-copy descendants.
     /// A descendant alone does not contain the item's full delta and dropping
     /// its ancestor would revoke the machine's bound change authority.
     pub fn rebase_bound(&self, onto: Oid, item: Option<&str>, source_base: Option<Oid>) -> io::Result<Oid> {
         let (mut workspace, repo) = self.load_rebase_target(onto)?;
         let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
-        if source_base.is_some() && item.is_none() {
-            return Err(invalid("verified base requires an owning item"));
-        }
         let source_base = source_base.map(|id| repo.store().get_commit(&CommitId::from_bytes(&id)).map_err(invalid)).transpose()?;
+        if item.is_none() {
+            if let Some(base) = source_base.as_ref() {
+                // A Scratch branch has no owning TODO. Its stack-admitted fork
+                // base must still be in this working copy's ancestry; a caller
+                // cannot turn an unrelated revision into the branch's delta.
+                if current.parent_ids() != [onto.id().clone()]
+                    && !repo.index().is_ancestor(base.id(), current.id()).block_on().map_err(invalid)? {
+                    return Err(invalid("scratch rebase base is not an ancestor"));
+                }
+            }
+        }
         let bound = if let Some(change) = item {
             if change.len() != 32 || !change.bytes().all(|c| (b'k'..=b'z').contains(&c)) {
                 return Err(invalid("invalid item change identity"));
@@ -708,7 +727,7 @@ impl Repository {
                 }
             }
             Some(selected.ok_or_else(|| invalid("working copy moved off the owning item"))?)
-        } else { None };
+        } else if source_base.is_some() { Some(current.clone()) } else { None };
         if current.parent_ids() == [onto.id().clone()] && bound.as_ref().is_none_or(|bound| bound.id() == current.id()) {
             return oid(current.id().as_bytes());
         }
@@ -1324,6 +1343,47 @@ pub(crate) mod tests {
             let reopened = Repository::open(&repo.root, &repo.state).unwrap();
             assert!(reopened.descends_from_item(&change).unwrap());
             assert_eq!(reopened.current().unwrap().0, result);
+        }
+    }
+
+    #[test]
+    fn rebase_scratch_retains_the_whole_fork_delta() {
+        for conflict in [false, true] {
+            let (_dir, repo) = fixture();
+            fs::write(repo.root.join("file"), b"fork tip\n").unwrap();
+            let base = repo.snapshot().unwrap().0;
+            child(&repo, base, "scratch first capture");
+            fs::write(repo.root.join("file"), b"scratch first edit\n").unwrap();
+            let first = repo.snapshot().unwrap().0;
+            child(&repo, first, "scratch second capture");
+            fs::write(repo.root.join("later"), b"scratch later edit\n").unwrap();
+            let before = repo.snapshot().unwrap().0;
+            let identity = change(&repo, before);
+            child(&repo, base, "source moved");
+            fs::write(repo.root.join("source"), b"source new bytes\n").unwrap();
+            if conflict { fs::write(repo.root.join("file"), b"source changed\n").unwrap(); }
+            let onto = repo.snapshot().unwrap().0;
+            repo.move_to(before).unwrap();
+            assert!(repo.validate_scratch_rebase(onto, onto).is_err());
+            assert_eq!(repo.current().unwrap().0, before);
+            assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"scratch first edit\n");
+            repo.validate_scratch_rebase(onto, base).unwrap();
+            let result = repo.rebase_bound(onto, None, Some(base)).unwrap();
+            let (_, loaded) = repo.load().unwrap();
+            let commit = Repository::commit(&loaded, result).unwrap();
+            assert_eq!(commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
+            assert_eq!(commit.change_id().reverse_hex(), identity);
+            assert_eq!(commit.tree().has_conflict(), conflict);
+            assert_eq!(fs::read(repo.root.join("later")).unwrap(), b"scratch later edit\n");
+            assert_eq!(fs::read(repo.root.join("source")).unwrap(), b"source new bytes\n");
+            if conflict {
+                let bytes = fs::read(repo.root.join("file")).unwrap();
+                assert!(String::from_utf8_lossy(&bytes).contains("scratch first edit"));
+                assert!(String::from_utf8_lossy(&bytes).contains("source changed"));
+            } else {
+                assert_eq!(fs::read(repo.root.join("file")).unwrap(), b"scratch first edit\n");
+                assert_eq!(repo.rebase_bound(onto, None, Some(base)).unwrap(), result);
+            }
         }
     }
     #[test]

@@ -31,6 +31,7 @@ type Registry struct {
 	rosterSync     func(context.Context, string) error
 	objects        ObjectImporter
 	objectExporter ObjectExporter
+	hostHeadReader func(context.Context, string) (string, error)
 	// Consumer cancellation cannot wait for mu: an in-flight writer holds
 	// that fence until its cancelled transaction rolls back.
 	eventsMu      sync.Mutex

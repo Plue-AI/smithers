@@ -58,12 +58,14 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
             method: "POST", credentials: "same-origin", signal: abort.signal,
             headers: { "Content-Type": "application/json", "Idempotency-Key": request.key }, body: JSON.stringify(request.operation === "rebase" ? request.input?.conflict_change === undefined ? { rebase: true } : request.input : { op: request.operation })
           })
-          const body = await response.json() as { operationId?: unknown; requestId?: unknown; state?: unknown; n?: number; onto?: string; message?: string }
+          const body = await response.json() as { operationId?: unknown; requestId?: unknown; state?: unknown; n?: number; branch?: unknown; onto?: string; message?: string }
           if (!current()) return
           if (!response.ok) throw new BranchControlFailure(refusalSentence(refusalOf({ body, status: response.status, message: body.message ?? "Branch unavailable" })))
           if (request.operation === "rebase") {
-            if (response.status !== 202 || body.state !== "accepted" || !Number.isSafeInteger(body.n) || body.n! < 1 || typeof body.onto !== "string" || !body.onto) throw new BranchControlFailure("Rebase admission was not confirmed")
-            request = { ...request, state: "accepted", number: body.n, onto: body.onto }
+            const todo = Number.isSafeInteger(body.n) && body.n! > 0
+            const scratch = body.n === undefined && typeof body.branch === "string" && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(body.branch)
+            if (response.status !== 202 || body.state !== "accepted" || (!todo && !scratch) || typeof body.onto !== "string" || !body.onto) throw new BranchControlFailure("Rebase admission was not confirmed")
+            request = { ...request, state: "accepted", ...(todo ? { number: body.n } : { workspace: body.branch as string }), onto: body.onto }
           } else {
             if (response.status !== 202 || body.state !== "accepted" || typeof body.operationId !== "string" || !body.operationId
               || typeof body.requestId !== "string" || !body.requestId.endsWith(`:${request.key}`)) throw new BranchControlFailure("Branch admission was not confirmed")
@@ -74,17 +76,19 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
           await save(request)
         }
         const repo = request.repo ?? repository()
+        if (request.operation === "rebase" && !request.number && !request.workspace) throw new BranchControlFailure("Branch receipt unavailable")
         if (request.operation !== "rebase" && (!repo || !request.workspace || !request.operationId)) throw new BranchControlFailure("Branch receipt unavailable")
         while (current()) {
-          const response = await ctx.http(request.operation === "rebase" ? `${ctx.baseUrl}/api/todos/${request.number}?rebase_request=${encodeURIComponent(request.key)}` : `${ctx.baseUrl}/api/repos/${repo!.split("/").map(encodeURIComponent).join("/")}/workspaces/${encodeURIComponent(request.workspace!)}/command-runs/${encodeURIComponent(request.operationId!)}`, { credentials: "same-origin", signal: abort.signal })
-          const body = await response.json() as { operationId?: unknown; state?: unknown; n?: number; rebase_execution?: { onto: string; state: string }; error?: string }
+          const response = await ctx.http(request.operation === "rebase" ? request.number ? `${ctx.baseUrl}/api/todos/${request.number}?rebase_request=${encodeURIComponent(request.key)}` : `${ctx.baseUrl}/api/branches/${encodeURIComponent(request.workspace!)}?rebase_request=${encodeURIComponent(request.key)}` : `${ctx.baseUrl}/api/repos/${repo!.split("/").map(encodeURIComponent).join("/")}/workspaces/${encodeURIComponent(request.workspace!)}/command-runs/${encodeURIComponent(request.operationId!)}`, { credentials: "same-origin", signal: abort.signal })
+          const body = await response.json() as { operationId?: unknown; state?: unknown; n?: number; machine?: { id?: string }; kind?: string; rebase_execution?: { onto: string; state: string }; error?: string }
           if (!current()) return
           if (!response.ok) throw new BranchControlFailure(refusalSentence(refusalOf({ body, status: response.status, message: body.error ?? "Branch receipt unavailable" })))
           if (request.operation === "rebase") {
-            if (body.n !== request.number || !body.rebase_execution) throw new BranchControlFailure("Rebase receipt unavailable")
+            if (!body.rebase_execution || (request.number ? body.n !== request.number : body.kind !== "scratch" || body.machine?.id !== request.workspace)) throw new BranchControlFailure("Rebase receipt unavailable")
             if (body.rebase_execution.onto !== request.onto) { request = { ...request, settled: true }; throw new BranchControlFailure("Rebase target changed") }
             if (body.rebase_execution.state === "completed") { await save({ ...request, state: "completed" }); return }
             if (body.rebase_execution.state === "failed") { request = { ...request, settled: true }; throw new BranchControlFailure("Rebase failed") }
+            if (body.rebase_execution.state === "conflict") { request = { ...request, settled: true }; throw new BranchControlFailure("Resolve the conflict") }
             if (body.rebase_execution.state !== "running") throw new BranchControlFailure("Rebase receipt unavailable")
           } else {
             if (body.operationId !== request.operationId) throw new BranchControlFailure("Branch receipt changed")
@@ -153,7 +157,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
         || (identity()?.ownerRevision ?? identity()?.revision) !== epoch) return "Sign in"
       const previous = [...rows()].reverse().find(request => request.owner === owner && request.origin === ctx.baseUrl && request.branch === branch && request.operation === operation && request.input?.conflict_change === input.conflict_change && request.input?.onto_revision === input.onto_revision)
       if (previous && !["failed", "completed"].includes(previous.state)) return { value: "Requested" }
-      const request: Request = previous?.state === "failed" && !previous.settled ? { ...previous, state: (previous.operationId || previous.number) ? "accepted" : "requested", error: undefined } : { key: randomUuid(), owner, origin: ctx.baseUrl, branch, operation, state: "requested", ...(operation === "rebase" ? { input } : {}), ...(repository() ? { repo: repository()! } : {}) }
+      const request: Request = previous?.state === "failed" && !previous.settled ? { ...previous, state: (previous.operationId || previous.number || previous.operation === "rebase" && previous.workspace) ? "accepted" : "requested", error: undefined } : { key: randomUuid(), owner, origin: ctx.baseUrl, branch, operation, state: "requested", ...(operation === "rebase" ? { input } : {}), ...(repository() ? { repo: repository()! } : {}) }
       await save(request, ctx.actor()); send(request)
       return { value: "Requested" }
     })

@@ -3,6 +3,8 @@ package machined
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +14,14 @@ import (
 // RetainedConflict is selected from the stack's committed conflict reservation.
 // It is never a caller-selected wake destination or permission to move main.
 type RetainedConflict struct{ Change, Onto string }
+
+// BindHostHeadReader reuses the install's authoritative private-ref reader.
+// A guest observation can never select a replacement wake head.
+func (r *Registry) BindHostHeadReader(read func(context.Context, string) (string, error)) {
+	r.mu.Lock()
+	r.hostHeadReader = read
+	r.mu.Unlock()
+}
 
 type retainedAdmissionKey struct{}
 
@@ -32,16 +42,35 @@ func (l *Link) recoverRetainedConflict(ctx context.Context, branch, head string,
 		return err
 	}
 	return l.withWake(ctx, branch, head, func(ctx context.Context) error {
-		status, err := l.call(ctx, branch, wire.Status)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(status[5], selected) {
-			return ErrNotReady
+		// SQL commits a replayed capture before its native acknowledgment. A
+		// restart can select that committed host head while the retained daemon
+		// still has the corresponding event queued. Drain that exact replay;
+		// never inspect a different acknowledged head or invent readiness.
+		drain, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		for {
+			status, err := l.call(drain, branch, wire.Status)
+			if err != nil {
+				return err
+			}
+			if bytes.Equal(status[5], selected) {
+				break
+			}
+			if binary.BigEndian.Uint32(status[4]) == 0 {
+				return fmt.Errorf("retained conflict acknowledgment differs from host head: %w", ErrNotReady)
+			}
+			select {
+			case <-drain.Done():
+				return drain.Err()
+			case <-time.After(20 * time.Millisecond):
+			}
 		}
 		ctx = context.WithValue(ctx, retainedAdmissionKey{}, branch)
 		_, err = l.call(ctx, branch, wire.InspectConflict, wire.Field(1, change), wire.Field(2, onto))
-		return err
+		if err != nil {
+			return fmt.Errorf("retained conflict native inspection: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -67,7 +96,29 @@ func (r *Registry) AdmitReady(ctx context.Context, branch, head string, members 
 		return fmt.Errorf("multiple retained conflicts")
 	}
 	if len(retained) == 1 && retained[0] != nil {
-		err = link.recoverRetainedConflict(ctx, branch, head, retained[0])
+		for attempt := 0; attempt < 3; attempt++ {
+			err = link.recoverRetainedConflict(ctx, branch, head, retained[0])
+			if !errors.Is(err, ErrNotReady) {
+				break
+			}
+			r.mu.Lock()
+			read := r.hostHeadReader
+			r.mu.Unlock()
+			if read == nil {
+				break
+			}
+			// Replaying an earlier capture can commit a newer host head during
+			// startup. Retry only that independently authorized revision, with
+			// the same retained conflict and exact native acknowledgment check.
+			current, readErr := read(ctx, branch)
+			if readErr != nil {
+				return readErr
+			}
+			if current == head {
+				break
+			}
+			head = current
+		}
 	} else {
 		_, err = link.wakeReconcile(ctx, branch, head)
 	}

@@ -141,6 +141,59 @@ test("an unresolved rebase never serializes an unrelated machine control behind 
 const rebaseAdmission = () => Response.json({ state: "accepted", n: 2, onto: "new-main" }, { status: 202 })
 const rebaseReceipt = (state: string) => Response.json({ n: 2, rebase_execution: { state, onto: "new-main" } })
 
+const scratchId = "11111111-1111-4111-8111-111111111111"
+const scratchAdmission = () => Response.json({ state: "accepted", branch: scratchId, onto: "new-source" }, { status: 202 })
+const scratchReceipt = (state: string, id = scratchId) => Response.json({ kind: "scratch", machine: { id }, rebase_execution: { state, onto: "new-source" } })
+
+test("Scratch Rebase persists before launch and settles only from its bound branch receipt", async () => {
+  let release!: (response: Response) => void, state = "running"
+  const writes: string[] = [], reads: string[] = []
+  const h = await boot(async (url, init) => {
+    if (init?.method === "POST") { writes.push(new Headers(init.headers).get("Idempotency-Key")!); return new Promise(resolve => { release = resolve }) }
+    reads.push(url); return scratchReceipt(state)
+  })
+  try {
+    expect(await Promise.all([h.seam.request("rebase", "scratch/ben/experiment"), h.seam.request("rebase", "scratch/ben/experiment")])).toEqual([{ value: "Requested" }, { value: "Requested" }])
+    expect(h.row()?.state).toBe("requested"); expect(writes).toHaveLength(1); expect(h.done).toEqual([])
+    release(scratchAdmission())
+    await until(() => reads.length === 1)
+    expect(reads[0]).toBe(`http://mini.lan:4000/api/branches/${scratchId}?rebase_request=${writes[0]}`)
+    expect(h.row()?.number).toBeUndefined(); expect(h.row()?.workspace).toBe(scratchId); expect(h.done).toEqual([])
+    state = "completed"
+    await until(() => h.row()?.state === "completed" && h.done.length === 1)
+    expect(h.errors).toEqual([])
+  } finally { h.seam.dispose() }
+})
+
+test("Scratch receipt recovery observes without repeating Rebase or inventing a TODO", async () => {
+  let writes = 0, reads = 0
+  const h = await boot(async (_url, init) => {
+    if (init?.method === "POST") { writes++; return scratchAdmission() }
+    reads++
+    return reads === 1 ? new Response("offline", { status: 503 }) : scratchReceipt("completed")
+  })
+  try {
+    await h.seam.request("rebase", "scratch/ben/experiment")
+    await until(() => h.row()?.state === "failed")
+    const key = h.row()!.key
+    await h.seam.request("rebase", "scratch/ben/experiment")
+    await until(() => h.row()?.state === "completed")
+    expect(writes).toBe(1); expect(reads).toBe(2); expect(h.row()?.key).toBe(key); expect(h.row()?.number).toBeUndefined()
+  } finally { h.seam.dispose() }
+})
+
+test("Scratch conflict remains visible and a receipt for another branch refuses completion", async () => {
+  for (const [state, id, expected] of [["conflict", scratchId, "Resolve the conflict"], ["completed", "22222222-2222-4222-8222-222222222222", "Rebase receipt unavailable"]] as const) {
+    const h = await boot(async (_url, init) => init?.method === "POST" ? scratchAdmission() : scratchReceipt(state, id))
+    try {
+      await h.seam.request("rebase", "scratch/ben/experiment")
+      await until(() => h.row()?.state === "failed")
+      expect(h.errors).toEqual([expected]); expect(h.row()?.state).not.toBe("completed")
+      expect(Boolean(h.row()?.settled)).toBe(state === "conflict")
+    } finally { h.seam.dispose() }
+  }
+})
+
 test("Rebase acknowledges unresolved launch, deduplicates, and waits for its execution receipt", async () => {
   let release!: (response: Response) => void, state = "running"
   const writes: Array<{ key: string; body: unknown }> = [], reads: string[] = []

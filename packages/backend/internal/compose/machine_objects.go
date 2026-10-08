@@ -97,7 +97,13 @@ func bindMachineObjects(ctx context.Context, registry *machined.Registry, pool *
 	ctx, cancel := context.WithCancel(ctx)
 	registry.BindObjectImporter(machineObjectImporter(ctx, pool, host))
 	registry.BindObjectExporter(machineObjectExporter(ctx, pool, host))
-	return func() { cancel(); registry.BindObjectImporter(nil); registry.BindObjectExporter(nil) }
+	registry.BindHostHeadReader(machineBranchHead(pool, host))
+	return func() {
+		cancel()
+		registry.BindObjectImporter(nil)
+		registry.BindObjectExporter(nil)
+		registry.BindHostHeadReader(nil)
+	}
 }
 
 // Resolve every local machine object operation under the same host authority and

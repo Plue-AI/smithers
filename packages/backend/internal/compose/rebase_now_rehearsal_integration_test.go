@@ -63,6 +63,7 @@ func testRebaseNowRehearsal(t *testing.T, explicitOnly bool) {
 		if accepted != reviewed || originalHead == equivalentHead || patch == "" {
 			return fmt.Errorf("clean rebase did not retain its original review and separately bound equivalent patch")
 		}
+		githubLifecycleBrowserPhase(t, r, n, "rebased")
 		return nil
 	}) {
 		return
@@ -286,7 +287,9 @@ func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, target
 		}
 	}
 	departed := time.Now()
-	if press && os.Getenv("SMITHERS_REBASE_BROWSER_PRESS") == "1" {
+	if press && len(onConflict) == 0 && os.Getenv("SMITHERS_GH03_BROWSER_HARNESS") != "" {
+		githubLifecycleBrowserPhase(r.t, r, n, "pending")
+	} else if press && os.Getenv("SMITHERS_REBASE_BROWSER_PRESS") == "1" {
 		if err := r.pressRebaseInBrowser(n); err != nil {
 			return "", err
 		}

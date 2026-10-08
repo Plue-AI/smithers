@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,7 +19,7 @@ func machineRetainedConflict(ctx context.Context, pool *pgxpool.Pool, branch str
 	q := db.New(pool)
 	lane, err := q.GetMythicalLane(ctx, branch)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
+		return machineScratchRetainedConflict(ctx, pool, branch)
 	}
 	if err != nil {
 		return nil, err
@@ -57,4 +59,46 @@ func machineRetainedConflict(ctx context.Context, pool *pgxpool.Pool, branch str
 		return nil, machined.ErrNotReady
 	}
 	return &machined.RetainedConflict{Change: retained.Change, Onto: retained.Onto}, nil
+}
+
+// Scratch retains the same authenticated native receipt, but never supplies a
+// TODO root or flow digest. Boot still verifies the native change/target and
+// acknowledged working copy through the existing retained-inspection path.
+func machineScratchRetainedConflict(ctx context.Context, pool *pgxpool.Pool, branch string) (*machined.RetainedConflict, error) {
+	row, err := db.New(pool).GetWorkspace(ctx, branch)
+	if err != nil {
+		return nil, err
+	}
+	if !row.IsFork || !strings.HasPrefix(row.TargetBookmark, "scratch/") || row.SourceCommit == "" || row.BranchArchivedAt.Valid {
+		return nil, nil
+	}
+	var raw []byte
+	err = pool.QueryRow(ctx, `SELECT authorization_context->'scratch_rebase' FROM product_job_requests WHERE tenant_id=$1 AND principal_id=$2 AND operation='branch.rebase-requested'
+ AND authorization_context->'scratch_rebase'->>'phase' IN ('conflict','resolved') ORDER BY created_at DESC,id DESC LIMIT 1`, strconv.FormatInt(row.RepositoryID, 10), "branch:"+row.ID).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var retained struct {
+		Workspace      string                  `json:"workspace"`
+		Branch         string                  `json:"branch"`
+		Onto           string                  `json:"onto"`
+		ConflictChange string                  `json:"conflict_change"`
+		Native         *machined.RewriteResult `json:"native"`
+	}
+	if json.Unmarshal(raw, &retained) != nil {
+		return nil, machined.ErrNotReady
+	}
+	native := retained.Native
+	if native == nil || !native.Inspected {
+		// The host retained a data-only merge. The native working copy was not
+		// rewritten, so its ordinary wake remains on the pre-rebase capture.
+		return nil, nil
+	}
+	if retained.Workspace != row.ID || retained.Branch != row.TargetBookmark || retained.Onto == "" || retained.ConflictChange == "" || native.Head != retained.ConflictChange || native.ReceiptID == "" || len(native.Paths) == 0 {
+		return nil, machined.ErrNotReady
+	}
+	return &machined.RetainedConflict{Change: retained.ConflictChange, Onto: retained.Onto}, nil
 }

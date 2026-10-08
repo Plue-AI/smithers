@@ -323,6 +323,11 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			}
 			model["terminals"] = terminals
 		}
+		if rebase, err := p.branches.BranchRebaseState(ctx, current); err != nil {
+			return nil, err
+		} else if rebase != nil {
+			model["rebase"] = rebase
+		}
 		moved, err := p.queries.WorkspaceMovedOff(ctx, current.ID)
 		if err != nil {
 			return nil, err

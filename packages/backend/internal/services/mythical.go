@@ -590,6 +590,9 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		return mythicalFrozen("the mythical bookmark or its notes moved outside the stack service (bookmark %s, recorded %s)",
 			short(r.tip), short(row.TipCommit))
 	}
+	if err := s.advanceScratchRebases(ctx, r); err != nil {
+		return mythicalFailed("advance Scratch rebase: %v", err)
+	}
 	if r.mainTip == row.LandedMain {
 		// Factory receipts are independent of stack and main processing.
 		outcome := mythicalOutcome{state: "active", clearPending: true}

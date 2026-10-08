@@ -35,6 +35,7 @@ type TodoControlInput struct {
 // app settles its toast once the TODO card shows that attempt or place.
 type TodoControlReceipt struct {
 	State    string `json:"state"`
+	Branch   string `json:"branch,omitempty"`
 	Onto     string `json:"onto,omitempty"`
 	Attempt  int32  `json:"attempt,omitempty"`
 	Place    int64  `json:"place,omitempty"`

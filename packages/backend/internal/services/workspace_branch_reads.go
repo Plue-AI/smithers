@@ -17,13 +17,15 @@ import (
 // parallel branch or machine state store: the branch's kind, its head, what
 // a scratch branch was forked from (spec §8.5.3) and its machine.
 type BranchMachineResponse struct {
-	Name       string            `json:"name"`
-	Kind       string            `json:"kind"`
-	State      string            `json:"state"`
-	TodoID     string            `json:"todo_id,omitempty"`
-	Head       string            `json:"head,omitempty"`
-	ForkedFrom *BranchForkedFrom `json:"forked_from,omitempty"`
-	Machine    WorkspaceResponse `json:"machine"`
+	Name            string                 `json:"name"`
+	Kind            string                 `json:"kind"`
+	State           string                 `json:"state"`
+	TodoID          string                 `json:"todo_id,omitempty"`
+	Head            string                 `json:"head,omitempty"`
+	ForkedFrom      *BranchForkedFrom      `json:"forked_from,omitempty"`
+	Machine         WorkspaceResponse      `json:"machine"`
+	Rebase          map[string]any         `json:"rebase,omitempty"`
+	RebaseExecution *BranchRebaseExecution `json:"rebase_execution,omitempty"`
 }
 
 // BranchForkedFrom is forked_from {kind, ref, commit, base, item?} (spec
@@ -227,6 +229,12 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, tx pgx.Tx, q *db.Q
 		return BranchMachineResponse{}, err
 	}
 	branch.ForkedFrom = forkedFrom
+	if branch.Kind == "scratch" {
+		branch.Rebase, err = s.BranchRebaseState(ctx, row)
+		if err != nil {
+			return BranchMachineResponse{}, err
+		}
+	}
 	if branch.Kind == "scratch" && row.Status != "suspended" && row.Status != "stopped" {
 		head, err := s.branchRefHead(ctx, row)
 		if err != nil {

@@ -198,11 +198,15 @@ func TestRegistryCaptureRequiresAuthenticatedDrain(t *testing.T) {
 				require.Error(t, <-result)
 			case "missing_ack":
 				answerCaptureStatus(t, peer, 3, 0, nil)
-				require.ErrorContains(t, <-result, "not acknowledged")
+				err := <-result
+				require.ErrorContains(t, err, "not acknowledged")
+				require.ErrorIs(t, err, ErrNotReady)
 			case "wrong_head":
 				other, _ := hex.DecodeString(strings.Repeat("cd", 20))
 				answerCaptureStatus(t, peer, 3, 0, other)
-				require.ErrorContains(t, <-result, "not acknowledged")
+				err := <-result
+				require.ErrorContains(t, err, "not acknowledged")
+				require.ErrorIs(t, err, ErrNotReady)
 			case "not_ready":
 				answerCaptureStatus(t, peer, 2, 0, head)
 				require.ErrorIs(t, <-result, ErrNotReady)
@@ -729,7 +733,7 @@ func TestConflictInspectionRequiresBoundNativeReceipt(t *testing.T) {
 // The peer is substituted only to inject stale/missing native observations;
 // the composed rehearsal independently exercises the installed daemon.
 func TestRetainedConflictAdmissionRequiresHostHeadAndActualReadiness(t *testing.T) {
-	for _, tc := range []string{"missing ack", "stale ack", "matching ack"} {
+	for _, tc := range []string{"missing ack", "stale ack", "matching ack", "replay matching ack", "replay wrong ack"} {
 		t.Run(tc, func(t *testing.T) {
 			registry := new(Registry)
 			bindFixtureExporter(registry)
@@ -748,18 +752,83 @@ func TestRetainedConflictAdmissionRequiresHostHeadAndActualReadiness(t *testing.
 			if tc == "matching ack" {
 				fields = append(fields, wire.Field(5, bytes.Repeat([]byte{0xaa}, 20)))
 			}
-			if tc == "stale ack" {
+			if tc == "stale ack" || strings.HasPrefix(tc, "replay") {
 				fields = append(fields, wire.Field(5, bytes.Repeat([]byte{0xbb}, 20)))
+			}
+			if strings.HasPrefix(tc, "replay") {
+				fields[3] = wire.Field(4, wire.U32(1))
 			}
 			fields = append(fields, wire.Field(6, wire.U16(0)))
 			answer(t, peer, wire.Status, fields...)
 			require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
-			if tc != "matching ack" {
+			if strings.HasPrefix(tc, "replay") {
+				fields[3] = wire.Field(4, wire.U32(0))
+				if tc == "replay matching ack" {
+					fields[4] = wire.Field(5, bytes.Repeat([]byte{0xaa}, 20))
+				}
+				answer(t, peer, wire.Status, fields...)
+			}
+			if tc != "matching ack" && tc != "replay matching ack" {
 				require.ErrorIs(t, <-done, ErrNotReady)
 				return
 			}
 			answer(t, peer, wire.InspectConflict, wire.Field(1, wire.U16(0)))
 			require.ErrorIs(t, link.RequireReady("a"), ErrNotReady, "inspection alone is not the roster or actual ready observation")
+			answer(t, peer, wire.SetRoster)
+			fields[0] = wire.Field(1, []byte{3})
+			answer(t, peer, wire.Status, fields...)
+			require.NoError(t, <-done)
+			require.NoError(t, link.RequireReady("a"))
+		})
+	}
+}
+
+func TestRetainedConflictAdmissionRereadsOnlyAuthoritativeChangedHead(t *testing.T) {
+	for _, scenario := range []string{"changed", "unchanged", "different acknowledgment", "reader refusal"} {
+		t.Run(scenario, func(t *testing.T) {
+			registry := new(Registry)
+			bindFixtureExporter(registry)
+			boot, err := registry.MintBoot("a", "vm")
+			require.NoError(t, err)
+			link, peer := connectTest(t, registry, "a", boot)
+			defer peer.Close()
+			registry.BindHostHeadReader(func(ctx context.Context, branch string) (string, error) {
+				require.Equal(t, "a", branch)
+				if scenario == "reader refusal" {
+					return "", ErrUnauthorized
+				}
+				if scenario == "unchanged" {
+					return strings.Repeat("a", 40), nil
+				}
+				return strings.Repeat("b", 40), nil
+			})
+			done := make(chan error, 1)
+			go func() {
+				done <- registry.AdmitReady(t.Context(), "a", strings.Repeat("a", 40), nil, &RetainedConflict{Change: strings.Repeat("d", 40), Onto: strings.Repeat("e", 40)})
+			}()
+			acceptFixtureBundle(t, peer)
+			fields := [][]byte{wire.Field(1, []byte{2}), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, wire.String("native")), wire.Field(4, wire.U32(0)), wire.Field(5, bytes.Repeat([]byte{0xbb}, 20)), wire.Field(6, wire.U16(0))}
+			answer(t, peer, wire.Status, fields...)
+			if scenario == "unchanged" || scenario == "reader refusal" {
+				want := ErrNotReady
+				if scenario == "reader refusal" {
+					want = ErrUnauthorized
+				}
+				require.ErrorIs(t, <-done, want)
+				require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
+				return
+			}
+			acceptFixtureBundle(t, peer)
+			if scenario == "different acknowledgment" {
+				fields[4] = wire.Field(5, bytes.Repeat([]byte{0xcc}, 20))
+			}
+			answer(t, peer, wire.Status, fields...)
+			if scenario == "different acknowledgment" {
+				require.ErrorIs(t, <-done, ErrNotReady)
+				require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
+				return
+			}
+			answer(t, peer, wire.InspectConflict, wire.Field(1, wire.U16(0)))
 			answer(t, peer, wire.SetRoster)
 			fields[0] = wire.Field(1, []byte{3})
 			answer(t, peer, wire.Status, fields...)
