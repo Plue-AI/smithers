@@ -552,6 +552,15 @@ evidence do not acquire invented phases, successful checks, or file changes.
   `TraceBuilder` is the mutable draft used while folding, never a
   persisted graph or a second execution model.
 
+The install monitor folds `flows.run.presentation` records from the machine's
+native journal. A machine declares its custom view with `{ "kind": "text", "text":
+"Hello, Ada" }` (at most 65,536 characters). The shipped Run Container renders
+that text as an escaped custom slot beside the graph. Unsupported kinds and
+extra fields are refused; repository modules and HTML are never loaded. Replay
+uses the last declaration in its selected journal prefix, and a run without a
+declaration has no custom slot. Host-priced `steps[].usage` supplies dollar
+costs; repeated instances of a step are summed, while unpriced steps omit cost.
+
 ## `RunDevTools`
 
 `@smthrs/gateway/RunDevTools` is the DevTools projection: a run inspected

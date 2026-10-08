@@ -1383,6 +1383,7 @@ describe("the assembled gateway over a real loopback bind", () => {
         expect(response.status).toBe(200)
         return (await response.json() as { value: any }).value
       })
+      yield* emit(runId, "control.engine.event", { version: 1, executionId: "native-edit", eventType: "flows.run.presentation", payload: { kind: "text", text: "Hello, Ada <script>globalThis.monitorCanary = true</script>" } })
       const snapshot = yield* monitor()
       expect(snapshot.id).toBe(runId)
       expect(snapshot.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited",
@@ -1398,12 +1399,16 @@ describe("the assembled gateway over a real loopback bind", () => {
       expect(snapshot.attempts[0].steps).toMatchObject([{ label: "Edited the files", state: "completed", started_at: "1970-01-01T00:00:00.100Z", ended_at: "1970-01-01T00:00:00.101Z" }])
       expect(snapshot.attempts[0].steps[0].usage).toBeUndefined()
       expect(snapshot.attempts[0].phases[0].cells[0].output).toBe("globalThis.monitorCanary = true")
+      expect(snapshot.presentation).toEqual({ kind: "text", text: "Hello, Ada <script>globalThis.monitorCanary = true</script>" })
       const before = yield* control.list({ _tag: "runs" })
       const replay = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.eventType === "flows.engine.node-scheduled").sequence)
       expect(replay.attempts[0].steps[0].state).toBe("running")
       expect(replay.attempts[0].steps[0].output).toBeUndefined()
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
       expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
+      expect(replay.presentation).toBeUndefined()
+      yield* emit(runId, "control.engine.event", { version: 1, executionId: "native-edit", eventType: "flows.run.presentation", payload: { kind: "text", text: "never load this", module: "./view.ts" } })
+      expect((yield* monitor()).presentation).toBeUndefined()
       yield* emit(runId, "control.run.waiting-approval", { runId })
       // The current monitor omits the journal; a replay at the end names its last sequence.
       expect((yield* monitor()).journal).toBeUndefined()

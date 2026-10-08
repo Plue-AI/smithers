@@ -7,7 +7,7 @@ import { unavailableFailure, FailureNotice } from "../FailureNotice"
  * preflight and the retained design provider supply their own evidence.
  */
 import { useLiveQuery } from "@tanstack/react-db"
-import { useCallback, useSyncExternalStore, type ComponentType } from "react"
+import { useCallback, useSyncExternalStore, type ComponentType, type ReactNode } from "react"
 import type { MonitorCard, RunViewProps } from "@smthrs/rpc/RunCard"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -45,7 +45,7 @@ export interface RunContainerProps {
   /** The validated run projection, or the retained design provider. */
   readonly model: MonitorCard | undefined
   readonly dispatch: CardCommandDispatch
-  readonly View?: ComponentType<RunViewProps>
+  readonly View?: ComponentType<RunViewProps<ReactNode>>
   readonly view: RunViewProps["view"]
   readonly onView: RunViewProps["onView"]
 }
@@ -70,6 +70,7 @@ export const RunContainer = ({ model, dispatch, View = RunView, view, onView }: 
     before: `step:${attempt.run_id}:${step.id}`, after: `step:${attempt.run_id}:${encodeURIComponent(step.id)}`
   }))).find(selection => selection.before === view.selected)?.after ?? view.selected
   return <View model={viewModelOf(model)} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction}
+    custom={model.presentation === undefined ? undefined : <p>{model.presentation.text}</p>}
     view={{ ...view, selected: selected ?? newest }} onView={onView} />
 }
 

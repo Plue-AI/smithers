@@ -107,3 +107,73 @@ test("native colon-bearing step instances select I/O in the mounted Run View", (
   expect(html).toContain("output-receipt")
   expect(model.attempts.at(-1)!.steps[0]!.id).toBe("engine-node:child:root.action")
 })
+
+
+test("declared custom text uses the shipped slot and remains inert; absent presentation mounts no slot", () => {
+  const model = MonitorCardSchema.parse({ ...fixtures.running.model, presentation: { kind: "text", text: "Hello, Ada <script>globalThis.runCanary = true</script>" } })
+  const html = renderToStaticMarkup(<RunContainer model={model} dispatch={() => {}}
+    view={{ maximized: true }} onView={() => {}} />)
+  expect(html).toContain('aria-label="Custom view"')
+  expect(html).toContain("Hello, Ada &lt;script&gt;")
+  expect(html).not.toContain("<script>")
+  expect((globalThis as { runCanary?: boolean }).runCanary).toBeUndefined()
+  const absent = renderToStaticMarkup(<RunContainer model={fixtures.running.model} dispatch={() => {}}
+    view={{ maximized: true }} onView={() => {}} />)
+  expect(absent).not.toContain('aria-label="Custom view"')
+  for (const presentation of [{ kind: "module", text: "./view.ts" }, { kind: "text", text: "hello", module: "./view.ts" }]) {
+    expect(MonitorCardSchema.safeParse({ ...model, presentation }).success).toBe(false)
+  }
+})
+
+test("priced steps sum repeated instances once; unpriced steps show no dollars", () => {
+  const model = MonitorCardSchema.parse(fixtures.running.model)
+  const attempt = model.attempts.at(-1)!
+  const step = attempt.steps[0]!
+  step.usage = { tokens: 1200, cost_usd: 0.12 }
+  attempt.steps.push({ ...step, key: `${step.id}#2`, k: 2, usage: { tokens: 200, cost_usd: 0.03 } })
+  const html = renderToStaticMarkup(<RunContainer model={model} dispatch={() => {}}
+    view={{ maximized: true, selected: `step:${attempt.run_id}:${step.id}` }} onView={() => {}} />)
+  expect(html).toContain("$0.15")
+  expect(html).toContain("1.4k tokens")
+  const withoutUsage = MonitorCardSchema.parse(fixtures.running.model)
+  for (const attempt of withoutUsage.attempts) for (const step of attempt.steps) delete step.usage
+  const unpriced = renderToStaticMarkup(<RunContainer model={withoutUsage} dispatch={() => {}}
+    view={{ maximized: true }} onView={() => {}} />)
+  expect(unpriced).not.toContain("$")
+})
+
+
+test("the monitor retains every durable wait and one collapsed Engine row across attempts", () => {
+  const model = MonitorCardSchema.parse(fixtures.two_attempts.model)
+  model.waits = ["question", "approval", "pause", "sleep", "signal", "external_job"].map((kind, index) => ({
+    id: `wait-${index}`, kind: kind as MonitorCard["waits"][number]["kind"], label: `wait receipt ${index}`,
+    since: "2026-10-06T10:00:00Z", ...(index % 2 === 0 ? { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: "2026-10-06T10:02:00Z" } } : {})
+  }))
+  model.engine = [{ label: "Checkpoint", detail: "agent/trace/checkpoint" }, { label: "Boundary", detail: "<seal-step>" }]
+  const html = renderToStaticMarkup(<RunContainer model={model} dispatch={() => {}}
+    view={{ maximized: true }} onView={() => {}} />)
+  expect(html.match(/<summary>Engine<\/summary>/g)).toHaveLength(1)
+  expect(html).not.toContain("<details open")
+  for (let index = 0; index < 6; index++) expect(html).toContain(`wait receipt ${index}`)
+  expect(html.match(/dateTime="2026-10-06T10:00:00Z"/g)).toHaveLength(6)
+  expect(html.match(/dateTime="2026-10-06T10:02:00Z"/g)).toHaveLength(3)
+  expect(html).toContain("answered by Smithers")
+  expect(html).toContain("settled by Smithers")
+  const noEngine = renderToStaticMarkup(<RunContainer model={{ ...model, engine: [] }} dispatch={() => {}}
+    view={{ maximized: true }} onView={() => {}} />)
+  expect(noEngine).not.toContain("<summary>Engine</summary>")
+})
+
+
+test("metered sub-cent costs stay visible and unmetered token counts survive", () => {
+  const model = MonitorCardSchema.parse(fixtures.running.model)
+  const attempt = model.attempts.at(-1)!
+  const step = attempt.steps[0]!
+  step.usage = { tokens: 1, cost_usd: 0.000000001 }
+  const render = () => renderToStaticMarkup(<RunContainer model={model} dispatch={() => {}}
+    view={{ maximized: true, selected: `step:${attempt.run_id}:${step.id}` }} onView={() => {}} />)
+  expect(render()).toContain("$0.000000001")
+  delete step.usage
+  step.tokens = 1200
+  expect(render()).toContain("1.2k tokens")
+})

@@ -2716,7 +2716,18 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
         settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() }
       })
   }))
+  // The machine records its declared custom view as data. Only the shipped
+  // text renderer is supported; module paths, HTML and executable data never
+  // cross this seam. Replay selects the last declaration in its own prefix.
+  const custom = [...journal].reverse().find(row => (row.runId === undefined || row.runId === run.runId) &&
+    row.kind === "control.engine.event" && asRecord(row.payload).eventType === "flows.run.presentation")
+  const presentation = asRecord(asRecord(custom?.payload).payload)
+  const text = asString(presentation.text)
+  const customView = presentation.kind === "text" && text !== undefined && text.length <= 65536 &&
+    Object.keys(presentation).every(key => key === "kind" || key === "text")
+    ? { presentation: { kind: "text" as const, text } } : {}
   return {
+    ...customView,
     id: run.runId,
     flow: run.flowId,
     version: "",

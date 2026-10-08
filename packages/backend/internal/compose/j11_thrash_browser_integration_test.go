@@ -133,11 +133,15 @@ func waitMonitorAttempt(t *testing.T, r *rehearsal, n int64, attempt int) {
 	t.Fatalf("TODO T%d did not launch attempt %d", n, attempt)
 }
 
-func runJ11MonitorBrowser(t *testing.T, r *rehearsal, grep string, env []string) {
+func runJ11MonitorBrowser(t *testing.T, r *rehearsal, grep string, env []string, specs ...string) {
 	t.Helper()
 	cookies, err := json.Marshal(r.jar.Cookies(mustRehearsalURL(r.origin)))
 	require.NoError(t, err)
-	command := exec.CommandContext(r.ctx, "pnpm", "exec", "playwright", "test", "--config", "e2e/real/j11.config.ts", "C-J11-04.spec.ts", "--grep", grep)
+	spec := "C-J11-04.spec.ts"
+	if len(specs) > 0 {
+		spec = specs[0]
+	}
+	command := exec.CommandContext(r.ctx, "pnpm", "exec", "playwright", "test", "--config", "e2e/real/j11.config.ts", spec, "--grep", grep)
 	command.Dir = filepath.Join(r.root, "apps/app")
 	command.Env = append(os.Environ(), "SMITHERS_J11_OUTPUT_DIR="+filepath.Join(r.evidence, "browser-"+strings.ReplaceAll(grep, " ", "_")), "SMITHERS_J11_ORIGIN="+r.origin, "SMITHERS_J11_COOKIES="+string(cookies))
 	command.Env = append(command.Env, env...)

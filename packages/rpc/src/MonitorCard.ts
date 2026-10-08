@@ -128,6 +128,7 @@ export const MonitorCardSchema = z.object({
   time_s: z.number().nonnegative(),
   cost_usd: z.number().nonnegative().optional(),
   unmetered_tokens: z.number().int().nonnegative().optional(),
+  presentation: z.object({ kind: z.literal("text"), text: z.string().max(65536) }).strict().optional(),
   engine: z.array(z.object({ label: z.string(), detail: z.string() })),
   journal: z.array(z.object({
     seq: z.number().int().nonnegative(),
@@ -175,7 +176,7 @@ export interface RunView {
  * @since 1.0.0
  * @category models
  */
-export type RunViewProps = CardProps<MonitorCard, RunView>
+export type RunViewProps<Custom = unknown> = CardProps<MonitorCard, RunView> & { readonly custom?: Custom }
 
 /**
  * Typed catalog callbacks for Run: Inspect, Steer, Stop and Retry.

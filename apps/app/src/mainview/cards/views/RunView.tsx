@@ -11,8 +11,9 @@
 import { useState, type CSSProperties, type ReactNode } from "react"
 import { BookOpen, Bot, Check, FilePen, Layers, Maximize2, MessageCircleQuestion, Repeat, ScanSearch, Send, Sparkles, SquareTerminal, Undo2, X } from "lucide-react"
 import type { Action } from "@smthrs/rpc/CardAction"
-import type { RunViewProps } from "@smthrs/rpc/MonitorCard"
-import { ActorChip } from "./ActorChip"
+import type { RunViewProps as MonitorViewProps } from "@smthrs/rpc/MonitorCard"
+import { ActorChip, actorName } from "./ActorChip"
+type RunViewProps = MonitorViewProps<ReactNode>
 
 type Model = RunViewProps["model"]
 type Attempt = Model["attempts"][number]
@@ -51,10 +52,14 @@ const stepLabel = (attempt: Attempt, key: string): string => {
 }
 const phasesOfStep = (attempt: Attempt, id: string): ReadonlyArray<Phase> => attempt.phases.filter(phase => stepIdOf(attempt, phase.step) === id)
 
-const costOf = (phases: ReadonlyArray<Phase>): { readonly took?: string; readonly tokens?: string } => {
-  const used = phases.flatMap(phase => phase.cells).reduce((sum, cell) => sum + (cell.tokens ?? 0), 0)
-  const time = phases.reduce((sum, phase) => sum + phase.took_s, 0)
-  return { ...(time === 0 ? {} : { took: duration(time) }), ...(used === 0 ? {} : { tokens: tokenLabel(used) }) }
+const dollars = (amount: number): string => `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 9 })}`
+const costOf = (attempt: Attempt, id: string): { readonly took?: string; readonly tokens?: string; readonly dollars?: string } => {
+  const steps = attempt.steps.filter(step => step.id === id)
+  const metered = steps.flatMap(step => step.usage === undefined ? [] : [step.usage])
+  const used = metered.length === 0 ? (steps.reduce((sum, step) => sum + (step.tokens ?? 0), 0) || phasesOfStep(attempt, id).flatMap(phase => phase.cells).reduce((sum, cell) => sum + (cell.tokens ?? 0), 0)) : metered.reduce((sum, usage) => sum + usage.tokens, 0)
+  const time = steps.reduce((sum, step) => sum + (step.took_s ?? 0), 0) || phasesOfStep(attempt, id).reduce((sum, phase) => sum + phase.took_s, 0)
+  return { ...(time === 0 ? {} : { took: duration(time) }), ...(used === 0 ? {} : { tokens: tokenLabel(used) }),
+    ...(metered.length === 0 ? {} : { dollars: dollars(metered.reduce((sum, usage) => sum + usage.cost_usd, 0)) }) }
 }
 
 /** What the fast model wrote carries a sparkle; a person's words and plain facts do not. */
@@ -100,7 +105,7 @@ function AttemptGraph({ attempt, size, selected, onView, label, dim }: {
     style={{ "--node-w": `${NODE_W}px` } as CSSProperties}>
     {nodes.map(node => {
       const phases = phasesOfStep(attempt, node.id)
-      const cost = size !== "full" ? {} : costOf(phases)
+      const cost = size !== "full" ? {} : costOf(attempt, node.id)
       const thrashed = phases.some(phase => phase.tone === "thrash")
       const body = <>
         <span className="mvp-attempt-mark" aria-hidden="true">
@@ -109,8 +114,9 @@ function AttemptGraph({ attempt, size, selected, onView, label, dim }: {
         {size === "earlier" ? null : <span className="mvp-node-name"><span>{node.label}</span>{thrashed ? <Repeat size={11} className="mvp-node-thrash" aria-hidden="true" /> : null}</span>}
         {cost.took === undefined ? null : <span className="mvp-node-took">{cost.took}</span>}
         {cost.tokens === undefined ? null : <span className="mvp-node-took">{cost.tokens} tokens</span>}
+        {cost.dollars === undefined ? null : <span className="mvp-node-took">{cost.dollars}</span>}
       </>
-      const name = [node.label, NODE_WORD[node.state], cost.took, cost.tokens === undefined ? undefined : `${cost.tokens} tokens`, thrashed ? "thrashed" : undefined].filter(Boolean).join(", ")
+      const name = [node.label, NODE_WORD[node.state], cost.took, cost.tokens === undefined ? undefined : `${cost.tokens} tokens`, cost.dollars, thrashed ? "thrashed" : undefined].filter(Boolean).join(", ")
       return <li key={node.id} data-phase={node.state} data-wait={node.id === "merge" || undefined}
         aria-current={node.state === "current" || node.state === "waiting" || node.state === "held" ? "step" : undefined}>
         {onView === undefined || node.id === "merge"
@@ -176,7 +182,7 @@ function JournalPane({ model, view, onView }: { readonly model: Model; readonly 
   </div>
 }
 
-export function RunView({ model, actions, onAction, view, onView }: RunViewProps) {
+export function RunView({ model, actions, onAction, view, onView, custom }: RunViewProps) {
   const latest = model.attempts.at(-1)
   const status = <span className="mvp-run-state" data-state={model.state}>
     {model.state === "running" ? <span className="mvp-run-live" aria-hidden="true" /> : model.state === "held" ? <span className="mvp-run-held" aria-hidden="true" /> : null}
@@ -226,7 +232,7 @@ export function RunView({ model, actions, onAction, view, onView }: RunViewProps
   }
   const stepRows = shown === undefined || selectedStep === undefined ? [] : shown.steps.filter(each => each.id === selectedStep)
   const stepPhases = shown === undefined || selectedStep === undefined ? [] : phasesOfStep(shown, selectedStep)
-  const stepCost = costOf(stepPhases)
+  const stepCost = shown === undefined || selectedStep === undefined ? {} : costOf(shown, selectedStep)
   const tabs = model.journal !== undefined || view.tab === "journal"
   const journal = view.tab === "journal"
   const cellButton = (cell: Cell, attribute: "data-cell" | "data-transcript-cell") =>
@@ -246,6 +252,12 @@ export function RunView({ model, actions, onAction, view, onView }: RunViewProps
         <AttemptGraph attempt={latest!} size="full" label={model.attempts.length > 1} selected={latest === shown ? marked : undefined} onView={onView} />
       </div>}
       {flags}
+      {model.waits.length === 0 ? null : <ul aria-label="Durable waits">{model.waits.map(wait => <li key={wait.id}>
+        <span>{wait.kind.replace("_", " ")} · {wait.label} · since <time dateTime={wait.since}>{wait.since}</time></span>
+        {wait.settled === undefined ? null : <span> · {wait.kind === "question" ? "answered" : "settled"} by {actorName(wait.settled.by)} · <time dateTime={wait.settled.at}>{wait.settled.at}</time></span>}
+      </li>)}</ul>}
+      {model.engine.length === 0 ? null : <details data-run-engine><summary>Engine</summary><ul>{model.engine.map((entry, index) => <li key={index}>{entry.label}{entry.detail ? <pre>{entry.detail}</pre> : null}</li>)}</ul></details>}
+      {custom === undefined ? null : <section aria-label="Custom view">{custom}</section>}
       {tabs ? <div className="mvp-run-tabs" role="tablist" aria-label="Run views">
         <button type="button" role="tab" className="mvp-run-tab" data-tab="run" aria-selected={!journal} onClick={() => onView({ tab: "run" })}>Run</button>
         <button type="button" role="tab" className="mvp-run-tab" data-tab="journal" aria-selected={journal} onClick={() => onView({ tab: "journal" })}>Journal</button>
@@ -269,7 +281,7 @@ export function RunView({ model, actions, onAction, view, onView }: RunViewProps
           {selectedStep !== undefined ? <>
             <div className="mvp-run-detail-head">
               <span className="mvp-run-detail-phase">{shown.graph.find(node => node.id === selectedStep)?.label ?? selectedStep}</span>
-              <span className="mvp-run-detail-end">{[stepCost.took, stepCost.tokens === undefined ? undefined : `${stepCost.tokens} tokens`].filter(Boolean).join(" · ")}</span>
+              <span className="mvp-run-detail-end">{[stepCost.took, stepCost.tokens === undefined ? undefined : `${stepCost.tokens} tokens`, stepCost.dollars].filter(Boolean).join(" · ")}</span>
             </div>
             {stepRows.filter(row => row.input !== undefined || row.output !== undefined).map(row => <div key={row.key} className="mvp-run-step-io">
               {stepRows.length > 1 ? <span className="mvp-run-detail-phase">{row.label} · {row.k}</span> : null}

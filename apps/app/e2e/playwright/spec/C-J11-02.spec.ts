@@ -94,3 +94,43 @@ test("C-J11-02: installed draft Run and Inspect retain their label after reload"
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes.filter(url => url.includes("/api/todos") || url.includes("/api/workflow/rpc"))).toEqual([])
 })
+
+
+// Full composed install, real native journal, served monitor and real app seam.
+// The text canary must remain data in both the host and browser.
+test("C-J11-02: native custom presentation renders through Inspect and follows read-only replay", async ({ page, context }, info) => {
+  const origin = process.env.SMITHERS_J11_ORIGIN
+  const id = process.env.SMITHERS_J11_PRESENTATION_RUN
+  test.skip(!origin || !id, "Run TestJ11NativePresentationBrowser with SMITHERS_J11_PRESENTATION_BROWSER=1")
+  const cookies: Array<{ Name: string; Value: string }> = JSON.parse(process.env.SMITHERS_J11_COOKIES!)
+  await context.addCookies(cookies.map(cookie => ({ name: cookie.Name, value: cookie.Value, url: origin! })))
+  const response = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
+  expect(response.status()).toBe(200)
+  const snapshot = await response.json()
+  expect(snapshot.presentation).toEqual({ kind: "text", text: "Hello, Ada <script>globalThis.runPresentationCanary = true</script>" })
+  const record = snapshot.journal.find((row: { type: string; text: string }) => row.type === "control.engine.event" && JSON.parse(row.text).eventType === "flows.run.presentation")
+  expect(record).toBeDefined()
+  const writes: string[] = []
+  page.on("request", request => {
+    if (new URL(request.url()).pathname.startsWith("/api/runs") && request.method() !== "GET") writes.push(request.url())
+  })
+  await page.goto(origin!)
+  await say(page, `/run.inspect ${id}`)
+  const run = page.locator('.mvp-run[data-maximized]')
+  const custom = run.getByRole("region", { name: "Custom view", exact: true })
+  await expect(custom).toHaveText("Hello, Ada <script>globalThis.runPresentationCanary = true</script>")
+  await expect(custom.locator("script")).toHaveCount(0)
+  expect(await page.evaluate(() => (globalThis as { runPresentationCanary?: boolean }).runPresentationCanary)).toBeUndefined()
+  await run.getByRole("tab", { name: "Journal", exact: true }).press("Enter")
+  const slider = run.getByRole("slider", { name: "Run position", exact: true })
+  const before = page.waitForResponse(response => response.url().includes("/trace") && new URL(response.url()).searchParams.get("at") === "0")
+  await slider.focus()
+  await slider.press("Home")
+  expect((await before).status()).toBe(200)
+  await expect(custom).toHaveCount(0)
+  await slider.press("End")
+  await expect(custom).toHaveText("Hello, Ada <script>globalThis.runPresentationCanary = true</script>")
+  expect(writes).toEqual([])
+  expect((await (await page.request.get(response.url())).json()).journal).toEqual(snapshot.journal)
+  await page.screenshot({ path: info.outputPath("custom-view.png") })
+})

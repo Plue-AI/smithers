@@ -2092,3 +2092,31 @@ describe("native step transcripts and metered dispatches", () => {
     expect(replay.attempts[0]!.steps[0]).not.toHaveProperty("meter")
   })
 })
+
+
+describe("machine-declared custom presentation", () => {
+  const run = { runId: "custom-run", flowId: "hello", status: "completed" }
+  const record = (sequence: number, payload: unknown, runId = "custom-run"): JournalRecord => ({
+    runId, sequence, occurredAt: 1000 + sequence, kind: "control.engine.event", payload: { version: 1, executionId: "native-run", eventType: "flows.run.presentation", payload }
+  })
+  test("selects the last declaration in the run's replay prefix, without executing it", () => {
+    const journal = [record(1, { kind: "text", text: "Hello, Ada" }),
+      record(2, { kind: "text", text: "<script>globalThis.customCanary = true</script>" }),
+      record(3, { kind: "text", text: "foreign" }, "foreign-run")]
+    expect(monitorFromJournal(run, journal).presentation).toEqual({ kind: "text", text: "<script>globalThis.customCanary = true</script>" })
+    expect(monitorFromJournal(run, journal, 1).presentation).toEqual({ kind: "text", text: "Hello, Ada" })
+    expect(monitorFromJournal(run, journal, 0).presentation).toBeUndefined()
+    expect((globalThis as { customCanary?: boolean }).customCanary).toBeUndefined()
+    const native: JournalRecord = { runId: "custom-run", sequence: 4, occurredAt: 1004, kind: "control.engine.event",
+      payload: { version: 1, executionId: "native-run", eventType: "flows.run.presentation", payload: { kind: "text", text: "Hello from the machine" } } }
+    expect(monitorFromJournal(run, [...journal, native]).presentation).toEqual({ kind: "text", text: "Hello from the machine" })
+  })
+  test("refuses executable or malformed declarations, bounds text, and allows empty text", () => {
+    for (const value of [null, { kind: "html", text: "<h1>hello</h1>" }, { kind: "text", text: 2 },
+      { kind: "text", text: "hi", module: "./view.ts" }, { kind: "text", text: "x".repeat(65537) }]) {
+      expect(monitorFromJournal(run, [record(1, { kind: "text", text: "old" }), record(2, value)]).presentation).toBeUndefined()
+    }
+    expect(monitorFromJournal(run, [record(1, { kind: "text", text: "x".repeat(65536) })]).presentation?.text.length).toBe(65536)
+    expect(monitorFromJournal(run, [record(1, { kind: "text", text: "" })]).presentation).toEqual({ kind: "text", text: "" })
+  })
+})
