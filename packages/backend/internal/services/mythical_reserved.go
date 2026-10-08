@@ -1,17 +1,22 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -90,6 +95,22 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if err != nil {
 		return empty, 0, err
 	}
+	// Completed immutable work replays its own receipt before evaluating
+	// today's generation, prefix or live tree. Authorization above is current.
+	if command != "stack.candidate" || input.Source != nil {
+		if result, found, err := replayReservedStack(live, tx, item, command, input); err != nil || found {
+			if err != nil {
+				return empty, 0, err
+			}
+			return result, 200, tx.Commit(live)
+		}
+	}
+	complete := func(result ReservedStackResult) (ReservedStackResult, int, error) {
+		if err := s.recordReservedStack(live, tx, item, command, input, result); err != nil {
+			return empty, 0, err
+		}
+		return result, 200, tx.Commit(live)
+	}
 	if mythicalSettledStates[item.State] {
 		return empty, 0, pkgerrors.Conflict("TODO is closed")
 	}
@@ -159,7 +180,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if previous != tree {
 				return empty, 0, pkgerrors.Conflict("candidate prefix changed")
 			}
-			return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
+			return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
 		}
 		if _, err := machine.reportRetainedSource(live, row, ReportWorkspaceHeadInput{RetainSource: input.Source}); err != nil {
 			return empty, 0, err
@@ -170,13 +191,13 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 				return empty, 0, err
 			}
 			if previous == tree && reusable && mythicalChecksOf(item).Capture == nil {
-				return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
+				return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
 			}
 		}
 		// An exact sealed-source replay returns its recorded generation without
 		// reviving invalidated verification or allocating another generation.
 		if item.CandidateHead == input.Source.CommitID && item.CandidateBase == prefix && mythicalChecksOf(item).Capture == nil {
-			return ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead}, 200, tx.Commit(live)
+			return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
 		}
 		pending := mythicalChecksOf(item).Capture
 		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || item.State == "verifying" && item.VerifyOutcome == "" {
@@ -234,7 +255,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return empty, 0, pkgerrors.Conflict("candidate changed")
 		}
 		if item.State == "proposed" && item.PRHead != "" && len(item.PendingOp) == 0 {
-			return ReservedStackResult{Generation: item.Generation, Head: item.PRHead}, 200, tx.Commit(live)
+			return complete(ReservedStackResult{Generation: item.Generation, Head: item.PRHead})
 		}
 	}
 	if _, err := q.RequestMythicalStack(live, repository); err != nil {
@@ -263,4 +284,51 @@ func BindReservedStackPayload(subject InstallSubject, command string, input Rese
 	digest := sha256.Sum256(encoded)
 	subject.PayloadDigest = hex.EncodeToString(digest[:])
 	return subject, nil
+}
+
+// Reuse the durable operation journal, not a second generation/receipt table.
+// The key belongs to an attempt and operation invocation; changing its payload
+// is a conflict, while a later generation cannot change its completed result.
+func reservedStackReceiptID(item db.MythicalItem, command, request string) string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("reserved-stack/%d/%s/%s/%s/%s", item.RepositoryID, uuidString(item.ID), item.RequestRunID, command, request))).String()
+}
+
+type reservedStackReceipt struct {
+	Input  ReservedStackInput  `json:"input"`
+	Result ReservedStackResult `json:"result"`
+}
+
+func replayReservedStack(ctx context.Context, tx pgx.Tx, item db.MythicalItem, command string, input ReservedStackInput) (ReservedStackResult, bool, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx, `SELECT authorization_context FROM product_job_requests WHERE id=$1`, reservedStackReceiptID(item, command, input.RequestID)).Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReservedStackResult{}, false, nil
+	}
+	if err != nil {
+		return ReservedStackResult{}, false, err
+	}
+	var stored reservedStackReceipt
+	if json.Unmarshal(raw, &stored) != nil || stored.Result.Generation <= 0 || stored.Result.Head == "" {
+		return ReservedStackResult{}, false, pkgerrors.Internal("invalid reserved operation receipt")
+	}
+	want, _ := json.Marshal(input)
+	previous, _ := json.Marshal(stored.Input)
+	if !bytes.Equal(want, previous) {
+		return ReservedStackResult{}, false, pkgerrors.Conflict("stack operation request changed")
+	}
+	return stored.Result, true, nil
+}
+
+func (s *MythicalService) recordReservedStack(ctx context.Context, tx pgx.Tx, item db.MythicalItem, command string, input ReservedStackInput, result ReservedStackResult) error {
+	id := reservedStackReceiptID(item, command, input.RequestID)
+	fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "generation": result.Generation, "head": result.Head})
+	if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), id, command+".completed", todoState(item), fact); err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(reservedStackReceipt{Input: input, Result: result})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE product_job_requests SET authorization_context=$2::jsonb WHERE id=$1`, id, metadata)
+	return err
 }

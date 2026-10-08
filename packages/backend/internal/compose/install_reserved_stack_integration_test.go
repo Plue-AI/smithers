@@ -165,6 +165,74 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.EqualValues(t, 7, item.Generation)
 	})
 
+	t.Run("completed candidate and accepted proposal replay after next generation", func(t *testing.T) {
+		runtime.fail = true
+		defer func() { runtime.fail = false }()
+		before, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		defer func() {
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET generation=7 WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}()
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET generation=8 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		var events, requests int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_events`).Scan(&events))
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requests))
+		reads, calls := objects.reads, runtime.calls
+		out := call(t, token, "candidate", string(raw), 200)
+		require.JSONEq(t, fmt.Sprintf(`{"generation":7,"base":%q,"head":%q}`, base, head), out.Body.String())
+		out = call(t, token, "propose", proposal, 200)
+		require.JSONEq(t, fmt.Sprintf(`{"generation":7,"head":%q}`, head), out.Body.String())
+		// The old generation is accepted only through its exact sealed invocation.
+		call(t, token, "propose", strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333", 1), 409)
+		call(t, token, "propose", strings.Replace(proposal, `"generation":7`, `"generation":8`, 1), 409)
+		require.Equal(t, reads, objects.reads)
+		require.Equal(t, calls, runtime.calls)
+		after, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.EqualValues(t, 8, after.Generation)
+		require.Equal(t, before.Version, after.Version)
+		require.Equal(t, before.PendingOp, after.PendingOp)
+		var afterEvents, afterRequests int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&afterRequests))
+		require.Equal(t, events, afterEvents)
+		require.Equal(t, requests, afterRequests)
+	})
+
+	t.Run("receipt failure rolls back and identical retry completes once", func(t *testing.T) {
+		fresh := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", "77777777-7777-4777-8777-777777777777", 1)
+		_, err := f.pool.Exec(f.ctx, `CREATE FUNCTION reject_reserved_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.operation='stack.propose.completed' THEN RAISE EXCEPTION 'fixture receipt failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_reserved_receipt BEFORE INSERT ON product_job_requests FOR EACH ROW EXECUTE FUNCTION reject_reserved_receipt()`)
+		require.NoError(t, err)
+		var before int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&before))
+		call(t, token, "propose", fresh, 500)
+		var after int
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&after))
+		require.Equal(t, before, after)
+		_, err = f.pool.Exec(f.ctx, `DROP TRIGGER reject_reserved_receipt ON product_job_requests; DROP FUNCTION reject_reserved_receipt()`)
+		require.NoError(t, err)
+		for range 2 {
+			out := call(t, token, "propose", fresh, 200)
+			require.JSONEq(t, fmt.Sprintf(`{"generation":7,"head":%q}`, head), out.Body.String())
+		}
+		require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&after))
+		require.Equal(t, before+1, after)
+	})
+	t.Run("completed replay still needs a live credential", func(t *testing.T) {
+		revoked := f.token(f.owner, "reserved-revoked", scopes+","+middleware.AgentSessionRestrictionScope("current-run"), true)
+		_, err := f.pool.Exec(f.ctx, `UPDATE access_tokens SET expires_at=NOW()-interval '1 second' WHERE name='reserved-revoked'`)
+		require.NoError(t, err)
+		request := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/stack/propose", row.ID), strings.NewReader(proposal))
+		request.Header.Set("Authorization", "Bearer "+revoked)
+		out := httptest.NewRecorder()
+		before := runtime.calls
+		router.ServeHTTP(out, request)
+		require.Equal(t, 401, out.Code, out.Body.String())
+		require.Equal(t, before, runtime.calls)
+	})
+
 	for _, provider := range []string{"verify launcher", "source reader", "guest runtime"} {
 		t.Run("missing "+provider+" refuses before capture", func(t *testing.T) {
 			defer service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(machine))
@@ -179,8 +247,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 				service.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(unavailable))
 			}
 			before, reads := runtime.calls, objects.reads
-			call(t, token, "candidate", request, 503)
-			call(t, token, "candidate", string(raw), 503)
+			call(t, token, "candidate", strings.Replace(request, input.RequestID, "44444444-4444-4444-8444-444444444444", 1), 503)
+			call(t, token, "candidate", strings.Replace(string(raw), input.RequestID, "44444444-4444-4444-8444-444444444444", 1), 503)
 			require.Equal(t, before, runtime.calls)
 			require.Equal(t, reads, objects.reads)
 		})
@@ -344,9 +412,10 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.Equal(t, before, runtime.calls)
 	})
 	t.Run("changed tree invalidates publication", func(t *testing.T) {
+		freshProposal := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", "66666666-6666-4666-8666-666666666666", 1)
 		runtime.head = strings.Repeat("e", 40)
 		runtime.tree = strings.Repeat("f", 40)
-		call(t, token, "propose", proposal, 409)
+		call(t, token, "propose", freshProposal, 409)
 		item, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
 		require.NoError(t, err)
 		require.False(t, item.CandidateVerified)
@@ -354,7 +423,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		runtime.head = head
 		runtime.tree = tree
 		before := runtime.calls
-		call(t, token, "propose", proposal, 409)
+		call(t, token, "propose", freshProposal, 409)
 		require.Equal(t, before, runtime.calls)
 	})
 
