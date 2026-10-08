@@ -498,6 +498,23 @@ test('root-ci-setup-input-validation disposable Ubuntu positive and hostile cont
     }
   }
   assert.deepEqual(await readdir(workspace), [])
+  // A runner-owned archive keyring is accepted only at its approved bytes;
+  // root uses the embedded main copy. An altered image keyring still refuses.
+  const imageKeyring = '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
+  const savedKeyring = imageKeyring + '.smithers-validation-original'
+  await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/mv', imageKeyring, savedKeyring])
+  try {
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/touch', imageKeyring])
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: runner keyring identity/)
+      return true
+    })
+    await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+    await assert.rejects(readFile(canary), { code: 'ENOENT' })
+  } finally {
+    await runFile('/usr/bin/sudo', ['--non-interactive', '/usr/bin/mv', savedKeyring, imageKeyring])
+  }
   const log = await runFile('/usr/bin/python3', ['-I', '-c', positive], { cwd: '/', env: setupEnvironment, maxBuffer: 8 * 1024 * 1024 })
   assert.match(log.stdout, /bubblewrap/)
   const commands = JSON.parse(log.stdout.match(/^TRUSTED-SETUP-COMMANDS (.*)$/m)?.[1] ?? 'null')
