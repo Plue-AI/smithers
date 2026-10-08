@@ -35,7 +35,7 @@ test("C-J4-01 Home shared facts, private filter and retained background failures
         })
       })
       await page.reload()
-      await runSlash(page, "/home")
+      await runSlash(page, "/stack")
       await expect(home(page)).toBeVisible()
     }
     // Shared snapshots compare at one cursor; private preferences stay separate.

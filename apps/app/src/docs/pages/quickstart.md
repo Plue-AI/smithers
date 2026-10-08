@@ -47,6 +47,22 @@ When an outside push needs a decision, an owner or maintainer can choose **Disca
 
 Open the TODO's evidence and pull request. Read the diff, verification results, GitHub checks and review. When the reviewed revision is ready, choose **Merge** in the app and confirm it. People merge; agents cannot approve or merge. The TODO becomes Merged after GitHub reports the squash merge. A learning run follows.
 
+## Read the stack
+
+Open `main`'s conversation to see the stack. `main` stays at the top; TODOs follow in merge order.
+
+```text
+main
+  |
+  T1 <- merge first
+  |
+  T2 <- merges after T1
+  |
+  T3 <- merges after T2
+```
+
+Open a TODO to read its prompt and evidence. Background runs appear below the stack.
+
 ## Members and secrets
 
 Open `/members` and add teammates by GitHub username. They need write access or higher on the repository. Maintainers can manage people and merge; Members can work on branches. The owner cannot be removed or demoted. Teammates open the address set during setup and sign in with GitHub.
