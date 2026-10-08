@@ -434,6 +434,11 @@ test('root-ci-setup-input-validation refuses hostile environment before privileg
     ['BASH_ENV', '/tmp/branch-startup'], ['ENV', '/tmp/branch-startup'],
     ['BASH_FUNC_setup%%', '() { touch /run/smithers-hostile-root; }'],
     ['LD_PRELOAD', '/tmp/branch-loader.so'], ['PYTHONPATH', '/tmp/branch-import'],
+    ['PYTHONHOME', '/tmp/branch-python'], ['CDPATH', '/tmp/branch-directory'],
+    ['SSL_CERT_FILE', '/tmp/branch-cert'], ['SSL_CERT_DIR', '/tmp/branch-certs'],
+    ['HTTP_PROXY', 'http://branch.invalid'], ['HTTPS_PROXY', 'http://branch.invalid'],
+    ['http_proxy', 'http://branch.invalid'], ['https_proxy', 'http://branch.invalid'],
+    ['ALL_PROXY', 'http://branch.invalid'], ['all_proxy', 'http://branch.invalid'],
     ['NODE_OPTIONS', '--require=/tmp/branch-import'],
     ['APT_CONFIG', '/tmp/branch-apt.conf'],
     ['SMITHERS_TRUSTED_INCOMING_PATH', '/tmp/branch-bin:/usr/bin'],
@@ -498,6 +503,33 @@ test('root-ci-setup-input-validation disposable Ubuntu positive and hostile cont
     }
   }
   assert.deepEqual(await readdir(workspace), [])
+  // Retained action state must be refused through production dispatch before
+  // the positive control. Use distinct files rather than alter runner state.
+  const retained = await mkdtemp(join(tmpdir(), 'smithers-retained-state-'))
+  try {
+    const state = join(retained, 'state')
+    await writeFile(state, 'PATH=/tmp/branch-bin\n')
+    for (const key of ['GITHUB_ENV', 'GITHUB_PATH']) {
+      await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], {
+        cwd: '/', env: { ...setupEnvironment, [key]: state },
+      }), (error) => {
+        assert.equal(error.code, 1)
+        assert.ok(error.stderr.includes(`trusted setup refused: action state: ${key}`), error.stderr)
+        return true
+      })
+      await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+      await assert.rejects(readFile(canary), { code: 'ENOENT' })
+    }
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', positive], {
+      cwd: retained, env: setupEnvironment,
+    }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: working directory/)
+      return true
+    })
+    await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+    await assert.rejects(readFile(canary), { code: 'ENOENT' })
+  } finally { await rm(retained, { recursive: true, force: true }) }
   // A runner-owned archive keyring is accepted only at its approved bytes;
   // root uses the embedded main copy. An altered image keyring still refuses.
   const imageKeyring = '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
