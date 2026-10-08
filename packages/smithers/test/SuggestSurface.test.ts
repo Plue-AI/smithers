@@ -144,8 +144,8 @@ const scripted = (pick: string): Scripted => {
   return { lines, hints, service }
 }
 
-describe("the credential store the seat scan reads when it is handed no reader", () => {
-  it("opens ~/.codex/auth.json and runs on the Codex seat when it holds a session", async () => {
+describe("the Codex subscription opt-in (#2804)", () => {
+  it("selects the vendor CLI seat with the subscription opt-in", async () => {
     const home = directory("smthrs-suggest-home-")
     mkdirSync(join(home, ".codex"))
     writeFileSync(
@@ -167,18 +167,18 @@ describe("the credential store the seat scan reads when it is handed no reader",
       })
     )
 
-    // No `readFile`, no API key: the only thing that can have
-    // chosen this seat is the file the default reader opened under `home`.
-    expect(outcome.seat).toBe("openai:gpt-6-sol")
+    // #2804: the opt-in selects the vendor CLI seat; a token file is
+    // no longer interpreted as an OpenAI API session by Smithers.
+    expect(outcome.seat).toBe("codex:sol")
     expect(JSON.parse(documents.at(-2)!)).toEqual({
       document: "seat",
-      seat: "openai:gpt-6-sol",
+      seat: "codex:sol",
       source: "codex-subscription",
       label: "Codex subscription"
     })
   })
 
-  it("answers `no file` rather than throwing when the store is not there", async () => {
+  it("offers Codex login setup when the subscription is not opted in", async () => {
     const home = directory("smthrs-suggest-home-")
 
     const error = await Effect.runPromise(
@@ -195,10 +195,10 @@ describe("the credential store the seat scan reads when it is handed no reader",
       )
     )
 
-    // A missing store is a seat that is not available, never a crash: the
-    // report names the path it looked at and moves on to the next candidate.
+    // A missing opt-in reports the vendor login setup and continues
+    // through the other candidates without interpreting a token file.
     expect(CliError.exitCode(error)).toBe(1)
-    expect(error.message).toContain(`no ${join(home, ".codex", "auth.json")}`)
+    expect(error.message).toContain("Codex subscription (codex:sol): set SMITHERS_OPENAI_AUTH=chatgpt to use Codex")
     expect(error.message).toContain("Kimi K3 (moonshot:kimi-k3): $MOONSHOT_API_KEY is not set")
   })
 })

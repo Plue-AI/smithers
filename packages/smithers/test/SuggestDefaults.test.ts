@@ -100,8 +100,8 @@ afterAll(() => {
   for (const directory of [signedIn, signedOut, root]) rmSync(directory, { recursive: true, force: true })
 })
 
-describe("the credential store, read off disk when no reader is injected", () => {
-  it("detects the Codex subscription from the auth.json the home directory holds", async () => {
+describe("the Codex subscription opt-in (#2804)", () => {
+  it("selects the vendor CLI subscription seat when opted in", async () => {
     const documents: Array<string> = []
 
     const outcome = await Effect.runPromise(
@@ -115,27 +115,26 @@ describe("the credential store, read off disk when no reader is injected", () =>
       })
     )
 
-    // Nothing but the file on disk makes this seat available: the
-    // environment holds only the opt-in and no reader was passed.
-    expect(outcome.seat).toBe("openai:gpt-6-sol")
+    // #2804: the vendor CLI owns its credentials; the explicit opt-in
+    // selects its seat without interpreting the token file as an API session.
+    expect(outcome.seat).toBe("codex:sol")
     expect(JSON.parse(documents.at(-2)!)).toEqual({
       document: "seat",
-      seat: "openai:gpt-6-sol",
+      seat: "codex:sol",
       source: "codex-subscription",
       label: "Codex subscription"
     })
   })
 
-  it("names the file it looked for when the home directory has none", async () => {
+  it("explains the missing opt-in when the home directory has no session", async () => {
     const error = await Effect.runPromise(
       Effect.flip(Suggest.run({ ...base, json: true, homeDirectory: signedOut, emit: () => {} }))
     )
 
     expect(error).toBeInstanceOf(CliError.UnsupportedError)
     expect(CliError.exitCode(error)).toBe(1)
-    // A file that cannot be opened is reported as an absent one, by path, so
-    // the operator knows which store to sign in against.
-    expect(error.message).toContain(`no ${join(signedOut, ".codex", "auth.json")}`)
+    // The vendor CLI owns login; Smithers explains how to opt into its seat.
+    expect(error.message).toContain("Codex subscription (codex:sol): set SMITHERS_OPENAI_AUTH=chatgpt to use Codex")
   })
 })
 
@@ -242,7 +241,7 @@ describe("the pick", () => {
 
 describe("the implementing step, defaulted to the bundled flow on this host", () => {
   it.each([undefined, "must-not-spend-this-key"])(
-    "asks for the detected Codex session, never OPENAI_API_KEY, when that key is %s",
+    "refuses a missing Codex executable without API-key fallback when OPENAI_API_KEY is %s",
     async (apiKey) => {
       const terminal = sink()
       const service: Ui.Service = {
@@ -251,8 +250,8 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
         pickSuggestion: (items) => Effect.succeed(Option.fromUndefinedOr(items[0])),
         confirm: () => Effect.succeed(false)
       }
-      // Detection sees a session that has disappeared by execution time. The
-      // real resolver must ask for that session, even if a metered key exists.
+      // The opt-in selects the vendor CLI. This injected environment has no
+      // Codex executable; a metered key must not silently replace that seat.
       const error = await Effect.runPromise(Effect.flip(
         Suggest.run({
           ...base,
@@ -261,7 +260,7 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
           readFile: () => JSON.stringify({ tokens: { access_token: "test-access", refresh_token: "test-refresh" } })
         }).pipe(Effect.provideService(Ui.Ui, service))
       ))
-      expect(error.message).toContain("no ChatGPT credentials")
+      expect(error.message).toBe(`${onlyMatch}: SeatUnresolved: install Codex, then run \`codex login --device-auth\` to run the codex:sol seat`)
       expect(error.message).not.toContain("Set OPENAI_API_KEY")
     }
   )
@@ -291,7 +290,7 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
       if (source === undefined) {
         expect(outcome._tag).toBe("Failure")
         expect(outcome._tag === "Failure" && outcome.failure.message).toContain(
-          "set SMITHERS_OPENAI_AUTH=chatgpt to use this Codex login"
+          "set SMITHERS_OPENAI_AUTH=chatgpt to use Codex"
         )
         expect(seats).toEqual([])
       } else {
