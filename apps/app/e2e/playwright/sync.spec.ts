@@ -1,103 +1,78 @@
 import { expect, test } from "./browserTest"
 import type { Page } from "./browserTest"
-import { installCloudFixture } from "./cloudFixture.ts"
-
-const REPO = "smithersai/smithers"
-
-const json = (body: unknown, status = 200) => ({
-  status,
-  contentType: "application/json",
-  body: JSON.stringify(body)
-})
-
+import { installCloudFixture } from "./cloudFixture"
+import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
+import { fillComposer } from "./composer"
 
 const serve = async (page: Page): Promise<void> => {
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
-
-  /* The import seam: the job starts cloning, then answers ready with its workspace. */
-  let importPolls = 0
-  await page.route("**/api/github/import", (route) =>
-    route.fulfill(json({ importJobId: "job-1", status: "cloning", stage: "resolving", target_bookmark: "main" }, 202)))
-  await page.route("**/api/github/import/job-1", (route) => {
-    importPolls += 1
-    return route.fulfill(json(importPolls < 2
-      ? { importJobId: "job-1", status: "cloning", stage: "pushing_mirror", target_bookmark: "main" }
-      : {
-          importJobId: "job-1",
-          status: "ready",
-          stage: "provisioning_workspace",
-          target_bookmark: "main",
-          repository: { owner: "smithersai", name: "smithers" },
-          workspace_id: "ws-9"
-        }))
-  })
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route("**/api/members", route => route.fulfill({ json: { members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.test/owner.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/smithersai/smithers/settings/access" } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: false, global_toasts_hidden: false } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/todos", route => route.fulfill({ json: [] }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
 }
-
-test.beforeEach(async ({ page }) => {
-  // A persisted store from an earlier test must not carry state across tests.
-  await page.addInitScript(() => {
-    try {
-      window.localStorage.clear()
-    } catch {
-      // Storage the browser refuses is the empty store already.
-    }
-    /* The handoff opens the system browser; in T1 the URL is captured, never navigated. */
-    const opened: Array<string> = []
-    Object.assign(window, { __openedUrls: opened })
-    window.open = (url?: string | URL) => {
-      opened.push(String(url ?? ""))
-      return null
-    }
-  })
-})
 
 const runSlash = async (page: Page, command: string): Promise<void> => {
-  if (!await page.getByTestId("composer-input").isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await page.getByTestId("composer-input").fill(command)
-  await page.getByTestId("composer-send").click()
+  await fillComposer(page, command)
+  await page.getByTestId("composer-input").press("Enter")
 }
 
-test("T1: /repos.import tracks the job to done with the repository issues action", async ({ page }) => {
+test("the install refuses the retired Cloud import door without starting a job", async ({ page }) => {
   await serve(page)
+  const imports: string[] = []
+  await page.route("**/api/github/import**", route => {
+    imports.push(route.request().url())
+    return route.fulfill({ status: 503, json: {} })
+  })
   await page.goto("/")
+  await runSlash(page, "/repos.import smithersai/smithers")
+  await runSlash(page, "/help")
+  const help = page.getByRole("article", { name: "Commands", exact: true })
+  await expect(help).toBeVisible()
+  await expect(help).not.toContainText("/repos.import")
+  await expect(page.locator(".home").first()).toContainText("smithersai/smithers")
 
-  await runSlash(page, `/repos.import ${REPO}`)
-  const card = page.getByTestId("card-repo-import-smithersai/smithers")
-  await expect(card).toBeVisible({ timeout: 15_000 })
-  await expect(card).toContainText("Contacting GitHub…")
-
-  await expect(card).toContainText("done", { timeout: 20_000 })
-  await expect(card).toContainText("smithersai/smithers")
-  const issues = card.getByRole("button", { name: "Show issues", exact: true })
-  await expect(issues).toBeVisible()
-  await expect(issues).toHaveAttribute("data-flow", "issues.list")
-  await expect(issues).toHaveAttribute("data-flow-args", `open ${REPO}`)
+  await expect(page.getByTestId("card-repo-import-smithersai/smithers")).toHaveCount(0)
+  expect(imports).toEqual([])
 })
 
-test("CAP-004: unresolved import launch stays starting, leaves chat usable, and shows shared progress", async ({ page }) => {
-  await installCloudFixture(page, { capabilities: ["agent", "identity", "cloud", "cloud.pat"] })
-  let release: (() => void) | undefined
-  await page.route("**/api/github/import", async route => {
-    await new Promise<void>(resolve => { release = resolve })
-    await route.fulfill(json({ importJobId: "job-cap004", status: "cloning", stage: "resolving" }, 202))
+test("CAP-004: unresolved GitHub sync launch leaves Chat usable and progress lasts through execution", async ({ page }) => {
+  await serve(page)
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  let accepted = false, posts = 0, finished = false
+  await page.route("**/api/github/sync", async route => {
+    if (route.request().method() === "POST") {
+      posts++
+      expect(route.request().headers()["idempotency-key"]).toBeTruthy()
+      await pending
+      await route.fulfill({ status: 202, json: { state: "accepted" } })
+      accepted = true
+    } else await route.fulfill({ json: { state: finished ? "fresh" : "stale", last_success_at: finished ? "2026-10-08T12:00:00Z" : null } })
   })
-  await page.route("**/api/github/import/job-cap004", route =>
-    route.fulfill(json({ importJobId: "job-cap004", status: "ready", stage: "provisioning_workspace" })))
-  await page.goto("/")
-  await runSlash(page, `/repos.import ${REPO}`)
-  const card = page.getByTestId("card-repo-import-smithersai/smithers")
-  await expect(card).toContainText("starting")
-  await expect(page.locator(".notify")).toContainText(`Importing ${REPO}…`)
-  if (!await page.getByTestId("composer-input").isVisible()) await page.getByRole("button", { name: "Chat", exact: true }).click()
-  await page.getByTestId("composer-input").fill("Chat remains usable while this launches")
-  await expect(page.getByTestId("composer-input")).toHaveValue("Chat remains usable while this launches")
-
-  const evidence = process.env.CAP004_EVIDENCE_DIR
-  if (evidence) {
-    await page.screenshot({ path: `${evidence}/CAP-004-AFTER-LIGHT-r001.png`, fullPage: true })
-    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"))
-    await page.screenshot({ path: `${evidence}/CAP-004-AFTER-DARK-r001.png`, fullPage: true })
-  }
-  release?.()
-  await expect(card).toContainText("done", { timeout: 15_000 })
+  try {
+    await page.goto("/")
+    const sync = page.locator(".home .sync").first()
+    await expect(sync).toHaveAttribute("data-health", "stale")
+    await page.getByRole("button", { name: "Retry", exact: true }).first().press("Enter")
+    await expect.poll(() => posts).toBe(1)
+    await page.getByRole("button", { name: "Retry", exact: true }).first().press("Enter")
+    await fillComposer(page, "Chat remains usable while this launches")
+    await expect(page.getByTestId("composer-input")).toHaveValue("Chat remains usable while this launches")
+    const progress = page.getByText("Syncing GitHub", { exact: true })
+    await expect(progress).toBeVisible()
+    expect(accepted).toBe(false)
+    expect(posts).toBe(1)
+    release()
+    await expect.poll(() => accepted).toBe(true)
+    await expect(progress).toBeVisible()
+    await expect(sync).toHaveAttribute("data-health", "stale")
+    finished = true
+    await expect(sync).toHaveAttribute("data-health", "fresh", { timeout: 20_000 })
+    await expect(progress).toHaveCount(0)
+    expect(posts).toBe(1)
+    await expect(page.getByTestId("composer-input")).toHaveValue("Chat remains usable while this launches")
+  } finally { release() }
 })
