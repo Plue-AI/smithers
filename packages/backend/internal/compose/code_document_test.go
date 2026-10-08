@@ -19,6 +19,7 @@ import (
 // The database, admission policy, registry and authenticated link are real.
 // The peer only handshakes; these tests do not certify a guest filesystem.
 func TestComposeCodeDocumentAuthority(t *testing.T) {
+	configureNativeInstallFixture(t)
 	pool := docDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)

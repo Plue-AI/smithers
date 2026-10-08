@@ -49,6 +49,7 @@ func docGolden(t *testing.T, name string) []byte {
 	return f.Payload
 }
 func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
+	configureNativeInstallFixture(t)
 	t.Helper()
 	pool := docDatabase(t)
 	q := db.New(pool)

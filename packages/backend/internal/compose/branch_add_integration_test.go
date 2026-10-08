@@ -57,6 +57,7 @@ func TestBranchCaptureComposedInstall(t *testing.T) {
 }
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
+	configureNativeInstallFixture(t)
 	placement := "before"
 	captureLock := remove == "capture-lock"
 	if captureLock {
