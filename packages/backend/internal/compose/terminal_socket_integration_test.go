@@ -126,6 +126,17 @@ func (p *echoOwnerTerminal) Resize(_ context.Context, cols, rows uint16) error {
 }
 
 func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
+	testOwnerTerminalComposed(t, false)
+}
+
+// This receipt uses the production owner service and composed HTTP door.
+// Guest/kernel effects remain separately gated by the reference-host suite.
+func TestTerminalUnavailableProvidersFailClosed(t *testing.T) {
+	testOwnerTerminalComposed(t, true)
+}
+
+func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
+	t.Helper()
 	f := presenceInstall(t)
 	q := db.New(f.pool)
 	machineOwner, err := q.GetBranchMachineOwner(t.Context())
@@ -201,6 +212,10 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		switch omitted {
 		case "isolation":
 			execution = isolatedRuntime{WorkspaceRuntime: runtime}
+		case "session provider":
+			execution = isolatedRuntime{WorkspaceRuntime: runtime, isolation: workspaceapi.IsolationSandboxed}
+		case "lane binding":
+			providers.LaneBinding = nil
 		case "authorization":
 			providers.Authorize = nil
 		case "membership":
@@ -210,7 +225,11 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		case "credentials":
 			issuer = nil
 		}
-		branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(execution), services.WithBranchMachineProviders(providers), services.WithWorkspaceCredentialIssuer(issuer), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+		gitURL := "http://127.0.0.1:4000"
+		if omitted == "guest URL" {
+			gitURL = ""
+		}
+		branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(execution), services.WithBranchMachineProviders(providers), services.WithWorkspaceCredentialIssuer(issuer), services.WithWorkspaceGitBaseURL(gitURL))
 		if omitted != "admission" {
 			branches.EnableMachineAdmission(func(context.Context) (int64, error) { return 100 << 30, nil })
 		}
@@ -221,7 +240,7 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 		})
 		return branches
 	}
-	for _, missing := range []string{"isolation", "admission", "authorization", "membership", "identities", "credentials", "connection", "revocation"} {
+	for _, missing := range []string{"isolation", "admission", "authorization", "membership", "identities", "credentials", "connection", "revocation", "session provider", "lane binding", "guest URL"} {
 		t.Run("missing_"+missing, func(t *testing.T) {
 			unavailable := &installOwnerTerminals{queries: q, branches: serviceFor(missing), registry: registry}
 			if missing == "connection" {
@@ -242,6 +261,9 @@ func TestOwnerTerminalComposedOpenWatchReplayClose(t *testing.T) {
 			require.Empty(t, runtime.current())
 			require.False(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
 		})
+	}
+	if unavailableOnly {
+		return
 	}
 	branches := serviceFor("")
 	provider := &installOwnerTerminals{queries: q, branches: branches, registry: registry}
