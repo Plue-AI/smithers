@@ -25,6 +25,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/process"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,7 +142,14 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	t.Cleanup(stop)
 	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
 	require.NoError(t, err)
-	guest := t.TempDir()
+	processRuntime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
+	_, err = processRuntime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: f.row.ID})
+	require.NoError(t, err)
+	observed, err := processRuntime.StartWorkspace(ctx, f.row.ID)
+	require.NoError(t, err)
+	guest := observed.Root
 	init := exec.CommandContext(ctx, jj, "git", "init", "--colocate", guest)
 	output, err := init.CombinedOutput()
 	require.NoError(t, err, string(output))
@@ -171,7 +180,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string) {
 	require.EqualValues(t, 1, bound.RowsAffected())
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{machineItemChanges}',jsonb_build_object($2::text,$3::text)) WHERE id=$1`, item.ID, f.row.ID, strings.TrimSpace(string(changeID)))
 	require.NoError(t, err)
-	runtime := bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{}, t: t, daemons: registry, daemonStops: new(sync.Map), pool: f.pool, repository: client, evidence: evidence, daemonBinary: os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")}
+	runtime := bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{Runtime: processRuntime}, t: t, daemons: registry, daemonStops: new(sync.Map), pool: f.pool, repository: client, evidence: evidence, daemonBinary: os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")}
 	type bootResult struct {
 		link *machined.Link
 		err  error

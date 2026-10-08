@@ -46,8 +46,9 @@ import (
 // parallelFlowHost is the injected runtime boot response for a TODO lane: its
 // flow host answers only once the T-MCH-06 scheduler granted the lane's
 // machine, then accepts the pinned todo launch and keeps the run going. It
-// grants, orders and counts nothing; the runtime queue does.
-type parallelFlowHost struct{}
+// grants, orders and counts nothing; the runtime queue does. Pause reports the
+// guest resume wait so the production projector can retain a parked machine.
+type parallelFlowHost struct{ paused *sync.Map }
 
 func (parallelFlowHost) Identity(context.Context) (flowruntime.Identity, error) {
 	return flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1}, nil
@@ -60,8 +61,15 @@ func (parallelFlowHost) Launch(_ context.Context, l flowruntime.Launch) (flowrun
 	return flowruntime.LaunchResult{ApplicationRequestID: l.ApplicationRequestID, OwnerGeneration: l.OwnerGeneration, RuntimeArtifactDigest: l.RuntimeArtifactDigest,
 		SourceRevision: l.SourceRevision, ExecutionDigest: digest, Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: "run-" + l.ApplicationRequestID}}, nil
 }
-func (parallelFlowHost) Observe(_ context.Context, run, _ string, _ int) (flowruntime.Observation, error) {
-	return flowruntime.Observation{Run: flowruntime.Run{RunID: run, FlowID: "todo", Status: "running"}, Events: []flowruntime.Event{}}, nil
+func (h parallelFlowHost) Observe(_ context.Context, run, _ string, _ int) (flowruntime.Observation, error) {
+	observed := flowruntime.Run{RunID: run, FlowID: "todo", Status: "running"}
+	if h.paused != nil {
+		if _, ok := h.paused.Load(run); ok {
+			observed.Status = "parked"
+			observed.PendingWaits = []flowruntime.PendingWait{{RunID: run, FlowID: "todo", Reason: "approval", Token: "pause-token", Name: "resume#1", Attempt: 1, Request: json.RawMessage(`{"kind":"pause"}`)}}
+		}
+	}
+	return flowruntime.Observation{Run: observed, Events: []flowruntime.Event{}}, nil
 }
 
 var errParallelFlowHostUnsupported = errors.New("the C-STK-02 flow host only runs TODO launches")
@@ -72,7 +80,11 @@ func (parallelFlowHost) Approve(context.Context, flowruntime.Decision) (flowrunt
 func (parallelFlowHost) Deny(context.Context, flowruntime.Decision) (flowruntime.MutationResult, error) {
 	return flowruntime.MutationResult{}, errParallelFlowHostUnsupported
 }
-func (parallelFlowHost) Signal(context.Context, flowruntime.Signal) (flowruntime.MutationResult, error) {
+func (h parallelFlowHost) Signal(_ context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
+	if h.paused != nil && input.Name == "pause" {
+		h.paused.Store(input.RunID, true)
+		return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: input.RunID}}, nil
+	}
 	return flowruntime.MutationResult{}, errParallelFlowHostUnsupported
 }
 func (parallelFlowHost) Steer(context.Context, flowruntime.Steer) (flowruntime.MutationResult, error) {
@@ -107,7 +119,7 @@ type parallelCard struct {
 // observation providers; TestParallelRetainedMachineRelease covers that
 // engine rule with an injected ownership observation.
 func TestParallelAdmissionInstallBoundary(t *testing.T) {
-	testParallelAdmissionInstallBoundary(t, false)
+	testParallelAdmissionInstallBoundary(t, false, false)
 }
 
 // C-J7-01: a Before request made with no free capacity must win the next
@@ -115,10 +127,19 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 // This runs the install HTTP dispatcher, engine and real runtime admission
 // scheduler; only free-disk measurements and guest boot responses are injected.
 func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
-	testParallelAdmissionInstallBoundary(t, true)
+	testParallelAdmissionInstallBoundary(t, true, false)
 }
 
-func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery bool) {
+// A confirmed runtime stop frees an occupied slot without increasing capacity.
+// Placement, pause and admission enter through the install HTTP and engine paths.
+// J7's trusted-process adapter has no automatic idle-release providers (#3567,
+// #3572); retaining its reviewed coding run (#3531) cannot free capacity there.
+// This oracle supplies a real runtime stop, never a fabricated ownership bit.
+func TestTodoBeforeAdmittedWhenHolderStops(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, true, true)
+}
+
+func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops bool) {
 	scratch, err := os.MkdirTemp("/tmp", "stk03")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
@@ -230,12 +251,13 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	stack.SetInstallParallel(capacity)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
+	guest := parallelFlowHost{paused: new(sync.Map)}
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: stack, SteerAuthorizer: stack, ObservationDelay: 20 * time.Millisecond, MaxObservationDelay: 200 * time.Millisecond,
 		Resolver: flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 			if !runtime.AdmissionHeld("workspace:" + target.WorkspaceID) {
 				return nil, nil
 			}
-			return parallelFlowHost{}, nil
+			return guest, nil
 		})})
 	require.NoError(t, err)
 	stack.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(workspaces))
@@ -480,10 +502,27 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	held("step 2", 2)
 
 	if beforeCapacityRecovery {
-		// Capacity alone changes. No command changes order or parallel, and
-		// no fixture grants a holder: the production scheduler must re-read
-		// demand and give the newly available third slot to T6.
-		freeDisk.Store(136 << 30)
+		// Release an occupied slot or increase disk capacity. The runtime
+		// scheduler must re-read demand and admit T6 before its successors.
+		releasedHolder := ""
+		firstState := "working"
+		expectedParallel, expectedHeld := 3, 3
+		if holderStops {
+			first, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
+			require.NoError(t, err)
+			code, body = call("POST", "/api/todos/1", `{"op":"stop"}`, mayaCookie)
+			require.Equal(t, 202, code, string(body))
+			settle("paused holder retains capacity", map[int]string{1: "paused", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "queued"}, map[int]int{6: 1, 3: 2, 4: 3, 5: 4})
+			firstState = "paused"
+			held("paused holder retains capacity", 2)
+			releasedHolder = "workspace:" + first.WorkspaceID
+			require.True(t, runtime.AdmissionHeld(releasedHolder))
+			require.NoError(t, runtime.StopWorkspace(ctx, first.WorkspaceID))
+			require.False(t, runtime.AdmissionHeld(releasedHolder), "stop must be observed before capacity is reused")
+			expectedParallel, expectedHeld = 2, 2
+		} else {
+			freeDisk.Store(136 << 30)
+		}
 		var last map[int]parallelCard
 		require.True(t, assertEventually(30*time.Second, func() bool {
 			last = cards()
@@ -492,8 +531,8 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 			}
 			return last[6].State == "working"
 		}), "inserted TODO did not take freed capacity: %+v; admission %+v", last, runtime.AdmissionSnapshot())
-		settle("Before capacity recovery", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
-		homeSnapshot("Before capacity recovery", homeView{Order: []int{1, 2, 6, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 3})
+		settle("Before capacity recovery", map[int]string{1: firstState, 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "working"}, map[int]int{3: 1, 4: 2, 5: 3})
+		homeSnapshot("Before capacity recovery", homeView{Order: []int{1, 2, 6, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: expectedParallel})
 		inserted, err := q.GetMythicalItemByNumber(ctx, repo.ID, 6)
 		require.NoError(t, err)
 		require.NotEmpty(t, inserted.WorkspaceID)
@@ -507,7 +546,11 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 		var facts int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.created' AND (data->>'n')::bigint=6 AND (data->>'before')::bigint=3`).Scan(&facts))
 		require.Equal(t, 1, facts)
-		held("Before capacity recovery", 3)
+		held("Before capacity recovery", expectedHeld)
+		if releasedHolder != "" {
+			require.False(t, runtime.AdmissionHeld(releasedHolder))
+			require.Equal(t, int64(104<<30), freeDisk.Load(), "a released slot, not more disk, admitted T6")
+		}
 		saved, err := q.GetInstallParallel(ctx)
 		require.NoError(t, err)
 		require.JSONEq(t, `8`, string(saved), "automatic capacity recovery must preserve the owner setting")
