@@ -23,6 +23,7 @@ const evaluator = Evaluator.layerScripted(() => ({ durable_0: { probability: 0 }
 
 test("failure evidence counts TODOs once and bounds the history", () => {
   assert.deepEqual(evidence(snapshot.outcomes), [{ signature: "check:lint@review", todos: [3, 5, 7], count: "3 of the last 5" }])
+  assert.deepEqual(evidence([...snapshot.outcomes].reverse()), [{ signature: "check:lint@review", todos: [3, 5, 7], count: "3 of the last 5" }])
   assert.deepEqual(evidence([{ todo: 7, failures: [{ signature: "check:lint@review", text }, { signature: "check:lint@review", text }] }]),
     [{ signature: "check:lint@review", todos: [7], count: "1 of the last 1" }])
   assert.deepEqual(evidence(Array.from({ length: 21 }, (_, i) => ({ todo: i + 1, failures: i === 0 ? [{ signature: "check:lint@review", text }] : [] }))), [])
@@ -33,7 +34,9 @@ test("learning returns cited decisions and evidence; identical inputs have the s
   assert.deepEqual(Schema.decodeUnknownSync(Output)(output), {
     repository: "smithers/canary", todo: 7, run: "learning-7",
     pages: [{ title: "T7 decisions", body: "Change: https://github.com/smithers/canary/pull/41\nCommit: https://github.com/smithers/canary/commit/abc123\nRun: attempt-1\nRun: attempt-2\n- Use the existing retry helper because it already backs off. (learning learning-7, evidence seq 2)" }],
-    proposals: [{ signature: "check:lint@review", title: text, evidence: ["3 of the last 5 failed check:lint@review"], todos: [3, 5, 7], prompt: text }]
+    proposals: [{ signature: "check:lint@review", title: text, evidence: ["3 of the last 5 failed check:lint@review"], todos: [3, 5, 7],
+      prompt: "Change flows/todo/flow.ts to require lint as a fast required check for every planned change before review; start from the built-in composition when no override exists.",
+      diff: '--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n@@ -34,1 +34,4 @@\n-      Node.andThen(Request.call(input)),\n+      Node.andThen(Request.call({\n+        ...input,\n+        prompt: `${input.prompt}\\nRequire lint as a fast required check for every planned change before review.`\n+      })),' }]
   })
   assert.deepEqual(await Effect.runPromise(learn(snapshot).pipe(Effect.provide(evaluator))), output)
 })
@@ -118,4 +121,39 @@ test("guest Binding reads only its runtime run, refuses mismatches and cancels u
     server.closeAllConnections()
     await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
   }
+})
+
+
+test("five merges open the recurring lint proposal only with T1, T3 and T5 evidence", async () => {
+  const outcomes: Snapshot["outcomes"] = [
+    { todo: 1, failures: [{ signature: "check:lint@review", text }] },
+    { todo: 2, failures: [] },
+    { todo: 3, failures: [{ signature: "check:lint@review", text }] },
+    { todo: 4, failures: [] },
+    { todo: 5, failures: [{ signature: "check:lint@review", text }] }
+  ]
+  for (let n = 1; n <= 4; n++) {
+    const output = await Effect.runPromise(learn({ ...snapshot, todo: n, outcomes: outcomes.slice(0, n) }).pipe(Effect.provide(evaluator)))
+    assert.deepEqual(output.proposals, [], `T${n} must not open the signature early`)
+    assert.equal(output.pages.length, 1)
+  }
+  const output = await Effect.runPromise(learn({ ...snapshot, todo: 5, outcomes }).pipe(Effect.provide(evaluator)))
+  assert.equal(output.proposals.length, 1)
+  assert.deepEqual(output.proposals[0]!.evidence, ["3 of the last 5 failed check:lint@review"])
+  assert.deepEqual(output.proposals[0]!.todos, [1, 3, 5])
+  assert.equal(output.proposals[0]!.signature, "check:lint@review")
+  assert.match(output.proposals[0]!.diff!, /\+        prompt:.*Require lint as a fast required check/)
+  assert.deepEqual((await Effect.runPromise(learn({ ...snapshot, outcomes: outcomes.slice(0, 4).concat({ todo: 5, failures: [] }) }).pipe(Effect.provide(evaluator)))).proposals, [])
+  // Repeated failures in one TODO do not manufacture three affected TODOs.
+  const repeated = outcomes.map(row => ({ ...row, failures: row.todo === 1 ? Array(3).fill({ signature: "check:lint@review", text }) : [] }))
+  assert.deepEqual((await Effect.runPromise(learn({ ...snapshot, outcomes: repeated }).pipe(Effect.provide(evaluator)))).proposals, [])
+  const earlyThree = outcomes.slice(0, 3).map(row => ({ ...row, failures: [{ signature: "check:lint@review", text }] }))
+  assert.deepEqual((await Effect.runPromise(learn({ ...snapshot, outcomes: earlyThree }).pipe(Effect.provide(evaluator)))).proposals, [])
+})
+
+
+test("other judged failure signatures retain immediate proposals without a lint diff", async () => {
+  const output = await Effect.runPromise(learn({ ...snapshot, outcomes: [{ todo: 7, failures: [{ signature: "check:typecheck@check", text }] }] }).pipe(Effect.provide(evaluator)))
+  assert.deepEqual(output.proposals, [{ signature: "check:typecheck@check", title: text,
+    evidence: ["1 of the last 1 failed check:typecheck@check"], todos: [7], prompt: text }])
 })

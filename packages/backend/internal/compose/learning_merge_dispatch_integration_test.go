@@ -42,6 +42,10 @@ func TestLearningMergeDispatchComposedInstall(t *testing.T) {
 
 func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *services.MythicalService, item db.MythicalItem, server *httptest.Server) {
 	ctx := t.Context()
+	// Three distinct corrected review failures in the twenty-merge window.
+	// A single failure must no longer open lint's recurring proposal early.
+	_, historyErr := pool.Exec(ctx, `UPDATE mythical_items SET checks='{"attempts":[{"attempt":1,"items":[{"kind":"check","name":"lint","state":"failed","tier":"slow","evidence":"Run lint before review to catch unused imports."}]}]}' WHERE repository_id=$1 AND number IN (1,3)`, item.RepositoryID)
+	require.NoError(t, historyErr)
 	defer func() {
 		if t.Failed() {
 			rows, e := pool.Query(context.Background(), `SELECT r.operation,r.state,coalesce(d.last_error,''),coalesce(d.external_receipt::text,'') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation IN ('learning.admission','flow.runtime.launch')`)
@@ -338,7 +342,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Equal(t, "merged", completed["from"])
 	require.Equal(t, "merged", completed["to"])
 	require.Equal(t, map[string]any{"kind": "run", "id": runtime.run}, completed["actor"])
-	require.Contains(t, runtime.output, "1 of the last 20 failed check:lint@review")
+	require.Contains(t, runtime.output, "3 of the last 20 failed check:lint@review")
 	t.Logf("C-J8-01 output: %s", runtime.output)
 	t.Logf("C-J8-01 page: %s", pageBody)
 	t.Logf("C-J8-01 receipt: %s", lessons)

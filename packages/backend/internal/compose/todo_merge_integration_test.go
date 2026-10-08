@@ -521,6 +521,11 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.Equal(t, "merged", card["state"])
 		require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
 		if learningJourney {
+			// Confirmed merge/poll admission has settled. Join the GitHub
+			// reconciler before the completion-only refusal cases mutate item
+			// states, so poll facts cannot race their no-new-events assertions.
+			stop()
+			<-done
 			proveLearningMergedDispatch(t, pool, mythical, item(), server)
 		}
 

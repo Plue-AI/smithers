@@ -41,10 +41,26 @@ export const evidence = (outcomes: Snapshot["outcomes"]) => {
   const window = outcomes.slice(-20)
   const signatures = [...new Set(window.flatMap(row => row.failures.map(f => f.signature)))].sort()
   return signatures.map(signature => {
-    const todos = [...new Set(window.filter(row => row.failures.some(f => f.signature === signature)).map(row => row.todo))]
+    const todos = [...new Set(window.filter(row => row.failures.some(f => f.signature === signature)).map(row => row.todo))].sort((a, b) => a - b)
     return { signature, todos, count: `${todos.length} of the last ${window.length}` }
   })
 }
+
+/** Quoted request context for the ordinary flow-change TODO, never applied here.
+ * The accepting coding run derives the edit and adapts repository check
+ * configuration; verification and review remain engine launches.
+ */
+const lintPrompt = "Change flows/todo/flow.ts to require lint as a fast required check for every planned change before review; start from the built-in composition when no override exists."
+const lintDiff = [
+  "--- a/flows/todo/flow.ts",
+  "+++ b/flows/todo/flow.ts",
+  "@@ -34,1 +34,4 @@",
+  "-      Node.andThen(Request.call(input)),",
+  "+      Node.andThen(Request.call({",
+  "+        ...input,",
+  '+        prompt: `${input.prompt}\\nRequire lint as a fast required check for every planned change before review.`',
+  "+      })),"
+].join("\n")
 
 export const learn = (snapshot: Snapshot) => Effect.gen(function*() {
   const input = yield* Schema.decodeUnknownEffect(Snapshot)(snapshot).pipe(
@@ -58,10 +74,15 @@ export const learn = (snapshot: Snapshot) => Effect.gen(function*() {
   )
   // Only Jev-approved issues with recorded failure evidence become proposals.
   const proposals = evidence(input.outcomes).flatMap(pattern => {
+    // Wait for recurring lint evidence before opening its immutable note.
+    // Otherwise the first merge opens 1-of-1 and suppresses the fifth merge's
+    // 3-of-5 proposal. This is admission, not a rewrite of an open proposal.
+    const lint = pattern.signature === "check:lint@review"
+    if (lint && (input.outcomes.length < 5 || pattern.todos.length < 3)) return []
     const finding = input.outcomes.flatMap(row => row.failures).find(f => f.signature === pattern.signature)
     const issue = judged.issues.find(candidate => finding && MemoryMine.normalize(candidate.text) === MemoryMine.normalize(finding.text))
     return issue ? [{ signature: pattern.signature, title: issue.text,
-      evidence: [`${pattern.count} failed ${pattern.signature}`], todos: pattern.todos, prompt: issue.text }] : []
+      evidence: [`${pattern.count} failed ${pattern.signature}`], todos: pattern.todos, prompt: lint ? lintPrompt : issue.text, ...(lint ? { diff: lintDiff } : {}) }] : []
   })
   const pages = extracted.decisions.length === 0 ? [] : [{
     title: `T${input.todo} decisions`,

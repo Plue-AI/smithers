@@ -58,6 +58,13 @@ test("C-J5-03 learning proposal changes checks only after a member merges", scen
       }
       todos.push({ todo, stored })
       await merge(n)
+      if (n < 5) {
+        await expect.poll(async () => (await f.read("Will", `/api/todos/${n}`)).lessons,
+          { timeout: 300_000 }).toBeGreaterThan(0)
+        const early = f.sql("SELECT id FROM memory_notes WHERE provenance_json::jsonb->>'signature'='check:lint@review' AND status='pending'")
+        expect(early).toEqual([])
+        expect(active(await flow()).id).toBe(before.id)
+      }
     }
     await runSlash(page, "/stack")
     await expect(page.locator(".home").last()).toBeVisible()
@@ -71,7 +78,8 @@ test("C-J5-03 learning proposal changes checks only after a member merges", scen
     const pending = f.sql("SELECT id,provenance_json::jsonb AS provenance_json FROM memory_notes WHERE provenance_json::jsonb->>'signature'='check:lint@review' AND status='pending'")
     expect(pending).toHaveLength(1)
     expect(pending[0].provenance_json.signature).toBe("check:lint@review")
-    expect(pending[0].provenance_json.diff).toContain("lint")
+    expect(pending[0].provenance_json.diff).toContain("--- a/flows/todo/flow.ts")
+    expect(pending[0].provenance_json.diff).toContain("Require lint as a fast required check")
     const proposals = await f.read("Will", "/api/proposals")
     const proposal = proposals.find((p: any) => p.id === pending[0].id)
     expect(proposal).toBeDefined()
