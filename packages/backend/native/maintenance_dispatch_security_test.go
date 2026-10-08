@@ -147,7 +147,7 @@ func maintenanceManifest(t *testing.T, directory string, manifest hostbackup.Man
 func TestHostRestorePathConfinement(t *testing.T) {
 	require.NotZero(t, os.Geteuid(), "never execute branch-built code as root")
 	bundle := installedMaintenanceCommand(t)
-	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "link loop"} {
+	for _, name := range []string{"absolute entry", "traversal entry", "unclean entry", "absolute link", "traversal link", "link chain", "replaced ancestor", "replaced snapshot", "replaced state tree", "replaced dump", "replaced manifest", "link loop"} {
 		t.Run(name, func(t *testing.T) {
 			home, state := ownerHome(t)
 			outside := filepath.Join(home, "outside")
@@ -187,6 +187,16 @@ func TestHostRestorePathConfinement(t *testing.T) {
 				require.NoError(t, os.Rename(backup, moved))
 				require.NoError(t, os.Symlink(moved, backup))
 				refusal = "unsafe_path: " + backup
+			case "replaced state tree":
+				require.NoError(t, os.Rename(filepath.Join(backup, "state"), filepath.Join(home, "retained-state")))
+				require.NoError(t, os.Symlink(filepath.Join(home, "retained-state"), filepath.Join(backup, "state")))
+				refusal = "unsafe_path: state"
+			case "replaced dump":
+				require.NoError(t, os.Remove(filepath.Join(backup, "postgres.dump")))
+				require.NoError(t, os.Symlink(filepath.Join(outside, "sentinel"), filepath.Join(backup, "postgres.dump")))
+				refusal = "unsafe_path: postgres.dump"
+			case "replaced manifest":
+				refusal = "unsafe_path: MANIFEST.json"
 			case "link loop":
 				target = "escape"
 			}
@@ -196,6 +206,10 @@ func TestHostRestorePathConfinement(t *testing.T) {
 				refusal = "unsafe_path: " + link
 			}
 			maintenanceManifest(t, backup, manifest)
+			if name == "replaced manifest" {
+				require.NoError(t, os.Rename(filepath.Join(backup, "MANIFEST.json"), filepath.Join(outside, "manifest")))
+				require.NoError(t, os.Symlink(filepath.Join(outside, "manifest"), filepath.Join(backup, "MANIFEST.json")))
+			}
 			before := maintenanceInventory(t, home)
 			require.Equal(t, refusal, runInstalledMaintenance(t, bundle, home, home, nil, "restore", backup))
 			require.Equal(t, before, maintenanceInventory(t, home), "restore refused before moving live data or writing outside")
@@ -255,6 +269,8 @@ func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 			before := maintenanceInventory(t, home)
 			require.Equal(t, "unsafe_path: state/homes/member/.config", runInstalledMaintenance(t, bundle, home, repository, extra, "restore", backup))
 			require.Equal(t, before, maintenanceInventory(t, home))
+			require.Equal(t, "host_maintenance_unavailable: quiesce unavailable: T-MCH-07 required\nquiesce unavailable: T-MCH-06 required\nquiesce unavailable: T-FLW-01 required\nquiesce unavailable: T-STK-04 required\nquiesce unavailable: T-COL-08 required\nquiesce unavailable: T-COL-09 required\nquiesce unavailable: T-GH-09 required\nquiesce unavailable: T-TRM-07 required\nquiesce unavailable: T-SEC-01 required\nowned postgres maintenance unavailable\nbackup summary authority unavailable", runInstalledMaintenance(t, bundle, home, repository, extra, "backup"))
+			require.Equal(t, before, maintenanceInventory(t, home))
 			require.Equal(t, "host_maintenance_unavailable: maintenance health wake unavailable", runInstalledMaintenance(t, bundle, home, repository, extra, "upgrade"))
 			require.Equal(t, before, maintenanceInventory(t, home))
 			// Valid confined retained-home control reaches the actual bundled doctor;
@@ -279,26 +295,45 @@ func TestHostMaintenanceIsolationAndRootInputs(t *testing.T) {
 			require.Equal(t, "isolationowner", username)
 		})
 	}
-	t.Run("replaced bundled executable", func(t *testing.T) {
-		home, state := ownerHome(t)
-		maintenanceSeedFile(t, filepath.Join(state, "config/secrets.json"), "live key", 0600)
-		backup, _ := maintenanceSnapshot(t, home, nil)
-		program := bundle.path("postgres/root/bin/initdb")
-		approved, err := os.ReadFile(program)
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, os.WriteFile(program, approved, 0755)) })
-		// Do not rewrite the pinned approval when the branch replaces a file.
-		maintenanceSeedFile(t, program, "#!/bin/sh\nprintf hostile > '"+filepath.Join(home, "executed")+"'\n", 0755)
-		before := maintenanceInventory(t, home)
-		require.Equal(t, "host_maintenance_unavailable: restore runs from an installed bundle: postgres/bundle.json: not approved by the installed bundle: postgres/root/bin/initdb differs from the bundle manifest", runInstalledMaintenance(t, bundle, home, home, nil, "restore", backup))
-		require.Equal(t, before, maintenanceInventory(t, home))
-	})
+	for _, member := range pgCanaries() {
+		t.Run("replaced bundled executable/"+member, func(t *testing.T) {
+			home, state := ownerHome(t)
+			maintenanceSeedFile(t, filepath.Join(state, "config/secrets.json"), "live key", 0600)
+			backup, _ := maintenanceSnapshot(t, home, nil)
+			program := bundle.path(member)
+			approved, err := os.ReadFile(program)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.WriteFile(program, approved, 0755)) })
+			// Do not rewrite the pinned approval when the branch replaces a file.
+			maintenanceSeedFile(t, program, "#!/bin/sh\nprintf hostile > '"+filepath.Join(home, "executed")+"'\n", 0755)
+			before := maintenanceInventory(t, home)
+			require.Equal(t, "host_maintenance_unavailable: restore runs from an installed bundle: postgres/bundle.json: not approved by the installed bundle: "+member+" differs from the bundle manifest", runInstalledMaintenance(t, bundle, home, home, nil, "restore", backup))
+			require.Equal(t, before, maintenanceInventory(t, home))
+		})
+	}
 	t.Run("health continuation rejects backup outside recovery tree", func(t *testing.T) {
 		home, state := ownerHome(t)
 		backup, _ := maintenanceSnapshot(t, home, nil)
 		maintenanceSeedFile(t, filepath.Join(state, ".upgrade-incomplete"), backup+"\n", 0600)
 		before := maintenanceInventory(t, home)
 		require.Equal(t, "upgrade incomplete: lstat "+filepath.Join(state, "backups")+": no such file or directory; restore with smthrs host restore '"+backup+"'", runInstalledMaintenance(t, bundle, home, home, []string{"PYTHONPATH=/hostile", "GIT_SSH_COMMAND=/hostile"}, "upgrade-continue", backup))
+		require.Equal(t, before, maintenanceInventory(t, home))
+		require.NoFileExists(t, filepath.Join(state, recoveryGrantPath))
+	})
+	t.Run("health continuation rejects replaced lifecycle", func(t *testing.T) {
+		home, state := ownerHome(t)
+		source, _ := maintenanceSnapshot(t, home, nil)
+		require.NoError(t, os.Mkdir(filepath.Join(state, "backups"), 0700))
+		backup := filepath.Join(state, "backups", filepath.Base(source))
+		require.NoError(t, os.Rename(source, backup))
+		maintenanceSeedFile(t, filepath.Join(state, ".upgrade-incomplete"), backup+"\n", 0600)
+		program := bundle.path("bin/smthrs")
+		approved, err := os.ReadFile(program)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, os.WriteFile(program, approved, 0755)) })
+		maintenanceSeedFile(t, program, "#!/bin/sh\nprintf hostile > '"+filepath.Join(home, "executed")+"'\n", 0755)
+		before := maintenanceInventory(t, home)
+		require.Equal(t, "upgrade incomplete: host_maintenance_unavailable: not approved by the installed bundle: bin/smthrs differs from the bundle manifest; restore with smthrs host restore '"+backup+"'", runInstalledMaintenance(t, bundle, home, home, []string{"PATH=/hostile", "PYTHONPATH=/hostile"}, "upgrade-continue", backup))
 		require.Equal(t, before, maintenanceInventory(t, home))
 		require.NoFileExists(t, filepath.Join(state, recoveryGrantPath))
 	})
