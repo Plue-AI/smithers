@@ -29,8 +29,8 @@ type ackDelay struct {
 	once    sync.Once
 }
 
-func (r *Registry) AckDelay(branch string, delayMS int) (AckDelayReceipt, error) {
-	if r == nil || (delayMS != 0 && delayMS != 10000) {
+func (r *Registry) AckDelay(branch string, delayMS int, id, boot string) (AckDelayReceipt, error) {
+	if r == nil || (delayMS != 0 && delayMS != 10000) || (delayMS == 10000 && (id != "" || boot != "")) {
 		return AckDelayReceipt{}, ErrNotReady
 	}
 	link, err := r.Current(branch)
@@ -43,15 +43,17 @@ func (r *Registry) AckDelay(branch string, delayMS int) (AckDelayReceipt, error)
 	r.ackDelayMu.Lock()
 	defer r.ackDelayMu.Unlock()
 	previous := r.ackDelays[branch]
+	// Restoration is a compare-and-release under the same mutex as arming.
+	// A stale client cannot release a replacement window or connection.
+	if delayMS == 0 && (previous == nil || previous.link != link || id == "" || boot == "" || previous.receipt.ID != id || previous.receipt.Boot != boot) {
+		return AckDelayReceipt{}, ErrUnauthorized
+	}
 	if previous != nil && previous.link != link {
 		previous.once.Do(func() { close(previous.release) })
 		previous = nil
 		delete(r.ackDelays, branch)
 	}
 	if delayMS == 0 {
-		if previous == nil {
-			return AckDelayReceipt{Branch: branch, State: "idle"}, nil
-		}
 		previous.once.Do(func() { close(previous.release) })
 		if previous.receipt.State == "armed" {
 			previous.receipt.State = "cancelled"

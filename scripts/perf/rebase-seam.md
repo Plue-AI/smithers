@@ -2,7 +2,10 @@
 
 The production adapter is `rebase-production.mjs`. The authenticated install
 owns `POST /api/install/ack-delay {branch, delay_ms: 0|10000}` and
-`GET /api/install/ack-delay?branch=<uuid>`. It delays one capture's wire ACK
+`GET /api/install/ack-delay?branch=<uuid>`. Restoration (`delay_ms: 0`)
+requires the armed `id` and `boot`: the registry compares them atomically before
+release. A stale client cannot release a replacement window. A client that
+never armed a window performs no restoration request. It delays one capture's wire ACK
 **after** its transaction commits, without holding SQL, mutation or registry
 locks. It binds to one ready connection, expires unused after 30 seconds, and
 records `{id, branch, boot, event, sequence, state, withheld_ms}`. Reconnection

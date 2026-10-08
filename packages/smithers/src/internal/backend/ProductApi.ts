@@ -2393,6 +2393,8 @@ export const getApiInstallAckDelay = (transport: Transport, input: GetApiInstall
 export type PostApiInstallAckDelayBody = {
   branch: string
   delay_ms: 0 | 10000
+  id?: string
+  boot?: string
 }
 
 export type PostApiInstallAckDelayResponse = {
@@ -6217,6 +6219,18 @@ export interface PutApiSecretsInput {
 /** PUT /api/secrets */
 export const putApiSecrets = (transport: Transport, input: PutApiSecretsInput): Promise<PutApiSecretsResponse> =>
   transport.request("PUT", `/api/secrets`, input.body) as Promise<PutApiSecretsResponse>
+
+export type PostApiSecretsBody = SetRepositorySecretRequest
+
+export type PostApiSecretsResponse = SecretMetadata
+
+export interface PostApiSecretsInput {
+  readonly body: PostApiSecretsBody
+}
+
+/** POST /api/secrets */
+export const postApiSecrets = (transport: Transport, input: PostApiSecretsInput): Promise<PostApiSecretsResponse> =>
+  transport.request("POST", `/api/secrets`, input.body) as Promise<PostApiSecretsResponse>
 
 export type DeleteApiSecretsBody = {
   name: string

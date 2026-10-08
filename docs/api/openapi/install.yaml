@@ -84,7 +84,7 @@ paths:
       operationId: post_api_install_ack_delay
       tags:
         - Install
-      description: Owner browser session and CSRF required. delay_ms 10000 arms only the next durable capture on the current ready connection, within 30 seconds. delay_ms 0 restores delivery. No root, guest execution, database bypass or qualification is added.
+      description: Owner browser session and CSRF required. delay_ms 10000 arms only the next durable capture on the current ready connection, within 30 seconds. delay_ms 0 requires the armed id and boot and atomically restores only that window; a stale or foreign binding returns 409. No root, guest execution, database bypass or qualification is added.
       security: [{sessionCookie: []}]
       requestBody:
         required: true
@@ -97,6 +97,8 @@ paths:
               properties:
                 branch: {type: string, format: uuid}
                 delay_ms: {type: integer, enum: [0, 10000]}
+                id: {type: string, format: uuid, description: Required only when restoring delivery.}
+                boot: {type: string, pattern: '^[a-f0-9]{32}$', description: Required only when restoring delivery.}
       responses:
         '200':
           description: Armed or restored delay receipt

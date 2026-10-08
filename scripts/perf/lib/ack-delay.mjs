@@ -9,7 +9,7 @@ export function acknowledgementDelay({ origin, branch, cookie }) {
     const response = await fetch(`${origin}/api/install/ack-delay${method === 'GET' ? `?branch=${encodeURIComponent(branch)}` : ''}`, {
       method, redirect: 'error', signal: AbortSignal.timeout(10000),
       headers: { Cookie: cookie, Origin: origin, 'X-CSRF-Token': csrf, 'Content-Type': 'application/json' },
-      ...(method === 'POST' ? { body: JSON.stringify({ branch, delay_ms: delay }) } : {})
+      ...(method === 'POST' ? { body: JSON.stringify({ branch, delay_ms: delay, ...(delay === 0 ? { id: armed.id, boot: armed.boot } : {}) }) } : {})
     })
     if (response.status !== 200) throw new Error(`${method} /api/install/ack-delay: ${response.status}`)
     const receipt = await response.json()
@@ -24,7 +24,10 @@ export function acknowledgementDelay({ origin, branch, cookie }) {
   return {
     async arm(delay) {
       if (delay !== 0 && delay !== 10000) throw new Error('delay must be 0 or 10000 ms')
+      // No armed window means this client owns nothing to restore.
+      if (delay === 0 && !armed) return { branch, state: 'idle' }
       const receipt = await request('POST', delay)
+      if (delay === 0 && (receipt.id !== armed.id || receipt.boot !== armed.boot)) throw new Error('restored acknowledgement window mismatch')
       if (delay) {
         if (receipt.state !== 'armed' || !/^[a-f0-9-]{36}$/.test(receipt.id ?? '') || !/^[a-f0-9]{32}$/.test(receipt.boot ?? '')) throw new Error('invalid armed acknowledgement receipt')
         armed = receipt

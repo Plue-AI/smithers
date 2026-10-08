@@ -227,7 +227,9 @@ The guest's dedicated `.smithers-perf-main` clone must be on main and have that
 GitHub remote. No scratch command executes on either Mac.
 
 Each rewrite arms its own ten-second acknowledgement window after pending is
-observed, and restores delivery on failure. Host receipts bind branch, boot,
+observed, and restores only its own window on failure using the armed ID and
+boot. Stale cleanup cannot restore a replacement window; an unarmed client
+performs no cleanup request. Host receipts bind branch, boot,
 event and sequence and are checked independently by the unified verdict.
 Guest hold/capture/thaw, marker attribution and outbox drain are separate
 required observations. [The T-STK-08 seam](rebase-seam.md) lists their exact

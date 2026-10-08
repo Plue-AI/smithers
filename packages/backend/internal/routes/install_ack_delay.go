@@ -22,10 +22,13 @@ func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "no-store")
 	branch := r.URL.Query().Get("branch")
 	delay := 0
+	id, boot := "", ""
 	if r.Method == http.MethodPost {
 		var body struct {
 			Branch  string `json:"branch"`
 			DelayMS *int   `json:"delay_ms"`
+			ID      string `json:"id"`
+			Boot    string `json:"boot"`
 		}
 		decoder := json.NewDecoder(io.LimitReader(r.Body, 4097))
 		decoder.DisallowUnknownFields()
@@ -33,9 +36,13 @@ func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 			pkgerrors.WriteError(w, pkgerrors.BadRequest("branch and delay_ms required"))
 			return
 		}
-		branch, delay = body.Branch, *body.DelayMS
+		branch, delay, id, boot = body.Branch, *body.DelayMS, body.ID, body.Boot
 		if delay != 0 && delay != 10000 {
 			pkgerrors.WriteError(w, pkgerrors.BadRequest("delay_ms must be 0 or 10000"))
+			return
+		}
+		if delay == 0 && (id == "" || boot == "") || delay == 10000 && (id != "" || boot != "") {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("restoration requires id and boot; arming forbids them"))
 			return
 		}
 	}
@@ -59,7 +66,7 @@ func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 	var receipt machined.AckDelayReceipt
 	if r.Method == http.MethodPost {
-		receipt, err = h.Registry.AckDelay(branch, delay)
+		receipt, err = h.Registry.AckDelay(branch, delay, id, boot)
 	} else {
 		receipt, err = h.Registry.ReadAckDelay(branch)
 	}

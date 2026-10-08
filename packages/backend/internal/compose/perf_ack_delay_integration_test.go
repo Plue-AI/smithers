@@ -112,7 +112,19 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 		t.Fatalf("ACK arrived before restoration: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
-	code, released := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":0}`, f.cookie)
+	// Missing or foreign bindings must not restore this live withheld ACK.
+	for _, binding := range []string{``, `,"id":"foreign","boot":"` + armed.Boot + `"`, `,"id":"` + armed.ID + `","boot":"foreign"`} {
+		status, _ := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":0`+binding+`}`, f.cookie)
+		if binding == "" {
+			require.Equal(t, 400, status)
+		} else {
+			require.Equal(t, 409, status)
+		}
+		_, current := call("GET", "", f.cookie)
+		require.Equal(t, armed.ID, current.ID)
+		require.Equal(t, "withheld", current.State)
+	}
+	code, released := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":0,"id":"`+armed.ID+`","boot":"`+armed.Boot+`"}`, f.cookie)
 	require.Equal(t, 200, code)
 	require.Equal(t, armed.ID, released.ID)
 	require.NoError(t, <-acked)
@@ -121,9 +133,9 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 		return r.State == "acknowledged" && r.Event == hex.EncodeToString(eventID[:]) && r.WithheldMS >= 100 && r.WithheldMS < 10000
 	}, time.Second, 10*time.Millisecond)
 	// Cancellation of an unused window cannot delay a later event.
-	code, _ = call("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`, f.cookie)
+	code, armed = call("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`, f.cookie)
 	require.Equal(t, 200, code)
-	code, cancelled := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":0}`, f.cookie)
+	code, cancelled := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":0,"id":"`+armed.ID+`","boot":"`+armed.Boot+`"}`, f.cookie)
 	require.Equal(t, 200, code)
 	require.Equal(t, "cancelled", cancelled.State)
 	// The automatic cohort uses the full ten seconds, without an operator restore.
@@ -208,7 +220,18 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
  if(read.id!==armed.id||read.state!=="armed")throw new Error("wrong armed window");
  const restored=await client.arm(0); if(restored.state!=="cancelled")throw new Error("restore failed");
  let rejected=false;try{await client.waitForCapture({boot:armed.boot,event:"a".repeat(32),sequence:1})}catch{rejected=true}
- if(!rejected)throw new Error("cancelled window accepted");`
+ if(!rejected)throw new Error("cancelled window accepted");
+ // A replacement is armed by another owner client. The stale client's cleanup
+ // must fail atomically, while a client that armed nothing makes no request.
+ const next=acknowledgementDelay({origin:process.argv[1],branch:process.argv[2],cookie:process.argv[3]});
+ const replacement=await next.arm(10000);
+ rejected=false;try{await client.arm(0)}catch{rejected=true}
+ if(!rejected)throw new Error("stale client restored replacement");
+ const unarmed=acknowledgementDelay({origin:process.argv[1],branch:process.argv[2],cookie:process.argv[3]});
+ if((await unarmed.arm(0)).state!=="idle")throw new Error("unarmed cleanup not idle");
+ const current=await next.read();
+ if(current.id!==replacement.id||current.state!=="armed")throw new Error("replacement changed by stale cleanup");
+ await next.arm(0);`
 	cmd := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", source, f.origin, f.row.ID, "session="+f.cookie+"; __csrf=perf-csrf")
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)

@@ -2226,8 +2226,10 @@ type GetAPIInstallAckDelayResponse struct {
 
 // PostAPIInstallAckDelayBody is generated from docs/api/openapi.yaml.
 type PostAPIInstallAckDelayBody struct {
-	Branch  string `json:"branch"`
-	DelayMs int64  `json:"delay_ms"`
+	Branch  string  `json:"branch"`
+	DelayMs int64   `json:"delay_ms"`
+	ID      *string `json:"id,omitempty"`
+	Boot    *string `json:"boot,omitempty"`
 }
 
 // PostAPIInstallAckDelayResponse is generated from docs/api/openapi.yaml.
@@ -6269,6 +6271,13 @@ func (c *Client) GetAPISecrets(ctx context.Context) ([]SecretMetadata, error) {
 func (c *Client) PutAPISecrets(ctx context.Context, body SetRepositorySecretRequest) (SecretMetadata, error) {
 	var out SecretMetadata
 	err := c.do(ctx, "PUT", "/api/secrets", nil, body, &out)
+	return out, err
+}
+
+// PostAPISecrets calls POST /api/secrets.
+func (c *Client) PostAPISecrets(ctx context.Context, body SetRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "POST", "/api/secrets", nil, body, &out)
 	return out, err
 }
 
