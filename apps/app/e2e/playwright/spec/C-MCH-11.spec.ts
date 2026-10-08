@@ -5,6 +5,7 @@ import { runLiveInstall } from "./live-install"
 // Runtime boot/stop observations are injected; no live frames are intercepted.
 test("C-MCH-11: concurrent terminals share the real branch queue and grant cursor", async () => {
   test.setTimeout(300_000)
-  const output = await runLiveInstall("^TestParallelAdmissionInstallBoundary$")
+  const output = await runLiveInstall("^Test(ParallelAdmissionInstallBoundary|TenBranchTerminalAdmissionInstallBoundary)$")
+  expect(output).toContain("--- PASS: TestTenBranchTerminalAdmissionInstallBoundary")
   expect(output).toContain("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
 })

@@ -57,6 +57,24 @@ func (s *WorkspaceService) ValidateMemberChannel(ctx context.Context, branch str
 	}
 	return machined.ErrUnauthorized
 }
+
+// MemberReservation is the authenticated SSH gateway's polling boundary.
+// HTTP metadata reads require request credentials; the gateway instead binds
+// its server-resolved member and Unix identity to this owned reservation.
+func (s *WorkspaceService) MemberReservation(ctx context.Context, session string, repository, member int64, login string, uid uint32) (WorkspaceSessionResponse, error) {
+	row, err := s.loadOwnedWorkspaceSession(ctx, session, repository, member)
+	if err != nil {
+		return WorkspaceSessionResponse{}, err
+	}
+	if row.UserID != member {
+		return WorkspaceSessionResponse{}, machined.ErrUnauthorized
+	}
+	if err = s.ValidateMemberChannel(ctx, row.WorkspaceID, member, login, uid); err != nil {
+		return WorkspaceSessionResponse{}, err
+	}
+	return toWorkspaceSessionResponse(row), nil
+}
+
 func (s *WorkspaceService) AdmitMemberChannel(ctx context.Context, session string, repository, member int64, login string, uid uint32) (*MemberChannel, error) {
 	row, err := s.loadOwnedWorkspaceSession(ctx, session, repository, member)
 	if err != nil {

@@ -121,7 +121,7 @@ func installDaemonBridge(pool *pgxpool.Pool, service *services.WorkspaceService,
 			if err := ready(ctx, a); err != nil {
 				return nil, nil, err
 			}
-			receipt, err := service.GetSession(ctx, reservation.session.ID, reservation.session.RepositoryID, a.MemberID)
+			receipt, err := service.MemberReservation(ctx, reservation.session.ID, reservation.session.RepositoryID, a.MemberID, a.User, a.UID)
 			if err != nil {
 				return nil, nil, err
 			}

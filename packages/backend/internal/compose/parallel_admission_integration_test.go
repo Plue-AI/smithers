@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,8 +42,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
+	gossh "golang.org/x/crypto/ssh"
 )
 
 // parallelFlowHost is the injected runtime boot response for a TODO lane: its
@@ -371,7 +376,7 @@ esac
 	}
 	if matrix {
 		freeDisk.Store(72 << 30) // exactly one slot
-		exerciseTenBranchTerminals(t, branches, runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk)
+		exerciseTenBranchTerminals(t, branches, runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk, queuedSSHProbe(t, pool, workspaces, cfg, ben.ID))
 		return
 	}
 	// states maps a TODO number to its state; queued maps a TODO number to
@@ -999,7 +1004,7 @@ func assertEventually(budget time.Duration, condition func() bool) bool {
 	}
 }
 
-func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *microsandbox.Runtime, serverURL, publicURL, mayaCookie, benCookie string, call func(string, string, string, string) (int, []byte), freeDisk *atomic.Int64) {
+func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *microsandbox.Runtime, serverURL, publicURL, mayaCookie, benCookie string, call func(string, string, string, string) (int, []byte), freeDisk *atomic.Int64, sshProbe func(db.Workspace) (func(int), func())) {
 	t.Helper()
 	ctx := t.Context()
 	open := func(branch db.Workspace, cookie string) {
@@ -1048,9 +1053,14 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 	for result := range results {
 		require.Equal(t, http.StatusAccepted, result.code, string(result.body))
 	}
+	sshWaiting := false
 	check := func() bool {
 		rows := runtime.AdmissionSnapshot()
-		if runtime.InUse() != 1 || len(rows) != 20 {
+		expectedRows := 20
+		if sshWaiting {
+			expectedRows++
+		}
+		if runtime.InUse() != 1 || len(rows) != expectedRows {
 			return false
 		}
 		for i, branch := range branches {
@@ -1071,15 +1081,27 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 					return false
 				}
 			}
-			if len(actors) != 2 {
+			expectedActors := 2
+			if i == 9 && sshWaiting {
+				expectedActors = 3
+			}
+			if len(actors) != expectedActors {
 				return false
 			}
 		}
 		return true
 	}
 	require.Eventually(t, check, 10*time.Second, 10*time.Millisecond, "50 launches must coalesce into two actors per holder: %+v", runtime.AdmissionSnapshot())
+	sshPosition, closeSSH := sshProbe(branches[9])
+	sshPosition(9)
+	sshWaiting = true
+	require.Eventually(t, func() bool {
+		return len(runtime.AdmissionSnapshot()) == 21 && runtime.InUse() == 1
+	}, 5*time.Second, 10*time.Millisecond, "SSH must add its own actor to the existing branch holder")
 	// Every member-facing branch response and authenticated live subscription
 	// must expose the same dense FIFO positions. No frame is manufactured.
+	connections := make([]*websocket.Conn, len(branches))
+	cursors := make([]int64, len(branches))
 	for i, branch := range branches {
 		code, body := call("GET", "/api/branches/"+branch.ID, "", benCookie)
 		require.Equal(t, http.StatusOK, code, string(body))
@@ -1103,6 +1125,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 				continue
 			}
 			require.NotNil(t, frame.Cursor)
+			cursors[i] = *frame.Cursor
 			var snapshot struct {
 				Machine struct {
 					State    string `json:"state"`
@@ -1119,7 +1142,8 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 			break
 		}
 		cancel()
-		conn.CloseNow()
+		connections[i] = conn
+		t.Cleanup(func() { conn.CloseNow() })
 	}
 	// Capacity falling below held must neither stop the in-flight boot nor
 	// admit any waiting branch. Read-only doors remain usable during the boot.
@@ -1133,4 +1157,183 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 	}
 	freeDisk.Store(72 << 30)
 	require.True(t, check(), "restored capacity cannot spend an unconfirmed slot")
+
+	// Keep the actual subscriptions alive across disk recovery and owner
+	// changes. A fresh subscription alone cannot prove advancing publication.
+	observe := func(granted int) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			if runtime.InUse() != granted {
+				return false
+			}
+			for i, branch := range branches {
+				for _, row := range runtime.AdmissionSnapshot() {
+					if row.State == "cancelled" || row.State == "released" || row.Holder != "workspace:"+branch.ID {
+						continue
+					}
+					if i < granted {
+						if row.State != "granted" {
+							return false
+						}
+					} else if row.State != "waiting" || row.Position != i-granted+1 {
+						return false
+					}
+				}
+			}
+			return true
+		}, 5*time.Second, 10*time.Millisecond)
+		for i := granted - 1; i < len(branches); i++ {
+			deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+			for {
+				_, raw, err := connections[i].Read(deadline)
+				require.NoError(t, err)
+				var frame live.Frame
+				require.NoError(t, json.Unmarshal(raw, &frame))
+				require.NotEqual(t, "err", frame.T, string(raw))
+				require.NotEqual(t, "gap", frame.T, string(raw))
+				if frame.T != "snap" {
+					continue
+				}
+				require.NotNil(t, frame.Cursor)
+				var card struct {
+					Machine struct {
+						State    string `json:"state"`
+						Position int    `json:"position"`
+					} `json:"machine"`
+				}
+				require.NoError(t, json.Unmarshal(frame.Data, &card))
+				state, position := "waiting", i-granted+1
+				if i < granted {
+					state, position = "waking", 0
+				}
+				if card.Machine.State != state || card.Machine.Position != position {
+					continue
+				}
+				require.Greater(t, *frame.Cursor, cursors[i], "grant and rank changes need a newer source cursor")
+				cursors[i] = *frame.Cursor
+				break
+			}
+			cancel()
+			code, body := call("GET", "/api/branches/"+branches[i].ID, "", benCookie)
+			require.Equal(t, http.StatusOK, code, string(body))
+			var branch services.BranchMachineResponse
+			require.NoError(t, json.Unmarshal(body, &branch))
+			position := 0
+			if i >= granted {
+				position = i - granted + 1
+			}
+			require.Equal(t, position, branch.Machine.WaitPosition)
+		}
+	}
+	freeDisk.Store(104 << 30) // two slots; the oldest waiting holder wins
+	observe(2)
+	sshPosition(8)
+	closeSSH()
+	require.Eventually(t, func() bool {
+		active := 0
+		for _, row := range runtime.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+branches[9].ID && row.State == "waiting" {
+				active++
+			}
+		}
+		return active == 2 && runtime.InUse() == 2
+	}, 5*time.Second, 10*time.Millisecond, "SSH cancellation cannot remove either terminal actor or spend the holder's slot")
+	code, body := call("PUT", "/api/install", `{"capacity":1}`, mayaCookie)
+	require.Equal(t, http.StatusOK, code, string(body))
+	freeDisk.Store(136 << 30) // three disk slots, still limited by owner to one
+	until = time.Now().Add(2100 * time.Millisecond)
+	for time.Now().Before(until) {
+		require.Equal(t, 2, runtime.InUse(), "lowering capacity cannot preempt either unresolved wake")
+		require.True(t, runtime.AdmissionHeld("workspace:"+branches[0].ID))
+		require.True(t, runtime.AdmissionHeld("workspace:"+branches[1].ID))
+		require.False(t, runtime.AdmissionHeld("workspace:"+branches[2].ID))
+		time.Sleep(20 * time.Millisecond)
+	}
+	code, body = call("PUT", "/api/install", `{"capacity":3}`, mayaCookie)
+	require.Equal(t, http.StatusOK, code, string(body))
+	observe(3)
+}
+
+// The production gateway and daemon bridge own authentication, durable SSH
+// reservation, person admission and cancellation. No daemon session starts:
+// this holder waits behind the injected unresolved boots.
+func queuedSSHProbe(t *testing.T, pool *pgxpool.Pool, service *services.WorkspaceService, cfg *config.Config, member int64) func(db.Workspace) (func(int), func()) {
+	t.Helper()
+	ctx := t.Context()
+	q := db.New(pool)
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := gossh.NewSignerFromKey(private)
+	require.NoError(t, err)
+	_, err = q.CreateSSHKey(ctx, db.CreateSSHKeyParams{UserID: member, Name: "admission", PublicKey: string(gossh.MarshalAuthorizedKey(signer.PublicKey())), Fingerprint: gossh.FingerprintSHA256(signer.PublicKey()), KeyType: "ssh-ed25519"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET unix_login='ben',unix_uid=20001 WHERE user_id=$1`, member)
+	require.NoError(t, err)
+	sshConfig := *cfg
+	sshConfig.SSH.Addr = "127.0.0.1:0"
+	sshConfig.SSH.HostKeyDir = t.TempDir()
+	bridge := installDaemonBridge(pool, service, new(machined.Registry))
+	_, port, stop, err := startInstallSSH(ctx, &sshConfig, pool, repository.NewRemoteClient(nil, "admission"), nil, bridge, cfg.Server.PublicURL)
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	hostBytes, err := os.ReadFile(filepath.Join(sshConfig.SSH.HostKeyDir, "ssh_host_ed25519_key"))
+	require.NoError(t, err)
+	host, err := gossh.ParsePrivateKey(hostBytes)
+	require.NoError(t, err)
+	return func(branch db.Workspace) (func(int), func()) {
+		client, err := gossh.Dial("tcp", net.JoinHostPort("127.0.0.1", port), &gossh.ClientConfig{User: branch.Name, Auth: []gossh.AuthMethod{gossh.PublicKeys(signer)}, HostKeyCallback: gossh.FixedHostKey(host.PublicKey()), Timeout: 5 * time.Second})
+		require.NoError(t, err)
+		t.Cleanup(func() { client.Close() })
+		session, err := client.NewSession()
+		require.NoError(t, err)
+		stderr, err := session.StderrPipe()
+		require.NoError(t, err)
+		positions := make(chan string, 32)
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				positions <- scanner.Text()
+			}
+			close(positions)
+		}()
+		require.NoError(t, session.Start("true"))
+		return func(position int) {
+			t.Helper()
+			wanted := fmt.Sprintf("waiting for a machine #%d", position)
+			timer := time.NewTimer(5 * time.Second)
+			defer timer.Stop()
+			for {
+				select {
+				case line, ok := <-positions:
+					require.True(t, ok, "SSH closed before reporting %s", wanted)
+					if line == wanted {
+						var id string
+						require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM workspace_sessions WHERE workspace_id=$1 AND user_id=$2 AND status IN ('pending','starting')`, branch.ID, member).Scan(&id))
+						receipt, err := service.MemberReservation(ctx, id, branch.RepositoryID, member, "ben", 20001)
+						require.NoError(t, err)
+						require.Equal(t, branch.ID, receipt.WorkspaceID)
+						for _, invalid := range []struct {
+							repository, member int64
+							login              string
+							uid                uint32
+						}{
+							{branch.RepositoryID, member, "root", 20001},
+							{branch.RepositoryID, member, "ben", 0},
+							{branch.RepositoryID, member - 1, "maya", 20000},
+							{branch.RepositoryID, member + 1, "ben", 20001},
+							{branch.RepositoryID + 1, member, "ben", 20001},
+						} {
+							_, err := service.MemberReservation(ctx, id, invalid.repository, invalid.member, invalid.login, invalid.uid)
+							require.Error(t, err, "foreign reservation identity must refuse")
+						}
+						_, err = service.GetSession(ctx, id, branch.RepositoryID, member)
+						require.Error(t, err, "the HTTP reader still requires a request credential")
+						return
+					}
+				case <-timer.C:
+					t.Fatalf("SSH did not report %s", wanted)
+				}
+			}
+		}, func() { session.Close(); client.Close() }
+	}
 }
