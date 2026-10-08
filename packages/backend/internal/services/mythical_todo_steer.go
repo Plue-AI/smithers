@@ -103,7 +103,8 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 		if err != nil {
 			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
 		}
-		if !stack.ActorUserID.Valid || request.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
+		sponsor := mythicalExecutionSponsor(item, stack)
+		if sponsor <= 0 || request.Scope.PrincipalID != "user:"+strconv.FormatInt(sponsor, 10) {
 			return refused
 		}
 		repository, err := InstallRepositoryID(ctx, q)
@@ -467,11 +468,12 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 // All feedback sources share the same bound runtime intent and authority.
 func (s *MythicalService) admitTodoSteerIntent(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, item db.MythicalItem, feedback todoSteer) error {
 	steerer, ok := s.launcher.(mythicalSteerer)
-	if !ok || !stack.ActorUserID.Valid {
+	sponsor := mythicalExecutionSponsor(item, stack)
+	if !ok || sponsor <= 0 {
 		return todoControlUnavailable()
 	}
 	id := uuidString(item.ID)
-	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
+	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(sponsor, 10)}
 	authority, _ := json.Marshal(map[string]any{"repositoryId": item.RepositoryID, "userId": feedback.Author, "itemId": id, "input": feedback.ID, "by": feedback.Attribution})
 	projection, _ := json.Marshal(map[string]any{"kind": "mythical-steer", "itemId": id, "input": feedback.ID, "inputVersion": feedback.InputVersion, "runId": item.RequestRunID, "attempt": item.Attempt})
 	_, err := steerer.SteerInTx(ctx, tx, flowdispatch.SteerRequest{Scope: scope, RequestID: todoSteerRequestID(feedback.ID, feedback.InputVersion), InputVersion: feedback.InputVersion, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id}, FlowID: flowdispatch.TodoFlow, RunID: item.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(feedback.At.UnixMilli()), Body: todoSteerDeliveryText(feedback), Attribution: feedback.Attribution, AuthorizationContext: authority, Projection: projection})

@@ -58,3 +58,37 @@ func (s *MythicalService) projectTodoSteerReceipt(ctx context.Context, update fl
 		return nil
 	})
 }
+
+// The owning runtime's queue promotion is the consumption receipt for an
+// original immutable input. Edited versions require their versioned mutation
+// receipt; replaying an older promotion must never consume a newer edit.
+func projectTodoSteerConsumption(item *db.MythicalItem, projection mythicalProjection, update flowdispatch.ProjectionUpdate) {
+	if !mythicalTodo(*item) || projection.Phase != "todo" || item.RequestRunID == "" || item.RequestRunID != update.Checkpoint.RunID {
+		return
+	}
+	checks := mythicalChecksOf(*item)
+	for _, event := range update.Events {
+		if event.RunID != item.RequestRunID || event.Kind != "flows/notifications/Promoted" {
+			continue
+		}
+		var receipt struct {
+			Boundary string   `json:"boundary"`
+			Target   string   `json:"targetLineageId"`
+			IDs      []string `json:"ids"`
+		}
+		if json.Unmarshal(event.Payload, &receipt) != nil || receipt.Boundary == "" || receipt.Target != item.RequestRunID {
+			continue
+		}
+		for i, input := range checks.Steers {
+			if input.Attempt != item.Attempt || input.InputVersion != 0 || input.ReleasePending || input.ID == "" {
+				continue
+			}
+			for _, id := range receipt.IDs {
+				if id == input.ID {
+					checks.Steers[i].InputConsumed = true
+				}
+			}
+		}
+	}
+	item.Checks = checks.encode()
+}

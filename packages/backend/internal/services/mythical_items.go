@@ -748,6 +748,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			// Only the attempt's bound run opens or withdraws its questions.
 			if !pinMismatch {
 				projectTodoPlan(&next, projection, update)
+				projectTodoSteerConsumption(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 				projectTodoPause(&next, projection, update, s.now().UTC())
 				projectForeignBringCheckpoint(&next, projection, update)

@@ -13,7 +13,7 @@ import (
 )
 
 func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
-	for _, name := range []string{"ready", "stale", "wake conflict", "wake awaits capture", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "reopened"} {
+	for _, name := range []string{"ready", "stale", "wake conflict", "wake awaits capture", "paused", "unsettled publication", "foreign push", "unreconciled prefix", "verify still running", "review still running", "held text", "delivered text", "consumed text", "reopened"} {
 		t.Run(name, func(t *testing.T) {
 			main := strings.Repeat("b", 40)
 			item := db.MythicalItem{WorkspaceID: "10000000-0000-4000-8000-000000000001", CandidateBase: main, Source: "todo", State: "proposed", Attempt: 2, FlowDigest: pgtype.Text{String: strings.Repeat("a", 64), Valid: true}}
@@ -37,8 +37,8 @@ func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
 				item.State = "verifying"
 			case "review still running":
 				checks.Review = &mythicalReview{Head: "reviewing"}
-			case "held text", "delivered text":
-				checks.Steers = []todoSteer{{Attempt: 2, Text: "do this first", ReleasePending: name == "held text"}}
+			case "held text", "delivered text", "consumed text":
+				checks.Steers = []todoSteer{{Attempt: 2, Text: "do this first", ReleasePending: name == "held text", InputConsumed: name == "consumed text"}}
 			case "reopened":
 				checks.GitHubReopenedAttempt = 2
 			}
@@ -46,7 +46,7 @@ func TestCapturedContinuationHoldsOtherWork(t *testing.T) {
 			// No providers: refusal occurs before object transport or launch.
 			step := &mythicalItemStep{s: &MythicalService{}, r: &mythicalRun{mainTip: main}}
 			next, saved, err := step.consumeCapturedEdits(t.Context(), item)
-			if name == "ready" {
+			if name == "ready" || name == "consumed text" {
 				require.EqualError(t, err, "captured edits need the retained check plan")
 			} else {
 				require.NoError(t, err)

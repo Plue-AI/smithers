@@ -64,3 +64,45 @@ func TestGitHubEditedSteerReceiptPreservesConsumedRetryFeedback(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, original.Text, mythicalChecksOf(got).Steers[0].Text)
 }
+
+func TestTodoSteerConsumptionRequiresTheOwningQueuePromotion(t *testing.T) {
+	for _, name := range []string{"consumed", "other run", "other lineage", "other attempt", "held", "edited", "other phase", "admission", "malformed", "empty boundary", "other input"} {
+		t.Run(name, func(t *testing.T) {
+			input := todoSteer{ID: "input", Text: "Keep this instruction", Attempt: 2}
+			item := db.MythicalItem{Source: "todo", Attempt: 2, RequestRunID: "root"}
+			projection := mythicalProjection{Phase: "todo"}
+			event := flowruntime.Event{RunID: "root", Kind: "flows/notifications/Promoted", Payload: json.RawMessage(`{"boundary":"plan/0","targetLineageId":"root","ids":["input"]}`)}
+			switch name {
+			case "other run":
+				event.RunID = "other"
+			case "other lineage":
+				event.Payload = json.RawMessage(`{"boundary":"plan/0","targetLineageId":"other","ids":["input"]}`)
+			case "other attempt":
+				input.Attempt = 1
+			case "held":
+				input.ReleasePending = true
+			case "edited":
+				input.InputVersion = 2
+			case "other phase":
+				projection.Phase = "verify"
+			case "admission":
+				event.Kind = "flows/notifications/Admitted"
+			case "malformed":
+				event.Payload = json.RawMessage(`{"ids":"input"}`)
+			case "empty boundary":
+				event.Payload = json.RawMessage(`{"targetLineageId":"root","ids":["input"]}`)
+			case "other input":
+				input.ID = "different"
+			}
+			checks := mythicalChecks{Steers: []todoSteer{input}}
+			item.Checks = checks.encode()
+			update := flowdispatch.ProjectionUpdate{Checkpoint: flowdispatch.RuntimeCheckpoint{RunID: "root"}, Events: []flowruntime.Event{event}}
+			projectTodoSteerConsumption(&item, projection, update)
+			projectTodoSteerConsumption(&item, projection, update)
+			after := mythicalChecksOf(item).Steers
+			require.Len(t, after, 1)
+			require.Equal(t, input.Text, after[0].Text)
+			require.Equal(t, name == "consumed", after[0].InputConsumed)
+		})
+	}
+}

@@ -84,6 +84,10 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 	ready, input, _ := steerFixture()
 	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
 	item.WorkspaceID, item.FlowDigest, item.Checks = "7e110000-0000-4000-8000-000000000002", ready.FlowDigest, ready.Checks
+	// The TODO belongs to a member, while the stack was enabled by the owner.
+	item.OwnerID = pgtype.Int8{Int64: member.ID, Valid: true}
+	_, err = o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, item.WorkspaceID, o.repoID, member.ID)
+	require.NoError(t, err)
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	input.Repository, input.Actor = o.repoID, member.ID
@@ -107,6 +111,10 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 	request.Scope = jobs.Scope{TenantID: request.Target.TenantID, PrincipalID: request.Target.PrincipalID}
 	request.RequestID, request.AuthorizationContext = requestID, authority
 	require.Equal(t, wantAttribution, request.Attribution)
+	require.Equal(t, fmt.Sprintf("user:%d", member.ID), request.Target.PrincipalID)
+	authorized, resolveErr := NewMythicalFlowHostTargetResolver(o.service).ResolveFlowHostTarget(ctx, request.Target)
+	require.NoError(t, resolveErr)
+	require.Equal(t, member.ID, authorized.UserID)
 	require.NoError(t, o.service.AuthorizeFlowSteer(ctx, request))
 	baseline := o.byID(uuidString(item.ID))
 	current := baseline
@@ -176,6 +184,10 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 		"message":     func(r *flowdispatch.SteerRequest) { r.MessageID = "other" },
 		"timestamp":   func(r *flowdispatch.SteerRequest) { r.CreatedAt++ },
 		"scope":       func(r *flowdispatch.SteerRequest) { r.Scope.PrincipalID = "user:999" },
+		"install owner instead of sponsor": func(r *flowdispatch.SteerRequest) {
+			r.Scope.PrincipalID = fmt.Sprintf("user:%d", o.userID)
+			r.Target.PrincipalID = r.Scope.PrincipalID
+		},
 		"author": func(r *flowdispatch.SteerRequest) {
 			r.AuthorizationContext = []byte(fmt.Sprintf(`{"repositoryId":%d,"userId":%d,"itemId":%q,"input":%q}`, o.repoID, o.userID, r.Target.BindingID, r.MessageID))
 		},

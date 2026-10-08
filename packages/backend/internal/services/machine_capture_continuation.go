@@ -46,7 +46,7 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 	// boundary proves consumption, a retained current-attempt input holds this
 	// edited-only continuation.
 	for _, input := range checks.Steers {
-		if input.Attempt == item.Attempt {
+		if input.Attempt == item.Attempt && !input.InputConsumed {
 			return nil, false, nil
 		}
 	}
