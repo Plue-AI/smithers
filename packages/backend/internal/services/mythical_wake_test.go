@@ -359,6 +359,9 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 		{"a recovered Drop with no lane establishes its fresh read at once", db.MythicalItem{State: "cancelled", PRState: "closed", PRNumber: pgtype.Int8{Int64: 214, Valid: true}, NextAttemptAt: later, Checks: json.RawMessage(`{"dropped":{"at":"2026-10-05T03:00:00Z"}}`)}, true, now},
 		{"a dropped TODO with no lane takes no step", db.MythicalItem{State: "cancelled", PRState: "closed"}, true, time.Time{}},
 		{"an unchanged close waits for an event", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`)}, false, time.Time{}},
+		{"held main rebase retries its presence boundary", db.MythicalItem{State: "integrating", Reason: "rebase_pending"}, false, now.Add(3 * time.Second)},
+		{"new pending main rebase retries its presence boundary", db.MythicalItem{State: "integrating", Reason: "rebase_pending"}, true, now.Add(3 * time.Second)},
+		{"rebase outage keeps its explicit retry", db.MythicalItem{State: "integrating", Reason: "rebase_pending", NextAttemptAt: later}, false, later.Time},
 		{"a merge still open on GitHub waits for an event", db.MythicalItem{State: "proposed"}, false, time.Time{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

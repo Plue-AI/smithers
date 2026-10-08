@@ -1,7 +1,9 @@
 package services
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -108,4 +110,36 @@ func TestReviewedTodoMainMoveSchedulesRebuild(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A held boundary is not an item mutation. It must still leave a deadline on
+// the durable worker so later authenticated presence can unblock the main move.
+func TestPendingMainRebaseSchedulesAnotherWorkerPass(t *testing.T) {
+	h := newMergeHarness(t)
+	n, _, _ := h.first("Pending main move")
+	for range 4 {
+		if len(h.item(n).PendingOp) == 0 {
+			break
+		}
+		h.pass()
+	}
+	item := h.item(n)
+	coding, err := h.q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: h.repoID, UserID: h.userID, Name: "retained", TargetBookmark: "mythical", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	_, _, err = h.q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: coding.ID, RepositoryID: h.repoID, ItemID: item.ID, Name: "TODO retained"})
+	require.NoError(t, err)
+	h.service.SetRebasePresence(func(context.Context, int64, string) (RebasePresence, error) { return RebasePresenceUnknown, nil })
+	h.git(h.work, "checkout", "-q", "main")
+	h.commit("Main moves", "OUTSIDE.md", "outside\n")
+	h.publish()
+	h.service.MainMoved(t.Context(), h.repoID)
+	h.pass()
+	require.Equal(t, "integrating", h.item(n).State)
+	h.pass()
+	stack, err := h.q.GetMythicalStack(t.Context(), h.repoID)
+	require.NoError(t, err)
+	require.Equal(t, "rebase_pending", h.item(n).Reason)
+	require.True(t, stack.NextAttemptAt.Valid, "unchanged pending item must leave a worker deadline")
+	require.Greater(t, stack.RequestedGeneration, stack.ProcessedGeneration)
+	require.WithinDuration(t, h.service.now().Add(3*time.Second), stack.NextAttemptAt.Time, time.Second)
 }

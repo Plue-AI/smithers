@@ -1998,6 +1998,16 @@ func provisionRehearsalJJ(root string) error {
 	if err != nil {
 		return err
 	}
+	// Auxiliary readers start from the plain Git image too. The daemon loads
+	// JJ directly, so initialize its colocated store before native admission.
+	if _, err := os.Stat(filepath.Join(root, ".jj", "repo")); os.IsNotExist(err) {
+		command := exec.Command(jj, "git", "init", "--colocate", root)
+		if output, err := command.CombinedOutput(); err != nil {
+			return fmt.Errorf("initialize rehearsal jj: %w: %s", err, output)
+		}
+	} else if err != nil {
+		return err
+	}
 	tools := filepath.Join(root, ".jj", "rehearsal-tools")
 	if err := os.MkdirAll(tools, 0700); err != nil {
 		return err

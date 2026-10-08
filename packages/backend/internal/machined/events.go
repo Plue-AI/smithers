@@ -140,53 +140,55 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 	if scope.TenantID != fmt.Sprint(repository) || scope.PrincipalID != "branch:"+branch {
 		return ack, ErrUnauthorized
 	}
-	// Database authority precedes the registry fence, as for captures. A
-	// native opener may be waiting on the registry while holding admission.
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if !connection.current() {
-		return ack, ErrUnauthorized
-	}
-	if legacyReplay && b.Parts == 0 {
-		// Only a complete, byte-identical receipt proves this old event was
-		// already accepted. No author is inferred and no new activity is made.
-		if err = requireLegacyBurstReceipt(ctx, tx, branch, event, b); err != nil {
-			return ack, err
-		}
-	}
-	multipart := b.Parts != 0
-	if multipart {
-		complete, assembled, stageErr := stageBurst(ctx, tx, branch, event, b, actor)
-		if stageErr != nil {
-			return ack, stageErr
-		}
-		if !complete {
-			if err = tx.Commit(ctx); err != nil {
-				return ack, err
-			}
-			// Applied acknowledges durable staging, not a projected activity entry.
-			// The outbox can advance to the next part after a host restart.
-			ack.Outcome = AckApplied
-			return ack, nil
-		}
-		b = assembled
-		seen = map[string]bool{}
-		for _, f := range b.Files {
-			if seen[f.Path] {
-				return ack, wire.BadValue
-			}
-			seen[f.Path] = true
-		}
-	}
+	projected := false
 	err = s.Objects.WithBurstObjects(ctx, tx, branch, func(objects BurstObjects) error {
 		if objects == nil {
 			return ErrNotReady
 		}
+		// Acquire database and repository locks before the boot fence. A boot
+		// admission may hold these rows while waiting for this same registry.
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if !connection.current() {
+			return ErrUnauthorized
+		}
+		if legacyReplay && b.Parts == 0 {
+			// Only a complete, byte-identical receipt proves this old event was
+			// already accepted. No author is inferred and no new activity is made.
+			if err = requireLegacyBurstReceipt(ctx, tx, branch, event, b); err != nil {
+				return err
+			}
+		}
+		multipart := b.Parts != 0
+		if multipart {
+			complete, assembled, stageErr := stageBurst(ctx, tx, branch, event, b, actor)
+			if stageErr != nil {
+				return stageErr
+			}
+			if !complete {
+				if err = tx.Commit(ctx); err != nil {
+					return err
+				}
+				// Applied acknowledges durable staging, not a projected activity entry.
+				// The outbox can advance to the next part after a host restart.
+				ack.Outcome = AckApplied
+				return nil
+			}
+			b = assembled
+			seen = map[string]bool{}
+			for _, f := range b.Files {
+				if seen[f.Path] {
+					return wire.BadValue
+				}
+				seen[f.Path] = true
+			}
+		}
 		var applyErr error
 		ack, applyErr = s.commitBurst(context.WithValue(ctx, noteConnectionKey{}, connection), tx, objects, branch, scope, event, b, actor, multipart)
+		projected = applyErr == nil && ack.Outcome == AckApplied
 		return applyErr
 	})
-	if err == nil && ack.Outcome == AckApplied && s.ObserveCommitted != nil {
+	if err == nil && projected && s.ObserveCommitted != nil {
 		s.ObserveCommitted()
 	}
 	return ack, err

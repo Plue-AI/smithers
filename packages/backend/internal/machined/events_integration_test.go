@@ -25,9 +25,15 @@ type burstObjectFixture struct {
 	publishError error
 	publications int
 	empty        bool
+	prepare      func() error
 }
 
 func (f *burstObjectFixture) WithBurstObjects(_ context.Context, _ pgx.Tx, _ string, visit func(BurstObjects) error) error {
+	if f.prepare != nil {
+		if err := f.prepare(); err != nil {
+			return err
+		}
+	}
 	if f.empty {
 		return visit(nil)
 	}
@@ -82,9 +88,18 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 		}
 	}
 	objects.missing = []string{strings.Repeat("61", 20)}
-	ack, err := s.Apply(ctx, connection, scope, event)
+	// Session admission pins workspace identity while the native mutation
+	// waits for this durable burst. Projection must not conflict with that pin.
+	admission, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	_, err = admission.Exec(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch)
+	require.NoError(t, err)
+	burstCtx, cancelBurst := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelBurst()
+	ack, err := s.Apply(burstCtx, connection, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, AckMissingObjects, ack.Outcome)
+	require.NoError(t, admission.Rollback(ctx))
 	counts(0, 0, 0)
 	objects.missing = nil
 	// Force the per-file insert to fail after the canonical writer has appended.
@@ -465,4 +480,40 @@ func TestBurstWaitingForWorkspaceLeavesRosterUsable(t *testing.T) {
 	require.NoError(t, <-rosterDone)
 	require.NoError(t, roster.Commit(ctx))
 	require.NoError(t, <-done)
+}
+
+func TestBurstPreparationAllowsBootReplacement(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	registry := new(Registry)
+	boot, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, boot)
+	var repo int64
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repo))
+	objects := &burstObjectFixture{prepare: func() error {
+		_, err := registry.MintBoot(branch, "replacement")
+		return err
+	}}
+	ingest := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"kind":"outside"}`), nil
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := ingest.Apply(ctx, link.Connection, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "branch:" + branch}, Event{Seq: 1, EventID: [16]byte{75}, Payload: burstPayload([16]byte{76}, "a.ts")})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrUnauthorized)
+	case <-ctx.Done():
+		t.Fatal("burst preparation blocked boot replacement")
+	}
+	require.Zero(t, objects.publications)
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+		var count int
+		require.NoError(t, pool.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
+		require.Zero(t, count, table)
+	}
 }

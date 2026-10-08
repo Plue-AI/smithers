@@ -1573,6 +1573,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			continue
 		}
 		if next == nil {
+			r.dueAt(mythicalDue(item, false, step.now))
 			continue
 		}
 		nextHeld := mythicalHoldsLane(*next)
@@ -1706,6 +1707,11 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 		return time.Time{}
 	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
 		return item.NextAttemptAt.Time
+	case item.State == "integrating" && item.Reason == "rebase_pending":
+		// Presence can become complete without another item mutation. Keep
+		// this existing worker due so a pending main move does not wait for
+		// the stale-stack sweep after its first unknown/occupied snapshot.
+		return now.Add(3 * time.Second)
 	case mythicalRunInFlight(item), !moved:
 		return time.Time{}
 	}
