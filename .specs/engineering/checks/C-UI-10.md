@@ -24,5 +24,13 @@ install bundle and a real microVM. The existing T-FLW-01 reference check is
 `go test -p 4 ./internal/compose -run '^TestCSEC02BundledInstallIsolation$' -count=1 -v`
 from `packages/backend`, with `SMITHERS_CHECK_BUNDLE`,
 `SMITHERS_REQUIRE_MICROVM_TESTS=1` and `SMITHERS_FLOW_ISOLATION_EVIDENCE_DIR` set.
-That check qualifies TODO and `/api/flows` canary execution; it does not yet
-qualify a Debug API Send of `POST /api/repos/{owner}/{repo}/invoke`.
+That check now also drives the production app controller's Debug API
+Send/Confirm for `POST /api/repos/{owner}/{repo}/invoke`, using its own install
+owner session and a distinct repository `debug-canary`. It requires zero
+requests before Confirm, one 201 queued receipt, an independently observed
+non-root guest marker, the matching persisted host binding and a completed
+run. The enclosing sampler, host markers and TCP listener cover this request.
+It retains `debug-api-invoke.json` alongside the qualified bundle receipts.
+The browser scenario runs this check when `SMITHERS_CHECK_BUNDLE` is supplied;
+it remains pending without the reference environment. Authorship and Linux
+compilation are not a passing reference-host receipt.

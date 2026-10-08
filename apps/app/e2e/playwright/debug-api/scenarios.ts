@@ -144,8 +144,18 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestDebugAPIInvokeWithoutIsolationPostgres")
       await test.info().attach("missing-isolation-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
-    pending("available repository-flow execution runs only in a branch machine",
-      "T-FLW-01 guest composition and POST /api/repos/{owner}/{repo}/invoke exist; this Linux local-own fixture has no qualified microVM bundle. Reference-host branch-machine receipts are still required.")
+    test("available repository-flow execution runs only in a branch machine", async () => {
+      test.fixme(!process.env.SMITHERS_CHECK_BUNDLE,
+        "Requires the qualified Apple Silicon install bundle and real microVM; trusted-process local-own cannot qualify this case.")
+      test.setTimeout(3_600_000)
+      const result = await promisify(execFile)("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestCSEC02BundledInstallIsolation$", "-count=1", "-v"], {
+        cwd: resolve("../../packages/backend"),
+        env: { ...process.env, SMITHERS_REQUIRE_MICROVM_TESTS: "1" },
+        timeout: 3_540_000, maxBuffer: 8 * 1024 * 1024
+      })
+      expect(result.stdout).toContain("--- PASS: TestCSEC02BundledInstallIsolation")
+      await test.info().attach("qualified-debug-api-invoke", { body: result.stdout, contentType: "text/plain" })
+    })
     for (const missing of ["catalog", "authorizer", "view"] as const) {
       test(`production app with only ${missing} guard unavailable produces zero real-install API/SQL effects`, async () => {
         test.setTimeout(900_000)

@@ -214,6 +214,8 @@ func csec02BundledLifecycle(t *testing.T, approved *installbundle.Bundle) {
 	require.Equal(t, 403, status, string(data))
 	require.Contains(t, string(data), "reserved_name")
 
+	debugAPIQualifiedInvocation(t, r, state, runMSB, save)
+
 	// Step 4: the Flow card and the flows projection for merge.
 	data, err = r.expect("GET", "/api/flows/merge", "", 200)
 	require.NoError(t, err)
@@ -382,7 +384,24 @@ beacon.on("connect", () => beacon.end(%q))
 beacon.setTimeout(250, () => beacon.destroy())
 `, nonce, port, nonce),
 		"flows/canary/flow.ts": marked("canary", "./beacon.ts", "canary-run"),
-		"flows/merge/flow.ts":  marked("merge", "../canary/beacon.ts", "merge-run"),
+		"flows/debug-canary/flow.ts": `import { mark } from "../canary/beacon.ts"
+import { Action, Flow } from "@smthrs/flow"
+import { Effect, Schema } from "effect"
+const Probe = Action.make("cui10/probe", {
+ payload: {}, success: Schema.String, error: Action.IrreversibleRetryRequiresIdempotencyKey,
+ tier: "sealed", idempotencyKey: "cui10-probe/v1", implementationVersion: "1"
+})
+export const layer = Probe.toLayer(() => Effect.sync(() => mark("debug-api-run")).pipe(
+ Effect.andThen(Effect.sleep("1 minute")), Effect.as("guest-debug-api")
+), { implementationVersion: "1" })
+export default Flow.make("debug-canary", {
+ description: "Debug API isolation canary", capabilities: [], modelInvocable: false,
+ effects: { reads: [], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
+ payload: {}, success: Schema.String, error: Action.IrreversibleRetryRequiresIdempotencyKey,
+ body: () => Probe.call({})
+})
+`,
+		"flows/merge/flow.ts": marked("merge", "../canary/beacon.ts", "merge-run"),
 		// The TODO marks, then holds in an irreversible keyless step, so its
 		// machine stays running for the canary and can be stopped mid-run.
 		"flows/todo/flow.ts": `import { mark } from "../canary/beacon.ts"
