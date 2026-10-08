@@ -66,6 +66,17 @@ func TestPeopleReviewOnALineReachesGitHubsLists(t *testing.T) {
 	if status != 200 || !strings.Contains(raw, `"commit_id":"`+strings.Repeat("a", 40)) {
 		t.Fatal(status, raw)
 	}
+	// Submitting a review moves the pull request's updated_at, as on GitHub.
+	var submitted PullReview
+	if json.Unmarshal([]byte(raw), &submitted) != nil {
+		t.Fatal(raw)
+	}
+	fake.mu.Lock()
+	updated := fake.pulls["local-owner/demo/5"].UpdatedAt
+	fake.mu.Unlock()
+	if !updated.Equal(submitted.SubmittedAt) {
+		t.Fatalf("PR updated_at %s, review submitted %s", updated, submitted.SubmittedAt)
+	}
 	// GitHub's own lists answer the review and its line comment to a token holder.
 	status, raw = call(t, fake, "GET", "/repos/local-owner/demo/pulls/5/comments", "", "ghs_any")
 	var comments []map[string]any

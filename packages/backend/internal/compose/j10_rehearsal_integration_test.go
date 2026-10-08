@@ -22,6 +22,10 @@ import (
 // before Smithers' own comment (C-J10-01, C-J10-05).
 var j10ClosingKeyword = regexp.MustCompile(`(?i)\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?\s+(#|https://github\.com/\S+/issues/)\d+`)
 
+// j10RunWait bounds one scripted TODO run, start to In review, on a shared
+// host where machine readiness alone can take minutes.
+const j10RunWait = 15 * time.Minute
+
 // j10Card is what the J10 rows read of a TODO card beyond rehearsalTodo.
 type j10Card struct {
 	State  string `json:"state"`
@@ -199,24 +203,18 @@ func TestJ10Rehearsal(t *testing.T) {
 	}
 	var t1, t2, pr1, pr2 int64
 	var pull1URL, head2 string
-	if !r.step("1 File T1 and T2", "POST /api/todos {issue, issue_digest, fixes} ×2", "202 ×2; T1 fixes #I, T2 refers to #J and is placed after T1", "T-STK-01, T-STK-09", func() error {
+	if !r.step("1 File T1", "POST /api/todos {issue, issue_digest, fixes}", "202; T1 fixes #I", "T-STK-01, T-STK-09", func() error {
 		var err error
 		if t1, err = r.todoFromIssue(fixed, true, "Add retry helper", "[PR] [FILE retry-helper.md] Add a retry helper for webhook deliveries.", []string{"retry-helper.md describes the helper"}); err != nil {
 			return err
 		}
-		if t2, err = r.todoFromIssue(referred, false, "Retry webhooks", "[PR] [FILE retry-webhooks.md] Retry failed webhook deliveries.", []string{"retries 3 times with backoff"}); err != nil {
-			return err
-		}
-		if t1 == t2 {
-			return fmt.Errorf("both TODOs are T%d", t1)
-		}
-		r.actual = fmt.Sprintf("202 T%d from #%d (fixes), T%d from #%d", t1, fixed, t2, referred)
+		r.actual = fmt.Sprintf("202 T%d from #%d (fixes)", t1, fixed)
 		return nil
 	}) {
 		return
 	}
 	if !r.step("1 T1 in review", "GET /api/todos/{T1}; GitHub fake PR", "in_review; PR smithers/add-retry-helper at the card's head, base main, ready", "T-STK-01, T-GH-03", func() error {
-		v, err := r.waitTodoWithin(t1, 8*time.Minute, "in_review")
+		v, err := r.waitTodoWithin(t1, j10RunWait, "in_review")
 		if err != nil {
 			return err
 		}
@@ -232,10 +230,24 @@ func TestJ10Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// T2 is filed once T1 is in review, so it builds on T1's verified head.
+	if !r.step("1 File T2 behind T1", "POST /api/todos {issue, issue_digest}", "202; T2 refers to #J and is placed after T1", "T-STK-01, T-STK-09", func() error {
+		var err error
+		if t2, err = r.todoFromIssue(referred, false, "Retry webhooks", "[PR] [FILE retry-webhooks.md] Retry failed webhook deliveries.", []string{"retries 3 times with backoff"}); err != nil {
+			return err
+		}
+		if t2 == t1 {
+			return fmt.Errorf("both TODOs are T%d", t1)
+		}
+		r.actual = fmt.Sprintf("202 T%d from #%d after T%d", t2, referred, t1)
+		return nil
+	}) {
+		return
+	}
 	if !r.step("1 T2's PR shape", "GET /api/todos/{T2}; GitHub fake GET /repos/{o}/{r}/pulls/{n}; git rev-list --parents; git ls-tree",
 		"title 'Retry webhooks'; head smithers/retry-webhooks; base main; draft; opened once by the App; one parent, main's tip, with T1's and T2's files; body: prompt, acceptance, checks, diff stat, review, Includes [T1](PR), link back, Requested by @owner; no closing keyword",
 		"T-GH-03, T-REL-02", func() error {
-			v, err := r.waitTodoWithin(t2, 8*time.Minute, "in_review")
+			v, err := r.waitTodoWithin(t2, j10RunWait, "in_review")
 			if err != nil {
 				return err
 			}
@@ -276,8 +288,19 @@ func TestJ10Rehearsal(t *testing.T) {
 					return fmt.Errorf("T2's head tree lacks %s: %s", path, tree)
 				}
 			}
+			// The review of the open PR adds its summary line to the body.
 			body := pull.Body
-			for _, want := range []string{"Retry failed webhook deliveries.", "retries 3 times with backoff", "Checks:\n- ", " changed", "Review: ",
+			for deadline := time.Now().Add(5 * time.Minute); !strings.Contains(body, "\n\nReview: approve\n\n"); time.Sleep(500 * time.Millisecond) {
+				if time.Now().After(deadline) {
+					return fmt.Errorf("T2's PR body has no review summary 5 min after In review: %q", body)
+				}
+				reread, err := r.readFakePull(pr2)
+				if err != nil {
+					return err
+				}
+				body = reread.Body
+			}
+			for _, want := range []string{"Retry failed webhook deliveries.", "retries 3 times with backoff", "Checks:\n- ", " changed",
 				"Includes [T" + fmt.Sprint(t1) + "](" + pull1URL + ")", r.origin, "Requested by @rehearsal-owner"} {
 				if !strings.Contains(body, want) {
 					return fmt.Errorf("T2's PR body lacks %q: %q", want, body)
@@ -355,7 +378,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("2 The agent's fix updates the PR", "GET /api/todos/{T2}; GitHub fake PR", "T2 back in review; a new PR head under the same PR number; one PR for the branch", "T-GH-04, T-STK-06", func() error {
-		v, err := r.waitTodoWithin(t2, 8*time.Minute, "in_review")
+		v, err := r.waitTodoWithin(t2, j10RunWait, "in_review")
 		if err != nil {
 			return err
 		}
@@ -429,7 +452,7 @@ func TestJ10Rehearsal(t *testing.T) {
 			if err = json.Unmarshal(review, &submitted); err != nil {
 				return err
 			}
-			if err = r.waitSQL(2*time.Minute, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input' AND data->>'object'='review:'||$1::text`, submitted.ID); err != nil {
+			if err = r.waitSQL(2*time.Minute, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input' AND data->>'object'='review:'||$1::text`, fmt.Sprint(submitted.ID)); err != nil {
 				return fmt.Errorf("the approval was not recorded: %w", err)
 			}
 			after, err := r.j10Card(t2)
@@ -813,7 +836,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		if t3, err = r.file("Close on GitHub", "[PR] [FILE t3.md] Add a note to t3.md."); err != nil {
 			return err
 		}
-		v, err := r.waitTodoWithin(t3, 8*time.Minute, "in_review")
+		v, err := r.waitTodoWithin(t3, j10RunWait, "in_review")
 		if err != nil {
 			return err
 		}

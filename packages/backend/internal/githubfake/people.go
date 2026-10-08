@@ -95,6 +95,11 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 		s.reviewIDs++
 		review := PullReview{ID: s.reviewIDs, Login: body.Login, State: body.State, Body: body.Body, Path: body.Path, Line: body.Line, CommitID: p.Head.SHA, SubmittedAt: time.Now().UTC()}
 		s.pullReviews[key] = append(s.pullReviews[key], review)
+		// GitHub moves a pull request's updated_at when a review is submitted,
+		// so a reader following updated PRs sees the review.
+		stored := s.pulls[key]
+		stored.UpdatedAt = review.SubmittedAt
+		s.pulls[key] = stored
 		// A comment-only review leaves the reviewer's approval or request as it was.
 		if body.State != "COMMENTED" {
 			if s.reviews[key] == nil {
