@@ -314,23 +314,27 @@ func TestWorkspaceMythicalLanesOffer(t *testing.T) {
 // Create boots the lane workspace on the placement's machine.
 func TestWorkspaceMythicalLanesCreateBootsThePlacement(t *testing.T) {
 	ctx := context.Background()
-	var created []db.CreateWorkspaceParams
-	workspaces := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		countActiveWorkspacesByUserFn: func(context.Context, int64) (int64, error) { return 0, nil },
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			created = append(created, arg)
-			workspace := sampleDBWorkspace("ws-lane")
-			workspace.Kind = arg.Kind
-			return workspace, nil
-		},
-	})
+	pool := newProductTestPool(t)
+	owner, repo := setupTestUserAndRepo(t, pool)
+	installBranchOwner(t, pool, owner)
+	workspaces := installLaneService(t, pool, owner)
 	lanes := NewWorkspaceMythicalLanes(workspaces)
 	refuseBind := func(string) error { return errors.New("bound elsewhere") }
 	vm := MythicalPlacement{Kind: "vm", ClosureHash: strings.Repeat("c", 32), ImageRevision: "rev-1"}
-	_, err := lanes.Create(ctx, db.Repository{ID: 101}, "o", 1, "lane", vm, refuseBind)
+	_, err := lanes.Create(ctx, db.Repository{ID: repo}, "o", owner, "lane", vm, refuseBind)
 	require.EqualError(t, err, "bound elsewhere")
-	_, err = lanes.Create(ctx, db.Repository{ID: 101}, "o", 1, "wiki", MythicalPlacement{}, refuseBind)
+	_, err = lanes.Create(ctx, db.Repository{ID: repo}, "o", owner, "wiki", MythicalPlacement{}, refuseBind)
 	require.EqualError(t, err, "bound elsewhere")
+	rows, err := pool.Query(ctx, `SELECT kind,environment_source,environment_revision,environment_closure_hash FROM workspaces WHERE repository_id=$1 ORDER BY created_at,id`, repo)
+	require.NoError(t, err)
+	defer rows.Close()
+	var created []db.CreateWorkspaceParams
+	for rows.Next() {
+		var row db.CreateWorkspaceParams
+		require.NoError(t, rows.Scan(&row.Kind, &row.EnvironmentSource, &row.EnvironmentRevision, &row.EnvironmentClosureHash))
+		created = append(created, row)
+	}
+	require.NoError(t, rows.Err())
 	require.Len(t, created, 2)
 	assert.Equal(t, "vm", created[0].Kind)
 	assert.Equal(t, ".smithers/environment.nix", created[0].EnvironmentSource)

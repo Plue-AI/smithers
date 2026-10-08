@@ -107,7 +107,7 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			tip := o.hostRef("refs/heads/main")
 			candidate := o.laneResult(coding, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
 			// Stands in for the candidate the run records: the engine pins it.
-			_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', candidate_base=$2, candidate_head=$3, candidate_verified=true,
+			_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', generation=generation+1, candidate_base=$2, candidate_head=$3, candidate_verified=true,
 		summary='✨ feat: greet the reader' WHERE id=$1`, item.ID, tip, candidate)
 			require.NoError(t, err)
 			o.wake()
@@ -146,7 +146,7 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 			assert.NotContains(t, o.lanes.deleted, reviewLane)
 			var name string
 			require.NoError(t, o.pool.QueryRow(ctx, `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&name))
-			assert.Equal(t, "TODO 1 review g1", name)
+			assert.Equal(t, "TODO 1 review g2", name)
 
 			o.answerReviews(`"request-changes"`)
 			item = o.byID(id)

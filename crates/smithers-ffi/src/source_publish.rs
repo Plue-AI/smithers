@@ -938,6 +938,35 @@ mod tests {
     }
 
     #[test]
+    fn reserved_candidate_admission_can_resume_after_pending() {
+        require_curl();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(directory.path().join(".jj/repo")).unwrap();
+        let (_, mut config, _) = fixture();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        config.api_base_url = format!("http://{}/api", listener.local_addr().unwrap());
+        let server = serve_path(listener, 2, "stack/candidate", move |index| {
+            Some((if index == 0 { 202 } else { 204 }, serde_json::json!({})))
+        });
+        let error = reserved_authenticated(
+            directory.path(),
+            &config,
+            "sentinel-private-token",
+            "11111111-1111-4111-8111-111111111111",
+            "stack.candidate",
+            None,
+        )
+        .unwrap_err();
+        server.join().unwrap();
+        // Admission reached the snapshot boundary; the lock exists but no
+        // JJ workspace does. A refused 204 returns a different message.
+        assert_eq!(
+            error.message,
+            "Native snapshot could not be recovered; retry the identical operation"
+        );
+    }
+
+    #[test]
     fn reserved_receipts_require_positive_generation_and_immutable_heads() {
         for value in [
             serde_json::json!({}),
@@ -1015,40 +1044,43 @@ fn reserved_authenticated(
     if let Some(n) = generation {
         body["generation"] = n.into();
     }
-    let (status, mut value) = request_json(&url, &body.to_string(), token)?;
-    if operation == "stack.candidate" && status == "204" {
-        let _lock =
-            crate::workspace_engine::CodingLock::acquire(path).map_err(|_| unavailable())?;
-        // The mutable JJ read snapshots tracked bytes as the agent. Publication
-        // retains that immutable object before the engine can pin or verify it.
-        let (revision, op_id) = crate::workspace_local::snapshot_for_stack(path, request_id)
-            .map_err(|error| Failure {
-                code: error.code,
-                message: "Native snapshot could not be recovered; retry the identical operation",
-            })?;
-        if revision["kind"] != "resolved" {
-            return Err(stale());
-        }
-        let source: Source = serde_json::from_value(serde_json::json!({"change_id":revision["changeId"], "commit_id":revision["commitId"], "tree_id":revision["treeId"], "parent_commit_ids":revision["parentCommitIds"]})).map_err(|_| invalid())?;
-        let request = Request {
-            source,
-            expected_operation_id: op_id,
-            creation: None,
-        };
-        publish_authenticated(path, config, &request, token)?;
-        body["source"] = serde_json::json!({"change_id":request.source.change_id,"commit_id":request.source.commit_id,"tree_id":request.source.tree_id,"parent_commit_ids":request.source.parent_commit_ids});
-        // CodingLock is released before waiting for the engine's verify lane.
-    } else if status != "200" && status != "202" {
-        return Err(reserved_refusal(&status));
-    }
+    let (mut status, mut value) = request_json(&url, &body.to_string(), token)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
     loop {
-        if status == "200" && generation.is_some() {
+        if operation == "stack.candidate" && status == "204" {
+            let _lock =
+                crate::workspace_engine::CodingLock::acquire(path).map_err(|_| unavailable())?;
+            // The mutable JJ read snapshots tracked bytes as the agent. Publication
+            // retains that immutable object before the engine can pin or verify it.
+            let (revision, op_id) = crate::workspace_local::snapshot_for_stack(path, request_id)
+                .map_err(|error| Failure {
+                    code: error.code,
+                    message:
+                        "Native snapshot could not be recovered; retry the identical operation",
+                })?;
+            if revision["kind"] != "resolved" {
+                return Err(stale());
+            }
+            let source: Source = serde_json::from_value(serde_json::json!({"change_id":revision["changeId"], "commit_id":revision["commitId"], "tree_id":revision["treeId"], "parent_commit_ids":revision["parentCommitIds"]})).map_err(|_| invalid())?;
+            let request = Request {
+                source,
+                expected_operation_id: op_id,
+                creation: None,
+            };
+            publish_authenticated(path, config, &request, token)?;
+            body["source"] = serde_json::json!({"change_id":request.source.change_id,"commit_id":request.source.commit_id,"tree_id":request.source.tree_id,"parent_commit_ids":request.source.parent_commit_ids});
+            // CodingLock is released before waiting for the engine's verify lane.
+        } else if status != "200" && status != "202" {
+            return Err(reserved_refusal(&status));
+        }
+        if status == "200" {
             return validate_reserved_ack(value, generation);
         }
         let (next, received) = request_json(&url, &body.to_string(), token)?;
         value = received;
+        status = next.clone();
         match next.as_str() {
+            "204" if operation == "stack.candidate" && body.get("source").is_none() => continue,
             "200" => return validate_reserved_ack(value, generation),
             "202" if std::time::Instant::now() < deadline => {
                 std::thread::sleep(std::time::Duration::from_millis(500))
@@ -1057,7 +1089,7 @@ fn reserved_authenticated(
                 return Err(Failure {
                     code: "workspace_busy",
                     message: "Candidate verification or proposal is still running; retry",
-                })
+                });
             }
             _ => return Err(reserved_refusal(&next)),
         }

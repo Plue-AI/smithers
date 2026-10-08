@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -330,7 +332,17 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			nativeConfig := cfg
 			nativeConfig.Server.PublicURL = "http://" + server.Listener.Addr().String()
 			nativeConfig.Server.AllowedOrigins = []string{nativeConfig.Server.PublicURL}
-			server.Config.Handler = githubAppSetupComposeRouter(nativeConfig, f.pool, nil, &routes.WorkspaceHandler{Service: machine}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+			nativeRouter := githubAppSetupComposeRouter(nativeConfig, f.pool, nil, &routes.WorkspaceHandler{Service: machine}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+			var candidateRequests atomic.Int32
+			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				nativeRouter.ServeHTTP(w, req)
+				if strings.HasSuffix(req.URL.Path, "/stack/candidate") && candidateRequests.Add(1) == 1 {
+					// First preflight sees Pause (202); the next request sees
+					// Resume (204) and must reach the native snapshot boundary.
+					_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET paused_at=NULL WHERE id=$1`, itemID)
+					require.NoError(t, err)
+				}
+			})
 			server.Start()
 			directory := t.TempDir()
 			configPath := filepath.Join(directory, "workspace-coding.json")
@@ -374,6 +386,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			require.Len(t, observed.Head.TreeID, 40)
 			runtime.tree, runtime.candidateTree = observed.Head.TreeID, observed.Head.TreeID
 			defer func() { runtime.tree, runtime.candidateTree = tree, tree }()
+			_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, itemID)
+			require.NoError(t, err)
 			for range 2 {
 				capture := exec.CommandContext(t.Context(), "node", "--experimental-strip-types", filepath.Join(root, "flows/test/coding-reserved-install-rehearsal.mjs"))
 				capture.Env = append(cmd.Env, "SMITHERS_STK12_OPERATION=candidate")
@@ -388,6 +402,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			require.EqualValues(t, 7, item.Generation)
 			require.True(t, item.CandidateVerified)
 			require.Empty(t, item.PendingOp)
+			require.GreaterOrEqual(t, candidateRequests.Load(), int32(3), "pending preflight, resumed admission, then sealed source")
 		}
 		retained, _ := json.Marshal(map[string]any{"retain_source": source})
 		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/head", row.ID), strings.NewReader(string(retained)))
