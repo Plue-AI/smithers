@@ -26,7 +26,7 @@ for (const name of ["StandardPackage", "ReviewLint"]) {
 }
 
 const integrationRoot = dirname(require.resolve("@smthrs/integrations/package.json"))
-const migrations = ["0001_integration_cursors", "0002_integration_records"]
+const migrations = ["0001_integration_cursors", "0002_integration_records", "0003_integration_records_swept"]
 for (const name of migrations) {
   const migration = `core/migrations/${name}`
   await assert.rejects(load(`@smthrs/integrations/${migration}`), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" })
