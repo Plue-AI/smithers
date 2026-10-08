@@ -1854,6 +1854,13 @@ func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
 	}
 	r.released[holder] = true
 	delete(r.eligible, holder)
+	// Review demand shares this runtime, so its confirmed process stop must
+	// retire the review grant as well as any ordered TODO demand. Otherwise
+	// SyncTodoAdmission keeps subtracting a stopped review from parallel.
+	if request, ok := r.reviewRequests[holder]; ok {
+		request.State = "released"
+		r.reviewRequests[holder] = request
+	}
 }
 
 // bindingProcessRuntime is the trusted-process runtime with the source binding
