@@ -95,6 +95,27 @@ func TestInstallSSHCommandPostgres(t *testing.T) {
 	require.Equal(t, "Only a person can do this", receipt["message"])
 	_, err = os.Stat(argvFile)
 	require.True(t, os.IsNotExist(err), "delegated SSH admission cannot start the SSH process")
+	// The source CLI must preserve credential/scope refusals before never.
+	for _, cell := range []struct{ name, scopes, want string }{
+		{"missing scope", "read:user", "permission"},
+		{"terminal scope", "read:repository,via:terminal,profile:terminal_s1,branch:" + branch.ID, "permission"},
+	} {
+		t.Run(cell.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE access_tokens SET scopes=$1 WHERE token_hash=$2`, cell.scopes, tokenHash)
+			require.NoError(t, err)
+			code, receipt := invoke("ssh", "retry")
+			require.Equal(t, 1, code, receipt)
+			require.Equal(t, "permission", receipt["class"])
+			require.Equal(t, cell.want, receipt["code"])
+		})
+	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,write:repository' WHERE token_hash=$1`, tokenHash)
+	require.NoError(t, err)
+	dead := catalogCLIInvoker(t, ctx, server.URL, "smithers_"+strings.Repeat("d", 40))
+	code, receipt = dead("ssh", "retry")
+	require.Equal(t, 1, code, receipt)
+	require.Equal(t, "permission", receipt["class"])
+	require.Equal(t, "unauthenticated", receipt["code"])
 	status, line := read("retry", true)
 	require.Equal(t, 200, status, line)
 	require.Equal(t, "ssh -p 2222 retry@localhost", line["value"])
@@ -135,4 +156,10 @@ func TestInstallSSHCommandPostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, _ = read("retry", true)
 	require.NotEqual(t, 200, status, "suspended members cannot read connection metadata")
+	code, receipt = invoke("ssh", "retry")
+	require.Equal(t, 1, code, receipt)
+	require.Equal(t, "permission", receipt["class"])
+	require.Equal(t, "unauthenticated", receipt["code"])
+	_, err = os.Stat(argvFile)
+	require.True(t, os.IsNotExist(err), "no refused credential may start SSH")
 }

@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { catalogRequest, CatalogRequestError } from "../src/CatalogRequest.ts"
 import { makeCli } from "../src/Cli.ts"
+import { catalogCommands } from "../src/internal/backend/Catalog.ts"
 
 import fixtureCases from "./CatalogCli.fixture.json" with { type: "json" }
 
@@ -463,6 +464,26 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       await f.close()
     }
   })
+  it.each([[401, "permission", "unauthenticated"], [403, "permission", "permission"], [403, "never", "never"]] as const)(
+    "authorizes a never door before applying policy: %i %s/%s", async (status, category, code) => {
+      // SSH is the only current person action with a CLI binding. Rename its
+      // descriptor in this parser fixture so a hard-coded SSH exception cannot
+      // hide a local-policy regression in the generic dispatcher.
+      const index = catalogCommands.findIndex(row => row.name === "ssh")
+      const original = catalogCommands[index]!
+      catalogCommands[index] = { ...original, name: "person-action" }
+      const f = await fixture(status, { class: category, code, message: "Server decision" })
+      try {
+        const result = await f.invoke(["ssh", "--branch", "retry"])
+        expect(result.exitCode).toBe(1)
+        expect(JSON.parse(result.stdout)).toMatchObject({ class: category, code, message: "Server decision" })
+        expect(f.seen).toEqual([{ method: "GET", path: "/api/ssh?branch=retry", body: undefined, via: "codex" }])
+      } finally {
+        catalogCommands[index] = original
+        await f.close()
+      }
+    }
+  )
   it.each(
     [[403, "never", "never"], [403, "permission", "permission"], [401, "permission", "unauthenticated"], [
       503,
