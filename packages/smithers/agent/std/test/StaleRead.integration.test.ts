@@ -55,17 +55,45 @@ for (const available of [false, true]) {
       yield* Effect.promise(() => writeFile(a, "hello\n"))
       yield* expect(Read.name, { path: a, limit: 1 }, "success")
       if (!available) {
+        yield* Effect.promise(() => writeFile(b, "world\n"))
+        yield* expect(Read.name, { path: b }, "success")
         for (const [name, input] of [
           [Write.name, { path: a, content: "bad" }],
           [Edit.name, { path: a, oldString: "hello", newString: "bad" }],
           [ApplyPatch.name, patch(`*** Delete File: ${a}\n*** Add File: ${dest}\n+bad\n`)],
           [ApplyPatch.name, patch(`*** Update File: ${a}\n*** Move to: ${dest}\n@@\n-hello\n+bad\n`)],
+          [ApplyPatch.name, patch(`*** Update File: ${a}\n@@\n-hello\n+bad\n*** Delete File: ${b}\n`)],
+          [ApplyPatch.name, patch(`*** Add File: ${dest}\n`)],
+          [ApplyPatch.name, patch(`*** Delete File: ${a}\n`)],
           [Write.name, { path: dest, content: "bad" }]
         ] as const) yield* expect(name, input, "failure", /provider unavailable/i)
         assert.equal(yield* fs.readFileString(a), "hello\n")
+        assert.equal(yield* fs.readFileString(b), "world\n")
         assert.equal(yield* fs.exists(dest), false)
         return
       }
+      // Moving to an absent destination must guard source removal as part of
+      // the same batch, then retain own-write authority at the new path.
+      const moveSource = join(root, "move-source"), moveTarget = join(root, "move-target")
+      yield* Effect.promise(() => writeFile(moveSource, "hello\n"))
+      yield* expect(Read.name, { path: moveSource }, "success")
+      yield* expect(ApplyPatch.name, patch(`*** Update File: ${moveSource}\n*** Move to: ${moveTarget}\n@@\n-hello\n+world\n`), "success")
+      assert.equal(yield* fs.exists(moveSource), false)
+      assert.equal(yield* fs.readFileString(moveTarget), "world\n")
+      yield* expect(Edit.name, { path: moveTarget, oldString: "world", newString: "hello" }, "success")
+      // A recreated source cannot inherit the deleted source's authority.
+      yield* Effect.promise(() => writeFile(moveSource, "world\n"))
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${moveTarget}\n*** Add File: ${moveSource}\n+bad\n`), "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(moveSource), "world\n")
+      assert.equal(yield* fs.readFileString(moveTarget), "hello\n")
+      // Empty content is a present file, not the deletion sentinel. A subsequent
+      // own-write deletion works without an artificial model-facing read.
+      const empty = join(root, "empty")
+      yield* expect(ApplyPatch.name, patch(`*** Add File: ${empty}\n`), "success")
+      assert.equal(yield* fs.exists(empty), true)
+      assert.equal(yield* fs.readFileString(empty), "")
+      yield* expect(ApplyPatch.name, patch(`*** Delete File: ${empty}\n`), "success")
+      assert.equal(yield* fs.exists(empty), false)
       // Pagination must retain the digest of the undisplayed tail. Reading in
       // another run must neither authorize our write nor refresh our stale base.
       const paged = join(root, "paged")
