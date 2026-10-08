@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -384,6 +385,17 @@ func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, w
 	}
 	health, err := p.call(ctx, row, slug, "Branch.PresenceOn", map[string]any{})
 	if err != nil {
+		// A stopped branch has no in-memory roster once its host exits. A
+		// complete source census and affirmative host absence permit the
+		// captured-head rebase without starting that host. Transport failures
+		// and incomplete sources still hold it.
+		var failure flowruntime.Failure
+		hostAbsent := errors.Is(err, flowhost.ErrHostNotRunning) ||
+			(errors.As(err, &failure) && failure.FlowRuntimeCode() == "runtime_host_not_running")
+		if hostAbsent && (row.Status == "stopped" || row.Status == "suspended") &&
+			p.sourcesReady != nil && p.sourcesReady(ctx, row) {
+			return services.RebasePresenceEmpty, nil
+		}
 		return services.RebasePresenceUnknown, err
 	}
 	var readiness string
