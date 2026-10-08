@@ -330,10 +330,16 @@ func queryOperation(ctx context.Context, q rowQuerier, scope Scope, operationID 
 	return operation, nil
 }
 
+// ActiveReceiptFilter excludes durable cancellation requests only when the
+// caller will confirm physical host shutdown before touching workspace bytes.
+// Upgrades leave it unset: cancellation is not a terminal run receipt.
+type ActiveReceiptFilter struct {
+	ExcludeCancelled bool
+}
+
 // HasActiveWithReceipt reports whether an unsettled operation of this kind in
-// scope has an external receipt that contains fragment (JSON containment). A
-// caller finds the work still pinned to an external owner this way.
-func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, operation string, fragment json.RawMessage) (bool, error) {
+// scope has an external receipt that contains fragment (JSON containment).
+func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, operation string, fragment json.RawMessage, filters ...ActiveReceiptFilter) (bool, error) {
 	if err := scope.validate(); err != nil {
 		return false, err
 	}
@@ -344,14 +350,19 @@ func (store *Store) HasActiveWithReceipt(ctx context.Context, scope Scope, opera
 	if err != nil {
 		return false, err
 	}
+	if len(filters) > 1 {
+		return false, errors.New("jobs: at most one active receipt filter is allowed")
+	}
+	excludeCancelled := len(filters) == 1 && filters[0].ExcludeCancelled
 	var active bool
 	err = store.pool.QueryRow(ctx, `SELECT EXISTS (
 		SELECT 1 FROM product_job_requests request
 		JOIN product_job_dispatches dispatch ON dispatch.operation_id=request.id
 		WHERE request.tenant_id=$1 AND request.principal_id=$2 AND request.operation=$3
 		  AND request.state IN ('accepted', 'dispatching', 'running', 'waiting')
-		  AND dispatch.external_receipt @> $4::jsonb)`,
-		scope.TenantID, scope.PrincipalID, operation, canonical).Scan(&active)
+		  AND dispatch.external_receipt @> $4::jsonb
+		  AND (NOT $5 OR NOT request.cancellation_requested))`,
+		scope.TenantID, scope.PrincipalID, operation, canonical, excludeCancelled).Scan(&active)
 	return active, err
 }
 

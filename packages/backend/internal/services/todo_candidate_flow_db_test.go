@@ -245,6 +245,14 @@ func (h hostWorkspaceSources) ReadWorkspaceSource(_ context.Context, _, _ string
 // Git, JJ guest checkout, stack worker and GitHub fake. The microVM and the
 // native helper's HTTP hop are the only substitutions.
 func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false)
+}
+
+func TestReservedCandidateWithoutProposeReleasesLane(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, true)
+}
+
+func testReservedCandidateProposesVerifiedTree(t *testing.T, expire bool) {
 	f := newRebaseFixture(t)
 	ctx := context.Background()
 	q := db.New(f.pool)
@@ -263,6 +271,7 @@ func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
 	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
 	checks := mythicalChecksOf(item)
 	checks.FlowSource, checks.RunAttached = f.main, true
+	checks.Watchdog = &todoWatchdog{ActiveSince: time.Now().UnixMilli()}
 	item.Checks = checks.encode()
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
@@ -353,11 +362,32 @@ func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
 	require.Equal(t, "proposed", proposed.State, proposed.Reason)
 	require.Equal(t, generation+1, proposed.Generation)
 	require.Equal(t, 1, f.verifies(proposed), "one verification")
+	require.Positive(t, mythicalChecksOf(proposed).Watchdog.ActiveSince, "verification cannot stop the offering run clock")
+	require.False(t, mythicalChecksOf(proposed).Watchdog.Accepted)
 	// Review waits for the attached run to observe its own acceptance; it
 	// does not stop that run's machine mid-operation.
 	f.wake()
 	require.Zero(t, guest.stops, "the run's machine stays until it sees the proposal")
 	require.Equal(t, item.WorkspaceID, f.item(item.Number.Int64).WorkspaceID)
+	if expire {
+		proposed = f.item(item.Number.Int64)
+		// The real candidate, verify and publication have settled, but the
+		// offering run never polls stack.propose for acceptance.
+		checks := mythicalChecksOf(proposed)
+		checks.Watchdog = &todoWatchdog{Accepted: true, ActiveMillis: (4 * time.Hour).Milliseconds()}
+		proposed.Checks = checks.encode()
+		_, err := q.SaveMythicalItem(ctx, proposed)
+		require.NoError(t, err)
+		f.wake()
+		failed := f.item(item.Number.Int64)
+		require.Equal(t, "blocked", failed.State, failed.Reason)
+		require.Equal(t, "failed: no_proposal", failed.RequestOutcome)
+		require.Equal(t, "no_proposal", mythicalChecksOf(failed).Fault.Tag)
+		require.False(t, todoRunAwaitsProposal(failed))
+		require.Equal(t, 1, guest.stops)
+		require.Empty(t, failed.WorkspaceID)
+		return
+	}
 	result, status = call("stack.propose", proposal)
 	require.Equal(t, 200, status)
 	require.Equal(t, ReservedStackResult{Generation: generation + 1, Head: proposed.PRHead}, result)
@@ -382,8 +412,13 @@ func TestReservedCandidateProposesVerifiedTree(t *testing.T) {
 	_, status = call("stack.propose", ReservedStackInput{RequestID: proposal.RequestID, Generation: generation})
 	require.Equal(t, 409, status, "a stale generation refuses")
 
-	// Once the run has seen its proposal, review takes the coding machine and
-	// the retired lane's credential authorizes neither operation.
+	// The composition can finish after observing acceptance. A live attempt
+	// retains its coding branch for re-entry; an ended run releases it before
+	// review, and the retired credential authorizes neither operation.
+	ended := f.item(item.Number.Int64)
+	ended.RequestOutcome = "completed"
+	_, err = q.SaveMythicalItem(ctx, ended)
+	require.NoError(t, err)
 	f.wake()
 	require.Equal(t, 1, guest.stops)
 	_, status = call("stack.propose", proposal)

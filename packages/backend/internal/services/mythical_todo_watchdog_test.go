@@ -353,3 +353,59 @@ func TestTodoWatchdogKeepsConcurrentSettlement(t *testing.T) {
 		})
 	}
 }
+
+func TestTodoWatchdogWaitsForOfferingRunToObserveProposal(t *testing.T) {
+	now := time.Now()
+	item := db.MythicalItem{State: "verifying", Attempt: 1, WorkspaceID: "coding", RequestRunID: "offering", FlowDigest: pgtype.Text{String: todoPinOne, Valid: true}}
+	checks := mythicalChecks{FlowSource: strings.Repeat("a", 40), RunAttached: true, ProposalRun: "offering", Watchdog: &todoWatchdog{ActiveSince: now.UnixMilli()}}
+	item.Checks = checks.encode()
+	acceptTodoWatchdog(&item, now.Add(time.Hour))
+	require.False(t, mythicalChecksOf(item).Watchdog.Accepted)
+	for _, state := range []string{"verifying", "proposing", "proposed"} {
+		item.State = state
+		require.True(t, todoWatchdogEligible(item), state)
+	}
+	checks = mythicalChecksOf(item)
+	checks.ProposalRun = ""
+	item.Checks = checks.encode()
+	acceptTodoWatchdog(&item, now.Add(time.Hour))
+	require.True(t, mythicalChecksOf(item).Watchdog.Accepted)
+	require.False(t, todoWatchdogEligible(item))
+}
+
+func TestTodoWatchdogRestoresPreviouslyAcceptedUnobservedProposal(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "restore-proposal-bound")
+	o.wake()
+	item = o.byID(uuidString(item.ID))
+	item.State, item.RequestRunID = "proposed", "offering"
+	checks := mythicalChecksOf(item)
+	checks.RunAttached, checks.ProposalRun = true, "offering"
+	checks.Watchdog = &todoWatchdog{Accepted: true, ActiveMillis: time.Hour.Milliseconds()}
+	item.Checks = checks.encode()
+	item, err := db.New(o.pool).SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	stack, err := db.New(o.pool).GetMythicalStack(t.Context(), o.repoID)
+	require.NoError(t, err)
+	now := time.Now().Truncate(time.Millisecond)
+	st := &mythicalItemStep{s: o.service, r: &mythicalRun{row: stack}, now: now}
+	restored, saved, err := st.enforceTodoWatchdog(t.Context(), item)
+	require.NoError(t, err)
+	require.True(t, saved)
+	require.False(t, mythicalChecksOf(*restored).Watchdog.Accepted)
+	require.Equal(t, now.UnixMilli(), mythicalChecksOf(*restored).Watchdog.ActiveSince)
+	require.Equal(t, time.Hour.Milliseconds(), mythicalChecksOf(*restored).Watchdog.ActiveMillis)
+	require.Empty(t, o.lanes.deleted, "restoring the bound never cancels remaining allowance")
+	st.now = now.Add(3*time.Hour - time.Millisecond)
+	next, _, err := st.enforceTodoWatchdog(t.Context(), *restored)
+	require.NoError(t, err)
+	require.Nil(t, next)
+	st.now = now.Add(3 * time.Hour)
+	next, saved, err = st.enforceTodoWatchdog(t.Context(), *restored)
+	require.NoError(t, err)
+	require.True(t, saved)
+	require.Equal(t, "failed: no_proposal", next.RequestOutcome)
+	require.Equal(t, "blocked", next.State)
+	require.Contains(t, o.lanes.deleted, item.WorkspaceID)
+}

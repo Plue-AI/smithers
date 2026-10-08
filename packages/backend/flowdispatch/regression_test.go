@@ -605,3 +605,34 @@ func TestHasPinnedLaunchesFindsAcceptedAndParkedRunsUntilTheySettle(t *testing.T
 		})
 	}
 }
+
+func TestCancelledPinnedLaunchBlocksUpgradeButAllowsPhysicalStop(t *testing.T) {
+	store, pool := newFlowDispatchStore(t)
+	ctx := t.Context()
+	runtime := newRecordingRuntime()
+	service, err := New(Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil })})
+	require.NoError(t, err)
+	request := testLaunchRequest("cancelled-host-capture", ApprovalManual)
+	receipt, err := service.Admit(ctx, request)
+	require.NoError(t, err)
+	identity := flowruntime.Identity{RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40)}
+	checkpoint := mustJSON(map[string]any{"identity": identity})
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='running' WHERE id=$1;`, receipt.OperationID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, receipt.OperationID, checkpoint)
+	require.NoError(t, err)
+	filter := jobs.ActiveReceiptFilter{ExcludeCancelled: true}
+	active, err := HasPinnedLaunches(ctx, store, request.Scope, identity, filter)
+	require.NoError(t, err)
+	require.True(t, active, "live work still prevents stop")
+	_, err = service.CancelRequest(ctx, request.Scope, request.RequestID)
+	require.NoError(t, err)
+	active, err = HasPinnedLaunches(ctx, store, request.Scope, identity)
+	require.NoError(t, err)
+	require.True(t, active, "cancellation alone cannot authorize an upgrade")
+	active, err = HasPinnedLaunches(ctx, store, request.Scope, identity, filter)
+	require.NoError(t, err)
+	require.False(t, active, "capture may stop the cancelled host before fencing writers")
+	_, err = HasPinnedLaunches(ctx, store, request.Scope, identity, filter, filter)
+	require.Error(t, err)
+}

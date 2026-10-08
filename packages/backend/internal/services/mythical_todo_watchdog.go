@@ -31,18 +31,21 @@ func todoWatchdogEligible(item db.MythicalItem) bool {
 	if !item.FlowDigest.Valid || item.Attempt <= 0 || item.PausedAt.Valid {
 		return false
 	}
-	if w := mythicalChecksOf(item).Watchdog; w != nil && w.Accepted {
+	if w := mythicalChecksOf(item).Watchdog; w != nil && w.Accepted && !todoRunAwaitsProposal(item) {
 		return false
 	}
 	switch item.State {
-	case "running", "integrating", "verifying":
+	case "running", "integrating", "verifying", "proposing":
 		return true
 	}
-	return false
+	return todoRunAwaitsProposal(item)
 }
 
 func acceptTodoWatchdog(item *db.MythicalItem, now time.Time) {
 	checks := mythicalChecksOf(*item)
+	if checks.ProposalRun == item.RequestRunID && checks.ProposalRun != "" {
+		return
+	}
 	if w := checks.Watchdog; w != nil {
 		w.ActiveMillis, w.ActiveSince, w.Accepted = w.elapsed(now), 0, true
 		item.Checks = checks.encode()
@@ -155,8 +158,9 @@ func todoCompletedStep(event flowruntime.Event) (string, bool) {
 // A repository flow that does not yield cannot disable its persisted deadline.
 func (st *mythicalItemStep) enforceTodoWatchdog(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
+	restore := checks.Watchdog != nil && checks.Watchdog.Accepted && todoRunAwaitsProposal(item)
 	if !todoWatchdogEligible(item) || checks.Watchdog == nil ||
-		(checks.Watchdog.elapsed(st.now) < (4*time.Hour).Milliseconds() && len(checks.Watchdog.Steps) < 1024) {
+		(!restore && checks.Watchdog.elapsed(st.now) < (4*time.Hour).Milliseconds() && len(checks.Watchdog.Steps) < 1024) {
 		return nil, false, nil
 	}
 	tx, err := st.s.store.Begin(ctx)
@@ -178,6 +182,22 @@ func (st *mythicalItemStep) enforceTodoWatchdog(ctx context.Context, item db.Myt
 	}
 	if current.Version != item.Version {
 		return &current, true, nil
+	}
+	if restore && checks.Watchdog.elapsed(st.now) < (4*time.Hour).Milliseconds() && len(checks.Watchdog.Steps) < 1024 {
+		// Older workers ended this clock at verification. Restore its retained
+		// counters once; no runtime observation is needed to restart the bound.
+		checks.Watchdog.Accepted = false
+		checks.Watchdog.ActiveMillis = checks.Watchdog.elapsed(st.now)
+		checks.Watchdog.ActiveSince = st.now.UnixMilli()
+		current.Checks = checks.encode()
+		saved, err := db.New(tx).SaveMythicalItem(ctx, current)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return nil, false, err
+		}
+		return &saved, true, nil
 	}
 	next := *mythicalStop(current, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO allowance ended")
 	next.RequestOutcome = "failed: no_proposal"

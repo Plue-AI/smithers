@@ -262,6 +262,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if checks := mythicalChecksOf(item); checks.ProposalRun != "" {
 				checks.ProposalRun = ""
 				item.Checks = checks.encode()
+				acceptTodoWatchdog(&item, s.now())
 				if item, err = q.SaveMythicalItem(live, item); err != nil {
 					return empty, 0, err
 				}

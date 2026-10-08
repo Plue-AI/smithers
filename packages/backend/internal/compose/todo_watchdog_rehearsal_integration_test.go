@@ -152,6 +152,14 @@ func activateWatchdogOverride(t *testing.T, r *rehearsal, source string) (string
 }
 
 func TestTodoNonYieldingWatchdogBundledHost(t *testing.T) {
+	testTodoNonYieldingWatchdogBundledHost(t, false)
+}
+
+func TestTodoUnobservedProposalWatchdogBundledHost(t *testing.T) {
+	testTodoNonYieldingWatchdogBundledHost(t, true)
+}
+
+func testTodoNonYieldingWatchdogBundledHost(t *testing.T, unobserved bool) {
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
 	r := newRehearsal(t, "SMITHERS_TODO_WATCHDOG_REHEARSAL", "C-STK-06", "watchdog-spin-")
 	if !r.install("Install through Machine ready") {
@@ -200,6 +208,15 @@ export default Flow.make("todo", {
 		require.NotEmpty(c, runID)
 		require.Positive(c, since, "the timer must be persisted while the guest cannot answer")
 	}, 10*time.Second, 250*time.Millisecond)
+	var workspace string
+	if unobserved {
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1`, number).Scan(&workspace))
+		// Publication is a seeded fixture here: the real candidate/verify/push
+		// path is covered by TestReservedCandidateWithoutProposeReleasesLane.
+		// Keep this real non-yielding run and machine to prove composed retirement.
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET state='proposed',candidate_base=base_commit,candidate_head=base_commit,candidate_verified=true,pr_head=base_commit,pr_state='open',checks=jsonb_set(checks,'{proposal_run}',to_jsonb(request_run_id)) WHERE number=$1`, number)
+		require.NoError(t, err)
+	}
 	// Compress only elapsed time: keep the real launch, run and counters. The
 	// clock boundary itself has separate exact 4h-1ms / 4h PostgreSQL coverage.
 	aged := time.Now().Add(-4 * time.Hour).UnixMilli()
@@ -217,6 +234,25 @@ export default Flow.make("todo", {
 	}, time.Minute, 250*time.Millisecond)
 	card, err := r.todo(number)
 	require.NoError(t, err)
-	require.Zero(t, card.PR.Number)
+	if unobserved {
+		require.Equal(t, "failed", card.State)
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			var retired bool
+			require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, workspace).Scan(&retired))
+			require.True(c, retired, "final capture and retirement must settle")
+		}, time.Minute, 250*time.Millisecond)
+		code, data, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
+		require.NoError(t, err)
+		require.Equal(t, 200, code)
+		var shown struct {
+			Failure struct {
+				Retryable bool `json:"retryable"`
+			} `json:"failure"`
+		}
+		require.NoError(t, json.Unmarshal(data, &shown))
+		require.True(t, shown.Failure.Retryable)
+	} else {
+		require.Zero(t, card.PR.Number)
+	}
 	t.Logf("real non-yielding run %s (pid %d) terminated after %s with its persisted deadline elapsed", runID, pid, time.Since(began))
 }

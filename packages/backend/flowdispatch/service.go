@@ -470,8 +470,9 @@ func decodeCheckpoint(value json.RawMessage) (RuntimeCheckpoint, error) {
 // host with this artifact and source: an accepted run or an approval-parked
 // plan. A host upgrade waits for it (plue#538). The check spans the scope's
 // workspaces, so a sibling workspace pinned to the same host identity can
-// delay an upgrade; it never lets one stop a run.
-func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope, host flowruntime.Identity) (bool, error) {
+// delay an upgrade. Captures may exclude durable cancellations only when
+// they confirm physical host shutdown before touching workspace bytes.
+func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope, host flowruntime.Identity, filters ...jobs.ActiveReceiptFilter) (bool, error) {
 	if store == nil {
 		return false, errors.New("flow dispatch: jobs store is required")
 	}
@@ -481,7 +482,7 @@ func HasPinnedLaunches(ctx context.Context, store *jobs.Store, scope jobs.Scope,
 	fragment := mustJSON(map[string]any{"identity": map[string]string{
 		"runtimeArtifactDigest": host.RuntimeArtifactDigest, "sourceRevision": host.SourceRevision,
 	}})
-	return store.HasActiveWithReceipt(ctx, scope, OperationLaunch, fragment)
+	return store.HasActiveWithReceipt(ctx, scope, OperationLaunch, fragment, filters...)
 }
 
 // Monitor resolves only an existing fenced host; reading never starts a box.

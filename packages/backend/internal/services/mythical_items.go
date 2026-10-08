@@ -706,7 +706,11 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				projectTodoPlan(&next, projection, update)
 				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 				projectTodoPause(&next, projection, update, s.now().UTC())
-				projectTodoWatchdog(&next, update, s.now().UTC())
+				// Verify/review are separate engine launches. Their terminal
+				// observations cannot suspend the offering composition's clock.
+				if projection.Phase == "todo" || projection.Phase == "request" {
+					projectTodoWatchdog(&next, update, s.now().UTC())
+				}
 				projectTodoThrash(&next, update)
 			}
 			if err := s.persistTodoLogs(ctx, &next); err != nil {

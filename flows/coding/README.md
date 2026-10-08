@@ -13,6 +13,15 @@ into its current action table and provides
 file contains no JJ command implementation, HTTP credential, or native receipt
 store. A host without the installed adapter fails clearly when it calls it.
 
+The reserved `stack.candidate` and `stack.propose` actions use the current
+attempt's installed run/machine binding. Candidate preflight can remain pending
+(`202`) before admission (`204`); only admission snapshots and retains the
+workspace. Proposal waits for verification; review waits for the offering run to observe
+acceptance. A live composition retains its coding branch for re-entry. Until
+acceptance, its existing pre-proposal watchdog remains active: 1,024 completed steps or four hours of active execution. Verification
+and review are separate engine launches and cannot stop its clock. Exhaustion
+cancels the run, retires its lane and records retryable `no_proposal`.
+
 The new **internal** `NativeCoding` Effect service exposes `read(changeIds?, historyLimit?)` and
 `apply(operation)`; ordinary `ReadNative` and `ApplyNative` actions record those
 requests/results in the existing flow. For example, after reading an exact
