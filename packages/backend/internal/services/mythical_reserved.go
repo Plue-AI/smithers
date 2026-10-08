@@ -182,10 +182,11 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	consumedSource := command == "stack.candidate" && input.Source != nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && integration.Tree == input.Source.TreeID
 	if !codingCommitID.MatchString(prefix) || !initialMoved && (item.CandidateHead == "" && initialBase != prefix || item.CandidateHead != "" && item.CandidateBase != prefix) {
 		checks := mythicalChecksOf(item)
-		if command == "stack.candidate" && input.Source != nil && checks.Capture != nil &&
+		if command == "stack.candidate" && input.Source != nil &&
 			checks.ProposalRun == item.RequestRunID && checks.ProposalHead == input.Source.CommitID &&
-			checks.Capture.Head == input.Source.CommitID && checks.Capture.Tree == input.Source.TreeID &&
-			!checks.Capture.Stale && !checks.Capture.Conflict && codingCommitID.MatchString(prefix) {
+			((checks.Capture != nil && checks.Capture.Head == input.Source.CommitID && checks.Capture.Tree == input.Source.TreeID &&
+				!checks.Capture.Stale && !checks.Capture.Conflict) ||
+				(checks.Rebase != nil && !checks.Rebase.Rebased)) && codingCommitID.MatchString(prefix) {
 			// The sealed invocation is waiting for its own fenced rebase. It
 			// cannot republish old bytes or allocate obsolete-prefix checks.
 			if _, err := q.RequestMythicalStack(live, repository); err != nil {

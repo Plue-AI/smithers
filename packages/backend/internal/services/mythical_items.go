@@ -3867,6 +3867,16 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		}
 		before = func(tx pgx.Tx) error { return st.lockNativeRebaseReceipt(ctx, tx, item, onto) }
 		rebase.Land = nil
+		if proposal := mythicalChecksOf(item); proposal.ProposalRun == item.RequestRunID && item.RequestRunID != "" && codingCommitID.MatchString(proposal.ProposalHead) && proposal.ProposalHead != rebased {
+			// Native rewrite consumed the sealed submission's bytes. Retain the
+			// same source receipt used by capture verification so its waiting
+			// invocation can observe this generation without restoring old bytes.
+			source, err := r.g.readCommit(ctx, proposal.ProposalHead)
+			if err != nil {
+				return nil, false, err
+			}
+			next.Integration, _ = json.Marshal(map[string]any{"kind": "captured", "head": proposal.ProposalHead, "tree": source.Tree})
+		}
 		if capture := rebase.Capture; capture != nil && capture.Head == rebased {
 			rebase.Capture = nil
 			also = func(tx pgx.Tx, saved db.MythicalItem) error {

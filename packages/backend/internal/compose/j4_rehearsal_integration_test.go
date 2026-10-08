@@ -932,7 +932,8 @@ func TestJ4Rehearsal(t *testing.T) {
 			return err
 		}
 		if !slices.Equal(files, []string{"t2.md"}) {
-			return fmt.Errorf("T2 PR changes %v, want only t2.md after T1 merged", files)
+			diff, diffErr := r.githubGit("diff", main, pull.Head.SHA, "--", "t1.md")
+			return fmt.Errorf("T2 PR changes %v, want only t2.md after T1 merged: %s (%v)", files, diff, diffErr)
 		}
 		promotions := 0
 		for _, write := range r.fake.Writes() {

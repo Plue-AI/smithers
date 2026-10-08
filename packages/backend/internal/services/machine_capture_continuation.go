@@ -62,7 +62,12 @@ func (st *mythicalItemStep) consumeCapturedEdits(ctx context.Context, item db.My
 		return nil, false, nil
 	}
 	onto := st.prefix(item)
-	if item.CandidateBase != onto && (capture.SourceRef == "" || !st.s.mayRebaseAtBoundary(ctx, item.RepositoryID, item.WorkspaceID)) {
+	// A composed native branch must follow its prefix before its sealed
+	// capture is verified. Rebasing only the host candidate leaves the guest
+	// on its old tree; its next native rebase would treat prefix bytes as
+	// deletions against the newer candidate base. The ordinary integrate
+	// continuation performs the authenticated rewrite and consumes its capture.
+	if item.CandidateBase != onto && (st.s.branchRebase != nil || capture.SourceRef == "" || !st.s.mayRebaseAtBoundary(ctx, item.RepositoryID, item.WorkspaceID)) {
 		return nil, false, nil
 	}
 	var plan struct {

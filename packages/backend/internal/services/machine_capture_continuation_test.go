@@ -303,3 +303,17 @@ func TestCapturedContinuationRetainsBroughtInCandidateAncestry(t *testing.T) {
 		})
 	}
 }
+
+func TestCapturedMovedPrefixWaitsForComposedNativeRebase(t *testing.T) {
+	branch := "10000000-0000-4000-8000-000000000001"
+	main, base, head := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("c", 40)
+	native := &rebaseExecutionFixture{}
+	item := db.MythicalItem{WorkspaceID: branch, CandidateBase: base, Source: "todo", State: "integrating", FlowDigest: pgtype.Text{String: todoPinOne, Valid: true}}
+	item.Checks = (mythicalChecks{FlowSource: main, Capture: &MachineCapturePending{Head: head, SourceRef: repohost.WorkspaceSourceRef(branch, head)}}).encode()
+	step := &mythicalItemStep{s: &MythicalService{branchRebase: native}, r: &mythicalRun{mainTip: main}}
+	next, saved, err := step.consumeCapturedEdits(t.Context(), item)
+	require.NoError(t, err)
+	require.Nil(t, next, "the ordinary integrate continuation must rebase the live branch first")
+	require.False(t, saved)
+	require.Zero(t, native.calls)
+}
