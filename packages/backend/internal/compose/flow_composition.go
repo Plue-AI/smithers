@@ -203,9 +203,9 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			return nil, err
 		}
 		review.resolver, review.existing = reviewResolver, reviewResolver
-		// T-FLW-04/T-ACC-04 must supply the shared read-only pinned source
-		// restoration boundary and T-SEC-01 qualification before admission.
-		// An absent boundary refuses in Prepare before machine allocation.
+		// The composition binds the read-only pinned source once the
+		// repository source retention it needs exists (services.ReviewSource).
+		// An absent source refuses in Prepare before machine allocation.
 	}
 	return &flowComposition{review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
 }

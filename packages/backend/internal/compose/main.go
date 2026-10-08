@@ -1620,6 +1620,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var reviewBackground *services.ReviewBackground
 	var reviewWorker *criticalWorker
 	if flow != nil && flow.review != nil && chatService != nil {
+		// The read-only pinned review source: the PR head and base retained by
+		// the backend, fetched into the machine with a read-only token beside
+		// the Active review version's source commit.
+		flow.review.source = services.NewReviewSource(queries, options.Workspace, services.NewRepositorySourceRetentionService(queries, repositoryJobService, gitHubImportService), repoHostClient)
 		reviewBackground, err = services.NewReviewBackground(pool, mythicalService, flow.review, reviewConversationDelivery{store: chatService.runtime.Handler.Store, resolve: conversationBranchResolver(workspaceService)})
 		if err != nil {
 			return fmt.Errorf("initialize background reviews: %w", err)

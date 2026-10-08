@@ -377,7 +377,7 @@
     },
     "C-J10-09": {
       "status": "pending-owner",
-      "reason": "Absent: apps/app/e2e/real/github-j10/review-any-pr.spec.ts",
+      "reason": "Automation present: apps/app/e2e/real/github-j10/review-any-pr.spec.ts; real-microVM reference-host run, its evidence and owner-approved argv/host pending",
       "ticket": "T-FLW-13"
     },
     "C-J11-01": {
