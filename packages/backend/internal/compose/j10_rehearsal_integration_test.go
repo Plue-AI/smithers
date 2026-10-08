@@ -523,8 +523,10 @@ func TestJ10Rehearsal(t *testing.T) {
 				return fmt.Errorf("blocked by T2's PR")
 			}
 			began := time.Now()
+			// [CHANGELOG] makes the scripted fix (fake-todo-turns.mjs) change the
+			// tree, so the steered attempt has a new head to push.
 			if _, err := r.fakeControl("/_fake/reviews", map[string]any{"repo": repo, "number": pr2, "login": "alice", "state": "CHANGES_REQUESTED",
-				"body": "Use the existing backoff helper", "path": "retry-webhooks.md", "line": 1}); err != nil {
+				"body": "Use the existing backoff helper [CHANGELOG]", "path": "retry-webhooks.md", "line": 1}); err != nil {
 				return err
 			}
 			for deadline := began.Add(3 * time.Minute); ; time.Sleep(250 * time.Millisecond) {
@@ -629,6 +631,7 @@ func TestJ10Rehearsal(t *testing.T) {
 			r.actual = fmt.Sprintf("@dana (github) in activity; T%d %s, %d steers unchanged", t2, after.State, len(after.Steers))
 			return nil
 		})
+	var approval int64
 	r.step("2 An approval on GitHub changes nothing", "GitHub fake: the owner approves T2's PR → SQL todo.github_input; GET /api/todos/{T2}",
 		"the approval is recorded; T2's state and steers unchanged; no checks.Land", "T-GH-04", func() error {
 			before, err := r.j10Card(t2)
@@ -643,6 +646,7 @@ func TestJ10Rehearsal(t *testing.T) {
 			if err = json.Unmarshal(review, &submitted); err != nil {
 				return err
 			}
+			approval = submitted.ID
 			if err = r.waitSQL(2*time.Minute, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input' AND data->>'object'='review:'||$1::text`, fmt.Sprint(submitted.ID)); err != nil {
 				return fmt.Errorf("the approval was not recorded: %w", err)
 			}
@@ -660,7 +664,34 @@ func TestJ10Rehearsal(t *testing.T) {
 			r.actual = fmt.Sprintf("review %d recorded; T%d %s; no checks.Land", submitted.ID, t2, after.State)
 			return nil
 		})
-	r.pending("2 The PR card lists the approval", "GET /api/todos/{T2} pr.reviews", "the owner's approval listed on T2's PR card", "T-GH-04", "pr-card-reviews")
+	r.step("2 The PR card lists the approval", "GET /api/todos/{T2} pr.reviews", "the owner's APPROVED review on T2's PR card, by the owner; never a Smithers approval", "T-GH-04", func() error {
+		if approval == 0 {
+			return fmt.Errorf("blocked by the approval row")
+		}
+		data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", t2), "", 200)
+		if err != nil {
+			return err
+		}
+		var card struct {
+			PR struct {
+				Reviews []struct {
+					ID    string          `json:"id"`
+					State string          `json:"state"`
+					By    json.RawMessage `json:"by"`
+				} `json:"reviews"`
+			} `json:"pr"`
+		}
+		if err = json.Unmarshal(data, &card); err != nil {
+			return err
+		}
+		for _, review := range card.PR.Reviews {
+			if review.ID == fmt.Sprint(approval) && review.State == "APPROVED" && strings.Contains(string(review.By), `"rehearsal-owner"`) {
+				r.actual = fmt.Sprintf("pr.reviews lists review %s APPROVED by %s", review.ID, review.By)
+				return nil
+			}
+		}
+		return fmt.Errorf("T%d's PR card lists reviews %+v, not approval %d", t2, card.PR.Reviews, approval)
+	})
 
 	// J10.3: a person's push to the TODO's branch is never overwritten.
 	var a1, wait1 string
