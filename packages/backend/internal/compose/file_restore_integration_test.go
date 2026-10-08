@@ -65,6 +65,12 @@ func (f *restoreRuntimeFixture) ReadFile(_ context.Context, id, path string) ([]
 	}
 	return json.Marshal(map[string]any{"version": 1, "workspace_id": id, "repository_id": f.repo, "clone_url": f.clone, "source_bookmark": f.bookmark, "source_revision": strings.Repeat("a", 40), "initialized_at": "2026-10-06T12:00:00Z"})
 }
+
+// The production service selects the admitted working-copy reader, including
+// when the fixture embeds a runtime with its own daemon reader.
+func (f *restoreRuntimeFixture) ReadWorkingCopyFile(ctx context.Context, id, path string) ([]byte, error) {
+	return f.ReadFile(ctx, id, path)
+}
 func (f *restoreRuntimeFixture) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
 	if id != f.branch || len(changes) != 1 {
 		return nil, fmt.Errorf("restore crossed branch or wrote multiple files")

@@ -930,3 +930,101 @@ fn own_delete_checkpoint_survives_restart_suppresses_echo_and_retains_recreation
         b"recreated"
     );
 }
+
+#[test]
+fn real_kernel_overflow_closes_one_exact_outside_versions_entry_then_rearms() {
+    let mut f = Fixture::new();
+    f.seed(".gitignore", b"churn\nnode_modules/\n");
+    for i in 0..200 {
+        f.seed(
+            &format!("tracked-{i:03}.ts"),
+            format!("before {i}").as_bytes(),
+        );
+    }
+    let mut w = f.watcher();
+    let limit: usize = fs::read_to_string("/proc/sys/fs/inotify/max_queued_events")
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(limit <= 1_048_576);
+    for _ in 0..=limit / 3 + 1 {
+        fs::write(f.root.join("churn"), b"ignored").unwrap();
+        fs::remove_file(f.root.join("churn")).unwrap();
+    }
+    fs::create_dir(f.root.join("newdir")).unwrap();
+    for i in 0..50 {
+        f.write(
+            &format!("newdir/file-{i:02}.ts"),
+            format!("new {i}").as_bytes(),
+        );
+    }
+    for i in 0..200 {
+        f.write(
+            &format!("tracked-{i:03}.ts"),
+            format!("after {i}").as_bytes(),
+        );
+    }
+    // Even one active session must not own the overflow recovery entry.
+    f.cpu = [100, 0, 0];
+    w.drain(&mut f, 100).unwrap();
+    assert_eq!(f.order, ["snapshot", "append", "moved"]);
+    assert!(!w.changes.writes_blocked());
+    assert_eq!(f.events.len(), 1);
+    let event = &f.events[0];
+    assert!(event.actor.is_none());
+    assert_eq!(event.files.len(), 250);
+    for i in 0..200 {
+        let file = &event.files[&format!("tracked-{i:03}.ts")];
+        assert_eq!(
+            f.bytes(&file.before.as_ref().unwrap().blob),
+            format!("before {i}").as_bytes()
+        );
+        assert_eq!(
+            f.bytes(&file.after.as_ref().unwrap().blob),
+            format!("after {i}").as_bytes()
+        );
+    }
+    for i in 0..50 {
+        let file = &event.files[&format!("newdir/file-{i:02}.ts")];
+        assert!(file.before.is_none());
+        assert_eq!(
+            f.bytes(&file.after.as_ref().unwrap().blob),
+            format!("new {i}").as_bytes()
+        );
+    }
+    f.write("newdir/late.ts", b"late");
+    // Wait for real kernel delivery; the logical burst clock remains fixed.
+    // Busy fleet scheduling must not turn this into a one-shot polling test.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        w.drain(&mut f, 200).unwrap();
+        if w.changes
+            .state
+            .bursts
+            .pending()
+            .iter()
+            .any(|b| b.files.contains_key("newdir/late.ts"))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "late write never reached the re-armed directory watch"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    w.changes.tick(&mut f, 1701).unwrap();
+    assert_eq!(f.events.len(), 2);
+    assert_eq!(f.events[1].files.len(), 1);
+    assert_eq!(
+        f.bytes(
+            &f.events[1].files["newdir/late.ts"]
+                .after
+                .as_ref()
+                .unwrap()
+                .blob
+        ),
+        b"late"
+    );
+}
