@@ -10,13 +10,14 @@ const topic = process.env.SMITHERS_CODE_DOCUMENT_TOPIC
 assert.ok(origin && topic, "origin and topic are required")
 const prerequisites = { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true }
 
+const NativeWebSocket = WebSocket
 const member = (cookie: string) => {
   const frames: string[] = []
   let current: WebSocket | undefined
   const channel = new LiveChannel({
     documentFrames: true,
     socket: () => {
-      const socket = current = new WebSocket(`${origin.replace(/^http/, "ws")}/api/live`, {
+      const socket = current = new NativeWebSocket(`${origin.replace(/^http/, "ws")}/api/live`, {
         headers: { Cookie: `smithers_session=${cookie}`, Origin: origin }, protocols: ["smithers.live.v1"]
       } as never)
       // Keep refusals and closes for a failing run's report.
@@ -46,17 +47,17 @@ assert.notEqual(ben.provider.doc.clientID, alice.provider.doc.clientID)
 // Non-overlapping typing, one keystroke at a time. Each character must reach
 // the other member before the next is typed.
 const samples: number[] = []
+const { mountDocument } = await import("./code-document-mounted.fixture")
+const benCard = await mountDocument(ben.provider), aliceCard = await mountDocument(alice.provider)
 const BEN = "Ben edits line one. "
 const ALICE = " Alice edits the end."
 for (let i = 0; i < BEN.length; i++) {
-  ben.text().insert(i, BEN[i]!)
-  const typed = BEN.slice(0, i + 1)
-  samples.push(await waitFor(`Alice sees ${JSON.stringify(typed)}`, () => alice.text().toString().startsWith(typed), 1000))
+  benCard.insert(i, BEN[i]!)
+  samples.push(await waitFor(`Alice sees Ben character ${i}`, () => aliceCard.text().startsWith(BEN.slice(0, i + 1)), 1000))
 }
 for (let i = 0; i < ALICE.length; i++) {
-  alice.text().insert(alice.text().length, ALICE[i]!)
-  const typed = ALICE.slice(0, i + 1)
-  samples.push(await waitFor(`Ben sees ${JSON.stringify(typed)}`, () => ben.text().toString().endsWith(typed), 1000))
+  aliceCard.insert(aliceCard.text().length, ALICE[i]!)
+  samples.push(await waitFor(`Ben sees Alice character ${i}`, () => benCard.text().endsWith(ALICE.slice(0, i + 1)), 1000))
 }
 
 // Overlapping typing at one position: both pages converge and keep every character.
@@ -66,6 +67,7 @@ for (let i = 0; i < OVERLAP_BEN.length; i++) {
   alice.text().insert(BEN.length, OVERLAP_ALICE[i]!)
 }
 await waitFor("pages converge", () => ben.text().toString() === alice.text().toString() && ben.text().length === BEN.length + ALICE.length + 20).catch(diagnose)
+assert.equal(benCard.text(), aliceCard.text(), "mounted editors converge")
 const text = ben.text().toString()
 assert.equal(text.split("b").length - 1, 10, text)
 assert.equal(text.split("a").length - 1, 10, text)
@@ -73,6 +75,26 @@ assert.ok(text.startsWith(BEN) && text.endsWith(ALICE), text)
 
 // Saved only after the daemon receipt covers each member's own updates.
 await waitFor("both pages saved", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
+
+// One thousand further alternating mounted edits. Keep the original provider
+// contract cases and their 41-sample output intact for the existing Go caller.
+const mountedSamples: number[] = []
+let mountedText = benCard.text()
+for (let i = 0; i < 500; i++) {
+  const b = String.fromCharCode(0xe000 + i), a = String.fromCharCode(0xe200 + i)
+  benCard.insert(benCard.text().length, b)
+  mountedText += b
+  mountedSamples.push(await waitFor(`mounted Alice edit ${i}`, () => aliceCard.text() === mountedText, 1000))
+  aliceCard.insert(aliceCard.text().length, a)
+  mountedText += a
+  mountedSamples.push(await waitFor(`mounted Ben edit ${i}`, () => benCard.text() === mountedText, 1000))
+}
+assert.equal(mountedSamples.length, 1000)
+assert.equal(benCard.text(), aliceCard.text())
+await waitFor("mounted edits acknowledged", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
+mountedSamples.sort((a, b) => a - b)
+const mountedP95 = mountedSamples[949]!
+assert.ok(mountedP95 < 1000, `mounted keystroke p95 ${mountedP95} ms`)
 
 // Spec §7.1.1 gap on Ben's subscription alone: an oversized frame ends only
 // that subscription. Ben keeps typing; resubscribing keeps his client id,
@@ -89,6 +111,8 @@ await waitFor("both pages saved after the gap", () => ben.provider.saved === "sa
 assert.equal(ben.provider.doc.clientID, benClient, "the gap kept Ben's client id")
 assert.equal(ben.provider.unsaved, undefined, "a gap offers no Reapply")
 assert.equal(ben.text().toString(), alice.text().toString())
+
+benCard.saved(); aliceCard.saved()
 
 // The host registered each tab's client id under its member's actor.
 const authors = ben.provider.doc.getMap("authors")
@@ -125,6 +149,6 @@ assert.equal(ben.text().toString(), alice.text().toString())
 samples.sort((a, b) => a - b)
 const p95 = samples[Math.ceil(samples.length * 0.95) - 1]!
 assert.ok(p95 < 1000, `keystroke p95 ${p95} ms`)
-ben.provider.dispose(); alice.provider.dispose(); ben.channel.dispose(); alice.channel.dispose()
-console.log(JSON.stringify({ text: ben.text().toString(), ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, samples: samples.length, p95 }))
+benCard.dispose(); aliceCard.dispose(); ben.provider.dispose(); alice.provider.dispose(); ben.channel.dispose(); alice.channel.dispose()
+console.log(JSON.stringify({ text: ben.text().toString(), ben: ben.provider.doc.clientID, alice: alice.provider.doc.clientID, samples: samples.length, p95, mountedSamples: mountedSamples.length, mountedP95 }))
 process.exit(0)

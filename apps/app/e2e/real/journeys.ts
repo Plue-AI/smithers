@@ -32,6 +32,7 @@ export const journeySpecs = [
   "branch-presence.spec.ts",
   "ssh-branch.spec.ts",
   "file-gone.spec.ts",
+  "file-coedit.spec.ts",
   "file-intelligence.spec.ts",
   "install-origins.spec.ts"
 ] as const
