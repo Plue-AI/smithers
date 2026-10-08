@@ -26,6 +26,10 @@ func TestInstallWorkflowBodyCommandBindingPostgres(t *testing.T) {
 	token, err := issuer.CreateToken(f.ctx, f.other.ID, services.CreateTokenRequest{Name: "body-command", Via: "codex", Scopes: []string{"repo", "user"}})
 	require.NoError(t, err)
 	for _, suffix := range []string{"/workflows/CI/dispatch", fmt.Sprintf("/workflows/%d/dispatches", definition)} {
+		// Each door gets an independent dispatch quota so all malformed-body
+		// cases reach validation rather than the unrelated rate-limit boundary.
+		_, err := f.pool.Exec(f.ctx, `DELETE FROM search_rate_limits WHERE scope='workflow_dispatch'`)
+		require.NoError(t, err)
 		for _, cell := range []struct {
 			name, body string
 			status     int
@@ -38,9 +42,6 @@ func TestInstallWorkflowBodyCommandBindingPostgres(t *testing.T) {
 			{"forged subject", `{"command":"flow.run","ref":"main","subject":{"role":"owner"}}`, 400, ""},
 			{"trailing body", `{"command":"flow.run","ref":"main"}{}`, 400, ""},
 		} {
-			if strings.HasSuffix(suffix, "dispatches") && cell.status == 400 {
-				continue
-			}
 			t.Run(suffix+"/"+cell.name, func(t *testing.T) {
 				var before int
 				require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, f.repoID).Scan(&before))
