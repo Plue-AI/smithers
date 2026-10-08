@@ -119,20 +119,23 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and run keyboard doo
     expect(await retained()).toContain("// scratch keyboard approach")
     await info.attach("scratch-adoption", { body: JSON.stringify({ source: 2, scratch, todo: n, branch: adopted.branch.name,
       retained: ["// keyboard journey edit", "// scratch keyboard approach"] }), contentType: "application/json" })
-    // J5/J11: inspect the real repository-owned flow and edit its source on the scratch branch.
+    // J5/J11: Source creates a private Draft. The owning Source/Run journey
+    // commits it and exercises the scratch flow; inspect this adopted TODO here.
     await runSlash(page, "/flow todo")
     const flow = page.locator('.smithers-card[data-kind="flow"]').last()
     await expect(flow).toContainText("Active")
     await journeyActivate(flow.getByRole("button", { name: "Source", exact: true }))
-    await expect(page.locator('.smithers-card[data-kind="file"]').last()).toContainText("flows/todo/flow.ts")
-    await runSlash(page, "/flow.run todo")
+    await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue(/Change flows\/todo\/flow.ts: Edit the source/)
+    await expect.poll(async () => (await f.read("Ben", `/api/todos/${n}`)).run?.id, { timeout: 660_000 }).toEqual(expect.any(String))
+    const attempt = (await f.read("Ben", `/api/todos/${n}`)).run.id
+    await runSlash(page, `/todo ${n}`)
+    await journeyActivate(todoCard(page, n).getByRole("button", { name: "Inspect", exact: true }))
     await expect(page.locator('.smithers-card[data-kind="run"]').last()).toBeVisible()
-    await journeyActivate(page.getByRole("button", { name: "Inspect", exact: true }).last())
     const replay = page.getByRole("slider", { name: /Replay/ }).last()
     await journeyReach(replay)
     await page.keyboard.press("Home")
     await page.keyboard.press("End")
-    await runSlash(page, "/run")
+    await runSlash(page, `/run ${attempt}`)
     await expect(page.locator('.smithers-card[data-kind="run"]').last()).toBeVisible()
     // J11 model assignment is an owner act and targets the actual review role.
     const ownerPage = f.members.Will.page

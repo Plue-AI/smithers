@@ -314,3 +314,9 @@ Do not bypass persistence or widen the budget. Reference-host profiling is still
 needed. Local logs: `/tmp/fr14-rel02-r2-dark-j4.log` and
 `/tmp/fr14-rel02-r2-light-j4.log`; native timing JSON is in each run's
 C-J4-02 composed evidence directory. Neither failed run is a release receipt.
+
+The prepared keyboard continuation follows Source to its Draft and opens the
+adopted TODO's recorded run through Inspect. The full Source/Run recording owns
+the source commit and scratch execution. J10's outside-push Bring in, Discard,
+confirmations and answer use the same physical-input helpers as the other
+reference journeys. Reference executions remain pending.

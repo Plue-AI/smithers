@@ -27,12 +27,17 @@ const bootLocal = async (page: Page): Promise<void> => {
   await appReady(page)
 }
 
+const submitFocusedField = async (field: Locator): Promise<void> => {
+  await journeyReach(field)
+  await field.page().keyboard.press("Enter")
+}
+
 const runSignedOutCommand = async (page: Page, text: string, refusal: string): Promise<void> => {
   await command(page, text)
   const input = page.getByTestId("composer-input")
   // When the slash menu is still resolving, the first Enter accepts its exact
   // command row. The second Enter invokes the populated command.
-  if (await input.isVisible().catch(() => false)) await journeyActivate(input)
+  if (await input.isVisible().catch(() => false)) await submitFocusedField(input)
   await expect(transcript(page).getByText(refusal, { exact: true }).last()).toBeVisible()
 }
 
@@ -273,7 +278,7 @@ workflowTest(
     await journeyEnter(message, inputMarker)
     const [executeRunId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
-      journeyActivate(message)
+      submitFocusedField(message)
     ])
     expect(executeRunId).not.toBe(createRunId)
     const executedCard = page.locator(`.smithers-card[data-kind="run-trace"][data-run-id="${executeRunId}"]`)

@@ -5,7 +5,7 @@ import { owner } from "./j1-fixtures"
 // Integration and reference-host evidence remains required separately.
 // Written before implementation: mvp.md §5, §6.4, §9; lands with T-REL-02
 test("C-UI-01: Every P0 journey completes keyboard-only", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §5, §6.4, §9; lands with T-REL-02")
+  test.fixme(true, "Full reference Chromium/WebKit journeys and independent Mac evidence pending; supplemental controls cannot qualify C-UI-01")
   // Required seed: all P0 journey prerequisites, members and scenario events.
   // External install, GitHub and SSH steps belong to the reference harness.
   await owner(page)
