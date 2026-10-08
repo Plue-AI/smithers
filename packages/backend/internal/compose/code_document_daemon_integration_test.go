@@ -35,6 +35,7 @@ import (
 type realDocumentInstall struct {
 	*codeDocumentInstall
 	registry               *machined.Registry
+	host                   *repohost.Client
 	root, evidence, binary string
 	restart                *rehearsalRestart
 	stopGuest              func()
@@ -61,7 +62,7 @@ func startRealDocumentInstall(t *testing.T, point string) *realDocumentInstall {
 	require.NoError(t, os.MkdirAll(evidenceRoot, 0700))
 	evidence, err := os.MkdirTemp(evidenceRoot, time.Now().UTC().Format("20060102T150405Z")+"-")
 	require.NoError(t, err)
-	f := &realDocumentInstall{root: t.TempDir(), evidence: evidence, binary: binary,
+	f := &realDocumentInstall{root: t.TempDir(), evidence: evidence, binary: binary, host: client,
 		restart: &rehearsalRestart{State: t.TempDir(), Run: t.TempDir(), KillAt: point, Exited: make(chan error, 1)}}
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -289,6 +290,42 @@ func TestLiveCodeDocumentRealProviderQualification(t *testing.T) {
 	forbidden.sub(t, "doc:code:00000000-0000-4000-8000-000000000000:retry.ts")
 	forbidden.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
 	require.Equal(t, outside, f.disk(t))
+}
+
+// Capture reads the same pending updates people send through /api/live. The
+// oracle reads the imported immutable host tree, not only the mutable guest
+// file or the existence of a capture receipt. No saved frame is awaited before
+// dispatch: capture itself must flush every update already seen by the peer.
+func TestLiveCodeDocumentRealCapturePendingEdits(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	ben, alice := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")
+	ben.sub(t, f.topic)
+	client := ben.assigned(t)
+	alice.sub(t, f.topic)
+	alice.assigned(t)
+	want := ""
+	for n := 0; n < 10; n++ {
+		marker := fmt.Sprintf("CAPTURE-%02d-🦀\n", n)
+		// Each update uses fresh item identities on Ben's existing client. The
+		// helper's independent insertion prepends, so pin that expected ordering.
+		ben.edit(t, codeInsertAt(client, uint64(n*14), marker))
+		want = marker + want
+		alice.converge(t, want)
+		captured, err := f.registry.Capture(t.Context(), f.branch)
+		require.NoError(t, err)
+		require.Len(t, captured.Head, 40)
+		file, err := f.host.GetFileAtCommit(t.Context(), "ben", "demo", captured.Head, "retry.ts")
+		require.NoError(t, err)
+		content := []byte(file.Content)
+		if file.Encoding == "base64" {
+			content, err = base64.StdEncoding.DecodeString(file.Content)
+			require.NoError(t, err)
+		}
+		require.Equal(t, want, string(content), "capture %d host tree", n)
+		require.Equal(t, want, f.disk(t), "capture %d guest disk", n)
+		ben.savedClientClock(t, client, uint64((n+1)*14))
+	}
+	f.documentEvidence(t, "pending-capture")
 }
 
 // Exercise the non-document write door against an already open document. The
