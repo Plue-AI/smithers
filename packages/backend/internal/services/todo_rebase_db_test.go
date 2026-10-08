@@ -196,7 +196,7 @@ func TestTodoRebaseWhenMainMoves(t *testing.T) {
 	assert.Nil(t, mythicalChecksOf(t1).Land, "the new generation voids the old head's approval")
 	t2 = f.item(second.Number.Int64)
 	assert.Equal(t, "integrating", t2.State, t2.Reason)
-	assert.Equal(t, map[string]any{"onto": "T1"}, f.card(second.Number.Int64)["rebase_pending"], "T2 waits for T1's rebase")
+	assert.Equal(t, map[string]any{"onto": "T1", "onto_revision": newMain}, f.card(second.Number.Int64)["rebase_pending"], "T2 waits for T1's rebase")
 	assert.Equal(t, "in_review", f.card(second.Number.Int64)["state"])
 
 	f.wake()
@@ -257,7 +257,7 @@ func TestTodoRebaseWaitsForPresence(t *testing.T) {
 		require.Equal(t, second.CandidateHead, held.CandidateHead)
 		require.Equal(t, second.Generation, held.Generation)
 		require.Equal(t, "rebase_pending", held.Reason)
-		require.Equal(t, map[string]any{"onto": "T1"}, f.card(second.Number.Int64)["rebase_pending"])
+		require.Equal(t, map[string]any{"onto": "T1", "onto_revision": first.CandidateHead}, f.card(second.Number.Int64)["rebase_pending"])
 		require.Zero(t, f.verifies(held))
 		require.Empty(t, f.rebasedActivity(held))
 	}

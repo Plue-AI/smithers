@@ -9,12 +9,14 @@ records `{id, branch, boot, event, sequence, state, withheld_ms}`. Reconnection
 cannot consume an older window. An acknowledged host receipt does not prove
 guest thaw or outbox drain.
 
+The committed TODO `rebase_pending` now carries `onto_revision` (the stored
+actual SHA) alongside its existing `onto` display label. The composed HTTP
+admission test checks that binding against the independently created main
+commit. This completes the pending-target seam; it is not a guest hold receipt.
+
 T-STK-08's occupied-rebase producer still needs these evidence bindings before
 the adapter can qualify C-PERF-06:
 
-- The committed TODO `rebase_pending` carries `onto_revision` (the actual SHA)
-  alongside its existing `onto` display label. The adapter refuses the label
-  as proof of a particular scratch-main push.
 - The guest's exported JSONL observer records `phase: held` before the hold
   ends, then exactly one `phase: thawed` record for that same `{id, branch,
   onto}`. Its `clock` is `guest monotonic:<boot>`, and `start`/`end` are
@@ -36,8 +38,10 @@ the adapter can qualify C-PERF-06:
 The driver arms each delayed window after push/sync/pending and immediately
 before Rebase now. It validates queued/thawed evidence before waiting for
 acknowledgement. Once drain completes, the unified verdict also verifies the
-host receipt and rejects reused windows or capture events. Scratch Git commands
-run only over the member's authenticated SSH connection, in the dedicated guest
+host receipt and rejects reused windows or capture events. The production
+adapter also binds the host receipt to the armed window and branch, and checks
+the drain record against the hold branch, target, clock and full capture triple.
+Scratch Git commands run only over the member's authenticated SSH connection, in the dedicated guest
 clone `.smithers-perf-main`, whose main branch and configured GitHub remote are
 checked before pushes. No Mac executes scratch repository commands.
 

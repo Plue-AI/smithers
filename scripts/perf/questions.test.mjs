@@ -209,7 +209,7 @@ test('preflight cross-check aggregates paired durations from separate producer p
   assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, preflight: { ...s.preflight, durationMs: -1 } }))), /invalid/)
 })
 
-import { configuration as rebaseConfiguration, run as rebaseProductionRun, verifyCaptureDelay } from './rebase-production.mjs'
+import { configuration as rebaseConfiguration, run as rebaseProductionRun, verifyCaptureDelay, verifyDrain } from './rebase-production.mjs'
 import { productionProviders } from './run.mjs'
 
 const rebaseEnv = { SMITHERS_PERF_REPOSITORY: 'team/scratch', SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/', SMITHERS_PERF_OWNER_COOKIE: 'session=secret; __csrf=csrf', SMITHERS_PERF_MEMBER_A: '/private/a.json', SMITHERS_PERF_BRANCH: '11111111-1111-4111-8111-111111111111', SMITHERS_PERF_TODO: '1', SMITHERS_PERF_INSTALL_VERSION: 'test', SMITHERS_PERF_REBASE_LOG: '/private/guest.jsonl', SMITHERS_PERF_SSH_IDENTITY: '/private/key', SMITHERS_PERF_SSH_DESTINATION: 'branch@mini.example' }
@@ -228,9 +228,17 @@ test('rebase production configuration pins public origin, credentials and unpriv
 })
 test('delayed capture binds the actual ACK to the guest event, boot and sequence', () => {
   const capture = { event: 'a'.repeat(32), boot: 'b'.repeat(32), sequence: 123 }
-  const hold = { capture, acknowledgedBeforeThaw: false, localSnapshotQueued: true }
-  const receipt = { ...capture, state: 'acknowledged', withheld_ms: 10000 }
-  assert.equal(verifyCaptureDelay(receipt, hold), receipt)
-  for (const change of [{ event: 'c'.repeat(32) }, { boot: 'c'.repeat(32) }, { sequence: 124 }, { state: 'withheld' }, { withheld_ms: 9999 }]) assert.throws(() => verifyCaptureDelay({ ...receipt, ...change }, hold))
-  assert.throws(() => verifyCaptureDelay(receipt, { ...hold, acknowledgedBeforeThaw: true }))
+  const armed = { id: 'window', branch: rebaseEnv.SMITHERS_PERF_BRANCH, boot: capture.boot, state: 'armed' }
+  const hold = { branch: armed.branch, clock: `guest monotonic:${capture.boot}`, capture, acknowledgedBeforeThaw: false, localSnapshotQueued: true }
+  const receipt = { ...capture, id: armed.id, branch: armed.branch, state: 'acknowledged', withheld_ms: 10000 }
+  assert.equal(verifyCaptureDelay(receipt, hold, armed), receipt)
+  for (const change of [{ id: 'other-window' }, { branch: 'other-branch' }, { event: 'c'.repeat(32) }, { boot: 'c'.repeat(32) }, { sequence: 124 }, { state: 'withheld' }, { withheld_ms: 9999 }]) assert.throws(() => verifyCaptureDelay({ ...receipt, ...change }, hold, armed))
+  assert.throws(() => verifyCaptureDelay(receipt, { ...hold, acknowledgedBeforeThaw: true }, armed))
+})
+
+test('drain observation binds branch, target, clock and the complete capture', () => {
+  const hold = { id: 'hold', branch: rebaseEnv.SMITHERS_PERF_BRANCH, onto: 'a'.repeat(40), clock: 'guest monotonic:boot', capture: { boot: 'boot', event: 'event', sequence: 2 } }
+  const drained = { ...hold, phase: 'drained', outboxDepth: 0 }
+  assert.equal(verifyDrain(drained, hold), drained)
+  for (const change of [{ id: 'other' }, { branch: 'other' }, { onto: 'other' }, { clock: 'other' }, { phase: 'thawed' }, { outboxDepth: 1 }, { capture: undefined }, ...['boot', 'event', 'sequence'].map(field => ({ capture: { ...hold.capture, [field]: 'other' } }))]) assert.throws(() => verifyDrain({ ...drained, ...change }, hold))
 })

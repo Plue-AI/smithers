@@ -331,7 +331,7 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 	// voided the approval says so until someone presses Merge again.
 	if checks := mythicalChecksOf(item); !mythicalSettledStates[item.State] {
 		if rebase := checks.Rebase; rebase != nil && !rebase.Rebased {
-			card["rebase_pending"] = map[string]any{"onto": rebase.Name}
+			card["rebase_pending"] = map[string]any{"onto": rebase.Name, "onto_revision": rebase.Onto}
 		}
 		if checks.ApprovalCleared != "" && checks.Land == nil {
 			card["approval_cleared"] = true

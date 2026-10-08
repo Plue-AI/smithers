@@ -150,6 +150,7 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	}
 	status, observed := read("rebase-press", "pin-cookie")
 	require.Equal(t, 200, status, observed)
+	require.Equal(t, map[string]any{"onto": "main", "onto_revision": onto}, observed["rebase_pending"], "pending target binds the actual main commit, not its display label")
 	require.Equal(t, map[string]any{"onto": onto, "state": "running"}, observed["rebase_execution"])
 	status, observed = read("unknown-key", "pin-cookie")
 	require.Equal(t, 404, status, observed)

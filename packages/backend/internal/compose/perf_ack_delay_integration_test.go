@@ -142,6 +142,30 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 		return r.ID == natural.ID && r.State == "acknowledged" && r.WithheldMS >= 10000 && r.Event == hex.EncodeToString(eventID[:])
 	}, time.Second, 10*time.Millisecond)
 
+	// Recheck the production adapter against the actual completed host receipt.
+	// The matching guest identity is a wire-peer observation, not VM proof.
+	_, completed := call("GET", "", f.cookie)
+	adapter, err := filepath.Abs("../../../../scripts/perf/rebase-production.mjs")
+	require.NoError(t, err)
+	adapterURL := (&url.URL{Scheme: "file", Path: adapter}).String()
+	armedJSON, err := json.Marshal(natural)
+	require.NoError(t, err)
+	completedJSON, err := json.Marshal(completed)
+	require.NoError(t, err)
+	verifySource := `import {verifyCaptureDelay} from ` + strconv.Quote(adapterURL) + `;
+ const armed=JSON.parse(process.argv[1]), receipt=JSON.parse(process.argv[2]);
+ const hold={branch:armed.branch,clock:"guest monotonic:"+armed.boot,
+ capture:{boot:receipt.boot,event:receipt.event,sequence:receipt.sequence},
+ acknowledgedBeforeThaw:false,localSnapshotQueued:true};
+ verifyCaptureDelay(receipt,hold,armed);
+ for(const change of [{branch:"foreign"},{id:"old-window"},{boot:"old-boot"}]){
+ let rejected=false;try{verifyCaptureDelay({...receipt,...change},hold,armed)}catch{rejected=true}
+ if(!rejected)throw new Error("foreign receipt accepted");
+ }`
+	verifyCommand := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", verifySource, string(armedJSON), string(completedJSON))
+	verifyOutput, err := verifyCommand.CombinedOutput()
+	require.NoError(t, err, "%s", verifyOutput)
+
 	// Exercise the script's actual authenticated client against this composed
 	// install, rather than substituting fetch or testing only a receipt parser.
 	module, err := filepath.Abs("../../../.." + "/scripts/perf/lib/ack-delay.mjs")

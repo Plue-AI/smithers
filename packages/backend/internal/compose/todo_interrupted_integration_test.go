@@ -264,7 +264,7 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	status, card = call("GET", "", "")
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "working", card["state"])
-	require.Equal(t, map[string]any{"onto": "main"}, card["rebase_pending"])
+	require.Equal(t, map[string]any{"onto": "main", "onto_revision": "cccccccccccccccccccccccccccccccccccccccc"}, card["rebase_pending"])
 	require.NotContains(t, card, "failure")
 	for _, key := range []string{"conflict-1", "conflict-2", "conflict-3"} {
 		status, receipt = call("POST", `{"op":"retry"}`, key)
