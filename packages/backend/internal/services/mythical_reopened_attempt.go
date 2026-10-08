@@ -11,10 +11,14 @@ func todoReopenedAttempt(item db.MythicalItem) bool {
 	return item.Attempt > 0 && mythicalChecksOf(item).GitHubReopenedAttempt == item.Attempt
 }
 
-// Only a reopened, dropped attempt starts a fresh run. Ordinary review
-// input re-enters the live TODO composition on its existing attempt.
+// A reopened attempt or a historical composition that ended after publication
+// needs a fresh run. Live review compositions receive input on the same run.
 func todoReviewAwaitsAttempt(item db.MythicalItem) bool {
-	return item.State == "proposed" && todoReopenedAttempt(item)
+	if item.State != "proposed" {
+		return false
+	}
+	_, pinned := mythicalPinOf(item)
+	return todoReopenedAttempt(item) || pinned && item.RequestOutcome != ""
 }
 
 // The caller admits work under the TODO/stack transaction. The existing
