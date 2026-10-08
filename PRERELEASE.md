@@ -1,8 +1,8 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 16:36 PDT
-main          c5120a5856 when written
+Updated       2026-10-08 16:38 PDT
+main          4b3eb8782e when written
 
 Publish       CANNOT PUBLISH YET. Dry run #5 decides. It is in pack and smoke-test.
 Real install  RUNNING on this MacBook since 16:18 PDT: production launcher, bundle
@@ -47,27 +47,32 @@ Needs Will    Now: nothing required. Optional: say yes to using your model keys
 
 ## 1. What works
 
-**In a real VM.** A development run on this MacBook at 99a4356a1a, with no workarounds: the agent initializes the repository, the daemon starts and admits its session, reads and compared writes land through it, nested and parallel writes land, and stop, reopen, restart and a cold snapshot fork pass. The agent edits a daemon-created file in place, and its git commit and jj work afterwards. This is the daemon path, not an install.
+**On a real install.** This MacBook, production launcher, bundle built here from 3fc44ee1e8. Source: the install run's report at 16:37 PDT.
 
-**On Linux fixtures, last full pass (d0b0c7b2f0).** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey on what a person can do: Detail A.
+- With 39.19 GiB free, `./bin/smthrs host start --bundle .` refuses once: `host_capacity_zero ... 44 GiB required`. No restart loop.
+- With 44.77 GiB free it starts (16:18 PDT). `host status` reads ready and `/readyz` answers 200.
+- The address is set, the GitHub App is created on the test account, and the owner is signed in (16:34 PDT).
+- Those three setup steps were sent as the setup card's requests from the browser. The card itself does not appear (section 3).
+
+**In a real VM.** At 99a4356a1a the machine daemon starts, admits its session and lands reads and writes, and the agent's git and jj work afterwards. A development run on this MacBook, no workarounds (Detail B).
+
+**On Linux fixtures, full pass on main 70d75088ef.** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey: Detail A.
 
 ```
-      pass fail pending  commit      a person can
-J1     21    0     0     d0b0c7b2f0  install, set up, merge a first TODO, add members
-J2     14    0     0     d0b0c7b2f0  turn an issue into a TODO, answer it, merge its PR
-J3     14    0     5     d0b0c7b2f0  open a TODO's branch, answer or steer the agent
-J4     22    1     2     d0b0c7b2f0  answer, merge and retry from Home while chatting
-J5     18    2     0     d0b0c7b2f0  change the TODO flow through a merged TODO
-J6      4    0    16     d0b0c7b2f0  nothing yet: every terminal and own-agent row is pending
-J7     11    4     6     d0b0c7b2f0  insert, amend and drop TODOs
-J8      6    0     3     d0b0c7b2f0  co-edit a wiki page, sync it to Obsidian
-J9     12    0     1     d0b0c7b2f0  ask the repository, make a TODO, save to wiki
-J10    35    1     4     d0b0c7b2f0  work a TODO's PR from GitHub
-J11    19    0     0     d0b0c7b2f0  inspect a merged TODO's run
-All   176    8    37
+      pass fail pending  a person can
+J1     21    0     0     install, set up, merge a first TODO, add members
+J2     14    0     0     turn an issue into a TODO, answer it, merge its PR
+J3     14    0     5     open a TODO's branch, answer or steer the agent
+J4     23    0     2     answer, merge, move and retry from Home while chatting
+J5     20    0     0     change the TODO flow through a merged TODO
+J6      4    0    16     nothing yet: every terminal and own-agent row is pending
+J7     19    0     2     insert, amend, fork and drop TODOs; conflicts
+J8      6    0     3     co-edit a wiki page, sync it to Obsidian
+J9     12    0     1     ask the repository, make a TODO, save to wiki
+J10    35    1     4     work a TODO's PR from GitHub
+J11    19    0     0     inspect a merged TODO's run
+All   187    1    33
 ```
-
-Newer runs are in section 3. They stopped early, so their counts are not comparable with this table.
 
 ## 2. Off
 
@@ -80,23 +85,24 @@ Two features ship switched off because of a known hole (ruled by smithers-8a).
 
 ## 3. Broken
 
+### Real install
+
+Found by the install run on this MacBook.
+
+| | Defect | Fix |
+|---|---|---|
+| 1 | A fresh install's setup link shows no setup card. A regression from c818f8df41. | c5120a5856 landed 16:35 PDT (lane fr23-setup-card-missing); it passes a Linux browser test. The running install's bundle predates it. Not confirmed on a Mac. |
+| 2 | The app's sign-in path `/api/auth/github/start` answers 404 on an install. `/api/auth/github` works. | Lane fr24-signin-path-stale-cookie, running. |
+| 3 | A `smithers_session` cookie left by an earlier install on the same address blocks the setup link with 401. | Same lane. |
+| 4 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | No lane found. |
+
 ### Journey rows
 
-**A TODO that reaches review ends `failed` with `source_refused`.** The runs after d0b0c7b2f0 that failed stopped at this error:
+| | Row | Error | Fix |
+|---|---|---|---|
+| J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | Lane fr18-j10. 5e1bc3c020 is on main and not yet on the board. |
 
-```
-            pass/fail/pending
-b74a68604e  J1 21/0/0   J2 14/0/0   J3 13/1/5   J4 7/2/0
-4881e80270  J4 2/1/0    J7 3/1/0    J10 9/1/0   J5 10/9/0
-```
-
-Cause: the server answered 409 "stack operation request changed". PostgreSQL JSONB reorders a plan's nested keys, and a byte comparison refused an identical plan. The coding agent's helper reports HTTP 400, 401, 403 and 409 all as `source_refused`, which hid it.
-
-Fixed on main: f9d3b72e29 (compare plans as stored) and ba1a27bc91 (keep the admitted request through a rebase). 43e26fff08 names and logs the refusal sites. A lane is giving each refusal its own reason, so a refused TODO says why.
-
-Rerunning on main 0489b1c08c since 14:31 PDT: J4, J7, J3, J10, J5. No result yet.
-
-Other red rows, each with its fix or lane: Detail G.
+`source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal now names its reason (7a2c228bfa, a64960b9c3). The rows fixed today: Detail G.
 
 ### Real VM
 
@@ -104,23 +110,21 @@ Other red rows, each with its fix or lane: Detail G.
 
 ### Release
 
-- No Release run has passed pack and smoke-test or delivered the server bundle. Dry run #3 failed at pack and smoke-test: `scripts/smoke-release.mjs` imported the create-app template removed on 10-01. Fixed in 0489b1c08c, with a test that checks every release script's imports. Dry run #4 is the first run with the fix.
+- No Release run has passed the installed-package smoke. That script could not load from 10-01 until today, so its fixed expectations went stale. Dry runs #3 and #4 each failed on one (fixed in 0489b1c08c and a3e6ac767e). Dry run #5 may find another.
 
 ## 4. Unverified
 
-- **A TODO on a real install: not yet run.** The bundle is still building on this MacBook (from 3fc44ee1e8, started 14:01 PDT). The scripted coding model cannot be reached from the production launcher, by design. So the run has three parts:
-  1. Install, start, owner sign-in and repository connect, under the production launcher.
-  2. TODO to merged PR on the same install, with the scripted model, under the test launcher.
-  3. A TODO with a real model under the production launcher, only if Will says yes to using his keys.
+- **TODO to merged PR on the real install: not yet run.** The install has reached owner sign-in. Remaining:
+  1. Connect the test repository and set model access, under the production launcher.
+  2. TODO to merged PR on the same install, with the scripted model, under the test launcher. The production launcher cannot reach the scripted model, by design.
+  3. A TODO with a real model under the production launcher, only if Will says yes to using his keys. Not received.
 - **Not yet exercised in a real VM:** the coding agent started as a daemon session, member terminals, capture, sleep and wake. 3fc44ee1e8 landed after the proof at 99a4356a1a.
 - **The real-machine fixes** await smithers-3f's review (Detail B). For `/run` on tmpfs (88e7f6521c), the 64 MiB size is not verified and machines created earlier keep the old flags.
-- **Start refusal under the floor.** The fix that stops the restart loop is on main (aa7af43171; tests c3aece0daa). It has not run on a Mac: launchd behaviour is unverified.
 - **Disk per machine.** Measured in a real VM: one running machine holding the Smithers repository uses 0.74 GiB of host disk, and a TODO-sized commit adds 7.4 MiB. A working machine with dependencies installed is estimated at about 15 GiB; not measured.
 - **Waiting on smithers-3f** (Detail E): three questions on guest helper change b596ce787b; learning machine isolation (T-FLW-06), which also has no real-machine run; delta reviews of machine daemon wire protocols 7 to 12.
 - **Mac mini and Cloud.** Nothing has run on the Mac mini. Smithers Cloud admits no TODO (`packages/backend/internal/compose/main.go:1370-1377`) and its Smithers pin is about 2,000 commits behind main.
-- **80 tickets** have code on main and no real-machine run (Detail C). 37 journey rows are pending (Detail A).
-- **Sign-offs.** None is done. They serve Done, not this prerelease: Will (T-DOC-02, T-DOC-03), smithers-06 copy reviews, smithers-3f security reviews, smithers-22 check mapping, smithers-8a, smithers-38.
-- **Mac mini schedule.** 192 runs across 68 tickets, about 117 hours. Stopped. It serves Done, not this prerelease.
+- **80 tickets** have code on main and no real-machine run (Detail C). 33 journey rows are pending (Detail A).
+- **Sign-offs and the Mac mini schedule** serve Done, not this prerelease. No sign-off is done: Will (T-DOC-02, T-DOC-03), smithers-06, smithers-3f, smithers-22, smithers-8a, smithers-38. The schedule (192 runs, about 117 hours) is stopped.
 
 ## 5. Not in this prerelease
 
@@ -132,20 +136,21 @@ Other red rows, each with its fix or lane: Detail G.
 
 ## 6. Publish
 
-**Cannot publish yet.** No dry run is green. Dry run #4's build, pack and smoke lane decides whether the tag can be pushed. Source: `~/smithers-lanes/release/STATE.md`, updated 14:28 PDT.
+**Cannot publish yet.** No dry run is green. Dry run #5 is in pack and smoke-test. Source: `~/smithers-lanes/release/STATE.md`, updated 16:20 PDT.
 
 ### Dry runs
 
 | # | Run | Result |
 |---|---|---|
-| 1 | 37837413419 | Failed. The changelog section was stale. The Mac bundle built for 40 minutes, then the upload found no files: the archive is in a hidden directory. Fixed in 86881fe0d0. |
-| 2 | 37842512795 | Running on the first cut with the old workflow. The changelog gate passed. It will end red: the bundle upload fails the same way. |
-| 3 | 37843714479 | Build, pack and smoke lane failed at 14:22 PDT at pack and smoke-test (a removed import). Its bundle job and report-only gates are still running. |
-| 4 | 37846701537 | Running since 14:25 PDT on 0489b1c08c: the cut, the smoke fix, every real-machine fix and the 44 GiB floor. Smoke test about 14:40, end about 15:00. |
+| 1 | 37837413419 | Failed. Stale changelog section. The Mac bundle built, then the upload found no files (hidden directory, fixed in 86881fe0d0). |
+| 2 | 37842512795 | Old workflow. The bundle upload failed the same way. |
+| 3 | 37843714479 | Build and pack passed. The installed-package smoke failed on a removed import (fixed in 0489b1c08c). Delivered the first Mac bundle artifact. |
+| 4 | 37846701537 | Build and pack passed. The smoke failed one fixture further, on a stale migration list (fixed in a3e6ac767e). Delivered a Mac bundle artifact. |
+| 5 | 37858229125 | Running on a3e6ac767e since 16:13 PDT. In pack and smoke-test. |
 
 ### Before the tag
 
-1. Dry run #4 is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs.
+1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #5 is the next that can be.
 2. A final cut lands tonight on top of the real-machine, disk floor and install-run fixes. Every commit after a cut makes its changelog section stale.
 3. One last dry run passes on that commit.
 4. The tag goes on that commit.
@@ -154,8 +159,8 @@ Other red rows, each with its fix or lane: Detail G.
 
 1. The publish step runs for the first time on the tag. No dry run can run it.
 2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (run 37840712277). Whether it may create the 37 new `@smthrs/*` names could not be determined (run 37844231677). If it may not, the publish stops at the first package, `@smthrs/canonical`, and nothing reaches `next`. The fix takes minutes and needs Will: Detail F.
-3. The four installed-CLI jobs have never run in a dry run. They run after the build, pack and smoke lane, so #4 is the first that can reach them.
-4. The start commands below are read from source. They have not been run against a real artifact.
+3. The four installed-CLI jobs have never run in a dry run. They run after the build, pack and smoke lane, which has not passed yet.
+4. `host start --bundle` works on this MacBook with a bundle built here. The download commands below have not been run against a Release run's artifact.
 5. This MacBook's `gh` token cannot push workflow files; the lead pushes those from a server. Whether it can push the tag: not checked. `gh auth refresh -h github.com -s workflow` removes the doubt.
 6. 104 release script tests fail on main (pack-release, release-gates, installer-release). Cause: not checked.
 
@@ -175,8 +180,8 @@ npm view smthrs dist-tags         # expect next = 1.0.0-rc.1, latest = 0.35.0
 Try it, on a Mac with 44 GiB free. Use a macOS account with no Smithers state. Have GitHub repository admin access, a provider key and an AI Gateway key ready.
 
 ```sh
-npm install -g smthrs@next
-RUN=<the tag's Release run id>
+npm install -g smthrs@next                     # after the tag run publishes
+RUN=<the tag's Release run id>                # today: 37846701537, dry run #4's bundle
 gh run download "$RUN" --repo smithersai/smithers -n server-bundle-darwin-arm64 -D ~/smithers-bundle/download
 mkdir -p ~/smithers-bundle/1.0.0-rc.1
 tar -xzf ~/smithers-bundle/download/smithers-server.tar.gz -C ~/smithers-bundle/1.0.0-rc.1
@@ -203,10 +208,10 @@ Not started, after launch     11  ██
 | J1 | Open the setup link, set the address, create the GitHub App, sign in as owner, pick the repository, set model access, ask about the code, file a first TODO, merge its PR, add members. |
 | J2 | Turn a GitHub issue into a TODO with Make TODO or the `todo` label, answer its question, read the PR's evidence, merge it, see the issue close. |
 | J3 | Open a TODO's branch from Needs you, see who is in a file, answer or steer the coding agent. Not run: own terminal, saves over SSH, two people typing in one file. |
-| J4 | Read Home counts, answer and merge while chatting, retry a failed TODO with a steer. Red: moving a TODO up. |
-| J5 | Ask the app agent to change the TODO flow, merge the edit as a TODO, see the new version Active. New TODOs use it. A broken flow keeps the previous version. Red: a TODO that waited on an answer fails when it resumes. |
+| J4 | Read Home counts, answer and merge while chatting, move a ready TODO up, retry a failed TODO with a steer. |
+| J5 | Ask the app agent to change the TODO flow, merge the edit as a TODO, see the new version Active. New TODOs use it. A broken flow keeps the previous version. A TODO that waited on an answer resumes on its own version. |
 | J6 | Nothing a person does in J6 has run. The 4 passing rows are the install, a TODO working and two refusals. Not run: a branch terminal, `claude` or `codex` signed in, the Smithers skill, "Claude Code for Ben". |
-| J7 | Insert a TODO before another, amend a TODO's prompt, drop a TODO, see `main` move. Red: fork to a scratch branch. Not run: Add to stack, conflicts. |
+| J7 | Insert a TODO before another, amend a TODO's prompt, fork to a scratch branch, drop a TODO, see `main` move, resolve a conflict. Not run: Add to stack after T2, the new TODO keeping T2's work. |
 | J8 | Merge a TODO and get a learning run admitted, co-edit a wiki page with a teammate, sync the wiki to an Obsidian folder. Not run: the learning run writing the decision page, the next plan citing the edited page. |
 | J9 | Ask where code lives, get file and wiki cards, make a TODO from the answer, save the answer to the wiki. Not run: the two buttons shown on the answer. |
 | J10 | See a TODO's PR on GitHub with its prompt and evidence. A review comment becomes a steer. A teammate's push holds the agent, with Bring in and Discard. Merge or close on GitHub and the TODO follows. The next TODO follows a merge. `/review` a teammate's PR. Red: sync stays stale after Retry. |
@@ -283,21 +288,14 @@ gh workflow run release.yml --ref main \
   -f releaseTag=v1.0.0-rc.1 -f candidateRunId="$RUN" -f candidateArtifactId="$ART" -F dryRun=false
 ```
 
-### G. Other red journey rows
+### G. Journey rows fixed today
 
-Red on the last full pass, d0b0c7b2f0, and not rerun to completion since:
-
-Fresh Linux reruns on d744b5300c: J4 23/0/2 and J7 19/0/2. J7 Drop answered in 121 ms, cancelled its run, closed the PR and released its lane within the 60 s bound; manual conflict rows 18–20 also pass. Evidence: `.artifacts/checks/C-J4/rehearsal/20261008T224515.798912365Z/steps.tsv` and `.artifacts/checks/C-J7/rehearsal/20261008T224516.186743123Z/steps.tsv`. Pending rows and real-machine qualification remain unverified.
+All are green on the full pass at 70d75088ef.
 
 | | Rows | Error | Fix |
 |---|---|---|---|
-| J5 | 15, 17 | `source_refused`, as above. Row 17 follows from 15. | f9d3b72e29, ba1a27bc91 |
-| J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | No lane found. Whether 9bb8cd3f9c covers it: not checked. |
-
-Red in an earlier pass or a lane rerun, green at d0b0c7b2f0:
-
-| | Row | Error | Fix |
-|---|---|---|---|
+| J4 | 12 Move T4 above T3 | The move answered 409 "TODO moved; try again". | d9bdb772e2 |
+| J5, J7, J3, J4 | every row after a TODO reached review | `coding/NativeCodingError/source_refused`. The server's real answer was 409 "stack operation request changed": PostgreSQL JSONB reorders a plan's nested keys and a byte comparison refused an identical plan. | f9d3b72e29, ba1a27bc91 |
 | J10 | 5 T2 follows T1's merge | The next TODO did not follow a merge within 8 minutes. | 9bb8cd3f9c |
 | J7 | 15 Drop T2 | A dropped TODO kept its machine after 60 s. | 09e889efce |
-| J4 | 17 T2 ready after T1 merges | T2's PR still contained T1's file. | Lane fr19-j4-row17 is running. A lane rerun on landed code passed J4 23/0/2. |
+| J4 | 17 T2 ready after T1 merges | T2's PR still contained T1's file. | Green on the board. Fix commit: not checked. |
