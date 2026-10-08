@@ -170,7 +170,13 @@ func (s *WorkspaceService) workspaceCommandRun(ctx context.Context, workspaceID 
 	if _, err := uuid.Parse(operationID); err != nil {
 		return jobs.Operation{}, pkgerrors.NotFound("command not found")
 	}
-	operation, err := s.commandJobs.Get(ctx, repositoryJobFlowScope(repositoryID, userID), operationID)
+	var operation jobs.Operation
+	var err error
+	if tx, ok := s.transactions.(pgx.Tx); ok {
+		operation, err = s.commandJobs.GetInTx(ctx, tx, repositoryJobFlowScope(repositoryID, userID), operationID)
+	} else {
+		operation, err = s.commandJobs.Get(ctx, repositoryJobFlowScope(repositoryID, userID), operationID)
+	}
 	if errors.Is(err, jobs.ErrNotFound) {
 		return operation, pkgerrors.NotFound("command not found")
 	}
@@ -241,12 +247,18 @@ func commandRunReceipt(operation jobs.Operation) (WorkspaceCommandRun, error) {
 	return run, nil
 }
 
+func InstallWorkspaceCommandReadSubject(repository int64, workspace, operation string) InstallSubject {
+	return InstallSubject{RepositoryID: repository, WorkspaceID: workspace, RunID: operation, Resource: "command-run"}
+}
+
 func (s *WorkspaceService) GetWorkspaceCommandRun(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceCommandRun, error) {
-	operation, err := s.workspaceCommandRun(ctx, workspaceID, repositoryID, userID, operationID, WorkspaceAccessRead)
-	if err != nil {
-		return WorkspaceCommandRun{}, err
-	}
-	return commandRunReceipt(operation)
+	return readInstallWorkspaceMetadata(ctx, s, "workspace.command.read", repositoryID, userID, func(ctx context.Context, scoped *WorkspaceService) (WorkspaceCommandRun, error) {
+		operation, err := scoped.workspaceCommandRun(ctx, workspaceID, repositoryID, userID, operationID, WorkspaceAccessRead)
+		if err != nil {
+			return WorkspaceCommandRun{}, err
+		}
+		return commandRunReceipt(operation)
+	}, InstallWorkspaceCommandReadSubject(repositoryID, workspaceID, operationID))
 }
 
 func (s *WorkspaceService) CancelWorkspaceCommandRun(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceCommandRun, error) {

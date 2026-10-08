@@ -34,6 +34,7 @@ func readInstallWorkspaceMetadata[T any](ctx context.Context, s *WorkspaceServic
 	scoped := *s
 	scoped.q = q
 	scoped.installQueries = q
+	scoped.transactions = tx
 	ctx, err = scoped.authorizeInstallWorkspaceMetadata(ctx, command, repository, actor, subjects...)
 	if err != nil {
 		return zero, err

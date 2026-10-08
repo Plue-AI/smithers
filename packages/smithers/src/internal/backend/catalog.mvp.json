@@ -14990,6 +14990,34 @@
       }
     },
     {
+      "name": "workspace.command.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "read:repository",
+      "agent": "run",
+      "summary": "Read command result",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/command-runs/{operationID}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "workspace.head",
       "slash": null,
       "cli": null,

@@ -268,6 +268,23 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
+			if command == "workspace.command.read" {
+				parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+				subject := services.InstallSubject{}
+				if len(parts) == 8 {
+					repository, err := queries.GetRepoByOwnerAndLowerName(r.Context(), db.GetRepoByOwnerAndLowerNameParams{Owner: strings.ToLower(parts[2]), LowerName: strings.ToLower(parts[3])})
+					if err == nil {
+						subject = services.InstallWorkspaceCommandReadSubject(repository.ID, parts[5], parts[7])
+					}
+				}
+				decision, err := services.Authorize(r.Context(), queries, command, subject)
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
+				return
+			}
 			if command == "workspace.preview.update" || command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
 				admitInstallWorkspaceVisibility(w, r, queries, command, next)
 				return

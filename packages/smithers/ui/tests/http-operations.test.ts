@@ -290,3 +290,7 @@ test("preview publication keeps an owner person and concrete boolean", () => {
 test("mirror diagnostics keep the owner person read boundary", () => {
  expect(httpProjections.find(row => row.name === "mirror.read")).toMatchObject({ minimumRole:"owner", agent:"never", actors:["person"], credentialScope:"read:repository", http:{method:"GET",path:"/api/repos/{owner}/{repo}/mirror-sync/{run_id}"} })
 })
+
+test("saved command output has no external-agent or system door", () => {
+ expect(httpProjections.find(row => row.name === "workspace.command.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"read:repository",cli:null})
+})

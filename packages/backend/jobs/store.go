@@ -237,6 +237,17 @@ func (store *Store) Get(ctx context.Context, scope Scope, operationID string) (O
 	return queryOperation(ctx, store.pool, scope, operationID, false)
 }
 
+// GetInTx reads the scoped operation inside the caller's transaction.
+func (store *Store) GetInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID string) (Operation, error) {
+	if tx == nil {
+		return Operation{}, errors.New("jobs: transaction is required")
+	}
+	if err := scope.validate(); err != nil {
+		return Operation{}, err
+	}
+	return queryOperation(ctx, tx, scope, operationID, false)
+}
+
 // GetByRequest reconnects a caller-visible idempotency key to its durable
 // operation without crossing the tenant/principal/operation boundary.
 func (store *Store) GetByRequest(ctx context.Context, scope Scope, operation, requestID string) (Operation, error) {
