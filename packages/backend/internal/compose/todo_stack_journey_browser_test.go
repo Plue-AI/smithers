@@ -199,6 +199,8 @@ func runStackJourney(t *testing.T, check, script string) stackJourneyRun {
 	if os.Getenv("SMITHERS_STACK_JOURNEY_BROWSER") != "1" {
 		t.Skip("set SMITHERS_STACK_JOURNEY_BROWSER=1 for the composed C-J4-02 and C-J7-01 browser journeys")
 	}
+	// Git fallback state must belong to this install, including concurrent lanes.
+	t.Setenv("TMPDIR", t.TempDir())
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
 	defer cancel()
 	_, _, pool := splitProcessDatabase(t)
