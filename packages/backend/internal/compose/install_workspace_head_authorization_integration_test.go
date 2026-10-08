@@ -54,13 +54,14 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	run := f.token(f.owner, "head-run", "write:repository,"+middleware.RepositoryRestrictionScope(f.repoID), true)
 	external := f.token(f.owner, "head-external", "write:repository,via:codex", true)
 	children := f.token(f.owner, "head-children", scopes+","+middleware.WorkspaceChildrenCredentialScope(), true)
+	readOnly := f.token(f.owner, "head-read-only", strings.ReplaceAll(scopes, "write:repository", "read:repository"), true)
 	for _, cell := range []struct {
 		name, token, workspace string
 		status                 int
 		decisions              int
 	}{
 		{"machine own", machine, own.ID, 200, 1}, {"unrecorded", unrecorded, own.ID, 403, 1}, {"machine other", machine, other.ID, 403, 1},
-		{"run", run, own.ID, 403, 1}, {"delegated", external, own.ID, 403, 1}, {"session", "", own.ID, 403, 1}, {"children", children, own.ID, 403, 1},
+		{"run", run, own.ID, 403, 1}, {"delegated", external, own.ID, 403, 1}, {"session", "", own.ID, 403, 1}, {"children", children, own.ID, 403, 1}, {"missing write scope", readOnly, own.ID, 403, 1},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/head", cell.workspace), strings.NewReader(`{"change_id":"new-change","commit_id":"new-commit","ahead":2,"behind":0}`))

@@ -23,7 +23,7 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 	f := presenceInstall(t)
 	q := db.New(f.pool)
 	ctx := t.Context()
-	service := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool))
+	service := services.NewWorkspaceService(q, services.WithWorkspaceInstallAuthorization(q), services.WithWorkspaceTransactions(f.pool))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
@@ -81,10 +81,13 @@ func TestInstallWorkspaceSystemActionsPostgres(t *testing.T) {
 		{"other workspace head", "POST", "/api/repos/presence-owner/app/workspaces/" + other.ID + "/head", head, `{}`},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
-			status, body, _ := call(cell.method, cell.path, cell.credential, cell.body)
+			status, body, decisions := call(cell.method, cell.path, cell.credential, cell.body)
 			require.Equal(t, 403, status, body)
 			require.Contains(t, body, `"class":"permission"`)
 			require.Contains(t, body, `"code":"permission"`)
+			if strings.HasSuffix(cell.path, "/head") {
+				require.Equal(t, []string{"workspace.head"}, decisions)
+			}
 			if cell.name == "children cannot report head" {
 				require.Contains(t, body, "Workspace credential required")
 			}

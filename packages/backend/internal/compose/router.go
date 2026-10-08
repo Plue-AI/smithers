@@ -700,7 +700,14 @@ func buildRouter(
 				// machine credentials receive the install's typed permission verdict.
 				headReport = append([]func(http.Handler) http.Handler{middleware.RequireAuth, memberCommands(queries)}, vmProvision[1:]...)
 			}
-			r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
+			publisherReport := headReport
+			if config.IsSingleOwner(cfg.Auth) {
+				// ReportWorkspaceHead binds the decoded report and stored publisher
+				// in Authorize, including write scope. A coarse scope gate here
+				// would preempt that single typed decision for children credentials.
+				publisherReport = append([]func(http.Handler) http.Handler{middleware.RequireAuth, memberCommands(queries)}, vmProvision[2:]...)
+			}
+			r.With(publisherReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/head", workspaceHandler.ReportWorkspaceHead)
 			if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 				r.With(headReport...).Post("/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}", extras.Mythical.ReservedStackOperation)
 			}
