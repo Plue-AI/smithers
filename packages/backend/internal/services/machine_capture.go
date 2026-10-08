@@ -134,7 +134,7 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 	}
 	pending := MachineCapturePending{Head: capture.Head, Tree: capture.Tree, Base: capture.Base, Onto: head, Stale: !applied}
 	q := db.New(p.tx)
-	changed, needed := false, !applied
+	wake, needed := false, !applied
 	var retained *MachineCapturePending
 	if len(p.workspace.CapturePending) > 0 {
 		retained = new(MachineCapturePending)
@@ -187,6 +187,13 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 			continue
 		}
 		needed = true
+		// Keep the newest retained head, but wake the stack only when its
+		// pending work changes. A distinct event for the same tree is not a
+		// second edit. Returning to the candidate tree remains a transition.
+		previous := checks.Capture
+		if previous == nil || previous.Tree != pending.Tree || previous.Stale != pending.Stale || previous.Conflict != pending.Conflict || previous.ReconciledOnto != pending.ReconciledOnto || previous.ReconcileWaitID != pending.ReconcileWaitID {
+			wake = true
+		}
 		checks.Capture = &pending
 		checks.Land = nil
 		item.CandidateVerified = false
@@ -194,7 +201,6 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 		if _, err = q.SaveMythicalItem(ctx, item); err != nil {
 			return err
 		}
-		changed = true
 	}
 	var raw []byte
 	if needed {
@@ -206,7 +212,7 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 	if _, err = p.tx.Exec(ctx, `UPDATE workspaces SET capture_pending=$2,updated_at=NOW() WHERE id=$1`, p.workspace.ID, raw); err != nil {
 		return err
 	}
-	if changed {
+	if wake {
 		rows, err := q.RequestMythicalStack(ctx, p.workspace.RepositoryID)
 		if err != nil {
 			return err

@@ -23,14 +23,23 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
 
 // Real one-connection PostgreSQL pool, native host repository and authenticated
 // wire consumer and real capture projection. Only the guest is a fixture;
 // this does not claim the unfinished TODO recovery workflow is activated.
-func TestMachineCaptureTransactionBinding(t *testing.T) {
-	b := newRelayBoxes(t)
+func TestMachineCaptureTransactionBinding(t *testing.T) { testMachineCaptureProjection(t, false) }
+
+// The production authenticated dispatcher, native object store and PostgreSQL
+// project captures into the same durable pending-work record the stack consumes.
+// The remote wire peer is scripted; real-VM qualification remains separate.
+func TestMachinedCapturePendingWork(t *testing.T) { testMachineCaptureProjection(t, true) }
+
+func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
+	isolated, _ := postgresfixture.NewProductDatabase(t)
+	b := newRelayBoxesIn(t, isolated)
 	branch := b.box(b.repo, b.machines, "running", b.owner)
 	other := b.box(b.other, b.machines, "running", b.owner)
 	config, err := pgxpool.ParseConfig(b.pool.Config().ConnString())
@@ -296,6 +305,9 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 		require.Equal(t, base, git("", "rev-parse", "refs/smithers/branches/"+branch+"/reconciliations/06000000-0000-0000-0000-000000000000/old"))
 	})
 
+	if !pendingOnly {
+		return
+	}
 	t.Run("TODO verification follows captured bytes", func(t *testing.T) {
 		todoBranch := b.box(b.repo, b.machines, "running", b.owner)
 		todoRef := "refs/smithers/branches/" + todoBranch + "/head"
@@ -383,6 +395,16 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 		ack(todoPeer, 9, machined.AckDuplicate)
 		require.Equal(t, updated.Version, read().Version)
 		require.Equal(t, beforeGeneration+1, generation())
+		// A new event and commit with the same pending tree retains the new
+		// head without waking the TODO again. Event replay is not the only
+		// source of duplicate observations.
+		sameTree := wire.Captured{Head: git("same bytes, new snapshot\n", "commit-tree", changed.Tree, "-p", changed.Head), Tree: changed.Tree, Base: changed.Head}
+		send(todoPeer, event(90, 90, sameTree))
+		ack(todoPeer, 90, machined.AckApplied)
+		require.Equal(t, beforeGeneration+1, generation(), "identical pending tree is not another edit")
+		require.NoError(t, json.Unmarshal(checks(read())["capture"], &work))
+		require.Equal(t, sameTree.Head, work.Head, "retain the newest snapshot even without another wakeup")
+		changed = sameTree
 		// Equal bytes later still need fresh verification after invalidation.
 		equalAgain := wire.Captured{Head: git("restored\n", "commit-tree", first.Tree, "-p", changed.Head), Tree: first.Tree, Base: changed.Head}
 		send(todoPeer, event(10, 23, equalAgain))
