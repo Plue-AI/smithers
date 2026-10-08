@@ -289,7 +289,7 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision, subject)))
 				return
 			}
-			if command == "workspace.services.list" || command == "workspace.preview.update" || command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
+			if command == "box.services" && r.Method == http.MethodPost && strings.Count(r.URL.Path, "/") == 9 || command == "workspace.services.list" || command == "workspace.preview.update" || command == "branch.read" && strings.HasSuffix(r.URL.Path, "/visibility") {
 				admitInstallWorkspaceServices(w, r, queries, command, next)
 				return
 			}

@@ -12,6 +12,7 @@ import (
 // map to their command; anything else is the owner's alone.
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
+		{http.MethodPost, "/api/repos/local-owner/demo/workspaces/owned/services/web/restart", "box.services"},
 		{http.MethodGet, "/api/repos/local-owner/demo/workspaces/owned/services", "workspace.services.list"},
 		{http.MethodPost, "/api/repos/local-owner/demo/labels", "labels.create"},
 		{http.MethodPatch, "/api/repos/local-owner/demo/labels/12", "labels.update"},
@@ -261,5 +262,17 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/install/scorecard", "install.scorecard"},
 	} {
 		assert.Equal(t, tc.command, InstallMemberCommand(tc.method, tc.path), "%s %s", tc.method, tc.path)
+	}
+}
+
+// Parallel route migrations must never leave two policies for one exact door.
+func TestInstallMemberRoutePatternsAreUnique(t *testing.T) {
+	seen := map[string]string{}
+	for _, route := range installMemberRoutes {
+		key := route.method + " " + route.path.String()
+		if previous, ok := seen[key]; ok {
+			t.Errorf("duplicate route %s: %s and %s", key, previous, route.command)
+		}
+		seen[key] = route.command
 	}
 }

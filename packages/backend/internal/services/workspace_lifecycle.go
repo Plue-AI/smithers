@@ -802,6 +802,9 @@ func isWorkspaceGuestNotReady(err error) bool {
 // The install's retained wake uses the same admission and guest-boundary
 // providers as fresh creation. The actual slot is acquired by the start context.
 func (s *WorkspaceService) authorizeWorkspaceResume(ctx context.Context, row db.Workspace) error {
+	if err := guardWorkspaceRuntimeEffect(ctx); err != nil {
+		return err
+	}
 	if s.machineAdmission == nil {
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch wake requires admission and validated privileged entry")
 	}

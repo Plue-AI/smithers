@@ -453,6 +453,13 @@ func (s *WorkspaceService) listWorkspaceServices(ctx context.Context, workspaceI
 
 // ManageWorkspaceService starts, stops, or restarts one init-declared service.
 func (s *WorkspaceService) ManageWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (WorkspaceManagedService, error) {
+	if s != nil && s.installQueries != nil {
+		return s.manageInstallWorkspaceService(ctx, workspaceID, repositoryID, userID, serviceName, action)
+	}
+	return s.manageWorkspaceServiceRequest(ctx, workspaceID, repositoryID, userID, serviceName, action)
+}
+
+func (s *WorkspaceService) manageWorkspaceServiceRequest(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (WorkspaceManagedService, error) {
 	action = strings.ToLower(strings.TrimSpace(action))
 	switch action {
 	case "start", "stop", "restart":
@@ -486,6 +493,9 @@ func (s *WorkspaceService) manageWorkspaceService(ctx context.Context, workspace
 		if err != nil {
 			return WorkspaceManagedService{}, err
 		}
+		if err := s.guardWorkspaceServiceControl(ctx, repositoryID, userID); err != nil {
+			return WorkspaceManagedService{}, err
+		}
 		observed, err := controller.ManageService(runtimeCtx, row.ID, name, action)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -517,6 +527,9 @@ active=$(systemctl show --property=ActiveState --value -- "$unit")
 sub=$(systemctl show --property=SubState --value -- "$unit")
 port=$(workspace_service_port "$unit")
 printf '%%s\0%%s\0%%s\0%%s\0%%s\0' "$unit" "$load" "$active" "$sub" "$port"`, workspaceServicePortProbeCommand(), shellQuote(unit), shellQuote(unitPath), workspaceExecNotFound, action, workspaceExecServiceFailure)
+	if err := s.guardWorkspaceServiceControl(ctx, repositoryID, userID); err != nil {
+		return WorkspaceManagedService{}, err
+	}
 	response, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: command, TimeoutMS: workspaceFacetTimeoutPtr()})
 	if err != nil {
 		return WorkspaceManagedService{}, pkgerrors.Internal(action + " workspace service")

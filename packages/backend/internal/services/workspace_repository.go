@@ -58,6 +58,9 @@ type workspaceRepositoryReceipt struct {
 }
 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRepository(ctx context.Context, row db.Workspace, requesterID int64) error {
+	if err := guardWorkspaceRuntimeEffect(ctx); err != nil {
+		return err
+	}
 	if row.DiskReclaimedAt.Valid {
 		if err := s.verifyReclaimedWorkspaceSource(ctx, row); err != nil {
 			return err
@@ -490,6 +493,9 @@ func (s *WorkspaceService) writeRuntimeRepositoryReceipt(ctx context.Context, ro
 }
 
 func (s *WorkspaceService) runtimeRepositoryContext(ctx context.Context, row db.Workspace, requesterID int64, step string) (context.Context, error) {
+	if err := guardWorkspaceRuntimeEffect(ctx); err != nil {
+		return nil, err
+	}
 	operationCtx, err := s.workspaceRuntimeContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "repository-"+step))
 	if err != nil {
 		return nil, err

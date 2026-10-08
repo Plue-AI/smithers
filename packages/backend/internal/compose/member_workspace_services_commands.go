@@ -44,6 +44,8 @@ func admitInstallWorkspaceServices(w http.ResponseWriter, r *http.Request, q *db
 	var port uint64
 	if command == "workspace.services.list" {
 		subject = services.InstallWorkspaceServicesSubject(repository.ID, parts[5])
+	} else if command == "box.services" {
+		subject = services.InstallWorkspaceServiceControlSubject(repository.ID, parts[5], parts[7], parts[8])
 	} else {
 		port, err = strconv.ParseUint(parts[7], 10, 16)
 		if err != nil || port == 0 {

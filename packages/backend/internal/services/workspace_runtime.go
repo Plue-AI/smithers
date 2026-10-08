@@ -136,6 +136,9 @@ func (s *WorkspaceService) workspaceRuntimeContext(ctx context.Context, row db.W
 // workspaceStartContext is the shared per-start admission boundary; arbitrary
 // operation IDs used by reads or commands never request a machine.
 func (s *WorkspaceService) workspaceStartContext(ctx context.Context, row db.Workspace, requesterID int64, operationID string) (context.Context, error) {
+	if err := guardWorkspaceRuntimeEffect(ctx); err != nil {
+		return nil, err
+	}
 	if s.machineAdmission == nil {
 		return s.workspaceRuntimeContext(ctx, row, requesterID, operationID)
 	}
@@ -322,6 +325,10 @@ func lostWorker(err error) bool {
 // runtimeOperationError types a failed runtime call: a lost worker is an
 // infrastructure fault the user retries elsewhere, not a product bug.
 func runtimeOperationError(operation string, err error) error {
+	var access *AccessError
+	if errors.As(err, &access) {
+		return access
+	}
 	if lost := lostWorkerError(err); lost != nil {
 		return lost
 	}

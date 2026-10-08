@@ -698,7 +698,6 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "denied", regexp.MustCompile(`^/api/orgs/[^/]+$`)},
 	{http.MethodGet, "denied", regexp.MustCompile(`^/api/orgs/[^/]+/provider-connections$`)},
 	{http.MethodPost, "labels.create", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/issues/[^/]+/labels$`)},
-	{http.MethodGet, "box.services", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/services$`)},
 	{http.MethodPatch, "denied", regexp.MustCompile(`^/api/orgs/[^/]+/teams/[^/]+$`)},
 	{http.MethodDelete, "box.images", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/environment-images/[^/]+$`)},
 	{http.MethodPost, "repo.create", regexp.MustCompile(`^/api/repos/from-template$`)},
