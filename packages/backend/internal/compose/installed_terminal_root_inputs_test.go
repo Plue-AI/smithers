@@ -86,6 +86,30 @@ for p in (a, saved):
 
 func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch string, ben http.CookieJar) {
 	t.Helper()
+	// Repeat the HTTP root-input matrix with every real provider composed.
+	// Record the token high-water mark so concurrent cleanup cannot disguise
+	// a newly minted credential behind a decreased total row count.
+	var highWater int64
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT coalesce(max(id),0) FROM access_tokens`).Scan(&highWater))
+	requests := &rehearsal{ctx: t.Context(), origin: h.origin, jar: ben, client: h.client}
+	for _, field := range []string{
+		`"uid":0`, `"uid":19999`, `"owner":0`, `"member":0`,
+		`"login":"root"`, `"login":"../ben"`, `"login":"alice"`,
+		`"session":"../foreign"`, `"run":"foreign-run"`,
+		`"argv":["/workspace/trm-startup.py"]`, `"shell":"/workspace/trm-startup.py"`,
+		`"environment":{"LD_PRELOAD":"/workspace/trm-startup.so","BASH_ENV":"/workspace/trm-startup.py"}`,
+		`"cwd":"/root"`, `"token_file":"/run/smithers/20002/token/sessions/foreign/token"`,
+		`"cols":0`, `"rows":65536`,
+	} {
+		t.Run("native HTTP refuses "+field, func(t *testing.T) {
+			code, body, err := requests.keyedAs(ben, "POST", "/api/terminals", fmt.Sprintf(`{"branch":%q,%s}`, branch, field), uuid.NewString())
+			require.NoError(t, err)
+			require.Equal(t, 400, code, string(body))
+		})
+	}
+	var minted int
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE id>$1 AND name LIKE 'terminal-session-%'`, highWater).Scan(&minted))
+	require.Zero(t, minted, "invalid native HTTP requests minted terminal credentials")
 	a := installedMemberTerminal(t, h, branch, ben)
 	installedShell(t, a, `test "$(id -u)" = 20001 && test ! -e "$HOME/.trm-profile-saved" && if test -e "$HOME/.bash_profile"; then mv "$HOME/.bash_profile" "$HOME/.trm-profile-saved"; fi`)
 	// The canary and rc are member-written inputs. They never become a packaged

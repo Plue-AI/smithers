@@ -72,12 +72,14 @@ func testInstalledTerminalOwnerWatch(t *testing.T, h *rootLayerHarness, branch s
 	installedShell(t, aliceOwner, `test "$(id -u)" = 20002 && test "$HOME" = /home/alice`)
 	// Removing Alice must close both her watching attachment and her own PTY;
 	// Ben's session must continue with the same identity.
-	h.expect("DELETE", "/api/members/alice", "", 204)
+	removedAt := time.Now()
 	deadline := time.NewTimer(5 * time.Second)
+	h.expect("DELETE", "/api/members/alice", "", 204)
 	defer deadline.Stop()
 	for _, term := range []*rehearsalTerminal{replay, aliceOwner} {
 		select {
 		case <-term.closed:
+			require.LessOrEqual(t, time.Since(removedAt), 5*time.Second)
 		case <-deadline.C:
 			t.Fatal("member removal failed to revoke terminal within 5 seconds")
 		}
