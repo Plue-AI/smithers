@@ -118,14 +118,22 @@ describe("approval bridge", () => {
   })
 
   it("closes while a child holds an unfinished question", async () => {
-    const bridge = await ApprovalBridge.serve(recording(async () => true).store)
+    const { store, asked } = recording(async () => true)
+    const bridge = await ApprovalBridge.serve(store)
     const { path } = address(bridge.environment)
     const socket = Net.createConnection(path).resume()
+    // Destroying the server with unread question bytes can reset the peer.
+    // Observe that expected transport refusal rather than leaving an unhandled
+    // client error; any other transport error still fails this test.
+    const errors: Array<NodeJS.ErrnoException> = []
+    socket.on("error", (error) => errors.push(error))
     await new Promise((resolve) => socket.once("connect", resolve))
     const dropped = new Promise((resolve) => socket.once("close", resolve))
     socket.write("{\"token\":")
     await bridge.close()
     await dropped
+    expect(errors.every((error) => error.code === "ECONNRESET")).toBe(true)
+    expect(asked).toEqual([])
   })
 
   it("rejects an answer that is not a verdict", async () => {
