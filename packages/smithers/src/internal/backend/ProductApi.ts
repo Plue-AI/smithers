@@ -1598,6 +1598,12 @@ export interface PutApiAgentsRoleModelInput {
 export const putApiAgentsRoleModel = (transport: Transport, input: PutApiAgentsRoleModelInput): Promise<PutApiAgentsRoleModelResponse> =>
   transport.request("PUT", `/api/agents/${segment(input.path.role)}/model`, input.body) as Promise<PutApiAgentsRoleModelResponse>
 
+export type GetApiAuthSessionResponse = AnyJSON
+
+/** GET /api/auth/session: Read the install sign-in session */
+export const getApiAuthSession = (transport: Transport): Promise<GetApiAuthSessionResponse> =>
+  transport.request("GET", `/api/auth/session`) as Promise<GetApiAuthSessionResponse>
+
 export type GetApiAuthAuth0AuthorizeResponse = AnyJSON
 
 /** GET /api/auth/auth0/authorize */

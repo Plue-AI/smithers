@@ -3086,6 +3086,13 @@ func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body an
 	return out, err
 }
 
+// GetAPIAuthSession calls GET /api/auth/session.
+func (c *Client) GetAPIAuthSession(ctx context.Context) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "GET", "/api/auth/session", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIAuthAuth0Authorize calls GET /api/auth/auth0/authorize.
 func (c *Client) GetAPIAuthAuth0Authorize(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON

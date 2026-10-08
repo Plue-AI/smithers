@@ -1629,6 +1629,30 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+  /api/auth/session:
+    get:
+      x-composition: install
+      summary: Read the install sign-in session
+      operationId: get_api_auth_session
+      tags:
+        - Authentication
+      security:
+        - {}
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Null for a signed-out or expired browser session; otherwise the authenticated user's own profile. Cache-Control is no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/auth/auth0/authorize:
     get:
       summary: GET /api/auth/auth0/authorize
