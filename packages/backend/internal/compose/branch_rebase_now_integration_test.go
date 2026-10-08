@@ -44,14 +44,18 @@ func (h *rebaseAdmissionHost) InfoRefs(context.Context, string, string, string, 
 }
 
 func TestBranchRebaseNowComposedAdmission(t *testing.T) {
-	testBranchRebaseNowComposedAdmission(t, false)
+	testBranchRebaseNowComposedAdmission(t, false, false)
 }
 
 func TestTodoRebaseSourceTransitionLiteralCases(t *testing.T) {
-	testBranchRebaseNowComposedAdmission(t, true)
+	testBranchRebaseNowComposedAdmission(t, true, false)
 }
 
-func testBranchRebaseNowComposedAdmission(t *testing.T, sources bool) {
+func TestTodoBringSourceTransitionLiteralCases(t *testing.T) {
+	testBranchRebaseNowComposedAdmission(t, false, true)
+}
+
+func testBranchRebaseNowComposedAdmission(t *testing.T, sources, bringSources bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx, q := t.Context(), db.New(pool)
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "pin-owner", LowerUsername: "pin-owner", DisplayName: "Owner"})
@@ -128,6 +132,11 @@ func testBranchRebaseNowComposedAdmission(t *testing.T, sources bool) {
 		return res.StatusCode, data
 	}
 	call := func(key string) (int, map[string]any) { return callBody(key, `{"rebase":true}`) }
+	if bringSources {
+		proveTodoBringSourceCases(t, pool, q, item, repo.ID, owner.ID, onto, head, origin, callBody)
+		require.False(t, host.touched.Load(), "Bring in admission never waits for repository transport")
+		return
+	}
 	if sources {
 		for _, c := range []struct {
 			state, engine                        string

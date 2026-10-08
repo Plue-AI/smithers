@@ -95,7 +95,7 @@ func (s *MythicalService) requestForeignBring(ctx context.Context, tx pgx.Tx, q 
 		}
 	}
 	*receipt = TodoControlReceipt{State: "accepted", Number: item.Number.Int64}
-	if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.foreign_bring-in", *receipt, map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait, "sha": input.Revision, "by": todoActorRef(ctx, person), "onto": checks.ForeignBring.Onto}); err != nil {
+	if err := s.recordTodoControl(ctx, tx, saved, input, credential, "todo.foreign_bring-in", *receipt, map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait, "sha": input.Revision, "by": todoActorRef(ctx, person), "actor": todoActor(ctx, person), "from": todoState(item), "to": todoState(saved), "onto": checks.ForeignBring.Onto}); err != nil {
 		return err
 	}
 	_, err = q.RequestMythicalStack(ctx, item.RepositoryID)
