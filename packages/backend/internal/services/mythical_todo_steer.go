@@ -408,8 +408,9 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	}
 	next, attempt := item, item.Attempt
 	fenced := mythicalMergeFenced(item)
-	deliver := todoSteerReady(item)
-	if todoReopenedAttempt(item) && item.State == "proposed" {
+	awaits := todoReviewAwaitsAttempt(item)
+	deliver := todoSteerReady(item) && !awaits
+	if awaits {
 		if _, pinned := mythicalPinOf(item); !pinned {
 			return item, todoSteer{}, false, false, todoControlUnavailable()
 		}

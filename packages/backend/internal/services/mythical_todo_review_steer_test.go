@@ -1,0 +1,114 @@
+package services
+
+import (
+	"encoding/json"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/stretchr/testify/require"
+)
+
+// The todo composition hands its candidate to the stack and ends, so an
+// in_review TODO usually has no live run. Work input must start the next
+// attempt with that input first; reviving the ended run failed the TODO as
+// no_proposal. The dispatcher and stack pass are real; no machine runs.
+func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
+	for _, kind := range []string{"steer", "amend", "review"} {
+		t.Run(kind, func(t *testing.T) {
+			o, synced, row, item := newReviewConsumer(t)
+			pool := o.pool.(*pgxpool.Pool)
+			q := db.New(pool)
+			ctx := t.Context()
+			item.CandidateHead = o.hostRef("refs/heads/main")
+			item.CandidateBase, item.PRHead = item.CandidateHead, item.CandidateHead
+			item.CandidateVerified, item.PRState = true, "open"
+			item.RequestOutcome = "completed"
+			checks := mythicalChecksOf(item)
+			checks.FlowSource = o.landedMain()
+			item.Checks = checks.encode()
+			item, err := q.SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			require.Equal(t, "in_review", todoState(item))
+			peer := &todoRuntimeHost{digest: item.FlowDigest.String, source: checks.FlowSource}
+			_, startWorker := o.runDispatcher(t, peer.resolver(t))
+			session := registerTestInstallCredential(t, o.pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "review-person"}), o.repoID)
+			text := "Use the backoff helper"
+			send := func() error {
+				switch kind {
+				case "steer":
+					_, err := o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Repository: o.repoID, Actor: o.userID, Request: "review-work", Steer: &text})
+					return err
+				case "amend":
+					_, err := o.service.AmendTodo(session, item.Number.Int64, TodoAmendInput{Repository: o.repoID, Actor: o.userID, Request: "review-work", Prompt: text})
+					return err
+				}
+				return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+					_, err := synced.install.consumers[gitHubReviews](ctx, tx, reviewFact(row, 77, "changes", "CHANGES_REQUESTED"))
+					return err
+				})
+			}
+			require.NoError(t, send())
+			require.NoError(t, send(), "replay must not create another attempt")
+			queued := o.byID(uuidString(item.ID))
+			require.Equal(t, "queued", queued.State, "the ended run is never revived")
+			require.Equal(t, item.Attempt, queued.Attempt, "only durable launch advances the attempt")
+			require.Equal(t, 0, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`), "nothing is sent to the ended run")
+			feedback := mythicalChecksOf(queued).Steers
+			require.Len(t, feedback, 1)
+			require.Equal(t, item.Attempt+1, feedback[0].Attempt)
+			require.True(t, feedback[0].ReleasePending)
+			o.wake()
+			started := o.byID(uuidString(item.ID))
+			require.Equal(t, "starting", todoState(started), started.Reason)
+			require.Equal(t, item.Attempt+1, started.Attempt)
+			require.Empty(t, started.RequestOutcome)
+			var raw []byte
+			require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&raw))
+			launch := decodeJSON(t, raw)
+			require.Equal(t, item.FlowDigest.String, launch["pin"].(map[string]any)["executionDigest"], "the next attempt keeps its pin")
+			require.Contains(t, string(raw), text)
+			startWorker()
+			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)
+			peer.mu.Lock()
+			launches, _ := json.Marshal(peer.launches)
+			steers := len(peer.steers)
+			peer.mu.Unlock()
+			require.Contains(t, string(launches), text, "the input is the new run's first message")
+			require.Zero(t, steers)
+			require.NoError(t, send())
+			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`))
+		})
+	}
+}
+
+// A live run held for review keeps RequestOutcome empty and is steered in
+// place; an ended run behind a merge fence holds the input for the next attempt.
+func TestInReviewSteerDestinationFollowsRunLiveness(t *testing.T) {
+	live, input, ctx := steerFixture()
+	live.State = "proposed"
+	next, feedback, deliver, _, err := prepareTodoSteer(ctx, live, input, nil, nil, time.Now())
+	require.NoError(t, err)
+	require.True(t, deliver)
+	require.Equal(t, "running", next.State)
+	require.Equal(t, live.Attempt, feedback.Attempt)
+
+	ended := live
+	ended.RequestOutcome = "completed"
+	ended.PendingOp = json.RawMessage(`{"kind":"merge","target":"3","desired":"cccccccccccccccccccccccccccccccccccccccc","state":"intended"}`)
+	next, feedback, deliver, _, err = prepareTodoSteer(ctx, ended, input, nil, nil, time.Now())
+	require.NoError(t, err)
+	require.False(t, deliver)
+	require.True(t, feedback.ReleasePending)
+	require.Equal(t, ended.Attempt+1, feedback.Attempt)
+	require.Equal(t, "proposed", next.State, "the fence keeps the candidate")
+	require.True(t, next.CandidateVerified)
+	next.PendingOp = nil // the merge was refused; the worker releases the input
+	queued, _, err := (&mythicalItemStep{}).advance(ctx, next)
+	require.NoError(t, err)
+	require.Equal(t, "queued", queued.State)
+	require.False(t, queued.CandidateVerified)
+}

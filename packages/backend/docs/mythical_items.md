@@ -172,6 +172,13 @@ the new launch; nothing is sent to the closed run. Replays do not create another
 attempt, and late checkpoints from the dropped run cannot replace the restored
 candidate. A Steer held behind a merge fence waits for reconciliation.
 
+The same rule covers an in_review TODO whose pinned run has ended: the `todo`
+composition hands its candidate to the stack and finishes, so `RequestOutcome`
+is set while the PR is open. Its first Steer, Amend or member review input
+queues the next attempt on the stored pin with that input first. Reviving the
+ended run would fail the TODO as `factory/no_proposal`. A run still live in
+review keeps `RequestOutcome` empty and receives the steer in place.
+
 Admission records the new attempt and its flow pin in `checks.attempts` in the
 same transaction as its durable launch. Its run id remains empty until the
 runtime binds a run; a failed admission leaves no attempt snapshot.

@@ -196,7 +196,7 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				continue
 			}
 			effect := decision.Review
-			reopened := (priorSteer < 0 || held) && effect.Input == "steer" && todoReopenedAttempt(item) && item.State == "proposed"
+			reopened := (priorSteer < 0 || held) && effect.Input == "steer" && todoReviewAwaitsAttempt(item)
 			_, ready := s.launcher.(mythicalSteerer)
 			if effect.Input == "steer" || effect.Input == "hold" {
 				if !s.todoSteering || s.todoFlow == nil || !ready {

@@ -1915,7 +1915,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	}
 
-	if item.State == "proposed" && todoReopenedAttempt(item) && !mythicalMergeFenced(item) && !item.PausedAt.Valid {
+	if todoReviewAwaitsAttempt(item) && !mythicalMergeFenced(item) && !item.PausedAt.Valid {
 		for _, feedback := range mythicalChecksOf(item).Steers {
 			if feedback.ReleasePending && feedback.Attempt == item.Attempt+1 {
 				next := queueReopenedTodo(item)
