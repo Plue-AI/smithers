@@ -145,6 +145,9 @@ const daemonProvider = (
         if (exit !== 0 || reply.writes.length !== changes.length) return yield* unavailable()
         return
       }
+      // A singleton error cannot establish a batch preflight refusal or name
+      // its stopped path. Require the batch receipt before reporting stale.
+      if (batch) return yield* unavailable()
       if ("error" in reply) {
         const error = reply.error
         if (exit === 0 || typeof error !== "object" || error === null || !("code" in error)) {
@@ -162,7 +165,6 @@ const daemonProvider = (
         ) return yield* unavailable()
         return yield* stale(change.path, change.base_digest, current)
       }
-      if (batch) return yield* unavailable()
       if (
         exit !== 0 || !("post_digest" in reply) || reply.post_digest !== digest(change.content!)
       ) return yield* unavailable()

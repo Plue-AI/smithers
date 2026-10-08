@@ -477,7 +477,9 @@ test("installed coding std tools use daemon single and batch clients and validat
           { writes: [{ path: "moved", post_digest: hello }], failure: { index: 0, preflight: true, code: 4 } },
           { writes: [{ path: "wrong", post_digest: hello }] },
           { writes: [{ path: "moved", post_digest: hello, raced: "bad" }] },
-          { writes: [] }
+          { writes: [] },
+          { error: { code: "stale", current_digest: world } },
+          { error: { code: "moved_off" } }
         ]
       ) {
         reply = JSON.stringify(body)

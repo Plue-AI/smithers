@@ -128,7 +128,7 @@ func workspaceFileInstallFixture(t *testing.T, wrap func(*writeReplyRuntime) wor
 	return server, provider, pool, id, cookie
 }
 
-func TestWorkspaceWriteReplyInstall(t *testing.T) {
+func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 	server, provider, pool, id, cookie := workspaceFileInstallFixture(t, nil)
 	origin := server.URL
 	ctx := t.Context()
@@ -362,14 +362,70 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 			}
 			return link.RequireReady(branch)
 		}}
+		// Two authenticated people use the same composed GET/PUT door. The
+		// daemon is real; user namespaces are not fresh/retained Mac evidence.
+		q := db.New(pool)
+		member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "digestmember", LowerUsername: "digestmember"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, row.RepositoryID, member.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, id, ownerID, member.ID)
+		require.NoError(t, err)
+		const memberCookie = "digest-member-cookie"
+		memberHash := sha256.Sum256([]byte(memberCookie))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		call := func(method, actorCookie, body string, status int) []byte {
+			t.Helper()
+			req, err := http.NewRequest(method, server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=real.txt", strings.NewReader(body))
+			require.NoError(t, err)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", origin)
+			req.Header.Set("X-CSRF-Token", "digest-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "digest-csrf"})
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: actorCookie})
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			data, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+			require.NoError(t, res.Body.Close())
+			require.Equal(t, status, res.StatusCode, string(data))
+			return data
+		}
 		const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+		const worldDigest = "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"
+		call("PUT", cookie, `{"content":"hello","base_digest":"absent"}`, 200)
+		before := call("GET", cookie, "", 200)
+		require.Contains(t, string(before), `"digest":"`+helloDigest+`"`)
+		require.Contains(t, string(before), `"content":"hello"`)
+		call("PUT", memberCookie, `{"content":"world","base_digest":"`+helloDigest+`"}`, 200)
+		refused := call("PUT", cookie, `{"content":"lost update","base_digest":"`+helloDigest+`"}`, 409)
+		require.JSONEq(t, `{"code":"stale","current_digest":"`+worldDigest+`"}`, string(refused))
+		for _, body := range []string{
+			`{"content":"blind"}`,
+			`{"content":"blind","base_digest":"` + worldDigest + `","actor":"owner"}`,
+			`{"content":"blind","base_digest":"` + worldDigest + `","branch":"main"}`,
+			`{"content":"blind","base_digest":"` + worldDigest + `","machine":"fixture"}`,
+			`{"content":"blind","base_digest":"` + worldDigest + `","uid":0}`,
+		} {
+			call("PUT", cookie, body, 400)
+		}
+		after := call("GET", cookie, "", 200)
+		require.Contains(t, string(after), `"content":"world"`)
+		require.Contains(t, string(after), `"digest":"`+worldDigest+`"`)
+		disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
+		require.NoError(t, err)
+		require.Equal(t, []byte("world"), disk)
+		// Restore the fixture through the same guarded door before running
+		// independent outside-replacement and provider-loss checks below.
+		call("PUT", cookie, `{"content":"hello","base_digest":"`+worldDigest+`"}`, 200)
 		for _, check := range []struct {
 			body         string
 			status       int
 			outside      bool
 			want, digest string
 		}{
-			{`{"content":"hello","base_digest":"absent"}`, 200, false, "hello", helloDigest},
+
 			{`{"content":"must not land","base_digest":"absent"}`, 409, false, "hello", helloDigest},
 			{`{"content":"must not replace outside","base_digest":"` + helloDigest + `"}`, 409, true, "world", "486ea46224d1bb4fb680f34f7c9ad96a8f24ec88be73ea8e5a6c65260e9cb8a7"},
 		} {
@@ -434,7 +490,7 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 503, response.StatusCode, string(body))
-		disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
+		disk, err = os.ReadFile(filepath.Join(root, "real.txt"))
 		require.NoError(t, err)
 		require.Equal(t, "outside", string(disk))
 	})
