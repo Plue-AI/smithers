@@ -138,6 +138,7 @@ describe("Cut app surfaces", () => {
       fetchImpl: async input => {
         const path = new URL(String(input), "http://local.test").pathname
         if (path === "/api/install") return new Response(null, { status: 404 })
+        if (path === "/api/todos") return Response.json({ todos: [] })
         if (path === "/api/members") return Response.json({ members: [] })
         if (path === "/api/conversations/main") return new Response(null, { status: 404 })
         requests.push(path)
@@ -154,7 +155,7 @@ describe("Cut app surfaces", () => {
     expect((await controller.commands.runForAgent("debug.backend", "--health")).status).not.toBe("executed")
     const result = await controller.commands.run("debug.backend", "--health")
     expect(result).toMatchObject({ status: "executed", value: JSON.stringify(health) })
-    // Signing in refreshes install status, members and the main conversation independently.
+    // Signing in refreshes install status, members, TODOs and the main conversation independently.
     expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/admin/system/health"])
     expect([...store.collections.cards.values()].some(card => String(card.kind) === "admin-health")).toBe(false)
     expect([...store.collections.messages.values()].some(message => message.text.includes("Seam health"))).toBe(true)
