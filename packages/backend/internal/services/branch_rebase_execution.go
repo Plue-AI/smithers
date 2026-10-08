@@ -22,6 +22,16 @@ func (s *MythicalService) SetBranchRebaseExecutor(executor BranchRebaseExecutor)
 }
 
 func (st *mythicalItemStep) lockNativeRebase(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string) error {
+	return st.lockNativeRebaseState(ctx, tx, item, onto, true)
+}
+
+// Execution requires an awake machine. After its immutable capture is
+// acknowledged, verification may retire a review lane before admission.
+func (st *mythicalItemStep) lockNativeRebaseReceipt(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string) error {
+	return st.lockNativeRebaseState(ctx, tx, item, onto, false)
+}
+
+func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string, executing bool) error {
 	var live bool
 	if err := tx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
 		return err
@@ -50,12 +60,19 @@ func (st *mythicalItemStep) lockNativeRebase(ctx context.Context, tx pgx.Tx, ite
 	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
 		return errors.New("rebase binding changed")
 	}
-	var status string
-	if err := tx.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status); err != nil {
+	var status, head string
+	if err := tx.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status, &head); err != nil {
 		return err
 	}
-	if status != "running" {
-		return machined.ErrNotReady
+	if executing {
+		if status != "running" {
+			return machined.ErrNotReady
+		}
+	} else {
+		pending := mythicalChecksOf(current).Rebase
+		if pending == nil || pending.Native == nil || !pending.Native.Inspected || len(pending.Native.Paths) != 0 || pending.Native.Head != head || (status != "running" && status != "stopped" && status != "suspended") {
+			return machined.ErrNotReady
+		}
 	}
 	if !st.s.mayExecuteRequestedRebase(ctx, current, onto) && !st.s.mayRebaseItemAtBoundary(ctx, current) {
 		return errors.New("rebase authority changed")

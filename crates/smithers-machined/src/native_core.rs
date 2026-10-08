@@ -376,7 +376,12 @@ impl Core for NativeCore {
         Ok(())
     }
     fn rebase(&self, _: &mut LockCx, onto: Oid) -> hooks::Result<Oid> {
-        self.native.rebase(onto).map_err(hook)
+        let change = self
+            .item
+            .as_ref()
+            .filter(|item| item.number > 0)
+            .map(|item| item.change.as_str());
+        self.native.rebase_bound(onto, change).map_err(hook)
     }
 
     fn rebase_paths(&self, head: Oid) -> hooks::Result<Option<Vec<String>>> {

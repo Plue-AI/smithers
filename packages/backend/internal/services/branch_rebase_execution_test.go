@@ -16,11 +16,13 @@ import (
 // Only the daemon is substituted here to inject inspection/capture failures.
 // Native execution is covered by the composed process rehearsal.
 type rebaseExecutionFixture struct {
-	f           *rebaseFixture
-	result      machined.RewriteResult
-	calls       int
-	captures    int
-	failCapture bool
+	f                *rebaseFixture
+	result           machined.RewriteResult
+	calls            int
+	captures         int
+	failCapture      bool
+	stopOnCapture    bool
+	wrongCaptureHead bool
 }
 
 func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, member int64, onto string, _ func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
@@ -42,14 +44,27 @@ func (r *rebaseExecutionFixture) Capture(ctx context.Context, branch string) (ma
 	if err != nil {
 		return machined.CaptureResult{}, err
 	}
+	if r.stopOnCapture {
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, branch)
+		if err != nil {
+			return machined.CaptureResult{}, err
+		}
+	}
+	if r.wrongCaptureHead {
+		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, branch, f.main)
+		if err != nil {
+			return machined.CaptureResult{}, err
+		}
+	}
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=false,checks=jsonb_set(checks,'{capture}',$2::jsonb) WHERE workspace_id=$1`, branch, raw)
 	return machined.CaptureResult{Head: head, Tree: tree}, err
 }
-func TestBranchRebaseNowOccupiedRecovery(t *testing.T) { testOccupiedRebase(t, nil) }
+func TestBranchRebaseNowOccupiedRecovery(t *testing.T) { testOccupiedRebase(t, nil, false) }
 func TestBranchRebaseNowOccupiedConflictHandoff(t *testing.T) {
-	testOccupiedRebase(t, []string{"SECOND.md"})
+	testOccupiedRebase(t, []string{"SECOND.md"}, false)
 }
-func testOccupiedRebase(t *testing.T, paths []string) {
+func TestBranchRebaseNowCapturedStoppedReceipt(t *testing.T) { testOccupiedRebase(t, nil, true) }
+func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool) {
 	f := newRebaseFixture(t)
 	first := f.candidate("First", f.main, "FIRST.md", "first\n")
 	f.wake()
@@ -74,7 +89,7 @@ func testOccupiedRebase(t *testing.T, paths []string) {
 	held := f.item(second.Number.Int64)
 	require.Equal(t, "rebase_pending", held.Reason)
 	head := f.git(f.hostDir, "commit-tree", f.hostTree(second.CandidateHead), "-p", f.main, "-m", "native rebase result")
-	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true, Paths: paths}, failCapture: true}
+	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true, Paths: paths}, failCapture: true, stopOnCapture: stopOnCapture}
 	f.service.SetBranchRebaseExecutor(executor)
 	_, err = f.service.RebaseBranch(session, f.repoID, f.userID, branch, BranchRebaseInput{Rebase: true, Request: "press"})
 	require.NoError(t, err)
@@ -109,6 +124,14 @@ func testOccupiedRebase(t *testing.T, paths []string) {
 	f.wake()
 	require.Equal(t, 1, executor.calls)
 	executor.failCapture = false
+	if stopOnCapture {
+		executor.wrongCaptureHead = true
+		f.wake()
+		require.NotEqual(t, "verifying", f.item(second.Number.Int64).State)
+		require.Equal(t, 0, f.verifies(f.item(second.Number.Int64)))
+		require.Equal(t, 1, executor.calls)
+		executor.wrongCaptureHead = false
+	}
 	f.wake()
 	next := f.item(second.Number.Int64)
 	require.Equal(t, "verifying", next.State, next.Reason)

@@ -3316,7 +3316,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
 	}
 	if native := mythicalChecksOf(item).Rebase; native != nil && native.Native != nil {
-		before = func(tx pgx.Tx) error { return st.lockNativeRebase(ctx, tx, item, onto) }
+		before = func(tx pgx.Tx) error { return st.lockNativeRebaseReceipt(ctx, tx, item, onto) }
 		rebase.Review, rebase.Land = nil, nil
 		if capture := rebase.Capture; capture != nil && capture.Head == rebased {
 			rebase.Capture = nil

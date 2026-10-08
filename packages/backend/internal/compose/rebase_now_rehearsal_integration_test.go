@@ -132,6 +132,9 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if card.State == "failed" {
+			return "", fmt.Errorf("T%d rebase verification blocked: %+v", n, card)
+		}
 		if card.State == "in_review" && card.PR.Head != before.PR.Head && card.Merge.State == "ready" {
 			pull, err := r.readFakePull(card.PR.Number)
 			if err != nil {

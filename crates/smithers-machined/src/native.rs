@@ -627,13 +627,54 @@ impl Repository {
     /// prefix. An acknowledged capture is a transport checkpoint, not the
     /// item's old parent. Wake reconciliation alone applies that local delta.
     pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
+        self.rebase_bound(onto, None)
+    }
+    // A TODO may contain several authoring changes below the host-bound root.
+    // Rewrite their complete tree delta as that one logical item, so rebase
+    // neither drops earlier edits nor leaves the daemon off its admitted item.
+    pub fn rebase_bound(&self, onto: Oid, change: Option<&str>) -> io::Result<Oid> {
         let (mut workspace, repo) = self.load_rebase_target(onto)?;
         let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
+        if let Some(change) = change {
+            if !Self::descends_in(&workspace, &repo, change)? {
+                return Err(invalid("working copy is off the admitted item"));
+            }
+        }
         if current.parent_ids() == [onto.id().clone()] {
             return oid(current.id().as_bytes());
         }
         let mut tx = repo.start_transaction();
-        let rebased = rebase_commit(tx.repo_mut(), current.clone(), vec![onto.id().clone()])
+        let mut source = current.clone();
+        if let Some(change) = change {
+            let mut pending = vec![current.clone()];
+            let mut seen = std::collections::HashSet::new();
+            let root = loop {
+                let commit = pending
+                    .pop()
+                    .ok_or_else(|| invalid("item ancestor missing"))?;
+                if !seen.insert(commit.id().clone()) {
+                    continue;
+                }
+                if seen.len() > 128_000 {
+                    return Err(invalid("item ancestry too large"));
+                }
+                if commit.change_id().reverse_hex() == change {
+                    break commit;
+                }
+                for parent in commit.parent_ids() {
+                    pending.push(repo.store().get_commit(parent).map_err(invalid)?);
+                }
+            };
+            source = tx
+                .repo_mut()
+                .rewrite_commit(&current)
+                .set_change_id(root.change_id().clone())
+                .set_parents(root.parent_ids().to_vec())
+                .write()
+                .block_on()
+                .map_err(invalid)?;
+        }
+        let rebased = rebase_commit(tx.repo_mut(), source, vec![onto.id().clone()])
             .block_on()
             .map_err(invalid)?;
         tx.repo_mut()
@@ -970,6 +1011,72 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(fs::read(native.root.join("local")).unwrap(), b"local\n");
         assert_eq!(fs::read(native.root.join("host")).unwrap(), b"host\n");
+    }
+    #[test]
+    fn bound_rebase_keeps_the_whole_item_and_its_host_identity() {
+        let (dir, native) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base\n").unwrap();
+        let base = native.snapshot().unwrap().0;
+        child(&native, base, "host-bound item");
+        fs::write(root.join("first"), b"first edit\n").unwrap();
+        let first = native.snapshot().unwrap().0;
+        let (_, repo) = native.load().unwrap();
+        let change = Repository::commit(&repo, first)
+            .unwrap()
+            .change_id()
+            .reverse_hex();
+        child(&native, first, "second item change");
+        fs::write(root.join("second"), b"second edit\n").unwrap();
+        let current = native.snapshot().unwrap().0;
+        child(&native, base, "main moves");
+        fs::write(root.join("upstream"), b"main edit\n").unwrap();
+        let onto = native.snapshot().unwrap().0;
+        native.move_to(current).unwrap();
+        let result = native.rebase_bound(onto, Some(&change)).unwrap();
+        let (_, repo) = native.load().unwrap();
+        let commit = Repository::commit(&repo, result).unwrap();
+        assert_eq!(commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
+        assert_eq!(commit.change_id().reverse_hex(), change);
+        assert_eq!(commit.description(), "second item change");
+        assert!(!commit.tree().has_conflict());
+        assert!(native.descends_from_item(&change).unwrap());
+        for (name, bytes) in [
+            ("first", b"first edit\n".as_slice()),
+            ("second", b"second edit\n".as_slice()),
+            ("upstream", b"main edit\n".as_slice()),
+        ] {
+            assert_eq!(fs::read(root.join(name)).unwrap(), bytes);
+        }
+        assert_eq!(native.rebase_bound(onto, Some(&change)).unwrap(), result);
+    }
+    #[test]
+    fn bound_rebase_retains_conflicts_and_refuses_another_item() {
+        let (dir, native) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("shared"), b"base\n").unwrap();
+        let base = native.snapshot().unwrap().0;
+        child(&native, base, "host-bound item");
+        fs::write(root.join("shared"), b"item\n").unwrap();
+        let first = native.snapshot().unwrap().0;
+        let (_, repo) = native.load().unwrap();
+        let change = Repository::commit(&repo, first).unwrap().change_id().reverse_hex();
+        child(&native, first, "second item change");
+        fs::write(root.join("second"), b"retained\n").unwrap();
+        let current = native.snapshot().unwrap().0;
+        child(&native, base, "main moves");
+        fs::write(root.join("shared"), b"main\n").unwrap();
+        let onto = native.snapshot().unwrap().0;
+        let (_, repo) = native.load().unwrap();
+        let another = Repository::commit(&repo, onto).unwrap().change_id().reverse_hex();
+        native.move_to(current).unwrap();
+        assert!(native.rebase_bound(onto, Some(&another)).is_err());
+        assert_eq!(native.current().unwrap().0, current);
+        assert_eq!(fs::read(root.join("shared")).unwrap(), b"item\n");
+        let result = native.rebase_bound(onto, Some(&change)).unwrap();
+        assert!(Repository::commit(&native.load().unwrap().1, result).unwrap().tree().has_conflict());
+        assert!(native.descends_from_item(&change).unwrap());
+        assert_eq!(fs::read(root.join("second")).unwrap(), b"retained\n");
     }
     pub(crate) fn child(repo: &Repository, parent: Oid, description: &str) -> Oid {
         repo.move_to(parent).unwrap();

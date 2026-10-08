@@ -60,7 +60,11 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 		return git("-C", source, "rev-parse", "HEAD")
 	}
 	base := commit("base\n")
-	edited := commit("first\n")
+	boundHead := commit("first\n")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "second.txt"), []byte("later item bytes\n"), 0600))
+	git("-C", source, "add", ".")
+	git("-C", source, "commit", "-m", "Another authoring change on the same TODO")
+	edited := git("-C", source, "rev-parse", "HEAD")
 	git("-C", source, "reset", "--hard", base)
 	require.NoError(t, os.WriteFile(filepath.Join(source, "main.txt"), []byte("new main bytes\n"), 0600))
 	git("-C", source, "add", ".")
@@ -119,7 +123,7 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	edit.Dir = guest
 	output, err = edit.CombinedOutput()
 	require.NoError(t, err, string(output))
-	change := exec.CommandContext(ctx, jj, "log", "-r", "@", "--no-graph", "-T", "change_id")
+	change := exec.CommandContext(ctx, jj, "log", "-r", boundHead, "--no-graph", "-T", "change_id")
 	change.Dir = guest
 	changeID, err := change.Output()
 	require.NoError(t, err)
@@ -223,6 +227,7 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	require.Equal(t, "coding/verify", launcher.requests[0].FlowID)
 	require.Equal(t, onto, git("--git-dir", store, "rev-parse", current.CandidateHead+"^"))
 	require.Equal(t, "first", git("--git-dir", store, "show", current.CandidateHead+":a.txt"))
+	require.Equal(t, "later item bytes", git("--git-dir", store, "show", current.CandidateHead+":second.txt"))
 	require.Equal(t, "new main bytes", git("--git-dir", store, "show", current.CandidateHead+":main.txt"))
 	var system, requester string
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor'->>'id',data->'by'->>'person' FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&system, &requester))
