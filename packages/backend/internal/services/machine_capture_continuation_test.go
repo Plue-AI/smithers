@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -135,5 +136,39 @@ func TestCapturedContinuationRevalidatesItsTransaction(t *testing.T) {
 				require.Error(t, err)
 			}
 		})
+	}
+}
+
+func TestCapturedContinuationDoesNotHideMovedMain(t *testing.T) {
+	for _, phase := range []string{"integrating", "verifying", "proposing", "waiting", "proposed"} {
+		for _, receipt := range []string{"none", "completed", "older pending"} {
+			t.Run(phase+"/"+receipt, func(t *testing.T) {
+				old, main := strings.Repeat("a", 40), strings.Repeat("b", 40)
+				capture := &MachineCapturePending{Head: strings.Repeat("c", 40), Onto: strings.Repeat("c", 40), Tree: strings.Repeat("d", 40), Base: old}
+				checks := mythicalChecks{Todo: true, FlowSource: old, Capture: capture, Steers: []todoSteer{{Attempt: 2, Text: "retained input"}}}
+				if receipt != "none" {
+					checks.Rebase = &mythicalRebase{Onto: old, Name: "main", Rebased: receipt == "completed", Since: time.Now().Add(-time.Minute)}
+				}
+				item := db.MythicalItem{Source: "todo", State: phase, Attempt: 2, CandidateBase: old, CandidateHead: strings.Repeat("e", 40), WorkspaceID: "10000000-0000-4000-8000-000000000001", Checks: checks.encode(), FlowDigest: pgtype.Text{String: strings.Repeat("f", 64), Valid: true}}
+				step := mythicalItemStep{s: &MythicalService{rebasePresence: func(context.Context, int64, string) (RebasePresence, error) { return RebasePresenceUnknown, nil }}, r: &mythicalRun{mainTip: main}, items: []db.MythicalItem{item}, now: time.Now()}
+				next, saved, err := step.advance(t.Context(), item)
+				require.NoError(t, err)
+				require.False(t, saved)
+				require.NotNil(t, next)
+				require.Equal(t, "integrating", next.State)
+				require.Equal(t, "rebase_pending", next.Reason)
+				require.Equal(t, main, mythicalChecksOf(*next).Rebase.Onto)
+				require.Equal(t, capture, mythicalChecksOf(*next).Capture)
+				require.Equal(t, mythicalChecksOf(item).Steers, mythicalChecksOf(*next).Steers)
+				require.Equal(t, item.CandidateHead, next.CandidateHead)
+				require.Equal(t, item.Generation, next.Generation)
+				require.False(t, mythicalChecksOf(*next).Rebase.Rebased)
+				// No authenticated presence provider: the next poll keeps the hold.
+				held, saved, err := step.advance(t.Context(), *next)
+				require.NoError(t, err)
+				require.False(t, saved)
+				require.Nil(t, held)
+			})
+		}
 	}
 }

@@ -2062,7 +2062,13 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// Edit consumption waits for a moved prefix to be rebased. Keep
 			// the capture while the authenticated daemon performs that rebase;
 			// routing back to edit consumption here would wait on itself.
-			if rebase := mythicalChecksOf(item).Rebase; !capture.Stale && !capture.Conflict && rebase != nil && !rebase.Rebased && item.CandidateBase != st.prefix(item) {
+			if !capture.Stale && !capture.Conflict && item.CandidateBase != st.prefix(item) {
+				// A capture can arrive after an earlier rebase settled. Pending
+				// text holds edit consumption, but must not hide a new prefix.
+				// Persist the new target before entering the existing fenced path.
+				if rebase := mythicalChecksOf(item).Rebase; rebase == nil || rebase.Rebased || rebase.Onto != st.prefix(item) {
+					return st.invalidatePrefix(item), false, nil
+				}
 				return st.integrate(ctx, item)
 			}
 			return st.consumeCapturedEdits(ctx, item)
