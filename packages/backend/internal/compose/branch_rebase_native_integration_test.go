@@ -17,8 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -77,7 +79,14 @@ func TestBranchRebaseNowNativeComposedConflictDone(t *testing.T) {
 	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true, ManualDone: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview bool }
+// The parked input is seeded. Native conflict production, its runtime wait
+// projection and the person's Done door are real; this does not qualify Stop
+// parking, same-journal Resume or microVM isolation.
+func TestTodoPausedConflictDoneNativeComposedInstall(t *testing.T) {
+	testBranchRebaseNative(t, false, "", rebaseNativeOptions{Conflict: true, ManualDone: true, Paused: true})
+}
+
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused bool }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
@@ -166,6 +175,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',attempt=1,flow_digest=$2,request_run_id='pinned-run',workspace_id=$3,candidate_base=$4,candidate_head=$5,candidate_verified=true,next_attempt_at=NOW(),plan='{"checks":[]}',checks=$6 WHERE id=$1`, item.ID, strings.Repeat("b", 64), f.row.ID, base, edited, checks)
 	require.NoError(t, err)
+	if option.Paused {
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET paused_at=NOW() WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+	}
 	inReview := option.InReview
 	if inReview {
 		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pr_number=999,pr_state='open',pr_head=$2 WHERE id=$1`, item.ID, edited)
@@ -326,6 +339,22 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	server.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: f.pool}, Owners: q, Roster: q, Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }}, &routes.WorkspaceHandler{Service: f.p.branches}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, AckDelay: &routes.InstallAckDelayHandler{Queries: q, Registry: registry}, Live: channel})
 	server.Start()
 	t.Cleanup(server.Close)
+	assertCardState := func(expected string) {
+		t.Helper()
+		req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		response, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		var card map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+		require.NoError(t, response.Body.Close())
+		require.Equal(t, 200, response.StatusCode, card)
+		require.Equal(t, expected, card["state"])
+	}
+	if option.Paused {
+		assertCardState("paused")
+	}
 	doneRequest := func(change, onto string, status int) {
 		t.Helper()
 		payload, err := json.Marshal(map[string]string{"conflict_change": change, "onto_revision": onto})
@@ -480,7 +509,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.Equal(t, "coding/rebase-conflict", launcher.requests[0].FlowID)
 		require.Equal(t, strings.Repeat("b", 64), launcher.requests[0].Pin.ExecutionDigest)
 		require.Empty(t, launcher.signals)
-		readReceipt("running")
+		if option.Paused {
+			assertCardState("paused")
+		}
+		if people {
+			readReceipt("running")
+		}
 		// This boundary test records engine launches; the host/agent journey
 		// separately exercises real projection and durable repair execution.
 		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{conflictReservation,resolution_run}','"repair-run"') WHERE id=$1`, item.ID)
@@ -501,10 +535,14 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			Input struct{ Change, Onto, Name string }
 		}
 		require.NoError(t, json.Unmarshal(launcher.requests[0].Payload, &repair))
-		wait, err := json.Marshal([]services.TodoWait{{ID: "recorded-done", Kind: "conflict", ConflictChange: repair.Input.Change, OntoRevision: repair.Input.Onto, Since: time.Now(), Signal: &services.TodoWaitSignal{Scope: launcher.requests[0].Scope, Target: launcher.requests[0].Target, Run: "repair-run", Flow: "coding/rebase-conflict", Name: repair.Input.Name}}})
+		projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": uuid.UUID(item.ID.Bytes).String(), "generation": current.Generation, "attempt": current.Attempt, "phase": "conflict", "flowDigest": strings.Repeat("b", 64), "flowSource": base})
 		require.NoError(t, err)
-		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1`, item.ID, wait)
+		waitRequest, err := json.Marshal(map[string]string{"kind": "conflict", "conflict_change": repair.Input.Change, "onto_revision": repair.Input.Onto})
 		require.NoError(t, err)
+		update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: launcher.requests[0].Scope, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/rebase-conflict", ExecutionDigest: strings.Repeat("b", 64), Projection: projection, Target: launcher.requests[0].Target, RunID: "repair-run", Run: &flowruntime.Run{RunID: "repair-run", Status: "running", PendingWaits: []flowruntime.PendingWait{{RunID: "repair-step", Token: "repair-token", Name: repair.Input.Name, Request: waitRequest}}}}}
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		assertCardState("needs_you")
 		if manualDone {
 			doneRequest("stale-change", repair.Input.Onto, 409)
 			doneRequest(repair.Input.Change, repair.Input.Onto, 409)
@@ -655,6 +693,9 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	var event map[string]any
 	require.NoError(t, json.Unmarshal(eventRaw, &event))
 	expectedState := "working"
+	if option.Paused {
+		expectedState = "paused"
+	}
 	if inReview {
 		expectedState = "in_review"
 	}
@@ -662,17 +703,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	require.Equal(t, expectedState, event["to"])
 	require.Equal(t, base, event["previous_base"])
 	require.Equal(t, expectedState, event["card"].(map[string]any)["state"])
-	// Read the persisted projection through the person's installed card door.
-	req, err := http.NewRequest("GET", origin+"/api/todos/1", nil)
-	require.NoError(t, err)
-	req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
-	response, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	var card map[string]any
-	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
-	require.NoError(t, response.Body.Close())
-	require.Equal(t, 200, response.StatusCode, card)
-	require.Equal(t, expectedState, card["state"])
+	assertCardState(expectedState)
 	require.Equal(t, "pinned-run", current.RequestRunID)
 	require.EqualValues(t, 1, current.Attempt)
 

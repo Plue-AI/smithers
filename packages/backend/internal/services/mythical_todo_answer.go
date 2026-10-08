@@ -95,7 +95,18 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 		}
 	}
 	for _, question := range asked {
-		if canAsk && !known[question.ID] {
+		canOpen := canAsk
+		// A retained conflict is a branch wait. It remains visible beneath
+		// pause or failure and can arrive before or after coding execution.
+		if question.Kind == "conflict" {
+			switch todoState(*next) {
+			case "queued", "starting", "working", "needs_you", "paused", "failed", "in_review":
+				canOpen = true
+			default:
+				canOpen = false
+			}
+		}
+		if canOpen && !known[question.ID] {
 			checks.Waits, changed = append(checks.Waits, question), true
 		}
 	}

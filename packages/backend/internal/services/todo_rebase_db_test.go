@@ -493,5 +493,70 @@ func TestNativeRebaseFenceReadsPresenceBeforeWorkspaceMutationLock(t *testing.T)
 	defer tx.Rollback(context.WithoutCancel(t.Context()))
 	step := mythicalItemStep{s: f.service, r: &mythicalRun{row: stack, owner: "rehearsal-owner", repo: "app", mainTip: f.main}}
 	require.NoError(t, step.lockNativeRebase(t.Context(), tx, item, f.main))
-	require.Equal(t, 1, reads)
+	require.Equal(t, 2, reads, "presence is rechecked before and under the native fence")
+}
+
+func TestNativeRebaseFencePreservesObservedPause(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Native boundary", f.main, "TODO.md", "work\n")
+	q := db.New(f.pool)
+	branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, Name: "coding", TargetBookmark: "mythical", Kind: "vm", Status: "running"})
+	require.NoError(t, err)
+	item.WorkspaceID = branch.ID
+	item, err = q.SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(t.Context(), `UPDATE mythical_stacks SET running=true,claim=claim+1,lease_expires_at=NOW()+INTERVAL '5 minutes' WHERE repository_id=$1`, f.repoID)
+	require.NoError(t, err)
+	stack, err := q.GetMythicalStack(t.Context(), f.repoID)
+	require.NoError(t, err)
+	reads := 0
+	f.service.SetRebasePresence(func(ctx context.Context, repository int64, workspace string) (RebasePresence, error) {
+		reads++
+		require.Equal(t, f.repoID, repository)
+		require.Equal(t, branch.ID, workspace)
+		// Host resolution independently takes this SHARE lock. It must not
+		// wait for the native fence's own mutation transaction to finish.
+		read, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		tx, err := f.pool.Begin(read)
+		if err != nil {
+			return RebasePresenceUnknown, err
+		}
+		defer tx.Rollback(context.WithoutCancel(read))
+		var id string
+		err = tx.QueryRow(read, `SELECT id FROM workspaces WHERE id=$1 FOR SHARE`, workspace).Scan(&id)
+		if err != nil {
+			return RebasePresenceUnknown, err
+		}
+		return RebasePresenceEmpty, nil
+	})
+	for _, c := range []struct {
+		name, observed, current string
+		allow                   bool
+	}{
+		{"unchanged-running", "NULL", "NULL", true},
+		{"unchanged-paused", "'2026-10-02T12:00:00Z'", "'2026-10-02T12:00:00Z'", true},
+		{"new-pause", "NULL", "'2026-10-02T12:00:00Z'", false},
+		{"resumed", "'2026-10-02T12:00:00Z'", "NULL", false},
+		{"new-pause-time", "'2026-10-02T12:00:00Z'", "'2026-10-02T12:00:01Z'", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET paused_at=`+c.observed+` WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+			snapshot, err := q.GetMythicalItem(t.Context(), item.ID)
+			require.NoError(t, err)
+			_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET paused_at=`+c.current+` WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+			tx, err := f.pool.Begin(t.Context())
+			require.NoError(t, err)
+			defer tx.Rollback(context.WithoutCancel(t.Context()))
+			step := mythicalItemStep{s: f.service, r: &mythicalRun{row: stack, owner: "rehearsal-owner", repo: "app", mainTip: f.main}}
+			err = step.lockNativeRebase(t.Context(), tx, snapshot, f.main)
+			if c.allow {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, db.ErrMythicalItemMoved)
+			}
+		})
+	}
 }

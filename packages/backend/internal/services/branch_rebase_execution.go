@@ -66,7 +66,7 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 	}
 	step := *st
 	step.items = order
-	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
+	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid != item.PausedAt.Valid || (current.PausedAt.Valid && !current.PausedAt.Time.Equal(item.PausedAt.Time)) || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
 		return fmt.Errorf("rebase binding changed: %w", db.ErrMythicalItemMoved)
 	}
 	// The existing host's roster read holds SHARE on the workspace. Read it
