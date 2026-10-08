@@ -117,3 +117,7 @@ describe("A✓ and Review & merge as ConfirmView models", () => {
     expect(mergeCard(todo, MAYA)).toMatchObject({ id: "design:confirm:merge:t-stripe", payload: { id: "merge:t-stripe" }, audience_member_id: "design:maya" })
   })
 })
+
+ test("reviewing a numbered PR uses the shared confirmed review door", () => {
+  expect(designTurn(world(), BEN, "review PR 50")).toEqual({ run: [{ name: "review", payload: { number: 50 } }] })
+})

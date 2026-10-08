@@ -838,7 +838,7 @@ export const ChangeCardBody = ({
           ) :
           null}
       </p> : null}
-      {payload.description !== "" ? <p className="world-card-title">{payload.description.split("\n")[0]}</p> : null}
+      {payload.description !== "" ? <p className="world-card-title">{payload.description.split("\n")[0]}{payload.pullRequest ? <> · <a href={payload.pullRequest.url}>#{payload.pullRequest.number}</a></> : null}</p> : null}
       {payload.repos.length > 0 ?
         (
           <p className="world-card-path">

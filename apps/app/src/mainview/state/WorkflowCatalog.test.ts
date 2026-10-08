@@ -137,6 +137,11 @@ test("Review a PR records unavailable host delivery; the agent only requests con
     expect(agent).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
     expect(boxForms()).toEqual([])
     expect(calls).toEqual([])
+    const structured = await controller.commands.submit({ name: "review", payload: { number: 50, repo }, actor: "agent" })
+    expect(structured).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
+    const message = [...store.collections.messages.values()].find(message => message.action?.flow === "review" && message.action.args === `50 ${repo}`)
+    expect(message!.action!.args).toBe(`50 ${repo}`)
+    expect(calls).toEqual([])
   } finally { await controller.dispose() }
 })
 

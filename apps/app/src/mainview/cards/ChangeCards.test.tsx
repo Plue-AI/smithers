@@ -1060,3 +1060,11 @@ test("a failed branch diff hides its transport detail behind Details", () => {
     expect(host.querySelector("details")?.open).toBe(false)
   } finally { flushSync(() => root.unmount()) }
 })
+
+test("review findings retain the admitted PR link and older changes need no PR", () => {
+  const { host } = renderChange(changeCard({ description: "Review", pullRequest: { number: 50, url: "https://github.com/acme/app/pull/50" }, facet: "findings", findings: [] }))
+  const link = host.querySelector("a")!
+  expect(link.textContent).toBe("#50")
+  expect(link.getAttribute("href")).toBe("https://github.com/acme/app/pull/50")
+  expect(renderChange(changeCard()).host.querySelector("a")).toBeNull()
+})

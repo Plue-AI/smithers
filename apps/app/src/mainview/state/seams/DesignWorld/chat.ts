@@ -148,6 +148,10 @@ export const designTurn = (world: DesignWorldRows, viewer: ActorId, prompt: stri
     } }
   }
 
+  if ((match = /^review PR ([1-9][0-9]*)$/i.exec(text)) !== null) {
+    return { run: [{ name: "review", payload: { number: Number(match[1]) } }] }
+  }
+
   if ((match = /^review(?: this branch| (.+))?$/i.exec(text)) !== null) {
     const branch = match[1] === undefined ? branchOf(world, at) : branchNamed(world, match[1])
     if (branch === undefined) return undefined

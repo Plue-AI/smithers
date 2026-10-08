@@ -136,6 +136,10 @@ func (r *rehearsal) j10MemberReview(ben http.CookieJar, repo string) {
 		}
 
 		var change struct {
+			PullRequest struct {
+				Number int    `json:"number"`
+				URL    string `json:"url"`
+			} `json:"pullRequest"`
 			Findings []struct {
 				Path     string `json:"path"`
 				Line     int    `json:"line"`
@@ -144,6 +148,9 @@ func (r *rehearsal) j10MemberReview(ben http.CookieJar, repo string) {
 		}
 		if err := json.Unmarshal(status.Change, &change); err != nil {
 			return err
+		}
+		if change.PullRequest.Number != memberPR || change.PullRequest.URL != fmt.Sprintf("https://github.com/%s/pull/%d", repo, memberPR) {
+			return fmt.Errorf("review findings lost their PR link: %s", status.Change)
 		}
 		anchored := false
 		for _, finding := range change.Findings {

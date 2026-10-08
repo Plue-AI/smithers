@@ -50,5 +50,5 @@ func reviewChange(a services.ReviewAdmission, output string) (json.RawMessage, e
 		}
 		findings = append(findings, map[string]any{"analyzer": "review", "severity": severity, "path": c.Path, "line": c.StartLine, "summary": c.Content, "suggestion": c.Suggestion, "raisedAtSeq": nil, "commitId": a.Head})
 	}
-	return json.Marshal(map[string]any{"repo": parts[0] + "/" + parts[1], "changeId": a.Head, "description": "Review", "commitId": a.Head, "currentSeq": nil, "revisionCount": nil, "revisions": []any{}, "authorName": nil, "timestamp": nil, "repos": []any{}, "diff": nil, "checks": nil, "findings": findings, "reviews": nil, "threads": nil, "conflicts": nil, "stack": nil, "changeset": nil, "facet": "findings"})
+	return json.Marshal(map[string]any{"repo": parts[0] + "/" + parts[1], "changeId": a.Head, "description": "Review", "pullRequest": map[string]any{"number": a.Number, "url": a.URL}, "commitId": a.Head, "currentSeq": nil, "revisionCount": nil, "revisions": []any{}, "authorName": nil, "timestamp": nil, "repos": []any{}, "diff": nil, "checks": nil, "findings": findings, "reviews": nil, "threads": nil, "conflicts": nil, "stack": nil, "changeset": nil, "facet": "findings"})
 }

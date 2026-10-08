@@ -1793,6 +1793,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       repo: z.string(),
       changeId: z.string(),
       description: z.string(),
+      /** The reviewed GitHub PR, pinned at admission. Absent for ordinary changes. */
+      pullRequest: z.object({ number: z.number().int().positive(), url: HttpUrlSchema }).optional(),
       /** The current revision's commit. */
       commitId: z.string().nullable(),
       /** plue's `current_seq` when it names a recorded revision; `revisions.length`. Null when the DTO carries neither. */

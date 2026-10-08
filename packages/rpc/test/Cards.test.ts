@@ -1703,6 +1703,7 @@ const FIXTURES: Record<
       changeset: null
     },
     full: {
+      pullRequest: { number: 50, url: "https://github.com/acme/app/pull/50" },
       repo: "smithersai/smithers",
       changeId: "qupxosqw",
       description: "Serve repository files through one bounded route",

@@ -10,7 +10,7 @@ import (
 )
 
 func TestReviewFindingsRejectIncompleteOrUnanchoredOutput(t *testing.T) {
-	a := services.ReviewAdmission{URL: "https://github.com/acme/app/pull/50", Head: strings.Repeat("a", 40)}
+	a := services.ReviewAdmission{Number: 50, URL: "https://github.com/acme/app/pull/50", Head: strings.Repeat("a", 40)}
 	for _, raw := range []string{
 		`null`, `{}`, `{"review":{"ok":false,"status":"success"}}`,
 		`{"review":{"ok":true,"status":"failed"}}`,

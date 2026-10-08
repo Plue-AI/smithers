@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
+import { flowArgs } from "../FlowArgs"
 import { flow, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -25,6 +26,10 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     name: "review", workflow: "review", slash: "/review", cli: ["review"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/reviews", body: { number: "number", repo: "repo" }, defaults: { conversation: "main" } },
     summary: "Review a change, return findings",
     confirm: "review the pull request",
+    confirmArgs: payload => {
+      const target = actions.issueWriteTarget(typeof payload.repo === "string" ? payload.repo : undefined)
+      return "repo" in target ? flowArgs("review", { number: Number(payload.number), repo: target.repo }) : undefined
+    },
     args: "<number> [owner/repo]",
     form: { submitLabel: "Review", fields: { number: { label: "PR", optionsFrom: "pull-requests", kind: "number" }, repo: { hidden: true } } },
     agent: "confirm", input: NumberedTarget,
