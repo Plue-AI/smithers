@@ -594,12 +594,25 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 		if err != nil || code != 202 {
 			return fmt.Errorf("retry current flow: HTTP %d %s: %v", code, data, err)
 		}
+		var accepted struct {
+			Attempt int `json:"attempt"`
+		}
+		if err := json.Unmarshal(data, &accepted); err != nil || accepted.Attempt != ordinaryRetry.Run.Attempt+1 {
+			return fmt.Errorf("current flow retry receipt %s, want attempt %d", data, ordinaryRetry.Run.Attempt+1)
+		}
 		v, err := r.waitTodoWithin(retryTodo, 3*time.Minute, "in_review")
 		if err != nil {
 			return err
 		}
-		if v.Run == nil || v.Run.Attempt != ordinaryRetry.Run.Attempt+1 {
+		// Retry retains the failed branch's edits. Bounded automatic replans
+		// can repair those edits in another attempt, as in the ordinary retry.
+		if v.Run == nil || v.Run.ID == ordinaryRetry.Run.ID || v.Run.Attempt < accepted.Attempt {
 			return fmt.Errorf("current flow retry run %+v, want new run after %+v", v.Run, ordinaryRetry.Run)
+		}
+		for _, evidence := range v.Evidence {
+			if int(evidence.Attempt) >= accepted.Attempt && (evidence.FlowDigest != d2 || evidence.SourceCommit != squash) {
+				return fmt.Errorf("current flow retry changed an attempt's adopted pin: %+v", evidence)
+			}
 		}
 		if err = checkPin(retryTodo, d2, squash); err != nil {
 			return err
