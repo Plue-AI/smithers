@@ -111,6 +111,14 @@ fn snapshot_working_copy(
     workspace: &mut Workspace,
     repo: &mut Arc<ReadonlyRepo>,
 ) -> Result<Commit, OpError> {
+    snapshot_working_copy_with_tracking(workspace, repo, &EverythingMatcher)
+}
+
+fn snapshot_working_copy_with_tracking(
+    workspace: &mut Workspace,
+    repo: &mut Arc<ReadonlyRepo>,
+    tracking: &dyn jj_lib::matchers::Matcher,
+) -> Result<Commit, OpError> {
     let name = workspace.workspace_name().to_owned();
     let mut locked_ws = workspace.start_working_copy_mutation().block_on()?;
     let mut commit = wc_commit(repo, &name)?;
@@ -127,7 +135,8 @@ fn snapshot_working_copy(
             )));
         }
     }
-    let options = snapshot_options();
+    let mut options = snapshot_options();
+    options.start_tracking_matcher = tracking;
     let (new_tree, _stats) = locked_ws.locked_wc().snapshot(&options).block_on()?;
     if new_tree.tree_ids_and_labels() != commit.tree().tree_ids_and_labels() {
         let mut tx = repo.start_transaction();
@@ -238,9 +247,19 @@ pub struct Snapshot {
 
 /// Captures the working copy in place. The message is journal metadata only.
 pub fn snapshot(root: &Path, _message: Option<&str>) -> Result<Snapshot, OpError> {
+    snapshot_with_tracking(root, &EverythingMatcher)
+}
+
+/// Native callers can exclude their private scratch files from new tracking.
+/// Existing tracked files retain jj's normal snapshot semantics. This is not
+/// exposed through the JSON/WASM ABI; ordinary snapshots still track everything.
+pub fn snapshot_with_tracking(
+    root: &Path,
+    tracking: &dyn jj_lib::matchers::Matcher,
+) -> Result<Snapshot, OpError> {
     let settings = user_settings()?;
     let (mut workspace, mut repo) = load(&settings, root)?;
-    let commit = snapshot_working_copy(&mut workspace, &mut repo)?;
+    let commit = snapshot_working_copy_with_tracking(&mut workspace, &mut repo, tracking)?;
     Ok(Snapshot {
         commit_id: commit.id().hex(),
         change_id: short_change_id(&commit),

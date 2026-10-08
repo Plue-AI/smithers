@@ -225,7 +225,8 @@ impl Repository {
                     .map_err(invalid)?;
             }
         }
-        flows_jj::ops::snapshot(&self.root, None).map_err(invalid)?;
+        flows_jj::ops::snapshot_with_tracking(&self.root, &crate::ignore::SnapshotFiles)
+            .map_err(invalid)?;
         self.current()
     }
     /// Resolve the host-bound item by change identity, including rewritten
@@ -864,6 +865,38 @@ pub(crate) mod tests {
         let repo = Repository::open(&root, &state).unwrap();
         (dir, repo)
     }
+    #[test]
+    fn snapshots_exclude_retained_save_inodes_without_losing_ordinary_files() {
+        let (_dir, repo) = fixture();
+        fs::create_dir(repo.root.join("nested")).unwrap();
+        fs::write(repo.root.join(".gitignore"), "!.smithers-doc-*\n").unwrap();
+        fs::write(
+            repo.root.join("nested/.smithers-doc-user-note"),
+            "ordinary user bytes",
+        )
+        .unwrap();
+        let before = repo.snapshot().unwrap();
+        let name = format!(".smithers-doc-{}-{}", "a".repeat(64), "b".repeat(32));
+        for parent in [repo.root.clone(), repo.root.join("nested")] {
+            fs::write(parent.join(&name), "displaced bytes still held by a writer").unwrap();
+        }
+        assert_eq!(before, repo.snapshot().unwrap());
+        for parent in [repo.root.clone(), repo.root.join("nested")] {
+            assert_eq!(
+                fs::read(parent.join(&name)).unwrap(),
+                b"displaced bytes still held by a writer"
+            );
+            fs::remove_file(parent.join(&name)).unwrap();
+        }
+        assert_eq!(before, repo.snapshot().unwrap());
+        fs::write(
+            repo.root.join("nested/.smithers-doc-user-note"),
+            "updated user bytes",
+        )
+        .unwrap();
+        assert_ne!(before.1, repo.snapshot().unwrap().1);
+    }
+
     #[cfg(all(feature = "killpoints", debug_assertions))]
     fn crash_core(root: &Path) -> std::sync::Arc<crate::native_core::NativeCore> {
         use std::sync::{Arc, Mutex};

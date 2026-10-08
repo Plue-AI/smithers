@@ -567,9 +567,63 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) fn killpoint(point: &str) {
+    // An approved debug qualification bundle may hold at the same fault
+    // boundary so the host can kill the VM, instead of only this process.
+    // The private state directory is inaccessible to members and agents.
+    pause_fault(point, std::path::Path::new("/var/lib/smithers-machined"));
     if std::env::var("SMITHERS_MACHINED_KILL_AT").ok().as_deref() == Some(point) {
         std::process::exit(73);
     }
+}
+
+#[cfg(all(feature = "killpoints", debug_assertions))]
+fn pause_fault(point: &str, state: &std::path::Path) {
+    use std::io::Write;
+    let arm = state.join(format!("qualification-{point}.arm"));
+    if std::fs::remove_file(arm).is_err() {
+        return;
+    }
+    let hit = state.join(format!("qualification-{point}.hit"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&hit)
+        .expect("create qualification marker");
+    file.write_all(point.as_bytes())
+        .expect("write qualification marker");
+    file.sync_all().expect("sync qualification marker");
+    std::fs::File::open(state)
+        .and_then(|dir| dir.sync_all())
+        .expect("sync qualification directory");
+    // Bound a forgotten qualification hold. The arm was consumed before the
+    // marker: restarting the retained VM cannot pause a second time.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while hit.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+#[cfg(all(test, feature = "killpoints", debug_assertions))]
+#[test]
+fn vm_fault_pause_is_one_shot_and_releases() {
+    let state = tempfile::tempdir().unwrap();
+    let arm = state.path().join("qualification-K1.arm");
+    let hit = state.path().join("qualification-K1.hit");
+    std::fs::write(&arm, []).unwrap();
+    std::thread::scope(|scope| {
+        let held = scope.spawn(|| pause_fault("K1", state.path()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !hit.exists() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(!arm.exists());
+        assert!(!held.is_finished());
+        std::fs::remove_file(&hit).unwrap();
+        held.join().unwrap();
+    });
+    pause_fault("K1", state.path());
+    assert!(!hit.exists());
 }
 
 /// Encodes the internal close record through the sole ADR 0004 codec. The

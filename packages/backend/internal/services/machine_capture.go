@@ -179,6 +179,7 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 			}
 		}
 		mismatch := pending.Stale || checks.Capture != nil
+		edited := false
 		if item.CandidateHead != "" {
 			tree, err := objects.CommitTree(ctx, p.workspace.ID, item.CandidateHead)
 			if err != nil {
@@ -187,7 +188,8 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 			if !codingCommitID.MatchString(tree) {
 				return errors.New("candidate tree unavailable")
 			}
-			mismatch = mismatch || tree != capture.Tree
+			edited = tree != capture.Tree
+			mismatch = mismatch || edited
 		}
 		if !mismatch {
 			continue
@@ -195,9 +197,12 @@ func (p *MachineCaptureProjection) Apply(ctx context.Context, capture wire.Captu
 		needed = true
 		// Keep the newest retained head, but wake the stack only when its
 		// pending work changes. A distinct event for the same tree is not a
-		// second edit. Returning to the candidate tree remains a transition.
+		// second edit. Returning to the candidate's tree retains the newest
+		// bytes without signaling edited or restoring verification. Active
+		// work observes its retained capture at its existing durable boundary.
 		previous := checks.Capture
-		if previous == nil || previous.Tree != pending.Tree || previous.Stale != pending.Stale || previous.Conflict != pending.Conflict || previous.ReconciledOnto != pending.ReconciledOnto || previous.ReconcileWaitID != pending.ReconcileWaitID {
+		newWork := previous == nil || previous.Tree != pending.Tree || previous.Stale != pending.Stale || previous.Conflict != pending.Conflict || previous.ReconciledOnto != pending.ReconciledOnto || previous.ReconcileWaitID != pending.ReconcileWaitID || ((pending.Stale || previous.Stale) && previous.Onto != pending.Onto)
+		if newWork && ((edited && item.State == "proposed") || pending.Stale || resolved) {
 			wake = true
 		}
 		checks.Capture = &pending

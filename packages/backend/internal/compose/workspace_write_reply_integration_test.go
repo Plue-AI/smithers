@@ -597,6 +597,63 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			var receipts int
 			return pool.QueryRow(ctx, "SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1", id).Scan(&receipts) == nil && receipts > 0
 		}, 10*time.Second, 100*time.Millisecond)
+		t.Run("capture pending work", func(t *testing.T) {
+			// A person's PUT enters the real daemon; capture drains its outbox
+			// through the install's authenticated consumer before we inspect SQL.
+			accepted, err := registry.Capture(ctx, id)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
+			require.NoError(t, err)
+			var item string
+			require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,generation,checks) VALUES($1,'todo','proposed',$2,$3,$4,true,1,1,'{"todo":true}') RETURNING id::text`, row.RepositoryID, id, base, accepted.Head).Scan(&item))
+			state := func(wantVerified bool, wantWake int64, wantTree string) {
+				t.Helper()
+				var verified bool
+				var wakes int64
+				var pending []byte
+				require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_verified,checks->'capture' FROM mythical_items WHERE id=$1`, item).Scan(&verified, &pending))
+				require.Equal(t, wantVerified, verified)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&wakes))
+				require.Equal(t, wantWake, wakes)
+				if wantTree == "" {
+					require.Empty(t, pending)
+				} else {
+					var work struct {
+						Tree string `json:"tree"`
+					}
+					require.NoError(t, json.Unmarshal(pending, &work))
+					require.Equal(t, wantTree, work.Tree)
+				}
+			}
+			var initial int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&initial))
+			_, err = registry.Capture(ctx, id)
+			require.NoError(t, err)
+			state(true, initial, "")
+			var current struct {
+				Content string `json:"content"`
+				Digest  string `json:"digest"`
+			}
+			require.NoError(t, json.Unmarshal(call("GET", cookie, "", 200), &current))
+			body, err := json.Marshal(map[string]string{"content": "pending member edit\n", "base_digest": current.Digest})
+			require.NoError(t, err)
+			call("PUT", memberCookie, string(body), 200)
+			edited, err := registry.Capture(ctx, id)
+			require.NoError(t, err)
+			require.NotEqual(t, accepted.Tree, edited.Tree)
+			state(false, initial+1, edited.Tree)
+			// A new capture request is more than replaying the same frame.
+			for range 2 {
+				repeated, err := registry.Capture(ctx, id)
+				require.NoError(t, err)
+				if edited.Tree != repeated.Tree {
+					diff, e := exec.Command("/usr/bin/git", "-C", hostRepo, "diff", "--stat", edited.Tree, repeated.Tree).CombinedOutput()
+					require.NoError(t, e)
+					t.Fatalf("capture changed without a write: %s -> %s: %s", edited.Tree, repeated.Tree, diff)
+				}
+				state(false, initial+1, edited.Tree)
+			}
+		})
 		// Restore the fixed oracle used by the subsequent offline refusal.
 		require.NoError(t, os.WriteFile(filepath.Join(root, "real.txt"), []byte("outside"), 0600))
 		// Loss of the authenticated daemon must not expose a process-runtime

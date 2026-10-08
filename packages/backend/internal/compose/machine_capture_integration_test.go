@@ -411,15 +411,21 @@ func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
 		ack(todoPeer, 10, machined.AckApplied)
 		require.False(t, read().CandidateVerified)
 		require.NotEmpty(t, checks(read())["capture"])
+		require.Equal(t, beforeGeneration+1, generation(), "returning to the accepted tree is not a new edit")
+		changedAgain := wire.Captured{Head: git("edited again\n", "commit-tree", stale.Tree, "-p", equalAgain.Head), Tree: stale.Tree, Base: equalAgain.Head}
+		send(todoPeer, event(91, 91, changedAgain))
+		ack(todoPeer, 91, machined.AckApplied)
+		require.Equal(t, beforeGeneration+2, generation(), "T-X-X-T-X produces two edited wakeups")
 		// A capture also fences a verification run that has not reported yet.
 		_, err = pool.Exec(t.Context(), `UPDATE mythical_items SET state='verifying',checks='{"todo":true}',candidate_verified=false WHERE id=$1`, id)
 		require.NoError(t, err)
 		_, err = pool.Exec(t.Context(), `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, todoBranch)
 		require.NoError(t, err)
-		late := wire.Captured{Head: git("late\n", "commit-tree", stale.Tree, "-p", equalAgain.Head), Tree: stale.Tree, Base: equalAgain.Head}
+		late := wire.Captured{Head: git("late\n", "commit-tree", stale.Tree, "-p", changedAgain.Head), Tree: stale.Tree, Base: changedAgain.Head}
 		send(todoPeer, event(11, 24, late))
 		ack(todoPeer, 11, machined.AckApplied)
 		require.NotEmpty(t, checks(read())["capture"], "late passed result must not bless changed bytes")
+		require.Equal(t, beforeGeneration+2, generation(), "active verification retains edits without signaling edited")
 		send(todoPeer, reconciled(12, 30, base, late.Head, "member.txt"))
 		ack(todoPeer, 12, machined.AckApplied)
 		conflicted := read()

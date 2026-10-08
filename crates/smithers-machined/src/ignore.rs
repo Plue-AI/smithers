@@ -56,6 +56,22 @@ fn document_temp(path: &Path) -> bool {
             .chain(nonce.bytes())
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+// The watcher and the native snapshot must agree about retained save inodes.
+// A .gitignore negation must not turn these private recovery files into edits.
+#[derive(Debug)]
+pub(crate) struct SnapshotFiles;
+impl jj_lib::matchers::Matcher for SnapshotFiles {
+    fn matches(&self, file: &jj_lib::repo_path::RepoPath) -> bool {
+        !document_temp(Path::new(file.as_internal_file_string()))
+    }
+    fn visit(&self, _: &jj_lib::repo_path::RepoPath) -> jj_lib::matchers::Visit {
+        jj_lib::matchers::Visit::Specific {
+            dirs: jj_lib::matchers::VisitDirs::All,
+            files: jj_lib::matchers::VisitFiles::All,
+        }
+    }
+}
+
 impl Ignore for GitIgnore {
     fn ignored(&mut self, path: &Path, directory: bool) -> io::Result<bool> {
         Ok(self.batch(&[(path.into(), directory)])?[0])

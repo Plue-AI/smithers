@@ -11,7 +11,7 @@ export const nativeTests = [
   "coding-checks.test.ts", "coding-wiki-check.test.ts", "coding-feedback.test.ts",
   "repository-check-context.test.ts", "repository-checks.test.ts",
   "repository-durable-pins.test.ts", "repository-eval-source.test.ts",
-  "wiki-citation-uncertainty.test.ts"
+  "wiki-citation-uncertainty.test.ts", "moved-off-agent-dispatch.test.ts"
 ]
 const nodeOnly = ["repository-check-context.test.ts", "repository-checks.test.ts", "repository-eval-source.test.ts",
   "wiki-citation-uncertainty.test.ts"]
