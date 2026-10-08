@@ -257,3 +257,22 @@ func TestRootObservationsRetainFailureAndRefuseLostEvidence(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledStartupMatrixHasEveryLiteralMutation(t *testing.T) {
+	names := startupMutationScenarios()
+	if len(names) != 19 {
+		t.Fatalf("startup controls: %d", len(names))
+	}
+	seen := map[string]bool{}
+	for _, name := range append(names, "boot-symlink", "boot-writable", "supervisor-replaced") {
+		if seen[name] || !startupMutationFixture(name) {
+			t.Fatalf("invalid scenario %q", name)
+		}
+		seen[name] = true
+	}
+	for _, bad := range []string{"", "startup-boot-root", "startup-boot-parent-../", "startup-boot-parent-canary"} {
+		if startupMutationFixture(bad) {
+			t.Fatalf("member selector admitted: %s", bad)
+		}
+	}
+}

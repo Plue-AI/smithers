@@ -67,7 +67,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	}()
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
-		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable"}
+		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable", "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"}
 	}
 	if operation == "check-no-landlock" {
 		scenarios = []string{"no-landlock"}
@@ -82,6 +82,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 			scenarios = append(scenarios, "environment-"+name)
 		}
 		scenarios = append(scenarios, "environment-all")
+		scenarios = append(scenarios, startupMutationScenarios()...)
 	}
 	type scenarioReceipt struct {
 		Scenario string `json:"scenario"`
@@ -180,6 +181,34 @@ func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
 	return nil, false
 }
 
+// Mirror the literal installed observer selectors. Each runs in a fresh VM
+// through installPrototype, init and the authenticated DialWorkspacePort relay.
+func startupMutationScenarios() []string {
+	scenarios := []string{"startup-boot-identity"}
+	for _, leaf := range []string{"boot", "supervisor"} {
+		for _, mutation := range []string{"hardlink", "fifo", "directory"} {
+			scenarios = append(scenarios, "startup-"+leaf+"-"+mutation)
+		}
+	}
+	for _, parent := range []string{"boot-parent", "boot-ancestor", "supervisor-parent", "supervisor-ancestor"} {
+		for _, mutation := range []string{"symlink", "clone", "writable"} {
+			scenarios = append(scenarios, "startup-"+parent+"-"+mutation)
+		}
+	}
+	return scenarios
+}
+func startupMutationFixture(scenario string) bool {
+	if scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+		return true
+	}
+	for _, name := range startupMutationScenarios() {
+		if scenario == name {
+			return true
+		}
+	}
+	return false
+}
+
 func cgroupRestartFixture(scenario string) bool {
 	switch scenario {
 	case "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable":
@@ -228,7 +257,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	if environmentFixture {
 		prepare = "poison-imports"
 	}
-	if scenario == "no-landlock" || scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || cgroupLiveFixture(scenario) || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+	if scenario == "no-landlock" || scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || cgroupLiveFixture(scenario) || startupMutationFixture(scenario) {
 		prepare = "positive"
 	}
 	before, err := observe(prepare)
@@ -268,7 +297,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		candidate.supervisorSHA = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	err = installPrototype(ctx, &candidate, id, home, runtimeRoot, identity)
-	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && !cgroupLiveFixture(scenario) && scenario != "boot-symlink" && scenario != "boot-writable" && scenario != "supervisor-replaced" {
+	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && !cgroupLiveFixture(scenario) && !startupMutationFixture(scenario) {
 		if err == nil {
 			return fmt.Errorf("installed destination fixture %s was accepted", scenario)
 		}
@@ -311,7 +340,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	if err = os.WriteFile(filepath.Join(evidence, scenario+"-startup.json"), startup, 0600); err != nil {
 		return err
 	}
-	if scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+	if scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || startupMutationFixture(scenario) {
 		return validateRefusalFixture(ctx, control, observe, scenario, before, evidence)
 	}
 	if scenario == "no-landlock" {
@@ -384,7 +413,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
+	if !cgroupLiveFixture(mode) && !startupMutationFixture(mode) && mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or
@@ -685,7 +714,7 @@ func validateRefusalFixture(ctx context.Context, control relayControl, observe f
 	if (scenario == "cleanup-poison" || cgroupRestartFixture(scenario)) && !strings.Contains(state.InitLog, "untrusted session cgroup") {
 		return errors.New("cleanup failure lacked an explicit startup refusal")
 	}
-	if (scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced") && !strings.Contains(state.InitLog, "prototype_authority_unavailable") {
+	if startupMutationFixture(scenario) && !strings.Contains(state.InitLog, "prototype_authority_unavailable") {
 		return errors.New("replaced boot/artifact lacked an explicit init refusal")
 	}
 	return compareOutside(before, after)

@@ -231,6 +231,88 @@ def observed_drain():
     raise ValueError("independent observer did not finish")
 
 
+# Literal main-installed targets only, never member-supplied filesystem authority.
+STARTUP_MUTATIONS = {
+    "boot-symlink": ("/run/smithers/trm06/boot.json", "symlink"),
+    "boot-writable": ("/run/smithers/trm06/boot.json", "writable"),
+    "supervisor-replaced": ("/opt/smithers/prototype/supervisor", "canary"),
+}
+for label, target in (("boot", "/run/smithers/trm06/boot.json"),
+                      ("supervisor", "/opt/smithers/prototype/supervisor")):
+    for mutation in ("hardlink", "fifo", "directory"):
+        STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
+STARTUP_MUTATIONS["startup-boot-identity"] = ("/run/smithers/trm06/boot.json", "identity")
+for label, target in (("boot-parent", "/run/smithers/trm06"),
+                      ("boot-ancestor", "/run/smithers"),
+                      ("supervisor-parent", "/opt/smithers/prototype"),
+                      ("supervisor-ancestor", "/opt/smithers")):
+    for mutation in ("symlink", "clone", "writable"):
+        STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
+
+
+def mutate_startup(target, mutation):
+    # Called only with the literal table above by installed root fixture dispatch.
+    # Ordinary-file tests reuse these syscalls; they confer no root authority.
+    import shutil
+    path = Path(target)
+    if mutation == "writable":
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            os.fchmod(fd, 0o777 if stat.S_ISDIR(os.fstat(fd).st_mode) else 0o666)
+        finally:
+            os.close(fd)
+    elif mutation == "hardlink":
+        os.link(path, path.with_name(path.name + "-original"), follow_symlinks=False)
+    elif mutation == "identity":
+        # Valid but different authority at the same inode: restart must not
+        # silently select a new boot id/secret even when modes remain trusted.
+        fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "r+b") as output:
+            data = json.loads(output.read(4097))
+            data["boot"][0] ^= 1
+            output.seek(0)
+            output.write(json.dumps(data, separators=(",", ":")).encode())
+            output.truncate()
+    else:
+        original = path.with_name(path.name + "-original")
+        path.rename(original)
+        if mutation == "symlink":
+            path.symlink_to(original, target_is_directory=original.is_dir())
+        elif mutation == "clone":
+            shutil.copytree(original, path, symlinks=True)
+        elif mutation == "fifo":
+            os.mkfifo(path, 0o400 if path.name == "boot.json" else 0o755)
+        elif mutation == "directory":
+            path.mkdir(mode=0o400 if path.name == "boot.json" else 0o755)
+        elif mutation == "canary":
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755)
+            with os.fdopen(fd, "wb") as output:
+                output.write(b"#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
+                os.fchmod(output.fileno(), 0o755)
+        else:
+            raise ValueError("unknown startup mutation")
+
+
+def startup_log():
+    # The init log stays on its original inode when a boot ancestor is moved.
+    # Refuse every symlink in this fixed independent observation walk.
+    for path in ("/run/smithers-original/trm06/init.log",
+                 "/run/smithers/trm06-original/init.log",
+                 "/run/smithers/trm06/init.log"):
+        parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in Path(path).parts[1:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                os.close(parent)
+                parent = child
+            return os.open("init.log", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        finally:
+            os.close(parent)
+    raise ValueError("independent init log unavailable")
+
+
 def main():
     if os.getuid() != 0 or os.geteuid() != 0:
         raise ValueError("root fixture requires installed provider")
@@ -256,42 +338,20 @@ def main():
     if operation == "sample":
         print(json.dumps(sample()))
         return
-    if operation in ("boot-symlink", "boot-writable", "supervisor-replaced"):
+    if operation in STARTUP_MUTATIONS:
         observed = sample()
         if len(observed["supervisors"]) != 1:
             raise ValueError("not exactly one owned supervisor")
         pid = observed["supervisors"][0]
-        # Hold the process identity before changing the pathname. A replacement
-        # fixture must never turn restart into a signal to an unrelated process.
         process = os.pidfd_open(pid, 0)
         try:
             if os.readlink(f"/proc/{pid}/exe") != "/opt/smithers/prototype/supervisor":
                 raise ValueError("supervisor executable mismatch")
-            if operation == "supervisor-replaced":
-                parent = os.open("/opt/smithers/prototype", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                try:
-                    os.rename("supervisor", "supervisor-original", src_dir_fd=parent, dst_dir_fd=parent)
-                    fd = os.open("supervisor", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755, dir_fd=parent)
-                    with os.fdopen(fd, "wb") as output:
-                        output.write(b"#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
-                        os.fchmod(output.fileno(), 0o755)
-                finally:
-                    os.close(parent)
-            else:
-                parent = os.open("/run/smithers/trm06", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-                try:
-                    if operation == "boot-symlink":
-                        os.rename("boot.json", "boot-original.json", src_dir_fd=parent, dst_dir_fd=parent)
-                        os.symlink("/var/tmp/trm06-outside", "boot.json", dir_fd=parent)
-                    else:
-                        fd = os.open("boot.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-                        try:
-                            os.fchmod(fd, 0o666)
-                        finally:
-                            os.close(fd)
-                finally:
-                    os.close(parent)
+            target, mutation = STARTUP_MUTATIONS[operation]
+            mutate_startup(target, mutation)
             signal.pidfd_send_signal(process, signal.SIGKILL)
+            if not select.select([process], [], [], 1)[0]:
+                raise ValueError("owned supervisor did not exit")
         finally:
             os.close(process)
         print(json.dumps({"replaced": operation, "killed": pid, "before": observed, "outside": fingerprint()}))
@@ -313,6 +373,32 @@ def main():
         finally:
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
+        return
+    if operation in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"):
+        parent = os.open("/sys/fs/cgroup", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            child = os.open("smithers", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            try:
+                info = os.fstat(child)
+                if info.st_uid != 0 or info.st_mode & 0o022:
+                    raise ValueError("untrusted initial cgroup ancestor")
+                if operation == "cgroup-live-ancestor-writable":
+                    os.fchmod(child, 0o777)
+                else:
+                    os.rename("smithers", "trm06-smithers-original", src_dir_fd=parent, dst_dir_fd=parent)
+                    os.mkdir("smithers", 0o755, dir_fd=parent)
+                    replacement = os.open("smithers", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                    try:
+                        # Move the exact original sessions inode into the new
+                        # ancestor. Leaf-only identity checks would miss this.
+                        os.rename("sessions", "sessions", src_dir_fd=child, dst_dir_fd=replacement)
+                    finally:
+                        os.close(replacement)
+            finally:
+                os.close(child)
+        finally:
+            os.close(parent)
+        print(json.dumps({"cgroup_replaced": operation, "outside": fingerprint()}))
         return
     if operation in ("cgroup-live-child-replaced", "cgroup-live-child-writable"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -385,7 +471,7 @@ def main():
         return
     if operation == "boundary-sample":
         marker = Path("/workspace/trm06-member-canary")
-        logfd = os.open("/run/smithers/trm06/init.log", os.O_RDONLY | os.O_NOFOLLOW)
+        logfd = startup_log()
         with os.fdopen(logfd, "rb") as log:
             info = os.fstat(log.fileno())
             if info.st_uid != 0 or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

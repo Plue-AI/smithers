@@ -114,6 +114,33 @@ class ObserverReceipt(unittest.TestCase):
                             self.assertEqual(child.stat().st_ino, originals[name])
                             self.assertEqual(child.stat().st_mode & 0o777, 0o777 if not invalid else 0o755)
 
+    def test_live_cgroup_ancestor_preserves_original_session_inode(self):
+        for mode in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                ancestor = root / "smithers"
+                sessions = ancestor / "sessions"
+                sessions.mkdir(parents=True)
+                ancestor.chmod(0o755)
+                (sessions / "s-0000000000000001").mkdir()
+                original_ancestor, original_sessions = ancestor.stat().st_ino, sessions.stat().st_ino
+                original_open, original_stat = os.open, os.fstat
+                def rooted_open(path, flags, *args, **kwargs):
+                    return original_open(root if path == "/sys/fs/cgroup" else path, flags, *args, **kwargs)
+                def owned(fd):
+                    values = list(original_stat(fd)); values[4] = 0
+                    return os.stat_result(values)
+                with patch.object(fixture.sys, "argv", ["installed-fixture", mode]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=rooted_open), patch.object(fixture.os, "fstat", side_effect=owned), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()) as output:
+                    fixture.main()
+                    self.assertEqual(json.loads(output.getvalue())["cgroup_replaced"], mode)
+                self.assertEqual(sessions.stat().st_ino, original_sessions)
+                self.assertTrue((sessions / "s-0000000000000001").is_dir())
+                if mode.endswith("replaced"):
+                    self.assertNotEqual(ancestor.stat().st_ino, original_ancestor)
+                    self.assertEqual((root / "trm06-smithers-original").stat().st_ino, original_ancestor)
+                else:
+                    self.assertEqual(ancestor.stat().st_mode & 0o777, 0o777)
+
     def test_reader_waits_for_complete_locked_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "observer.json"

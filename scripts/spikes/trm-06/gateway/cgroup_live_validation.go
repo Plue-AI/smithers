@@ -12,7 +12,7 @@ import (
 
 func cgroupLiveFixture(scenario string) bool {
 	switch scenario {
-	case "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable":
+	case "cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable", "cgroup-live-child-replaced", "cgroup-live-child-writable":
 		return true
 	default:
 		return false

@@ -277,3 +277,22 @@ revocation with the same five-second raw populated-zero evidence gate. Empty or
 foreign child sets refuse fixture mutation. Local filesystem tests substitute
 UID/path observations only; they do not supply native cgroup acceptance. The
 full installed host matrix and native reference-host receipts remain required.
+
+The installed install campaign now includes 19 additional init-restart controls:
+boot identity changes at the original inode; hardlinked, FIFO and directory boot
+and executable leaves; and cloned, symlinked or writable immediate and enclosing
+boot/executable parents. Init retains the original ancestor descriptors and boot
+identity throughout its lifetime, refusing replacements before another child
+starts. The independent observer reads the original init-log inode's fixed path
+when its parent was moved. These controls run through the installed launcher,
+`installPrototype`, real init and authenticated relay; they remain unrun on a
+real microVM and supply no accepted receipt. Local ordinary-filesystem mutation
+and retained-ancestor tests are supplemental only.
+
+Two further live-cgroup controls change the enclosing `smithers` ancestor's
+mode or replace it while preserving the exact original `sessions` inode. The
+supervisor now pins every cgroup ancestor, so a valid leaf inode cannot conceal
+an ancestor replacement at admission or restart. The installed campaign still
+uses the armed original-events observer and authenticated revocation to require
+all original processes drain within five seconds. These native controls remain
+unrun; local mutation tests are supplemental.

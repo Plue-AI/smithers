@@ -21,7 +21,7 @@ const BOOT: &str = "/run/smithers/trm06/boot.json";
 fn refused() -> io::Error {
     io::Error::other("prototype_authority_unavailable")
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Boot {
     pub revision: String,
@@ -110,8 +110,9 @@ impl Write for HashWriter<'_> {
 }
 // Held descriptors protect every ancestor; no branch/home/environment selects
 // a destination. All files must be single-link root-owned exact-mode files.
-fn protected(path: &str, executable: bool) -> io::Result<File> {
+fn protected_chain(path: &str, executable: bool) -> io::Result<Vec<File>> {
     let mut dir = File::open("/")?;
+    let mut held = vec![dir.try_clone()?];
     let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
     for (i, part) in parts.iter().enumerate() {
         let leaf = i == parts.len() - 1;
@@ -141,9 +142,60 @@ fn protected(path: &str, executable: bool) -> io::Result<File> {
         {
             return Err(refused());
         }
+        held.push(file.try_clone()?);
         dir = file;
     }
-    Ok(dir)
+    Ok(held)
+}
+fn protected(path: &str, executable: bool) -> io::Result<File> {
+    protected_chain(path, executable)?.pop().ok_or_else(refused)
+}
+
+// Pin every installed ancestor for init's whole lifetime. Reopening valid
+// replacement directories must not adopt a different boot/artifact authority.
+struct StartupAuthority {
+    boot: Vec<File>,
+    executable: Vec<File>,
+    identity: Boot,
+}
+impl StartupAuthority {
+    fn installed() -> io::Result<Self> {
+        let identity = Boot::installed()?;
+        let authority = Self {
+            boot: protected_chain(BOOT, false).map_err(|_| refused())?,
+            executable: protected_chain(EXECUTABLE, true).map_err(|_| refused())?,
+            identity,
+        };
+        authority.recheck()?;
+        Ok(authority)
+    }
+    fn recheck(&self) -> io::Result<()> {
+        same_chain(
+            &self.boot,
+            &protected_chain(BOOT, false).map_err(|_| refused())?,
+        )?;
+        same_chain(
+            &self.executable,
+            &protected_chain(EXECUTABLE, true).map_err(|_| refused())?,
+        )?;
+        if Boot::installed()? != self.identity {
+            return Err(refused());
+        }
+        Ok(())
+    }
+}
+fn same_chain(held: &[File], current: &[File]) -> io::Result<()> {
+    if held.len() != current.len() || held.is_empty() {
+        return Err(refused());
+    }
+    for (held, current) in held.iter().zip(current) {
+        let held = held.metadata()?;
+        let current = current.metadata()?;
+        if held.dev() != current.dev() || held.ino() != current.ino() {
+            return Err(refused());
+        }
+    }
+    Ok(())
 }
 fn verify_digest(file: File, expected: &str) -> io::Result<()> {
     let mut hash = Sha256::new();
@@ -178,19 +230,22 @@ pub fn serve() -> io::Result<()> {
     )
 }
 pub fn init() -> io::Result<()> {
-    Boot::installed()?;
+    let authority = StartupAuthority::installed()?;
     crate::accounts::provision_fresh()?;
     // Keep the initial cgroup parent across every child restart. A replacement
     // cannot hide old groups from a newly started supervisor.
     let sessions = crate::cgroup::Sessions::open()?;
     loop {
+        authority.recheck()?;
         sessions.recheck()?;
         // Each replacement re-verifies the installed inode and runs its own
         // cgroup barrier. No executable or env comes from the repository.
         let boot = Boot::installed()?;
         let executable = protected(EXECUTABLE, true)?;
         verify_digest(executable.try_clone()?, &boot.supervisor_sha256)?;
+        authority.recheck()?;
         let status = run_held(&executable, &["--serve"])?;
+        authority.recheck()?;
         sessions.recheck()?;
         eprintln!("trm06 supervisor ended: {status}");
         std::thread::sleep(Duration::from_millis(100));
@@ -199,6 +254,46 @@ pub fn init() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_authority_rejects_cloned_parent_with_same_leaf_inode() {
+        let root = std::env::temp_dir().join(format!(
+            "trm06-startup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let parent = root.join("installed");
+        std::fs::create_dir(&parent).unwrap();
+        let leaf = parent.join("boot.json");
+        std::fs::write(&leaf, b"main-boot").unwrap();
+        let held = vec![File::open(&parent).unwrap(), File::open(&leaf).unwrap()];
+        assert!(
+            same_chain(
+                &held,
+                &[File::open(&parent).unwrap(), File::open(&leaf).unwrap()]
+            )
+            .is_ok()
+        );
+        std::fs::rename(&parent, root.join("original")).unwrap();
+        std::fs::create_dir(&parent).unwrap();
+        // A hardlinked leaf alone has exactly the original identity; pinning
+        // only it would miss the replaced ancestor. Production pins both.
+        std::fs::hard_link(root.join("original/boot.json"), &leaf).unwrap();
+        assert!(same_chain(&held[1..], &[File::open(&leaf).unwrap()]).is_ok());
+        assert!(
+            same_chain(
+                &held,
+                &[File::open(&parent).unwrap(), File::open(&leaf).unwrap()]
+            )
+            .is_err()
+        );
+        assert!(same_chain(&held, &[]).is_err());
+        assert!(same_chain(&[], &[]).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn held_exec_never_runs_replacement_path_bytes() {
         let directory = std::env::temp_dir().join(format!(
