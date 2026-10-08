@@ -2120,6 +2120,14 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
+			// A reserved immutable source can be rebased and consumed under
+			// this claim without rewriting the live branch. Give it that
+			// atomic continuation before scheduling the branch rebase path.
+			if capture.SourceRef != "" {
+				if next, saved, err := st.consumeCapturedEdits(ctx, item); next != nil || saved || err != nil {
+					return next, saved, err
+				}
+			}
 			// Edit consumption waits for a moved prefix to be rebased. Keep
 			// the capture while the authenticated daemon performs that rebase;
 			// routing back to edit consumption here would wait on itself.
