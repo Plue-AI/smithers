@@ -26,6 +26,8 @@ import {
 } from "../coding/planning.ts"
 import { detectChecks } from "../coding/project-config.ts"
 import { type Check, CodingError, type Revision, validatePlan } from "../coding/schema.ts"
+import { feedbackLayer } from "../coding/steering.ts"
+import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 
 /*
  * Plans place work anywhere in the mythical stack: a new change may be
@@ -179,6 +181,7 @@ const host = (decline: string | undefined) => {
   const counts = { drafts: 0 }
   const layer = Layer.mergeAll(
     Interpreter.layer(PreparePlan),
+    feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop()))),
     declineLayer,
     HumanTask.layer,
     planningPolicy,
@@ -248,6 +251,7 @@ test(
     let drafts = 0
     const layer = Layer.mergeAll(
       preparePlanLayer(20),
+      feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop()))),
       declineLayer,
       HumanTask.layer,
       planningPolicy,

@@ -182,11 +182,14 @@ export const ReceiveFeedback = Action.make("coding/receive-request-feedback", {
 export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type) =>
   Effect.gen(function*() {
     const owner = yield* Effect.serviceOption(ModuleOwner)
-    // Inside implement only a TODO run takes messages (spec §10.7.3). A request
-    // coordinator's messages wait for correction to settle, and an unowned or
-    // standalone implementation has no lineage: both read nothing, so the
-    // queue is never touched without a proved TODO owner.
-    if (input.boundary === "implement" && (Option.isNone(owner) || owner.value.flowId !== todoFlowId)) {
+    // Inside planning and implement only a TODO run takes messages (spec
+    // §10.7.3). A request coordinator's messages wait for its own boundaries,
+    // and an unowned or standalone step has no lineage: both read nothing, so
+    // the queue is never touched without a proved TODO owner.
+    if (
+      (input.boundary === "plan" || input.boundary === "implement") &&
+      (Option.isNone(owner) || owner.value.flowId !== todoFlowId)
+    ) {
       const instance = yield* FlowRuntime.FlowInstance
       return { boundary: feedbackBoundary(instance.executionId, input), messages: [] }
     }

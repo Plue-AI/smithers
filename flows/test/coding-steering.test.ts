@@ -4,7 +4,7 @@ import { RunNotFound } from "@smthrs/control/ControlError"
 import * as ControlExecutor from "@smthrs/control/ControlExecutor"
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, Flow, Interpreter } from "@smthrs/flow"
+import { Action, Flow, HumanTask, Interpreter } from "@smthrs/flow"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect"
 import * as SqlClient from "effect/unstable/sql/SqlClient"
@@ -26,6 +26,17 @@ import * as LocalControl from "../../packages/smithers/src/internal/LocalControl
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { ApplyNative, EditAtom, Entry, Observe, Prepare } from "../coding/atoms.ts"
 import ImplementAtoms, { atomFlows } from "../coding/implementation/flow.ts"
+import {
+  declineLayer,
+  DraftPlan,
+  GatherContext,
+  type PlanningContext,
+  planningPolicy,
+  planningPrompt,
+  PreparePlan,
+  ReviewRequest,
+  VerifyContext
+} from "../coding/planning.ts"
 import {
   appendFeedback,
   feedbackBoundary,
@@ -934,4 +945,89 @@ test("a TODO step boundary reads a committed outside-change note as quoted data"
   const forged: Notification = { ...message("burst-1", "todo-run"), payload: note.payload }
   const refused = await Effect.runPromise(Effect.flip(appendFeedback("", { boundary: "b", messages: [forged] })))
   assert.match(refused.message, /no readable Message payload/)
+})
+
+
+test("a steer committed before a TODO answer reaches the first plan request after it", { timeout: 60_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "todo-plan-steering-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  let routed: NotificationQueue.Service | undefined
+  const parent = ManagedRuntime.make(LocalControl.layer(
+    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+    (queue, control, journal) => (routed = routeMessages(queue, control, journal))
+  ).pipe(Layer.provideMerge(controlLayer)))
+  t.after(() => parent.dispose())
+  const head = { changeId: "change-head", commitId: "commit-head", treeId: "tree-head", operationId: "op",
+    parentCommitIds: ["commit-root"], description: "✨ feat: seed" }
+  const context: PlanningContext = {
+    head, history: [head], memory: [], memoryRevision: "memory", implementation: "coding/implementation",
+    implementationDigest: "i".repeat(64), sources: [], missing: [],
+    checks: [{ id: "build", target: ".", flow: "checks/build", flowDigest: "b".repeat(64), tier: "fast", required: true }]
+  }
+  const draft = {
+    rationale: "retries", baseChangeId: head.changeId,
+    changes: [{ id: "retry", title: "Retry", intent: "Add retries", checks: ["build"],
+      atoms: [{ changeId: null, message: "✨ feat: retry", intent: "retry", reads: [], writes: ["src/deliver.ts"] }] }]
+  }
+  const plan = async (flowId: string, clarification: string, label: string) => {
+    const owner = await parent.runPromise(Effect.gen(function*() {
+      return yield* launch(yield* ControlRuntime.ControlRuntime, flowId)
+    }))
+    const steer = (id: string, body: string) =>
+      parent.runPromise(Effect.gen(function*() {
+        const control = yield* ControlRuntime.ControlRuntime
+        const input = { runId: owner.runId, idempotencyKey: id, message: { runId: owner.runId, messageId: id,
+          createdAt: 0, principal: yield* control.stampPrincipal(), body, attribution: { by: "member:2" } } }
+        yield* (yield* Control.Control).steer(input)
+      }))
+    const drafts: Array<string> = []
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      Interpreter.layer(PreparePlan),
+      feedbackLayer,
+      declineLayer,
+      planningPolicy,
+      VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
+      GatherContext.toLayer(() => Effect.succeed(context)),
+      // Ben steers while his question is open, then answers it.
+      ReviewRequest.toLayer(() =>
+        Effect.promise(async () => {
+          if (clarification === "") await steer(`${label}-review`, "Keep the max at 5")
+          return { explanation: "Which helper?", clarification }
+        })
+      ),
+      HumanTask.action.toLayer(() =>
+        Effect.promise(async () => (await steer(`${label}-steer`, "Keep the max at 5"), "Use the existing retry helper"))
+      ),
+      DraftPlan.toLayer((payload) => Effect.sync(() => (drafts.push(planningPrompt(payload)), draft)))
+    ).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
+      Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
+      Layer.provideMerge(NodeCrypto.layer)
+    ))
+    t.after(() => runtime.dispose())
+    await runtime.runPromise(
+      PreparePlan.execute({ prompt: "Add retries to webhook delivery", feedback: "" }, { executionId: `${label}-plan` })
+    )
+    assert.equal(drafts.length, 1)
+    return { first: JSON.parse(drafts[0]!), pending: await parent.runPromise(routed!.pending(owner.runId)) }
+  }
+
+  const answered = await plan("todo", "Which retry helper?", "answered")
+  assert.equal(answered.first.answer, "Use the existing retry helper")
+  assert.match(answered.first.messages, /^\[request message \{"id":"answered-steer"/)
+  assert.ok(answered.first.messages.endsWith("\nKeep the max at 5"))
+  assert.deepEqual(answered.pending, [])
+
+  // Without a question the first draft request still carries what the review's turn missed.
+  const reviewed = await plan("todo", "", "reviewed")
+  assert.match(reviewed.first.messages, /"id":"reviewed-review"/)
+
+  // A request coordinator plans without it; the message waits for its boundary.
+  const request = await plan("coding/request", "Which retry helper?", "request")
+  assert.equal("messages" in request.first, false)
+  assert.deepEqual(request.pending.map((n) => n.id), ["request-steer"])
 })

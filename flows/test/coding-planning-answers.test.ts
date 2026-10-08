@@ -18,6 +18,8 @@ import {
   VerifyContext
 } from "../coding/planning.ts"
 import type { CarriedAnswer, Revision } from "../coding/schema.ts"
+import { feedbackLayer } from "../coding/steering.ts"
+import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 
 /*
  * A person's answer to an agent's question reaches every later attempt of
@@ -76,6 +78,10 @@ const host = (clarification: string) => {
   }
   const layer = Layer.mergeAll(
     Interpreter.layer(PreparePlan),
+    // No TODO owner: the plan drain reads nothing and never touches a queue.
+    feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop({
+      drain: () => Effect.die("an unowned plan must not drain the queue")
+    })))),
     declineLayer,
     planningPolicy,
     HumanTask.action.toLayer(({ prompt }) => Effect.sync(() => (seen.asked.push(prompt), "Answered now"))),
@@ -106,6 +112,7 @@ test("carried answers reach the review and draft prompts and every atom's intent
   const { runtime, seen } = host("")
   t.after(() => runtime.dispose())
   const plan = await runtime.runPromise(PreparePlan.execute(input, { executionId: "carried" }))
+  assert.equal("messages" in JSON.parse(seen.draft[0]!), false)
   for (const sent of [seen.review, seen.draft]) {
     assert.equal(sent.length, 1)
     const shown = JSON.parse(sent[0]!).input

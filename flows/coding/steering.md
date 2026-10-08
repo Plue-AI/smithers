@@ -79,12 +79,15 @@ drains the same lineage at the composition's step boundaries. Inside implement,
 ReceiveFeedback.call({ boundary: "implement", revision: ordinal })
 ```
 
-A nonempty receipt reaches the edit as `feedback`, rendered by
+`coding/PreparePlan` does the same before `coding/draft-plan`, at
+`ReceiveFeedback.call({ boundary: "plan", revision: 0 })`, so a steer committed
+before a person's answer reaches the first model request after that answer as
+`messages`. A nonempty implement receipt reaches the edit as `feedback`, rendered by
 `renderFeedback`: one `[request message {id, provenance}]` header per message,
 then its body. A payload that is not a Message stays quoted JSON. A steer sent
 while one atom's model turn runs therefore reaches the next atom's first model
-request, and the harness covers turns inside one atom. The `implement` boundary
-reads nothing for a `coding/request` coordinator, whose messages wait for
+request, and the harness covers turns inside one atom. The `plan` and `implement`
+boundaries read nothing for a `coding/request` coordinator, whose messages wait for
 correction to settle, and nothing for an unowned or standalone implementation.
 A TODO run never closes its lineage through this recipe; a finished run refuses
 with `notification_closed`.
