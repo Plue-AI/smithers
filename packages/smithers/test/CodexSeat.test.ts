@@ -269,12 +269,16 @@ ${emit(success)} process.exit(0);`)
     expect(failure).toMatchObject({ code: "transport" })
   })
 
-  it("keeps a vendor failure typed when it closes stdin before a large prompt is written", async () => {
-    const fake = fakeModel("require('node:fs').closeSync(0); setTimeout(() => process.exit(7), 20);")
+  it.each([
+    { name: "closes stdin", script: "require('node:fs').closeSync(0); setTimeout(() => process.exit(7), 20);" },
+    { name: "exits", script: "process.exit(7);" }
+  ])("keeps a vendor failure typed when it $name before a large prompt is written", async ({ script }) => {
+    const fake = fakeModel(script)
     const failure = await Effect.runPromise(Effect.flip(Stream.runCollect(fake.model.stream(request({
       messages: [ModelRequest.Message.user("x".repeat(1024 * 1024))]
     })))))
     expect(failure).toMatchObject({ code: "transport" })
+    expect(failure.message).toContain("Codex exited 7")
   })
 
   it("refuses malformed requests both before a vendor launch and before sealing a route", async () => {

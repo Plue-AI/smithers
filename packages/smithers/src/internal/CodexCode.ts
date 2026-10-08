@@ -249,9 +249,12 @@ const execute = (
           })
         )
       ),
-      // A vendor that closes stdin before reading the prompt still reports
-      // its own failure through its exit status.
-      Effect.ignore(Stream.run(Stream.make(new TextEncoder().encode(prompt(request))), child.stdin))
+      // A vendor may exit while stdin is waiting for drain or finish. Stop
+      // that writer with the target; the status branch retains its refusal.
+      Effect.raceFirst(
+        Effect.ignore(Stream.run(Stream.make(new TextEncoder().encode(prompt(request))), child.stdin)),
+        Effect.ignore(ScopedProcess.status(child))
+      )
     ], { concurrency: "unbounded" }).pipe(
       // The platform's own failure: the supervisor or a pipe was lost mid-call.
       Effect.mapError((error) =>
