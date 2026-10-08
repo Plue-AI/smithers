@@ -93,8 +93,9 @@ var rehearsalInstallations atomic.Int64
 type rehearsal struct {
 	hostCredentials sync.Map
 	// Fault controls retain only this fixture's engine and stop its original worker.
-	repositoryRoot string
-	stopBackend    func()
+	repositoryRoot     string
+	stopBackend        func()
+	workspaceStateRoot string // retained runtime state for owned kill/restart workers
 	// stepBudget overrides readiness polling for non-latency checks under contention.
 	stepBudget       time.Duration
 	deferredDoors    bool
@@ -351,6 +352,7 @@ path = "lib.rs"
 	processRuntime, err := process.New(process.Config{Root: processRoot, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
 	require.NoError(t, err)
 	r.processRuntime = processRuntime
+	r.workspaceStateRoot = processRoot
 	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
 	admittedRuntime := &rehearsalAdmissionRuntime{Runtime: processRuntime, aliases: map[string]string{}}
 	var workspace workspaceapi.WorkspaceRuntime = admittedRuntime

@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,10 +24,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowmanifest"
+	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
 	"github.com/stretchr/testify/require"
@@ -121,20 +129,26 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 				proposalPath = fmt.Sprintf("/api/repos/rehearsal-owner/app/workspaces/%s/stack/propose", workspace)
 				proposalBody = fmt.Sprintf(`{"requestId":"22222222-2222-4222-8222-222222222222","generation":%d}`, generation)
 				r.stopBackend()
+				if enable == "SMITHERS_GITHUB_OUTBOUND_LINUX" {
+					// The replacement owns this retained disk. Retire every original
+					// diagnostic writer and daemon before reopening it in the child.
+					workspace := r.options.Workspace.(bindingProcessRuntime)
+					workspace.daemonStops.Range(func(key, value any) bool {
+						value.(func())()
+						workspace.daemonStops.Delete(key)
+						return true
+					})
+					require.NoError(t, r.processRuntime.Close())
+				}
 				r.ctx = t.Context()
 				unlockInitial()
 				t.Setenv("SMITHERS_GITHUB_GIT_BASE_URL", r.fake.URL)
 				t.Run("crossing", func(t *testing.T) {
 					options := r.options
 					options.Duties = DutiesHTTP
-					server := httptest.NewUnstartedServer(nil)
-					r.origin = "http://" + server.Listener.Addr().String()
-					t.Setenv("SMITHERS_PUBLIC_URL", r.origin)
-					t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", r.origin)
-					options.FlowHostProductAPIURL = r.origin
-					server.Config.Handler = startSplitProcess(t, options)
-					server.Start()
-					t.Cleanup(server.Close)
+					// Keep the installed address: retained checkout receipts bind its Git origin.
+					handler := startSplitProcess(t, options)
+					r.serving.Store(&handler)
 					var repository int64
 					var head string
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT repository_id,candidate_head FROM mythical_items WHERE number=$1 AND candidate_verified`, number).Scan(&repository, &head))
@@ -174,7 +188,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					var published string
 					if kind != "push" && kind != "open" {
 						wake()
-						prepared := githubKillWorker(t, r.fake.URL, r.repositoryRoot)
+						prepared := githubKillWorker(t, r, r.fake.URL, r.repositoryRoot)
 						_, err := r.waitTodoWithin(number, 60*time.Second, "in_review")
 						prepared.close()
 						require.NoError(t, err, prepared.output())
@@ -341,7 +355,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					}))
 					defer func() { unlock(); peer.Close() }()
 					wake()
-					child := githubKillWorker(t, peer.URL, r.repositoryRoot)
+					child := githubKillWorker(t, r, peer.URL, r.repositoryRoot)
 					defer child.close()
 					select {
 					case <-reached:
@@ -382,7 +396,16 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					}
 					// Attempt mutation through the real machine proxy while the slot is
 					// uncertain, and again after restart. Both refuse before minting.
-					assertProxyRefuses := func() {
+					assertProxyRefuses := func(worker *githubKillProcess) {
+						// Isolate this HTTP probe from legitimate background token/read
+						// traffic. Only our owned worker group is paused; held requests
+						// stay held and resume before the fault/recovery proceeds.
+						if worker != nil && !worker.waited {
+							require.NoError(t, syscall.Kill(-worker.command.Process.Pid, syscall.SIGSTOP))
+							defer func() { require.NoError(t, syscall.Kill(-worker.command.Process.Pid, syscall.SIGCONT)) }()
+							time.Sleep(20 * time.Millisecond)
+						}
+
 						var retained []byte
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&retained))
 						writes, reads := len(r.fake.Writes()), len(r.fake.Reads())
@@ -409,7 +432,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							require.JSONEq(t, string(retained), string(after), "proxy refusal cannot change the uncertain slot")
 						}
 					}
-					assertProxyRefuses()
+					assertProxyRefuses(child)
 					child.kill(t)
 					// Change the world only after the owned worker is dead. The recorded
 					// slot came from the production caller, never a fabricated intent.
@@ -442,7 +465,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					}
 					fmt.Printf("CRASH-POINT github-%s-%s subject todo\n", scenario, point)
 					fmt.Println("CRASH-POINT github-production-propose subject todo")
-					assertProxyRefuses()
+					assertProxyRefuses(child)
 					unlock()
 					traceMu.Lock()
 					trace = nil
@@ -453,7 +476,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_stacks SET running=true,claim=999999,lease_expires_at=NOW()+interval '1 hour' WHERE repository_id=$1`, repository)
 						require.NoError(t, err)
 					}
-					restarted := githubKillWorker(t, peer.URL, r.repositoryRoot)
+					restarted := githubKillWorker(t, r, peer.URL, r.repositoryRoot)
 					defer restarted.close()
 					recoveryDeadline := time.Now().Add(60 * time.Second)
 					if variant == "competing-fence" {
@@ -519,7 +542,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							return r.pool.QueryRow(r.ctx, `SELECT running FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&running) == nil && !running
 						}, time.Until(recoveryDeadline), 20*time.Millisecond, "recovery pass must finish before its refusal is inspected")
 						restarted.close()
-						assertProxyRefuses()
+						assertProxyRefuses(restarted)
 						var pending []byte
 						var itemState string
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT state,pending_op FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &pending))
@@ -698,18 +721,30 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'land' IS NULL FROM mythical_items WHERE number=$1`, number).Scan(&missing))
 						require.True(t, missing, "applied merge settlement cannot fabricate a missing approval")
 					}
+					if kind == "close" || dropLate {
+						require.Eventually(t, func() bool {
+							var retired bool
+							return r.pool.QueryRow(r.ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, workspace).Scan(&retired) == nil && retired
+						}, time.Until(recoveryDeadline), 20*time.Millisecond, "Drop must retire its execution lane before credential replay")
+					}
 					// Replay the original accepted request after crash recovery, including
 					// after Drop. It returns its receipt without scheduling publication again.
 					restarted.close()
-					assertProxyRefuses()
+					assertProxyRefuses(restarted)
 					writesBeforeReplay := len(r.fake.Writes())
 					var requestsBeforeReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
 					replayStatus := proposalStatus
-					if kind == "close" || kind == "merge" || dropLate {
+					if kind == "close" || dropLate {
 						// Current authorization rejects an ended attempt, including
 						// an original accepted request. Replay cannot revive its grant.
 						replayStatus = http.StatusForbidden
+					}
+					if kind == "merge" && !(mergeRefusal && point != "remote-success") {
+						replayStatus = http.StatusConflict
+					}
+					if mergeRefusal && point == "potentially-sent" {
+						replayStatus = http.StatusAccepted
 					}
 					for range 3 {
 						request, err := http.NewRequest("POST", r.origin+path, strings.NewReader(body))
@@ -724,6 +759,10 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						require.Equal(t, replayStatus, response.StatusCode, string(raw))
 						if replayStatus == http.StatusForbidden {
 							require.JSONEq(t, `{"class":"permission","code":"permission","message":"Not your confirmation"}`, string(raw))
+						} else if mergeRefusal && point == "potentially-sent" {
+							require.JSONEq(t, `{}`, string(raw), "an uncertain merge fence accepts no new proposal work")
+						} else if replayStatus == http.StatusConflict {
+							require.JSONEq(t, `{"code":"conflict","class":"conflict","fault":"user","message":"TODO is closed"}`, string(raw))
 						} else {
 							require.JSONEq(t, string(proposalReceipt), string(raw))
 						}
@@ -811,16 +850,28 @@ func (p *githubKillProcess) kill(t *testing.T) {
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, syscall.SIGKILL, exit.Sys().(syscall.WaitStatus).Signal())
 }
-func githubKillWorker(t *testing.T, peer, repositoryRoot string) *githubKillProcess {
+func githubKillWorker(t *testing.T, r *rehearsal, peer, repositoryRoot string) *githubKillProcess {
 	t.Helper()
 	binary, err := os.Executable()
 	require.NoError(t, err)
-	log, err := os.Create(filepath.Join(t.TempDir(), "worker.log"))
+	log, err := os.CreateTemp(r.evidence, "outbound-worker-*.log")
 	require.NoError(t, err)
 	command := exec.Command(binary, "-test.run=^TestGitHubOutboundKillChild$", "-test.v")
 	command.Env = append(os.Environ(), // This candidate control consumes no blob artifacts. Give each owned
 		// worker its own blob store; filesystem stores permit one owner only.
 		"SMITHERS_GITHUB_KILL_CHILD=1", "SMITHERS_GITHUB_KILL_REPO_ROOT="+repositoryRoot, "SMITHERS_BLOB_DATA_DIR="+t.TempDir(), "SMITHERS_GITHUB_APP_API_BASE_URL="+peer, "SMITHERS_GITHUB_GIT_BASE_URL="+peer)
+	registry, err := json.Marshal(r.options.FlowHostRegistry)
+	require.NoError(t, err)
+	profile, err := json.Marshal(r.options.HostProfile)
+	require.NoError(t, err)
+	command.Env = append(command.Env,
+		"SMITHERS_GITHUB_KILL_RUNTIME_ROOT="+r.workspaceStateRoot,
+		"SMITHERS_GITHUB_KILL_REGISTRY="+string(registry),
+		"SMITHERS_GITHUB_KILL_HOST_PROFILE="+string(profile),
+		"SMITHERS_GITHUB_KILL_EVIDENCE="+r.evidence)
+	if os.Getenv("SMITHERS_GITHUB_OUTBOUND_LINUX") == "1" {
+		command.Env = append(command.Env, "SMITHERS_REHEARSAL_MACHINED_BINARY="+buildRehearsalMachined(t, r.root))
+	}
 	t.Logf("owned worker log: %s", log.Name())
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Stdout = log
@@ -841,5 +892,77 @@ func TestGitHubOutboundKillChild(t *testing.T) {
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: os.Getenv("SMITHERS_GITHUB_KILL_REPO_ROOT"), AuthToken: "rehearsal-repo", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH"), InstallMainMirror: true})
 	require.NoError(t, err)
 	defer engine.Shutdown(context.Background())
-	require.NoError(t, StartWithOptions(context.Background(), nil, io.Discard, os.Stderr, Options{Repository: engine.Client(), Duties: DutiesWorkers, ComputeProvider: sandboxfake.New()}, func(http.Handler) { fmt.Fprintln(os.Stderr, "github-kill-worker-ready") }))
+	options := Options{Repository: engine.Client(), Duties: DutiesWorkers, ComputeProvider: sandboxfake.New()}
+	ready := func(http.Handler) { fmt.Fprintln(os.Stderr, "github-kill-worker-ready") }
+	if root := os.Getenv("SMITHERS_GITHUB_KILL_RUNTIME_ROOT"); root != "" {
+		// Reopen the same retained diagnostic disk. Drop cancellation/capture
+		// must use the native daemon and real runtime, not the compute fixture.
+		pool, err := pgxpool.New(t.Context(), os.Getenv("SMITHERS_DATABASE_URL"))
+		require.NoError(t, err)
+		defer pool.Close()
+		var hosts flowmanifest.Registry
+		require.NoError(t, json.Unmarshal([]byte(os.Getenv("SMITHERS_GITHUB_KILL_REGISTRY")), &hosts))
+		var profile microsandbox.HostProfile
+		require.NoError(t, json.Unmarshal([]byte(os.Getenv("SMITHERS_GITHUB_KILL_HOST_PROFILE")), &profile))
+		options.FlowHostRegistry = &hosts
+		options.FlowHostProductAPIURL = os.Getenv("SMITHERS_PUBLIC_URL")
+		options.HostProfile = &profile
+		var ensureMachined func(context.Context, string) error
+		if os.Getenv("SMITHERS_GITHUB_OUTBOUND_LINUX") == "1" {
+			runtime, err := process.New(process.Config{Root: root, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
+			require.NoError(t, err)
+			defer runtime.Close()
+			registry := new(machined.Registry)
+			defer registry.Close()
+			workspace := bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{Runtime: runtime, aliases: map[string]string{}},
+				t: t, pool: pool, repository: engine.Client(), daemons: registry, daemonStops: new(sync.Map),
+				daemonBinary: os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY"), evidence: os.Getenv("SMITHERS_GITHUB_KILL_EVIDENCE")}
+			options.Workspace, options.Machined, options.BranchCapture = workspace, registry, registry
+			options.BranchMachines = rehearsalBranchMachines(pool)
+			options.FlowHostConfig = flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}
+			ensureMachined = func(ctx context.Context, id string) error {
+				if _, err := runtime.StartWorkspace(ctx, id); err != nil {
+					return err
+				}
+				return workspace.EnsureMachined(ctx, id)
+			}
+		} else {
+			// Qualification reopens only the approved bundle's real microVM
+			// runtime and retained state. No process or compute substitution.
+			bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
+			require.NoError(t, err)
+			address, err := url.Parse(options.FlowHostProductAPIURL)
+			require.NoError(t, err)
+			port, err := strconv.ParseUint(address.Port(), 10, 16)
+			require.NoError(t, err)
+			sizing := microsandbox.ComputeSizing(profile)
+			runtime, err := microsandbox.New(t.Context(), microsandbox.Config{Root: root, Bundle: bundle,
+				BundlePrograms: []string{hosts.Coding.Executable}, HostProfile: &profile, HostPorts: []uint16{uint16(port)},
+				CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: sizing.Capacity,
+				Environments: &microsandbox.EnvironmentConfig{PrepareCPUs: sizing.CPUs, PrepareMemoryMiB: sizing.MemoryMiB,
+					PrepareDiskMiB: int(microsandbox.MachineDiskBytes >> 20), LayerBudgetBytes: sizing.LayerBudgetBytes, MinFreeBytes: microsandbox.MinFreeDiskBytes}})
+			require.NoError(t, err)
+			defer runtime.Close()
+			options.Workspace, options.InstallBranchMachines = runtime, true
+			options.ComputeProvider = nil
+			ensureMachined = runtime.EnsureMachined
+		}
+		ready = func(http.Handler) {
+			rows, err := pool.Query(t.Context(), `SELECT w.id::text FROM workspaces w JOIN mythical_items i ON i.workspace_id=w.id::text WHERE w.deleted_at IS NULL AND w.vm_id<>'' AND w.branch_archived_at IS NULL`)
+			require.NoError(t, err)
+			ids := []string{}
+			for rows.Next() {
+				var id string
+				require.NoError(t, rows.Scan(&id))
+				ids = append(ids, id)
+			}
+			require.NoError(t, rows.Err())
+			rows.Close()
+			for _, id := range ids {
+				require.NoError(t, ensureMachined(t.Context(), id))
+			}
+			fmt.Fprintln(os.Stderr, "github-kill-worker-ready")
+		}
+	}
+	require.NoError(t, StartWithOptions(context.Background(), nil, io.Discard, os.Stderr, options, ready))
 }

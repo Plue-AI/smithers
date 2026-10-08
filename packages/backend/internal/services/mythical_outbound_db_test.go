@@ -236,3 +236,40 @@ func TestMythicalOutboundForeignPushWaitAtomically(t *testing.T) {
 	again := st.holdForeignHead(*held, &mythicalForeignHead{Branch: "smithers/foreign", Head: "2222222222222222222222222222222222222222"})
 	require.Equal(t, waits, todoOpenWaits(*again))
 }
+
+func TestMythicalOutboundRetainedForeignConflictGetsWait(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	var actor, repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('retained-conflict','retained-conflict') RETURNING id`).Scan(&actor))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'app','app') RETURNING id`, actor).Scan(&repo))
+	_, err := q.RequestMythicalBootstrap(ctx, repo, actor, 100, false)
+	require.NoError(t, err)
+	claims, err := q.ClaimMythicalStacks(ctx, 1, 600)
+	require.NoError(t, err)
+	require.Len(t, claims, 1)
+	item, err := q.InsertMythicalTodo(ctx, repo, actor, "Retained conflict", "Keep the person's push", json.RawMessage(`[]`), json.RawMessage(`{"todo":true,"branch":"smithers/foreign","foreignHead":"2222222222222222222222222222222222222222"}`))
+	require.NoError(t, err)
+	item.State = "proposing"
+	item.PendingOp = json.RawMessage(`{"kind":"push","target":"smithers/foreign","desired":"1111111111111111111111111111111111111111","precondition":"","state":"conflict"}`)
+	item, err = q.SaveMythicalItemUnderLease(ctx, item, claims[0].Claim)
+	require.NoError(t, err)
+	service := NewMythicalService(pool, nil)
+	step := mythicalItemStep{s: service, q: q, r: &mythicalRun{row: claims[0]}, now: service.now()}
+	repaired, err := step.recoverOutbound(ctx, item)
+	require.NoError(t, err)
+	require.Equal(t, "needs_you", todoState(*repaired))
+	waits := todoOpenWaits(*repaired)
+	require.Len(t, waits, 1)
+	require.Equal(t, "foreign_push", waits[0].Kind)
+	require.Equal(t, "2222222222222222222222222222222222222222", waits[0].SHA)
+	require.JSONEq(t, string(item.PendingOp), string(repaired.PendingOp))
+	// No provider is configured: repair uses the retained observation without a write.
+	again, err := step.recoverOutbound(ctx, *repaired)
+	require.NoError(t, err)
+	require.Equal(t, waits, todoOpenWaits(*again))
+	var facts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push' AND state='needs_you'`).Scan(&facts))
+	require.Equal(t, 1, facts)
+}

@@ -60,6 +60,7 @@ func configurePinnedMicroVMRehearsal(t *testing.T, r *rehearsal, options *Option
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, vm.Close()) })
 	r.workspaceRuntime = vm
+	r.workspaceStateRoot = state
 	options.Workspace, options.MachineImages = vm, nil
 	options.BranchMachines, options.InstallBranchMachines = nil, true
 	options.HostProfile = &profile

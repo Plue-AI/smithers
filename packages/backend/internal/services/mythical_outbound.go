@@ -126,6 +126,16 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	}
 	if op.State == "conflict" && !mythicalNoPRPushLease(item, op) {
 		if mythicalPublishes(op.Kind) {
+			checks := mythicalChecksOf(item)
+			missingWait := checks.ForeignHead != ""
+			for _, wait := range checks.Waits {
+				if wait.Kind == "foreign_push" {
+					missingWait = false
+				}
+			}
+			if missingWait {
+				return st.saveOutboundForeignWait(ctx, item, &mythicalForeignHead{Branch: op.Target, Head: checks.ForeignHead})
+			}
 			// Held for a person: nothing moves but the hold's notice, said once.
 			held := st.s.deliverNotice(ctx, st.r, item)
 			return &held, nil
@@ -162,21 +172,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if op.State == "conflict" && mythicalPublishes(op.Kind) {
 		// The branch holds a head Smithers neither recorded nor published: a
 		// person's push, held exactly as one found before the push.
-		held := st.holdForeignHead(item, &mythicalForeignHead{Branch: op.Target, Head: observed})
-		var saved db.MythicalItem
-		err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
-			var err error
-			saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, *held, st.r.row.Claim)
-			if err != nil {
-				return err
-			}
-			if mythicalTodo(item) && todoState(item) != todoState(saved) {
-				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(saved), "sha": observed})
-				_, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), data)
-			}
-			return err
-		})
-		return &saved, err
+		return st.saveOutboundForeignWait(ctx, item, &mythicalForeignHead{Branch: op.Target, Head: observed})
 	}
 	if op.State == "intended" {
 		// Drop retains uncertain effects for lookup, but never authorizes another
@@ -365,4 +361,22 @@ func mythicalDropObligation(item db.MythicalItem) db.MythicalItem {
 		item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: fmt.Sprint(item.PRNumber.Int64), Desired: "closed", Precondition: "open", State: "intended"})
 	}
 	return item
+}
+
+func (st *mythicalItemStep) saveOutboundForeignWait(ctx context.Context, item db.MythicalItem, foreign *mythicalForeignHead) (*db.MythicalItem, error) {
+	held := st.holdForeignHead(item, foreign)
+	var saved db.MythicalItem
+	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		var err error
+		saved, err = db.New(tx).SaveMythicalItemUnderLease(ctx, *held, st.r.row.Claim)
+		if err != nil {
+			return err
+		}
+		if mythicalTodo(item) && todoState(item) != todoState(saved) {
+			data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "from": todoState(item), "to": todoState(saved), "sha": foreign.Head})
+			_, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_push", todoState(saved), data)
+		}
+		return err
+	})
+	return &saved, err
 }

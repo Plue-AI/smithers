@@ -59,3 +59,11 @@ under test is created by the TODO's production publication worker before the
 restart; the diagnostic asserts replay refusal preserves it and creates no work.
 Reference runs still require 202 admission. Startup failures before a crossing
 produce no kill-point receipt.
+
+Restarted workers reopen the retained runtime state and compose its machine
+registry, final capture, branch admission and pinned host manifest. Drop uses
+the production cancellation/capture path before close. The HTTP listener and
+configured install address remain unchanged across the restart, so retained
+checkout receipts keep their bound Git origin. Reference workers use the
+approved installed bundle and microVM runtime; Linux workers use the explicitly
+selected process diagnostic with native capture, never claim guest isolation.
