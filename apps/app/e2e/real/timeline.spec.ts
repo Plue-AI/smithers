@@ -83,7 +83,7 @@ test("shared TODO entries reach both members' timeline and narrow edge", async (
     const history = await memberRequest(alice.page, "GET", "/api/conversations/main")
     expect(history.status).toBe(200)
     const subjects = history.body.entries.filter((entry: any) => entry.subject)
-    expect(subjects.map((entry: any) => entry.subject.n)).toEqual([host.todos.ready, host.todos.ask, host.todos.fail, host.todos.live])
+    expect(subjects.map((entry: any) => entry.subject.n)).toEqual([host.todos.ready, host.todos.ask, host.todos.live, host.todos.fail])
     // Hiding is a private production view-state write; entries survive reload.
     const hidden = await memberRequest(alice.page, "PUT", "/api/conversations/main/view-state", { toasts_hidden: true }, "timeline-hide")
     expect(hidden.status).toBe(200)
@@ -194,6 +194,18 @@ test("shared attention and live entries preserve actions and private hiding", as
     await expect(mayaNotice).toHaveAttribute("data-tone", "failed")
     await expect(mayaNotice.getByRole("button", { name: "Retry", exact: true })).toBeVisible()
     await expect(maya.locator(`[data-notice="toast-todo.failed.${host.todos.aliceFail}.no-run.0"]`)).toHaveCount(0)
+    await expect(alice.getByTestId("composer-input")).toBeEditable()
+    // The retained failure's Retry uses the real catalog/controller and HTTP
+    // route. Observe the request and receipt without intercepting either.
+    const retryResponse = alice.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/todos/${host.todos.aliceFail}`)
+    const failed = alice.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${host.todos.aliceFail}"]`)
+    await failed.getByRole("button", { name: "Retry", exact: true }).press("Enter")
+    const admitted = await retryResponse
+    expect(admitted.request().postDataJSON()).toEqual({ op: "retry" })
+    expect(admitted.status()).toBe(202)
+    expect(await admitted.json()).toMatchObject({ state: "accepted" })
+    await expect(failed).toHaveCount(1)
+    await expect(failed.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
     await expect(alice.getByTestId("composer-input")).toBeEditable()
   } finally { for (const context of contexts) await context.close() }
 })

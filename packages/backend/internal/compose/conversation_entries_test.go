@@ -31,7 +31,10 @@ func TestConversationTimelineInstallBrowser(t *testing.T) {
 	t.Setenv("SMITHERS_REHEARSAL_SPA_DIR", filepath.Join(app, "dist"))
 	require.FileExists(t, filepath.Join(app, "dist/index.html"))
 	r := newRehearsal(t, "SMITHERS_CONVERSATION_TIMELINE_BROWSER", "C-UI-04", "timeline-")
+	t.Cleanup(func() { require.NoError(t, r.release("timeline")) })
 	require.True(t, r.install("Install ready"))
+	_, err := r.expect("PUT", "/api/install", `{"parallel":3}`, 200)
+	require.NoError(t, err)
 	alice, err := r.member("alice", 81, "write")
 	require.NoError(t, err)
 	todos := map[string]int64{}
@@ -45,18 +48,26 @@ func TestConversationTimelineInstallBrowser(t *testing.T) {
 		_, err = r.waitTodoWithin(n, 3*time.Minute, item.state)
 		require.NoError(t, err)
 		todos[item.key] = n
-		if item.key == "ask" {
-			// Retain an earlier failed item as initial PostgreSQL data. This
-			// qualifies the UI's failure path independently of the coding
-			// flow's automatic repair loop; publication still runs through a
-			// person's production Move command, never a mocked projection.
-			todos["fail"] = seedConversationFailure(t, r, "alice", "Failure entry")
-			_, err = r.expectAs(r.jar, "POST", fmt.Sprintf("/api/todos/%d", todos["fail"]), `{"op":"move","direction":"up"}`, 202)
-			require.NoError(t, err)
+		if item.key == "ready" {
+			// PR-open precedes the review verdict. Merge's served readiness is
+			// the person-facing receipt; wait for it, not merely In review.
+			require.Eventually(t, func() bool {
+				raw, readErr := r.expect("GET", fmt.Sprintf("/api/todos/%d", n), "", 200)
+				if readErr != nil {
+					return false
+				}
+				var todo rehearsalTodo
+				return json.Unmarshal(raw, &todo) == nil && todo.Merge.State == "ready"
+			}, 3*time.Minute, time.Second)
 		}
 	}
-	runConversationTimelineBrowser(t, r, alice, todos, "^shared TODO entries")
-	require.NoError(t, r.release("timeline"))
+	// Seed history only after the live subject has its machine. A failed
+	// predecessor with no captured candidate cannot supply a later item's
+	// prefix; that artificial admission barrier is not part of this UI proof.
+	todos["fail"] = seedConversationFailure(t, r, "alice", "Failure entry")
+	_, err = r.expectAs(r.jar, "POST", fmt.Sprintf("/api/todos/%d", todos["fail"]), `{"op":"move","direction":"up"}`, 202)
+	require.NoError(t, err)
+	runConversationTimelineBrowser(t, r, alice, todos, "shared TODO entries")
 }
 
 // Attention and live entries can be exercised without a guest file mutation.
