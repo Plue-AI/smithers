@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
@@ -614,4 +615,34 @@ func TestPresenceScratchSourceAndItemCutover(t *testing.T) {
 	var status string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
 	require.Equal(t, "suspended", status)
+}
+
+// A new scratch has a real machine but no coding host until its first terminal.
+// Keep that door visible without granting a safe-idle or presence receipt.
+func TestPresenceFreshScratchCardBeforeHost(t *testing.T) {
+	f := presenceInstall(t)
+	_, err := f.pool.Exec(t.Context(), `UPDATE flow_runtime_host_bindings SET state='pending' WHERE workspace_id=$1`, f.row.ID)
+	require.NoError(t, err)
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	frame := readPresenceFrame(t, conn)
+	require.Equal(t, "snap", frame.T)
+	var model struct {
+		ID      string `json:"id"`
+		Machine struct {
+			State string `json:"state"`
+		} `json:"machine"`
+		Presence []any `json:"presence"`
+	}
+	require.NoError(t, json.Unmarshal(frame.Data, &model))
+	require.Equal(t, f.row.ID, model.ID)
+	require.Equal(t, "awake", model.Machine.State)
+	require.Empty(t, model.Presence)
+	_, err = f.p.call(t.Context(), f.row, "presence-owner/app", "Branch.PresenceOn", map[string]any{})
+	require.ErrorIs(t, err, flowhost.ErrHostNotRunning)
+	var running int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND state='running'`, f.row.ID).Scan(&running))
+	require.Zero(t, running, "opening the branch card must not start a host")
+	state, _ := f.p.rebasePresence(t.Context(), f.row.RepositoryID, f.row.ID)
+	require.Equal(t, services.RebasePresenceUnknown, state)
 }

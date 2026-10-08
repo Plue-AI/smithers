@@ -202,11 +202,17 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		running := current.Status == "running"
 		if p.dispatcher != nil && running {
 			raw, err := p.call(ctx, current, slug, "Branch.Roster", map[string]any{})
-			if err != nil {
+			if err != nil && !errors.Is(err, flowhost.ErrHostNotRunning) {
 				return nil, err
 			}
-			if err = json.Unmarshal(raw, &leases); err != nil {
-				return nil, err
+			// A fresh scratch machine has no coding host until a person opens
+			// a terminal. Its real branch card must expose that door first.
+			// This read starts nothing; RebasePresence and source census still
+			// treat an absent host as unknown, never as safe idle.
+			if err == nil {
+				if err = json.Unmarshal(raw, &leases); err != nil {
+					return nil, err
+				}
 			}
 		} else if running {
 			return nil, errors.New("awake branch roster unavailable")
