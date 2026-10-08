@@ -478,12 +478,17 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.NoError(t, os.WriteFile(arm, []byte("73"), 0600))
 		beforeParent := git("-C", guest, "rev-parse", "HEAD^")
 		beforeTree := git("-C", store, "rev-parse", branchRef+"^{tree}")
-		// More timeouts than the outage allowance must remain pending. The
-		// scheduler clock advances, but each real daemon freeze waits one second.
+		// More timeouts than the outage allowance must remain pending. Only
+		// the persisted scheduler can make a retry due: no new stack request,
+		// manual due-row update or clock advance substitutes for that behavior.
+		var previousDue time.Time
 		for attempt := 0; attempt < 8; attempt++ {
-			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
-			require.NoError(t, err)
-			require.NoError(t, service.PollOnce(ctx))
+			require.Eventually(t, func() bool {
+				require.NoError(t, service.PollOnce(ctx))
+				pending, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				return pending.NextAttemptAt.Valid && pending.NextAttemptAt.Time.After(previousDue) && pending.Reason == "rebase_pending"
+			}, 5*time.Second, 100*time.Millisecond, "persisted scheduler did not retry timeout %d", attempt)
 			pending, err := q.GetMythicalItem(ctx, item.ID)
 			require.NoError(t, err)
 			require.Equal(t, "rebase_pending", pending.Reason)
@@ -518,7 +523,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			require.NoError(t, response.Body.Close())
 			require.Equal(t, 200, response.StatusCode)
 			require.Equal(t, map[string]any{"onto": onto, "state": "running", "blocking_session": float64(73)}, view["rebase_execution"])
-			retryClockOffset.Add(int64(2 * time.Second))
+			previousDue = pending.NextAttemptAt.Time
 		}
 		require.NoError(t, os.Remove(arm))
 		// No second POST: the original authorized request resumes in PollOnce.
@@ -577,8 +582,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	}
 	advancedMain := false
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
-		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
-		require.NoError(t, err)
+		if !option.FreezeTimeout {
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+		}
 		require.NoError(t, service.PollOnce(ctx))
 		current, err = q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)

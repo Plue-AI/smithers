@@ -43,6 +43,13 @@ func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMut
 
 func TestMachinedMutationOutsideRename(t *testing.T) { testMachinedNativeMutation(t, "race") }
 
+// Synthetic deadline uses the production unwind and real native daemon. HTTP
+// writers still pass through owner authorization, FIFO and durable capture;
+// this does not qualify the reference guest's kernel freeze/thaw.
+func TestMachinedFreezeTimeoutQueuedHTTPWrites(t *testing.T) {
+	testMachinedNativeMutation(t, "timeout")
+}
+
 // Extend the real HTTP writer/rewrite campaign with open daemon documents.
 // Linux still has an empty broker; the installed W2-W4 campaign is separate.
 func TestLiveDocumentMutationQueuedHTTPWrites(t *testing.T) {
@@ -191,6 +198,63 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 		return captured
 	}
 
+	if mode == "timeout" {
+		awaitIdle()
+		parent := jjCall("log", "-r", "@-", "--no-graph", "-T", "commit_id")
+		publishedRef := "refs/smithers/branches/" + branch + "/head"
+		headTree := strings.TrimSpace(string(git("-C", store, "rev-parse", publishedRef+"^{tree}")))
+		arm := filepath.Join(state, "qualification-freeze-timeout.arm")
+		hit := filepath.Join(state, "qualification-freeze-start.hit")
+		require.NoError(t, os.WriteFile(arm, []byte("73"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-freeze-start.arm"), nil, 0600))
+		busy := make(chan error, 1)
+		go func() { _, err := registry.Rebase(ctx, branch, actor, onto); busy <- err }()
+		require.Eventually(t, func() bool { _, err := os.Stat(hit); return err == nil }, 5*time.Second, time.Millisecond)
+		saved := make(chan reply, 1)
+		go func() {
+			saved <- request("PUT", "timeout.txt", `{"content":"queued through failed freeze","base_digest":"absent"}`)
+		}()
+		select {
+		case early := <-saved:
+			t.Fatalf("HTTP save crossed the held mutation lock: %+v", early)
+		case <-time.After(150 * time.Millisecond):
+		}
+		_, err = os.Stat(filepath.Join(root, "timeout.txt"))
+		require.True(t, os.IsNotExist(err), "queued bytes cannot reach the working copy before unwind")
+		require.NoError(t, os.Remove(hit))
+		var refusal *machined.SessionError
+		require.ErrorAs(t, <-busy, &refusal)
+		require.Equal(t, "busy", refusal.Code)
+		require.EqualValues(t, 73, refusal.Session)
+		require.Equal(t, parent, jjCall("log", "-r", "@-", "--no-graph", "-T", "commit_id"), "freeze timeout cannot rewrite the parent")
+		// A queued writer may already have completed after thaw, but a
+		// failed freeze must not publish the target's README tree.
+		require.Equal(t, headTree, strings.TrimSpace(string(git("-C", store, "rev-parse", publishedRef+"^{tree}"))))
+		select {
+		case res := <-saved:
+			require.NoError(t, res.err)
+			require.Equal(t, http.StatusOK, res.status, "%s", res.body)
+		case <-time.After(time.Second):
+			t.Fatal("timeout unwind did not release the queued HTTP save within one second")
+		}
+		res := request("GET", "README.md", "")
+		require.NoError(t, res.err)
+		require.Equal(t, http.StatusOK, res.status, "%s", res.body)
+		require.Contains(t, string(res.body), "hello")
+		require.Equal(t, []byte("hello"), mustReadMutationFile(t, filepath.Join(root, "README.md")))
+		awaitIdle()
+		captured := settledCapture()
+		require.Equal(t, []byte("queued through failed freeze"), git("-C", store, "show", captured.Head+":timeout.txt"))
+		require.NoError(t, os.Remove(arm))
+		_, err = registry.Rebase(ctx, branch, actor, onto)
+		require.NoError(t, err)
+		awaitIdle()
+		final := settledCapture()
+		for path, want := range map[string]string{"README.md": "world", "item.txt": "item bytes\n", "timeout.txt": "queued through failed freeze"} {
+			require.Equal(t, []byte(want), git("-C", store, "show", final.Head+":"+path))
+		}
+		return
+	}
 	if mode == "preconditions" {
 		initial, updated := "created from browser", "updated from browser"
 		res := request("PUT", "preconditions.txt", `{"content":"created from browser","base_digest":"absent"}`)
