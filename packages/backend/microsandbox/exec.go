@@ -153,6 +153,9 @@ func (c *guestCommand) result() (workspaceapi.CommandResult, error) {
 	stderr := c.stderr.completedStderr()
 	stdout, stdoutTruncated := c.stdout.text()
 	result := workspaceapi.CommandResult{ExitCode: stderr.exitCode, Stdout: stdout, Stderr: stderr.text, OutputTruncated: stdoutTruncated || stderr.truncated}
+	if errors.Is(c.waitErr, workspaceapi.ErrCommandTerminationUnconfirmed) {
+		return result, c.waitErr
+	}
 	if !stderr.hasExit {
 		message := strings.TrimSpace(stderr.text)
 		if len(message) > 600 {
@@ -468,7 +471,7 @@ func observe(service *managedService) workspaceapi.ServiceObservation {
 		switch {
 		case service.stopped:
 			result.State = workspaceapi.ServiceStopped
-		case !snapshot.hasExit || snapshot.exitCode != 0:
+		case errors.Is(service.command.waitErr, workspaceapi.ErrCommandTerminationUnconfirmed) || !snapshot.hasExit || snapshot.exitCode != 0:
 			result.State = workspaceapi.ServiceFailed
 		default:
 			result.State = workspaceapi.ServiceExited
