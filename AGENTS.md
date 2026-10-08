@@ -8,9 +8,11 @@ sets a stricter bar or a different order, this section wins until the
 prerelease is out.
 
 - **Doneish:** to the best of our knowledge the spec is implemented. On one
-  `main` commit the J1 to J11 journey suites pass, and every ticket is either
-  believed complete or listed in `PRERELEASE.md` as off, missing or unverified.
-  It may be unverified on the reference host and unreviewed.
+  `main` commit a real install on an ordinary Mac takes a TODO to a merged pull
+  request, the J1 to J11 journey suites pass, and every ticket is either
+  believed complete or listed in `PRERELEASE.md` as off, broken, missing or
+  unverified. A suite that runs on fixtures is not the real install. It may be
+  unverified on the reference host and unreviewed.
 - **Done** is unchanged: receipts for every check on its named layer
   (T-PRC-03), owner sign-off and a closed issue. Done gates the real release,
   never a prerelease. That work continues after each prerelease.
@@ -19,8 +21,8 @@ prerelease is out.
   coverage campaign. Each becomes a line under Unverified.
 - Security hard rules and contributor trust rules still hold. A feature with a
   known hole ships switched off and listed.
-- Work in this order: failing journey rows, the release path, then the rest.
-  Work that serves neither waits for the prerelease.
+- Work in this order: the real install run, failing journey rows, the release
+  path, then the rest. Work that serves none of them waits for the prerelease.
 - A prerelease is a suffixed version such as `1.0.0-rc.2`, published under npm
   `next` with no announcement; `latest` does not move. Only gates that prove it
   builds, installs and starts can block it; every other gate reports. Cut one
