@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -112,10 +114,91 @@ func TestInstallIssueCommentComposed(t *testing.T) {
 		code, raw, err := r.keyed("POST", "/api/confirmations/"+id+"/approve", "{}", "wrong-person")
 		require.NoError(t, err)
 		require.Equal(t, 403, code, string(raw))
-		_, err = r.expectAs(member, "POST", "/api/confirmations/"+id+"/approve", "{}", 200)
-		require.NoError(t, err)
-		_, err = r.expectAs(member, "POST", "/api/confirmations/"+id+"/approve", "{}", 200)
-		require.NoError(t, err)
+		entered, release := make(chan struct{}), make(chan struct{})
+		var once sync.Once
+		unblock := func() { once.Do(func() { close(release) }) }
+		defer unblock()
+		r.fake.OnNextRequest("GET", fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number), func() { close(entered); <-release })
+		phases := os.Getenv("SMITHERS_ISSUE_COMMENT_PHASE_DIR")
+		waitPhase := func(name string) {
+			t.Helper()
+			require.Eventually(t, func() bool { _, err := os.Stat(filepath.Join(phases, name)); return err == nil }, 90*time.Second, 50*time.Millisecond, "browser phase %s", name)
+		}
+		if phases != "" {
+			cookie := ""
+			for _, value := range member.Cookies(mustRehearsalURL(r.origin)) {
+				if value.Name == "smithers_session" {
+					cookie = value.Value
+				}
+			}
+			require.NotEmpty(t, cookie)
+			fmt.Printf("ISSUE_COMMENT_READY %s %s %s\n", r.origin, id, cookie)
+			waitPhase("approved")
+		} else {
+			_, err = r.expectAs(member, "POST", "/api/confirmations/"+id+"/approve", "{}", 200)
+			require.NoError(t, err)
+		}
+		select {
+		case <-entered:
+		case <-time.After(15 * time.Second):
+			t.Fatal("comment never reached GitHub")
+		}
+		readEffect := func() map[string]any {
+			t.Helper()
+			raw, err := r.expectAs(member, "GET", "/api/confirmations", "", 200)
+			require.NoError(t, err)
+			var rows []struct {
+				ID      string `json:"id"`
+				Payload struct {
+					Effect map[string]any `json:"effect"`
+				} `json:"payload"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &rows))
+			for _, row := range rows {
+				if row.ID == id {
+					return row.Payload.Effect
+				}
+			}
+			t.Fatal("missing private confirmation")
+			return nil
+		}
+		effect := readEffect()
+		require.NotEmpty(t, effect["issue_comment"])
+		require.Contains(t, []string{"dispatching", "running"}, effect["state"])
+		require.Len(t, comments(), 1)
+		if phases == "" {
+			_, err = r.expectAs(member, "POST", "/api/confirmations/"+id+"/approve", "{}", 200)
+			require.NoError(t, err)
+		} else {
+			code, raw, err := r.keyedAs(member, "POST", "/api/confirmations/"+id+"/approve", "{}", "confirmation:"+id+":approved")
+			require.NoError(t, err)
+			require.Equal(t, 200, code, string(raw))
+		}
+		if phases != "" {
+			fmt.Println("ISSUE_COMMENT_DISPATCHING")
+			waitPhase("running")
+		}
+		unblock()
+		await(t, effect["issue_comment"].(string), jobs.StateCompleted)
+		require.Equal(t, "completed", readEffect()["state"])
+		if phases == "" {
+			// A private projection must not report somebody else's completed job
+			// as this member's successful comment, even if its stored ID is wrong.
+			var other string
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT id::text FROM product_job_requests WHERE operation='install.issue.comment' AND payload->>'body'='Ready'`).Scan(&other))
+			_, err = r.pool.Exec(r.ctx, `UPDATE approvals SET payload=jsonb_set(payload,'{effect,issue_comment}',to_jsonb($2::text)) WHERE id=$1`, id, other)
+			require.NoError(t, err)
+			require.Equal(t, "failed", readEffect()["state"])
+			_, err = r.pool.Exec(r.ctx, `UPDATE approvals SET payload=jsonb_set(payload,'{effect,issue_comment}',to_jsonb($2::text)) WHERE id=$1`, id, "20000000-0000-4000-8000-000000000099")
+			require.NoError(t, err)
+			require.Equal(t, "failed", readEffect()["state"])
+			_, err = r.pool.Exec(r.ctx, `UPDATE approvals SET payload=jsonb_set(payload,'{effect,issue_comment}',to_jsonb($2::text)) WHERE id=$1`, id, effect["issue_comment"])
+			require.NoError(t, err)
+		}
+		if phases != "" {
+			fmt.Println("ISSUE_COMMENT_COMPLETED")
+			waitPhase("completed")
+		}
 		require.Eventually(t, func() bool { return len(comments()) == 2 }, 15*time.Second, 20*time.Millisecond)
 		require.Contains(t, comments()[1], "Ben asks")
 		require.Contains(t, comments()[1], "Requested by @ben")

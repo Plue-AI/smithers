@@ -112,3 +112,52 @@ test("C-ACC-02: a person reviews the current revision and merge survives reload"
   await expect(card).toContainText("Merged")
   expect(presses).toHaveLength(1)
 })
+
+// Real composed install, browser session, private live feed and shared worker.
+test("C-ACC-02: issue comment confirmation waits for delivery across reload", async ({ page }) => {
+  test.setTimeout(300_000)
+  const directory = await mkdtemp(join(tmpdir(), "smithers-access-comment-"))
+  const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestInstallIssueCommentComposed$", "-count=1", "-v", "-timeout", "4m"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ISSUE_COMMENT_PHASE_DIR: directory, SMITHERS_REHEARSAL_SPA_DIR: resolve("dist") }, stdio: ["pipe", "pipe", "pipe"]
+  })
+  let logs = "", complete = false
+  backend.stdout.on("data", bytes => { logs += String(bytes) })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  const wait = async (pattern: RegExp) => {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return pattern.test(logs) }, { timeout: 120_000 }).toBe(true)
+    return logs.match(pattern)!
+  }
+  try {
+    const [, origin, id, cookie] = await wait(/ISSUE_COMMENT_READY (http:\/\/\S+) (\S+) (\S+)/)
+    await page.context().addCookies([{ name: "smithers_session", value: cookie!, url: origin! }])
+    await page.goto(origin!)
+    const card = page.locator('[data-kind="confirm"]').filter({ hasText: "Ben asks" })
+    await expect(card).toBeVisible({ timeout: 60_000 })
+    const response = page.waitForResponse(response => response.url().endsWith(`/api/confirmations/${id}/approve`) && response.request().method() === "POST")
+    await card.getByRole("button", { name: "Comment", exact: true }).press("Enter")
+    expect((await response).status()).toBe(200)
+    await writeFile(join(directory, "approved"), "approved")
+    await wait(/ISSUE_COMMENT_DISPATCHING/)
+    const toast = page.locator(`[data-notice="toast-todo.request.confirmation:${id}"]`)
+    await expect(toast).toHaveAttribute("data-tone", "live")
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await page.reload()
+    await expect(toast).toHaveAttribute("data-tone", "live", { timeout: 60_000 })
+    await expect(card.getByRole("button", { name: "Comment", exact: true })).toHaveCount(0)
+    await writeFile(join(directory, "running"), "running")
+    await wait(/ISSUE_COMMENT_COMPLETED/)
+    await expect(toast).not.toHaveAttribute("data-tone", "live", { timeout: 60_000 })
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await writeFile(join(directory, "completed"), "completed")
+    complete = true
+  } finally {
+    await writeFile(join(directory, "approved"), "done")
+    await writeFile(join(directory, "running"), "done")
+    await writeFile(join(directory, "completed"), "done")
+    const status = await exited
+    if (status !== 0) console.error(logs)
+    await rm(directory, { recursive: true, force: true })
+    if (complete) expect(status, logs).toBe(0)
+  }
+})

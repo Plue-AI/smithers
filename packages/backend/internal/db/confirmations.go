@@ -24,7 +24,16 @@ type Confirmation struct {
 	DecidedAt       *time.Time      `json:"decided_at,omitempty"`
 }
 
-const confirmationColumns = `id, member_id, kind, state, command, subject, revision, generation, reviewed_head_sha, payload, expires_at, decided_at`
+// Only the private, member-bound projection exposes the admitted comment's
+// delivery state. Missing or mismatched jobs fail closed, never as completion.
+const memberConfirmationColumns = `id, member_id, kind, state, command, subject, revision, generation, reviewed_head_sha,
+CASE WHEN command='issue.comment' AND payload->'effect' ? 'issue_comment' THEN
+ jsonb_set(payload,'{effect,state}',to_jsonb(COALESCE((SELECT j.state FROM product_job_requests j
+ WHERE j.id::text=approvals.payload->'effect'->>'issue_comment'
+ AND j.operation='install.issue.comment'
+ AND j.payload->>'requester'=approvals.member_id::text
+ AND j.payload->>'repository'=approvals.repository_id::text),'failed')))
+ ELSE payload END, expires_at, decided_at`
 
 func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]Confirmation, error) {
 	if err := q.SettleMergedConfirmations(ctx, member, time.Now().UTC()); err != nil {
@@ -38,7 +47,7 @@ func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.db.Query(ctx, `SELECT `+confirmationColumns+` FROM approvals WHERE member_id=$1 ORDER BY created_at DESC, id`, member)
+	rows, err := q.db.Query(ctx, `SELECT `+memberConfirmationColumns+` FROM approvals WHERE member_id=$1 ORDER BY created_at DESC, id`, member)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +65,7 @@ func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]
 
 func (q *Queries) GetMemberConfirmation(ctx context.Context, id string, member int64) (Confirmation, error) {
 	var row Confirmation
-	err := q.db.QueryRow(ctx, `SELECT `+confirmationColumns+` FROM approvals WHERE id=$1 AND member_id=$2`, id, member).Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt, &row.DecidedAt)
+	err := q.db.QueryRow(ctx, `SELECT `+memberConfirmationColumns+` FROM approvals WHERE id=$1 AND member_id=$2`, id, member).Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt, &row.DecidedAt)
 	return row, err
 }
 

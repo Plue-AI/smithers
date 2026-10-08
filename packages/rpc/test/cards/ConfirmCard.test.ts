@@ -17,7 +17,7 @@ cardContract("Confirm", ConfirmCardSchema, fixtures)
 
 // Literal oracles from ui-components.md T-UI-05; never read from the schema.
 const KINDS = ["one_click", "review_merge"] as const
-const SUBJECTS = ["todo", "branch", "flow", "agent", "wiki", "proposal"] as const
+const SUBJECTS = ["todo", "branch", "flow", "agent", "wiki", "proposal", "issue"] as const
 const RESULTS = ["done", "cancelled", "expired"] as const
 const models: ConfirmCard[] = Object.values(fixtures).map((story) => story.model)
 const review = () => ConfirmCardSchema.parse(fixtures.review_merge.model)
@@ -154,6 +154,17 @@ test("Review effects decode without a TODO and refuse ambiguous or empty effect 
     expires_at: "2099-01-01T00:00:00Z", payload: { input: {}, card: { ...fixtures.one_click.model, action: { tag: "review", verb: "Review" } }, effect: { review: "review-op", request: "confirmation:1" } } }
   expect(MemberConfirmationSchema.parse(row)).toEqual(row)
   for (const effect of [{ request: "confirmation:1" }, { todo: 1, review: "review-op", request: "confirmation:1" }]) {
+    expect(MemberConfirmationSchema.safeParse({ ...row, payload: { ...row.payload, effect } }).success).toBe(false)
+  }
+})
+
+test("Issue comment confirmations preserve the exact text and unambiguous worker identity", () => {
+  const row = { id: "10000000-0000-4000-8000-000000000001", command: "issue.comment", state: "approved", revision: "1:7",
+    expires_at: "2099-01-01T00:00:00Z", payload: { input: { body: "Ready" }, card: fixtures.issue.model,
+      effect: { issue_comment: "20000000-0000-4000-8000-000000000001", request: "confirmation:1", state: "running" } } }
+  expect(MemberConfirmationSchema.parse(row)).toEqual(row)
+  for (const effect of [{ ...row.payload.effect, todo: 7 }, { ...row.payload.effect, review: "review-op" },
+    { ...row.payload.effect, issue_comment: "" }, { ...row.payload.effect, state: "approved" }]) {
     expect(MemberConfirmationSchema.safeParse({ ...row, payload: { ...row.payload, effect } }).success).toBe(false)
   }
 })

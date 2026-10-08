@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // CatalogPolicy is generated from the same Operation descriptors the host and
@@ -831,6 +832,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			var number int64
 			var amendedRevision int
 			var reviewOperationID string
+			var commentOperationID string
 			switch command {
 			case "flow.edit", "agent.edit":
 				var item MythicalItemView
@@ -840,7 +842,9 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				if prepared.comment == nil {
 					return confirmationUnavailable()
 				}
-				_, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
+				var admitted jobs.RequestReceipt
+				admitted, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
+				commentOperationID = admitted.OperationID
 			case "wiki.delete":
 				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
 			case "learning.accept", "learning.dismiss":
@@ -941,9 +945,11 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			}
 			// The private projection retains the admitted subject across a lost
 			// response/reload. This is an admission receipt, never execution success.
-			if number > 0 || reviewOperationID != "" {
+			if number > 0 || reviewOperationID != "" || commentOperationID != "" {
 				effectInput := map[string]any{"request": input.Key}
-				if reviewOperationID != "" {
+				if commentOperationID != "" {
+					effectInput["issue_comment"] = commentOperationID
+				} else if reviewOperationID != "" {
 					effectInput["review"] = reviewOperationID
 				} else {
 					effectInput["todo"] = number

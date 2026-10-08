@@ -3031,7 +3031,7 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: Own confirmation rows; delegated credentials receive only id and state
+          description: Own confirmation rows, including admitted issue-comment worker identity and delivery state; delegated credentials receive only id and state
         '401':
           description: Credential is absent or dead
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
@@ -3083,7 +3083,7 @@ paths:
             type: string
       responses:
         '200':
-          description: The bound action and approval committed together
+          description: The bound action admission and approval committed together; background delivery is observed through the private confirmation projection
           content:
             application/json:
               schema:

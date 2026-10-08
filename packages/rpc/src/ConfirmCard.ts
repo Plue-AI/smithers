@@ -20,7 +20,7 @@ export const ConfirmRevisionSchema = z.string()
 
 /**
  * Confirm projection fields from spec §14.3 and ui-components.md T-UI-05. Members, secrets and settings are
- * agent: never and have no confirmation, so the subject is a TODO, branch, flow, agent, wiki page or Learning proposal.
+ * agent: never and have no confirmation, so the subject is a TODO, branch, flow, agent, wiki page, issue or Learning proposal.
  * @since 1.0.0
  * @category schemas
  */
@@ -29,7 +29,7 @@ export const ConfirmCardSchema = z.object({
   action: z.object({ tag: CatalogTagSchema, verb: z.string() }),
   summary: z.string(),
   subject: z.object({
-    kind: z.enum(["todo", "branch", "flow", "agent", "wiki", "proposal"]),
+    kind: z.enum(["todo", "branch", "flow", "agent", "wiki", "proposal", "issue"]),
     ref: z.string(),
     revision: ConfirmRevisionSchema.optional()
   }),
@@ -76,9 +76,11 @@ export const MemberConfirmationSchema = z.object({
     effect: z.object({
       todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
       review: z.string().min(1).optional(),
+      issue_comment: z.string().uuid().optional(),
+      state: z.enum(["accepted", "dispatching", "running", "waiting", "completed", "failed", "cancelled", "uncertain"]).optional(),
       request: z.string().min(1),
       revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
-    }).refine(effect => (effect.todo !== undefined) !== (effect.review !== undefined), "Exactly one confirmation effect is required").optional()
+    }).refine(effect => [effect.todo, effect.review, effect.issue_comment].filter(value => value !== undefined).length === 1, "Exactly one confirmation effect is required").optional()
   })
 })
 

@@ -228,3 +228,35 @@ test("Wiki Delete keeps progress through the press and settles from its committe
     expect(h.store.collections.toasts.get(`toast-todo.request.confirmation:${id}`)?.status).toBe("ok")
   } finally { h.seam.dispose() }
 })
+
+test.each(["completed", "failed", "cancelled", "uncertain"] as const)("issue comment %s settles only from the private worker projection and survives reload", async state => {
+  const request = deferred<Response>()
+  const h = await harness(async () => request.promise)
+  const row: MemberConfirmation = { ...pending, command: "issue.comment", payload: { input: { body: "Ready" }, card: fixtures.issue.model } }
+  const effect = { issue_comment: "20000000-0000-4000-8000-000000000001", request: `confirmation:${id}`, state: "running" as const }
+  const running: MemberConfirmation = { ...row, state: "approved", payload: { ...row.payload, effect } }
+  try {
+    h.publish({ topic: "confirmations:17", data: [row] })
+    h.seam.decide(id, "approved"); h.seam.decide(id, "approved")
+    await waitFor(() => h.store.collections.toasts.size === 1)
+    request.resolve(Response.json({ id, state: "approved" })); await settle()
+    expect(h.outcomes).toEqual([])
+    h.publish({ topic: "confirmations:17", data: [running] }); await settle()
+    expect(h.outcomes).toEqual([])
+    expect(h.observed).toEqual([])
+    const recovered = await harness(async () => { throw Error("Reload must not launch another comment") })
+    try {
+      recovered.publish({ topic: "confirmations:17", data: [running] })
+      await waitFor(() => recovered.store.collections.toasts.size === 1)
+      expect(recovered.outcomes).toEqual([])
+      const terminal: MemberConfirmation = { ...running, payload: { ...running.payload, effect: { ...effect, state } } }
+      for (const target of [h, recovered]) {
+        target.publish({ topic: "confirmations:17", data: [terminal] })
+        await waitFor(() => target.outcomes.length === 1)
+        expect(target.outcomes[0]).toMatchObject({ status: state === "completed" ? "ok" : state === "cancelled" ? "cancelled" : "failed" })
+        target.publish({ topic: "confirmations:17", data: [terminal] }); await settle()
+        expect(target.outcomes).toHaveLength(1)
+      }
+    } finally { recovered.seam.dispose() }
+  } finally { h.seam.dispose() }
+})

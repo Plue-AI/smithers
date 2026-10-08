@@ -10,6 +10,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
   readonly debounceMs?: number
 }) => {
   const presses = new Map<string, AbortController>()
+  const settledComments = new Set<string>()
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
   let stop: (() => void) | undefined
   let scope = "", topic: string | undefined, generation = 0, disposed = false
@@ -46,6 +47,20 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
             ctx.resolveToast?.(notice, row.state === "rejected" ? { status: "cancelled", detail: "Cancelled" } : { status: "failed", detail: "Expired" })
           }
         }
+        if (row.state === "approved" && row.payload.effect?.issue_comment) {
+          const notice = `todo.request.confirmation:${row.id}`
+          const state = row.payload.effect.state
+          if (settledComments.has(row.id)) continue
+          if (["completed", "failed", "cancelled", "uncertain"].includes(state ?? "")) settledComments.add(row.id)
+          if (state === "completed") ctx.resolveToast?.(notice, { status: "ok", detail: "" })
+          else if (["failed", "cancelled", "uncertain"].includes(state ?? "")) {
+            ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
+            ctx.resolveToast?.(notice, { status: state === "cancelled" ? "cancelled" : "failed", detail: "Comment failed" })
+          } else if (ctx.store.collections.toasts.get(`toast-${notice}`)?.status !== "running") {
+            ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
+          }
+          continue
+        }
         if (row.state === "approved" || row.command === "merge" && row.state === "pending") await options.observe(row)
       }
     })().catch(error => ctx.report?.("confirmations.observe", error))
@@ -55,7 +70,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
     const next = options.ready && options.live && member?.state === "signed-in" && member.memberId
       ? `${member.memberId}:${member.ownerRevision ?? member.revision}` : ""
     if (next === scope) return
-    ++generation; scope = next; stop?.(); stop = undefined; topic = undefined
+    ++generation; settledComments.clear(); scope = next; stop?.(); stop = undefined; topic = undefined
     for (const press of presses.values()) press.abort()
     presses.clear()
     for (const timer of timers.values()) clearTimeout(timer)
