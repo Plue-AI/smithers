@@ -267,8 +267,9 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
           // This entire effect runs in the unprivileged managed coding host.
           return (process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
             ? Effect.gen(function*() {
-              if (!/^[a-f0-9]{64}$/.test(options.todoExecutionDigest ?? "")) {
-                throw new Error("Pinned TODO execution digest is unavailable")
+              const mainSource = process.env.SMITHERS_FLOW_SOURCE_MAIN === "1"
+              if (mainSource ? options.todoExecutionDigest !== undefined : !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest ?? "")) {
+                throw new Error("Pinned flow source does not match its main or TODO binding")
               }
               if (landing === undefined) throw new Error("Pinned TODO workspace binding is unavailable")
               const fs = yield* FileSystem.FileSystem

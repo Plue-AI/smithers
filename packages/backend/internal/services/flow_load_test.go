@@ -186,6 +186,7 @@ func TestFlowLoadLoadsEveryMainMoveAndKeepsThePreviousVersionWhenALoadFails(t *t
 	authority, err := resolver.ResolveFlowHostTarget(ctx, first.Target)
 	require.NoError(t, err)
 	assert.Equal(t, row.WorkspaceID, authority.WorkspaceID)
+	assert.Equal(t, commit, authority.SourceRevision, "loading binds the immutable main commit, not the working-copy head")
 	forged := first.Target
 	forged.WorkspaceID = "00000000-0000-4000-8000-000000000000"
 	_, err = resolver.ResolveFlowHostTarget(ctx, forged)

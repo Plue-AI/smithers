@@ -1028,7 +1028,9 @@ export const createAppController = (
     await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { ...current, ...patch } }).isPersisted.promise
   }
   const setCardTab: AppController["setCardTab"] = (id, tab) => {
-    const current = store.collections.cards.get(id)
+    const current = store.collections.cards.get(id) ?? sharedConversation?.get().conversation?.entries.flatMap(turn =>
+      "frames" in turn ? turn.frames.flatMap(frame => frame.type === "card" && frame.runId === turn.runId && frame.card.id === id ? [frame.card] : []) : []
+    ).at(-1)
     if (current?.kind === "branch" && ["activity", "files", "terminals"].includes(tab)) {
       store.dispatch({ type: "card.upsert", actor: "user", card: { ...current, payload: { ...current.payload, tab: tab as "activity" | "files" | "terminals" } } })
     } else if (current?.kind === "flow") {

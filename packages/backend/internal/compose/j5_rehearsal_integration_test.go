@@ -332,6 +332,9 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 			}
 		}
 	})
+	if d2 != "" && !r.flowLoadBrowser(d2, false) {
+		return
+	}
 	r.step("11 One load per main move", "SQL flow-load runs", "one coalesced flow-load run per main move", "T-FLW-03", func() error {
 		loads, err := r.flowLoadCommits()
 		if err != nil {
@@ -392,6 +395,9 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 			}
 		}
 	})
+	if d2 != "" && !r.flowLoadBrowser(d2, true) {
+		return
+	}
 	checkPin := func(number int64, digest, source string) error {
 		v, err := r.todo(number)
 		if err != nil {

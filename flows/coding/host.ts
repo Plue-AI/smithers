@@ -748,11 +748,13 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           verifyRegistration,
           Layer.mergeAll(
             Interpreter.layer(FlowLoad),
+            // The loader reads the host-owned immutable main export, which
+            // lives outside the editable checkout guarded for model actions.
             loadFlowsLayer(
               options.flowSourceRoot ?? options.repositoryPath,
               options.systemFlows,
               options.checkEnvironment
-            )
+            ).pipe(Layer.provide(Layer.succeed(FileSystem.FileSystem)(fs)))
           ),
           pocPolicy,
           pocModels,

@@ -11,6 +11,7 @@ import { fixtures as todoFixtures } from "../../../../../packages/rpc/test/fixtu
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
 import { renderCardBody } from "./CardRenderers"
 import type { CardActions } from "./CardFamily"
+import type { Card } from "../state/AppState"
 
 const createController = scopedControllers()
 
@@ -27,11 +28,16 @@ test("install /flow mounts the served versions through the production card rende
   ] }]
   const reads: string[] = []
   const writes: unknown[] = []
+  let sharedCard: Card | undefined
   let catalogUnavailable = false
   let sourceUnavailable = false
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const path = new URL(request.url).pathname
     reads.push(path)
+    if (path === "/api/conversations/main") return Response.json({ id: "main", entries: sharedCard ? [{
+      id: "shared-flow-turn", author: 1, authorLogin: "will", runId: "shared-flow-run", prompt: "/flow todo", state: "completed",
+      frames: [{ type: "card", runId: "shared-flow-run", card: sharedCard }]
+    }] : [] })
     if (path === "/api/todos" && request.method === "POST") { writes.push(await request.json()); return Response.json({ state: "accepted", n: 43 }, { status: 202 }) }
     if (path === "/api/todos/43" && writes.length) return Response.json({ ...todoFixtures.in_review.model, n: 43,
       title: (writes[0] as { title: string }).title, prompt_revisions: [{ ...todoFixtures.in_review.model.prompt_revisions[0], text: (writes[0] as { prompt: string }).prompt, acceptance: [] }],
@@ -158,6 +164,19 @@ test("install /flow mounts the served versions through the production card rende
     catalog.push(...removed)
     await act(async () => { await controller!.flowCards() })
     expect(host.querySelector('.flow-steps')?.textContent).toContain("Build after sync")
+    // A real install's /flow output is a shared frame, not a local card row.
+    sharedCard = { ...card, id: "shared-flow", payload: { name: "todo" } } as Card
+    await controller.sharedConversation!.read()
+    await waitFor(() => controller!.sharedConversation!.get().conversation?.entries.length === 1)
+    expect(store.collections.cards.get(sharedCard.id)).toBeUndefined()
+    await act(async () => root.render(<ControllerTestProvider controller={controller!}>{renderCardBody(sharedCard!, actions)}</ControllerTestProvider>))
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-state="merged-failed"]')!.click())
+    expect(host.querySelector('.flow-failure pre')?.textContent).toBe("Unknown agent: reviewer")
+    expect(store.collections.cards.get(sharedCard.id)).toMatchObject({ payload: { memberVersions: { will: "bad" } } })
+    await store.settled?.()
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-state="active"]')!.click())
+    await waitFor(() => host.querySelector('.flow-failure') === null)
+    expect(store.collections.cards.get(sharedCard.id)).toMatchObject({ payload: { memberVersions: { will: "active" } } })
     catalogUnavailable = true
     await act(async () => { expect(await controller!.flowCards()).toBeUndefined() })
     expect(host.querySelectorAll("[data-flow]")).toHaveLength(0)
@@ -167,6 +186,7 @@ test("install /flow mounts the served versions through the production card rende
     await store.settled?.()
     const reopened = await createAppStore({ kind: "localStorage", storage })
     expect(reopened.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "active" } } })
+    expect(reopened.collections.cards.get(sharedCard.id)).toMatchObject({ payload: { memberVersions: { will: "active" } } })
   } finally {
     await act(async () => root.unmount())
     await controller?.dispose()

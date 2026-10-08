@@ -108,8 +108,19 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	}
 	delete(environment, "SMITHERS_FLOW_SOURCE_PINNED")
 	delete(environment, "SMITHERS_FLOW_SOURCE_LOCAL")
+	delete(environment, "SMITHERS_FLOW_SOURCE_MAIN")
 	delete(environment, "SMITHERS_TODO_EXECUTION_DIGEST")
-	if launch.Binding.BindingKind == "review" {
+	if launch.Binding.BindingKind == "flow-load" {
+		// Loading main reads its authenticated immutable commit, even when
+		// the machine's working-copy commit advances during host startup.
+		if launch.Authority.ExecutionPin != nil || !lowerHex(launch.Authority.SourceRevision, 40) || launch.Authority.SourceRevision != launch.Binding.SourceRevision {
+			return ProcessSpec{}, errors.New("flow-load host requires its authenticated main source")
+		}
+		environment["SMITHERS_FLOW_SOURCE_PINNED"] = "1"
+		// Import the backend-retained main ref before exporting its JJ tree.
+		// This uses the same authenticated source-import boundary as TODOs.
+		environment["SMITHERS_FLOW_SOURCE_MAIN"] = "1"
+	} else if launch.Binding.BindingKind == "review" {
 		// A review machine's working copy is the reviewed PR. Its host loads
 		// flows only from the pinned commit its restore fetched beside it, and
 		// never imports, publishes or registers the working copy's flows.

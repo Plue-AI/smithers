@@ -1883,31 +1883,7 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 	if err != nil {
 		return err
 	}
-	// The confined native helper also invokes jj. Host-home tools are outside
-	// its runtime reads, so provision the exact fixture executable inside .jj,
-	// alongside the protected test-only binding; never grant the host home.
-	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
-	if err != nil {
-		return err
-	}
-	tools := filepath.Join(observed.Root, ".jj", "rehearsal-tools")
-	if err := os.MkdirAll(tools, 0700); err != nil {
-		return err
-	}
-	binary, err := os.ReadFile(jj)
-	if err != nil {
-		return err
-	}
-	tool := filepath.Join(tools, "jj")
-	if installed, err := os.ReadFile(tool); err == nil {
-		if !bytes.Equal(installed, binary) {
-			return errors.New("rehearsal jj executable changed across restart")
-		}
-	} else if os.IsNotExist(err) {
-		if err := os.WriteFile(tool, binary, 0500); err != nil {
-			return err
-		}
-	} else {
+	if err := provisionRehearsalJJ(observed.Root); err != nil {
 		return err
 	}
 	data, err := json.Marshal(struct {
@@ -1928,6 +1904,39 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 		return err
 	}
 
+	return nil
+}
+
+// Every production host checks its source with the same confined jj binary,
+// including flow-load hosts that have no candidate/landing binding.
+func provisionRehearsalJJ(root string) error {
+	// The confined native helper also invokes jj. Host-home tools are outside
+	// its runtime reads, so provision the exact fixture executable inside .jj,
+	// alongside the protected test-only binding; never grant the host home.
+	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
+	if err != nil {
+		return err
+	}
+	tools := filepath.Join(root, ".jj", "rehearsal-tools")
+	if err := os.MkdirAll(tools, 0700); err != nil {
+		return err
+	}
+	binary, err := os.ReadFile(jj)
+	if err != nil {
+		return err
+	}
+	tool := filepath.Join(tools, "jj")
+	if installed, err := os.ReadFile(tool); err == nil {
+		if !bytes.Equal(installed, binary) {
+			return errors.New("rehearsal jj executable changed across restart")
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.WriteFile(tool, binary, 0500); err != nil {
+			return err
+		}
+	} else {
+		return err
+	}
 	return nil
 }
 
@@ -1958,6 +1967,9 @@ func rehearsalJJBinary(path string) (string, error) {
 func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
 	file, observed, err := r.binding(ctx, workspaceID)
 	if err != nil {
+		return workspaceapi.ManagedHostConnection{}, err
+	}
+	if err := provisionRehearsalJJ(observed.Root); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
 	}
 	build := spec.Builder

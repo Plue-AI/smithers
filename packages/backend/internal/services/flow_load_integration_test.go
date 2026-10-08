@@ -202,6 +202,10 @@ func TestFlowLoadProjectionRollsBackWithActivation(t *testing.T) {
 	ctx := t.Context()
 	store, err := jobs.NewStore(h.pool.(*pgxpool.Pool))
 	require.NoError(t, err)
+	// Bootstrap may already have published the built-in catalog. A rolled
+	// back activation must append no event and leave that history intact.
+	before, err := store.Replay(ctx, FlowLiveScope(h.repoID), 0, 100)
+	require.NoError(t, err)
 	tx, err := h.pool.Begin(ctx)
 	require.NoError(t, err)
 	digest := strings.Repeat("a", 64)
@@ -211,8 +215,8 @@ func TestFlowLoadProjectionRollsBackWithActivation(t *testing.T) {
 	require.NoError(t, tx.Rollback(ctx))
 	page, err := store.Replay(ctx, FlowLiveScope(h.repoID), 0, 100)
 	require.NoError(t, err)
-	require.Empty(t, page.Events)
-	require.Zero(t, page.Head)
+	require.Equal(t, before.Events, page.Events)
+	require.Equal(t, before.Head, page.Head)
 	versions, err := h.q.ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Empty(t, versions)

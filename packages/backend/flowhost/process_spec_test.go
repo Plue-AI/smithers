@@ -445,3 +445,29 @@ func TestReviewHostLoadsOnlyItsLocalPinnedSource(t *testing.T) {
 	_, err = BuildProcessSpec(launch, paths, 4317)
 	require.ErrorContains(t, err, "attempt pin conflicts")
 }
+
+func TestFlowLoadHostUsesAuthenticatedImmutableMain(t *testing.T) {
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "flow-load", BindingID: "5"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "loader", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: "84c0f902f865f47b4c722630b38ad46b0b7b519d", OwnerGeneration: 1, State: "starting"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "loader", CatalogKey: CatalogCoding, SourceRevision: binding.SourceRevision}
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer", Environment: map[string]string{"SMITHERS_JJHUB_TOKEN": "publisher", "SMITHERS_JJHUB_API_URL": "https://install.test"}}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+	require.NotContains(t, spec.Environment, "SMITHERS_FLOW_SOURCE_LOCAL")
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_MAIN"])
+	require.Equal(t, binding.SourceRevision, spec.Environment["SMITHERS_SOURCE_REVISION"])
+	require.NotContains(t, spec.Environment, "SMITHERS_TODO_EXECUTION_DIGEST")
+	require.Equal(t, "publisher", spec.Environment["SMITHERS_JJHUB_TOKEN"], "retained source import uses the existing authenticated native binding")
+	for _, source := range []string{"", "main", strings.Repeat("c", 40)} {
+		launch.Authority.SourceRevision = source
+		_, err = BuildProcessSpec(launch, paths, 4317)
+		require.Error(t, err, "missing, mutable and mismatched sources refuse before launch")
+	}
+	launch.Authority = authority
+	launch.Authority.ExecutionPin = &flowruntime.Pin{Flow: "todo", SourceCommit: binding.SourceRevision, ExecutionDigest: strings.Repeat("c", 64)}
+	_, err = BuildProcessSpec(launch, paths, 4317)
+	require.ErrorContains(t, err, "flow-load host requires")
+}

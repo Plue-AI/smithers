@@ -37,6 +37,9 @@ try {
     await card.locator('[data-state="merged-failed"]').press("Enter")
     await expect(card).toContainText("Load failed")
     await expect(card).toContainText("flows/todo/flow.ts")
+    await page.reload()
+    await expect(card).toContainText("Load failed", { timeout: 90_000 })
+    await expect(card.locator('[data-state="merged-failed"]')).toHaveAttribute("aria-pressed", "true")
     await current.press("Enter")
     await expect(card).not.toContainText("Load failed")
   }

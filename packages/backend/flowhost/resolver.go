@@ -32,6 +32,7 @@ var reservedEnvironment = map[string]struct{}{
 	"SMITHERS_API_KEY": {}, "SMITHERS_GATEWAY_ID": {},
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
+	"SMITHERS_FLOW_SOURCE_MAIN":       {},
 	"SMITHERS_CODING_IMPLEMENT_MODEL": {}, "SMITHERS_CODING_REVIEW_MODEL": {},
 	AccountPoolURLEnv: {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
 }

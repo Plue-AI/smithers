@@ -579,5 +579,5 @@ func (runtime *FlowLoadRuntime) ResolveFlowHostTarget(ctx context.Context, targe
 		return flowhost.Authority{}, mythicalLaneNotRunning(workspace, err)
 	}
 	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: row.WorkspaceID,
-		CatalogKey: flowhost.CatalogCoding}, nil
+		CatalogKey: flowhost.CatalogCoding, SourceRevision: row.CommitID}, nil
 }
