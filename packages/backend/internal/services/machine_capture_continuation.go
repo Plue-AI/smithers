@@ -163,7 +163,7 @@ func (st *mythicalItemStep) lockCapturedContinuation(ctx context.Context, tx pgx
 	}
 	var head string
 	var raw []byte
-	if err := tx.QueryRow(ctx, `SELECT head_commit_id,capture_pending FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&head, &raw); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT head_commit_id,capture_pending FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&head, &raw); err != nil {
 		return err
 	}
 	var pending MachineCapturePending

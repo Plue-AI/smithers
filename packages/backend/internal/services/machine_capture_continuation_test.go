@@ -80,7 +80,7 @@ func TestCapturedContinuationRevalidatesItsTransaction(t *testing.T) {
 	item, err := q.GetMythicalItem(ctx, id)
 	require.NoError(t, err)
 	step := mythicalItemStep{r: &mythicalRun{row: row, mainTip: main}}
-	for _, change := range []string{"none", "prefix", "version", "attempt", "generation", "state", "pause", "merge fence", "candidate", "pin", "claim", "expiry", "frozen", "main", "head", "pending", "cleared", "deleted", "item capture"} {
+	for _, change := range []string{"none", "authenticated reader", "prefix", "version", "attempt", "generation", "state", "pause", "merge fence", "candidate", "pin", "claim", "expiry", "frozen", "main", "head", "pending", "cleared", "deleted", "item capture"} {
 		t.Run(change, func(t *testing.T) {
 			tx, err := f.pool.Begin(ctx)
 			require.NoError(t, err)
@@ -128,8 +128,18 @@ func TestCapturedContinuationRevalidatesItsTransaction(t *testing.T) {
 			}
 			require.NoError(t, err)
 			err = step.lockCapturedContinuation(ctx, tx, item, capture, item.CandidateBase)
-			if change == "none" {
+			if change == "none" || change == "authenticated reader" {
 				require.NoError(t, err)
+				if change == "authenticated reader" {
+					read, cancel := context.WithTimeout(ctx, time.Second)
+					defer cancel()
+					reader, err := f.pool.Begin(read)
+					require.NoError(t, err)
+					defer reader.Rollback(context.WithoutCancel(ctx))
+					var observed string
+					require.NoError(t, reader.QueryRow(read, `SELECT id::text FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch).Scan(&observed), "authenticated launch read must finish inside the capture fence")
+					require.Equal(t, branch, observed)
+				}
 			} else if change == "prefix" {
 				require.EqualError(t, err, "prefix moved before captured edits were consumed")
 			} else {
