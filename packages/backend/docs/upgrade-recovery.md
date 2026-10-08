@@ -73,6 +73,12 @@ that process is alive and the marker records the same backup, so a restore or
 upgrade that was killed leaves no start the marker does not refuse. Restore
 removes the grant when step 4 returns. Writes stay refused until step 5.
 
+The start time is the one the kernel recorded when the process was created:
+`kinfo_proc.kp_proc.p_starttime`, read with `sysctl kern.proc.pid.<pid>`, to
+the microsecond. The system can give a PID to a later process, but that
+process has its own start time, so it does not satisfy the grant. A zombie
+(killed, not yet reaped) still holds its PID and start time and is refused.
+
 A development binary, and a backend that is not its bundle's
 `bin/smithers-backend`, cannot restore.
 
@@ -116,6 +122,41 @@ missing lifecycle and health-wake providers before it freezes.
 The SQL summary records every TODO; capture and finished-step readers still
 need production providers. Contract tests do not qualify a release upgrade or
 restore.
+
+## Compatibility
+
+Rulings by smithers-8a, 2026-10-07:
+
+- Before launch, a backup taken by a release without the
+  `backups/.recovery-start` grant cannot start its own bundle under the
+  marker. This is accepted: no released backup exists.
+- From the first public release on, restore reads every earlier released
+  backup format, and a refusal shows as a named state.
+
+The published `MANIFEST.json` format is pinned as literal bytes by
+`TestManifestPublishedContractUsesIndependentLiteralDigests` and
+`TestManifestPublishedContractRecordsALinkAsPathAndTarget`. A format change
+after the first public release adds a reader for the old bytes; it never
+edits those two tests.
+
+Named states a backup, upgrade or restore refuses with today:
+
+| State | Meaning |
+| --- | --- |
+| `wrong_version`, `older_version`, `newer_schema` | The backup does not fit this release, schema or PostgreSQL major. |
+| `partial`, `missing_file`, `missing_dump`, `extra_file`, `hash_mismatch` | The backup is incomplete or its bytes changed. |
+| `unsafe_path` | A path or link leaves its tree, or an entry is not a file or a link. |
+| `insufficient_space`, `clone_unavailable` | The state volume lacks space or is not APFS. |
+| `install_running` | Restore needs a stopped install. |
+| `host_owner_required` | The command must run as the installing user, not root. |
+| `host_maintenance_unavailable` | A provider, bundle member or isolation is missing. |
+| `host_start_failed` | The install did not start on the restored or upgraded bundle. |
+| `invalid_backup`, `invalid_command` | The command line is wrong. |
+
+Not yet named, and shown by the CLI as `host_maintenance_failed`: a dump
+`pg_restore` rejects, a staged database that cannot be created, and the
+`upgrade incomplete: ...; restore with smthrs host restore <directory>`
+failure of a started upgrade. They need names before the first public release.
 
 Keep the original install stopped when restoring a backup on another Mac.
 Restoring returns to the backup time; subsequent changes are lost. A restore

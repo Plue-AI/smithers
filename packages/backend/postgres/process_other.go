@@ -19,3 +19,6 @@ func immediateShutdownSignal() os.Signal          { return os.Interrupt }
 func processAlive(int) (bool, error)              { return false, errUnsupportedPlatform }
 func processIdentity(int) (string, string, error) { return "", "", errUnsupportedPlatform }
 func syncDirectory(string) error                  { return errUnsupportedPlatform }
+
+// ProcessBirth identifies one run of a PID where the platform can.
+func ProcessBirth(int) (string, error) { return "", errUnsupportedPlatform }

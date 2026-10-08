@@ -688,3 +688,149 @@ func TestRealFailedUpgradeRestoresThePreviousRelease(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, aside, 1, "the later database is kept aside")
 }
+
+// everything records every entry below root: its type and mode, and its
+// bytes' digest or its link target. Two equal inventories mean nothing was
+// created, removed, rewritten, retargeted or had its mode changed.
+func everything(t *testing.T, root string) map[string]string {
+	t.Helper()
+	entries := map[string]string{}
+	require.NoError(t, filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			target, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			entries[relative] = info.Mode().String() + " -> " + target
+		case info.Mode().IsRegular():
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			entries[relative] = info.Mode().String() + " " + digest(string(body))
+		default:
+			entries[relative] = info.Mode().String()
+		}
+		return nil
+	}))
+	return entries
+}
+
+// The restore command refuses a backup whose MANIFEST records a link that
+// resolves outside its tree: an absolute target, a chain of "..", a path
+// through another link, and a link to a link that escapes. Each crafted link
+// really reaches a directory outside the backup, and the manifest lists it,
+// so only confinement can refuse it. Everything under the owner's home (the
+// outside directory, the live install and the backup itself) is byte for
+// byte, mode for mode what it was, and no bundled program ran.
+func TestDispatchedRestoreRefusesManifestLinksThatLeaveTheBackup(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("installing user required")
+	}
+	release(t, "1.3.0")
+	for _, tc := range []struct {
+		name string
+		// links maps a path in the backup to its target. In a target,
+		// "<absolute>" is the outside directory's absolute path, "<outside>"
+		// the path to it from the link's directory, written with "..", and
+		// "<outside from run>" the same from the run/ directory beside the
+		// link, where the in-tree link self points at ".".
+		links   map[string]string
+		escapes string
+		refused string
+	}{
+		{name: "absolute target", links: map[string]string{"state/repositories": "<absolute>"}, escapes: "state/repositories", refused: "state/repositories"},
+		{name: "chain of ..", links: map[string]string{"state/workspaces/escape": "<outside>"}, escapes: "state/workspaces/escape", refused: "state/workspaces/escape"},
+		{name: "through another link", links: map[string]string{"state/workspaces/via": "run/self/<outside from run>"}, escapes: "state/workspaces/via", refused: "state/workspaces/via"},
+		{name: "a link to a link that escapes", links: map[string]string{"state/workspaces/hop": "hop2", "state/workspaces/hop2": "<outside>"}, escapes: "state/workspaces/hop", refused: "state/workspaces/hop"},
+		{name: "inside the backup but outside its tree", links: map[string]string{"state/workspaces/dump": "../../postgres.dump"}, refused: "state/workspaces/dump"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home, state := ownerHome(t)
+			outside := filepath.Join(home, "outside")
+			write(t, filepath.Join(outside, "sentinel"), "outside bytes", 0640)
+			write(t, filepath.Join(state, "config/secrets.json"), "live key", 0600)
+
+			// A real backup, published by the backup coordinator.
+			source := filepath.Join(home, "source")
+			write(t, filepath.Join(source, "workspaces/run/file"), "x", 0600)
+			require.NoError(t, os.Symlink(".", filepath.Join(source, "workspaces/run/self")))
+			published, err := hostbackup.Backup(t.Context(), hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: source, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Cloner: hostbackup.APFSCloner{},
+				Authority: &liveDatabase{at: time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC), dump: func(target io.Writer) error {
+					_, err := io.WriteString(target, "PGDMP fixture")
+					return err
+				}}})
+			require.NoError(t, err)
+			require.NoError(t, os.Mkdir(filepath.Join(state, "backups"), 0700))
+			backup := filepath.Join(state, "backups", filepath.Base(published))
+			require.NoError(t, os.Rename(published, backup))
+			require.NoError(t, os.RemoveAll(source))
+			_, err = hostbackup.VerifySnapshot(backup)
+			require.NoError(t, err, "the backup is valid before it is crafted")
+
+			// Craft it: plant each link and record it in the manifest.
+			raw, err := os.ReadFile(filepath.Join(backup, "MANIFEST.json"))
+			require.NoError(t, err)
+			var manifest hostbackup.Manifest
+			require.NoError(t, json.Unmarshal(raw, &manifest))
+			for path, target := range tc.links {
+				link := filepath.Join(backup, path)
+				climb, err := filepath.Rel(filepath.Dir(link), outside)
+				require.NoError(t, err)
+				fromRun, err := filepath.Rel(filepath.Join(filepath.Dir(link), "run"), outside)
+				require.NoError(t, err)
+				for _, relative := range []string{climb, fromRun} {
+					require.True(t, strings.HasPrefix(relative, "../../../"), relative)
+					require.False(t, filepath.IsAbs(relative))
+				}
+				target = strings.NewReplacer("<outside from run>", fromRun, "<outside>", climb, "<absolute>", outside).Replace(target)
+				t.Logf("%s -> %s", path, target)
+				require.NoError(t, os.MkdirAll(filepath.Dir(link), 0700))
+				require.NoError(t, os.Symlink(target, link))
+				manifest.Files = append(manifest.Files, hostbackup.File{Path: path, Link: target})
+			}
+			raw, err = json.Marshal(manifest)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(backup, "MANIFEST.json"), raw, 0600))
+			if tc.escapes != "" {
+				// Not a vacuous case: followed, the link reaches the outside directory.
+				reached, err := filepath.EvalSymlinks(filepath.Join(backup, tc.escapes))
+				require.NoError(t, err)
+				require.Equal(t, outside, reached)
+				through, err := os.ReadFile(filepath.Join(backup, tc.escapes, "sentinel"))
+				require.NoError(t, err)
+				require.Equal(t, "outside bytes", string(through))
+			}
+
+			record := filepath.Join(t.TempDir(), "record")
+			ran := "#!/bin/sh\necho ran >> '" + record + "'\nexit 0\n"
+			bundle := newMaintenanceBundle(t, map[string]string{"bin/smithers-backend": ran, "bin/smthrs": ran})
+			before := everything(t, home)
+
+			handled, err := DispatchMaintenance(t.Context(), []string{"host-maintenance", "restore", backup}, bundle.executable)
+			require.True(t, handled)
+			require.EqualError(t, err, "unsafe_path: "+tc.refused)
+
+			require.Equal(t, before, everything(t, home), "nothing under the owner's home changed")
+			require.NoFileExists(t, record, "no bundled program ran")
+			sentinel, err := os.ReadFile(filepath.Join(outside, "sentinel"))
+			require.NoError(t, err)
+			require.Equal(t, "outside bytes", string(sentinel))
+			entries, err := os.ReadDir(outside)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "nothing was written into the outside directory")
+		})
+	}
+}

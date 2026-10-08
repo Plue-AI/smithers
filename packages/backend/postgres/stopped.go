@@ -73,10 +73,3 @@ func Stopped(stateDir string) error {
 	}
 	return ErrRunning
 }
-
-// ProcessBirth identifies one run of a PID: the system reuses PIDs, but not a
-// PID together with its start time. It fails for a process that has exited.
-func ProcessBirth(pid int) (string, error) {
-	birth, _, err := processIdentity(pid)
-	return birth, err
-}

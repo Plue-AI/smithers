@@ -371,3 +371,51 @@ func TestVerifySnapshotCancellationPreservesBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The published format of a symbolic link, as literal bytes: {path, link}
+// with size 0 and an empty digest. The writer produces exactly this, and a
+// backup holding these bytes is read. From the first public release on,
+// restore must keep reading this format (smithers-8a, 2026-10-07).
+func TestManifestPublishedContractRecordsALinkAsPathAndTarget(t *testing.T) {
+	const published = `{
+ "version":"1.2.3","schema_version":2,"postgres_major":18,
+ "quiesce_op":"backup-1","quiesce_time":"2026-10-03T22:00:00Z",
+ "files":[
+  {"path":"postgres.dump","size":4,"sha256":"b6ca0868bca6a2926b70aa1a71592038d9030fe26d4214edcfbd6cf41f2f4654"},
+  {"path":"state/workspaces/run/file","size":1,"sha256":"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"},
+  {"path":"state/workspaces/run/readme","size":0,"sha256":"","link":"../run/file"}
+ ],
+ "stack":[{"number":1}],"branch_heads":{},"machine_disks":[],"run_journals":[]
+ }`
+	tree := func(dir string) {
+		must(t, os.MkdirAll(filepath.Join(dir, "state/workspaces/run"), 0700))
+		must(t, os.WriteFile(filepath.Join(dir, "postgres.dump"), []byte("dump"), 0600))
+		must(t, os.WriteFile(filepath.Join(dir, "state/workspaces/run/file"), []byte("x"), 0600))
+		must(t, os.Symlink("../run/file", filepath.Join(dir, "state/workspaces/run/readme")))
+	}
+
+	// Written: the writer's bytes are the published contract.
+	partial := filepath.Join(t.TempDir(), ".partial-1")
+	tree(partial)
+	_, m := fixture(t)
+	must(t, WriteManifest(partial, m))
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(partial), "1.2.3-20261003T220000.000000000Z", "MANIFEST.json"))
+	must(t, err)
+	var actual, expected map[string]any
+	must(t, json.Unmarshal(body, &actual))
+	must(t, json.Unmarshal([]byte(published), &expected))
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("manifest contract differs: %s", body)
+	}
+
+	// Read: a backup holding exactly the published bytes verifies.
+	released := filepath.Join(t.TempDir(), "1.2.3-20261003T220000.000000000Z")
+	tree(released)
+	must(t, os.WriteFile(filepath.Join(released, "MANIFEST.json"), []byte(published), 0600))
+	read, err := VerifySnapshot(released)
+	must(t, err)
+	if len(read.Files) != 3 || read.Files[2] != (File{Path: "state/workspaces/run/readme", Link: "../run/file"}) {
+		t.Fatalf("published link entry read as %+v", read.Files)
+	}
+	must(t, VerifyManifest(released, Version{Release: "1.3.0", Schema: 3, PostgresMajor: 18}))
+}
