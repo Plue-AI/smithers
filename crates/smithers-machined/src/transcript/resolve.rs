@@ -312,24 +312,53 @@ pub fn run() -> io::Result<()> {
     serve(io::stdin().lock(), io::stdout().lock())
 }
 
-/// The broker's side: send the request on the resolver's socket and read its
-/// one answer. `Ok(None)` is "not yet". Any other refusal is an error.
-pub fn ask(mut socket: impl Read + Write, request: &Request) -> io::Result<Option<Resolved>> {
+/// The longest answer the broker reads from a resolver.
+pub const MAX_ANSWER: usize = 8192;
+
+/// The broker's side, first half: write the one request. It is small enough
+/// to fit a new socket's buffer, so a broker that must never wait on a
+/// member's process writes it without blocking.
+pub fn request(writer: &mut impl Write, request: &Request) -> io::Result<()> {
     send(
-        &mut socket,
+        writer,
         0,
         &serde_json::to_vec(request).map_err(|_| invalid())?,
-    )?;
-    let (tag, bytes) = receive(&mut socket)?;
+    )
+}
+
+/// One whole answer frame at the start of `bytes` (what the broker has peeked
+/// from the socket so far), or none while it is still arriving. A frame that
+/// declares more than [`MAX_ANSWER`] is refused before it is read.
+pub fn frame(bytes: &[u8]) -> io::Result<Option<(u8, &[u8])>> {
+    let Some(header) = bytes.get(..5) else {
+        return Ok(None);
+    };
+    let size = u32::from_be_bytes(header[1..].try_into().unwrap()) as usize;
+    if size > MAX_ANSWER {
+        return Err(invalid());
+    }
+    Ok(bytes.get(5..5 + size).map(|body| (header[0], body)))
+}
+
+/// The broker's side, second half: what one answer frame says. `Ok(None)` is
+/// "not yet". Any other refusal is an error.
+pub fn answer(tag: u8, body: &[u8], request: &Request) -> io::Result<Option<Resolved>> {
     match tag {
-        DONE if bytes.len() <= 8192 => {
-            let resolved: Resolved = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        DONE if body.len() <= MAX_ANSWER => {
+            let resolved: Resolved = serde_json::from_slice(body).map_err(|_| invalid())?;
             resolved.validate(request)?;
             Ok(Some(resolved))
         }
-        ERROR if bytes == [1] => Ok(None),
+        ERROR if body == [1] => Ok(None),
         _ => Err(invalid()),
     }
+}
+
+/// Both halves on a socket with a deadline, for a caller that may wait.
+pub fn ask(mut socket: impl Read + Write, asked: &Request) -> io::Result<Option<Resolved>> {
+    request(&mut socket, asked)?;
+    let (tag, bytes) = receive(&mut socket)?;
+    answer(tag, &bytes, asked)
 }
 
 #[cfg(test)]
@@ -358,6 +387,58 @@ mod tests {
         }
         assert_eq!(
             profile(Agent::Codex, &format!("0.160.1-{}", "a".repeat(64))),
+            None
+        );
+    }
+
+    #[test]
+    fn an_answer_frame_is_read_whole_or_not_at_all() {
+        let asked = Request {
+            uid: 20001,
+            gid: 20001,
+            groups: vec![20000],
+            root: "/home/ben/.codex".into(),
+            agent: Agent::Codex,
+            pid: 7,
+            link: Link::Rollout("sessions/2026/10/08/rollout-a.jsonl".into()),
+        };
+        let resolved = Resolved {
+            path: "sessions/2026/10/08/rollout-a.jsonl".into(),
+            release: "0.160.1".into(),
+        };
+        let mut wire = Vec::new();
+        send(&mut wire, DONE, &serde_json::to_vec(&resolved).unwrap()).unwrap();
+        // Every prefix is "still arriving"; bytes after the frame are not part of it.
+        for cut in 0..wire.len() {
+            assert_eq!(frame(&wire[..cut]).unwrap(), None, "{cut}");
+        }
+        let (tag, body) = frame(&wire).unwrap().unwrap();
+        assert_eq!(answer(tag, body, &asked).unwrap(), Some(resolved.clone()));
+        let mut trailing = wire.clone();
+        trailing.extend(b"trailing");
+        assert_eq!(frame(&trailing).unwrap().unwrap().1, body);
+        // "Not yet", a refusal, and an answer for another request.
+        assert_eq!(answer(ERROR, &[1], &asked).unwrap(), None);
+        for (tag, body) in [
+            (ERROR, &[0][..]),
+            (ERROR, &[]),
+            (ERROR, &[1, 1]),
+            (9, &[1]),
+            (DONE, b"{}"),
+        ] {
+            assert!(answer(tag, body, &asked).is_err(), "{tag} {body:?}");
+        }
+        let other = Request {
+            link: Link::Rollout("sessions/2026/10/08/rollout-b.jsonl".into()),
+            ..asked.clone()
+        };
+        assert!(answer(tag, body, &other).is_err());
+        // A frame that declares more than the broker reads is refused from its header.
+        let size = (MAX_ANSWER as u32 + 1).to_be_bytes();
+        assert!(frame(&[DONE, size[0], size[1], size[2], size[3]]).is_err());
+        let size = (MAX_ANSWER as u32).to_be_bytes();
+        assert_eq!(
+            frame(&[DONE, size[0], size[1], size[2], size[3]]).unwrap(),
             None
         );
     }
