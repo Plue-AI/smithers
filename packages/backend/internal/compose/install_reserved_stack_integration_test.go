@@ -636,7 +636,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		runtime.head = strings.Repeat("e", 40)
 		runtime.tree = strings.Repeat("f", 40)
 		changed := repohost.WorkspaceSource{ChangeID: runtime.change, CommitID: runtime.head, TreeID: runtime.tree, ParentCommitIDs: []string{base}}
-		body, err := json.Marshal(services.ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &changed})
+		plan := json.RawMessage(`{"changes":[{"atoms":[],"checks":[{"id":"checks/fast","required":true,"tier":"fast"}]}]}`)
+		body, err := json.Marshal(services.ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &changed, Plan: plan})
 		require.NoError(t, err)
 		call(t, token, "candidate", string(body), 202)
 		item, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
@@ -674,7 +675,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		// ancestry or plan, even while the original request is pending.
 		for _, field := range []string{"head", "tree", "parent", "plan"} {
 			substitute := changed
-			request := services.ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &substitute}
+			request := services.ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &substitute, Plan: plan}
 			switch field {
 			case "head":
 				substitute.CommitID = runtime.head
@@ -683,7 +684,7 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			case "parent":
 				substitute.ParentCommitIDs = []string{runtime.head}
 			case "plan":
-				request.Plan = json.RawMessage(`{"changes":[{"atoms":[],"checks":[]}]}`)
+				request.Plan = json.RawMessage(`{"changes":[{"atoms":[],"checks":[{"id":"checks/fast","required":false,"tier":"fast"}]}]}`)
 			}
 			mutated, err := json.Marshal(request)
 			require.NoError(t, err)

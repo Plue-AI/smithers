@@ -342,7 +342,8 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	tree := guest.run(t, "git", "rev-parse", head+"^{tree}")
 	guest.run(t, "git", "push", "-q", f.hostDir, head+":"+repohost.WorkspaceSourceRef(item.WorkspaceID, head))
 	source := repohost.WorkspaceSource{ChangeID: change, CommitID: head, TreeID: tree, ParentCommitIDs: []string{f.main}}
-	capture := ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source}
+	planJSON := json.RawMessage(`{"changes":[{"title":"Reserved positive","atoms":[{"message":"member work"}],"checks":[{"id":"checks/fast","required":true,"tier":"fast"},{"id":"checks/slow","required":true,"tier":"slow"}]}]}`)
+	capture := ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source, Plan: planJSON}
 	if existingCapture {
 		// The native outbox may publish this exact snapshot before the run's
 		// sealed submission arrives. Admission must bind and advance it too.
@@ -443,6 +444,8 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT authorization_context FROM product_job_requests WHERE id=$1`, reservedStackReceiptID(verifying, "stack.candidate", capture.RequestID)).Scan(&recorded))
 	var receipt reservedStackReceipt
 	require.NoError(t, json.Unmarshal(recorded, &receipt))
+	require.JSONEq(t, string(capture.Plan), string(receipt.Input.Plan))
+	receipt.Input.Plan = capture.Plan
 	require.Equal(t, capture, receipt.Input, "verification retains the exact admitted source before the helper polls again")
 	require.Equal(t, ReservedStackResult{Generation: generation + 1, Base: f.main, Head: head}, receipt.Result)
 

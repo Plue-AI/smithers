@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -71,6 +70,11 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	defer func() {
+		if retErr != nil && input.Source != nil {
+			s.logger.Warn("mythical.reserved_source_refused", "operation", command, "todo", subject.TodoNumber, "commit", input.Source.CommitID, "tree", input.Source.TreeID, "error", retErr)
+		}
+	}()
+	defer func() {
 		var busy *pgconn.PgError
 		if errors.As(retErr, &busy) && (busy.Code == "55P03" || busy.Code == "40P01" || busy.Code == "40001") {
 			// Projection may hold this TODO's stream before taking its stack.
@@ -138,12 +142,14 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return empty, 202, nil
 	}
 	if pending := mythicalChecksOf(item).ProposalInput; command == "stack.candidate" && input.Source != nil && pending != nil {
-		previous, _ := json.Marshal(pending)
-		current, _ := json.Marshal(input)
-		if pending.RequestID == input.RequestID && !bytes.Equal(previous, current) {
+		same, err := reservedStackInputsEqual(live, tx, *pending, input)
+		if err != nil {
+			return empty, 0, err
+		}
+		if pending.RequestID == input.RequestID && !same {
 			return empty, 0, pkgerrors.Conflict("stack operation request changed")
 		}
-		if bytes.Equal(previous, current) && mythicalChecksOf(item).ProposalRun == item.RequestRunID && mythicalChecksOf(item).ProposalHead == input.Source.CommitID && item.State == "integrating" {
+		if same && mythicalChecksOf(item).ProposalRun == item.RequestRunID && mythicalChecksOf(item).ProposalHead == input.Source.CommitID && item.State == "integrating" {
 			// Its exact admitted snapshot is already owned by the engine. A
 			// native rewrite may move the live tree before verification records
 			// this invocation's result; polling must not submit those bytes again.
@@ -402,6 +408,23 @@ type reservedStackReceipt struct {
 	Result ReservedStackResult `json:"result"`
 }
 
+// Both checks and receipts persist as JSONB. Compare the submitted request in
+// that same representation: key order and whitespace cannot change its identity.
+// JSONB retains exact numeric values, array order and every source binding.
+func reservedStackInputsEqual(ctx context.Context, tx pgx.Tx, previous, current ReservedStackInput) (bool, error) {
+	left, err := json.Marshal(previous)
+	if err != nil {
+		return false, err
+	}
+	right, err := json.Marshal(current)
+	if err != nil {
+		return false, err
+	}
+	var same bool
+	err = tx.QueryRow(ctx, `SELECT $1::jsonb = $2::jsonb`, string(left), string(right)).Scan(&same)
+	return same, err
+}
+
 func replayReservedStack(ctx context.Context, tx pgx.Tx, item db.MythicalItem, command string, input ReservedStackInput) (ReservedStackResult, bool, error) {
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT authorization_context FROM product_job_requests WHERE id=$1`, reservedStackReceiptID(item, command, input.RequestID)).Scan(&raw)
@@ -415,9 +438,11 @@ func replayReservedStack(ctx context.Context, tx pgx.Tx, item db.MythicalItem, c
 	if json.Unmarshal(raw, &stored) != nil || stored.Result.Generation <= 0 || stored.Result.Head == "" {
 		return ReservedStackResult{}, false, pkgerrors.Internal("invalid reserved operation receipt")
 	}
-	want, _ := json.Marshal(input)
-	previous, _ := json.Marshal(stored.Input)
-	if !bytes.Equal(want, previous) {
+	same, err := reservedStackInputsEqual(ctx, tx, stored.Input, input)
+	if err != nil {
+		return ReservedStackResult{}, false, err
+	}
+	if !same {
 		return ReservedStackResult{}, false, pkgerrors.Conflict("stack operation request changed")
 	}
 	return stored.Result, true, nil
