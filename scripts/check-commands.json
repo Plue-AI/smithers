@@ -372,8 +372,8 @@
     },
     "C-J10-08": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/github_inbound_pulls_integration_test.go",
-      "ticket": "T-GH-05"
+      "reason": "Spec: packages/backend/internal/services/github_inbound_pulls_integration_test.go; composed lifecycle drivers: TestTODOGitHubCloseReopenComposedInstall and TestTODOGitHubReopenWindowComposedInstall (SMITHERS_GH03_REHEARSAL=1); real-microVM reference-host qualification and executable mapping approval pending",
+      "ticket": "T-GH-03"
     },
     "C-J10-09": {
       "status": "pending-owner",
