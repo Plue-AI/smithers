@@ -122,7 +122,8 @@ func validateNoLandlockBoundary(ctx context.Context, control relayControl, obser
 	return compareOutside(before, after)
 }
 
-// Exact SSH negative replies are required; EOF/timeouts are not acceptance.
+// Exact SSH negative replies are required for all four session kinds;
+// EOF/timeouts are not acceptance.
 func noLandlockSSHRequests(client *ssh.Client, evidence string) error {
 	// A fully valid member command must fail before payload use. Deadline failure
 	// is not refusal; the SSH peer must return an unsuccessful completion.
@@ -150,7 +151,32 @@ func noLandlockSSHRequests(client *ssh.Client, evidence string) error {
 	if err.Error() != "ssh: subsystem request failed" {
 		return errors.New("unsupported kernel lacked explicit SFTP refusal")
 	}
-	if err = os.WriteFile(filepath.Join(evidence, "no-landlock-ssh.json"), []byte(`{"exec_request_accepted":false,"sftp_request_accepted":false}`), 0600); err != nil {
+	// A valid PTY request may be acknowledged before spawn. The subsequent
+	// shell request must explicitly refuse, rather than start a member shell.
+	session, err = client.NewSession()
+	if err != nil {
+		return err
+	}
+	if err = session.RequestPty("xterm", 24, 80, ssh.TerminalModes{}); err != nil {
+		session.Close()
+		return errors.New("unsupported kernel PTY fixture was rejected before spawn")
+	}
+	err = session.Shell()
+	session.Close()
+	if err == nil || err.Error() != "ssh: could not start shell" {
+		return errors.New("unsupported kernel lacked explicit PTY shell refusal")
+	}
+	// A literal valid loopback target distinguishes confinement refusal from
+	// the gateway's invalid-target policy. No TCP worker may start either.
+	forwarded, err := client.Dial("tcp", "127.0.0.1:3000")
+	if forwarded != nil {
+		forwarded.Close()
+	}
+	var channelError *ssh.OpenChannelError
+	if !errors.As(err, &channelError) || channelError.Reason != ssh.ConnectionFailed || channelError.Message != "guest unavailable" {
+		return errors.New("unsupported kernel lacked explicit TCP worker refusal")
+	}
+	if err = os.WriteFile(filepath.Join(evidence, "no-landlock-ssh.json"), []byte(`{"exec_request_accepted":false,"sftp_request_accepted":false,"pty_shell_request_accepted":false,"tcp_channel_accepted":false}`), 0600); err != nil {
 		return err
 	}
 
