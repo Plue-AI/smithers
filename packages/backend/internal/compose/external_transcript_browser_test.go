@@ -133,30 +133,46 @@ func (d *scriptedDaemon) deliver(n byte, profile, record string) (machined.AckOu
 	}
 	d.seq++
 	d.write.Lock()
-	err = wire.Write(d.peer, transcriptEventFrame(machined.Event{Seq: d.seq, EventID: [16]byte(uuid.New()), Payload: payload}))
+	frame := transcriptEventFrame(machined.Event{Seq: d.seq, EventID: [16]byte(uuid.New()), Payload: payload})
+	err = wire.Write(d.peer, frame)
 	d.write.Unlock()
 	if err != nil {
 		return 0, err
 	}
-	select {
-	case frame, ok := <-d.acks:
-		if !ok {
-			return 0, errors.New("the host closed the link instead of settling the record")
+	// The daemon outbox replays an unacknowledged event with its original
+	// identity. Transient receipt failures must not strand this scripted link.
+	replay := time.NewTicker(time.Second)
+	defer replay.Stop()
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case frame, ok := <-d.acks:
+			if !ok {
+				return 0, errors.New("the host closed the link instead of settling the record")
+			}
+			fields, err := wire.Fields("ack", frame.Payload[1:])
+			if err != nil {
+				return 0, err
+			}
+			if !bytes.Equal(fields[1], wire.U64(d.seq)) || len(fields[2]) != 1 {
+				return 0, errors.New("the host acknowledged another event")
+			}
+			outcome := machined.AckOutcome(fields[2][0])
+			if outcome == machined.AckApplied {
+				d.offsets[n] = end
+			}
+			return outcome, nil
+		case <-replay.C:
+			d.write.Lock()
+			err = wire.Write(d.peer, frame)
+			d.write.Unlock()
+			if err != nil {
+				return 0, err
+			}
+		case <-deadline.C:
+			return 0, errors.New("the host did not settle the record in 30 s")
 		}
-		fields, err := wire.Fields("ack", frame.Payload[1:])
-		if err != nil {
-			return 0, err
-		}
-		if !bytes.Equal(fields[1], wire.U64(d.seq)) || len(fields[2]) != 1 {
-			return 0, errors.New("the host acknowledged another event")
-		}
-		outcome := machined.AckOutcome(fields[2][0])
-		if outcome == machined.AckApplied {
-			d.offsets[n] = end
-		}
-		return outcome, nil
-	case <-time.After(30 * time.Second):
-		return 0, errors.New("the host did not settle the record in 30 s")
 	}
 }
 
