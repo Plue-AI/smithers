@@ -211,7 +211,12 @@ func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presen
 
 	require.Equal(t, "member:2", snapshot.Changed[0].Writer["id"])
 	require.NotNil(t, activity.Cursor)
-	require.Equal(t, int64(1), *activity.Cursor)
+	var burstSequence int64
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT sequence FROM product_job_events WHERE event_type='branch.burst'`).Scan(&burstSequence))
+	require.Equal(t, burstSequence, *activity.Cursor)
+	// New machine writes require the machine to be awake after sleeping reads.
+	_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET status='running' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
 	nextID := [16]byte{5}
 	next := event
 	next.Seq = 2
@@ -220,10 +225,10 @@ func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presen
 	_, err = pump.Commit(t.Context(), c, f.row.ID, next)
 	require.NoError(t, err)
 	resumed := f.dial(t)
-	sendPresenceFrame(t, resumed, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity","cursor":1}`, f.row.ID))
+	sendPresenceFrame(t, resumed, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity","cursor":%d}`, f.row.ID, burstSequence))
 	delta := readPresenceFrame(t, resumed)
 	require.Equal(t, "delta", delta.T)
-	require.Equal(t, int64(2), *delta.Cursor)
+	require.Equal(t, burstSequence+1, *delta.Cursor)
 	require.NoError(t, json.Unmarshal(delta.Data, &entries))
 	require.Len(t, entries, 1)
 	require.Equal(t, "05000000-0000-0000-0000-000000000000", entries[0].ID)
@@ -250,7 +255,7 @@ func testBranchChangesProductionLiveBoundary(t *testing.T, bindNotes func(presen
 	sendPresenceFrame(t, gapSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
 	latest := readPresenceFrame(t, gapSocket)
 	require.Equal(t, "snap", latest.T)
-	require.Equal(t, int64(203), *latest.Cursor)
+	require.Equal(t, burstSequence+202, *latest.Cursor)
 	require.NoError(t, json.Unmarshal(latest.Data, &entries))
 	require.Len(t, entries, 200)
 	sendPresenceFrame(t, gapSocket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:activity","cursor":999999}`, f.row.ID))

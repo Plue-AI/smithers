@@ -250,6 +250,13 @@ accepted as proof that an unregistered agent process was terminated. Shared
 native branch access requires current membership and admitted host receipts;
 legacy private boxes keep their single-writer restriction.
 
+Outside-change notes use the same burst transaction and dispatcher intent as
+the pinned TODO attempt. Composition resolves its launch checkpoint, source,
+execution digest, host generation and current membership under row locks;
+the coding participant must also have an acknowledged `register_run` on the
+ready daemon link. A spawn identity alone cannot receive notes. No host is
+launched during ingestion, and another attempt cannot inherit its notes.
+
 The current repository secret projection updates the protected tmpfs team
 environment on authenticated ready links. New processes consume the latest
 literal projection after dropping identity. Existing process environments are
