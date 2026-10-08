@@ -250,11 +250,26 @@ func TestTodoFoldedGitHubMergeSequences(t *testing.T) {
 				require.NoError(t, json.Unmarshal(raw, &event))
 				require.Equal(t, from, event["from"], kind)
 				require.Equal(t, to, event["to"], kind)
-				require.NotEmpty(t, event["actor"], kind)
+				actor := event["actor"].(map[string]any)
+				switch kind {
+				case "todo.github_merged":
+					require.Equal(t, map[string]any{"kind": "system", "id": "github"}, actor)
+				case "todo.run_updated":
+					require.Equal(t, map[string]any{"kind": "run", "id": "run-1"}, actor)
+				case "todo.steer_received":
+					require.Equal(t, "person", actor["kind"])
+					require.Equal(t, "alice", actor["login"])
+				case "todo.stop.requested":
+					require.Equal(t, "person", actor["kind"])
+					require.Equal(t, "acme", actor["login"])
+				default:
+					t.Fatalf("unqualified folded actor %s", kind)
+				}
 			}
 			stop := f.start(t)
 			defer stop()
 			if sequence.steer {
+				f.chooseActor(t, "alice", "write")
 				status, receipt := f.call(t, 1, "POST", `{"steer":"Keep the accepted change small"}`, "")
 				require.Equal(t, 202, status, receipt)
 				status, card := f.call(t, 1, "GET", "", "")
