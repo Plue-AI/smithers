@@ -438,6 +438,12 @@ func (r *terminalFIFOGuests) ExecuteCommand(ctx context.Context, id string, comm
 }
 
 func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1)
+}
+func TestSuccessfulFiftyTerminalInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 10, 5)
+}
+func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch int) {
 	f := presenceInstall(t)
 	ctx := t.Context()
 	q := db.New(f.pool)
@@ -459,9 +465,9 @@ func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
 	capacity := &services.InstallCapacityService{Queries: q, Profile: profile, FreeDisk: readDisk, InUse: queue.InUse}
 	queue.SetCapacityReader(capacity.Capacity)
-	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, 3)}
+	runtime := &terminalFIFOGuests{perfWakeRuntime: &perfWakeRuntime{queue: queue, entered: make(chan struct{})}, guests: map[string]*perfWakeRuntime{}, started: make(chan string, branchCount)}
 	var branches []db.Workspace
-	for i := 0; i < 3; i++ {
+	for i := 0; i < branchCount; i++ {
 		branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: fmt.Sprintf("fifo-%d", i), TargetBookmark: fmt.Sprintf("scratch/presence-owner/fifo-%d", i), Status: "suspended", Kind: "vm"})
 		require.NoError(t, err)
 		reader, writer := io.Pipe()
@@ -477,6 +483,9 @@ func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 	defer manager.Close()
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	if perBranch > 1 {
+		cfg.RateLimit.TerminalOpenPerMin = 100
+	} // same configured budget as the existing fifty-request matrix
 	server := httptest.NewUnstartedServer(nil)
 	cfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
@@ -506,29 +515,35 @@ func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 	defer server.Close()
 	// All demand enters through the authenticated terminal door. Disk keeps
 	// grants closed while the literal FIFO is established, including a duplicate.
-	var sessions []services.WorkspaceSessionResponse
+	sessions := map[string][]string{}
+	request := func(branchID, requestID string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/terminals", strings.NewReader(fmt.Sprintf(`{"branch":%q}`, branchID)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", cfg.Server.PublicURL)
+		req.Header.Set("Idempotency-Key", requestID)
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
+		res, err := server.Client().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	}
 	for i, branch := range branches {
 		requestID := uuid.NewString()
-		request := func() *http.Response {
-			req, err := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/terminals", strings.NewReader(fmt.Sprintf(`{"branch":%q}`, branch.ID)))
-			require.NoError(t, err)
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Origin", cfg.Server.PublicURL)
-			req.Header.Set("Idempotency-Key", requestID)
-			req.Header.Set("X-CSRF-Token", "csrf")
-			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
-			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: f.cookie})
-			res, err := server.Client().Do(req)
-			require.NoError(t, err)
-			return res
-		}
-		response := request()
+		response, err := request(branch.ID, requestID)
+		require.NoError(t, err)
 		var session services.WorkspaceSessionResponse
 		require.Equal(t, 202, response.StatusCode)
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&session))
 		response.Body.Close()
-		sessions = append(sessions, session)
-		duplicate := request()
+		sessions[branch.ID] = append(sessions[branch.ID], session.ID)
+		duplicate, err := request(branch.ID, requestID)
+		require.NoError(t, err)
 		var repeated services.WorkspaceSessionResponse
 		require.Equal(t, 202, duplicate.StatusCode)
 		require.NoError(t, json.NewDecoder(duplicate.Body).Decode(&repeated))
@@ -542,6 +557,41 @@ func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 			}
 			return false
 		}, 5*time.Second, 10*time.Millisecond)
+	}
+	// Each holder already has a literal FIFO position. Add the remaining
+	// unique HTTP requests concurrently across all ten branches while boots
+	// remain unresolved; they must share the same one-slot machine per branch.
+	type terminalResult struct {
+		branch  string
+		session services.WorkspaceSessionResponse
+		status  int
+		err     error
+	}
+	results := make(chan terminalResult, branchCount*(perBranch-1))
+	for _, branch := range branches {
+		for j := 1; j < perBranch; j++ {
+			go func(id string) {
+				result := terminalResult{branch: id}
+				response, e := request(id, uuid.NewString())
+				result.err = e
+				if e == nil {
+					result.status = response.StatusCode
+					result.err = json.NewDecoder(response.Body).Decode(&result.session)
+					response.Body.Close()
+				}
+				results <- result
+			}(branch.ID)
+		}
+	}
+	for i := 0; i < branchCount*(perBranch-1); i++ {
+		result := <-results
+		require.NoError(t, result.err)
+		require.Equal(t, 202, result.status)
+		require.NotEmpty(t, result.session.ID)
+		sessions[result.branch] = append(sessions[result.branch], result.session.ID)
+	}
+	for _, branch := range branches {
+		require.Len(t, sessions[branch.ID], perBranch)
 	}
 	require.Zero(t, queue.InUse())
 	require.Empty(t, runtime.started)
@@ -613,22 +663,41 @@ func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
 			break
 		}
 		require.Eventually(t, func() bool {
-			var count int
-			err := f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=$1`, sessions[i].ID).Scan(&count)
-			return err == nil && count == 1
+			var count, distinct int
+			err := f.pool.QueryRow(ctx, `SELECT count(*),count(DISTINCT data->>'session') FROM product_job_events WHERE event_type='terminal.running' AND data->>'session'=ANY($1::text[])`, sessions[branch.ID]).Scan(&count, &distinct)
+			return err == nil && count == perBranch && distinct == perBranch
 		}, 5*time.Second, 10*time.Millisecond, "terminal guest accepted the real member credential")
 		// Inject a delayed stop observation, keeping the granted slot throughout.
 		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
 			require.Equal(t, 1, queue.InUse())
+			running := 0
+			for _, guest := range runtime.guests {
+				guest.mu.Lock()
+				if guest.state == workspaceapi.WorkspaceRunning {
+					running++
+				}
+				guest.mu.Unlock()
+			}
+			require.Equal(t, 1, running, "the observed guest inventory never exceeds the slot limit")
 			require.Empty(t, runtime.started)
 			time.Sleep(20 * time.Millisecond)
 		}
+		guest := runtime.guests[branch.ID]
+		guest.mu.Lock()
+		guest.state = workspaceapi.WorkspaceStopped
+		guest.mu.Unlock()
 		queue.ConfirmAdmissionStop("workspace:"+branch.ID, false)
 	}
 	require.NoError(t, service.WaitForProvisioning(ctx))
 	require.Zero(t, queue.InUse())
-	require.Len(t, queue.AdmissionSnapshot(), 3)
+	require.Len(t, queue.AdmissionSnapshot(), branchCount)
 	for _, row := range queue.AdmissionSnapshot() {
 		require.Equal(t, "released", row.State)
 	}
+	manager.Close()
+	require.NoError(t, service.WaitForProvisioning(ctx))
+	require.Eventually(t, func() bool {
+		var closed int
+		return f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='terminal.closed'`).Scan(&closed) == nil && closed == branchCount*perBranch
+	}, 10*time.Second, 10*time.Millisecond, "every terminal closes before its database is retired")
 }
