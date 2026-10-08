@@ -1,8 +1,8 @@
 // A bundled process door over the existing install command mount.
 import { Cli } from "incur"
-import { packageVersion } from "./Version"
-import { mount } from "./internal/backend/Commands"
-import * as Presentation from "./cli/Presentation"
+import { packageVersion } from "./Version.ts"
+import { mount } from "./internal/backend/Commands.ts"
+import * as Presentation from "./cli/Presentation.ts"
 const runtime = { environment: process.env, exit: (code: number) => { process.exitCode = code } }
 const cli = Cli.create("smthrs", { description: "Operate Smithers", version: packageVersion })
 cli.use((context, next) => Presentation.scope(context, runtime, next))
