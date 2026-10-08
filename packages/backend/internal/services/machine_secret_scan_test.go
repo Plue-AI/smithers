@@ -1,6 +1,9 @@
 package services
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -55,4 +58,23 @@ func TestBoundSecretDestinationObservation(t *testing.T) {
 			require.Error(t, validateBoundSecretRequest([]byte(good), "workspace-id", incomplete))
 		})
 	}
+}
+
+// Leak receipts must identify the fixture without copying captured secret data.
+func TestSecretScanCaptureObservation(t *testing.T) {
+	sentinel := strings.Repeat("s", 40)
+	sentinels := map[string]string{"MAIN": sentinel}
+	for _, offset := range []int{0, (1 << 20) - 20, 1 << 20, (2 << 20) - 1} {
+		t.Run(fmt.Sprint(offset), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "capture")
+			require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", offset)+sentinel), 0600))
+			err := assertNoFixtureSentinels(path, sentinels)
+			require.ErrorContains(t, err, "fixture MAIN (sha256")
+			require.ErrorContains(t, err, path)
+			require.NotContains(t, err.Error(), sentinel)
+			require.NoError(t, os.WriteFile(path, []byte(strings.Repeat("x", offset)+"ordinary capture"), 0600))
+			require.NoError(t, assertNoFixtureSentinels(path, sentinels))
+		})
+	}
+	require.Error(t, assertNoFixtureSentinels(filepath.Join(t.TempDir(), "missing"), sentinels))
 }

@@ -128,15 +128,15 @@ func TestMachineSecretScanRealMicroVM(t *testing.T) {
 						return nil
 					}
 					require.True(t, entry.Type().IsRegular(), "capture must contain only ordinary files: %s", path)
-					return assertNoFixtureSentinels(t, path, fixture.Sentinels)
+					return assertNoFixtureSentinels(path, fixture.Sentinels)
 				}))
-				require.NoError(t, assertNoFixtureSentinels(t, machine.OperationLog, fixture.Sentinels))
+				require.NoError(t, assertNoFixtureSentinels(machine.OperationLog, fixture.Sentinels))
 			}
 			audit, err := os.ReadFile(machine.RelayAudit)
 			require.NoError(t, err)
 			require.NotEmpty(t, audit, "relay observation must not be empty")
 			for _, label := range []string{"ALL", "BOUND", "PROVIDER", "PEM", "MAIN"} {
-				require.NotContains(t, string(audit), fixture.Sentinels[label])
+				require.False(t, strings.Contains(string(audit), fixture.Sentinels[label]), "relay audit leaked fixture %s (sha256 %x)", label, sha256.Sum256([]byte(fixture.Sentinels[label])))
 			}
 			// The destination records the received HTTP request independently of
 			// the relay's redacted audit. A policy entry alone is no positive control.
@@ -155,8 +155,7 @@ func TestMachineSecretScanRealMicroVM(t *testing.T) {
 	require.Len(t, kinds, 3)
 }
 
-func assertNoFixtureSentinels(t *testing.T, path string, sentinels map[string]string) error {
-	t.Helper()
+func assertNoFixtureSentinels(path string, sentinels map[string]string) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
@@ -168,7 +167,9 @@ func assertNoFixtureSentinels(t *testing.T, path string, sentinels map[string]st
 		n, err := file.Read(buffer)
 		data := tail + string(buffer[:n])
 		for label, value := range sentinels {
-			require.NotContains(t, data, value, "%s in %s", label, path)
+			if strings.Contains(data, value) {
+				return fmt.Errorf("fixture %s (sha256 %x) found in %s", label, sha256.Sum256([]byte(value)), path)
+			}
 		}
 		if len(data) > 255 {
 			tail = data[len(data)-255:]
