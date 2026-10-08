@@ -128,6 +128,7 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	explicitHead := []bool{len(options) > 1 && options[1]}
 	delegatedBrowser := options
 	installBrowser := browserJourney || len(delegatedBrowser) > 0 && delegatedBrowser[0]
+	learningJourney := len(options) > 2 && options[2]
 	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	var pool *pgxpool.Pool
 	if installBrowser {
@@ -244,6 +245,12 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 	}
 	mythical.SetOrchestration(services.NewMythicalGitHub(q, connections, userRepos, connections), nil, nil)
 	mythical.SetPolicyReader(noPolicy{})
+	if learningJourney {
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		mythical.EnableLearningAdmission(store)
+	}
+
 	mythical.EnableTodoPublication(credentials, connections, services.NewBudgetTracker())
 	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 100, false)
 	require.NoError(t, err)
@@ -488,6 +495,10 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.Equal(t, 200, response.StatusCode)
 		require.Equal(t, "merged", card["state"])
 		require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
+		if learningJourney {
+			proveLearningMergedDispatch(t, pool, mythical, item(), server)
+		}
+
 		return
 	}
 

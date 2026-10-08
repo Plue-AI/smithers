@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -864,4 +865,59 @@ func TestGitHubInboundClaimBeforeFoldProductionPoll(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, comments, "the fold's keyed PR note is still owed if the earlier merge completes")
+}
+
+// Learning admission follows a confirmed external merge even when the TODO
+// has left In review. Replayed production poll deliveries retain one identity.
+func TestGitHubInboundLearningFromWorkingProductionPoll(t *testing.T) {
+	h := newMergeHarness(t)
+	f := h.publicationFixture
+	ctx := t.Context()
+	number, _, pr := h.first("Learning external merge")
+	for range 4 {
+		h.pass()
+	}
+	pool, ok := f.pool.(*pgxpool.Pool)
+	require.True(t, ok)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	f.service.EnableLearningAdmission(store)
+	before := h.item(number)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='running' WHERE id=$1`, before.ID)
+	require.NoError(t, err)
+	f.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.Draft = false })
+	f.fake.MergeAsPerson("rehearsal-owner/app", pr)
+	merged := f.pull(pr)
+	f.git(f.hostDir, "fetch", "-q", f.github, "refs/heads/main:refs/heads/main")
+	require.NoError(t, f.host.ImportRefs(ctx, "smithers-canary", "smithers"))
+	synced, row := configureInboundPullPolling(t, f)
+	stop := runFetchedFixture(t, synced)
+	defer stop()
+	require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+	require.Eventually(t, func() bool { return h.item(number).State == "landed" }, 5*time.Second, 10*time.Millisecond)
+	var count int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='learning.admission'`).Scan(&count))
+	require.Equal(t, 1, count)
+	var id string
+	var payload, authorization []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT id,payload,authorization_context FROM product_job_requests WHERE operation='learning.admission'`).Scan(&id, &payload, &authorization))
+	var intent struct {
+		Item   string `json:"item"`
+		Todo   int64  `json:"todo"`
+		Commit string `json:"commit"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &intent))
+	require.Equal(t, uuidString(before.ID), intent.Item)
+	require.Equal(t, number, intent.Todo)
+	require.Equal(t, merged.MergeCommitSHA, intent.Commit)
+	require.JSONEq(t, `{"source":"confirmed-github-merge","class":"background"}`, string(authorization))
+	for range 2 {
+		require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+	}
+	var retained string
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT id FROM product_job_requests WHERE operation='learning.admission'`).Scan(&retained))
+	require.Equal(t, id, retained)
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='learning.admission'`).Scan(&count))
+	require.Equal(t, 1, count)
+	require.Equal(t, "landed", h.item(number).State)
 }

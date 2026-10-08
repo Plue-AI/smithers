@@ -56,3 +56,39 @@ test("Learning Dismiss accepts durable IDs and retains retryable failures", asyn
     expect(await seam.control("garbage", "retry")).toBe("Background runs unavailable")
   } finally { seam.dispose() }
 })
+
+test("Learning Dismiss reload replays the saved key and ignores the disposed client's late receipt", async () => {
+  const id = "00000000-0000-4000-8000-000000000009"
+  let rows: NonNullable<Session["homeBackgroundRequests"]> = []
+  const keys: (string | null)[] = []
+  const responses: ((response: Response) => void)[] = []
+  const make = () => createHomeBackgroundSeam({
+    owner: () => "Ben", load: () => rows, save: async value => { rows = value },
+    report: error => { throw error },
+    http: async (_path, init) => {
+      keys.push(new Headers(init?.headers).get("Idempotency-Key"))
+      return new Promise<Response>(resolve => { responses.push(resolve) })
+    },
+    withToast: async (_key, _start, _done, body) => body()
+  })
+  const first = make()
+  let reloaded: ReturnType<typeof make> | undefined
+  try {
+    expect(await first.control(id, "dismiss")).toEqual({ value: "Requested" })
+    await waitFor(() => responses.length === 1)
+    const saved = rows[0]!
+    first.dispose()
+    reloaded = make()
+    reloaded.resume()
+    await waitFor(() => responses.length === 2)
+    expect(keys).toEqual([saved.key, saved.key])
+    responses[0]!(Response.json({ state: "dismissed", run_id: id }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(rows).toEqual([saved])
+    responses[1]!(Response.json({ state: "dismissed", run_id: id }))
+    await waitFor(() => rows[0]?.state === "completed")
+    expect(rows[0]?.key).toBe(saved.key)
+    reloaded.resume()
+    expect(responses).toHaveLength(2)
+  } finally { first.dispose(); reloaded?.dispose() }
+})

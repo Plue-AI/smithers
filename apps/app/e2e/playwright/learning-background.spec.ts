@@ -16,6 +16,8 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   let state = "failed", dismissed = false, posts = 0
   let launch!: () => void
   const pending = new Promise<void>(resolve => { launch = resolve })
+  let finishDismiss!: () => void
+  const dismissPending = new Promise<void>(resolve => { finishDismiss = resolve })
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     const frame = JSON.parse(String(raw))
     if (frame.t !== "sub") return
@@ -31,7 +33,7 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
     posts++
     const { op } = route.request().postDataJSON()
     if (op === "retry") { await pending; state = "running"; await route.fulfill({ status: 202, json: { state: "accepted", run_id: id } }) }
-    else { dismissed = true; await route.fulfill({ json: { state: "dismissed", run_id: id } }) }
+    else { dismissed = true; await dismissPending; await route.fulfill({ json: { state: "dismissed", run_id: id } }) }
   })
   await page.route(`**/api/runs/${id}/background-status`, route => route.fulfill({ json: { state, run_id: id } }))
   await page.goto("/")
@@ -48,6 +50,10 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   await expect(page.getByText("Run completed", { exact: true })).toBeVisible()
   await home.getByRole("button", { name: "Dismiss", exact: true }).press("Enter")
   await expect.poll(() => dismissed).toBe(true)
+  await expect(page.getByText("Dismissing run", { exact: true })).toBeVisible()
+  finishDismiss()
+  // Reload after the client has persisted the receipt.
+  await expect(page.getByText("Dismissed", { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.locator(".home").first()).not.toContainText("Learning · T7")
   expect(posts).toBe(2)
