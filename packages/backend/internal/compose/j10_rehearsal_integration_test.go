@@ -381,6 +381,33 @@ func (r *rehearsal) appMergeWrites(number int64) int {
 	return merges
 }
 
+// E-19 ends route-to-deliver rather than keeping a permanent review loop.
+// Only a completed composition may resume on one new attempt; its item and
+// pinned version remain the authority. An unfinished run continues in place.
+func (r *rehearsal) j10ContinuesTodo(n int64, before, after j3Lane) error {
+	if before == after {
+		return nil
+	}
+	if after.attempt != before.attempt+1 || before.run == after.run {
+		return fmt.Errorf("TODO continuation changed an unfinished attempt: %+v → %+v", before, after)
+	}
+	var completed int
+	err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_dispatches d
+ JOIN product_job_requests j ON j.id=d.operation_id
+ JOIN mythical_items i ON i.number=$2
+ WHERE d.operation_id::text=$1 AND j.state='completed'
+ AND d.external_receipt->'run'->>'status'='completed'
+ AND d.external_receipt->>'executionDigest'=i.flow_digest
+ AND d.external_receipt->'projection'->>'itemId'=i.id::text`, strings.TrimPrefix(before.run, "dispatch:"), n).Scan(&completed)
+	if err != nil {
+		return err
+	}
+	if completed != 1 {
+		return fmt.Errorf("TODO continuation has %d completed same-item, same-pin receipts for %s", completed, before.run)
+	}
+	return nil
+}
+
 // TestJ10Rehearsal walks journey J10 (mvp.md §5, Work with GitHub; checks
 // C-J10-01 to C-J10-09) on the install J1 sets up, through the composed
 // install's routes, the GitHub fake (people act through its own controls,
@@ -553,7 +580,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		return nil
 	})
 	if !r.step("1 Amend updates the same PR", "PATCH /api/todos/{T2} ×2; GitHub fake PR",
-		"revision 2 replaces the PR prompt; same run, attempt, working copy and PR; one amendment", "T-GH-03, T-STK-06", func() error {
+		"revision 2 replaces the PR prompt; same TODO, branch, PR and flow pin; one amendment", "T-GH-03, T-STK-06", func() error {
 			before, err := r.j3Lane(t2)
 			if err != nil {
 				return err
@@ -584,8 +611,11 @@ func TestJ10Rehearsal(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if before != after || v.PR.Number != pr2 {
-				return fmt.Errorf("Amend changed lane %+v → %+v or PR %d → %d", before, after, pr2, v.PR.Number)
+			if err := r.j10ContinuesTodo(t2, before, after); err != nil {
+				return err
+			}
+			if v.PR.Number != pr2 || v.Branch == nil || v.Branch.Name != branch2 {
+				return fmt.Errorf("Amend replaced its branch or PR: %+v", v)
 			}
 			pull, err := r.checkPull(pr2, v.PR.Head)
 			if err != nil {
@@ -661,7 +691,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		return
 	}
 	if !r.step("2 The agent's fix updates the PR", "GET /api/todos/{T2}; GitHub fake PR", "T2 back in review; a new PR head under the same PR number; one PR for the branch", "T-GH-04, T-STK-06", func() error {
-		// The steer re-enters the same attempt; In review counts only with its new head.
+		// The steer continues the TODO; In review counts only with its new head.
 		var v rehearsalTodo
 		for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
 			var err error
@@ -679,8 +709,8 @@ func TestJ10Rehearsal(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if lane != reviewLane {
-			return fmt.Errorf("review steer replaced run/attempt/workspace: %+v → %+v", reviewLane, lane)
+		if err := r.j10ContinuesTodo(t2, reviewLane, lane); err != nil {
+			return err
 		}
 		if v.PR.Number != pr2 {
 			return fmt.Errorf("the fix opened PR #%d, not #%d", v.PR.Number, pr2)
