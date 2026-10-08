@@ -37,6 +37,12 @@ import (
 // creation unless the source and packaged helper match the approved artifact.
 // C-J3-02/C-COL-04/C-J3-06 remain pending until this runs on the approved bundle.
 func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
+	exerciseInstalledMemberTerminalAndSSHChain(t, nil)
+}
+
+// Shared native setup keeps every SSH check on the composed install, approved
+// bundle, real PostgreSQL and authenticated microVM transport.
+func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLayerHarness, *gossh.Client, string, string, gossh.Signer, int64, uint32)) {
 	if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") != "1" {
 		t.Skip("reference host: approved native install required")
 	}
@@ -272,6 +278,9 @@ func TestInstalledMemberTerminalAndSSHChain(t *testing.T) {
 	require.Equal(t, "member-forward", string(response))
 	require.NoError(t, forwarded.Close())
 	require.NoError(t, echo.Wait())
+	if check != nil {
+		check(h, client, sshAddress, login, signer, member, uid)
+	}
 	testInstalledCredentials(t, h, branch, installedMemberTerminal(t, h, branch, benBrowser), benBrowser)
 	t.Logf("installed member terminal and SSH: bundle=%s branch=%s uid=%d", bundle.Revision(), branch, uid)
 }
