@@ -614,13 +614,19 @@ func TestJ4Rehearsal(t *testing.T) {
 	var traced3 int
 	var attempts3 []j4Evidence
 	retried := false
-	r.step("13 Retry T3 with a steer", "POST /api/todos/{T3} {op: retry, steer: '[FIXED] …'} ×3", "202 within 1 s naming attempt n+1; the same press again answers it; attempt n+1 reaches working; a new press is 409", "T-STK-05", func() error {
+	r.step("13 Retry T3 with a steer", "PUT /api/install {parallel: 3}; POST /api/todos/{T3} {op: retry, steer: '[FIXED] …'} ×3", "202 within 1 s naming attempt n+1; the same press again answers it; attempt n+1 reaches working; a new press is 409", "T-STK-05", func() error {
 		var err error
 		if failed3, err = r.j4Card(t3); err != nil {
 			return err
 		}
 		if failed3.State != "failed" || failed3.Run == nil || failed3.Failure == nil || !failed3.Failure.Retryable {
 			return fmt.Errorf("T%d is not a retryable failure: state %s, failure %+v", t3, failed3.State, failed3.Failure)
+		}
+		// Reviewed T2 and T4 retain their pinned runs. This Linux adapter
+		// does not reclaim idle machines; the owner opens the third slot
+		// through the real setting before exercising Retry on T3.
+		if _, err := r.expect("PUT", "/api/install", `{"parallel":3}`, 200); err != nil {
+			return err
 		}
 		if attempts3, err = r.attemptsOf(t3); err != nil {
 			return err
