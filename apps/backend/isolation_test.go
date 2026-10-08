@@ -152,11 +152,13 @@ func installedBundleFixture(t *testing.T) testBundle {
 	files := map[string][]byte{bundle.backend: []byte("backend"), bundle.codingHost: codingHost, bundle.helper: header,
 		bundle.msb: []byte("#!/bin/sh\necho \"$0\" >> " + bundle.ran + "\necho 'msb 0.0.0'\n"),
 		bundle.ffi: []byte("ffi"), bundle.node: []byte("node"), bundle.modelHost: []byte("model host"), bundle.git: []byte("git"),
-		filepath.Join(root, "bin", "jj"):                  []byte("jj"),
-		filepath.Join(root, "bin", "linux-arm64", "jj"):   append(append([]byte(nil), header...), "jj"...),
-		filepath.Join(bundle.gitExec, "git-remote-http"):  []byte("git-remote-http"),
-		filepath.Join(bundle.gitTemplates, "description"): []byte("template"),
-		filepath.Join(bundle.webRoot, "index.html"):       []byte("<!doctype html>")}
+		filepath.Join(root, "bin", "jj"):                               []byte("jj"),
+		filepath.Join(root, "bin", "linux-arm64", "smthrs"):            append(append([]byte(nil), header...), "smthrs"...),
+		filepath.Join(root, "share", "skills", "smithers", "SKILL.md"): []byte("# Smithers\n"),
+		filepath.Join(root, "bin", "linux-arm64", "jj"):                append(append([]byte(nil), header...), "jj"...),
+		filepath.Join(bundle.gitExec, "git-remote-http"):               []byte("git-remote-http"),
+		filepath.Join(bundle.gitTemplates, "description"):              []byte("template"),
+		filepath.Join(bundle.webRoot, "index.html"):                    []byte("<!doctype html>")}
 	for _, program := range postgresPrograms {
 		files[filepath.Join(bundle.postgres, program)] = []byte(program)
 	}
@@ -164,7 +166,11 @@ func installedBundleFixture(t *testing.T) testBundle {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, body, 0o755); err != nil {
+		mode := os.FileMode(0o755)
+		if path == filepath.Join(root, "share", "skills", "smithers", "SKILL.md") {
+			mode = 0o644
+		}
+		if err := os.WriteFile(path, body, mode); err != nil {
 			t.Fatal(err)
 		}
 	}
