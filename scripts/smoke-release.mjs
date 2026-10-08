@@ -362,12 +362,12 @@ try {
   await phase("installed CLI MCP handshake", async () => {
     const cliVersion = packManifest.find((entry) => entry.name === "@smthrs/cli").version
     for (const manager of ["npm", "pnpm"]) {
-      const { family, managerVersion, serverInfo } = await runCliMcpConsumer(manager, registry.url, cliVersion, {
+      const { managerVersion, serverInfo, tree } = await runCliMcpConsumer(manager, registry.url, cliVersion, {
         env: cliEnv
       })
       console.log(
         `MCP smoke ok: ${manager} ${managerVersion}, installed smthrs --mcp answered initialize as ` +
-          `${serverInfo.name} ${serverInfo.version}; ${family.length} Effect-family packages all at ${EXPECTED_EFFECT_VERSION}`
+          `${serverInfo.name} ${serverInfo.version}; ${tree.effectFamily.length} Effect-family packages all at ${EXPECTED_EFFECT_VERSION}`
       )
     }
   })
