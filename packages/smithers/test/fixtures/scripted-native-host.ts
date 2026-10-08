@@ -6,6 +6,12 @@
  */
 import { installEffectResolution } from "@smthrs/build-cli/effect-resolution"
 
+// Detached fixtures carry their preloads through NODE_OPTIONS. Preserve the
+// caller's existing --no-warnings selection there too, before loading tsx.
+if (process.execArgv.includes("--no-warnings") && !process.env.NODE_OPTIONS?.includes("--no-warnings")) {
+  process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ""} --no-warnings`.trim()
+}
+
 installEffectResolution()
 const [ScriptedJudge, { platform }] = await Promise.all([
   import("@smthrs/agent/ScriptedJudge"),
