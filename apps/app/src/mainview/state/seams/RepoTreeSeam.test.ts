@@ -325,6 +325,21 @@ describe("repo tree seam: the shared read-only copy reads the mirror's contents 
     return scope
   }
 
+  test("a signed-out visitor reads only the catalog copy through the canonical Files door", async () => {
+    const { store, controller, sharedRequests, boxRequests } = await loadShared()
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    // Catalog adoption follows the identity answer on the real URL entry path.
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "smithersai/smithers", org: "smithersai", ownerKind: "org", name: "smithers", head: null, catalog: true }] }).isPersisted.promise
+    expect(await controller.commands.run("files", JSON.stringify({ operation: "tree", copy: SHARED }))).toMatchObject({ status: "executed" })
+    expect(sharedRequests).toEqual([SHARED_CONTENTS])
+    expect(store.collections.repoTree.get(repoTreeRowId(SHARED, ""))).toMatchObject({ state: "loaded", expanded: true })
+    for (const copy of ["ws-private", "shared:private/repo"]) {
+      expect(await controller.commands.run("files", JSON.stringify({ operation: "tree", copy, repo: "smithersai/smithers" }))).toMatchObject({ status: "unavailable", reason: "/auth.prompt is not available on this origin yet." })
+    }
+    expect(sharedRequests).toEqual([SHARED_CONTENTS])
+    expect(boxRequests).toEqual([])
+  })
+
   test("loads every directory page before publishing the tree row", async () => {
     const { store, controller, sharedRequests } = await loadShared()
     expect((await controller.commands.run("files", savedFileNavigationArgs("repo.tree", `${SHARED}#paged`))).status).toBe("executed")

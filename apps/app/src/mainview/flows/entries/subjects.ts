@@ -101,7 +101,15 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         if (branch(parsed.payload.path) && parsed.payload.repo === undefined) return { payload: { branch: parsed.payload.path } }
         return parsed
       }, agent: "run",
-      payloadRequires: payload => payload.operation === "workspace" || payload.operation === "tree" ? ["signed-in"] : repositoryFile(payload) ? ["first-run-target", "repo-source"] : [],
+      payloadRequires: payload => {
+        if (payload.operation === "tree") {
+          // A public mirror's shared tree is readable by its signed-out visitors.
+          // Bind the exception to this copy's catalog repository, never the selection.
+          const repo = typeof payload.copy === "string" && payload.copy.startsWith("shared:") ? payload.copy.slice("shared:".length) : undefined
+          return repo !== undefined && actions.snapshot(repo).publicRepo === true ? [] : ["signed-in"]
+        }
+        return payload.operation === "workspace" ? ["signed-in"] : repositoryFile(payload) ? ["first-run-target", "repo-source"] : []
+      },
       preflight: (payload, actor) => payload.operation === "tree" && actor !== "user" ? "Only a person can change the file tree" : undefined,
       input: Schema.Struct({ path: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), repo: Schema.optional(Schema.String), workspaceId: Schema.optional(Schema.String), copy: Schema.optional(Schema.String), operation: Schema.optional(Schema.Literals(["repository", "workspace", "tree"])) }),
       form: { requires: payload => payload.operation === "tree" ? ["copy"] : undefined, fields: { branch: { hidden: true }, operation: { hidden: true }, copy: { label: "Working copy", kind: "text", hidden: true }, path: { kind: "text" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, workspaceId: { optionsFrom: "workspaces", hidden: true } }, args: payload => JSON.stringify(payload) },
