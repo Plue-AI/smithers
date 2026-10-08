@@ -1,30 +1,32 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 14:34 PDT
-main          8d94b9e5db when written
+Updated       2026-10-08 16:36 PDT
+main          c5120a5856 when written
 
-Publish       CANNOT PUBLISH YET. Dry run #4 decides, about 15:00 PDT.
-Real machine  The machine daemon starts, admits its session and lands writes in
-              a real VM on main. Proven on this MacBook at 99a4356a1a. All
-              eight defects found today are fixed.
-Real install  NOT YET PROVEN. No TODO has run on a real install. The bundle for
-              the run on this MacBook is still building. 32 GiB free now; the
-              first start needs 44.
-Journeys      RERUNNING on main 0489b1c08c since 14:31 PDT: J4, J7, J3, J10, J5.
-              Earlier runs went red when the first TODO reached review
-              (`source_refused`). Cause found, fixed on main: f9d3b72e29, ba1a27bc91.
-              Last runs, before the fix (pass/fail/pending):
-              b74a68604e  J1 21/0/0, J2 14/0/0, J3 13/1/5, J4 7/2/0
-              4881e80270  J4 2/1/0, J7 3/1/0, J10 9/1/0, J5 10/9/0
-Doneish       No. It needs one real install that takes a TODO to a merged PR, and
-              all 11 journeys passing on one commit. Neither exists.
+Publish       CANNOT PUBLISH YET. Dry run #5 decides. It is in pack and smoke-test.
+Real install  RUNNING on this MacBook since 16:18 PDT: production launcher, bundle
+              built here from 3fc44ee1e8. Done: start, address, GitHub App, owner
+              sign-in (16:34 PDT). Next: connect the test repository, model
+              access, then a TODO to a merged PR.
+              TODO to merged PR: NOT YET PROVEN.
+Broken        Found by that run. Lanes are fixing 1 to 3.
+              1. A fresh install's setup link shows no setup card. The steps
+                 above were sent as the card's requests from the browser.
+              2. The app's sign-in path answers 404 on an install.
+              3. A session cookie left by an earlier install on the same
+                 address blocks the setup link with 401.
+              4. The bundle README promises one JSON line of setup links;
+                 start prints two bare lines.
+Real machine  The machine daemon works in a real VM on main (99a4356a1a).
+Journeys      10 of 11 have no failed row on main 70d75088ef, on Linux fixtures.
+              Red: J10 row 6, sync still stale 10 s after Retry.
+Doneish       No. It needs the install run to take a TODO to a merged PR, and
+              all 11 journeys passing on one commit.
 Dry runs      Version 1.0.0-rc.1. None is green.
-              #4 37846701537 running on 0489b1c08c since 14:25 PDT. It reaches
-                 the smoke test about 14:40 and ends about 15:00.
-              #3 37843714479 FAILED at pack and smoke-test: the smoke script
-                 imported a template removed on 10-01. Fixed in 0489b1c08c.
-              #1 failed. #2 runs the old workflow and will end red.
+              #5 37858229125 running on a3e6ac767e since 16:13 PDT.
+              #3 and #4 failed the installed-package smoke on stale fixtures,
+              both fixed. They delivered the first Mac bundle artifacts.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
@@ -32,9 +34,9 @@ Tag push      Publishes npm under `next` and nothing else. No publish after a
 Ships         npm packages under `next`. The Apple Silicon server bundle is an
               artifact of the tag's Release run. No Homebrew. No public download.
 To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
-              44 GiB free on your home volume for one machine (76 for two)
-              until the owner has signed in. With less, a fresh install
-              refuses to start (`host_capacity_zero`). Commands: section 6.
+              44 GiB free on your home volume until the owner has signed in.
+              Measured on this run: refused at 39.19 GiB, started at 44.77.
+              Two machines need 76. Commands: section 6.
 No mini,      The Mac mini will not be online (Will, today). Smithers Cloud
 no Cloud      cannot run a TODO.
 
