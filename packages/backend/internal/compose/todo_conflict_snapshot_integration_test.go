@@ -7,12 +7,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
@@ -25,6 +28,19 @@ import (
 // branch. No guest is launched, no validator or repository dependency is mocked.
 // Real awake microVM inspection still requires the Mac reference host.
 func TestConflictDoneRetainedWorkingCopyComposedInstall(t *testing.T) {
+	conflictDoneWorkingCopyInstall(t, false)
+}
+
+// The HTTP Done door crosses the real authenticated daemon and native JJ tree.
+// This Linux namespace rehearsal does not certify reference-host microVM checks.
+func TestConflictDoneAwakeDaemonComposedInstall(t *testing.T) {
+	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
+		t.Skip("requires the built rehearsal_daemon and Linux user namespaces")
+	}
+	conflictDoneWorkingCopyInstall(t, true)
+}
+
+func conflictDoneWorkingCopyInstall(t *testing.T, awake bool) {
 	f := presenceInstall(t)
 	q, ctx := db.New(f.pool), t.Context()
 	native := repohostffi.New(os.Getenv("SMITHERS_FFI_LIBRARY_PATH"))
@@ -166,4 +182,60 @@ func TestConflictDoneRetainedWorkingCopyComposedInstall(t *testing.T) {
 	call(202, "")
 	require.Equal(t, 1, signals.signals)
 	require.Equal(t, 1, inspections, "only the explicitly awake request enters the guest")
+	if !awake {
+		return
+	}
+	// Restore the same unresolved wait; the new provider inspects the actual
+	// guest workspace rather than the mirror's now-clean retained branch ref.
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,integration=$3 WHERE id=$1`, item.ID, raw, integration)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',head_commit_id=$2 WHERE id=$1`, f.row.ID, conflict.CommitID)
+	require.NoError(t, err)
+	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
+	require.NoError(t, err)
+	guestRoot := filepath.Join(t.TempDir(), "guest")
+	clone := exec.CommandContext(ctx, jj, "git", "clone", "--colocate", store, guestRoot)
+	output, err := clone.CombinedOutput()
+	require.NoError(t, err, string(output))
+	git("-C", guestRoot, "fetch", store, branchRef+":refs/heads/conflict-fixture")
+	edit := exec.CommandContext(ctx, jj, "edit", "--ignore-immutable", conflict.CommitID)
+	edit.Dir = guestRoot
+	output, err = edit.CombinedOutput()
+	require.NoError(t, err, string(output))
+	registry := new(machined.Registry)
+	registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
+		if branch != f.row.ID {
+			return "", machined.ErrUnauthorized
+		}
+		return store, nil
+	}))
+	t.Cleanup(func() { require.NoError(t, registry.Close()) })
+	// Admission requires a settled head. Introduce the conflict only after
+	// waking, as an already-awake branch's rebase does in the product.
+	require.NoError(t, os.WriteFile(filepath.Join(guestRoot, "a.txt"), []byte("Clean before wake\n"), 0600))
+	snapshot := exec.CommandContext(ctx, jj, "status")
+	snapshot.Dir = guestRoot
+	output, err = snapshot.CombinedOutput()
+	require.NoError(t, err, string(output))
+	daemonCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	require.NoError(t, startRehearsalMachined(t, daemonCtx, registry, f.row.ID, guestRoot, t.TempDir(), os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY"), &machined.ItemBinding{Number: 1, Change: conflict.ChangeID}))
+	edit = exec.CommandContext(ctx, jj, "edit", "--ignore-immutable", conflict.CommitID)
+	edit.Dir = guestRoot
+	output, err = edit.CombinedOutput()
+	require.NoError(t, err, string(output))
+	bindConflictValidator(service, workspaces, registry.InspectConflict)
+	before := signals.signals
+	call(409, "still_conflicted")
+	require.Equal(t, before, signals.signals)
+	retained, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(raw), string(retained.Checks))
+	// Resolving on the mounted branch is observed by the daemon's next native
+	// snapshot. The mirror remains at its earlier captured revision.
+	require.NoError(t, os.WriteFile(filepath.Join(guestRoot, "a.txt"), []byte("Resolved on machine\n"), 0600))
+	call(202, "")
+	call(202, "")
+	require.Equal(t, before+1, signals.signals)
+
 }
