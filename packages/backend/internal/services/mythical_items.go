@@ -6378,6 +6378,7 @@ type mythicalChecks struct {
 // pending until Rebased: the candidate was rebased and its checks launched.
 type mythicalRebase struct {
 	BlockingSession uint32                  `json:"blocking_session,omitempty"`
+	BlockingBoot    string                  `json:"blocking_boot,omitempty"`
 	ReceiptID       string                  `json:"receipt_id,omitempty"`
 	HeadChanged     bool                    `json:"head_changed,omitempty"`
 	Onto            string                  `json:"onto"`

@@ -187,3 +187,12 @@ test("scratch machine replay preserves branch context and refuses foreign or mal
   expect(() => projectBranch(waiting, fact("b2", { state: "awake" }))).toThrow("Branch source binding changed")
   expect(() => projectBranch(waiting, fact("b1", { state: "waiting", position: 0 }))).toThrow()
 })
+
+ test("real TODO writer attribution survives the Branch projection and clears on the next census", () => {
+  const card = { n: 2, title: "Retry", state: "in_review", branch: { id: "b1", name: "Live branch", machine: { state: "awake" } } }
+  const waiting_for = { actor: { kind: "person" as const, login: "alice", name: "Alice", avatar_url: "https://factory.example/alice.png", color_index: 0 }, terminal: "daemon:boot:7" }
+  const pending = projectBranch(branch, { Type: "todo.rebase-requested", Data: { card: { ...card, rebase_pending: { onto: "main", waiting_for } } } })
+  expect(branchModel(pending, [], [], "b1")?.rebase).toEqual({ state: "pending", onto: "main", waiting_for })
+  const cleared = projectBranch(pending, { Type: "todo.updated", Data: { card: { ...card, rebase_pending: { onto: "main" } } } })
+  expect(branchModel(cleared, [], [], "b1")?.rebase).toEqual({ state: "pending", onto: "main" })
+ })

@@ -2158,6 +2158,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			defer runtime.BindMachinedConflict(nil)
 		}
 		stopPresence := presence.consumeDaemons(ctx, options.Machined)
+		workspaceService.SetRebaseBlockerReader(presence.rebaseBlockerReader(options.Machined))
+		mythicalService.SetRebaseBlockerReader(presence.rebaseBlockerReader(options.Machined))
 		defer stopPresence()
 		if options.InstallBranchMachines {
 			disk := options.Workspace.(interface {

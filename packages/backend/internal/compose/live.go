@@ -583,7 +583,11 @@ func branchItemProjection(raw json.RawMessage, todos []map[string]any) (json.Raw
 		// may still carry a pending rebase that this committed fact settled.
 		delete(model, "rebase")
 		if pending, ok := todo["rebase_pending"].(map[string]any); ok {
-			model["rebase"] = map[string]any{"state": "pending", "onto": pending["onto"]}
+			rebase := map[string]any{"state": "pending", "onto": pending["onto"]}
+			if waiting, ok := pending["waiting_for"]; ok {
+				rebase["waiting_for"] = waiting
+			}
+			model["rebase"] = rebase
 		}
 		if waits, ok := todo["waits"].([]map[string]any); ok {
 			for _, wait := range waits {

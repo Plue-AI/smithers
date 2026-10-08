@@ -20,23 +20,25 @@ import (
 // execution binding is retained with the request, never in a synthetic item,
 // coding run, machine payload or public event.
 type scratchRebaseIntent struct {
-	Workspace      string                  `json:"workspace"`
-	Branch         string                  `json:"branch"`
-	Before         string                  `json:"before"`
-	Published      string                  `json:"published"`
-	Base           string                  `json:"base"`
-	Onto           string                  `json:"onto"`
-	TargetRef      string                  `json:"target_ref"`
-	Phase          string                  `json:"phase"`
-	Head           string                  `json:"head,omitempty"`
-	Native         *machined.RewriteResult `json:"native,omitempty"`
-	ConflictChange string                  `json:"conflict_change,omitempty"`
-	Done           *scratchRebaseDone      `json:"done,omitempty"`
-	Authority      *mythicalRebaseRequest  `json:"authority"`
-	Command        string                  `json:"command"`
-	Credential     string                  `json:"credential"`
-	Request        string                  `json:"request"`
-	Input          BranchRebaseInput       `json:"input"`
+	Workspace       string                  `json:"workspace"`
+	Branch          string                  `json:"branch"`
+	Before          string                  `json:"before"`
+	Published       string                  `json:"published"`
+	Base            string                  `json:"base"`
+	Onto            string                  `json:"onto"`
+	TargetRef       string                  `json:"target_ref"`
+	Phase           string                  `json:"phase"`
+	BlockingBoot    string                  `json:"blocking_boot,omitempty"`
+	BlockingSession uint32                  `json:"blocking_session,omitempty"`
+	Head            string                  `json:"head,omitempty"`
+	Native          *machined.RewriteResult `json:"native,omitempty"`
+	ConflictChange  string                  `json:"conflict_change,omitempty"`
+	Done            *scratchRebaseDone      `json:"done,omitempty"`
+	Authority       *mythicalRebaseRequest  `json:"authority"`
+	Command         string                  `json:"command"`
+	Credential      string                  `json:"credential"`
+	Request         string                  `json:"request"`
+	Input           BranchRebaseInput       `json:"input"`
 }
 
 type scratchRebaseDone struct {
@@ -455,6 +457,11 @@ func (s *WorkspaceService) BranchRebaseState(ctx context.Context, row db.Workspa
 		state = "rebasing"
 	}
 	projection := map[string]any{"state": state, "onto": name}
+	if state == "pending" {
+		if writer := rebaseWaitingFor(ctx, s.rebaseBlocker, row.ID, in.BlockingBoot, in.BlockingSession); writer != nil {
+			projection["waiting_for"] = writer
+		}
+	}
 	if in.Phase == "conflict" && in.Native != nil {
 		projection["state"], projection["paths"] = "conflict", append([]string{}, in.Native.Paths...)
 		if in.Native.Inspected && in.Native.ReceiptID != "" {

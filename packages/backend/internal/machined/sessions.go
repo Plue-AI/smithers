@@ -18,6 +18,9 @@ type SessionError struct {
 	// Session is the broker-selected blocker, scoped to this connection's boot.
 	// Zero means the daemon did not identify a blocking session.
 	Session uint32
+	// Boot is attached by the host from the authenticated response connection.
+	// It is never decoded from daemon error bytes or sent as an RPC argument.
+	Boot [16]byte
 }
 
 func (e *SessionError) Error() string   { return e.Code + ": " + e.Detail }

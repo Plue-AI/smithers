@@ -69,6 +69,7 @@ type MythicalService struct {
 	conflictValidator          ConflictValidator
 	branchRebase               BranchRebaseExecutor
 	rebasePresence             func(context.Context, int64, string) (RebasePresence, error)
+	rebaseBlocker              RebaseBlockerReader
 	installParallel            *InstallCapacityService
 	installParallelRequired    bool
 	todoLogs                   blob.Store

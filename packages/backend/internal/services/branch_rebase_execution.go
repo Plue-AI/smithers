@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -173,6 +174,10 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 				checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
 			}
 			checks.Rebase.BlockingSession = refusal.Session
+			checks.Rebase.BlockingBoot = ""
+			if refusal.Boot != [16]byte{} {
+				checks.Rebase.BlockingBoot = hex.EncodeToString(refusal.Boot[:])
+			}
 			next.Checks = checks.encode()
 			next.Reason = "rebase_pending"
 			next.NextAttemptAt = pgtype.Timestamptz{Time: st.s.now().Add(time.Second), Valid: true}
@@ -188,6 +193,7 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 		checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
 	}
 	checks.Rebase.BlockingSession = 0
+	checks.Rebase.BlockingBoot = ""
 	checks.Rebase.Native = &result
 	if capture := checks.Capture; capture != nil && capture.SourceRef != "" && checks.ProposalRun == item.RequestRunID && checks.ProposalHead == capture.Head {
 		// Preserve the immutable request across the native rewrite. Its

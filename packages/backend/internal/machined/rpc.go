@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -34,7 +35,15 @@ func (l *Link) call(ctx context.Context, branch string, method wire.Method, args
 	if err != nil {
 		return nil, err
 	}
+	return l.resultFields(f, method)
+}
+
+func (l *Link) resultFields(f wire.Frame, method wire.Method) (map[byte][]byte, error) {
 	result, err := callResultFields(f, method)
+	var refusal *SessionError
+	if errors.As(err, &refusal) {
+		refusal.Boot = l.boot.id
+	}
 	if err == wire.BadValue {
 		_ = l.Close()
 	}
@@ -482,7 +491,7 @@ func (l *Link) rewrite(ctx context.Context, branch string, method wire.Method, a
 	if err != nil {
 		return RewriteResult{}, err
 	}
-	fields, err := callResultFields(frame, method)
+	fields, err := l.resultFields(frame, method)
 	if err != nil {
 		if err == wire.BadValue {
 			_ = l.Close()

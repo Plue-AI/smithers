@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -184,6 +185,28 @@ func (s *MythicalService) advanceScratchRebases(ctx context.Context, r *mythical
 			}
 			var refusal *machined.SessionError
 			if errors.As(err, &refusal) && refusal.Code == "busy" {
+				{
+					if err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+						if _, err := s.lockScratchRebase(ctx, tx, r, request.id, request.in); err != nil {
+							return err
+						}
+						next := request.in
+						next.BlockingSession = refusal.Session
+						next.BlockingBoot = ""
+						if refusal.Boot != [16]byte{} {
+							next.BlockingBoot = hex.EncodeToString(refusal.Boot[:])
+						}
+						return saveScratchIntent(ctx, tx, request.id, next)
+					}); err != nil {
+						if errors.Is(err, db.ErrMythicalItemMoved) || errors.Is(err, machined.ErrUnauthorized) {
+							if err := s.settleScratchRefusal(ctx, r, request.id, request.in); err != nil {
+								return err
+							}
+							continue
+						}
+						return err
+					}
+				}
 				// Keep the same person-authorized request while a writer remains
 				// in the existing freeze budget. This is not a stack outage or
 				// permission to create another run.
@@ -314,6 +337,7 @@ func (s *MythicalService) advanceScratchRebase(ctx context.Context, r *mythicalR
 		}
 		next := in
 		next.Native = &result
+		next.BlockingBoot, next.BlockingSession = "", 0
 		next.Head = result.Head
 		next.Phase = "prepared"
 		if len(result.Paths) != 0 {

@@ -560,6 +560,7 @@ type WorkspaceService struct {
 	revisionFork         func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)
 	credentialIssuer     *AuthService
 	commandJobs          *jobs.Store
+	rebaseBlocker        RebaseBlockerReader
 	commandCodec         flowhost.SecretCodec
 	provisionTasks       *workspaceProvisionTasks
 	launchSessionCleanup func(string, func())

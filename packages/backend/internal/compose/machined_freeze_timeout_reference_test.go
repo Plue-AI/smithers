@@ -132,8 +132,14 @@ print('COMPLETED',flush=True)
 	// Read the actual presser receipt; a 202 launch alone cannot qualify busy.
 	var view struct {
 		Pending *struct {
-			Onto     string `json:"onto"`
-			Revision string `json:"onto_revision"`
+			Onto       string `json:"onto"`
+			Revision   string `json:"onto_revision"`
+			WaitingFor struct {
+				Actor struct {
+					Login string `json:"login"`
+				} `json:"actor"`
+				Terminal string `json:"terminal"`
+			} `json:"waiting_for"`
 		} `json:"rebase_pending"`
 		Execution struct {
 			State   string `json:"state"`
@@ -158,6 +164,8 @@ print('COMPLETED',flush=True)
 	require.NotNil(t, view.Pending)
 	require.Equal(t, "main", view.Pending.Onto)
 	require.Equal(t, onto, view.Pending.Revision)
+	require.Equal(t, owner.Username, view.Pending.WaitingFor.Actor.Login)
+	require.NotEmpty(t, view.Pending.WaitingFor.Terminal)
 	busyAt := time.Now()
 	require.Equal(t, "0", command(`cat /sys/fs/cgroup/smithers/sessions/cgroup.freeze`), "timeout thaws the entire session subtree")
 	require.Less(t, time.Since(busyAt), time.Second, "a new member session resumes within the thaw budget")
