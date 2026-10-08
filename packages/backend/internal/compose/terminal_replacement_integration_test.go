@@ -149,7 +149,7 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 	terminalReplacementInstall(t, false)
 }
 func TestBranchTerminalWakeInstallHTTP(t *testing.T) { terminalReplacementInstall(t, true) }
-func terminalReplacementInstall(t *testing.T, wake bool) {
+func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
 	q := db.New(pool)
@@ -187,9 +187,10 @@ func terminalReplacementInstall(t *testing.T, wake bool) {
 		services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy()))(svc)
 		svc.EnableMachineAdmission(func(context.Context) (int64, error) { return 1 << 40, nil })
 	}
+	var origin string
 	open := func(service *services.WorkspaceService, refused bool) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
-		origin := "http://" + server.Listener.Addr().String()
+		origin = "http://" + server.Listener.Addr().String()
 		cfg := testConfigAllFlagsOn()
 		cfg.Auth.Mode = "selfhost"
 		cfg.Server.PublicURL = origin
@@ -224,8 +225,20 @@ func terminalReplacementInstall(t *testing.T, wake bool) {
 		require.Equal(t, "running", row.Status)
 	}
 
+	checkScope := func(token string, closed bool) {
+		if len(scopeChecks) == 0 || !scopeChecks[0] {
+			return
+		}
+		var before, after int
+		const effects = `SELECT (SELECT count(*) FROM mythical_items) + (SELECT count(*) FROM approvals) + (SELECT count(*) FROM product_job_requests)`
+		require.NoError(t, pool.QueryRow(ctx, effects).Scan(&before))
+		exerciseTerminalCatalogScope(t, ctx, origin, token, closed)
+		require.NoError(t, pool.QueryRow(ctx, effects).Scan(&after))
+		require.Equal(t, before, after, "scope refusals must create no TODO, approval or background request")
+	}
 	first := runtime.current()
 	require.NotEmpty(t, first)
+	checkScope(first, false)
 	// Another host service has no ownership of this retained session file.
 	// Its create-only attempt must fail, revoke its candidate, and leave A usable.
 	replica := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
@@ -242,6 +255,8 @@ func terminalReplacementInstall(t *testing.T, wake bool) {
 	var retired int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(firstHash[:])).Scan(&retired))
 	require.Zero(t, retired, "previous delegated credential is revoked")
+	checkScope(first, true)
+	checkScope(second, false)
 	_ = a.CloseNow()
 	// Wait for the old handler's detach; it must not delete the successor.
 	require.Eventually(t, func() bool {
@@ -267,4 +282,5 @@ func terminalReplacementInstall(t *testing.T, wake bool) {
 	var remaining int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&remaining))
 	require.Zero(t, remaining)
+	checkScope(second, true)
 }
