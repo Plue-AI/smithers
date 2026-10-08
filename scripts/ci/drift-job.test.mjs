@@ -568,7 +568,7 @@ test('trusted setup rejects branch-selected action inputs and pins its own conte
     assert.equal(action.runs.using, 'composite')
     const step = action.runs.steps[0]
     assert.equal(step.shell, '/usr/bin/python3 -I {0}')
-    assert.equal(step.env.PATH, '/usr/sbin:/usr/bin:/sbin:/bin')
+    assert.equal(step.env.PATH, directory === 'trusted-ci-setup' ? '/usr/sbin:/usr/bin:/sbin:/bin' : undefined)
     assert.equal(step.env.SMITHERS_TRUSTED_ACTION_REF, '${{ github.action_ref }}')
     assert.equal(step.env.SMITHERS_TRUSTED_ACTION_REPOSITORY, '${{ github.action_repository }}')
     assert.equal(step.env.SMITHERS_TRUSTED_ACTION_PATH, '${{ github.action_path }}')
@@ -638,4 +638,49 @@ test('C-PRC-01 observes the literal required status and clean per-SHA check thro
   const runs = await readApi(`commits/${commit}/check-runs?per_page=100`)
   assert.ok(runs.check_runs.some((run) => run.name === 'Per-commit drift' && run.head_sha === commit
     && run.status === 'completed' && run.conclusion === 'success'), 'the exact landed SHA must have a clean Per-commit drift run')
+})
+
+test('campaign bootstrap uses the real runner Node and retains launch failures before checkout', async () => {
+  const { default: YAML } = await import('yaml')
+  const { engineeringGateEnvironment } = await import('../engineering-gate-environment.mjs')
+  const { createHash } = await import('node:crypto')
+  const { dirname } = await import('node:path')
+  const action = YAML.parse(await readFile(new URL('../../.github/actions/trusted-ci-setup-campaign/action.yml', import.meta.url), 'utf8'))
+  const script = action.runs.steps[0].run
+  const root = await mkdtemp(join(tmpdir(), 'smithers-campaign-bootstrap-'))
+  const commit = '0123456789abcdef0123456789abcdef01234567'
+  try {
+    for (const scenario of ['runner-node', 'missing-node']) {
+      const temporary = join(root, scenario)
+      await mkdir(temporary)
+      const env = {
+        ...engineeringGateEnvironment(process.env), RUNNER_TEMP: temporary, GITHUB_SHA: commit,
+        SMITHERS_TRUSTED_ACTION_PATH: join(repositoryRoot, '.github/actions/trusted-ci-setup-campaign'),
+        SMITHERS_TRUSTED_ACTION_REF: commit, SMITHERS_TRUSTED_ACTION_REPOSITORY: 'smithersai/smithers',
+        SMITHERS_TRUSTED_SETUP_INPUTS: '{}', SMITHERS_TRUSTED_INCOMING_PATH: '',
+        SMITHERS_TRUSTED_SETUP_CAMPAIGN: '0',
+        PATH: scenario === 'runner-node' ? dirname(process.execPath) : join(root, 'empty-bin'),
+      }
+      delete env.NODE_TEST_CONTEXT
+      if (scenario === 'runner-node') {
+        const result = await runFile('/usr/bin/python3', ['-I', '-c', script], { env, cwd: '/' })
+        assert.match(result.stdout, /root-ci-setup-input-validation refuses hostile environment/)
+      } else {
+        await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', script], { env, cwd: '/' }), (error) => {
+          assert.equal(error.code, 2)
+          assert.match(error.stdout, /::error::RuntimeError: approved runner Node is unavailable/)
+          return true
+        })
+      }
+      const output = join(temporary, 'smithers-setup-campaign')
+      const receipt = JSON.parse(await readFile(join(output, 'receipt.json'), 'utf8'))
+      const log = await readFile(join(output, 'output.log'))
+      assert.equal(receipt.commit, commit)
+      assert.equal(receipt.source_commit, commit)
+      assert.equal(receipt.check, 'C-PRC-01/root-ci-setup-input-validation')
+      assert.equal(receipt.exit, scenario === 'runner-node' ? 0 : 2)
+      assert.equal(receipt.log_digest, 'sha256:' + createHash('sha256').update(log).digest('hex'))
+      assert.equal(receipt.command.length, scenario === 'runner-node' ? 4 : 0)
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
 })

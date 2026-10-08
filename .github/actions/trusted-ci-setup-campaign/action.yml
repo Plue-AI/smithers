@@ -10,26 +10,40 @@ runs:
         SMITHERS_TRUSTED_ACTION_PATH: ${{ github.action_path }}
         SMITHERS_TRUSTED_SETUP_INPUTS: ${{ toJSON(inputs) }}
         SMITHERS_TRUSTED_INCOMING_PATH: ${{ env.PATH }}
-        PATH: /usr/sbin:/usr/bin:/sbin:/bin
         SMITHERS_TRUSTED_SETUP_CAMPAIGN: "1"
       shell: /usr/bin/python3 -I {0}
       run: |
-        import datetime, hashlib, json, os, subprocess, sys
+        import datetime, hashlib, json, os, shutil, subprocess, sys
         from pathlib import Path
-        root = Path(os.environ['SMITHERS_TRUSTED_ACTION_PATH']).parents[2]
-        command = ['/usr/bin/node', '--test', '--test-name-pattern=root-ci-setup-input-validation',
-                   str(root / 'scripts/ci/drift-job.test.mjs')]
         started = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        result = subprocess.run(command, cwd='/', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        sys.stdout.buffer.write(result.stdout)
         output = Path(os.environ['RUNNER_TEMP']) / 'smithers-setup-campaign'
-        output.mkdir(mode=0o700)
-        (output / 'output.log').write_bytes(result.stdout)
+        output.mkdir(mode=0o700, exist_ok=True)
+        command = []
+        try:
+            root = Path(os.environ['SMITHERS_TRUSTED_ACTION_PATH']).parents[2]
+            # This main-only campaign runs first on a fresh approved image.
+            # Its Node is unprivileged; privileged dispatch still uses only
+            # absolute, package-verified executable identities and clean env.
+            node = shutil.which('node')
+            if node is None:
+                raise RuntimeError('approved runner Node is unavailable')
+            command = [node, '--test', '--test-name-pattern=root-ci-setup-input-validation',
+                       str(root / 'scripts/ci/drift-job.test.mjs')]
+            result = subprocess.run(command, cwd='/', stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            log, code = result.stdout, result.returncode
+        except Exception as error:
+            log, code = (type(error).__name__ + ': ' + str(error) + '\n').encode(), 2
+        sys.stdout.buffer.write(log)
+        (output / 'output.log').write_bytes(log)
         receipt = {'version': 1, 'check': 'C-PRC-01/root-ci-setup-input-validation',
                    'commit': os.environ['GITHUB_SHA'], 'layer': 'integration',
-                   'source_commit': os.environ['SMITHERS_TRUSTED_ACTION_REF'],
-                   'command': command, 'exit': result.returncode, 'started': started,
+                   'source_commit': os.environ.get('SMITHERS_TRUSTED_ACTION_REF', ''),
+                   'command': command, 'exit': code, 'started': started,
                    'ended': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                   'log_digest': 'sha256:' + hashlib.sha256(result.stdout).hexdigest()}
+                   'log_digest': 'sha256:' + hashlib.sha256(log).hexdigest()}
         (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
-        sys.exit(result.returncode)
+        if code:
+            diagnostic = log.decode(errors='replace')[-6000:]
+            diagnostic = diagnostic.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::error::' + diagnostic, flush=True)
+        sys.exit(code)
