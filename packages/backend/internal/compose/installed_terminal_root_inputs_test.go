@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -111,6 +114,7 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE id>$1 AND name LIKE 'terminal-session-%'`, highWater).Scan(&minted))
 	require.Zero(t, minted, "invalid native HTTP requests minted terminal credentials")
 	a := installedMemberTerminal(t, h, branch, ben)
+	testInstalledTerminalAdmissionInputs(t, h, branch, a, "fresh")
 	installedShell(t, a, `test "$(id -u)" = 20001 && test ! -e "$HOME/.trm-profile-saved" && if test -e "$HOME/.bash_profile"; then mv "$HOME/.bash_profile" "$HOME/.trm-profile-saved"; fi`)
 	// The canary and rc are member-written inputs. They never become a packaged
 	// helper or a root recipe; only a broker-dropped member shell loads them.
@@ -142,6 +146,7 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 	}
 	retained := installedMemberTerminal(t, h, branch, ben)
 	installedShell(t, retained, `test "$(cat "$HOME/.trm-retained")" = retained-home && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 4 && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-b-path")" && test ! -e "$(cat "$HOME/.trm-b-path")" && python3 /workspace/trm-startup.py retained`)
+	testInstalledTerminalAdmissionInputs(t, h, branch, retained, "retained")
 	// Restart the composed install with a live terminal, rather than closing
 	// its socket first and hiding a missing shutdown/revocation hook.
 	installedShell(t, retained, `printf '%s\n' "$SMITHERS_TOKEN_FILE" > "$HOME/.trm-c-path"`)
@@ -153,6 +158,106 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 	}
 	restarted := installedMemberTerminal(t, h, branch, ben)
 	installedShell(t, restarted, `test "$(id -u)" = 20001 && test "$(cat "$HOME/.trm-retained")" = retained-home && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-c-path")" && test ! -e "$(cat "$HOME/.trm-c-path")" && test -r "$SMITHERS_TOKEN_FILE" && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 6 && python3 /workspace/trm-startup.py restarted && rm "$HOME/.bash_profile" && if test -e "$HOME/.trm-profile-saved"; then mv "$HOME/.trm-profile-saved" "$HOME/.bash_profile"; fi`)
+	testInstalledTerminalAdmissionInputs(t, h, branch, restarted, "restarted")
+}
+
+// Exercise the installed member admission and real broker launcher, bypassing
+// HTTP's unknown-field rejection. Every invalid case carries an executable
+// side-effect canary; a surviving HTTP/WebSocket terminal checks it never ran.
+// Repeat on retained disks and after host recomposition, with no test transport.
+func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, branch string, observer *rehearsalTerminal, phase string) {
+	t.Helper()
+	writer, err := h.runtime.SessionCredentialsForMember(t.Context(), branch, microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true})
+	require.NoError(t, err)
+	testInstalledTerminalAdmissionControl(t, writer, branch)
+	cases := []struct{ name, key, value string }{
+		{"empty name", "", "x"},
+		{"numeric name", "1BAD", "x"},
+		{"equals in name", "BAD=KEY", "x"},
+		{"nul in name", "BAD\x00KEY", "x"},
+		{"oversized name", strings.Repeat("K", 257), "x"},
+		{"nul in value", "SAFE", "x\x00y"},
+		{"oversized URL", "SMITHERS_URL", strings.Repeat("x", 4097)},
+		{"foreign uid path", "SMITHERS_TOKEN_FILE", "/run/smithers/20002/token/sessions/foreign/token"},
+		{"path traversal", "SMITHERS_TOKEN_FILE", "/run/smithers/20001/token/sessions/../foreign/token"},
+		{"oversized envelope", "SAFE", strings.Repeat("x", 256*1024)},
+		{"too many entries", "SAFE", "x"},
+	}
+	for _, cell := range cases {
+		t.Run(phase+"/"+cell.name, func(t *testing.T) {
+			session := uuid.NewString()
+			token := []byte("smithers_acceptance_literal")
+			digest := workspaceapi.SessionCredentialIdentity(token)
+			tokenPath, err := writer.PutSessionToken(t.Context(), branch, session, token, "")
+			require.NoError(t, err)
+			defer func() { require.NoError(t, writer.DeleteSessionToken(t.Context(), branch, session, digest)) }()
+			environment := map[string]string{"SMITHERS_TOKEN_FILE": tokenPath, "SMITHERS_URL": "http://127.0.0.1:4000"}
+			environment[cell.key] = cell.value
+			if cell.name == "too many entries" {
+				for i := 0; i < 1001; i++ {
+					environment[fmt.Sprintf("ENTRY_%d", i)] = "x"
+				}
+			}
+			marker := "/workspace/trm-invalid-" + session
+			terminal, openErr := writer.OpenTerminal(t.Context(), branch, session, digest, workspaceapi.Command{
+				Args: []string{"/bin/sh", "-c", "touch " + marker + "; printf INVALID_ADMISSION_EXECUTED"}, Environment: environment,
+			})
+			// The broker can refuse synchronously, or its dropped-uid launcher can
+			// reject the sealed binding and exit before evaluating the executable.
+			if openErr == nil {
+				require.NotNil(t, terminal)
+				defer terminal.Close()
+				done := make(chan struct{})
+				var output []byte
+				var readErr error
+				go func() { output, readErr = io.ReadAll(terminal); close(done) }()
+				select {
+				case <-done:
+					require.Error(t, readErr, "invalid binding must produce an unsuccessful launcher exit")
+					require.NotContains(t, string(output), "INVALID_ADMISSION_EXECUTED")
+				case <-time.After(10 * time.Second):
+					require.NoError(t, terminal.Close())
+					<-done
+					t.Fatal("invalid admission left a live broker session")
+				}
+			} else {
+				require.Nil(t, terminal)
+			}
+			installedShell(t, observer, fmt.Sprintf("test ! -e %q && test \"$(id -u)\" = 20001", marker))
+		})
+	}
+	testInstalledTerminalAdmissionControl(t, writer, branch)
+}
+
+// A valid binding must execute on both sides of the refusal matrix; an
+// unavailable admission provider must never make every negative cell pass.
+func testInstalledTerminalAdmissionControl(t *testing.T, writer microsandbox.MemberSessionCredentials, branch string) {
+	t.Helper()
+	session := uuid.NewString()
+	token := []byte("smithers_acceptance_control")
+	digest := workspaceapi.SessionCredentialIdentity(token)
+	tokenPath, err := writer.PutSessionToken(t.Context(), branch, session, token, "")
+	require.NoError(t, err)
+	defer func() { require.NoError(t, writer.DeleteSessionToken(t.Context(), branch, session, digest)) }()
+	terminal, err := writer.OpenTerminal(t.Context(), branch, session, digest, workspaceapi.Command{
+		Args:        []string{"/bin/sh", "-c", "test \"$(id -u)\" = 20001 && printf ADMISSION_CONTROL_OK"},
+		Environment: map[string]string{"SMITHERS_TOKEN_FILE": tokenPath, "SMITHERS_URL": "http://127.0.0.1:4000"},
+	})
+	require.NoError(t, err)
+	defer terminal.Close()
+	done := make(chan struct{})
+	var output []byte
+	var readErr error
+	go func() { output, readErr = io.ReadAll(terminal); close(done) }()
+	select {
+	case <-done:
+		require.NoError(t, readErr)
+		require.Equal(t, "ADMISSION_CONTROL_OK", string(output))
+	case <-time.After(10 * time.Second):
+		require.NoError(t, terminal.Close())
+		<-done
+		t.Fatal("valid admission control did not exit")
+	}
 }
 
 // Linux validates the exact guest workloads and the canary's failure receipt.
