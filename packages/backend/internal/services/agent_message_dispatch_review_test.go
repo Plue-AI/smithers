@@ -235,11 +235,11 @@ func TestAgentMessageDispatchReviewWorkspaceCapacityStaysBeforeEffects(t *testin
 	service = reviewDispatchService(service, &mockAgentDispatchQuerier{})
 	q := db.New(service.messagePool)
 	service.dispatchQ = q
-	for i := range MaxActiveWorkspacesPerUser {
-		_, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: input.RepositoryID, UserID: input.UserID, Name: fmt.Sprintf("quota-%d", i), IsFork: true, TargetBookmark: fmt.Sprintf("quota-%d", i), Kind: "agent", EnvironmentSource: defaultWorkspaceEnvironmentSource, Status: "suspended"})
-		require.NoError(t, err)
-	}
-	service.SetWorkspaceBackend(NewWorkspaceService(q, WithWorkspaceSandboxClient(service.sandbox)))
+	// M-17 gives the shared machine an install service owner; attachment
+	// consumes no member row quota. Capacity now comes from the shared
+	// start policy, while durable dispatch and its effect markers stay real.
+	service.SetWorkspaceBackend(NewWorkspaceService(q, WithWorkspaceTransactions(service.messagePool), WithBranchMachineProviders(branchMachineTestProviders()), WithWorkspaceSandboxClient(service.sandbox)))
+	service.billing = sandboxPolicyStub{err: pkgerrors.QuotaExceeded("branch machine capacity exhausted")}
 	messageID := appendBoundaryMessage(t, service, input)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
