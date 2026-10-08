@@ -495,7 +495,7 @@
     },
     "C-J4-03": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_merge_db_test.go, apps/app/e2e/real/todo-merge-order.spec.ts",
+      "reason": "Requires an approved mapping: integration packages/backend/internal/services/todo_merge_db_test.go (CI, real PostgreSQL) and reference-host e2e apps/app/e2e/real/todo-merge-order.spec.ts",
       "ticket": "T-STK-04"
     },
     "C-J5-01": {

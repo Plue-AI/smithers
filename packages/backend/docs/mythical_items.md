@@ -314,6 +314,10 @@ one order. A TODO filed through `POST /api/todos` merges like an issue TODO.
 7. GitHub's pull request, read now: unreadable is `409 rechecking` ("Waiting
    for fresh GitHub merge facts"); closed, or based on anything but `main`,
    is `409 state`; a head GitHub moved is `409 stale_head` with GitHub's head.
+   Then the required checks at the reviewed head, read now as a confirmation's
+   approve reads them: the first failed or pending required check by name is
+   `409 checks` with that name as its message; unreadable checks or
+   protection are `409 rechecking`, never an empty required set.
 8. One transaction takes the repository's request lock and the stack row,
    decides the repeat and the rows again, requires every outbound guard and
    the merge decision and transport (`409 rechecking` without them), and
@@ -410,9 +414,9 @@ closes as a pull request closed on GitHub does (never Merged, and later TODOs
 are not held behind it); and the owner's log records `mythical.merge_off_main`
 with the branch.
 
-Known gap: until T-GH-03 syncs GitHub's check and review facts, `ready` rests
-on the PostgreSQL rows; a red required check or an unmet review shows only
-after dispatch refuses it.
+Known gap: until T-GH-03 syncs GitHub's check and review facts, the card's
+`ready` rests on the PostgreSQL rows; a red required check refuses the press,
+and an unmet review shows only after dispatch refuses it.
 
 The install composition (`EnableTodoPublication`) installs the outbound
 guards, `MergeDecision`, the merge's preparation (`PrepareMerge`) and the
