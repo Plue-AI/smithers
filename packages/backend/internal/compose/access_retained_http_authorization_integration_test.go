@@ -19,6 +19,7 @@ import (
 
 type retainedHTTPCase struct {
 	Command, Method, Path, Door, Delegated string
+	MaintainerDelegated, MemberDelegated   string
 	Body                                   map[string]any
 	System                                 bool
 }
@@ -39,11 +40,15 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	require.True(t, r.install("Retained commands"))
 	benJar, err := r.member("ben", 208, "admin")
 	require.NoError(t, err)
+	aliceJar, err := r.member("alice", 209, "write")
+	require.NoError(t, err)
 	pool, ctx := r.pool, r.ctx
 	q := db.New(pool)
 	owner, err := q.GetUserByLowerUsername(ctx, "rehearsal-owner")
 	require.NoError(t, err)
 	ben, err := q.GetUserByLowerUsername(ctx, "ben")
+	require.NoError(t, err)
+	alice, err := q.GetUserByLowerUsername(ctx, "alice")
 	require.NoError(t, err)
 	repo, err := q.GetRepoByOwnerAndLowerName(ctx, db.GetRepoByOwnerAndLowerNameParams{Owner: owner.Username, LowerName: "app"})
 	require.NoError(t, err)
@@ -56,10 +61,13 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	var credentials []credential
 	origin, err := url.Parse(r.origin)
 	require.NoError(t, err)
-	for index, u := range []db.User{owner, ben} {
+	for index, u := range []db.User{owner, ben, alice} {
 		jar := r.jar
 		if index == 1 {
 			jar = benJar
+		}
+		if index == 2 {
+			jar = aliceJar
 		}
 		cookie := ""
 		for _, c := range jar.Cookies(origin) {
@@ -126,6 +134,18 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		require.NotEqual(t, []byte(fmt.Sprintf("person-secret-%d", index)), encrypted)
 		receipts = append(receipts, map[string]any{"command": "secrets.set", "credential": cred.name, "state": "active", "status": 201, "effects": 1, "boundary": "HTTP socket with OAuth browser session"})
 	}
+	githubMutations := func() []any {
+		// The fake records every POST, including Git's read-only upload-pack.
+		// Background mirror reads are not command-owned outbound mutations.
+		var writes []any
+		for _, write := range r.fake.Writes() {
+			if strings.HasSuffix(write.Path, "/git-upload-pack") {
+				continue
+			}
+			writes = append(writes, write)
+		}
+		return writes
+	}
 	request := func(t *testing.T, c retainedHTTPCase, cred credential, state string, status int, code string) {
 		t.Helper()
 		body, err := json.Marshal(c.Body)
@@ -152,6 +172,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			req.Header.Set("X-CSRF-Token", "campaign")
 		}
 		before := snapshot()
+		outboundBefore := githubMutations()
 		var decisions []string
 		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
 		out := httptest.NewRecorder()
@@ -187,7 +208,51 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 		require.NotContains(t, out.Body.String(), "never-disclose-campaign-secret")
 		require.Equal(t, before, snapshot(), "refusal must preserve exact effect rows")
+		require.Equal(t, outboundBefore, githubMutations(), "refusal must not send a GitHub write")
 		receipts = append(receipts, map[string]any{"command": c.Command, "credential": cred.name, "state": state, "method": c.Method, "path": c.Path, "status": out.Code, "code": envelope.Code, "class": envelope.Class, "effects": 0, "decisions": decisions})
+	}
+	// Independent live-role/profile oracle. These are production reads and
+	// denied writes against the same install, not admission-ledger cells.
+	for i, jar := range []http.CookieJar{r.jar, benJar, aliceJar} {
+		for _, path := range []string{"/api/members", "/api/secrets"} {
+			t.Run(fmt.Sprintf("live/session/%d%s", i, path), func(t *testing.T) {
+				before := snapshot()
+				body, err := r.expectAs(jar, "GET", path, "", 200)
+				require.NoError(t, err)
+				if path == "/api/members" {
+					for _, login := range []string{"rehearsal-owner", "ben", "alice"} {
+						require.Contains(t, string(body), login)
+					}
+				} else {
+					require.Contains(t, string(body), "CANONICAL_POST")
+					require.NotContains(t, string(body), `"value"`)
+					require.NotContains(t, string(body), "person-secret")
+				}
+				require.Equal(t, before, snapshot())
+				command := "members.list"
+				if path == "/api/secrets" {
+					command = "secrets.read"
+				}
+				receipts = append(receipts, map[string]any{"command": command, "credential": credentials[i*4].name, "state": "active", "path": path, "status": 200, "effects": 0, "read_assertions": "stored roster/secret names"})
+			})
+		}
+	}
+	for _, cell := range []struct {
+		command, method, path, code string
+		body                        map[string]any
+	}{
+		{"install.read", "GET", "/api/install", "permission", map[string]any{}},
+		{"secrets.set", "POST", "/api/secrets", "permission", map[string]any{"name": "MEMBER_DENIED", "value": "never-disclose-campaign-secret"}},
+		{"secrets.delete", "DELETE", "/api/secrets/CANONICAL_POST", "permission", map[string]any{}},
+	} {
+		for _, cred := range credentials[8:] {
+			if cred.token == "" && cell.code == "never" {
+				continue
+			}
+			t.Run(cell.command+"/active-member/"+cred.name, func(t *testing.T) {
+				request(t, retainedHTTPCase{Command: cell.command, Method: cell.method, Path: cell.path, Body: cell.body}, cred, "active/member/full", 403, cell.code)
+			})
+		}
 	}
 	httpCommands := 0
 	for _, c := range fixture.Commands {
@@ -204,7 +269,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			})
 		}
 		if c.System {
-			for _, cred := range credentials[:4] {
+			for _, cred := range credentials {
 				status := 403
 				if c.Command == "workspace.provider-pool" && cred.token == "" {
 					status = 401
@@ -213,12 +278,54 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			}
 		}
 		if c.Delegated == "never" {
-			for _, cred := range credentials[:4] {
+			for _, cred := range credentials {
 				if cred.token == "" {
 					continue
 				}
-				t.Run(c.Command+"/"+cred.name, func(t *testing.T) { request(t, c, cred, "active", 403, "never") })
+				t.Run(c.Command+"/"+cred.name, func(t *testing.T) {
+					code := "never"
+					if cred.user == ben.ID {
+						code = c.MaintainerDelegated
+					}
+					if cred.user == alice.ID {
+						code = c.MemberDelegated
+					}
+					require.Contains(t, []string{"permission", "never"}, code, "literal role oracle required")
+					request(t, c, cred, "active", 403, code)
+				})
 			}
+		}
+	}
+	// Terminal credentials are issued for a real persisted branch session;
+	// attribution headers cannot widen the terminal_s1 profile to full scope.
+	terminalSession, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: workspace.ID, RepositoryID: repo.ID, UserID: ben.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	terminal, err := issuer.MintForTerminal(ctx, ben.ID, repo.ID, workspace.ID, terminalSession.ID)
+	require.NoError(t, err)
+	for _, c := range fixture.Commands {
+		if c.Delegated != "never" {
+			continue
+		}
+		t.Run(c.Command+"/terminal_s1", func(t *testing.T) {
+			request(t, c, credential{name: "ben/external_agent/terminal_s1", token: terminal.Token, user: ben.ID}, "active/terminal_s1", 403, "permission")
+		})
+	}
+	for _, state := range []string{"expired", "revoked"} {
+		dead, err := issuer.CreateToken(ctx, owner.ID, services.CreateTokenRequest{Name: "campaign-" + state, Via: "codex", Scopes: []string{"repo", "user"}})
+		require.NoError(t, err)
+		if state == "revoked" {
+			require.NoError(t, issuer.DeleteToken(ctx, owner.ID, dead.ID))
+		} else {
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE id=$1`, dead.ID)
+			require.NoError(t, err)
+		}
+		for _, c := range fixture.Commands {
+			if c.Method == "" || c.Command == "telemetry.report" || c.Door == "pending:T-CAT-01" {
+				continue
+			}
+			t.Run(c.Command+"/"+state, func(t *testing.T) {
+				request(t, c, credential{name: "owner/external_agent/" + state, token: dead.Token, user: owner.ID}, state, 401, "unauthenticated")
+			})
 		}
 	}
 	// The credentials were minted while Ben was active. Roster death must take
@@ -244,20 +351,20 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			if c.Method == "" || c.Command == "telemetry.report" || c.Door == "pending:T-CAT-01" {
 				continue
 			}
-			for _, cred := range credentials[4:] {
+			for _, cred := range credentials[4:8] {
 				t.Run(c.Command+"/"+state+"/"+cred.name, func(t *testing.T) { request(t, c, cred, state, 401, "unauthenticated") })
 			}
 		}
 	}
 	require.Equal(t, 135, httpCommands)
-	require.Equal(t, 1407, len(receipts), "every frozen campaign cell must pass")
+	require.Equal(t, 2059, len(receipts), "every frozen campaign cell must pass")
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP refusals", "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 2, "admitted_reads": 6, "refusal_cells": len(receipts) - 8, "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("HTTP campaign: %d commands, %d refusal cells, 2 admitted secret effects; full admitted-effect matrix remains separate", httpCommands, len(receipts)-2)
+	t.Logf("HTTP campaign: %d commands, %d refusal cells, 2 admitted secret effects and 6 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-8)
 }
 
 // Catalog data is used only to measure coverage; it never supplies outcomes.

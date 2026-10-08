@@ -6,70 +6,90 @@
       "method": "DELETE",
       "path": "/api/user/connections/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.device.delete",
       "method": "DELETE",
       "path": "/api/user/devices",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.device.register",
       "method": "POST",
       "path": "/api/user/devices",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.email.add",
       "method": "POST",
       "path": "/api/user/emails",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.email.delete",
       "method": "DELETE",
       "path": "/api/user/emails/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.email.verify",
       "method": "POST",
       "path": "/api/user/emails/{id}/verify",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.inbox.preferences",
       "method": "PUT",
       "path": "/api/notifications/preferences",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.inbox.read",
       "method": "PATCH",
       "path": "/api/notifications/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.inbox.read-all",
       "method": "PUT",
       "path": "/api/notifications/mark-read",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.notifications.update",
       "method": "PUT",
       "path": "/api/user/settings/notifications",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.oauth.revoke",
@@ -82,7 +102,9 @@
       "method": "PATCH",
       "path": "/api/user",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "account.show",
@@ -93,7 +115,9 @@
       "method": "PUT",
       "path": "/api/user/settings/signup",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "admin.devtools",
@@ -460,21 +484,27 @@
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/keys",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "deploy-keys.delete",
       "method": "DELETE",
       "path": "/api/repos/{owner}/{repo}/keys/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "deploy-keys.read",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/keys",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "devtools.read",
@@ -693,7 +723,9 @@
       "method": "GET",
       "path": "/api/install",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "install.scorecard",
@@ -777,21 +809,27 @@
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/labels",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "labels.delete",
       "method": "DELETE",
       "path": "/api/repos/{owner}/{repo}/labels/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "labels.update",
       "method": "PATCH",
       "path": "/api/repos/{owner}/{repo}/labels/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "landings.read",
@@ -836,7 +874,9 @@
       "method": "GET",
       "path": "/api/members",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "never"
     },
     {
       "command": "members.remove",
@@ -861,7 +901,9 @@
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/mirror-sync/{run_id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "model.assign",
@@ -938,21 +980,27 @@
       "method": "DELETE",
       "path": "/api/repos/{owner}/{repo}/protected-bookmarks/{pattern}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "protected-bookmarks.read",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/protected-bookmarks",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "protected-bookmarks.upsert",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/protected-bookmarks",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "prs.review",
@@ -967,7 +1015,9 @@
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/archive",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "repo.choose",
@@ -996,14 +1046,18 @@
       "method": "PUT",
       "path": "/api/repos/{owner}/{repo}/topics",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "repo.unarchive",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/unarchive",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "repo.update",
@@ -1192,21 +1246,27 @@
       "method": "DELETE",
       "path": "/api/secrets/{name}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "permission"
     },
     {
       "command": "secrets.read",
       "method": "GET",
       "path": "/api/secrets",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "never"
     },
     {
       "command": "secrets.scope",
       "method": "PATCH",
       "path": "/api/secrets/{name}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "permission"
     },
     {
       "command": "secrets.set",
@@ -1216,7 +1276,9 @@
         "name": "CAMPAIGN_NEW",
         "value": "person-only-value"
       },
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "permission"
     },
     {
       "command": "self.read",
@@ -1245,7 +1307,9 @@
       "method": "GET",
       "path": "/api/ssh",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "never"
     },
     {
       "command": "stack",
@@ -1468,77 +1532,99 @@
       "method": "DELETE",
       "path": "/api/repos/{owner}/{repo}/variables/{name}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "variables.read",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/variables",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "variables.set",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/variables",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.create",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/hooks",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.delete",
       "method": "DELETE",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.deliveries",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}/deliveries",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.get",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.list",
       "method": "GET",
       "path": "/api/repos/{owner}/{repo}/hooks",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.redeliver",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}/deliveries/{delivery_id}/redeliver",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.test",
       "method": "POST",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}/tests",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "webhooks.update",
       "method": "PATCH",
       "path": "/api/repos/{owner}/{repo}/hooks/{id}",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "wiki",
@@ -1702,7 +1788,9 @@
       "method": "PUT",
       "path": "/api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility",
       "body": {},
-      "delegated": "never"
+      "delegated": "never",
+      "maintainerDelegated": "permission",
+      "memberDelegated": "permission"
     },
     {
       "command": "workspace.provider-pool",

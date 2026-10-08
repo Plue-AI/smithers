@@ -460,7 +460,8 @@
     "file": "real_credentials_test.go",
     "tests": [
       "TestInstalledHomeWorkloadFixture",
-      "TestInstalledCredentialEventScanner"
+      "TestInstalledCredentialEventScanner",
+      "TestInstalledNewRecipeRecreation"
     ]
   },
   {
