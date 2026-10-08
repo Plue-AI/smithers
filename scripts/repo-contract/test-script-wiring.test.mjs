@@ -12,7 +12,7 @@
  */
 import assert from "node:assert/strict"
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
-import { join } from "node:path"
+import { join, matchesGlob } from "node:path"
 import { describe, it } from "node:test"
 import ts from "typescript"
 
@@ -161,5 +161,34 @@ describe("backend consumer gate", () => {
     const script = readFileSync(join(root, "scripts/test-backend-consumer.sh"), "utf8")
     assert.match(script, /^set -eu$/m)
     assert.match(script, /^GOWORK=off go build \.\/\.\.\.$/m)
+  })
+})
+
+
+describe("backend browser proof inputs", () => {
+  it("admits the production live-document fixture and its app sources to the backend sandbox", () => {
+    const catalog = readManifest(join(root, ".smithers/target-index.json"))
+    const targets = new Map(catalog.map(target => [target.label, target]))
+    const visited = new Set()
+    const inputs = []
+    const visit = label => {
+      if (visited.has(label)) return
+      visited.add(label)
+      const target = targets.get(label)
+      assert.ok(target, `missing target ${label}`)
+      inputs.push(...target.inputs)
+      for (const dependency of target.dependencies) visit(dependency)
+    }
+    visit("//:backendGo")
+    for (const path of [
+      "apps/app/e2e/real/code-document-install.fixture.ts",
+      "apps/app/src/mainview/runtime/LiveChannel.ts",
+      "apps/app/src/mainview/runtime/LiveDocProvider.ts",
+      "apps/app/src/mainview/state/seams/BranchSeam.ts"
+    ]) {
+      assert.ok(inputs.some(input => input.kind === "file"
+        ? input.path === path
+        : input.kind === "glob" && matchesGlob(path, input.pattern)), `${path} is absent from the backend sandbox`)
+    }
   })
 })

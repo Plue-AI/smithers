@@ -5,6 +5,7 @@ import * as Input from "@smthrs/targets/Input"
 import { Package as flowsJjPackage } from "./crates/flows-jj/PACKAGE.ts"
 import { Package as machinedPackage } from "./crates/smithers-machined/PACKAGE.ts"
 import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
+import { Package as appPackage } from "./apps/app/PACKAGE.ts"
 import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
 import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
@@ -437,6 +438,9 @@ const backendGo = Smithers.Shell.Test({
     workspace,
     Smithers.file("//pnpm-lock.yaml"),
     modelHostAppPackage.backendInputs,
+    // The composed code-document proof runs the shipped app clients in Bun.
+    appPackage.solidCodegenInputs,
+    Smithers.file("//apps/app/e2e/real/code-document-install.fixture.ts"),
     Smithers.file("//apps/model-host/build.mjs"),
     Smithers.file("//apps/model-host/package.json"),
     Smithers.file("//go.mod"),

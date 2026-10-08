@@ -85,6 +85,10 @@
       },
       {
         "kind": "file",
+        "path": "apps/app/e2e/real/code-document-install.fixture.ts"
+      },
+      {
+        "kind": "file",
         "path": "apps/model-host/build.mjs"
       },
       {
@@ -124,6 +128,7 @@
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfiLib",
+      "//apps/app:solidCodegenInputs",
       "//apps/model-host:backendInputs",
       "//flows:codingHostInputs",
       "//packages/backend:buildInputs",
@@ -62702,6 +62707,10 @@
       {
         "kind": "file",
         "path": "PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": ".smithers/target-index.json"
       },
       {
         "kind": "file",

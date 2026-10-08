@@ -79,6 +79,7 @@ const testScriptWiring = Smithers.NodeTest({
     sources,
     Smithers.file("//scripts/release-rehearsal.mjs"),
     Smithers.file("//PACKAGE.ts"),
+    Smithers.file("//.smithers/target-index.json"),
     Smithers.file("//scripts/PACKAGE.ts"),
     Smithers.file("//scripts/repo-contract/PACKAGE.ts"),
     Smithers.file("//.github/workflows/ci.yml"),
