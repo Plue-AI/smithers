@@ -13,6 +13,7 @@ test("C-J10-07: main rewrite waits for the owner and refuses stale confirmation"
   const old = "1".repeat(40), first = "2".repeat(40), latest = "3".repeat(40)
   let target = first, settled = false
   const publishers: Array<() => void> = [], writes: unknown[] = []
+  const receipts = new Map<string, { body: unknown; status: number; json: unknown }>()
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     const frame = JSON.parse(String(raw))
     if (frame.t !== "sub") return
@@ -30,14 +31,28 @@ test("C-J10-07: main rewrite waits for the owner and refuses stale confirmation"
   }))
   await page.route("**/api/stack/attention/force-one", async route => {
     expect(route.request().method()).toBe("POST")
-    expect(route.request().headers()["idempotency-key"]).toBeTruthy()
-    writes.push(route.request().postDataJSON())
+    const key = route.request().headers()["idempotency-key"]!
+    expect(key).toBeTruthy()
+    const body = route.request().postDataJSON()
+    const prior = receipts.get(key)
+    if (prior) {
+      // Reload may replay an admission before its completion was persisted.
+      // The real install returns that key's receipt without another mutation.
+      expect(body).toEqual(prior.body)
+      await route.fulfill({ status: prior.status, json: prior.json })
+      return
+    }
+    writes.push(body)
     if (writes.length === 1) {
       target = latest
-      await route.fulfill({ status: 409, json: { code: "stale_attention", class: "conflict", message: "Main changed" } })
+      const receipt = { body, status: 409, json: { code: "stale_attention", class: "conflict", message: "Main changed" } }
+      receipts.set(key, receipt)
+      await route.fulfill({ status: receipt.status, json: receipt.json })
     } else {
       settled = true
-      await route.fulfill({ json: { state: "settled" } })
+      const receipt = { body, status: 200, json: { state: "settled" } }
+      receipts.set(key, receipt)
+      await route.fulfill({ status: receipt.status, json: receipt.json })
     }
     publishers.forEach(publish => publish())
   })
@@ -61,4 +76,5 @@ test("C-J10-07: main rewrite waits for the owner and refuses stale confirmation"
   await say(page, "/stack")
   await expect(page.getByText("main rewritten on GitHub", { exact: true })).toHaveCount(0)
   expect(writes).toHaveLength(2)
+  expect(receipts.size).toBe(2)
 })

@@ -219,7 +219,17 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	go func() {
 		dispatchDone <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "merged-learning-output", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond})
 	}()
-	defer func() { cancel(); require.NoError(t, <-admissionDone); require.NoError(t, <-dispatchDone) }()
+	workersStopped := false
+	stopWorkers := func() {
+		if workersStopped {
+			return
+		}
+		cancel()
+		require.NoError(t, <-admissionDone)
+		require.NoError(t, <-dispatchDone)
+		workersStopped = true
+	}
+	defer stopWorkers()
 	require.Eventually(t, func() bool {
 		for _, row := range queue.AdmissionSnapshot() {
 			if row.Class == "background" && row.State == "waiting" && row.Position == 1 {
@@ -338,6 +348,10 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	stopHub()
 	// Independently authored completion sources: only Merged may accept
 	// Learning's receipt. A late completion never changes the TODO's state.
+	// The launch and completion receipts above have settled. Join their workers
+	// before checking replay has no writes, so their final lease events cannot
+	// be mistaken for projection effects.
+	stopWorkers()
 	for _, c := range []struct {
 		state, engine                              string
 		launched, attached, paused, wait, accepted bool
