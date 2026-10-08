@@ -236,14 +236,15 @@ export default Flow.make("prompted", {
         }]
       )
       assert.deepEqual(atCopy[1].steps, [
-        { id: "root.flow.andThen.andThen.flow.andThen.andThen.andThen.andThen", label: "coding/prepare-stack-base" },
-        { id: "root.flow.andThen.andThen.flow.andThen.andThen.andThen.then", label: "coding/create-stack-base" },
-        { id: "root.flow.andThen.andThen.flow.andThen.andThen.then.then", label: "coding/install-dependency-pages" },
-        { id: "root.flow.andThen.andThen.flow.andThen.then", label: "factory/Todo" },
-        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.andThen.andThen", label: "coding/PrepareRequest" },
-        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.andThen.then", label: "coding/admit-retained-source" },
-        { id: "root.flow.andThen.andThen.flow.then.protected.map.all.result.then", label: "coding/CoordinateRequest" },
-        { id: "root.flow.andThen.andThen.flow.then.failure", label: "factory/stamp-route" },
+        { id: "root.flow.andThen.andThen.flow.andThen", label: "coding/RequestFeedback" },
+        { id: "root.flow.andThen.andThen.flow.then.andThen.andThen.andThen.andThen", label: "coding/prepare-stack-base" },
+        { id: "root.flow.andThen.andThen.flow.then.andThen.andThen.andThen.then", label: "coding/create-stack-base" },
+        { id: "root.flow.andThen.andThen.flow.then.andThen.andThen.then.then", label: "coding/install-dependency-pages" },
+        { id: "root.flow.andThen.andThen.flow.then.andThen.then", label: "factory/Todo" },
+        { id: "root.flow.andThen.andThen.flow.then.then.protected.map.all.result.andThen.andThen", label: "coding/PrepareRequest" },
+        { id: "root.flow.andThen.andThen.flow.then.then.protected.map.all.result.andThen.then", label: "coding/admit-retained-source" },
+        { id: "root.flow.andThen.andThen.flow.then.then.protected.map.all.result.then", label: "coding/CoordinateRequest" },
+        { id: "root.flow.andThen.andThen.flow.then.then.failure", label: "factory/stamp-route" },
         { id: "root.flow.andThen.then", label: "coding/todo-delivery" },
         { id: "root.flow.then.flow.andThen.andThen", label: "coding/AdmitVibe" },
         { id: "root.flow.then.flow.andThen.then", label: "coding/CleanVibeHistory" },
