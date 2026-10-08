@@ -953,17 +953,30 @@ func TestJ4Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("T%d alone ready; PR #%d head %s rebased onto %s, changes %v, one ready-for-review write", t2, pr2, pull.Head.SHA, main, files)
 		return nil
 	})
-	r.step("18 main row synced", "GET /api/github/sync; GET /api/live (home) main row; GET /api/github/sync", "fresh; Home's main row carries a last_success_at the sync served, within one poll (60 s), so 'synced N s ago' is that age and not gold", "T-GH-02", func() error {
+	r.step("18 main row synced", "GET /api/github/sync each 1 s up to one poll; GET /api/live (home) main row; GET /api/github/sync", "fresh within one poll (60 s); Home's main row carries a last_success_at the sync served, within one poll, so 'synced N s ago' is that age and not gold", "T-GH-02", func() error {
 		if liveErr != nil {
 			return liveErr
 		}
-		health, before, err := r.syncHealth()
-		if err != nil {
-			return err
+		// A PR the stack just opened or moved is a required stream GitHub has
+		// not been read for yet: the sync reads stale, with no last success,
+		// until its next poll. The row records that wait.
+		began := time.Now()
+		var health map[string]any
+		var before time.Time
+		for {
+			var err error
+			if health, before, err = r.syncHealth(); err != nil {
+				return err
+			}
+			if health["state"] == "fresh" && !before.IsZero() && time.Since(before) <= time.Minute {
+				break
+			}
+			if time.Since(began) > time.Minute {
+				return fmt.Errorf("sync %v, last success %v, not fresh within one poll", health["state"], health["last_success_at"])
+			}
+			time.Sleep(time.Second)
 		}
-		if health["state"] != "fresh" || before.IsZero() || time.Since(before) > time.Minute {
-			return fmt.Errorf("sync %v, last success %s ago, want fresh within one poll", health["state"], time.Since(before).Round(time.Second))
-		}
+		waited := time.Since(began)
 		type mainRow struct {
 			LastSuccessAt string `json:"last_success_at"`
 			Health        string `json:"health"`
@@ -998,7 +1011,7 @@ func TestJ4Rehearsal(t *testing.T) {
 		case age < 0 || age > time.Minute:
 			return fmt.Errorf("'synced N s ago' would read N = %s, want within one poll", age.Round(time.Second))
 		}
-		r.actual = fmt.Sprintf("sync fresh; Home main %s, synced %d s ago at cursor %d", row.Health, int(age.Seconds()), *frame.Cursor)
+		r.actual = fmt.Sprintf("sync fresh after %s; Home main %s, synced %d s ago at cursor %d", waited.Round(time.Second), row.Health, int(age.Seconds()), *frame.Cursor)
 		return nil
 	})
 	r.pending("18b Machines in use of capacity", "GET /api/live (home) machines; machine admission", "in_use equals the machines admission holds, of the host profile's capacity (not provable on trusted-process: its runtime counts no machines)", "T-GH-02, T-INS-06", "machine-capacity")
