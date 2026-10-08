@@ -39,7 +39,7 @@ export const addressActions = (address: InstallModel["address"]): CardActionDefi
       command_input: { listen: /^(127\.|localhost:|\[::1\]:)/.test(bind) ? "mac" : "network", bind, origins: failed.origins ?? [failed.to] } }))
   }
   const mac = { listen: "mac" as const, bind: `127.0.0.1:${port(address.bind)}`, origins: [`http://localhost:${port(address.bind)}`] }
-  const network = { listen: "network" as const, bind: address.listen === "network" ? address.bind : `0.0.0.0:${port(address.bind)}`, origins: address.origins }
+  const network = { listen: "network" as const, bind: address.listen === "network" ? address.bind.replace(/:\d+$/, `:${port(address.bind)}`) : `0.0.0.0:${port(address.bind)}`, origins: address.origins }
   return [
     ...retry,
     settingsControl("address", { tag: "settings", label: "Save", args: { field: "address", listen: "mac" }, command_input: mac }),

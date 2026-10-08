@@ -157,3 +157,24 @@ func TestInstallBootstrapOriginThroughCompositionPostgres(t *testing.T) {
 		require.JSONEq(t, refused.body, response.Body.String())
 	}
 }
+
+func TestInstallSignedOutSessionThroughCompositionPostgres(t *testing.T) {
+	splitProcessDatabase(t)
+	handler := startSplitProcess(t, Options{})
+	for _, cookie := range []string{"", "smithers_session=expired-session"} {
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4000/api/auth/session", nil)
+		request.RemoteAddr = "127.0.0.1:51000"
+		if cookie != "" {
+			request.Header.Set("Cookie", cookie)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		require.JSONEq(t, `null`, response.Body.String())
+		request = httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4000/api/user", nil)
+		request.RemoteAddr = "127.0.0.1:51000"
+		response = httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		require.Equal(t, http.StatusUnauthorized, response.Code)
+	}
+}

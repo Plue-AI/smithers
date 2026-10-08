@@ -420,7 +420,7 @@ var installMemberRoutes = []struct {
 	// proof checks; declaring public here does not bypass the credential loader.
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/(?:health|feature-flags|meta/failure-codes|bootstrap|build-cache/healthz)$`)},
 	{http.MethodHead, "public", regexp.MustCompile(`^/api/(?:bootstrap|build-cache/healthz)$`)},
-	{http.MethodGet, "public", regexp.MustCompile(`^/api/auth/(?:github(?:/callback|/cli(?:/consent)?)?|auth0/(?:authorize|callback))$`)},
+	{http.MethodGet, "public", regexp.MustCompile(`^/api/auth/(?:session|github(?:/callback|/cli(?:/consent)?)?|auth0/(?:authorize|callback))$`)},
 	{http.MethodPost, "public", regexp.MustCompile(`^/api/auth/github/(?:cli/consent|token-exchange)$`)},
 	{http.MethodGet, "public", regexp.MustCompile(`^/api/oauth2/authorize$`)},
 	{http.MethodPost, "public", regexp.MustCompile(`^/api/oauth2/(?:authorize|token|revoke)$`)},

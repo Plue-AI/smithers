@@ -73,6 +73,12 @@ export class LiveChannel {
       else { this.heartbeat.pause(); this.presence({ branch: "" }) }
     } }
   }
+  private enabled = true
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled
+    if (enabled) this.connect()
+    else this.disconnect()
+  }
   private socket?: LiveSocket
   private timer?: unknown
   private nextId = 1
@@ -153,7 +159,7 @@ export class LiveChannel {
   }
   private hasTransportTopics() { return [...this.topics.keys()].some(topic => !this.isDarkTopic(topic)) }
   private connect() {
-    if (this.socket || this.timer !== undefined || !this.hasTransportTopics() || this.disposed) return
+    if (!this.enabled || this.socket || this.timer !== undefined || !this.hasTransportTopics() || this.disposed) return
     try {
       const socket = this.options.socket?.() ?? new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/live`, "smithers.live.v1") as unknown as LiveSocket
       this.socket = socket

@@ -951,7 +951,8 @@ export const createAppController = (
   ctx.onDispose(installSeam.dispose)
   const installHost = services.bootstrap?.capabilities.includes("install") === true
   const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
-  if (installHost) void installSeam.showSetup()
+  const installSignedIn = () => store.collections.identitySessions.get("identity")?.state === "signed-in"
+  if (installHost && setupEntry) void installSeam.showSetup()
   const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
   const runMonitorSeam = createRunMonitorSeam({ owner: () => `${ctx.accountOwner()}:${ctx.accountEpoch}`, view: id => {
     const card = store.collections.cards.get(`run:${id}`)
@@ -964,7 +965,7 @@ export const createAppController = (
   services.live?.registerProjection?.("home", projectHome)
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
-  const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
+  const gitHubSyncSeam = createGitHubSyncSeam({ ready: () => !installHost || installSignedIn(), http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
   const gitHubSyncRetry = createGitHubSyncRetry(ctx, gitHubSyncSeam)
   ctx.onDispose(gitHubSyncSeam.dispose)
   const homeView = installHost ? createHomeViewSeam({
@@ -994,10 +995,10 @@ export const createAppController = (
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
   ctx.onDispose(membersSeam.dispose)
   if (installHost) {
-    membersSeam.start()
+    if (installSignedIn()) membersSeam.start()
     // Catalog authority must load without requiring a visit to Members or
     // Commands, and refresh when sign-in changes the authenticated viewer.
-    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => { void membersSeam.read() })
+    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => { if (installSignedIn()) { membersSeam.start(); void membersSeam.read() } })
     ctx.onDispose(() => membershipIdentity.unsubscribe())
   }
   const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)
@@ -1006,7 +1007,7 @@ export const createAppController = (
     const login = store.collections.identitySessions.get("identity")?.login?.toLowerCase()
     return membersSeam.snapshots.get().model?.members.find(member => member.login.toLowerCase() === login)?.role ?? "member"
   }
-  const showMembers = () => { if (installHost) { membersSeam.start(); void membersSeam.read() } }
+  const showMembers = () => { if (installHost && installSignedIn()) { membersSeam.start(); void membersSeam.read() } }
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const homeBackground = createHomeBackgroundSeam({
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
@@ -1366,7 +1367,16 @@ export const createAppController = (
       if (snapshot?.data !== undefined) receive(snapshot.data)
     })
   } } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
-  if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
+  if (installHost) {
+    let stopList: (() => void) | undefined
+    const startList = () => {
+      if (installSignedIn()) stopList ??= todoSeam.list.subscribe(() => {})
+      else { stopList?.(); stopList = undefined }
+    }
+    const subscription = store.collections.identitySessions.subscribeChanges(startList)
+    startList()
+    ctx.onDispose(() => { subscription.unsubscribe(); stopList?.() })
+  }
 
   const repositoryHistory = actors.pair(seamCtx, (context) => createRepositoryHistorySeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
@@ -2678,6 +2688,7 @@ export const createAppController = (
    * before that answer would only be superseded by it.
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
+    if (installHost && installSignedIn() && !setupEntry) queueMicrotask(() => { if (!ctx.disposed) void installSeam.showSetup() })
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })
     if (installHost) branchMutations.resume()

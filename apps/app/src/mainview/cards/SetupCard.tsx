@@ -42,7 +42,7 @@ export const roleKeyActions = (definition: CardActionDefinition<"settings">, mod
 }))
 
 /** The port of a bind address; the install serves 4000. */
-export const addressPort = (bind: string) => /:(\d+)$/.exec(bind)?.[1] ?? "4000"
+export const addressPort = (_bind: string) => "4000"
 /** Origins as typed in their multi-line field: one per line, commas and spaces also separate. */
 export const parseOrigins = (text: string) => text.split(/[\s,]+/).filter(Boolean)
 const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?$/i
@@ -54,7 +54,7 @@ const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+
 export const setupAddressActions = (address: InstallAddress, running: boolean): CardActionDefinition<"settings">[] => {
   const port = addressPort(address.bind)
   const disabled = running ? { reason: "Running" } : undefined
-  const bind = address.listen === "network" ? address.bind : `0.0.0.0:${port}`
+  const bind = address.listen === "network" ? address.bind.replace(/:\d+$/, `:${port}`) : `0.0.0.0:${port}`
   const origins = address.origins.filter(origin => !LOOPBACK_ORIGIN.test(origin))
   return [
     settingsControl("setup", { tag: "settings", label: "This Mac only", disabled, args: { step: "address", listen: "mac" },

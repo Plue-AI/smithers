@@ -13,7 +13,7 @@ import { connect as tcpConnect } from "node:net"
 /** One listening TCP socket, as `lsof -nP -iTCP -sTCP:LISTEN` names it. `address` is `*` for every interface. */
 export type Listener = { readonly command: string; readonly pid: number; readonly address: string; readonly port: number }
 
-const LSOF = "/usr/sbin/lsof"
+const LSOF = process.env.SMITHERS_LSOF ?? (process.platform === "darwin" ? "/usr/sbin/lsof" : "lsof")
 
 /** Parses `lsof -Fpcn` field output: a `p` and `c` line open each process, an `n` line names each socket. */
 export const parseListeners = (output: string): Listener[] => {

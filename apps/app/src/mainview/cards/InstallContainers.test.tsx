@@ -98,7 +98,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     const h = harness({ model }); h.renderSettings(); const props = h.settings()!
     const network = props.actions.find(action => action.args?.listen === "network")!
     expect(network.input).toEqual([
-      { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:4100" },
+      { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:4000" },
       { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: "http://localhost:4100" }
     ])
     expect(props.actions.find(action => action.args?.listen === "mac")!.input).toBeUndefined()
@@ -107,8 +107,8 @@ describe("T-APP-03 Containers with recording Views", () => {
     props.onAction("settings", { ...props.actions.find(action => action.tag === "settings" && action.args?.operation === "address")?.args, operation: "address", field: "address", listen: "mac" })
     expect(h.commands).toEqual([
       { tag: "settings", input: { operation: "address", listen: "network", bind: "0.0.0.0:4100", origins: ["https://maya-mini.tail1234.ts.net"] } },
-      { tag: "settings", input: { operation: "address", listen: "network", bind: "0.0.0.0:4100", origins: ["http://mini.local:4100", "https://maya-mini.tail1234.ts.net"] } },
-      { tag: "settings", input: { operation: "address", listen: "mac", bind: "127.0.0.1:4100", origins: ["http://localhost:4100"] } }
+      { tag: "settings", input: { operation: "address", listen: "network", bind: "0.0.0.0:4000", origins: ["http://mini.local:4100", "https://maya-mini.tail1234.ts.net"] } },
+      { tag: "settings", input: { operation: "address", listen: "mac", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] } }
     ])
   })
   test("a network-bound install keeps its bind in the Network form", () => {
@@ -348,4 +348,19 @@ test("C-FM-01 Setup and Settings bind Smithers source controls and retain the te
  expect(html).toContain("daily Smithers quota used; using team key until 00:00 UTC");expect(html).toContain("Smithers keeps token counts only")
  expect(html.match(/>Sign out</g)).toHaveLength(1)
  expect(html).not.toMatch(/credit card|billing/i)
+})
+
+test("Setup and Settings keep the install listener port when opened on a custom launcher port", () => {
+  const model = installFixture()
+  model.address = { listen: "mac", bind: "127.0.0.1:47401", origins: ["http://localhost:47401"] }
+  model.steps[0] = { id: "address", state: "pending" }
+  const h = harness({ model }); h.renderSetup(); h.renderSettings()
+  for (const props of [h.setup()!, h.settings()!]) {
+    const action = props.actions.find(action => action.args?.listen === "mac")!
+    props.onAction(action.tag, action.args)
+  }
+  expect(h.commands).toHaveLength(2)
+  for (const command of h.commands) {
+    expect(command.input).toMatchObject({ bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] })
+  }
 })

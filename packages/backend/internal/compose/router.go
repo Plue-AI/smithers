@@ -1289,6 +1289,17 @@ func buildRouter(
 		// (20/min per IP): one sign-in attempt burns two tokens (start +
 		// callback), so the strict 5/min "auth" scope locked out users who
 		// retried a few times within a minute.
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Get("/auth/session", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Cache-Control", "no-store")
+				if middleware.UserFromContext(r.Context()) == nil {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte("null\n"))
+					return
+				}
+				middleware.RequireScope(middleware.ScopeReadUser)(http.HandlerFunc(userHandler.GetAuthenticatedUser)).ServeHTTP(w, r)
+			})
+		}
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github", authHandler.GetGitHubOAuthStart)
 		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/cli", authHandler.GetGitHubOAuthCLIStart)
 		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/callback", authHandler.GetGitHubOAuthCallback)

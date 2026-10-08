@@ -21,6 +21,7 @@ export interface GitHubSyncSnapshots {
   readonly subscribe: (listener: () => void) => () => void
 }
 export interface GitHubSyncSeamOptions {
+  readonly ready?: () => boolean
   /** Same-origin fetch of an install API path. Absent, the host serves no sync. */
   readonly http?: (path: string, init?: RequestInit) => Promise<Response>
   readonly pollMs?: number
@@ -35,7 +36,7 @@ export function createGitHubSyncSeam(options: GitHubSyncSeamOptions) {
   const publish = (next: GitHubSyncHealth | undefined) => { health = next; for (const listener of listeners) listener() }
   /** A failed request keeps the last health: its age still turns the row stale on the card's clock. */
   const read = async () => {
-    if (disposed || !options.http) return
+    if (disposed || !options.http || options.ready?.() === false) return
     const revision = ++generation
     try {
       const response = await options.http("/api/github/sync", { credentials: "same-origin" })

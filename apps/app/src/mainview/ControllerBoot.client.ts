@@ -63,6 +63,9 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       http,
     }))
     const agent = yield* Effect.sync(() => runtime.backend.agent ?? unavailableAgent())
+    const channel = liveChannel()
+    const install = hasCapability(bootstrap, "install")
+    if (install) channel.setEnabled(false)
     const pageLifetime = new AbortController()
     const controller = yield* Effect.sync(() =>
       createAppController(
@@ -71,8 +74,8 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         {
           fetchImpl: runtime.http,
           features: { remoteCarets: import.meta.env.VITE_SMITHERS_REMOTE_CARETS === "1" },
-          live: liveChannel(),
-          documentOptions: { channel: liveChannel(), prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
+          live: channel,
+          documentOptions: { channel, prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
           // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.
           ...(hasCapability(bootstrap, "commands.select") ? { commandSelector: httpCommandSelector(runtime.http, client.baseUrl) } : {}),
           // Code intelligence exists only where the install composed member exec sessions.
@@ -115,6 +118,12 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         }, 0)
       }, { once: true })
     })
+
+    if (install) {
+      const enableLive = () => channel.setEnabled(store.collections.identitySessions.get("identity")?.state === "signed-in")
+      const subscription = store.collections.identitySessions.subscribeChanges(enableLive)
+      pageLifetime.signal.addEventListener("abort", () => { subscription.unsubscribe(); channel.setEnabled(false) }, { once: true })
+    }
 
     // The recorded store is still on disk. A temporary empty store must not
     // route URLs, resume deferred commands through identity, or start new work.

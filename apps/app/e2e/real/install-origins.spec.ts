@@ -116,6 +116,11 @@ const signIn = async (browser: Browser, install: Install, origin: string): Promi
   const lines: ConsoleLine[] = []
   const sockets: string[] = []
   const frames: LiveFrame[] = []
+  const anonymousRequests: string[] = []
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname
+    if (at === "signed-out" && path.startsWith("/api/")) anonymousRequests.push(path)
+  })
   let at: ConsoleLine["at"] = "signed-out"
   await page.exposeFunction("__installOriginsRejection", (text: string) => { lines.push({ at, kind: "rejection", text, url: page.url() }) })
   await page.addInitScript(() => {
@@ -142,9 +147,13 @@ const signIn = async (browser: Browser, install: Install, origin: string): Promi
   await page.goto(`${origin}/`)
   await awaitBoot(page)
   const here = (path: string) => (response: Response) => { const url = new URL(response.url()); return url.origin === origin && url.pathname === path }
+  await expect(page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last()).toBeVisible()
+  expect(lines, `${origin}: no console errors before sign-in`).toEqual([])
+  expect(sockets, `${origin}: no authenticated live connection before sign-in`).toEqual([])
+  expect(anonymousRequests.filter(path => !["/api/bootstrap", "/api/auth/session"].includes(path)), `${origin}: no protected requests before sign-in`).toEqual([])
   const started = page.waitForResponse(here("/api/auth/github"), { timeout: 60_000 })
   const returned = page.waitForResponse(here("/api/auth/github/callback"), { timeout: 180_000 })
-  await command(page, "/sign-in")
+  await page.getByRole("button", { name: "Sign in with GitHub", exact: true }).last().click()
   const start = await started
   expect(start.status(), `${origin}: sign-in starts with a redirect to GitHub`).toBe(302)
   const redirectURI = new URL((await start.headerValue("location"))!).searchParams.get("redirect_uri") ?? ""
@@ -512,8 +521,8 @@ test("C-INS-01 the install works at loopback and at each origin the owner sets, 
         // The removed origin's page was refused on purpose, after its slice passed; its 421s are that refusal.
         const lines = visitor.lines.filter(line => !(origin === removed && /status of 421|Unexpected response code: 421/.test(line.text)))
         expect(lines.filter(line => line.kind !== "console"), `${origin}: page errors and unhandled rejections`).toEqual([])
-        // Before the session exists the app's reads are answered 401, and the live channel refuses to open; nothing else may fail.
-        expect(lines.filter(line => line.at === "signed-out" && !/status of 401 \(Unauthorized\)|\/api\/live' failed: HTTP Authentication failed/.test(line.text)), `${origin}: errors before sign-in`).toEqual([])
+        // The signed-out door makes only public bootstrap and session reads.
+        expect(lines.filter(line => line.at === "signed-out"), `${origin}: errors before sign-in`).toEqual([])
         expect(lines.filter(line => line.at === "signed-in" && !/^Failed to load resource: the server responded with a status of \d+/.test(line.text)), `${origin}: console errors after sign-in`).toEqual([])
       }
       // An HTTP answer the app logs as failed must not depend on the origin: nothing fails at an owner-set origin that works on loopback.

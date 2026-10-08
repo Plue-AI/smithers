@@ -21,6 +21,7 @@ test("an install reads the owner's identity again as Setup steps finish, until i
     applicationIdentity: { current: async () => { reads++; return admitted ? { memberId: 17, username: "smithersai", admin: false, scopes: null } : null } },
     fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json(model) : new Response("", { status: 404 }) })
   const identity = () => store.collections.identitySessions.get("identity")
+  await controller.showSetup()
   await waitFor(() => reads === 1 && identity()?.state === "signed-out")
   // The repository claim admits the owner; the next served install names one more step done.
   admitted = true
@@ -77,6 +78,7 @@ test("Source ready reads the repositories again, so the mirrored repository reac
       }
       return new Response("", { status: 404 })
     } })
+  await controller.loadSession()
   await waitFor(() => store.collections.identitySessions.get("identity")?.state === "signed-in" && repoReads === 1)
   await settle()
   expect(store.collections.repositories.size).toBe(0)
@@ -106,6 +108,7 @@ test("the install uses the shared live channel for readiness, outages and revoke
       receive = notify
       return () => { stopped++ }
     } } })
+  await controller.showSetup()
   await waitFor(() => receive !== undefined && controller.installSnapshots.get().model !== undefined)
   expect(controller.installSnapshots.get().model!.steps[6]!.state).toBe("running")
   snapshot = { topic: "install", data: installFixture() }; receive!()

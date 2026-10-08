@@ -251,7 +251,10 @@ function AppContent() {
   const publicRepositoryLinks = (bootEntry?.publicRepositories ?? [])
     .filter(repo => repo.toLowerCase() !== missingBootRepository?.toLowerCase())
     .map(repo => `- [${repo}](/${repo.toLowerCase()}/)`)
-  const authMessage: Message | undefined = controller.bootstrap?.capabilities.includes("install") ? undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity
+  const authMessage: Message | undefined = controller.bootstrap?.capabilities.includes("install") ? identity?.state === "signed-out" && exploringRepo === null && (typeof window === "undefined" || window.location.pathname !== "/setup") ? {
+    id: "auth-state", role: "smithers", text: "", status: "complete",
+    action: { flow: "sign-in", label: "Sign in with GitHub" }, createdAt: 0, ordinal: 0
+  } : undefined : identity?.state === "signed-out" && hasBootstrap && !githubIdentity
     ? {
       id: "auth-state",
       role: "smithers",
@@ -313,7 +316,7 @@ function AppContent() {
    * message (it carries the catalog links) and the owner-credentials host
    * keeps its one Sign in door.
    */
-  const loginScreen = authMessage?.id === "auth-state" && githubIdentity && !repositoryNotice && authMessage.action?.flow === "sign-in"
+  const loginScreen = !controller.bootstrap?.capabilities.includes("install") && authMessage?.id === "auth-state" && githubIdentity && !repositoryNotice && authMessage.action?.flow === "sign-in"
 
   /*
    * The opening entry: what the host registered, derived from the live

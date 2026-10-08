@@ -270,7 +270,7 @@ export const createAuthBillingController = (
     if (selectedIdentity !== undefined) {
       let identity: Awaited<ReturnType<ApplicationIdentityClient["current"]>>
       try {
-        identity = await selectedIdentity.current(signal)
+        identity = await selectedIdentity.current(signal, services.bootstrap?.capabilities.includes("install") ? "/api/auth/session" : undefined)
       } catch {
         if (probe !== mine || signal?.aborted) return
         dispatchUnavailable()

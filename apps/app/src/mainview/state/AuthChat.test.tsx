@@ -524,12 +524,12 @@ test("an unknown repository's explicit sign-in prompt replaces the web opening c
   expect(host.textContent).toContain("Sign in with GitHub to continue.")
 })
 
-test("the web wiki empty state offers Create Wiki through the registered flow", async () => {
+test("the signed-in install wiki empty state offers Create Wiki through the registered flow", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, { bootstrap: { ...WEB, capabilities: [...WEB.capabilities, "install"] },
-    ...backend({ "/api/user": json(401, {}), "/api/auth/scopes": json(200, { scopes: [] }) }) })
+    ...backend({ "/api/repos/smithersai/smithers/wiki": json(200, []), "/api/auth/scopes": json(200, { scopes: [] }) }) })
   // Select the repository before opening its Wiki: changing scope replaces the transcript.
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
   await store.dispatch({ type: "repository.upserted", actor: "system", repository: { id: "smithersai/smithers", org: "smithersai", name: "smithers", ownerKind: "org", head: null, catalog: true } }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: "smithersai/smithers" }).isPersisted.promise
   await controller.commands.run("wiki")
@@ -540,9 +540,7 @@ test("the web wiki empty state offers Create Wiki through the registered flow", 
   expect(door?.textContent).toBe("Create Wiki")
   expect(controller.commands.find("wiki.create")).toBeDefined()
   expect(door?.isConnected).toBe(true)
-  door!.click()
-  await settled()
-  expect(store.session().pendingCommand).toMatchObject({ name: "wiki.create", args: "smithersai/smithers" })
+  expect(door!.getAttribute("data-flow-args")).toBe("smithersai/smithers")
 })
 
 test("the expanded empty wiki carries the current repository through Create Wiki", async () => {
@@ -557,4 +555,22 @@ test("the expanded empty wiki carries the current repository through Create Wiki
   host.querySelector<HTMLButtonElement>('.world-surface [data-flow="wiki.create"]')?.click()
   await settled()
   expect(store.session().pendingCommand).toMatchObject({ name: "wiki.create", args: "smithersai/smithers" })
+})
+
+test("a signed-out install visitor gets the GitHub flow door without protected startup reads", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { ...WEB, capabilities: [...WEB.capabilities, "install"] },
+    applicationIdentity: { current: async () => null },
+    fetchImpl: async input => { requests.push(String(input)); return json(200, {}) }
+  })
+  await controller.loadSession()
+  await settled()
+  const { host } = mount(controller)
+  await settled()
+  const door = host.querySelector<HTMLButtonElement>('.smithers-chat-message [data-flow="sign-in"]')
+  expect(door?.textContent).toBe("Sign in with GitHub")
+  expect(host.querySelector('[data-testid="login-email"]')).toBeNull()
+  expect(requests).toEqual([])
 })

@@ -80,7 +80,7 @@ export interface ApplicationIdentity {
 
 export interface ApplicationIdentityClient {
   /** Null is the definitive signed-out answer; transport and malformed answers reject. */
-  readonly current: (signal?: AbortSignal) => Promise<ApplicationIdentity | null>
+  readonly current: (signal?: AbortSignal, path?: string) => Promise<ApplicationIdentity | null>
 }
 
 export interface ApplicationClient {
@@ -265,14 +265,15 @@ export const createApplicationClient = (
   }
 
   const identity: ApplicationClient["identity"] = {
-    current: async (signal) => {
+    current: async (signal, path = AUTHENTICATED_USER_PATH) => {
       let body: unknown
       try {
-        body = await request(AUTHENTICATED_USER_PATH, { signal })
+        body = await request(path, { signal })
       } catch (error) {
         if (error instanceof ApplicationClientError && error.code === "unauthenticated") return null
         throw error
       }
+      if (body === null && path === "/api/auth/session") return null
       const parsed = ApplicationUserSchema.safeParse(body)
       if (!parsed.success) throw invalidResponse("Backend returned an invalid authenticated user.", parsed.error)
       const scopes = parsed.data.token_scopes
