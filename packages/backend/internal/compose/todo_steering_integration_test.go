@@ -15,11 +15,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -96,8 +98,8 @@ func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.
 		Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
 
-// Real PostgreSQL and the install router/auth; seeded attempt facts qualify
-// the public projection, not production machine source loading.
+// Real PostgreSQL, install router, host resolver and authenticated bridge.
+// Only guest observations are controlled; this does not qualify a physical VM.
 func TestTodoOrderedRecovery(t *testing.T) {
 	if os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE") == "" {
 		t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todoordered")
@@ -139,7 +141,23 @@ func TestTodoOrderedRecovery(t *testing.T) {
 		recoverAcks: map[string]chan struct{}{"Lost acknowledgment steer": make(chan struct{}), "Lost acknowledgment amendment": make(chan struct{})}, entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
+	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1;`, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,vm_id,status) VALUES('11111111-1111-4111-8111-111111111111',$1,$2,'feedback-machine','running')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	codec, err := webhook.NewSecretCodec("feedback-host-test-key")
+	require.NoError(t, err)
+	bindings, err := flowhost.NewStore(pool, codec)
+	require.NoError(t, err)
+	transport := &todoControlHostTransport{receiver: receiver}
+	guestServer := httptest.NewServer(transport)
+	t.Cleanup(guestServer.Close)
+	transport.endpoint = guestServer.URL
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, SteerAuthorizer: service, Projector: service})
 	require.NoError(t, err)
 	service.SetLauncher(dispatcher)
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
@@ -403,7 +421,7 @@ func TestTodoOrderedRecovery(t *testing.T) {
 			// PostgreSQL has its receipt. A new dispatcher has no local state.
 			cancel()
 			require.NoError(t, <-done)
-			dispatcher, err = flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
+			dispatcher, err = flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, SteerAuthorizer: service, Projector: service})
 			require.NoError(t, err)
 			service.SetLauncher(dispatcher)
 			close(receiver.recoverAcks[pair.first])
@@ -671,4 +689,6 @@ func TestTodoOrderedRecovery(t *testing.T) {
 		}
 		require.NoError(t, err)
 	}
+	require.EqualValues(t, 1, transport.starts.Load(), "Steer, Answer and retries keep the same fenced host")
+
 }

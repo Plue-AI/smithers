@@ -53,20 +53,20 @@ func (r *pauseReceiver) Signal(ctx context.Context, input flowruntime.Signal) (f
 	return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
 
-// pauseHostTransport replaces the unavailable Linux guest transport, never the
+// todoControlHostTransport replaces the unavailable Linux guest transport, never the
 // resolver or binding store. It reports the exact authenticated launch identity.
-type pauseHostTransport struct {
+type todoControlHostTransport struct {
 	starts   atomic.Int32
 	mu       sync.Mutex
 	launch   flowhost.HostLaunch
 	endpoint string
-	receiver *pauseReceiver
+	receiver flowruntime.Runtime
 }
 
-func (*pauseHostTransport) Isolation() workspaceapi.IsolationLevel {
+func (*todoControlHostTransport) Isolation() workspaceapi.IsolationLevel {
 	return workspaceapi.IsolationSandboxed
 }
-func (h *pauseHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
+func (h *todoControlHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.launch.Credential == "" {
@@ -74,14 +74,14 @@ func (h *pauseHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunc
 	}
 	return flowhost.Connection{Endpoint: h.endpoint}, nil
 }
-func (h *pauseHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+func (h *todoControlHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.launch = launch
 	h.starts.Add(1)
 	return flowhost.Connection{Endpoint: h.endpoint}, nil
 }
-func (h *pauseHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *todoControlHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	launch := h.launch
 	h.mu.Unlock()
@@ -95,11 +95,19 @@ func (h *pauseHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var command struct {
-		Operation            string `json:"operation"`
-		ApplicationRequestID string `json:"applicationRequestId"`
-		RunID                string `json:"runId"`
-		OwnerGeneration      int64  `json:"ownerGeneration"`
-		Signal               struct {
+		Operation            string            `json:"operation"`
+		ApplicationRequestID string            `json:"applicationRequestId"`
+		RunID                string            `json:"runId"`
+		OwnerGeneration      int64             `json:"ownerGeneration"`
+		MessageID            string            `json:"messageId"`
+		InputVersion         int64             `json:"version"`
+		CreatedAt            float64           `json:"createdAt"`
+		Attribution          map[string]string `json:"attribution"`
+		Steer                struct {
+			Kind string `json:"kind"`
+			Body string `json:"body"`
+		} `json:"steer"`
+		Signal struct {
 			Name    string          `json:"name"`
 			Payload json.RawMessage `json:"payload"`
 		} `json:"signal"`
@@ -120,11 +128,17 @@ func (h *pauseHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": map[string]any{"run": observed.Run, "events": observed.Events, "nextCursor": observed.NextCursor, "hasMore": observed.HasMore, "terminal": observed.Terminal}})
 		return
 	}
-	if r.URL.Path != "/runtime/v1/command" || json.NewDecoder(r.Body).Decode(&command) != nil || command.Operation != "signal" || command.OwnerGeneration != launch.Binding.OwnerGeneration {
+	if r.URL.Path != "/runtime/v1/command" || json.NewDecoder(r.Body).Decode(&command) != nil || (command.Operation != "signal" && command.Operation != "steer") || command.OwnerGeneration != launch.Binding.OwnerGeneration {
 		http.Error(w, "unsupported guest command", 400)
 		return
 	}
-	result, err := h.receiver.Signal(r.Context(), flowruntime.Signal{ApplicationRequestID: command.ApplicationRequestID, RunID: command.RunID, Name: command.Signal.Name, Payload: command.Signal.Payload})
+	var result flowruntime.MutationResult
+	var err error
+	if command.Operation == "steer" {
+		result, err = h.receiver.Steer(r.Context(), flowruntime.Steer{ApplicationRequestID: command.ApplicationRequestID, OwnerGeneration: command.OwnerGeneration, RunID: command.RunID, MessageID: command.MessageID, InputVersion: command.InputVersion, CreatedAt: command.CreatedAt, Attribution: command.Attribution, Kind: command.Steer.Kind, Body: command.Steer.Body})
+	} else {
+		result, err = h.receiver.Signal(r.Context(), flowruntime.Signal{ApplicationRequestID: command.ApplicationRequestID, OwnerGeneration: command.OwnerGeneration, RunID: command.RunID, Name: command.Signal.Name, Payload: command.Signal.Payload})
+	}
 	if err != nil {
 		http.Error(w, "guest unavailable", 503)
 		return
@@ -190,7 +204,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)
-	transport := &pauseHostTransport{receiver: receiver}
+	transport := &todoControlHostTransport{receiver: receiver}
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
