@@ -210,10 +210,10 @@ test('failed first-token workloads retain partial samples and cross-checks in ch
 
 const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => {
   const main = (i + 1).toString(16).padStart(40, '0'), marker = `marker-${i}`
-  return { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:fixture', failed: false,
+  return { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:' + 'b'.repeat(32), failed: false,
     pending: { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' },
     receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice' } },
-    hold: { id: main, clock: 'guest monotonic:fixture', start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, outboxDrained: i >= 100 }
+    hold: { capture: { event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id: main, state: 'acknowledged', event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id: main, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, outboxDrained: i >= 100 }
 })
 const rebaseProvider = value => ({ available() {}, fields: { writeHold: 'holdMs' }, measure: async () => ({ ...passing(), samples: value }) })
 test('unified rebase verdict requires both acknowledgement cohorts independently', async () => {
@@ -301,6 +301,11 @@ test('unified wake verdict verifies host intervals and unique requests independe
     s => { s.hold.acknowledgedBeforeThaw = true },
     s => { s.outboxDrained = false },
     s => { s.hold.withheldMs = 9999 },
+    s => { delete s.hold.acknowledgementReceipt },
+    s => { s.hold.acknowledgementReceipt.boot = 'c'.repeat(32) },
+    s => { s.hold.acknowledgementReceipt.sequence++ },
+    s => { s.hold.acknowledgementReceipt.state = 'withheld' },
+    (s, values) => { s.hold.acknowledgementReceipt.id = values[100].hold.acknowledgementReceipt.id },
     (s, values) => { s.receipt.id = values[0].receipt.id; s.hold.id = s.receipt.id }
   ]) await temporary(async root => {
     const values = rebaseSamples()

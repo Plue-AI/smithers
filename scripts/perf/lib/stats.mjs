@@ -27,7 +27,14 @@ export function verifyRebase(sample, { requireDrain = true } = {}) {
   if (receipt.activity?.length !== 1 || receipt.activity[0].kind !== 'rebase' || receipt.activity[0].onto !== main) throw new Error('requires one attributed rebase activity')
   if (typeof receipt.headChanged !== 'boolean' || receipt.approvalsCleared !== receipt.headChanged) throw new Error('rebase approval clearing differs from head change')
   if (typeof marker !== 'string' || !marker || receipt.marker?.text !== marker || receipt.marker.member !== pending.member) throw new Error('held edit missing or attributed to another member')
-  if (acknowledgementsWithheld && (hold.acknowledgedBeforeThaw !== false || hold.localSnapshotQueued !== true || !Number.isFinite(hold.withheldMs) || hold.withheldMs < 10000 || requireDrain && sample.outboxDrained !== true)) throw new Error('delayed rebase capture or outbox drain evidence missing')
+  if (acknowledgementsWithheld && (hold.acknowledgedBeforeThaw !== false || hold.localSnapshotQueued !== true || requireDrain && (!Number.isFinite(hold.withheldMs) || hold.withheldMs < 10000 || sample.outboxDrained !== true))) throw new Error('delayed rebase capture or outbox drain evidence missing')
+  if (acknowledgementsWithheld && requireDrain) {
+    const ack = hold.acknowledgementReceipt, capture = hold.capture
+    if (!ack || !capture || ack.state !== 'acknowledged' || typeof ack.id !== 'string' || !ack.id ||
+        !/^[a-f0-9]{32}$/.test(capture.event ?? '') || !/^[a-f0-9]{32}$/.test(capture.boot ?? '') ||
+        !Number.isSafeInteger(capture.sequence) || capture.sequence < 1 || ack.event !== capture.event || ack.boot !== capture.boot || ack.sequence !== capture.sequence ||
+        hold.clock !== `guest monotonic:${capture.boot}` || ack.withheld_ms !== hold.withheldMs || hold.withheldMs < 10000) throw new Error('authenticated capture acknowledgement receipt missing or mismatched')
+  }
   return hold.end - hold.start
 }
 
@@ -37,6 +44,8 @@ export function summarizeRebases(samples) {
   if (new Set(samples.map(sample => sample.marker)).size !== samples.length || samples.some(sample => typeof sample.marker !== 'string' || !sample.marker)) throw new Error('distinct retained rebase markers required')
   for (const sample of samples) verifyRebase(sample)
   if (new Set(samples.map(sample => sample.receipt.id)).size !== samples.length) throw new Error('distinct rebase receipts required')
+  const delayed = samples.filter(sample => sample.acknowledgementsWithheld)
+  if (new Set(delayed.map(sample => sample.hold.acknowledgementReceipt.id)).size !== delayed.length || new Set(delayed.map(sample => `${sample.hold.capture.boot}/${sample.hold.capture.event}`)).size !== delayed.length) throw new Error('distinct authenticated acknowledgement windows and captures required')
   return Object.fromEntries([false, true].map(withheld => {
     const stats = summarize(samples.filter(sample => sample.acknowledgementsWithheld === withheld), ['holdMs'], 100)
     if (stats.holdMs.p95 >= 2000) throw new Error('rebase hold p95 must be below 2000 ms in each acknowledgement cohort')

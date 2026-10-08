@@ -215,15 +215,26 @@ These are checks of operator-provided fixtures; no credentials or fake sessions
 are minted. SSH fixtures still require the member's configured identity, trusted
 host key, branch destination and verified write attribution.
 
-`rebase-hold.mjs` contains a sample-driving contract tested with **test-only**
-dependency boundaries. It sequences 100 ordinary and 100 delayed acknowledgement
-rebases, retains typed markers, verifies guest hold clocks, activity and approvals,
-and waits for delayed outbox drain. It restores the acknowledgement window on
-failure. Its production adapter needs T-STK-08's Rebase now action and guest hold
-logs, T-APP-14's edits, an acknowledgement-delay fixture and lifecycle qualification.
-Invoking it uses the shared runner and reports incomplete (exit 2). Contract tests
-emit no performance artifacts or passing check receipts. Browser C-PERF fixmes
-remain. The existing upstream warm-wake implementation is retained in full.
+`rebase-hold.mjs` sequences 100 ordinary and 100 delayed acknowledgement
+rebases. `rebase-production.mjs` binds it to the real File/Branch cards, public
+GitHub Retry, member SSH and the owner-authenticated capture delay route.
+Set the common origin, page, owner cookie, install version and member A storage
+state, plus `SMITHERS_PERF_BRANCH` (UUID), `SMITHERS_PERF_TODO` (number),
+`SMITHERS_PERF_SSH_IDENTITY`, `SMITHERS_PERF_SSH_DESTINATION`,
+`SMITHERS_PERF_REPOSITORY` (scratch owner/repo), and
+`SMITHERS_PERF_REBASE_LOG` (installed guest observer JSONL export).
+The guest's dedicated `.smithers-perf-main` clone must be on main and have that
+GitHub remote. No scratch command executes on either Mac.
+
+Each rewrite arms its own ten-second acknowledgement window after pending is
+observed, and restores delivery on failure. Host receipts bind branch, boot,
+event and sequence and are checked independently by the unified verdict.
+Guest hold/capture/thaw, marker attribution and outbox drain are separate
+required observations. [The T-STK-08 seam](rebase-seam.md) lists their exact
+bindings. Those guest producers and authenticated lifecycle/root qualification
+remain unavailable: invoking the driver still reports incomplete (exit 2),
+with no passing performance receipt. The composed PostgreSQL/router/wire test
+proves the actual delay and the script's authenticated client, not guest timing.
 
 Browser and SSH fixtures are checked through authenticated public reads before
 scratch channels open. C-PERF-03 and C-PERF-04 require

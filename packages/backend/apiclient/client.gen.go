@@ -2207,6 +2207,41 @@ type GetAPIInstallMetricsResponse struct {
 	Host            map[string]json.RawMessage   `json:"host,omitempty"`
 }
 
+// GetAPIInstallAckDelayParams is the query of GET /api/install/ack-delay.
+type GetAPIInstallAckDelayParams struct {
+	Branch string
+}
+
+// GetAPIInstallAckDelayResponse is generated from docs/api/openapi.yaml.
+type GetAPIInstallAckDelayResponse struct {
+	ID         *string   `json:"id,omitempty"`
+	Branch     string    `json:"branch"`
+	Boot       *string   `json:"boot,omitempty"`
+	Event      *string   `json:"event,omitempty"`
+	Sequence   *int64    `json:"sequence,omitempty"`
+	State      string    `json:"state"`
+	WithheldMs float64   `json:"withheld_ms"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
+// PostAPIInstallAckDelayBody is generated from docs/api/openapi.yaml.
+type PostAPIInstallAckDelayBody struct {
+	Branch  string `json:"branch"`
+	DelayMs int64  `json:"delay_ms"`
+}
+
+// PostAPIInstallAckDelayResponse is generated from docs/api/openapi.yaml.
+type PostAPIInstallAckDelayResponse struct {
+	ID         *string   `json:"id,omitempty"`
+	Branch     string    `json:"branch"`
+	Boot       *string   `json:"boot,omitempty"`
+	Event      *string   `json:"event,omitempty"`
+	Sequence   *int64    `json:"sequence,omitempty"`
+	State      string    `json:"state"`
+	WithheldMs float64   `json:"withheld_ms"`
+	ExpiresAt  time.Time `json:"expires_at"`
+}
+
 // GetAPIInstallScorecardParams is the query of GET /api/install/scorecard.
 type GetAPIInstallScorecardParams struct {
 	From time.Time
@@ -3629,6 +3664,22 @@ func (c *Client) PostWebhooksGithub(ctx context.Context) (AnyJSON, error) {
 func (c *Client) GetAPIInstallMetrics(ctx context.Context) (GetAPIInstallMetricsResponse, error) {
 	var out GetAPIInstallMetricsResponse
 	err := c.do(ctx, "GET", "/api/install/metrics", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIInstallAckDelay calls GET /api/install/ack-delay.
+func (c *Client) GetAPIInstallAckDelay(ctx context.Context, params GetAPIInstallAckDelayParams) (GetAPIInstallAckDelayResponse, error) {
+	query := url.Values{}
+	query.Set("branch", params.Branch)
+	var out GetAPIInstallAckDelayResponse
+	err := c.do(ctx, "GET", "/api/install/ack-delay", query, nil, &out)
+	return out, err
+}
+
+// PostAPIInstallAckDelay calls POST /api/install/ack-delay.
+func (c *Client) PostAPIInstallAckDelay(ctx context.Context, body PostAPIInstallAckDelayBody) (PostAPIInstallAckDelayResponse, error) {
+	var out PostAPIInstallAckDelayResponse
+	err := c.do(ctx, "POST", "/api/install/ack-delay", nil, body, &out)
 	return out, err
 }
 

@@ -42,6 +42,73 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/install/ack-delay:
+    x-composition: install
+    get:
+      summary: Read a capture acknowledgement delay receipt
+      operationId: get_api_install_ack_delay
+      tags:
+        - Install
+      description: Owner browser session only. Diagnostic receipt for one authenticated ready branch connection; never lifecycle qualification or a guest outbox-drain receipt.
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: branch
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Current one-shot delay receipt
+          content:
+            application/json:
+              schema: &ackDelayReceipt
+                type: object
+                required: [branch, state, withheld_ms, expires_at]
+                properties:
+                  id: {type: string, format: uuid}
+                  branch: {type: string, format: uuid}
+                  boot: {type: string, pattern: '^[a-f0-9]{32}$'}
+                  event: {type: string, pattern: '^[a-f0-9]{32}$'}
+                  sequence: {type: integer, minimum: 1}
+                  state: {type: string, enum: [idle, armed, expired, cancelled, withheld, acknowledged, failed]}
+                  withheld_ms: {type: number, minimum: 0}
+                  expires_at: {type: string, format: date-time}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Ready authenticated connection required}
+        '503': {description: Machine registry unavailable}
+    post:
+      summary: Arm or restore one capture acknowledgement delay
+      operationId: post_api_install_ack_delay
+      tags:
+        - Install
+      description: Owner browser session and CSRF required. delay_ms 10000 arms only the next durable capture on the current ready connection, within 30 seconds. delay_ms 0 restores delivery. No root, guest execution, database bypass or qualification is added.
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [branch, delay_ms]
+              properties:
+                branch: {type: string, format: uuid}
+                delay_ms: {type: integer, enum: [0, 10000]}
+      responses:
+        '200':
+          description: Armed or restored delay receipt
+          content:
+            application/json:
+              schema: *ackDelayReceipt
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {description: Ready connection required or an active window already exists}
+        '503': {description: Machine registry unavailable}
   /api/install/scorecard:
     get:
       summary: Read the alpha scorecard

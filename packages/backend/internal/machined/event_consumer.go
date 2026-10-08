@@ -151,7 +151,13 @@ func dispatchEvents(ctx context.Context, link *Link, branch string, apply EventH
 		if ack.Seq != event.Seq {
 			return ErrUnauthorized
 		}
-		if err = link.Ack(ctx, branch, ack); err != nil {
+		finishDelay := func(error) {}
+		if ack.Outcome == AckApplied || ack.Outcome == AckDuplicate {
+			finishDelay = link.registry.delayAcknowledgement(ctx, link, branch, event)
+		}
+		err = link.Ack(ctx, branch, ack)
+		finishDelay(err)
+		if err != nil {
 			return err
 		}
 	}

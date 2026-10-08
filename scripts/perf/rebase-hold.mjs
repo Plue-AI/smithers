@@ -7,8 +7,8 @@ export const markers = Array.from({ length: 100 }, (_, i) => `REBASE${String(i).
 
 /** C-PERF-06 contract driver. All actions are public person boundaries; scratch
  * pushes are unprivileged guest SSH actions. No daemon RPC or host execution is
- * a measurement adapter. Production binding waits on T-STK-08's action, guest
- * hold logs and acknowledgement-delay fixture, and T-APP-14's retained edits.
+ * a measurement adapter. Production binding is in rebase-production.mjs; guest receipt activation
+ * waits on T-STK-08 and lifecycle qualification.
  */
 export async function measure(boundary) {
   const samples = []
@@ -16,7 +16,6 @@ export async function measure(boundary) {
   let attempt
   try {
     for (const acknowledgementsWithheld of [false, true]) {
-      await boundary.acknowledgementWindow(acknowledgementsWithheld ? 10000 : 0)
       for (const [i, marker] of markers.entries()) {
         attempt = { i, marker: `${acknowledgementsWithheld ? 'DELAY' : 'NORMAL'}_${marker}`, acknowledgementsWithheld, failed: true }
         // pushScratchMain is implemented only by the qualified unprivileged
@@ -27,6 +26,9 @@ export async function measure(boundary) {
         await boundary.retryGitHubSync()
         const pending = await boundary.waitRebasePending(main)
         if (pending.state !== 'pending' || pending.present !== true || pending.onto !== main || pending.rebased !== false || !pending.member) throw new Error('rebase ran before the present member acted')
+        // One-shot windows bind only this rewrite; scratch push/sync must not
+        // consume the window or its thirty-second admission lifetime.
+        await boundary.acknowledgementWindow(acknowledgementsWithheld ? 10000 : 0)
         await boundary.pressRebaseNow()
         await boundary.waitWriteHold()
         const typed = `${acknowledgementsWithheld ? 'DELAY' : 'NORMAL'}_${marker}`

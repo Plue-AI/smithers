@@ -65,14 +65,14 @@ function rebaseBoundary(overrides = {}) {
  let main, marker, withheld, pending = false
  return {
   async acknowledgementWindow(ms) { assert.ok(ms === 0 || ms === 10000); withheld = ms === 10000 },
-  async pushScratchMain(i) { main = (i + (withheld ? 100 : 0)).toString(16).padStart(40, '0'); pending = false; return main },
+  async pushScratchMain(i, delayed) { withheld = delayed; main = (i + (withheld ? 100 : 0)).toString(16).padStart(40, '0'); pending = false; return main },
   async retryGitHubSync() { pending = true },
   async waitRebasePending(onto) { assert.equal(pending, true); assert.equal(onto, main); return { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' } },
   async pressRebaseNow() { assert.equal(pending, true); pending = false },
   async waitWriteHold() { assert.equal(pending, false) },
   async typeMarker(value) { marker = value },
   async waitRebased(onto) { assert.equal(onto, main); return { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice' } } },
-  async guestHold(id) { return { id, clock: 'guest monotonic:boot-1', start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 } },
+  async guestHold(id) { return { capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 } },
   async waitOutboxDrained(id) { assert.equal(id, main); assert.equal(withheld, true) },
   ...overrides
  }
@@ -89,9 +89,9 @@ test('rebase cannot drop a lost edit, automatic rebase, missing guest receipt or
  for (const overrides of [
   { waitRebasePending: async onto => ({ onto, state: 'pending', present: true, rebased: true }) },
   { waitRebased: async onto => ({ id: onto, onto, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto }], marker: { text: 'lost', member: 'Alice' } }) },
-  { guestHold: async id => ({ id, clock: 'guest monotonic:boot-1', start: 10, end: 2010 }) },
+  { guestHold: async id => ({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010 }) },
   { guestHold: async id => ({ id, clock: 'host monotonic', start: 10, end: 110 }) },
-  { guestHold: async id => ({ id, clock: 'guest monotonic:boot-1', start: 10, end: 110, acknowledgedBeforeThaw: true, localSnapshotQueued: true, withheldMs: 10000 }) }
+  { guestHold: async id => ({ id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: true, localSnapshotQueued: true, withheldMs: 10000 }) }
  ]) await assert.rejects(rebaseHold(rebaseBoundary(overrides)))
 })
 
@@ -103,7 +103,7 @@ test('rebase acknowledgement fixture restores ordinary delivery after cancellati
   pushScratchMain: async () => { throw new Error('cancelled push') }
  })
  await assert.rejects(rebaseHold(boundary), /cancelled push/)
- assert.deepEqual(windows, [0, 0])
+ assert.deepEqual(windows, [0])
 })
 
 
@@ -146,7 +146,7 @@ test('projection CLI refusal copies failed evidence into its check directory', a
 test('rebase failure retains prior samples and the failed attempt when cleanup also fails', async () => {
  let writes = 0, restores = 0
  const boundary = rebaseBoundary({
-  acknowledgementWindow: async () => { if (++restores > 1) throw new Error('cleanup unavailable') },
+  acknowledgementWindow: async () => { if (++restores > 3) throw new Error('cleanup unavailable') },
   waitWriteHold: async () => { if (++writes === 3) throw new Error('SSH disconnected') }
  })
  await assert.rejects(rebaseHold(boundary), error => {
@@ -165,7 +165,7 @@ test('rebase threshold and cleanup failures retain all completed raw observation
  const boundary = rebaseBoundary()
  const window = boundary.acknowledgementWindow
  boundary.acknowledgementWindow = async ms => {
-  if (++windows === 3) throw new Error('restore failed')
+  if (++windows === 201) throw new Error('restore failed')
   await window(ms)
  }
  await assert.rejects(rebaseHold(boundary), error => {
@@ -174,7 +174,7 @@ test('rebase threshold and cleanup failures retain all completed raw observation
   return true
  })
  await assert.rejects(rebaseHold(rebaseBoundary({
-  guestHold: async id => ({ id, clock: 'guest monotonic:boot-1', start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 })
+  guestHold: async id => ({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 })
  })), error => {
   assert.match(error.message, /each acknowledgement cohort/)
   assert.equal(error.samples.length, 200)
@@ -207,4 +207,30 @@ test('preflight cross-check aggregates paired durations from separate producer p
   assert.throws(() => summarizePreflights(samples.slice(1)), /100 samples/)
   assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, failed: true }))), /succeed/)
   assert.throws(() => summarizePreflights(samples.map(s => ({ ...s, preflight: { ...s.preflight, durationMs: -1 } }))), /invalid/)
+})
+
+import { configuration as rebaseConfiguration, run as rebaseProductionRun, verifyCaptureDelay } from './rebase-production.mjs'
+import { productionProviders } from './run.mjs'
+
+const rebaseEnv = { SMITHERS_PERF_REPOSITORY: 'team/scratch', SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/', SMITHERS_PERF_OWNER_COOKIE: 'session=secret; __csrf=csrf', SMITHERS_PERF_MEMBER_A: '/private/a.json', SMITHERS_PERF_BRANCH: '11111111-1111-4111-8111-111111111111', SMITHERS_PERF_TODO: '1', SMITHERS_PERF_INSTALL_VERSION: 'test', SMITHERS_PERF_REBASE_LOG: '/private/guest.jsonl', SMITHERS_PERF_SSH_IDENTITY: '/private/key', SMITHERS_PERF_SSH_DESTINATION: 'branch@mini.example' }
+
+test('production rebase provider is bound and refuses before machine workload without qualification', async () => {
+  assert.equal(typeof productionProviders['C-PERF-06'].measure, 'function')
+  const result = (await rebaseProductionRun(rebaseEnv)).result
+  assert.equal(result.status, 'failed')
+  assert.deepEqual(result.samples, [])
+  assert.match(result.error, /reference-network Mac required|authenticated lifecycle qualification unavailable/)
+})
+test('rebase production configuration pins public origin, credentials and unprivileged SSH', () => {
+  assert.equal(rebaseConfiguration(rebaseEnv).branch, rebaseEnv.SMITHERS_PERF_BRANCH)
+  for (const name of Object.keys(rebaseEnv)) assert.throws(() => rebaseConfiguration({ ...rebaseEnv, [name]: undefined }))
+  for (const change of [ { SMITHERS_PERF_PAGE: 'https://foreign.example/' }, { SMITHERS_PERF_TODO: '-1' }, { SMITHERS_PERF_SSH_DESTINATION: '-oProxyCommand=bad' }, { SMITHERS_PERF_OWNER_COOKIE: 'session=secret' } ]) assert.throws(() => rebaseConfiguration({ ...rebaseEnv, ...change }))
+})
+test('delayed capture binds the actual ACK to the guest event, boot and sequence', () => {
+  const capture = { event: 'a'.repeat(32), boot: 'b'.repeat(32), sequence: 123 }
+  const hold = { capture, acknowledgedBeforeThaw: false, localSnapshotQueued: true }
+  const receipt = { ...capture, state: 'acknowledged', withheld_ms: 10000 }
+  assert.equal(verifyCaptureDelay(receipt, hold), receipt)
+  for (const change of [{ event: 'c'.repeat(32) }, { boot: 'c'.repeat(32) }, { sequence: 124 }, { state: 'withheld' }, { withheld_ms: 9999 }]) assert.throws(() => verifyCaptureDelay({ ...receipt, ...change }, hold))
+  assert.throws(() => verifyCaptureDelay(receipt, { ...hold, acknowledgedBeforeThaw: true }))
 })

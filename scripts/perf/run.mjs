@@ -7,6 +7,7 @@ import { requireMachineQualification } from './lib/qualification.mjs'
 import { writeRun } from './lib/artifact.mjs'
 import { summarize, summarizeRebases } from './lib/stats.mjs'
 import { configuration as agentConfiguration, run as agentRun } from './agent-first-token.mjs'
+import { configuration as rebaseConfiguration, run as rebaseRun } from './rebase-production.mjs'
 import { configuration as projectionConfiguration, run as projectionRun } from './projection-delta.mjs'
 
 import { configuration as keystrokeConfiguration, run as keystrokeRun } from './keystroke.mjs'
@@ -39,6 +40,7 @@ export const budgets = [
 ]
 
 export const productionProviders = {
+  'C-PERF-06': machineProvider(rebaseConfiguration, rebaseRun, { writeHold: 'holdMs' }),
   'C-PERF-03': machineProvider(keystrokeConfiguration, keystrokeRun, { remoteCard: 'arrival_ms' }),
   'C-PERF-04': machineProvider(diskConfiguration, diskRun, { fileReload: 'arrival_ms' }),
   'C-PERF-05': machineProvider(wakeConfiguration, wakeRun, { awake: 'hostMs' }),

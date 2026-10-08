@@ -2371,6 +2371,49 @@ export type GetApiInstallMetricsResponse = {
 export const getApiInstallMetrics = (transport: Transport): Promise<GetApiInstallMetricsResponse> =>
   transport.request("GET", `/api/install/metrics`) as Promise<GetApiInstallMetricsResponse>
 
+export type GetApiInstallAckDelayResponse = {
+  id?: string
+  branch: string
+  boot?: string
+  event?: string
+  sequence?: number
+  state: "idle" | "armed" | "expired" | "cancelled" | "withheld" | "acknowledged" | "failed"
+  withheld_ms: number
+  expires_at: string
+}
+
+export interface GetApiInstallAckDelayInput {
+  readonly query: { readonly branch: string }
+}
+
+/** GET /api/install/ack-delay: Read a capture acknowledgement delay receipt */
+export const getApiInstallAckDelay = (transport: Transport, input: GetApiInstallAckDelayInput): Promise<GetApiInstallAckDelayResponse> =>
+  transport.request("GET", `/api/install/ack-delay${search({ branch: input.query.branch })}`) as Promise<GetApiInstallAckDelayResponse>
+
+export type PostApiInstallAckDelayBody = {
+  branch: string
+  delay_ms: 0 | 10000
+}
+
+export type PostApiInstallAckDelayResponse = {
+  id?: string
+  branch: string
+  boot?: string
+  event?: string
+  sequence?: number
+  state: "idle" | "armed" | "expired" | "cancelled" | "withheld" | "acknowledged" | "failed"
+  withheld_ms: number
+  expires_at: string
+}
+
+export interface PostApiInstallAckDelayInput {
+  readonly body: PostApiInstallAckDelayBody
+}
+
+/** POST /api/install/ack-delay: Arm or restore one capture acknowledgement delay */
+export const postApiInstallAckDelay = (transport: Transport, input: PostApiInstallAckDelayInput): Promise<PostApiInstallAckDelayResponse> =>
+  transport.request("POST", `/api/install/ack-delay`, input.body) as Promise<PostApiInstallAckDelayResponse>
+
 export type GetApiInstallScorecardResponse = InstallScorecard
 
 export interface GetApiInstallScorecardInput {

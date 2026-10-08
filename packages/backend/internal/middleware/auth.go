@@ -411,6 +411,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
 	{http.MethodDelete, "settings", regexp.MustCompile(`^/api/install/quiesce$`)},
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install/metrics$`)},
+	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install/ack-delay$`)},
+	{http.MethodPost, "settings", regexp.MustCompile(`^/api/install/ack-delay$`)},
 	{http.MethodPut, "model.assign", regexp.MustCompile(`^/api/model/default$`)},
 	{http.MethodGet, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
 	{http.MethodPost, "settings", regexp.MustCompile(`^/api/repo-connection$`)},
