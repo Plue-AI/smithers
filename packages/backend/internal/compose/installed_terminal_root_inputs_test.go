@@ -87,7 +87,7 @@ for p in (a, saved):
 (home / ".trm-race-done").write_text(str(count))
 `
 
-func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch string, ben http.CookieJar) {
+func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch string, ben, alice http.CookieJar) {
 	t.Helper()
 	// Repeat the HTTP root-input matrix with every real provider composed.
 	// Record the token high-water mark so concurrent cleanup cannot disguise
@@ -113,6 +113,8 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 	var minted int
 	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE id>$1 AND name LIKE 'terminal-session-%'`, highWater).Scan(&minted))
 	require.Zero(t, minted, "invalid native HTTP requests minted terminal credentials")
+	aliceObserver := installedMemberTerminal(t, h, branch, alice)
+	installedShell(t, aliceObserver, `mkdir -m 700 "$HOME/.trm-working-sentinel"; printf '#!/bin/sh\nprintf FOREIGN_COPY_EXECUTED\ntouch /home/alice/.trm-working-sentinel/executed\n' > "$HOME/.trm-working-sentinel/start"; chmod 700 "$HOME/.trm-working-sentinel/start"`)
 	a := installedMemberTerminal(t, h, branch, ben)
 	testInstalledTerminalAdmissionInputs(t, h, branch, a, "fresh")
 	installedShell(t, a, `test "$(id -u)" = 20001 && test ! -e "$HOME/.trm-profile-saved" && if test -e "$HOME/.bash_profile"; then mv "$HOME/.bash_profile" "$HOME/.trm-profile-saved"; fi`)
@@ -159,6 +161,8 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 	restarted := installedMemberTerminal(t, h, branch, ben)
 	installedShell(t, restarted, `test "$(id -u)" = 20001 && test "$(cat "$HOME/.trm-retained")" = retained-home && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-c-path")" && test ! -e "$(cat "$HOME/.trm-c-path")" && test -r "$SMITHERS_TOKEN_FILE" && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 6 && python3 /workspace/trm-startup.py restarted && rm "$HOME/.bash_profile" && if test -e "$HOME/.trm-profile-saved"; then mv "$HOME/.trm-profile-saved" "$HOME/.bash_profile"; fi`)
 	testInstalledTerminalAdmissionInputs(t, h, branch, restarted, "restarted")
+	aliceObserver = installedMemberTerminal(t, h, branch, alice)
+	installedShell(t, aliceObserver, `test ! -e "$HOME/.trm-working-sentinel/executed" && rm -rf "$HOME/.trm-working-sentinel"`)
 }
 
 // Exercise the installed member admission and real broker launcher, bypassing
@@ -253,6 +257,8 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 	testInstalledTerminalAdmissionControl(t, writer, branch)
 	testInstalledTerminalEnvironmentBoundaries(t, writer, branch, observer, phase)
 	testInstalledTerminalOpeningReplacement(t, writer, branch, observer, phase)
+	testInstalledTerminalWorkingCopySwaps(t, writer, branch, observer, phase)
+	testInstalledTerminalEmptyProcessSessions(t, writer, branch, observer, phase)
 	testInstalledTerminalTokenPaths(t, writer, branch, observer, phase)
 	testInstalledTerminalForeignTokenMutation(t, writer, branch, observer, phase)
 }
@@ -361,7 +367,7 @@ func testInstalledTerminalEnvironmentBoundaries(t *testing.T, writer microsandbo
 func TestInstalledTerminalStartupWorkload(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)
-	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace, installedTerminalSessionInventory, installedTerminalEnvironmentCanary} {
+	for i, script := range []string{installedTerminalStartupCanary, installedTerminalCredentialRace, installedTerminalSessionInventory, installedTerminalEnvironmentCanary, installedTerminalWorkingCopySwaps} {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
 			out, err := exec.CommandContext(t.Context(), python, "-c", "import sys; compile(sys.argv[1], '<terminal-acceptance>', 'exec')", script).CombinedOutput()
 			require.NoError(t, err, string(out))

@@ -125,6 +125,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
+	auth      *routes.AuthHandler
 	flowRuns  *services.InstallFlowRuns
 	user      *routes.UserHandler
 	mythical  *routes.MythicalHandler
@@ -162,7 +163,10 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	if deps.user == nil {
 		deps.user = &routes.UserHandler{}
 	}
-	authHandler := &routes.AuthHandler{}
+	authHandler := deps.auth
+	if authHandler == nil {
+		authHandler = &routes.AuthHandler{}
+	}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}

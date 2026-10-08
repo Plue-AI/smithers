@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -141,7 +142,20 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	}
 	// The installed member runtime seals the exact credential binding before
 	// broker spawn. Only its dropped-uid launcher reads the token and environment.
-	terminal, err := writer.OpenTerminal(ctx, row.ID, id, credential.identity, workspaceapi.Command{Args: []string{"/bin/bash", "-l"}, Environment: credential.environment()})
+	// Hold one credential snapshot until the broker replies. Renewal cannot
+	// replace the delegated file while startup still uses its old binding.
+	credential.mu.Lock()
+	terminal, err := writer.OpenTerminal(ctx, row.ID, id, credential.identity, workspaceapi.Command{Args: []string{"/bin/bash", "-l"}, Environment: map[string]string{"SMITHERS_TOKEN_FILE": credential.path, "SMITHERS_URL": credential.url}})
+	if err == nil {
+		// Token deletion through the API may finish while the broker is opening.
+		// A late reply must never publish a session under a retired credential.
+		token, tokenErr := db.New(credential.issuer.Members.Pool).GetAccessTokenByID(ctx, credential.tokenID)
+		if tokenErr != nil || token.TokenHash != credential.identity || !token.ExpiresAt.Valid || !token.ExpiresAt.Time.After(time.Now()) {
+			_ = terminal.Close()
+			err = pkgerrors.Unauthorized("terminal credential expired")
+		}
+	}
+	credential.mu.Unlock()
 	if err != nil {
 		credential.Close()
 		return nil, err

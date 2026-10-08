@@ -1282,3 +1282,41 @@ fn TestSessionRootInputsValidated() {
     assert_eq!(observed.resizes, [(id, 100, 30)]);
     assert_eq!(observed.signals, [(id, 2)]);
 }
+
+// Process liveness and session bookkeeping are distinct: an ended process
+// remains attributable until confirmed cleanup, and must not become a new
+// executable merely because its registry entry can still be read.
+#[test]
+fn registry_without_live_process_preserves_exit_and_confirmed_cleanup() {
+    let (mut supervisor, state) = setup();
+    roster(&mut supervisor);
+    let id = open(&mut supervisor, user(), Kind::Exec);
+    {
+        let mut kernel = state.lock().unwrap();
+        kernel.running.remove(&id);
+        kernel.exits.insert(id, Exit::Code(0));
+        kernel.outputs.insert((id, 1), vec![]);
+        kernel.outputs.insert((id, 2), vec![]);
+    }
+    for _ in 0..3 {
+        assert!(poll(&mut supervisor, 0).is_some());
+    }
+    assert!(poll(&mut supervisor, 0).is_none());
+    let response = control::handle(&packet(25, &[]), &mut supervisor).unwrap();
+    let entries: Vec<smithers_machined::broker::sessions::Entry> =
+        serde_json::from_slice(&response[5..]).unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].id, id);
+    assert!(entries[0].exited);
+    assert_eq!(entries[0].user, user());
+    assert!(state.lock().unwrap().running.is_empty());
+    supervisor.session(Request::KillUser(user())).unwrap();
+    let response = control::handle(&packet(25, &[]), &mut supervisor).unwrap();
+    let entries: Vec<smithers_machined::broker::sessions::Entry> =
+        serde_json::from_slice(&response[5..]).unwrap();
+    assert!(entries.is_empty());
+    assert_eq!(state.lock().unwrap().kills, vec![id]);
+    let next = open(&mut supervisor, user(), Kind::Exec);
+    assert!(next > id);
+    assert_eq!(state.lock().unwrap().spawns.len(), 2);
+}

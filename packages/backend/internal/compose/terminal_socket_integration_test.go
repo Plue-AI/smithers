@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -45,12 +46,13 @@ func (p observedOwnerTerminals) Open(ctx context.Context, id string, principal r
 // delegated issuer, admitted-link readiness and HTTP/socket routes are real.
 type terminalMemberRuntime struct {
 	*replacementRuntime
-	terminal *echoOwnerTerminal
-	branch   db.Workspace
-	member   microsandbox.MemberIdentity
-	prepared bool
-	opened   bool
-	admitted bool
+	terminal    *echoOwnerTerminal
+	branch      db.Workspace
+	member      microsandbox.MemberIdentity
+	prepared    bool
+	opened      bool
+	admitted    bool
+	beforeReply func(context.Context)
 }
 
 func (r *terminalMemberRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
@@ -92,11 +94,14 @@ func (r *terminalMemberRuntime) PutSessionToken(ctx context.Context, branch, id 
 }
 func (r *terminalMemberRuntime) StopService(context.Context, string, string) error { return nil }
 
-func (r *terminalMemberRuntime) OpenTerminal(_ context.Context, branch, id, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
+func (r *terminalMemberRuntime) OpenTerminal(ctx context.Context, branch, id, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
 	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current(id))) || command.Environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id) || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
 		return nil, fmt.Errorf("unbound session credential")
 	}
 	r.opened = true
+	if r.beforeReply != nil {
+		r.beforeReply(ctx)
+	}
 	return r.terminal, nil
 }
 
@@ -135,7 +140,7 @@ func TestTerminalUnavailableProvidersFailClosed(t *testing.T) {
 	testOwnerTerminalComposed(t, true)
 }
 
-func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
+func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool, pending ...string) {
 	t.Helper()
 	f := presenceInstall(t)
 	q := db.New(f.pool)
@@ -166,7 +171,9 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
 	cfg.Auth.SessionCookieName = "session"
 	cfg.Server.PublicURL = f.origin
 	cfg.Server.AllowedOrigins = []string{f.origin}
-	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
+	tokenAuth := services.NewAuthService(q, cfg.Auth, nil, nil, services.WithAuthRevocationPublisher(f.publish))
+	tokenAuth.Members = &services.Members{Pool: f.pool}
+	server.Config.Handler = hostStatusProductionRouter(cfg, q, nil, conformanceServices{pool: f.pool, terminal: handler, auth: &routes.AuthHandler{Service: tokenAuth, InstallSetup: &services.InstallSetupSessions{Pool: f.pool}, Origins: middleware.FixedOrigins(f.origin)}, user: &routes.UserHandler{TokenService: tokenAuth}, members: &routes.MembersHandler{Service: &services.Members{Pool: f.pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}})
 	server.Start()
 	defer server.Close()
 	postAs := func(body, cookie string) (int, []byte) {
@@ -272,10 +279,67 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
 	handler.OwnerTerminals = observedOwnerTerminals{provider, t}
 	status, body = post(fmt.Sprintf(`{"branch":%q,"owner":%d,"uid":0}`, f.row.ID, alice.ID))
 	require.Equal(t, 400, status, string(body))
+	var entered, release chan struct{}
+	if len(pending) > 0 {
+		entered, release = make(chan struct{}), make(chan struct{})
+		runtime.beforeReply = func(context.Context) { close(entered); <-release }
+		defer func() {
+			if release != nil {
+				close(release)
+			}
+		}()
+	}
 	status, body = post(fmt.Sprintf(`{"branch":%q}`, f.row.ID))
 	require.Equal(t, 202, status, string(body))
 	var opened struct{ ID string }
 	require.NoError(t, json.Unmarshal(body, &opened))
+	if len(pending) > 0 {
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("broker reply barrier was not reached")
+		}
+		require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
+		var tokenID int64
+		require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT id FROM access_tokens WHERE name=$1`, "terminal-session-"+opened.ID).Scan(&tokenID))
+		api := func(method, path, payload string) (int, []byte) {
+			req, err := http.NewRequest(method, server.URL+path, strings.NewReader(payload))
+			require.NoError(t, err)
+			req.Header.Set("Origin", f.origin)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-CSRF-Token", "csrf")
+			req.Header.Set("Cookie", "session="+f.cookie+"; __csrf=csrf")
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			raw, err := io.ReadAll(res.Body)
+			require.NoError(t, err)
+			return res.StatusCode, raw
+		}
+		var successorID int64
+		if pending[0] == "rotation" {
+			code, raw := api("POST", "/api/user/tokens", `{"name":"pending-successor","scopes":["read:user"]}`)
+			require.Equal(t, 201, code, string(raw))
+			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT id FROM access_tokens WHERE name='pending-successor'`).Scan(&successorID))
+		}
+		code, raw := api("DELETE", fmt.Sprintf("/api/user/tokens/%d", tokenID), "")
+		require.Equal(t, 204, code, string(raw))
+		close(release)
+		release = nil
+		require.NoError(t, branches.WaitForProvisioning(t.Context()))
+		require.Empty(t, manager.BranchTerminals(f.row.RepositoryID, f.row.ID))
+		require.False(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
+		require.Empty(t, runtime.current(opened.ID))
+		if successorID != 0 {
+			var count int
+			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE id=$1`, successorID).Scan(&count))
+			require.Equal(t, 1, count)
+		}
+		var status string
+		require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data->>'status' FROM product_job_events WHERE data->>'session'=$1 ORDER BY sequence DESC LIMIT 1`, opened.ID).Scan(&status))
+		require.Equal(t, "failed", status)
+		return
+	}
 	require.Eventually(t, func() bool { return len(manager.BranchTerminals(f.row.RepositoryID, f.row.ID)) == 1 }, 5*time.Second, time.Millisecond)
 	require.NoError(t, branches.WaitForProvisioning(t.Context()))
 	require.NotEmpty(t, opened.ID)
@@ -477,4 +541,11 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
 	require.False(t, manager.OwnsSubject(carol.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens WHERE user_id=$1`, carol.ID).Scan(&count))
 	require.Zero(t, count)
+}
+
+// SQL and the installed token API are real; only the guest reply is held.
+func TestTerminalPendingOpenTokenAPI(t *testing.T) {
+	for _, mode := range []string{"revocation", "rotation"} {
+		t.Run(mode, func(t *testing.T) { testOwnerTerminalComposed(t, false, mode) })
+	}
 }
