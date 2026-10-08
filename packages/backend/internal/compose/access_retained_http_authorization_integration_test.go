@@ -245,6 +245,103 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			})
 		}
 	}
+	// Admitted reads are qualified independently of the refusal sweep. A
+	// stored review item and the real install catalogs supply visible data;
+	// every full-profile person/app/external role must read the same subject.
+	var readNumber int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks)
+ VALUES($1,'todo','proposed','Retained read subject','Retained read subject',$2,$2,'[]','{}') RETURNING number`, repo.ID, ben.ID).Scan(&readNumber))
+	readCases := []struct{ command, path, shape string }{
+		{"agents.read", "/api/agents", "agents"},
+		{"agents.read", "/api/agents/planner", "planner"},
+		{"agents.read", "/api/agents/implementer", "implementer"},
+		{"agents.read", "/api/agents/reviewer", "reviewer"},
+		{"agents.read", "/api/agents/app", "app"},
+		{"flows.read", "/api/flows", "flows"},
+		{"flows.read", "/api/flows/todo", "todo-flow"},
+		{"todo.read", "/api/todos", "todos"},
+		{"todo.read", fmt.Sprintf("/api/todos/%d", readNumber), "todo"},
+		{"todo.read", "/api/stack", "stack"},
+		{"confirmations.read", "/api/confirmations", "confirmations"},
+	}
+	for _, cell := range readCases {
+		for _, cred := range credentials {
+			t.Run("admitted-read/"+cell.path+"/"+cred.name, func(t *testing.T) {
+				req := httptest.NewRequest("GET", r.origin+cell.path, nil)
+				req.RemoteAddr = "127.0.0.1:50999"
+				if cred.token != "" {
+					req.Header.Set("Authorization", "Bearer "+cred.token)
+				}
+				if cred.cookie != "" {
+					req.AddCookie(&http.Cookie{Name: cookieName, Value: cred.cookie})
+				}
+				var decisions []string
+				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
+				before, outboundBefore := snapshot(), githubMutations()
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, req)
+				require.Equal(t, 200, out.Code, out.Body.String())
+				require.Equal(t, []string{cell.command}, decisions)
+				require.NotContains(t, out.Body.String(), "never-disclose-campaign-secret")
+				require.NotContains(t, out.Body.String(), "person-secret")
+				switch cell.shape {
+				case "agents", "planner", "implementer", "reviewer", "app":
+					var value struct {
+						CanAssign bool `json:"canAssign"`
+						Agents    []struct {
+							ID string `json:"id"`
+						} `json:"agents"`
+					}
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &value))
+					var roles []string
+					for _, agent := range value.Agents {
+						roles = append(roles, agent.ID)
+					}
+					if cell.shape == "agents" {
+						require.Equal(t, []string{"planner", "implementer", "reviewer", "app"}, roles)
+					} else {
+						require.Equal(t, []string{cell.shape}, roles)
+					}
+					// Even the Owner's delegated agent cannot assign a model.
+					require.Equal(t, cred.user == owner.ID && cred.cookie != "", value.CanAssign)
+				case "flows":
+					var value []struct {
+						Name string `json:"name"`
+					}
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &value))
+					var names []string
+					for _, flow := range value {
+						names = append(names, flow.Name)
+					}
+					require.Contains(t, names, "todo")
+				case "todo-flow":
+					var value struct {
+						Name     string `json:"name"`
+						Versions []struct {
+							ID    string `json:"id"`
+							State string `json:"state"`
+						} `json:"versions"`
+					}
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &value))
+					require.Equal(t, "todo", value.Name)
+					require.NotEmpty(t, value.Versions)
+					require.Equal(t, "active", value.Versions[0].State)
+					require.NotEmpty(t, value.Versions[0].ID)
+				case "todos", "todo", "stack":
+					require.Contains(t, out.Body.String(), "Retained read subject", "read must reach the stored TODO")
+					var value any
+					require.NoError(t, json.Unmarshal(out.Body.Bytes(), &value))
+				case "confirmations":
+					// This install has no pending confirmations; even the Owner's
+					// delegated credential receives only its own empty collection.
+					require.JSONEq(t, `[]`, out.Body.String())
+				}
+				require.Equal(t, before, snapshot(), "an admitted read cannot mutate command-owned rows")
+				require.Equal(t, outboundBefore, githubMutations())
+				receipts = append(receipts, map[string]any{"command": cell.command, "credential": cred.name, "state": "active/full", "path": cell.path, "status": 200, "effects": 0, "decisions": decisions, "read_assertions": cell.shape})
+			})
+		}
+	}
 	// Qualify allowed management writes on real stored subjects for both
 	// eligible person roles. Each request binds exactly one decision, and no
 	// management write may create a confirmation or outbound GitHub mutation.
@@ -470,15 +567,15 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	require.Equal(t, 135, httpCommands)
-	require.Equal(t, 2059+44+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 2059+44+132+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 10, "admitted_reads": 6, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 10, "admitted_reads": 138, "http_policy_refusal_cells": 2087, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 196, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("HTTP campaign: %d commands, %d refusal cells, 10 admitted management effects and 6 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-16)
+	t.Logf("HTTP campaign: %d commands, %d refusal cells, 10 admitted management effects and 138 asserted reads; full admitted-effect matrix remains separate", httpCommands, len(receipts)-148)
 }
 
 // Catalog data is used only to measure coverage; it never supplies outcomes.
