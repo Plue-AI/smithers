@@ -78,14 +78,3 @@ Out:
 4. Decisions: smithers-b8 approves app/CLI hiding and docs deletion; smithers-06 approves visual removals; smithers-38 approves TS schemas/catalog; smithers-3f approves composition/CI/security; Will decides policy changes and smithers-8a resolves spec conflicts.
 5. Owner pre-review questions (review post hoc under Will’s 2026-10-03 directive; recorded answers stand): smithers-b8: Are all non-catalog shell/toast doors covered? Does CLI hiding preserve explicit --help? Are the billing cards restored from the correct prior source and all remaining TUI docs doors removed? smithers-06: Do the shell removals preserve the approved views? Do any changes require a design-owned View edit? smithers-38: Do deferred card kinds remain live? Does cuts.json preserve Cut/Defer/Hide distinctions? smithers-3f: Do install billing/tenant gates preserve Plue behavior? Does removing the docs lane leave the TUI build/test gates intact? Does any retained execution path weaken machine-only isolation?
 6. Security: visibility grants no authority; preserve tenant refusal, empty install commerce capabilities and credential/subject checks. User trigger-management routes stay unmounted; retained internal work refuses absent membership or system authority (C-ACC-01). Repository-code loading, builds, checks, docs generation and lockfile updates run only as an unprivileged machine user, never on the install host, with no host fallback (§1.3, §17.3, C-CUT-01). This ticket adds or changes no root step and permits no sudo; there are no root-consumed inputs to enumerate. Existing image provisioning is outside scope. smithers-3f reviews these security preconditions.
-
-## T-CAT-01 runtime reconciliation (2026-10-08)
-
-Hidden/deferred issue/review jobs and triggers remain required by mvp.md §14,
-but their executable placement still has to match Appendix C. The production
-coding host mounts Install-only repository inspection, jobs, execution,
-triggers, replies, delivery and changes. Preserve their machinery while the
-composition moves the Install work to its owning runtime. Do not delete kept
-machinery or mark Machine registrations as Install in an observer. See
-[T-CAT-01](T-CAT-01.md#runtime-reconciliation-2026-10-08-fr16-ca01) for the failed
-production inventory and Cut ownership split.
