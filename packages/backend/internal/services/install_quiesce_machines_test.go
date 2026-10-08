@@ -257,12 +257,20 @@ func TestInstallQuiesceAcceptsTheMachineService(t *testing.T) {
 	id := f.machine(t, f.owner, "smithers/todo-a", "running", "vm-a", strings.Repeat("a", 40))
 	quiesce := NewInstallQuiesce(&QuiesceGate{Store: InstallQuiesceStore{Pool: f.pool}, StateDir: t.TempDir()})
 
-	require.EqualError(t, quiesce.Available(), "quiesce unavailable: T-MCH-07 required")
+	missing := "quiesce unavailable: T-MCH-06 required\n" +
+		"quiesce unavailable: T-FLW-01 required\n" +
+		"quiesce unavailable: T-STK-04 required\n" +
+		"quiesce unavailable: T-COL-08 required\n" +
+		"quiesce unavailable: T-COL-09 required\n" +
+		"quiesce unavailable: T-GH-09 required\n" +
+		"quiesce unavailable: T-TRM-07 required\n" +
+		"quiesce unavailable: T-SEC-01 required"
+	require.EqualError(t, quiesce.Available(), "quiesce unavailable: T-MCH-07 required\n"+missing)
 	quiesce.Machines = f.service
-	require.EqualError(t, quiesce.Available(), "quiesce unavailable: T-MCH-06 required")
+	require.EqualError(t, quiesce.Available(), missing)
 
 	_, err := quiesce.Freeze(t.Context(), "backup-1", f.owner)
-	require.EqualError(t, err, "quiesce unavailable: T-MCH-06 required")
+	require.EqualError(t, err, missing)
 	var freezes int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
 	require.Zero(t, freezes)

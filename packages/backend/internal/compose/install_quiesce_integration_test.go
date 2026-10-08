@@ -103,6 +103,11 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 503, response.StatusCode)
 		require.Contains(t, string(body), "T-MCH-07 required")
+		// One owner preflight must name every absent authority, rather than
+		// hiding the persistence gaps behind the first missing machine hook.
+		for _, ticket := range []string{"T-MCH-06", "T-FLW-01", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+			require.Contains(t, string(body), "quiesce unavailable: "+ticket+" required")
+		}
 		var freezes int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
 		require.Zero(t, freezes)
@@ -113,6 +118,11 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 503, response.StatusCode)
 		require.Contains(t, string(body), "T-MCH-07 required")
+		// One owner preflight must name every absent authority, rather than
+		// hiding the persistence gaps behind the first missing machine hook.
+		for _, ticket := range []string{"T-MCH-06", "T-FLW-01", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
+			require.Contains(t, string(body), "quiesce unavailable: "+ticket+" required")
+		}
 		request, err := http.NewRequest("DELETE", "http://install/maintenance/quiesce", nil)
 		require.NoError(t, err)
 		response, err = client.Do(request)

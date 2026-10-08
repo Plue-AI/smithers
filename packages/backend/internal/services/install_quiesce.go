@@ -257,31 +257,35 @@ func (s *InstallQuiesce) Available() error {
 	if s == nil || s.Gate == nil || missingQuiesceProvider(s.Gate.Store) {
 		return errors.New("quiesce authority unavailable")
 	}
+	var missing []error
 	machines := s.Machines
-	if missingQuiesceProvider(machines) {
-		return &QuiesceDependencyError{"T-MCH-07"}
-	}
+	machineMissing := missingQuiesceProvider(machines)
 	switch machines.(type) {
-	case nil, UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
-		return &QuiesceDependencyError{"T-MCH-07"}
+	case UnavailableMachineQuiescer, *UnavailableMachineQuiescer:
+		machineMissing = true
 	}
-	// A composed machine provider can still lack capture or its runtime.
-	// Ask it now: finding out at the capture step would close admissions first.
-	if provider, ok := machines.(interface{ QuiesceAvailable() error }); ok && provider.QuiesceAvailable() != nil {
-		return &QuiesceDependencyError{"T-MCH-07"}
+	// A composed provider can still lack capture or its runtime. Check it
+	// before freezing, alongside the remaining composition requirements.
+	if !machineMissing {
+		if provider, ok := machines.(interface{ QuiesceAvailable() error }); ok {
+			machineMissing = provider.QuiesceAvailable() != nil
+		}
+	}
+	if machineMissing {
+		missing = append(missing, &QuiesceDependencyError{"T-MCH-07"})
 	}
 	if missingQuiesceProvider(s.Admission) {
-		return &QuiesceDependencyError{"T-MCH-06"}
+		missing = append(missing, &QuiesceDependencyError{"T-MCH-06"})
 	}
 	if missingQuiesceProvider(s.Host) {
-		return &QuiesceDependencyError{"T-FLW-01"}
+		missing = append(missing, &QuiesceDependencyError{"T-FLW-01"})
 	}
 	for _, ticket := range quiesceBarrierTickets {
 		if missingQuiesceProvider(s.Barriers[ticket]) {
-			return &QuiesceDependencyError{ticket}
+			missing = append(missing, &QuiesceDependencyError{ticket})
 		}
 	}
-	return nil
+	return errors.Join(missing...)
 }
 
 // Check runs all read-only barriers before any freeze, reporting each refusal.
