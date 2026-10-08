@@ -31,7 +31,8 @@ export const journeySpecs = [
   "branch-presence.spec.ts",
   "ssh-branch.spec.ts",
   "file-gone.spec.ts",
-  "file-intelligence.spec.ts"
+  "file-intelligence.spec.ts",
+  "install-origins.spec.ts"
 ] as const
 
 /** The journey specs this run leaves out: all of them, except the one SMITHERS_JOURNEY enables. */

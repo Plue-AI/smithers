@@ -19,7 +19,7 @@ const list = (spec: string, host: "local" | "production") => {
   })
 }
 
-for (const spec of ["home", "todo-from-issue", "todo-needs-you", "todo-evidence", "todo-merge", "todo-merge-order", "todo-placement", "flow-activation", "duplicate-launch", "github-j10/merge-on-github", "github-j10/merge-on-github-continuation", "github-j10/pr-shape", "github-j10/sync-health", "members"]) {
+for (const spec of ["home", "todo-from-issue", "todo-needs-you", "todo-evidence", "todo-merge", "todo-merge-order", "todo-placement", "flow-activation", "duplicate-launch", "github-j10/merge-on-github", "github-j10/merge-on-github-continuation", "github-j10/pr-shape", "github-j10/sync-health", "members", "install-origins"]) {
   for (const host of ["local", "production"] as const) test(`${spec} is discoverable on ${host} through the public runner`, () => {
     const result = list(spec, host)
     expect(result.error).toBeUndefined()
