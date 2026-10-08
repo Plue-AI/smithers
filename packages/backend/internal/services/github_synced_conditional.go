@@ -141,7 +141,7 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 			switch resource {
 			case GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments, gitHubReviewComments:
 			default:
-				if !gitHubIndividualPullResource(resource) && !gitHubPullFactResource(resource) {
+				if !gitHubIndividualPullResource(resource) && !gitHubIndividualIssueResource(resource) && !gitHubPullFactResource(resource) {
 					return page, errors.New("unsupported GitHub install stream")
 				}
 			}
@@ -170,6 +170,15 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 // Individual pull reads share the pull stream's transport and token scopes.
 func gitHubIndividualPullResource(resource string) bool {
 	number, ok := strings.CutPrefix(resource, "pulls/")
+	if !ok {
+		return false
+	}
+	n, err := strconv.ParseInt(number, 10, 64)
+	return err == nil && n > 0 && strconv.FormatInt(n, 10) == number
+}
+
+func gitHubIndividualIssueResource(resource string) bool {
+	number, ok := strings.CutPrefix(resource, "issues/")
 	if !ok {
 		return false
 	}

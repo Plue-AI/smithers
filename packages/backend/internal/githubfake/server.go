@@ -1102,6 +1102,8 @@ type PullAuthor struct {
 // Pull is a fixture PR receipt; all writes still pass through the App token
 // boundary and permanent write log.
 type Pull struct {
+	ClosedBy       *PullAuthor `json:"-"`
+	ClosedAt       *time.Time  `json:"closed_at"`
 	User           *PullAuthor `json:"user,omitempty"`
 	ID             int64       `json:"id"`
 	CreatedAt      time.Time   `json:"created_at"`

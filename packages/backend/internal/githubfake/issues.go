@@ -290,7 +290,7 @@ func (s *Server) issueList(r *http.Request, repo string) []any {
 
 func (s *Server) pullIssueJSON(p Pull) map[string]any {
 	return map[string]any{"id": p.ID, "number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
-		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt, "html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true),
+		"closed_by": p.ClosedBy, "closed_at": p.ClosedAt, "created_at": p.CreatedAt, "updated_at": p.UpdatedAt, "html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true),
 		"labels": labelsOf(s.labels[issueKey(p.Repository, p.Number)]), "pull_request": map[string]string{"html_url": p.HTMLURL}}
 }
 

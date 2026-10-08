@@ -995,10 +995,20 @@ export const createAppController = (
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
   ctx.onDispose(membersSeam.dispose)
   if (installHost) {
+    const membershipOwner = () => {
+      const identity = store.collections.identitySessions.get("identity")
+      return identity?.state === "signed-in" ? `${identity.login}:${identity.ownerRevision ?? identity.revision}:${identity.admin}:${identity.scopesPlain}` : undefined
+    }
+    let rosterOwner = membershipOwner()
     if (installSignedIn()) membersSeam.start()
     // Catalog authority must load without requiring a visit to Members or
     // Commands, and refresh when sign-in changes the authenticated viewer.
-    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => { if (installSignedIn()) { membersSeam.start(); void membersSeam.read() } })
+    const membershipIdentity = store.collections.identitySessions.subscribeChanges(() => {
+      const owner = membershipOwner()
+      if (owner === rosterOwner) return
+      rosterOwner = owner
+      if (owner !== undefined) { membersSeam.start(); void membersSeam.read() }
+    })
     ctx.onDispose(() => membershipIdentity.unsubscribe())
   }
   const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)

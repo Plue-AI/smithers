@@ -1158,7 +1158,10 @@ func TestJ10Rehearsal(t *testing.T) {
 		}
 		pr3 = v.PR.Number
 		writes := len(r.fake.Writes())
-		r.fake.UpdatePull(repo, pr3, func(p *githubfake.Pull) { p.State = "closed" })
+		r.fake.UpdatePull(repo, pr3, func(p *githubfake.Pull) {
+			p.State = "closed"
+			p.ClosedBy = &githubfake.PullAuthor{ID: 202, Login: "alice", Type: "User"}
+		})
 		if _, err = r.waitTodoWithin(t3, 2*time.Minute, "dropped"); err != nil {
 			return err
 		}
@@ -1177,7 +1180,30 @@ func TestJ10Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("T%d dropped: %q; no write to PR #%d", t3, reason, pr3)
 		return nil
 	})
-	r.pending("8 Dropped names who closed it", "GET /api/todos/{T3} reason", "'closed on GitHub by @alice': the closer is on the issue's closed_by, which the pulls stream does not carry", "T-GH-03", "closer-actor")
+	r.step("8 Dropped names who closed it", "GET /api/todos/{T3}; product_job_events", "closed on GitHub by @alice; one attributed event", "T-GH-03", func() error {
+		card, err := r.j10Card(t3)
+		if err != nil {
+			return err
+		}
+		var reason, actor string
+		if err := r.pool.QueryRow(r.ctx, `SELECT reason FROM mythical_items WHERE number=$1`, t3).Scan(&reason); err != nil {
+			return err
+		}
+		if reason != "closed on GitHub by @alice" {
+			return fmt.Errorf("closer projection: %q", reason)
+		}
+		if card.State != "dropped" {
+			return fmt.Errorf("close state: %q", card.State)
+		}
+		if err := r.pool.QueryRow(r.ctx, `SELECT data->'actor'->>'login' FROM product_job_events WHERE event_type='todo.github_dropped' AND data->>'n'=$1`, fmt.Sprint(t3)).Scan(&actor); err != nil {
+			return err
+		}
+		if actor != "alice" {
+			return fmt.Errorf("close actor: %q", actor)
+		}
+		r.actual = reason
+		return nil
+	})
 	r.step("8 Reopen restores it", "GitHub fake: reopen T3's PR → GET /api/todos/{T3}", "T3 back in review under the same PR", "T-GH-03", func() error {
 		if pr3 <= 0 {
 			return fmt.Errorf("blocked by row 8")

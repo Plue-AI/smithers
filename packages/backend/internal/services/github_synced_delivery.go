@@ -130,6 +130,16 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 	if resource == GitHubRepoMetadataPulls && !read.matches(row) {
 		return gitHubFetchUnavailable()
 	}
+	if resource == GitHubRepoMetadataPulls {
+		objects = append([]json.RawMessage(nil), objects...)
+		for i, object := range objects {
+			var err error
+			objects[i], err = s.pullCloser(ctx, row, object)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
 		// The registry row serializes batches for this repository. Recheck current
 		// provider authority after waiting before disclosing or changing cached data.

@@ -51,7 +51,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | composed-install: merged cards and fixes_issue true/false through production polling/completion; accepted-tree fixture, guest qualification pending | T-GH-03 |
 | C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | passed: install HTTP seam, 120 s boundary, pending/deduplicated Retry, usable Chat, recovery and installation refusal; backend/reference-host qualification separate | T-GH-07 |
 | C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
-| C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | composed-install Chromium: close, reopen, merge and reload; reference guest qualification pending | T-GH-03, T-STK-05, T-MCH-14 |
+| C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | composed-install Chromium: attributed close, reopen, merge and reload; reference guest qualification pending | T-GH-03, T-STK-05, T-MCH-14 |
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts), [review host-contract UI](../review-background.spec.ts) | browser-pass: explicit member/outsider HTTP fixtures, shared confirmed agent door, findings PR link and background/reload contract; composed HTTP isolated execution passes; Mac microVM qualification remains pending | T-FLW-13, T-MCH-06, T-REL-02 |
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | passing-ui-contract; reference-host-pending | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |

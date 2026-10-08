@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
@@ -236,11 +237,19 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...t
 				return err == nil && observed
 			}, 60*time.Second, 50*time.Millisecond)
 		} else {
-			fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
+			r.fake.UpdatePull("rehearsal-owner/app", 1, func(p *githubfake.Pull) {
+				p.State = "closed"
+				p.ClosedBy = &githubfake.PullAuthor{ID: 202, Login: "alice", Type: "User"}
+			})
 		}
 		hint("closed")
 		require.Eventually(t, func() bool { return cardState("dropped") }, 60*time.Second, 50*time.Millisecond)
 		if !smithersDrop {
+			var actor, reason string
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT reason FROM mythical_items WHERE number=$1`, filed.N).Scan(&reason))
+			require.Equal(t, "closed on GitHub by @alice", reason)
+			require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT data->'actor'->>'login' FROM product_job_events WHERE event_type='todo.github_dropped'`).Scan(&actor))
+			require.Equal(t, "alice", actor)
 			githubLifecycleBrowserPhase(t, r, filed.N, "dropped")
 		}
 		hint("closed")

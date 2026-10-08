@@ -169,4 +169,30 @@ func TestInstallPollingTenPullsThroughStackWorker(t *testing.T) {
 	require.Equal(t, 10, retainedReviews, "unregistered review owner retains every snapshot")
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE principal_id IN ('checks','reviews')`).Scan(&admitted))
 	require.Equal(t, 20, admitted, "check consumption preserves both streams' durable receipts")
+	// A real pull response has no closed_by. Its issue representation supplies
+	// the actor before the shared worker projects the HTTP TODO card.
+	f.low.Store(false)
+	f.upstream.UpdatePull("acme/app", 2, func(p *githubfake.Pull) {
+		p.State = "closed"
+		p.ClosedBy = &githubfake.PullAuthor{ID: 202, Login: "alice", Type: "User"}
+	})
+	f.clock.Add(45)
+	pass()
+	require.Eventually(t, func() bool {
+		for _, todo := range f.readTodos(t) {
+			if todo["n"] == float64(2) {
+				return todo["state"] == "dropped" && todo["note"] == "closed on GitHub by @alice"
+			}
+		}
+		return false
+	}, 10*time.Second, 20*time.Millisecond)
+	var actor []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor' FROM product_job_events WHERE event_type='todo.github_dropped'`).Scan(&actor))
+	require.JSONEq(t, `{"id":202,"login":"alice","type":"User"}`, string(actor))
+	f.clock.Add(45)
+	pass()
+	var drops int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_dropped'`).Scan(&drops))
+	require.Equal(t, 1, drops, "duplicate polls retain one attributed lifecycle event")
+
 }

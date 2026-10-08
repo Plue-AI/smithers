@@ -434,3 +434,69 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	hint()
 	require.Empty(t, stack.installPullHints.pending)
 }
+
+func TestGitHubPullCloserHTTPReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name, issue string
+		refused     bool
+		actor       string
+	}{
+		{"person", `{"number":7,"state":"closed","closed_at":"2026-10-05T10:01:00Z","closed_by":{"id":202,"login":"alice","type":"User"}}`, false, `{"id":202,"login":"alice","type":"User"}`},
+		{"deleted actor", `{"number":7,"state":"closed","closed_at":"2026-10-05T10:01:00Z","closed_by":null}`, false, `null`},
+		{"issue reopened during read", `{"number":7,"state":"open","closed_at":null}`, true, ""},
+		{"different close", `{"number":7,"state":"closed","closed_at":"2026-10-05T10:02:00Z","closed_by":{"login":"bob"}}`, true, ""},
+		{"wrong issue", `{"number":8,"state":"closed","closed_at":"2026-10-05T10:01:00Z","closed_by":{"login":"bob"}}`, true, ""},
+		{"read refused", "", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, pool, row := newFetchedFixture(t)
+			allowFetched(s)
+			var issueReads int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "Bearer minted-token", r.Header.Get("Authorization"))
+				switch r.URL.Path {
+				case "/repos/factory/app/pulls/7":
+					_, _ = w.Write([]byte(`{"id":707,"number":7,"title":"Change","state":"closed","closed_at":"2026-10-05T10:01:00Z","updated_at":"2026-10-05T10:01:00Z","merged_at":null,"head":{"sha":"head-1","ref":"smithers/change"}}`))
+				case "/repos/factory/app/issues/7":
+					issueReads++
+					require.Empty(t, r.Header.Get("If-None-Match"))
+					if tc.issue == "" {
+						w.WriteHeader(403)
+						return
+					}
+					_, _ = w.Write([]byte(tc.issue))
+				default:
+					t.Errorf("unexpected read %s", r.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+			client := NewGitHubUserReposService(db.New(pool), nil)
+			s.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(&recordingMinter{}))
+			err := s.pollInstallPull(t.Context(), row, 7)
+			require.Equal(t, 1, issueReads)
+			if tc.refused {
+				require.Error(t, err)
+				require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issues WHERE resource='pulls'`))
+				require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls'`))
+				return
+			}
+			require.NoError(t, err)
+			var actor []byte
+			require.NoError(t, pool.QueryRow(t.Context(), `SELECT payload->'object'->'closed_by' FROM product_job_requests WHERE principal_id='pulls'`).Scan(&actor))
+			require.JSONEq(t, tc.actor, string(actor))
+			require.NoError(t, s.pollInstallPull(t.Context(), row, 7))
+			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls'`))
+		})
+	}
+}
+
+func TestGitHubIndividualIssueResource(t *testing.T) {
+	for _, resource := range []string{"issues/1", "issues/9223372036854775807"} {
+		require.True(t, gitHubIndividualIssueResource(resource), resource)
+	}
+	for _, resource := range []string{"issues", "issues/0", "issues/01", "issues/-1", "issues/+1", "issues/1/events", "issues/1?state=closed", "issues/9223372036854775808", "pulls/1"} {
+		require.False(t, gitHubIndividualIssueResource(resource), resource)
+	}
+}

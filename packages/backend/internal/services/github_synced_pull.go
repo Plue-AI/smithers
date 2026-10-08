@@ -77,6 +77,12 @@ func (s *GitHubSyncedRepoService) pollInstallPullRead(ctx context.Context, row d
 	if err != nil {
 		return err
 	}
+	if !page.NotModified {
+		page.Body, err = s.pullCloser(ctx, row, page.Body)
+		if err != nil {
+			return err
+		}
+	}
 	var version string
 	err = pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
 		current, err := lockFetchedRepo(ctx, tx, row.ID)
@@ -196,4 +202,51 @@ func latestPullObservation(ctx context.Context, q db.DBTX, row db.GithubSyncedRe
 		return gitHubFetchedObject{}, gitHubFetchUnavailable()
 	}
 	return fact, nil
+}
+
+// GitHub carries closed_by on the issue representation, not the pull detail.
+// Read it before admitting the lifecycle receipt; a trailing/reopened issue
+// cannot attribute an older close. Null attribution remains an honest close.
+func (s *GitHubSyncedRepoService) pullCloser(ctx context.Context, row db.GithubSyncedRepo, raw json.RawMessage) (json.RawMessage, error) {
+	var pull struct {
+		Number   int64           `json:"number"`
+		State    string          `json:"state"`
+		MergedAt json.RawMessage `json:"merged_at"`
+		ClosedAt json.RawMessage `json:"closed_at"`
+	}
+	if err := json.Unmarshal(raw, &pull); err != nil {
+		return nil, err
+	}
+	if pull.State != "closed" || len(pull.MergedAt) > 0 && string(pull.MergedAt) != "null" {
+		return raw, nil
+	}
+	if !s.hasConditionalFetcher() {
+		return nil, gitHubFetchUnavailable()
+	}
+	fetch := s.conditionalFetcherFactory(row)
+	if fetch == nil {
+		return nil, gitHubFetchUnavailable()
+	}
+	page, err := fetch(ctx, "issues/"+strconv.FormatInt(pull.Number, 10), nil, "")
+	if err != nil {
+		return nil, err
+	}
+	var issue struct {
+		Number   int64           `json:"number"`
+		State    string          `json:"state"`
+		ClosedAt json.RawMessage `json:"closed_at"`
+		ClosedBy json.RawMessage `json:"closed_by"`
+	}
+	if page.NotModified || json.Unmarshal(page.Body, &issue) != nil || issue.Number != pull.Number || issue.State != "closed" || string(issue.ClosedAt) != string(pull.ClosedAt) {
+		return nil, GitHubRequestFailure(ctx, "GitHub close attribution trails the pull request")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return nil, err
+	}
+	delete(object, "closed_by")
+	if len(issue.ClosedBy) > 0 {
+		object["closed_by"] = issue.ClosedBy
+	}
+	return json.Marshal(object)
 }

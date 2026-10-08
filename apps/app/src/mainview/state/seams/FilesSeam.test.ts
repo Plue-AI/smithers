@@ -908,3 +908,28 @@ test.each([true, false])("/file pins the opened branch capture independently of 
     expect(requests).toEqual([`GET /api/branches/scratch%2Fmaya%2Fretry/files/src/retry.ts${sleeping ? `?at=${capture}` : ""}`])
   } finally { await controller.dispose() }
 })
+
+
+test("repeated session observations retain the roster without exhausting install requests", async () => {
+  let rosterReads = 0
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => {
+      if (String(input) === "/api/members") { rosterReads++; return json(200, INSTALL_MEMBERS) }
+      return json(404, { message: "not found" })
+    }
+  })
+  try {
+    await ready(store)
+    await settled()
+    const initial = rosterReads
+    expect(initial).toBeGreaterThan(0)
+    for (let observation = 0; observation < 20; observation++) store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
+    await settled()
+    expect(rosterReads).toBe(initial)
+    store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null })
+    await settled()
+    expect(rosterReads).toBeGreaterThan(initial)
+  } finally { await controller.dispose() }
+})

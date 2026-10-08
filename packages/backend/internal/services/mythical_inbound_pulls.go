@@ -30,10 +30,8 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 	}
 	var payload struct {
 		mythicalGitHubPull
-		ClosedAt *time.Time `json:"closed_at"`
-		ClosedBy *struct {
-			Login string `json:"login"`
-		} `json:"closed_by"`
+		ClosedAt *time.Time   `json:"closed_at"`
+		ClosedBy *gitHubActor `json:"closed_by"`
 	}
 	if json.Unmarshal(fetched.Object, &payload) != nil || payload.Number != fetched.Number || payload.Head.SHA == "" {
 		return nil, errors.New("invalid fetched pull fact")
@@ -299,7 +297,7 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				}
 			}
 			if decision.Event != "" {
-				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation})
+				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation, "actor": payload.ClosedBy})
 				if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_"+decision.Event, todoState(saved), data); err != nil {
 					return nil, err
 				}
