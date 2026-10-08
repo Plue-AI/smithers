@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -228,4 +229,34 @@ func TestTodoSteerCredentialReplay(t *testing.T) {
 	unchanged, _, _, _, err := prepareTodoSteer(session, item, input, by, nil, now)
 	require.Equal(t, "todo_control_unavailable", err.(*TodoControlError).Code)
 	require.Equal(t, item, unchanged)
+}
+
+// Retry-with-steer must be Queued even when the failed run never attached.
+// The durable retry fact fences its old runtime binding until new admission.
+func TestTodoFailedSteerQueuesNextAttempt(t *testing.T) {
+	for _, attached := range []bool{false, true} {
+		t.Run(fmt.Sprintf("attached=%t", attached), func(t *testing.T) {
+			item, input, ctx := steerFixture()
+			item.State = "blocked"
+			checks := mythicalChecksOf(item)
+			checks.RunAttached = attached
+			item.Checks = checks.encode()
+			next, feedback, deliver, replay, err := prepareTodoSteer(ctx, item, input, json.RawMessage(`{"kind":"person","person":{"id":"maya","name":"Maya","color_index":0}}`), map[string]string{"person": "maya"}, time.Unix(123, 0))
+			require.NoError(t, err)
+			require.False(t, deliver)
+			require.False(t, replay)
+			require.Equal(t, "queued", todoState(next))
+			require.True(t, todoRetryPending(next))
+			require.Equal(t, item.RequestRunID, next.RequestRunID)
+			require.Equal(t, item.Attempt, next.Attempt)
+			require.Equal(t, item.Attempt+1, feedback.Attempt)
+			saved := mythicalChecksOf(next)
+			require.Len(t, saved.Retries, 1)
+			require.Equal(t, todoRetry{Request: input.Request, Credential: "person", By: "maya", At: time.Unix(123, 0).UTC(), Attempt: item.Attempt + 1}, saved.Retries[0])
+			again, _, _, replay, err := prepareTodoSteer(ctx, next, input, nil, nil, time.Unix(124, 0))
+			require.NoError(t, err)
+			require.True(t, replay)
+			require.Equal(t, next, again)
+		})
+	}
 }

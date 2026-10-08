@@ -76,7 +76,11 @@ func newTodoLiteralInstall(t *testing.T, configure ...func(*services.MythicalSer
 		t.Helper()
 		path := cfg.Server.PublicURL + "/api/todos/1"
 		if len(suffix) > 0 {
-			path += "/" + suffix[0]
+			if strings.HasPrefix(suffix[0], "/") {
+				path = cfg.Server.PublicURL + suffix[0]
+			} else {
+				path += "/" + suffix[0]
+			}
 		}
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:51900"

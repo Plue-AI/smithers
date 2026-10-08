@@ -498,3 +498,14 @@ test("a held In review run offers Stop from the served fact; ended runs and run 
     }
   }
 })
+
+
+test("an absent run never offers Stop, including a legacy branch-wait snapshot", () => {
+  for (const state of ["working", "needs_you", "in_review"] as const) {
+    const { run: _, ...withoutRun } = fixtures.foreign_push.model
+    const h = mount({ ...withoutRun, state })
+    expect(h.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
+    h.props.onAction("todo.stop")
+    expect(h.dispatches).toEqual([])
+  }
+})

@@ -496,7 +496,7 @@ func TestJ3Rehearsal(t *testing.T) {
 		})
 		var kinds []string
 		for _, e := range entries {
-			kinds = append(kinds, e.Kind+" by "+e.Actor.Login+e.Actor.Agent)
+			kinds = append(kinds, fmt.Sprintf("%s by %s%s: %q", e.Kind, e.Actor.Login, e.Actor.Agent, e.Text))
 		}
 		r.actual = fmt.Sprintf("%d entries: %s", len(entries), strings.Join(kinds, ", "))
 		if err != nil {

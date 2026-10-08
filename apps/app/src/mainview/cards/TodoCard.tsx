@@ -76,7 +76,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" } })
   if (model.state === "paused" || model.pause) definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
   if (!model.pause && model.state !== "paused" && model.waits.every(wait => !["question", "approval"].includes(wait.kind))
-    && (model.run?.executing === true || model.run?.executing === undefined && (model.state === "working" || model.state === "needs_you" && model.waits.length > 0))) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
+    && (model.run?.executing === true || model.run !== undefined && model.run.executing === undefined && (model.state === "working" || model.state === "needs_you" && model.waits.length > 0))) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })

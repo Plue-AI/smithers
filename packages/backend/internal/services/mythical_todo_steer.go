@@ -444,6 +444,11 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 		}
 		attempt++
 		checks = mythicalChecksOf(next)
+		// Steer on a failed TODO is Retry with this input. Retain the same
+		// pending-attempt receipt as Retry so the old launch cannot project
+		// Starting or accept runtime callbacks before the new admission.
+		checks.Retries = append(checks.Retries, todoRetry{Request: input.Request, Credential: credential,
+			By: attribution["person"], At: now.UTC(), Attempt: attempt})
 	}
 	if !fenced {
 		next.CandidateVerified = false

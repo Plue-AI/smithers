@@ -62,7 +62,11 @@ for (const initialState of ["working", "in_review"] as const) test(`C-STK-03: St
   expect(model.run).toEqual(originalRun)
   expect(model.steps).toEqual(originalSteps)
   expect(model.evidence).toEqual(originalEvidence)
-  expect(writes.map(write => write.body)).toEqual([{ op: "stop" }, { op: "resume" }])
+  // Reload can reconnect an unacknowledged request using its original key.
+  // Each logical control has one key and every replay retains its body.
+  const controls = [...new Map(writes.map(write => [write.key, write.body])).values()]
+  expect(controls).toEqual([{ op: "stop" }, { op: "resume" }])
+  for (const write of writes) expect(write.body).toEqual(writes.find(first => first.key === write.key)!.body)
   expect(new Set(writes.map(write => write.key)).size).toBe(2)
   expect(writes.every(write => write.key.length > 0)).toBe(true)
 })

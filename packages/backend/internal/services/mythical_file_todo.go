@@ -131,6 +131,11 @@ func (s *MythicalService) fileTodoCommand(ctx context.Context, repositoryID, use
 	var item db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
+		// All TODO writers lock the stack before credentials and the shared
+		// request key. Creation must use that order too when racing feedback.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repositoryID); err != nil {
+			return err
+		}
 		if err := guardInstallTodoWrite(ctx, tx, repositoryID, userID); err != nil {
 			return err
 		}

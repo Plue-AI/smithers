@@ -71,3 +71,41 @@ test("C-STK-01: stop and resume preserve the TODO and a question refuses Stop", 
     await expect(card().getByRole("button", { name, exact: true })).toHaveCount(0)
   }
 })
+
+// This exercises the production app command/seam/card against a controlled
+// provider. The PostgreSQL/ingestion matrix proves the server's queue guard.
+test("C-STK-01: steering a failed TODO waits Queued for its next attempt", async ({ page }) => {
+  await issueTodoInstall(page)
+  const model: TodoCard = structuredClone(fixtures.failed.model)
+  model.n = 4
+  const branch = structuredClone(model.branch)
+  const evidence = structuredClone(model.evidence)
+  const writes: unknown[] = []
+  let release!: () => void
+  const request = new Promise<void>(resolve => { release = resolve })
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/4", async route => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: model })
+    writes.push(route.request().postDataJSON())
+    await request
+    model.state = "queued"
+    delete model.failure
+    return route.fulfill({ status: 202, json: { state: "accepted", attempt: 2 } })
+  })
+  await page.goto("/")
+  await say(page, "/todo T4")
+  const card = page.getByRole("article", { name: "TODO T4" }).last()
+  await expect(card.locator("header .state")).toContainText("Failed")
+  await say(page, "/todo.steer T4 Use the smaller change")
+  await expect.poll(() => writes.length).toBe(1)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await expect(card.locator("header .state")).toContainText("Failed")
+  release()
+  await expect(card.locator("header .state")).toContainText("Queued")
+  expect(writes).toEqual([{ steer: "Use the smaller change" }])
+  expect(model.branch).toEqual(branch)
+  expect(model.evidence).toEqual(evidence)
+  await page.reload()
+  await say(page, "/todo T4")
+  await expect(page.getByRole("article", { name: "TODO T4" }).last().locator("header .state")).toContainText("Queued")
+})
