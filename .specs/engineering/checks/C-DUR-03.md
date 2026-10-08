@@ -72,3 +72,16 @@ The nightly fault runner requires a subtest-bound marker for every one of these
 39 crossings, including steps 4–6. Parent or sibling markers cannot qualify an
 unreached crossing. Its finite aggregate budget scales with the case count;
 each production recovery still must settle within the same 60-second limit.
+
+Each crossing must also emit exactly one final, subtest-bound recovery
+observation after its assertions. The nightly runner checks effective writes
+and successful settlement facts against committed literal counts, including
+zero settlement facts for foreign pushes and refused merges. A kill marker
+without this final observation cannot qualify recovery; parent or sibling
+observations cannot supply it.
+
+Merge preparation acknowledges the published proposal through the original
+run's authenticated `stack.propose` request and requires the served Merge state
+to be `ready` before recording the person's approval. Replaying that completed
+proposal after recovery returns its stored head receipt without a second
+completion fact or publication request.

@@ -195,10 +195,31 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					if kind != "push" && kind != "open" {
 						wake()
 						prepared := githubKillWorker(t, r, r.fake.URL, r.repositoryRoot, 90*time.Second)
+						defer prepared.close()
 						_, err := r.waitTodoWithin(number, 60*time.Second, "in_review")
-						prepared.close()
 						require.NoError(t, err, prepared.output())
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pr_number,pr_head FROM mythical_items WHERE number=$1 AND state='proposed'`, number).Scan(&pr, &published))
+						if kind == "merge" {
+							// Publication alone is not the composition's acknowledgement.
+							// The retained caller must observe stack.propose's settled
+							// receipt before a person can merge. Use the original run's
+							// authenticated production door, never clear proposal_run in SQL.
+							request, err := http.NewRequest("POST", r.origin+path, strings.NewReader(body))
+							require.NoError(t, err)
+							request.Header.Set("Authorization", bearer)
+							request.Header.Set("Content-Type", "application/json")
+							response, err := http.DefaultClient.Do(request)
+							require.NoError(t, err)
+							receipt, err := io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, http.StatusOK, response.StatusCode, string(receipt))
+							require.JSONEq(t, fmt.Sprintf(`{"generation":%d,"head":%q}`, generation, published), string(receipt))
+							card, err := r.todo(number)
+							require.NoError(t, err)
+							require.Equal(t, "ready", card.Merge.State, "Merge waits for the production proposal acknowledgement")
+						}
+						prepared.close()
 					}
 					switch kind {
 					case "merge":
@@ -635,6 +656,21 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							require.Len(t, projection.Waits, 1)
 							require.Equal(t, "foreign_push", projection.Waits[0].Kind)
 						}
+						writes := 0
+						for _, write := range r.fake.Writes()[before:] {
+							if targetWrite(&http.Request{Method: write.Method, URL: &url.URL{Path: write.Path}}) {
+								writes++
+							}
+						}
+						expectedWrites := 0
+						if point == "remote-success" {
+							expectedWrites = 1
+						}
+						require.Equal(t, expectedWrites, writes, "refused recovery retains only a write already applied before the kill")
+						var settled int64
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.github_operation_settled' AND payload->>'n'=$1 AND payload->'operation'->>'kind'=$2`, fmt.Sprint(number), kind).Scan(&settled))
+						require.Zero(t, settled, "conflict or refusal is not successful settlement")
+						t.Logf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d,\"settlementFacts\":%d}", scenario, point, writes, settled)
 						return
 					}
 					require.Eventually(t, func() bool {
@@ -774,6 +810,13 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					writesBeforeReplay := len(r.fake.Writes())
 					var requestsBeforeReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
+					var completionsBeforeReplay int
+					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed' AND payload->>'n'=$1`, fmt.Sprint(number)).Scan(&completionsBeforeReplay))
+					if kind == "merge" {
+						require.Equal(t, 1, completionsBeforeReplay, "Merge follows the caller's durable proposal acknowledgement")
+					} else {
+						require.Equal(t, 0, completionsBeforeReplay)
+					}
 					replayStatus := http.StatusOK
 					acceptedHead := published
 					if acceptedHead == "" {
@@ -783,9 +826,6 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						// Current authorization rejects an ended attempt, including
 						// an original accepted request. Replay cannot revive its grant.
 						replayStatus = http.StatusForbidden
-					}
-					if kind == "merge" && !(mergeRefusal && point != "remote-success") {
-						replayStatus = http.StatusConflict
 					}
 					if mergeRefusal && point == "potentially-sent" {
 						replayStatus = http.StatusAccepted
@@ -805,8 +845,6 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							require.JSONEq(t, `{"class":"permission","code":"permission","message":"Not your confirmation"}`, string(raw))
 						} else if mergeRefusal && point == "potentially-sent" {
 							require.JSONEq(t, `{}`, string(raw), "an uncertain merge fence accepts no new proposal work")
-						} else if replayStatus == http.StatusConflict {
-							require.JSONEq(t, `{"code":"conflict","class":"conflict","fault":"user","message":"TODO is closed"}`, string(raw))
 						} else {
 							require.JSONEq(t, fmt.Sprintf(`{"generation":%d,"head":%q}`, generation, acceptedHead), string(raw), "settled proposal returns its published head receipt")
 						}
@@ -815,7 +853,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfterReplay))
 					expectedRequests := requestsBeforeReplay
 					if replayStatus == http.StatusOK {
-						expectedRequests++ // one completion fact, never new publication work
+						expectedRequests += int64(1 - completionsBeforeReplay) // one completion fact, never new publication work
 						var completionFacts int
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='stack.propose.completed' AND payload->>'n'=$1`, fmt.Sprint(number)).Scan(&completionFacts))
 						require.Equal(t, 1, completionFacts, "three replays seal exactly one proposal completion")
@@ -866,7 +904,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						}
 						require.Equal(t, 1, closes, "one compensating close after late PR recovery")
 					}
-					t.Logf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d}", scenario, point, expectedWrites)
+					t.Logf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d,\"settlementFacts\":%d}", scenario, point, writes, settled)
 				})
 			})
 		}

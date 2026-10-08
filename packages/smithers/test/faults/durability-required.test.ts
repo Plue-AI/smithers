@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { requireReachedGoFaultMatrix } from "./harness/durability.ts"
-import { githubCrossings, githubPoints } from "./harness/githubFaultMatrix.ts"
+import { githubCrossings, githubPoints, requireGitHubRecoveryObservations } from "./harness/githubFaultMatrix.ts"
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url))
 const backend = `${root}packages/backend`
@@ -76,5 +76,6 @@ for (const [check, file, name, points] of selected) {
     expect(result.status, "Go fault process exited unsuccessfully").toBe(0)
     requireReachedGoFaultMatrix(result.stdout, evidenceNames, points,
       name === "TestRebaseCrashThroughDispatcher" ? ["people-present", "people-absent"] : [])
+    if (githubControl) requireGitHubRecoveryObservations(result.stdout)
   }, file === "internal/compose/github_outbound_kill_test.go" ? (githubRunMinutes + 1.5) * 60_000 : check === "C-DUR-02" ? 2_730_000 : name === "TestTodoStartPauseResumeCrashThroughRoutes" ? 780_000 : 180_000)
 }
