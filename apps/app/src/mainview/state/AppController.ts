@@ -2728,6 +2728,7 @@ export const createAppController = (
     runs.resumeRunListRequests()
     runs.resumeRunOpenRequests()
   })
+  if (installHost && installSignedIn() && !setupEntry) queueMicrotask(() => { if (!ctx.disposed) void installSeam.showSetup() })
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
