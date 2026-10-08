@@ -1,57 +1,41 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { ISSUE_REPO, issueTodoInstall } from "./issue-todo-fixture"
+import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
+import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
-// UI projection of .specs/engineering/checks/C-J8-05.md.
-// Written before implementation: mvp.md J8.2–J8.3, §12 item 1, §6.11; lands with T-FLW-10, T-COL-09
-test("C-J8-05: the next webhook plan follows the co-edited decision", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J8.2–J8.3, §12 item 1, §6.11; lands with T-FLW-10, T-COL-09")
-// Seed an independent canary for each repeat with both retry helpers and r1.
-// Three real-model reference-host runs prove selection/digests, not this UI double.
-  await owner(page)
-  await page.route('**/api/user', route => route.fulfill({ json: { id: 1, username: 'ben', is_admin: false } }))
-  await page.goto('/smithers-mvp-canary/node')
-  await say(page, '/todo.new')
-  await page.getByLabel('Title', { exact: true }).fill('Retry webhooks')
-  await page.getByLabel('Prompt', { exact: true }).fill('Retry failed webhook deliveries in deliver.ts')
-  await page.getByRole('button', { name: 'Commit', exact: true }).last().press('Enter')
-  await page.getByRole('button', { name: 'Inspect', exact: true }).last().press('Enter')
-  await page.getByRole('button', { name: 'Plan', exact: true }).last().press('Enter')
-  const plan = page.getByRole('region', { name: /Selected step/ }).last()
-  await expect(plan).toContainText('retryExponential')
-  await expect(plan).not.toContainText('retryFixed')
-  await expect(plan.getByRole('link', { name: /webhook-retries.*r1/ })).toBeVisible()
-  await say(page, '/todo.drop T1')
-  await page.getByRole('button', { name: 'Drop', exact: true }).last().press('Enter')
-  const alice = await page.context().browser()!.newContext()
-  const other = await alice.newPage()
-  try {
-    await owner(other)
-    await other.route('**/api/user', route => route.fulfill({ json: { id: 2, username: 'alice', is_admin: false } }))
-    await other.goto('/smithers-mvp-canary/node')
-    await say(page, '/wiki.page decisions/webhook-retries')
-    await say(other, '/wiki.page decisions/webhook-retries')
-    const decision = 'Decision: webhook redelivery uses retryFixed(5000). retryExponential() is not used for webhooks. Reason: the provider’s idempotency window.'
-    await other.getByRole('textbox', { name: /Webhook retries/i }).last().fill(decision)
-    await expect(page.getByRole('textbox', { name: /Webhook retries/i }).last()).toHaveValue(decision)
-    await page.getByRole('textbox', { name: /Webhook retries/i }).last().press('Control+End')
-    await page.keyboard.type(' Preserve delivery IDs.')
-    await expect(other.getByRole('textbox', { name: /Webhook retries/i }).last()).toHaveValue(/Preserve delivery IDs/)
-    await expect(page.getByText('r2', { exact: true }).last()).toBeVisible()
-    await say(page, '/todo.new')
-    await page.getByLabel('Title', { exact: true }).fill('Retry webhooks')
-    await page.getByLabel('Prompt', { exact: true }).fill('Retry failed webhook deliveries in deliver.ts')
-    await page.getByRole('button', { name: 'Commit', exact: true }).last().press('Enter')
-    await expect(page.getByText('In review', { exact: true }).last()).toBeVisible()
-    await page.getByRole('button', { name: 'Inspect', exact: true }).last().press('Enter')
-    await page.getByRole('button', { name: 'Plan', exact: true }).last().press('Enter')
-    await expect(plan).toContainText('retryFixed')
-    await expect(plan).not.toContainText('retryExponential')
-    await expect(plan.getByRole('link', { name: /webhook-retries.*r2/ })).toBeVisible()
-    await expect(plan.getByRole('link', { name: /webhook-retries.*r1/ })).toHaveCount(0)
-    await say(page, '/diff T2')
-    const diff = page.getByRole('region', { name: /Diff/ }).last()
-    await expect(diff).toContainText('deliver.ts')
-    await expect(diff).toContainText('retryFixed(5000)')
-    await expect(diff).not.toContainText('retryExponential(')
-  } finally { await alice.close() }
+// Exact-revision browser projection. Real co-editing, decision following and
+// three fresh-install model runs remain in real/wiki-decision-follow.spec.ts.
+test("C-J8-05: older and newer TODO cards open their own decision revision", async ({ page }) => {
+  await issueTodoInstall(page)
+  const models: TodoCard[] = [1, 2].map(n => ({
+    ...structuredClone(fixtures.queued.model), n, title: "Retry webhook deliveries",
+    state: n === 1 ? "dropped" : "in_review", queue: undefined,
+    evidence: [{ attempt: 1, revision: n === 1 ? "control" : "next", items: [{
+      kind: "wiki", slug: "decisions/webhook-retries", pageID: "42", revision: n,
+      digest: n === 1 ? "04cbfadd98b29ef5b7d4bf6b05c09fd6cf7eb1c3e63c066d99f28694518cd2b3" : "f7460cf359d890c3e25b8dc685f3aff14c5d72bc4fbc9cddf804c049498afc12",
+      url: `/api/repos/${ISSUE_REPO}/wiki/history/42/${n}/content?visibility=public`
+    }] }]
+  }))
+  await page.route("**/api/todos", route => route.fulfill({ json: models }))
+  for (const model of models) await page.route(`**/api/todos/${model.n}`, route => route.fulfill({ json: model }))
+  await page.goto(`/${ISSUE_REPO}`)
+  for (const [n, body] of [[1, "Decision: webhook redelivery uses `retryExponential()`. Reason: provider rate limits."], [2, "Decision: webhook redelivery uses `retryFixed(5000)`. `retryExponential()` is not used for webhooks. Reason: the provider's idempotency window."]] as const) {
+    await say(page, `/todo T${n}`)
+    const card = page.getByRole("article", { name: `TODO T${n}`, exact: true }).last()
+    await expect(card).toBeVisible()
+    const link = card.getByRole("link", { name: `decisions/webhook-retries · r${n}`, exact: true })
+    const path = `/api/repos/${ISSUE_REPO}/wiki/history/42/${n}/content`
+    await expect(link).toHaveAttribute("href", `${path}?visibility=public`)
+    await expect(card.getByRole("link", { name: `decisions/webhook-retries · r${n === 1 ? 2 : 1}`, exact: true })).toHaveCount(0)
+    await page.route(`**${path}?visibility=public`, route => route.fulfill({ contentType: "text/plain", body }))
+    const response = page.waitForResponse(r => new URL(r.url()).pathname === path)
+    await link.press("Enter")
+    expect(await (await response).text()).toBe(body)
+    await page.goBack()
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    await say(page, `/todo T${n}`)
+    await expect(card).toBeVisible()
+  }
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })

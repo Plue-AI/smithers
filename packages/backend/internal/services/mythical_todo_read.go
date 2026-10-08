@@ -544,11 +544,12 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	var plan struct {
 		WikiCitations []planWikiCitation `json:"wikiCitations"`
 	}
-	// A pinned composition records its plan with its candidate. Admission
-	// retains the previous plan for history, but a new run has not used its
-	// citations until it submits a new candidate and plan together. Legacy
-	// request runs can record their plan before separate delivery begins.
-	if (!item.FlowDigest.Valid || item.CandidateHead != "") && json.Unmarshal(item.Plan, &plan) == nil {
+	// Candidate evidence owns its submitted plan. Before candidate admission,
+	// the completed planner's receipt must bind this exact attempt and run;
+	// Retry retains the previous plan as input, not as newly cited evidence.
+	currentPlan := checks.PlanReceipt != nil && checks.PlanReceipt.Attempt == item.Attempt &&
+		checks.PlanReceipt.RunID != "" && checks.PlanReceipt.RunID == item.RequestRunID
+	if (!item.FlowDigest.Valid || item.CandidateHead != "" || currentPlan) && json.Unmarshal(item.Plan, &plan) == nil {
 		for _, citation := range plan.WikiCitations {
 			if citation.Slug == "" || citation.Revision < 1 || !wikiCitationPageID.MatchString(citation.PageID) || !wikiCitationDigest.MatchString(citation.Digest) {
 				continue

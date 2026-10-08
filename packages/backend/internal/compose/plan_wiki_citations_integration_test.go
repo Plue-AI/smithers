@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,6 +79,46 @@ func TestPlanWikiCitationsComposedTodoRoute(t *testing.T) {
 	require.Equal(t, "/api/repos/wiki-owner/app/wiki/history/42/3/content?visibility=public", card.Evidence[0].Items[0].URL)
 	require.Equal(t, 7, card.Evidence[1].Items[0].Revision)
 	require.Equal(t, "/api/repos/wiki-owner/app/wiki/history/42/7/content?visibility=public", card.Evidence[1].Items[0].URL)
+
+	// The plan step can finish well before a candidate exists. Only its own
+	// attempt/run receipt may expose citations, never retained Retry input.
+	for _, tc := range []struct {
+		name    string
+		receipt string
+		current bool
+	}{
+		{"no receipt", `null`, false},
+		{"earlier attempt", `{"attempt":1,"runId":"current-run","cursor":{"sequence":1}}`, false},
+		{"other run", `{"attempt":2,"runId":"old-run","cursor":{"sequence":1}}`, false},
+		{"empty run", `{"attempt":2,"runId":"","cursor":{"sequence":1}}`, false},
+		{"current planner", `{"attempt":2,"runId":"current-run","cursor":{"sequence":1}}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2,candidate_head='',request_run_id='current-run',checks=jsonb_set(checks,'{planReceipt}',$3::jsonb) WHERE repository_id=$1`, repo.ID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", tc.receipt)
+			require.NoError(t, err)
+			request := httptest.NewRequest("GET", "http://smithers.test/api/todos/"+strconv.FormatInt(filed.Number, 10), nil)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "wiki-browser"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, 200, response.Code, response.Body.String())
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &card))
+			require.Len(t, card.Evidence, 2)
+			require.Equal(t, 3, card.Evidence[0].Items[0].Revision, "earlier attempt remains readable")
+			currentCitations := 0
+			for _, item := range card.Evidence[1].Items {
+				if item.Kind == "wiki" {
+					currentCitations++
+					require.Equal(t, 7, item.Revision)
+					require.Equal(t, "/api/repos/wiki-owner/app/wiki/history/42/7/content?visibility=public", item.URL)
+				}
+			}
+			if tc.current {
+				require.Equal(t, 1, currentCitations)
+			} else {
+				require.Zero(t, currentCitations)
+			}
+		})
+	}
 }
 
 // C-J8-04 reference-host plan step. This shares the install, authenticated
@@ -111,9 +152,23 @@ func TestPlanWikiCitationsReferenceHost(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &page))
 	require.EqualValues(t, 1, page.Revision)
 	require.Equal(t, digest, page.Digest)
+	// A real completed plan followed by the existing no-proposal watchdog
+	// refusal gives Retry a failed TODO without injecting a run or plan row.
+	// The override still calls the shipped Request (route + plan), on the VM.
+	_, pinned := activateWatchdogOverride(t, r, `import { Request, RequestInput, StackBase } from "@smthrs/coding"
+import { Flow } from "@smthrs/flow"
+import { Schema } from "effect"
+export default Flow.make("todo", {
+ description: "Plan then stop before proposal", capabilities: ["*"], modelInvocable: false,
+ effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
+ payload: Schema.Struct({ ...RequestInput.fields, base: StackBase }),
+ success: Request.successSchema, error: Request.errorSchema,
+ body: (input) => Request.child(input)
+})
+`)
 	plan := func(n int64, revision int64, digest string) json.RawMessage {
 		t.Helper()
-		_, err := r.waitTodoWithin(n, 8*time.Minute, "in_review")
+		_, err := r.waitTodoWithin(n, 8*time.Minute, "failed")
 		require.NoError(t, err)
 		card, err := r.expect("GET", "/api/todos/"+strconv.FormatInt(n, 10), "", 200)
 		require.NoError(t, err)
@@ -189,4 +244,101 @@ func TestPlanWikiCitationsReferenceHost(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "first-attempt.json"), before, 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "edited-attempt.json"), after, 0600))
 	require.NoError(t, r.drop(next))
+
+	retryNumber, err := r.file("Retry a plan after a decision edit", "[FILE JOURNEY.md] Retry failed webhook deliveries. Follow retry-policy.")
+	require.NoError(t, err)
+	readFailedPlan := func(revision int64, expectedDigest string) (json.RawMessage, json.RawMessage) {
+		t.Helper()
+		failed, err := r.waitTodoWithin(retryNumber, 8*time.Minute, "failed")
+		require.NoError(t, err)
+		require.NotNil(t, failed.FlowVersion)
+		require.Equal(t, pinned, failed.FlowVersion.Digest)
+		card, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", retryNumber), "", 200)
+		require.NoError(t, err)
+		var projection struct {
+			Failure struct {
+				Retryable bool `json:"retryable"`
+			} `json:"failure"`
+		}
+		require.NoError(t, json.Unmarshal(card, &projection))
+		require.True(t, projection.Failure.Retryable, string(card))
+		var fault string
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'fault'->>'tag' FROM mythical_items WHERE number=$1`, retryNumber).Scan(&fault))
+		require.Equal(t, "no_proposal", fault)
+		var receipt json.RawMessage
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT plan FROM mythical_items WHERE number=$1`, retryNumber).Scan(&receipt))
+		var recorded struct {
+			Citations []struct {
+				Slug     string `json:"slug"`
+				Revision int64  `json:"revision"`
+				Digest   string `json:"digest"`
+			} `json:"wikiCitations"`
+		}
+		require.NoError(t, json.Unmarshal(receipt, &recorded))
+		require.Len(t, recorded.Citations, 1)
+		require.Equal(t, "retry-policy", recorded.Citations[0].Slug)
+		require.Equal(t, revision, recorded.Citations[0].Revision)
+		require.Equal(t, expectedDigest, recorded.Citations[0].Digest)
+		return receipt, card
+	}
+	priorReceipt, priorCard := readFailedPlan(2, editedDigest)
+	payload, err = json.Marshal(map[string]any{"body": body, "expected_revision": 2})
+	require.NoError(t, err)
+	_, err = r.expect("PATCH", api+"/retry-policy", string(payload), 200)
+	require.NoError(t, err)
+	// Editing the page must not rewrite the completed plan's captured context.
+	var unchanged json.RawMessage
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT plan FROM mythical_items WHERE number=$1`, retryNumber).Scan(&unchanged))
+	require.JSONEq(t, string(priorReceipt), string(unchanged))
+	for range 2 {
+		status, _, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", retryNumber), `{"op":"retry"}`, "wiki-plan-retry")
+		require.NoError(t, err)
+		require.Equal(t, 202, status)
+	}
+	// Await the new attempt before interpreting its terminal projection.
+	require.Eventually(t, func() bool {
+		var attempt int
+		return r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, retryNumber).Scan(&attempt) == nil && attempt == 2
+	}, 2*time.Minute, 100*time.Millisecond)
+	newReceipt, newCard := readFailedPlan(3, digest)
+	var history struct {
+		Evidence []struct {
+			Attempt int `json:"attempt"`
+			Items   []struct {
+				Kind     string `json:"kind"`
+				Slug     string `json:"slug"`
+				Revision int64  `json:"revision"`
+				Digest   string `json:"digest"`
+				URL      string `json:"url"`
+			} `json:"items"`
+		} `json:"evidence"`
+	}
+	require.NoError(t, json.Unmarshal(newCard, &history))
+	seen := map[int]int{}
+	for _, attempt := range history.Evidence {
+		for _, citation := range attempt.Items {
+			if citation.Kind != "wiki" {
+				continue
+			}
+			seen[attempt.Attempt]++
+			require.Equal(t, "retry-policy", citation.Slug)
+			expectedBody, expectedDigest, expectedRevision := edited, editedDigest, int64(2)
+			if attempt.Attempt == 2 {
+				expectedBody, expectedDigest, expectedRevision = body, digest, 3
+			}
+			require.Equal(t, expectedRevision, citation.Revision)
+			require.Equal(t, expectedDigest, citation.Digest)
+			content, err := r.expect("GET", citation.URL, "", 200)
+			require.NoError(t, err)
+			require.Equal(t, expectedBody, string(content))
+		}
+	}
+	require.Equal(t, map[int]int{1: 1, 2: 1}, seen, string(newCard))
+	for name, receipt := range map[string]json.RawMessage{
+		"retry-prior-plan.json": priorReceipt, "retry-prior-card.json": priorCard,
+		"retry-next-plan.json": newReceipt, "retry-next-card.json": newCard,
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, name), receipt, 0600))
+	}
+	require.NoError(t, r.drop(retryNumber))
 }

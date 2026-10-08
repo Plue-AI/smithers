@@ -268,3 +268,37 @@ func TestTodoEvidenceCardRetainsPreviousRevisionPostgres(t *testing.T) {
 	require.JSONEq(t, `{"revision":"old","items":[{"kind":"check","name":"unit","state":"passed"},{"kind":"review","summary":"approve"}]}`, string(raw))
 	require.Equal(t, card["evidence"], o.todoCard(item.Number.Int64)["evidence"], "repeated reads retain both revisions")
 }
+
+// Planner evidence is useful while implementation runs, but retained Retry
+// context cannot be presented as a citation by the new attempt.
+func TestTodoWikiEvidenceRequiresCurrentPlannerReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		receipt *todoRequestReceipt
+		want    bool
+	}{
+		{"absent", nil, false},
+		{"old attempt", &todoRequestReceipt{Attempt: 1, RunID: "plan-run"}, false},
+		{"other run", &todoRequestReceipt{Attempt: 2, RunID: "old-run"}, false},
+		{"empty run", &todoRequestReceipt{Attempt: 2}, false},
+		{"completed planner", &todoRequestReceipt{Attempt: 2, RunID: "plan-run"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := db.MythicalItem{Source: "todo", Attempt: 2, RequestRunID: "plan-run",
+				FlowDigest: pgtype.Text{String: "pinned", Valid: true},
+				Plan:       json.RawMessage(`{"wikiCitations":[{"slug":"retry-policy","pageID":"42","revision":3,"digest":"0314a7d6edf2ad4b7057d059f7dfdf17df0ab800ec24b502f02ecb38c1bbed22"}]}`),
+				Checks:     mythicalChecks{PlanReceipt: tc.receipt}.encode()}
+			var citations []map[string]any
+			for _, evidence := range currentTodoEvidence(item).Items {
+				if evidence["kind"] == "wiki" {
+					citations = append(citations, evidence)
+				}
+			}
+			if tc.want {
+				require.Equal(t, []map[string]any{{"kind": "wiki", "slug": "retry-policy", "pageID": "42", "revision": int64(3), "digest": "0314a7d6edf2ad4b7057d059f7dfdf17df0ab800ec24b502f02ecb38c1bbed22"}}, citations)
+			} else {
+				require.Empty(t, citations)
+			}
+		})
+	}
+}
