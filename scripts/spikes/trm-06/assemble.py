@@ -364,6 +364,15 @@ def archive_overlay(repo, root, destination):
     validate_supervisor(root / "libexec/trm06-supervisor")
     if regular(root / "share/trm06/smithers-3f.pub").st_size != 32:
         raise ValueError("invalid reviewer key")
+    # The publication tool is executable release input too. Read it from the
+    # overlay's main commit; a dirty checkout must never select build code.
+    revision = main_revision(repo, manifest["revision"])
+    writer_bytes = subprocess.check_output([
+        "git", "-C", str(repo), "show",
+        revision + ":apps/app/scripts/deterministic-tar.py"])
+    if not writer_bytes or len(writer_bytes) > 1024 * 1024:
+        raise ValueError("invalid main-pinned archive writer")
+    writer_sha = hashlib.sha256(writer_bytes).hexdigest()
     ancestry = destination_chain(destination.parent)
     parent = ancestry[-1]
     temporary = None
@@ -375,7 +384,9 @@ def archive_overlay(repo, root, destination):
         staging = os.open(temporary.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
         staging_info = os.fstat(staging)
         archive = temporary / "overlay.tar.gz"
-        subprocess.run([sys.executable, "-I", "-S", str(repo / "apps/app/scripts/deterministic-tar.py"),
+        writer = temporary / "deterministic-tar.py"
+        writer.write_bytes(writer_bytes)
+        subprocess.run([sys.executable, "-I", "-S", str(writer),
                         str(root), str(archive), "directory"], check=True)
         expected = set(entries) | {"manifest.json"}
         seen = set()
@@ -428,6 +439,7 @@ def archive_overlay(repo, root, destination):
                 os.unlink(destination.name, dir_fd=parent)
             raise
         return {"revision": manifest["revision"], "sha256": archive_sha,
+                "archive_writer_sha256": writer_sha,
                 "activation": "refused-until-reviewed"}
     finally:
         if checked_archive is not None:
@@ -436,6 +448,10 @@ def archive_overlay(repo, root, destination):
         if staging is not None:
             try:
                 os.unlink("overlay.tar.gz", dir_fd=staging)
+            except FileNotFoundError:
+                pass
+            try:
+                os.unlink("deterministic-tar.py", dir_fd=staging)
             except FileNotFoundError:
                 pass
             os.close(staging)

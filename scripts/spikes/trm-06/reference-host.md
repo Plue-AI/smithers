@@ -271,3 +271,11 @@ alongside `sftp-packets.jsonl`: literal SSH commands, start/end timestamps, raw
 acknowledgments and failures. Existing mutation evidence refuses before SSH
 effects. A successful packet exchange without the independent outside-sentinel
 observations remains insufficient for acceptance.
+
+Release archive publication now extracts the archive writer from the overlay's
+full main revision, verifies that revision is an ancestor of origin/main, and
+records `archive_writer_sha256`. A modified checkout writer cannot execute or
+select publication bytes. The supplemental test uses a real Git repository,
+poisons its checkout with a host canary and publishes through `archive_overlay`;
+unlanded revisions refuse. This does not provide a complete real base/key
+reproducibility campaign or an installed root-validation receipt.

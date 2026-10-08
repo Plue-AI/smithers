@@ -95,6 +95,9 @@ class BundleAssembly(unittest.TestCase):
 
     def overlay(self, temporary):
         base, manifest = self.base(temporary)
+        manifest["revision"] = subprocess.check_output([
+            "git", "-C", str(Path(__file__).resolve().parents[3]),
+            "rev-parse", "origin/main"], text=True).strip()
         gateway = Path(temporary) / "gateway"
         gateway.write_bytes(struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 8, 0, 0) + struct.pack("<II", 1, 8))
         supervisor = Path(temporary) / "supervisor"
@@ -174,7 +177,43 @@ class BundleAssembly(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "archive bytes/mode"):
                     assemble.archive_overlay(repo, base, destination)
             self.assertFalse(destination.exists())
-            assemble.validate_base(base, REVISION, overlay=True)
+            assemble.validate_base(base, json.loads((base / "manifest.json").read_bytes())["revision"], overlay=True)
+
+    def test_archive_executes_main_writer_even_with_poisoned_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            repo.mkdir()
+            subprocess.run(["git", "init", "-q", str(repo)], check=True)
+            writer = repo / "apps/app/scripts/deterministic-tar.py"
+            writer.parent.mkdir(parents=True)
+            original = Path(__file__).resolve().parents[3] / "apps/app/scripts/deterministic-tar.py"
+            writer.write_bytes(original.read_bytes())
+            subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture",
+                            "-c", "user.email=fixture@example.invalid", "commit", "-qm", "writer"], check=True)
+            revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
+            subprocess.run(["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", revision], check=True)
+            base = self.overlay(temporary)
+            manifest = json.loads((base / "manifest.json").read_bytes())
+            manifest["revision"] = revision
+            assemble.publish_manifest(base, manifest)
+            sentinel = root / "host-canary"
+            writer.write_text("from pathlib import Path\nPath(" + repr(str(sentinel)) + ").write_text('executed')\nraise SystemExit(99)\n")
+            output = root / "overlay.tar.gz"
+            receipt = assemble.archive_overlay(repo, base, output)
+            self.assertFalse(sentinel.exists())
+            self.assertTrue(output.exists())
+            self.assertEqual(receipt["archive_writer_sha256"], assemble.digest(original))
+            self.assertFalse(list(root.glob("trm06-archive-*")))
+            # An unlanded revision refuses before the poisoned writer executes.
+            manifest["revision"] = "a" * 40
+            assemble.publish_manifest(base, manifest)
+            refused = root / "refused.tar.gz"
+            with self.assertRaises(subprocess.CalledProcessError):
+                assemble.archive_overlay(repo, base, refused)
+            self.assertFalse(refused.exists())
+            self.assertFalse(sentinel.exists())
 
     def test_archive_publication_never_overwrites_raced_output_symlink(self):
         repo = Path(__file__).resolve().parents[3]
