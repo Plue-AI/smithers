@@ -400,7 +400,7 @@ test("merged TODO mounts the design lessons receipt with wiki and Proposal doors
     expect(host.textContent?.match(/2 lessons/g)).toHaveLength(1)
     const receipt = host.querySelector('[aria-label="Lessons from T7"]')!
     await act(async () => { for (const button of receipt.querySelectorAll<HTMLButtonElement>("button[data-flow]")) button.click() })
-    expect(calls).toEqual([{ tag: "wiki.page", input: { name: "retry-helper" } }, { tag: "proposal", input: { id: "lint" } }])
+    expect(calls).toEqual([{ tag: "wiki.page", input: { name: "retry-helper" } }, { tag: "wiki", input: { operation: "proposal", id: "lint" } }])
   } finally { await act(async () => root.unmount()) }
 })
 
