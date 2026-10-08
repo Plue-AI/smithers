@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -171,12 +172,29 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Querie
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	// AnswerTodo holds the stack row lock. Read the same transaction's current
-	// prefix: a retained wait is not permission to complete onto a moved target.
+	// prefix from mirrored main: folding the stack waits for this rebase, so
+	// its landed-main receipt may still name the old target.
 	predecessors, err := q.ListMythicalPredecessors(ctx, item.RepositoryID, item.StackPosition.Int64)
 	if err != nil {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
-	step := mythicalItemStep{r: &mythicalRun{mainTip: stack.LandedMain}, items: predecessors}
+	repo, err := q.GetRepoByID(ctx, item.RepositoryID)
+	if err != nil {
+		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	owner, err := mythicalRepositoryOwner(ctx, q, repo)
+	if err != nil {
+		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	bookmark := strings.TrimSpace(repo.DefaultBookmark)
+	if bookmark == "" {
+		bookmark = "main"
+	}
+	main, err := s.MainHead(ctx, owner, repo.Name, bookmark)
+	if err != nil || main == "" {
+		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
+	}
+	step := mythicalItemStep{r: &mythicalRun{mainTip: main}, items: predecessors}
 	if step.prefix(item) != wait.OntoRevision {
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}

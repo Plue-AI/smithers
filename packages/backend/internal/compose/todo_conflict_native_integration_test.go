@@ -68,7 +68,7 @@ func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
 	client := repohost.NewLocalClient(engine.Handler(), cfg.AuthToken)
 	client.BindMachineRepository(engine.WithMachineRepository)
 	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client))
-	service := services.NewMythicalService(f.pool, nil)
+	service := services.NewMythicalService(f.pool, client)
 	signals := &conflictDoorProvider{}
 	service.SetLauncher(signals)
 	registry := new(machined.Registry)
@@ -92,7 +92,7 @@ func TestConflictDoneAwakeNativeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='running',attempt=1,flow_digest=$2,request_run_id='pinned-run',workspace_id=$3,checks=$4,integration=$5 WHERE id=$1`, item.ID, digest, f.row.ID, raw, integration)
 	require.NoError(t, err)
-	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.row.RepositoryID, onto)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET landed_main=$2 WHERE repository_id=$1`, f.row.RepositoryID, base)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id='retained-machine',head_commit_id=$2 WHERE id=$1`, f.row.ID, edited)
 	require.NoError(t, err)

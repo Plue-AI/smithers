@@ -26,11 +26,13 @@ pub fn local(cx: &mut LockCx, repository: &mut impl Repository) -> Result<Captur
     let flushed = hooks.documents.flush_all(cx)?;
     hooks.watcher.drain(cx)?;
     hooks.watcher.close_bursts(cx)?;
+    // The first snapshot has no acknowledged host head. Preserve its
+    // predecessor before snapshot changes the native working commit.
+    let base = repository.base()?;
     let (head, tree) = repository.snapshot()?;
     #[cfg(all(feature = "killpoints", debug_assertions))]
     crate::events::killpoint("K5a");
     if repository.acknowledged()? != Some(head) && !repository.queued(head)? {
-        let base = repository.base()?;
         hooks
             .events
             .append(&outbox::captured(head, tree, base), Some(head))?;

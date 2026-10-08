@@ -38,7 +38,10 @@ impl Watcher for Fixture {
 }
 impl EventSink for Fixture {
     fn append(&self, event: &[u8], pin: Option<Oid>) -> Result<(u64, [u8; 16])> {
-        assert_eq!(event[0], 2);
+        assert_eq!(
+            event,
+            smithers_machined::outbox::captured([1; 20], [2; 20], [3; 20])
+        );
         assert_eq!(pin, Some([1; 20]));
         self.step("append")?;
         Ok((1, [1; 16]))
@@ -48,14 +51,16 @@ struct Repo {
     f: Arc<Fixture>,
     acked: bool,
     queued: bool,
+    snapshotted: bool,
 }
 impl Repository for Repo {
     fn snapshot(&mut self) -> Result<(Oid, Oid)> {
         self.f.step("snapshot")?;
+        self.snapshotted = true;
         Ok(([1; 20], [2; 20]))
     }
     fn base(&mut self) -> Result<Oid> {
-        Ok([3; 20])
+        Ok(if self.snapshotted { [1; 20] } else { [3; 20] })
     }
     fn acknowledged(&mut self) -> Result<Option<Oid>> {
         Ok(self.acked.then_some([1; 20]))
@@ -72,6 +77,7 @@ fn ordered_local_capture_deduplicates_and_fails_closed() {
             f: f.clone(),
             acked,
             queued,
+            snapshotted: false,
         };
         let mut cx = LockCx::new(Hooks {
             documents: f.clone(),
@@ -100,6 +106,7 @@ fn ordered_local_capture_deduplicates_and_fails_closed() {
             f: f.clone(),
             acked: false,
             queued: false,
+            snapshotted: false,
         };
         let mut cx = LockCx::new(Hooks {
             documents: f.clone(),
@@ -118,6 +125,7 @@ fn unavailable_hooks_refuse_without_snapshot() {
         f: f.clone(),
         acked: false,
         queued: false,
+        snapshotted: false,
     };
     assert!(capture::local(&mut LockCx::new(Hooks::default()), &mut r).is_err());
     assert!(f.calls.lock().unwrap().is_empty());

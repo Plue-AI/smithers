@@ -83,7 +83,7 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 	// The process coding-file fixture does not launch the daemon when an
 	// unplanned run starts. Once its logical change exists, reconcile the
 	// actual native boot on the retained checkout before driving HTTP.
-	if runtime, ok := r.workspaceRuntime.(bindingProcessRuntime); ok {
+	if runtime, ok := r.options.Workspace.(bindingProcessRuntime); ok {
 		observed, err := runtime.InspectWorkspace(r.ctx, before.Branch.ID)
 		if err != nil {
 			return "", err
