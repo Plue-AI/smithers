@@ -35,8 +35,16 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'))
   const main = YAML.parse(await readFile(ciPath, 'utf8'))
   assert.equal(workflow.name, 'Drift')
-  assert.deepEqual(Object.keys(workflow.jobs), ['drift'])
-  assert.equal(workflow.jobs.drift['timeout-minutes'], 20, 'a clean run takes 7-10 minutes; a 10-minute cap cancels the last gates')
+  assert.deepEqual(Object.keys(workflow.jobs), ['trusted-drift', 'drift'])
+  assert.deepEqual(workflow.jobs['trusted-drift'], {
+    uses: 'smithersai/smithers/.github/workflows/trusted-drift.yml@f3b545d668460585672b7d248349876b5ce0cddc',
+  })
+  assert.equal(workflow.jobs.drift.name, 'Per-commit drift')
+  assert.equal(workflow.jobs.drift.needs, 'trusted-drift')
+  assert.equal(workflow.jobs.drift.if, '${{ always() }}')
+  assert.deepEqual(workflow.jobs.drift.steps, [{ name: 'Trusted drift result', run: "test '${{ needs.trusted-drift.result }}' = 'success'", shell: 'bash' }])
+  const trusted = YAML.parse(await readFile(new URL('../../.github/workflows/trusted-drift.yml', import.meta.url), 'utf8'))
+  assert.equal(trusted.jobs.drift['timeout-minutes'], 20, 'a clean run takes 7-10 minutes; a 10-minute cap cancels the last gates')
   assert.equal(workflow.concurrency['cancel-in-progress'], false)
   for (const part of ['github.workflow', 'github.event_name', 'github.ref', 'github.sha']) {
     assert.ok(workflow.concurrency.group.includes(part), `drift concurrency must include ${part}`)
@@ -48,7 +56,7 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   )
   assert.equal(main.concurrency['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}")
 
-  const steps = workflow.jobs.drift.steps
+  const steps = trusted.jobs.drift.steps
   assert.ok(Array.isArray(steps))
   const gateSteps = steps.filter((step) => step.run?.includes('pnpm exec smthrs '))
   assert.deepEqual(gateSteps.map((step) => step.run), gateCommands, 'drift runs exactly the allowed gate argv in order')
@@ -592,11 +600,18 @@ test('trusted drift and disposable setup campaign are main-pinned before branch 
   assert.deepEqual(trusted.permissions, { contents: 'read' })
   assert.deepEqual(trusted.jobs.drift.steps.filter((step) => step.run?.includes('pnpm exec smthrs ')).map((step) => step.run), gateCommands)
   const campaign = YAML.parse(await readFile(new URL('../../.github/workflows/trusted-setup-validation.yml', import.meta.url), 'utf8'))
-  assert.deepEqual(campaign.on, { workflow_dispatch: null })
+  assert.deepEqual(campaign.on, {
+    push: { branches: ['main'], paths: [
+      '.github/actions/trusted-ci-setup/**', '.github/actions/trusted-ci-setup-campaign/**',
+      '.github/workflows/trusted-setup-validation.yml', 'scripts/ci/drift-job.test.mjs',
+      'packages/smithers/build/targets/src/GithubCiGen.ts', 'PACKAGE.ts',
+    ] },
+    workflow_dispatch: null,
+  })
   assert.deepEqual(campaign.permissions, { contents: 'read' })
   assert.equal(campaign.jobs.setup.if, "${{ github.ref == 'refs/heads/main' }}")
   assert.equal(campaign.jobs.setup['runs-on'], 'ubuntu-latest')
-  assert.equal(campaign.jobs.setup.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup-campaign@44e7e125182e3db0033420492cbefe3270198a60')
+  assert.equal(campaign.jobs.setup.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup-campaign@f3b545d668460585672b7d248349876b5ce0cddc')
   assert.equal(campaign.jobs.setup.steps.length, 2, 'campaign runs before checkout or dependency actions')
   assert.equal(campaign.jobs.setup.steps[1].uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02')
   assert.equal(campaign.jobs.setup.steps[1].if, '${{ always() }}')

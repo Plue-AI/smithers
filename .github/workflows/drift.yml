@@ -9,59 +9,15 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  "drift":
+  trusted-drift:
+    uses: "smithersai/smithers/.github/workflows/trusted-drift.yml@f3b545d668460585672b7d248349876b5ce0cddc"
+  drift:
     name: "Per-commit drift"
+    needs: trusted-drift
+    if: ${{ always() }}
     runs-on: "ubuntu-latest"
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
-      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-        with:
-          "persist-credentials": "false"
-      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
-      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
-        with:
-          "node-version-file": ".node-version"
-          "cache": "pnpm"
-      - name: "Install certified npm"
-        run: |
-          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
-          test "$(npm --version)" = '11.16.0'
+      - name: "Trusted drift result"
+        run: "test '${{ needs.trusted-drift.result }}' = 'success'"
         shell: "bash"
-      - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
-        with:
-          "bun-version": "1.4.1"
-      - id: setup
-        run: "pnpm install --frozen-lockfile --ignore-scripts"
-      - name: "Formatting"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Target index drift"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Backend access test list drift"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:backendAccessTests' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "OpenAPI bundle drift"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "OpenAPI client drift"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:openapiClients' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Documentation drift"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//scripts:docsDrift' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Declaration baseline"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs build '//scripts:apiBaseline' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Conflict markers"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//scripts:conflictMarkers' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Tracked file hygiene"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//scripts:trackedHygiene' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Generated drift workflow"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:driftCi' --known-red '.github/ci-known-red.json' --verbose"
-      - name: "Generated CI workflow"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: "pnpm exec smthrs lint '//:ci' --known-red '.github/ci-known-red.json' --verbose"

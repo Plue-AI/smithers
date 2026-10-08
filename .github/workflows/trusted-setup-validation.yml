@@ -1,5 +1,14 @@
 name: Trusted setup validation
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/trusted-ci-setup/**
+      - .github/actions/trusted-ci-setup-campaign/**
+      - .github/workflows/trusted-setup-validation.yml
+      - scripts/ci/drift-job.test.mjs
+      - packages/smithers/build/targets/src/GithubCiGen.ts
+      - PACKAGE.ts
   workflow_dispatch:
 permissions:
   contents: read
@@ -14,7 +23,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Main-pinned setup campaign
-        uses: smithersai/smithers/.github/actions/trusted-ci-setup-campaign@44e7e125182e3db0033420492cbefe3270198a60
+        uses: smithersai/smithers/.github/actions/trusted-ci-setup-campaign@f3b545d668460585672b7d248349876b5ce0cddc
       - name: Setup receipts
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
