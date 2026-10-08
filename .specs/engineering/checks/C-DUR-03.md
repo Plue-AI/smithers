@@ -27,3 +27,30 @@ Any duplicate effective operation, blind repeat, foreign overwrite, unauthorized
 
 ## Evidence
 Record fixture identity, commit, write log, before/after pending_op, lookup result, item state and recovery receipt for each case.
+
+## Harness cases
+
+`TestGitHubOutboundKillProductionProposal` retains the five-kind kill matrix and
+late-open Drop case. Its additional production-caller cases map to steps 4–6:
+
+| Step | Cases | Literal assertions |
+| --- | --- | --- |
+| 4 | `body-order` | Retain v1's unknown slot; post `Review: approve`, then `Review: request-changes`; two body writes and two settlement facts. |
+| 4 | `push-foreign` | No recovery push; preserve the person's remote head; served TODO is `needs_you` with `foreign_push`. |
+| 4 | `close-reopen` | One effective close; the person's reopened remote PR remains open. |
+| 5 | `merge-revoked`, `merge-stale-head`, `merge-missing-approval` | No send without current authority, bound head and approval; preserve unknown uncertainty or clear a definitive refusal. Applied merges settle with one total PUT. |
+| 5 | `merge-competing-fence` | A live competing stack claim preserves the slot and prevents sends; after release, lookup precedes recovery. |
+| 6 | `close-{person,other-app,canonical}-event` | Person/other-App events do not settle a close; only the canonical App event settles without a PATCH. |
+| 6 | `close-{person,other-app,canonical}-marker` | Matching spoof markers cannot be edited; one canonical comment is created and recovery edits it once. |
+| 6 | Every crossing | Proxy POST/PUT/PATCH/DELETE return 403 before and after SIGKILL; no token mint, upstream lookup/write or slot change. |
+
+Each reached crossing records `outbound-recovery.json` in its rehearsal evidence
+directory with commit, pass/fail status, before slot, final item, recovery request
+order and fake GitHub write log. A compiled or skipped test is not a passing
+receipt. Reference qualification requires `SMITHERS_GITHUB_OUTBOUND_KILL=1` and
+`SMITHERS_FAULT_HOST=reference`, using the packaged writer and real microVM.
+
+`SMITHERS_GITHUB_OUTBOUND_LINUX=1` explicitly selects the existing Linux
+rehearsal's file-writer fixture for supplemental HTTP/worker diagnostics. It
+does not qualify the packaged writer, guest execution or this reference-host
+check. Startup failures before a crossing produce no kill-point receipt.

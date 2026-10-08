@@ -24,6 +24,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/repository"
@@ -38,19 +39,32 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 	if os.Getenv("SMITHERS_GITHUB_OUTBOUND_KILL") != "1" {
 		t.Skip("enable the composed GitHub kill control explicitly")
 	}
-	if os.Getenv("SMITHERS_FAULT_HOST") != "reference" {
+	enable := pinnedMicroVMRehearsal
+	if os.Getenv("SMITHERS_GITHUB_OUTBOUND_LINUX") == "1" {
+		// Supplemental crossing proof only: Linux uses the existing file writer
+		// fixture, never qualifies the packaged writer or guest isolation.
+		enable = "SMITHERS_GITHUB_OUTBOUND_LINUX"
+	} else if os.Getenv("SMITHERS_FAULT_HOST") != "reference" {
 		t.Skip("reference machine required for the packaged native writer")
 	}
-	t.Setenv(pinnedMicroVMRehearsal, "1")
-	for _, scenario := range []string{"push", "open", "body", "merge", "close", "open-drop"} {
-		kind := strings.TrimSuffix(scenario, "-drop")
+	t.Setenv(enable, "1")
+	for _, scenario := range []string{"push", "open", "body", "merge", "close", "open-drop", "body-order", "push-foreign", "close-reopen", "close-person-event", "close-other-app-event", "close-canonical-event", "close-person-marker", "close-other-app-marker", "close-canonical-marker", "merge-revoked", "merge-stale-head", "merge-missing-approval", "merge-competing-fence"} {
+		kind := strings.SplitN(scenario, "-", 2)[0]
+		variant := strings.TrimPrefix(scenario, kind+"-")
+		mergeRefusal := kind == "merge" && variant != "merge" && variant != "competing-fence"
 		dropLate := scenario == "open-drop"
 		for _, point := range []string{"before-send", "potentially-sent", "remote-success"} {
-			if dropLate && point != "remote-success" {
+			if (dropLate || variant == "order" || variant == "reopen") && point != "remote-success" {
+				continue
+			}
+			if variant == "foreign" && point != "potentially-sent" {
+				continue
+			}
+			if (strings.HasSuffix(variant, "event") || strings.HasSuffix(variant, "marker")) && point != "potentially-sent" {
 				continue
 			}
 			t.Run(scenario+"/"+point, func(t *testing.T) {
-				r := newRehearsal(t, pinnedMicroVMRehearsal, "C-DUR-03", "github-kill-"+kind+"-", 25)
+				r := newRehearsal(t, enable, "C-DUR-03", "github-kill-"+kind+"-", 25)
 				require.True(t, r.install("Install through Machine ready"))
 				// Pause the first intended push at its reconciliation read. No accepted
 				// candidate, check result or outbound intent is inserted by this test.
@@ -187,6 +201,28 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					defer unlock()
 					var traceMu sync.Mutex
 					var trace []string
+					var recoveryIntent json.RawMessage
+					t.Cleanup(func() {
+						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
+						var facts json.RawMessage
+						err := r.pool.QueryRow(ctx, `SELECT json_build_object('state',state,'reason',reason,'pending_op',pending_op,'pr_state',pr_state,'pr_head',pr_head,'generation',generation,'checks',checks) FROM mythical_items WHERE number=$1`, number).Scan(&facts)
+						require.NoError(t, err)
+						traceMu.Lock()
+						requests := append([]string(nil), trace...)
+						traceMu.Unlock()
+						commit, commitErr := exec.Command("git", "-C", r.root, "rev-parse", "HEAD").Output()
+						require.NoError(t, commitErr)
+						status := "passed"
+						if t.Failed() {
+							status = "failed"
+						}
+						receipt, err := json.MarshalIndent(map[string]any{"commit": strings.TrimSpace(string(commit)), "status": status, "scenario": scenario, "point": point, "qualification": enable, "before_pending_op": recoveryIntent, "item": facts, "requests": requests, "writes": r.fake.Writes()[before:]}, "", "  ")
+						require.NoError(t, err)
+						require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "outbound-recovery.json"), receipt, 0600))
+					})
+					var bodies []string
+					recovering := false
 					targetWrite := func(request *http.Request) bool {
 						switch kind {
 						case "push":
@@ -201,6 +237,44 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						return false
 					}
 					proxy.ModifyResponse = func(resp *http.Response) error {
+						traceMu.Lock()
+						isRecovering := recovering
+						traceMu.Unlock()
+						if isRecovering && strings.HasSuffix(variant, "marker") && resp.Request.Method == "GET" && resp.Request.URL.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d/comments", pr) && resp.StatusCode == 200 {
+							original, err := io.ReadAll(resp.Body)
+							if err != nil {
+								return err
+							}
+							_ = resp.Body.Close()
+							var comments []map[string]any
+							if err := json.Unmarshal(original, &comments); err != nil {
+								return err
+							}
+							if len(comments) > 0 && variant != "canonical-marker" {
+								spoof := map[string]any{}
+								for key, value := range comments[0] {
+									spoof[key] = value
+								}
+								spoof["id"] = 999999
+								actor, app := "Bot", 42
+								if variant == "person-marker" {
+									actor = "User"
+								}
+								if variant == "other-app-marker" {
+									app = 43
+								}
+								spoof["user"] = map[string]string{"type": actor}
+								spoof["performed_via_github_app"] = map[string]int{"id": app}
+								comments = append([]map[string]any{spoof}, comments...)
+							}
+							encoded, err := json.Marshal(comments)
+							if err != nil {
+								return err
+							}
+							resp.Body = io.NopCloser(strings.NewReader(string(encoded)))
+							resp.ContentLength = int64(len(encoded))
+							resp.Header.Set("Content-Length", fmt.Sprint(len(encoded)))
+						}
 						if point == "remote-success" && targetWrite(resp.Request) && resp.StatusCode < 300 {
 							held.Do(func() { close(reached); <-release })
 						}
@@ -209,7 +283,40 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 						traceMu.Lock()
 						trace = append(trace, request.Method+" "+request.URL.Path)
+						if kind == "body" && targetWrite(request) {
+							raw, err := io.ReadAll(request.Body)
+							require.NoError(t, err)
+							request.Body = io.NopCloser(strings.NewReader(string(raw)))
+							var input struct {
+								Body string `json:"body"`
+							}
+							require.NoError(t, json.Unmarshal(raw, &input))
+							bodies = append(bodies, input.Body)
+							if variant == "order" && len(bodies) == 2 {
+								var settled int
+								var precondition string
+								require.NoError(t, r.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='todo.github_operation_settled' AND payload->>'n'=$1 AND payload->'operation'->>'kind'='body'`, fmt.Sprint(number)).Scan(&settled))
+								require.Equal(t, 1, settled, "v1 must be durably settled before v2 is sent")
+								require.NoError(t, r.pool.QueryRow(t.Context(), `SELECT pending_op->>'precondition' FROM mythical_items WHERE number=$1`, number).Scan(&precondition))
+								var first services.MythicalOutboundOp
+								require.NoError(t, json.Unmarshal(recoveryIntent, &first))
+								require.Equal(t, first.Desired, precondition, "v2 is leased against the settled v1 digest")
+							}
+						}
+						isRecovering := recovering
 						traceMu.Unlock()
+						if isRecovering && strings.HasSuffix(variant, "event") && request.Method == "GET" && request.URL.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d/events", pr) {
+							actor, app := "Bot", int64(42)
+							if variant == "person-event" {
+								actor = "User"
+							}
+							if variant == "other-app-event" {
+								app = 43
+							}
+							w.Header().Set("Content-Type", "application/json")
+							require.NoError(t, json.NewEncoder(w).Encode([]any{map[string]any{"event": "closed", "created_at": time.Now().UTC(), "actor": map[string]string{"type": actor}, "performed_via_github_app": map[string]int64{"id": app}}}))
+							return
+						}
 						pause := point == "potentially-sent" && targetWrite(request)
 						if point == "before-send" && request.Method == "GET" {
 							_ = r.pool.QueryRow(t.Context(), `SELECT COALESCE(pending_op->>'kind'=$2 AND pending_op->>'state'='intended',false) FROM mythical_items WHERE number=$1`, number, kind).Scan(&pause)
@@ -249,6 +356,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						expectedSlot = "intended"
 					}
 					require.Equal(t, expectedSlot, slot.State)
+					recoveryIntent = append(json.RawMessage(nil), raw...)
 					if dropLate {
 						// Drop is a real person command while CreatePull's response is
 						// held. Its receipt must return without waiting for the worker.
@@ -265,16 +373,195 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1 AND state='cancelled'`, number).Scan(&retained))
 						require.JSONEq(t, string(raw), string(retained), "Drop must retain the uncertain open")
 					}
+					// Attempt mutation through the real machine proxy while the slot is
+					// uncertain, and again after restart. Both refuse before minting.
+					assertProxyRefuses := func() {
+						var retained []byte
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&retained))
+						writes, reads := len(r.fake.Writes()), len(r.fake.Reads())
+						for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+							payload := fmt.Sprintf(`{"method":%q,"path":"/repos/rehearsal-owner/app/pulls","body":{"state":"closed"}}`, method)
+							request, err := http.NewRequest("POST", r.origin+"/api/repos/rehearsal-owner/app/github-proxy", strings.NewReader(payload))
+							require.NoError(t, err)
+							request.Header.Set("Authorization", proposalBearer)
+							request.Header.Set("Content-Type", "application/json")
+							response, err := http.DefaultClient.Do(request)
+							require.NoError(t, err)
+							receipt, err := io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 403, response.StatusCode, string(receipt))
+						}
+						require.Len(t, r.fake.Writes(), writes, "proxy refusal mints no installation token and writes nothing upstream")
+						require.Len(t, r.fake.Reads(), reads, "proxy refusal makes no upstream lookup")
+						var after []byte
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&after))
+						if len(retained) == 0 {
+							require.Empty(t, after, "proxy refusal cannot create an operation")
+						} else {
+							require.JSONEq(t, string(retained), string(after), "proxy refusal cannot change the uncertain slot")
+						}
+					}
+					assertProxyRefuses()
 					child.kill(t)
+					// Change the world only after the owned worker is dead. The recorded
+					// slot came from the production caller, never a fabricated intent.
+					var foreignHead string
+					switch variant {
+					case "foreign":
+						remote := filepath.Join(r.gitRoot, "rehearsal-owner/app.git")
+						cmd := exec.Command("/usr/bin/git", "--git-dir", remote, "update-ref", "refs/heads/"+slot.Target, r.mainCommit)
+						output, err := cmd.CombinedOutput()
+						require.NoError(t, err, string(output))
+						foreignHead, err = r.fake.PushAs("rehearsal-owner/app", slot.Target, 8, "person", "Foreign push", map[string]string{"PERSON.txt": "keep me\n"})
+						require.NoError(t, err)
+					case "order":
+						review, _ := json.Marshal(map[string]any{"head": published, "candidate": head, "runId": "fixture-review-v2", "verdict": "request-changes"})
+						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{review}',$2::jsonb) WHERE number=$1`, number, review)
+						require.NoError(t, err)
+						var retained []byte
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&retained))
+						require.JSONEq(t, string(raw), string(retained), "v2 cannot overwrite the uncertain v1 slot")
+					case "reopen", "person-event", "other-app-event", "canonical-event":
+						r.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.State = "open" })
+					case "revoked":
+						r.fake.SetCollaborator(7, "rehearsal-owner", "read")
+					case "stale-head":
+						_, err = r.fake.PushAs("rehearsal-owner/app", "smithers/kill-control", 8, "person", "Head changed after approval", map[string]string{"PERSON.txt": "new head\n"})
+						require.NoError(t, err)
+					case "missing-approval":
+						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=checks-'land' WHERE number=$1`, number)
+						require.NoError(t, err)
+					}
 					fmt.Printf("CRASH-POINT github-%s-%s subject todo\n", scenario, point)
 					fmt.Println("CRASH-POINT github-production-propose subject todo")
+					assertProxyRefuses()
 					unlock()
 					traceMu.Lock()
 					trace = nil
+					recovering = true
 					traceMu.Unlock()
 					wake()
+					if variant == "competing-fence" {
+						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_stacks SET running=true,claim=999999,lease_expires_at=NOW()+interval '1 hour' WHERE repository_id=$1`, repository)
+						require.NoError(t, err)
+					}
 					restarted := githubKillWorker(t, peer.URL, r.repositoryRoot)
 					defer restarted.close()
+					recoveryDeadline := time.Now().Add(60 * time.Second)
+					if variant == "competing-fence" {
+						require.Eventually(t, func() bool { return strings.Contains(restarted.output(), "github-kill-worker-ready") }, time.Until(recoveryDeadline), 20*time.Millisecond, "worker must be composed before inspecting the competing fence")
+						require.Never(t, func() bool {
+							traceMu.Lock()
+							defer traceMu.Unlock()
+							for _, request := range trace {
+								parts := strings.SplitN(request, " ", 2)
+								if len(parts) == 2 && targetWrite(&http.Request{Method: parts[0], URL: &url.URL{Path: parts[1]}}) {
+									return true
+								}
+							}
+							return false
+						}, time.Second, 20*time.Millisecond, "another live stack claim prevents a recovering merge send")
+						var retained []byte
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pending_op FROM mythical_items WHERE number=$1`, number).Scan(&retained))
+						require.JSONEq(t, string(raw), string(retained), "competing fence preserves the exact operation")
+						wake()
+					}
+					if variant == "foreign" || mergeRefusal && point != "remote-success" {
+						require.Eventually(t, func() bool {
+							traceMu.Lock()
+							defer traceMu.Unlock()
+							for _, request := range trace {
+								if request == fmt.Sprintf("GET /repos/rehearsal-owner/app/pulls/%d", pr) || kind == "push" && strings.HasSuffix(request, "/info/refs") {
+									return true
+								}
+							}
+							return false
+						}, time.Until(recoveryDeadline), 10*time.Millisecond, "recovery must first look up the remote")
+						// Stop only after the durable refusal/conflict is visible.
+						require.Eventually(t, func() bool {
+							var state, reason string
+							var pending []byte
+							if r.pool.QueryRow(r.ctx, `SELECT state,reason,pending_op FROM mythical_items WHERE number=$1`, number).Scan(&state, &reason, &pending) != nil {
+								return false
+							}
+							if variant == "foreign" {
+								if !strings.Contains(string(pending), `"conflict"`) {
+									return false
+								}
+								card, err := r.todo(number)
+								return err == nil && card.State == "needs_you"
+							}
+							if point == "before-send" {
+								return len(pending) == 0
+							}
+							if variant == "missing-approval" {
+								return string(pending) == string(raw)
+							}
+							if variant == "stale-head" {
+								return len(pending) == 0
+							}
+							return strings.Contains(restarted.output(), "mythical.outbound_pending")
+						}, time.Until(recoveryDeadline), 20*time.Millisecond, "recovery must retain uncertainty or record a refusal")
+						require.Eventually(t, func() bool {
+							var running bool
+							return r.pool.QueryRow(r.ctx, `SELECT running FROM mythical_stacks WHERE repository_id=$1`, repository).Scan(&running) == nil && !running
+						}, time.Until(recoveryDeadline), 20*time.Millisecond, "recovery pass must finish before its refusal is inspected")
+						restarted.close()
+						assertProxyRefuses()
+						var pending []byte
+						var itemState string
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT state,pending_op FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &pending))
+						if kind == "merge" {
+							require.Equal(t, "proposed", itemState)
+							if point == "potentially-sent" && variant != "stale-head" {
+								require.JSONEq(t, string(raw), string(pending), "unknown send remains fenced without authority or approval")
+							} else {
+								require.Empty(t, pending, "definitively unsent or stale merge is refused")
+							}
+							status, card, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
+							require.NoError(t, err)
+							require.Equal(t, 200, status)
+							var projection struct {
+								State string `json:"state"`
+								Merge struct {
+									State string `json:"state"`
+								} `json:"merge"`
+							}
+							require.NoError(t, json.Unmarshal(card, &projection))
+							require.Equal(t, "in_review", projection.State)
+							if len(pending) > 0 {
+								require.Equal(t, "merging", projection.Merge.State)
+							} else {
+								require.NotEqual(t, "merging", projection.Merge.State)
+							}
+						}
+						for _, write := range r.fake.Writes()[before:] {
+							require.False(t, targetWrite(&http.Request{Method: write.Method, URL: &url.URL{Path: write.Path}}), "refused recovery must send nothing: %s %s", write.Method, write.Path)
+						}
+						if variant == "foreign" {
+							remote := filepath.Join(r.gitRoot, "rehearsal-owner/app.git")
+							tip, err := exec.Command("/usr/bin/git", "--git-dir", remote, "rev-parse", "refs/heads/"+slot.Target).Output()
+							require.NoError(t, err)
+							require.Equal(t, foreignHead, strings.TrimSpace(string(tip)))
+							contents, err := exec.Command("/usr/bin/git", "--git-dir", remote, "show", "refs/heads/"+slot.Target+":PERSON.txt").Output()
+							require.NoError(t, err)
+							require.Equal(t, "keep me\n", string(contents))
+							status, card, err := r.request("GET", fmt.Sprintf("/api/todos/%d", number), "")
+							require.NoError(t, err)
+							require.Equal(t, 200, status)
+							var projection struct {
+								State    string `json:"state"`
+								NeedsYou struct {
+									Kind string `json:"kind"`
+								} `json:"needs_you"`
+							}
+							require.NoError(t, json.Unmarshal(card, &projection))
+							require.Equal(t, "needs_you", projection.State)
+							require.Equal(t, "foreign_push", projection.NeedsYou.Kind)
+						}
+						return
+					}
 					require.Eventually(t, func() bool {
 						var empty bool
 						err := r.pool.QueryRow(r.ctx, `SELECT pending_op IS NULL FROM mythical_items WHERE number=$1`, number).Scan(&empty)
@@ -284,6 +571,11 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						card, err := r.todo(number)
 						if err != nil {
 							return false
+						}
+						if variant == "order" {
+							var posted bool
+							_ = r.pool.QueryRow(r.ctx, `SELECT COALESCE((checks->'review'->>'posted')::boolean,false) FROM mythical_items WHERE number=$1`, number).Scan(&posted)
+							return card.State == "in_review" && posted
 						}
 						if dropLate {
 							return card.State == "dropped"
@@ -296,7 +588,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						default:
 							return card.State == "in_review"
 						}
-					}, 60*time.Second, 100*time.Millisecond, "restart: %s", restarted.log.Name())
+					}, time.Until(recoveryDeadline), 100*time.Millisecond, "restart: %s", restarted.log.Name())
 					traceMu.Lock()
 					requests := append([]string(nil), trace...)
 					traceMu.Unlock()
@@ -338,7 +630,39 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 							}
 						}
 					}
-					require.Equal(t, 1, writes, "one effective write across SIGKILL")
+					expectedWrites := 1
+					if variant == "order" {
+						expectedWrites = 2
+					}
+					if variant == "canonical-event" {
+						expectedWrites = 0
+					}
+					require.Equal(t, expectedWrites, writes, "literal effective writes across SIGKILL")
+					if variant == "order" {
+						traceMu.Lock()
+						sentBodies := append([]string(nil), bodies...)
+						traceMu.Unlock()
+						require.Len(t, sentBodies, 2)
+						require.Contains(t, sentBodies[0], "\n\nReview: approve\n\n")
+						require.Contains(t, sentBodies[1], "\n\nReview: request-changes\n\n")
+					}
+					if strings.HasSuffix(variant, "marker") {
+						posts, edits := 0, 0
+						for _, write := range r.fake.Writes()[before:] {
+							require.NotEqual(t, fmt.Sprintf("/repos/rehearsal-owner/app/issues/comments/%d", 999999), write.Path, "another actor's matching marker cannot be edited")
+							if write.Method == "POST" && write.Path == fmt.Sprintf("/repos/rehearsal-owner/app/issues/%d/comments", pr) {
+								posts++
+							}
+							if write.Method == "PATCH" && strings.Contains(write.Path, "/issues/comments/") {
+								edits++
+							}
+						}
+						require.Equal(t, 1, posts, "one effective canonical App comment across kill")
+						require.Equal(t, 1, edits, "repeat edits the canonical marker instead of posting twice")
+					}
+					if variant == "reopen" || variant == "canonical-event" {
+						r.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { require.Equal(t, "open", p.State, "a person's reopen survives recovery") })
+					}
 					if dropLate {
 						closes := 0
 						for _, write := range r.fake.Writes()[before:] {
@@ -350,12 +674,22 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					}
 					var settled, retainedGeneration int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.github_operation_settled' AND payload->>'n'=$1 AND payload->'operation'->>'kind'=$2`, fmt.Sprint(number), kind).Scan(&settled))
-					require.EqualValues(t, 1, settled, "one committed settlement fact across restart")
+					expectedSettlements := 1
+					if variant == "order" {
+						expectedSettlements = 2
+					}
+					require.EqualValues(t, expectedSettlements, settled, "literal committed settlement facts across restart")
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT generation FROM mythical_items WHERE number=$1`, number).Scan(&retainedGeneration))
 					require.Equal(t, generation, retainedGeneration, "replay and recovery never allocate another candidate")
+					if variant == "missing-approval" && point == "remote-success" {
+						var missing bool
+						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'land' IS NULL FROM mythical_items WHERE number=$1`, number).Scan(&missing))
+						require.True(t, missing, "applied merge settlement cannot fabricate a missing approval")
+					}
 					// Replay the original accepted request after crash recovery, including
 					// after Drop. It returns its receipt without scheduling publication again.
 					restarted.close()
+					assertProxyRefuses()
 					writesBeforeReplay := len(r.fake.Writes())
 					var requestsBeforeReplay int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBeforeReplay))
@@ -420,7 +754,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						}
 						require.Equal(t, 1, closes, "one compensating close after late PR recovery")
 					}
-					fmt.Printf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":1}\n", scenario, point)
+					fmt.Printf("CRASH-OBSERVATION {\"point\":\"github-%s-%s\",\"subject\":\"todo\",\"effectiveWrites\":%d}\n", scenario, point, expectedWrites)
 				})
 			})
 		}
@@ -485,5 +819,5 @@ func TestGitHubOutboundKillChild(t *testing.T) {
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: os.Getenv("SMITHERS_GITHUB_KILL_REPO_ROOT"), AuthToken: "rehearsal-repo", FFILibraryPath: os.Getenv("SMITHERS_FFI_LIBRARY_PATH"), InstallMainMirror: true})
 	require.NoError(t, err)
 	defer engine.Shutdown(context.Background())
-	require.NoError(t, StartWithOptions(context.Background(), nil, io.Discard, os.Stderr, Options{Repository: engine.Client(), Duties: DutiesWorkers, ComputeProvider: sandboxfake.New()}, func(http.Handler) {}))
+	require.NoError(t, StartWithOptions(context.Background(), nil, io.Discard, os.Stderr, Options{Repository: engine.Client(), Duties: DutiesWorkers, ComputeProvider: sandboxfake.New()}, func(http.Handler) { fmt.Fprintln(os.Stderr, "github-kill-worker-ready") }))
 }
