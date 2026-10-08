@@ -18,7 +18,8 @@ import (
 // on the install J1 sets up. Its setup is C-J7-01's stack at the default
 // parallel of 2: T1 in review, T2 working and held at its edit, T3 behind
 // it and held too ([HOLD key] markers of distribution/fake-todo-turns.mjs).
-// TN goes before T3 and is held at its edit too (row 6). The owner amends
+// TN goes before T3; the owner opens a third slot and holds its edit (row 6).
+// The owner amends
 // T2 while its edit is held, and its run's next implement turn reads the
 // amendment (rows 7 and 8). TN and T1 rebase onto their moved prefix (rows 9
 // and 16), T2 is forked to a scratch branch that is edited (rows 10-12), and
@@ -127,7 +128,7 @@ func TestJ7Rehearsal(t *testing.T) {
 		return nil
 	})
 	var tn int64
-	r.step("6 Insert TN before T3", "POST /api/todos {place: before T3}; GET /api/todos; SQL product_job_events", "order T1, T2, TN, T3; T3 is not admitted before TN; one product_job_events row", "T-STK-02", func() error {
+	r.step("6 Insert TN before T3", "POST /api/todos {place: before T3}; PUT /api/install {parallel: 3}; GET /api/todos; SQL product_job_events", "order T1, T2, TN, T3; T3 is not admitted before TN; one product_job_events row", "T-STK-02", func() error {
 		body, _ := json.Marshal(map[string]any{"title": "TN jitter helper", "prompt": "[HOLD tn] [FILE tn.md] Add a jitter helper note to tn.md",
 			"place": map[string]any{"mode": "before", "n": t3}})
 		code, data, err := r.keyed("POST", "/api/todos", string(body), r.keyPrefix+"todo-tn")
@@ -161,6 +162,13 @@ func TestJ7Rehearsal(t *testing.T) {
 		}
 		if facts != 1 {
 			return fmt.Errorf("T%d has %d todo.created facts naming Before T%d, want 1", tn, facts, t3)
+		}
+		// The Linux adapter does not run automatic idle reclamation, and
+		// T1 retains its pinned run for review input. The owner opens the
+		// third slot only after insertion, so admission order is observable
+		// while T2 remains held for the amendment check.
+		if _, err := r.expect("PUT", "/api/install", `{"parallel":3}`, 200); err != nil {
+			return err
 		}
 		// The next free slot goes to TN: T3 stays queued until TN starts.
 		for deadline := time.Now().Add(5 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
