@@ -623,6 +623,34 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
     }
 }
 #[cfg(all(feature = "killpoints", debug_assertions))]
+thread_local! {
+    static QUALIFICATION_CAPTURE_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+#[cfg(all(feature = "killpoints", debug_assertions))]
+struct QualificationCaptureGuard;
+#[cfg(all(feature = "killpoints", debug_assertions))]
+impl Drop for QualificationCaptureGuard {
+    fn drop(&mut self) {
+        QUALIFICATION_CAPTURE_ACTIVE.set(false);
+    }
+}
+// Only an armed local qualification capture emits phase evidence. Ordinary
+// captures, and every release build, leave this private diagnostic untouched.
+#[cfg(all(feature = "killpoints", debug_assertions))]
+pub(crate) fn qualification_capture_phase(phase: &str) {
+    let state = std::path::Path::new("/var/lib/smithers-machined");
+    if QUALIFICATION_CAPTURE_ACTIVE.get() {
+        // A single mutation executor owns these writes. Rename keeps the
+        // driver's observation complete even while the next phase is entered.
+        if std::fs::write(state.join("qualification-K4b-capture.phase.tmp"), phase).is_ok() {
+            let _ = std::fs::rename(
+                state.join("qualification-K4b-capture.phase.tmp"),
+                state.join("qualification-K4b-capture.phase"),
+            );
+        }
+    }
+}
+#[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) fn qualification_capture(capture: impl FnOnce() -> crate::hooks::Result<()>) {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
@@ -632,7 +660,11 @@ pub(crate) fn qualification_capture(capture: impl FnOnce() -> crate::hooks::Resu
     }
     std::fs::write(state.join("qualification-K4b-capture.started"), b"started")
         .expect("record local capture qualification entry");
+    QUALIFICATION_CAPTURE_ACTIVE.set(true);
+    let _guard = QualificationCaptureGuard;
+    qualification_capture_phase("entered");
     let result = capture();
+    qualification_capture_phase(if result.is_ok() { "complete" } else { "failed" });
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -860,4 +892,25 @@ pub fn wire_events(
             Ok(event)
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "killpoints", debug_assertions))]
+mod qualification_capture_tests {
+    #[test]
+    fn unwound_capture_does_not_admit_later_diagnostic_writes() {
+        use super::{QualificationCaptureGuard, QUALIFICATION_CAPTURE_ACTIVE};
+        assert!(!QUALIFICATION_CAPTURE_ACTIVE.get());
+        let result = std::panic::catch_unwind(|| {
+            QUALIFICATION_CAPTURE_ACTIVE.set(true);
+            let _guard = QualificationCaptureGuard;
+            assert!(QUALIFICATION_CAPTURE_ACTIVE.get());
+            // A transport thread cannot overwrite the executor's evidence.
+            std::thread::spawn(|| assert!(!QUALIFICATION_CAPTURE_ACTIVE.get()))
+                .join()
+                .unwrap();
+            panic!("interrupted local snapshot");
+        });
+        assert!(result.is_err());
+        assert!(!QUALIFICATION_CAPTURE_ACTIVE.get());
+    }
 }

@@ -23,16 +23,30 @@ pub fn local(cx: &mut LockCx, repository: &mut impl Repository) -> Result<Captur
         return Err(crate::freeze::pending_error());
     }
     let hooks = cx.hooks.clone();
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("flush_documents");
     let flushed = hooks.documents.flush_all(cx)?;
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("drain_watcher");
     hooks.watcher.drain(cx)?;
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("close_bursts");
     hooks.watcher.close_bursts(cx)?;
     // The first snapshot has no acknowledged host head. Preserve its
     // predecessor before snapshot changes the native working commit.
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("read_base");
     let base = repository.base()?;
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("snapshot");
     let (head, tree) = repository.snapshot()?;
     #[cfg(all(feature = "killpoints", debug_assertions))]
     crate::events::killpoint("K5a");
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::qualification_capture_phase("check_queue");
     if repository.acknowledged()? != Some(head) && !repository.queued(head)? {
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::qualification_capture_phase("append_capture");
         hooks
             .events
             .append(&outbox::captured(head, tree, base), Some(head))?;

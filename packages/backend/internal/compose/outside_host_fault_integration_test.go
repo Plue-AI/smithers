@@ -129,7 +129,7 @@ func outsideWatcherHostFault(t *testing.T, binary, point string) {
 			_ = os.WriteFile(filepath.Join(evidence, "failure-watcher.json"), data, 0600)
 		}
 
-		for _, phase := range []string{"arm", "started", "hit"} {
+		for _, phase := range []string{"arm", "started", "phase", "hit"} {
 			name := "qualification-K4b-capture." + phase
 			if data, err := os.ReadFile(filepath.Join(state, name)); err == nil {
 				_ = os.WriteFile(filepath.Join(evidence, "failure-"+name), data, 0600)
@@ -207,6 +207,9 @@ func outsideWatcherHostFault(t *testing.T, binary, point string) {
 			receipt, err := os.ReadFile(hit)
 			require.NoError(t, err)
 			require.Equal(t, "captured", string(receipt), "ordinary local capture closes this real watcher burst")
+			phase, err := os.ReadFile(filepath.Join(state, "qualification-K4b-capture.phase"))
+			require.NoError(t, err)
+			require.Equal(t, "complete", string(phase), "all local capture phases completed")
 			require.NoError(t, os.Remove(hit))
 		}
 	}

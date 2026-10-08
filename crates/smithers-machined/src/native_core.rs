@@ -343,7 +343,11 @@ impl Core for NativeCore {
     fn capture_local(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.require_settled_wake()?;
         crate::capture::local(cx, &mut Capture(self))?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::qualification_capture_phase("settle_native");
         self.native.settled().map_err(hook)?;
+        #[cfg(all(feature = "killpoints", debug_assertions))]
+        crate::events::qualification_capture_phase("checkpoint_native");
         self.native
             .checkpoint_with_ack(self.git.acknowledged().map_err(hook)?)
             .map_err(hook)
