@@ -1,5 +1,5 @@
 import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
-import { actorColour } from "./views/ActorChip"
+import { ActorChip, actorColour, actorName } from "./views/ActorChip"
 import type { LiveDocProvider } from "../runtime/LiveDocProvider"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./liveDoc"
@@ -298,7 +298,7 @@ const FileContent = ({ card, model, binding, provider, onRunCommand }: { provide
   } }
   const legacyHeader = model.mode === "read_only" && (payload.address !== undefined || payload.readAt !== undefined)
   return <div className="world-card-panel" data-line={payload.line}>
-    {legacyHeader ? <FileCardHeader repo={payload.repo} path={payload.path} address={payload.address} readAt={payload.readAt} localRepoId={payload.localRepoId} refreshCommand="file" onRunCommand={onRunCommand} /> : null}
+    {legacyHeader ? <FileCardHeader repo={payload.repo} path={payload.path} address={payload.address} readAt={payload.readAt} localRepoId={payload.localRepoId} refreshCommand="file" onRunCommand={onRunCommand} trailing={model.last_writer && !model.gone ? <span className="code-writer" title={actorName(model.last_writer)}><ActorChip actor={model.last_writer} size="s" /></span> : undefined} /> : null}
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
         <div role={provider?.comparison ? "group" : undefined} aria-label={provider?.comparison ? "Live and outside versions" : undefined} data-version={provider?.comparison?.version}>
