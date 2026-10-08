@@ -227,6 +227,8 @@ impl<V: Versions> Disk for LinuxDisk<V> {
             fs::fchown(&file, None, Some(rustix::process::Gid::from_raw(gid))).map_err(io)?;
             fs::fchmod(&file, Mode::from_raw_mode(mode)).map_err(io)?;
             file.sync_all()?;
+            #[cfg(all(feature = "killpoints", debug_assertions))]
+            crate::events::killpoint("write_swap");
             fs::renameat_with(
                 &parent,
                 &temp,
