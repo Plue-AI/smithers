@@ -21,6 +21,11 @@
 
 ### Changed
 
+- The runtime monitor omits the raw journal (paged from `run-events` when its
+  tab opens; a replay frame keeps its prefix) and adds the run's `extent`.
+  Plan structure and child-flow calls are no longer steps, and a check phase
+  is titled by the failures its receipts report (#3514).
+
 - The runtime monitor no longer refuses runs with model tokens. Settled native
   steps carry their metered dispatches (`meter`), journaled model calls and
   tokens, and their agent transcript as phase cells; a run with tokens returns

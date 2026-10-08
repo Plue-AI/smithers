@@ -497,7 +497,22 @@ export const monitor = (control: Control["Service"], runId: string, at?: number)
     if (run === undefined || run.runId !== runId) return yield* new BridgeError({ code: "run_not_found", message: "Runtime execution was not found", retryable: false })
     const records = Array.from(yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1)))
     if (records.length > Projections.maxEventsScanned) return yield* new BridgeError({ code: "resource_limit", message: "Run journal exceeds the inspection limit", retryable: false })
-    const value = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
+    const folded = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
+    // The journal is read page by page when its tab opens (run-events). Only a
+    // replay frame carries its own journal prefix. The extent bounds the run.
+    let start = Infinity
+    let end = 0
+    for (const row of records) {
+      if ((row.occurredAt ?? 0) > 0) {
+        start = Math.min(start, row.occurredAt!)
+        end = Math.max(end, row.occurredAt!)
+      }
+    }
+    const value: Partial<typeof folded> & Omit<typeof folded, "journal"> & { extent?: { start: string; end: string } } = {
+      ...folded,
+      ...(end === 0 ? {} : { extent: { start: new Date(start).toISOString(), end: new Date(end).toISOString() } })
+    }
+    if (at === undefined) delete value.journal
     if (new TextEncoder().encode(JSON.stringify(value)).byteLength > Projections.maxProjectionBytes) return yield* new BridgeError({ code: "resource_limit", message: "Run monitor exceeds the inspection limit", retryable: false })
     return value
   })

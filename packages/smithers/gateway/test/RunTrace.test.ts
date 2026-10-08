@@ -1646,6 +1646,32 @@ describe("native step transcripts and metered dispatches", () => {
     expect(monitorFromJournal(run, journal.filter(row => row.sequence !== 3))).toMatchObject({ tokens: 0, cost_usd: 0 })
   })
 
+  test("plan structure and child-flow calls are never steps; long cell text is an excerpt", () => {
+    const shaped = [
+      node(20, "flows.engine.node-scheduled", { nodeId: "root", kind: "FlowCall", attempt: 1, action: "registry/entry/x/todo" }),
+      node(21, "flows.engine.node-scheduled", { nodeId: "root.flow", kind: "AndThen", attempt: 1 }),
+      node(22, "flows.engine.node-scheduled", { nodeId: "root.flow.then", kind: "Branch", attempt: 1 }),
+      ...journal.map(row => row.sequence === 3
+        ? fact(3, "control.agent.model-settled", 1, { text: "y".repeat(3000), usage: { inputTokens: 100, outputTokens: 100 } })
+        : row)
+    ]
+    const model = monitorFromJournal(run, shaped)
+    expect(model.attempts[0]!.steps.map(step => step.label)).toEqual(["Edited the files", "Ran checks"])
+    expect(model.attempts[0]!.graph.map(node => node.label)).toEqual(["Edited the files", "Ran checks"])
+    expect(model.attempts[0]!.phases[0]!.cells[0]!.quote).toBe(`${"y".repeat(2000)}…`)
+  })
+
+  test("a check phase is titled by the failures its recorded output reports", () => {
+    const check = (sequence: number, status: string) => [
+      node(sequence, "flows.engine.node-scheduled", { nodeId: `check-${sequence}`, kind: "ActionCall", attempt: 1, action: "coding/check-command" }),
+      node(sequence + 1, "flows.engine.node-settled", { nodeId: `check-${sequence}`, outcome: "built", attempts: 1, action: "coding/check-command",
+        result: { preview: JSON.stringify({ checkId: "test", status }), bytes: 30, truncated: false } })
+    ]
+    const model = monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed")])
+    expect(model.attempts[0]!.phases.map(phase => [phase.title, phase.tone])).toEqual([["Ran checks · 1 failed", "fail"], ["Ran checks", "ok"]])
+    expect(JSON.stringify(monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed")]))).toBe(JSON.stringify(model))
+  })
+
   test("the transcript is a pure function of the journal, and replay stops at the cursor", () => {
     expect(JSON.stringify(monitorFromJournal(run, journal))).toBe(JSON.stringify(monitorFromJournal(run, journal)))
     const replay = monitorFromJournal(run, journal, 4)

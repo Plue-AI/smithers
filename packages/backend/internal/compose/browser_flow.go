@@ -547,7 +547,7 @@ func (api *browserFlowAPI) archivedSnapshot(ctx context.Context, box db.Workspac
 	if err != nil {
 		return nil, false
 	}
-	answer, ok, err := archived.snapshot(request.Selector.RunID, payload)
+	answer, ok, err := archived.snapshot(ctx, payload)
 	return answer, ok && err == nil
 }
 

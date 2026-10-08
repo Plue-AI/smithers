@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"time"
 )
@@ -139,8 +140,16 @@ func usd(nanos int64) float64 {
 	return math.Round(float64(nanos)) / 1e9
 }
 
-// journalWindow is the first and last time the monitor's journal records.
+// journalWindow is the first and last time the run's journal records: the
+// host's extent, or the replay frame's journal prefix.
 func journalWindow(value map[string]any) (time.Time, time.Time, bool) {
+	if extent, ok := value["extent"].(map[string]any); ok {
+		start, startErr := time.Parse(time.RFC3339Nano, fmt.Sprint(extent["start"]))
+		end, endErr := time.Parse(time.RFC3339Nano, fmt.Sprint(extent["end"]))
+		if startErr == nil && endErr == nil && start.Unix() > 0 && !end.Before(start) {
+			return start, end, true
+		}
+	}
 	var first, last time.Time
 	journal, _ := value["journal"].([]any)
 	for _, entry := range journal {

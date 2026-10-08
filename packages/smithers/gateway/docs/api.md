@@ -94,6 +94,10 @@ tokens returns no `cost_usd`; its steps carry `meter`, the
 install prices them from its metered proxy rows. A returned `cost_usd` of zero
 therefore only ever means a run with no model tokens.
 
+The current monitor omits the raw journal, which its reader pages from the
+`run-events` projection when the journal tab opens, and carries the run's
+`extent: { start, end }`. A replay frame (`at`) carries its own journal prefix.
+
 ### Types and constants
 
 | Export                       | Signature                                                                                                                         | Meaning                                                                                                         |
@@ -495,7 +499,11 @@ evidence do not acquire invented phases, successful checks, or file changes.
   spans, frame summaries, phase bands, milestone pins, and discipline notes.
 - `monitorFromJournal(run, records, at?)` adapts that same fold to the install
   monitor: recorded step instances, deterministic phases, approval, sleep and deferred signal waits,
-  bookkeeping and the raw journal. Bookkeeping nodes appear only in the Engine row;
+  bookkeeping and the raw journal. Steps are the nodes that dispatched an
+  action; plan structure (`AndThen`, `Branch`, `Map` and the rest) and
+  child-flow calls, whose own nodes are the steps, are not steps. A phase's
+  title is its label plus the failures its recorded check receipts report
+  ("Ran checks · 1 failed"). Bookkeeping nodes appear only in the Engine row;
   graph edges through them retain the visible dependency order. Declared native graph pages retain
   unreached nodes and dependency edges; recorded node instances supply their
   live states. Rescheduled native nodes retain separate instance keys. A replay

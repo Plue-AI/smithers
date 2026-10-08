@@ -915,8 +915,13 @@ it.effect("refuses monitors exceeding the journal scan or encoded response bound
       message: "Run journal exceeds the inspection limit"
     })
     const tooLarge = service({ watch: () => Stream.make({ ...row, payload: { text: "x".repeat(4 * 1024 * 1024) } }) })
-    expect(yield* Effect.flip(RuntimeBridge.monitor(tooLarge, "run-1"))).toMatchObject({
+    // A replay frame carries its journal prefix, so the response bound applies.
+    expect(yield* Effect.flip(RuntimeBridge.monitor(tooLarge, "run-1", 1))).toMatchObject({
       code: "resource_limit",
       message: "Run monitor exceeds the inspection limit"
     })
+    // The current monitor leaves the journal to its paged read and keeps the run's extent.
+    const current = yield* RuntimeBridge.monitor(tooLarge, "run-1")
+    expect("journal" in current).toBe(false)
+    expect(current.extent).toEqual({ start: "1970-01-01T00:00:00.001Z", end: "1970-01-01T00:00:00.001Z" })
   }))

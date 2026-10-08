@@ -2301,6 +2301,12 @@ interface StepTranscript {
 
 const hexDigest = /^[0-9a-f]{64}$/
 
+/** A transcript cell shows an excerpt; the journal keeps the full record. */
+const cellText = (value: unknown): string | undefined => {
+  const text = textOf(value)
+  return text === undefined || text.length <= 2000 ? text : `${text.slice(0, 2000)}…`
+}
+
 /** The recorded presentation of a tool call: "Read t5.md", "Failed to write t5.md". */
 const callCellLabel = (started: Record<string, unknown>, failed: boolean): string => {
   const descriptor = asRecord(started.descriptor)
@@ -2360,7 +2366,7 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
         const usage = asRecord(payload.usage)
         const tokens = (asNumber(usage.inputTokens) ?? 0) + (asNumber(usage.outputTokens) ?? 0)
         const duration = asNumber(payload.durationMillis)
-        const text = textOf(payload.text)
+        const text = cellText(payload.text)
         transcript.tokens += tokens
         transcript.models += 1
         transcript.cells.push({
@@ -2369,13 +2375,13 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
           ...(duration === undefined ? {} : { took_s: Math.max(0, duration) / 1000 })
         })
       } else if (step.kind === "control.agent.cell-produced") {
-        const code = textOf(payload.text)
+        const code = cellText(payload.text)
         const cell: TranscriptCell = { id: `cell:${sequence}`, kind: "run", label: "Ran a cell", ...(code === undefined ? {} : { code }) }
         transcript.cells.push(cell)
         lastCell.set(stepId, cell)
       } else if (step.kind === "control.agent.cell-printed") {
         const cell = lastCell.get(stepId)
-        const printed = textOf(payload.text)
+        const printed = cellText(payload.text)
         if (cell !== undefined && printed !== undefined && printed !== "") {
           cell.output = cell.output === undefined ? printed : `${cell.output}\n${printed}`
         }
@@ -2390,7 +2396,7 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
     const handle = `${call.stepId}:${call.fact.callId}`
     const payload = call.fact as unknown as Record<string, unknown>
     if (call.fact.phase === "invoked") {
-      const input = textOf(call.fact.input)
+      const input = cellText(call.fact.input)
       const cell: TranscriptCell = {
         id: `cell:${sequence}`, kind: callCellKind(payload), label: callCellLabel(payload, false),
         ...(input === undefined ? {} : { code: input }), tone: "live"
@@ -2404,7 +2410,7 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
     const failed = call.fact.outcome === "failure"
     open.cell.label = callCellLabel(open.started, failed)
     open.cell.tone = failed ? "fail" : "ok"
-    const result = failed ? textOf(call.fact.message) : textOf(call.fact.value)
+    const result = failed ? cellText(call.fact.message) : cellText(call.fact.value)
     if (result !== undefined) open.cell.output = result
   }
   return transcripts
@@ -2419,6 +2425,59 @@ const nodeDispatches = (row: TraceSpan): ReadonlyArray<string> => {
   if (execution === undefined || !Array.isArray(digests)) return []
   return [...new Set(digests.filter((digest): digest is string => typeof digest === "string" && hexDigest.test(digest)))]
     .map((digest) => `${execution}:${digest}`)
+}
+
+/** Plan node kinds that only shape the plan (@smthrs/plan); a child flow's own nodes are its steps. */
+const PLAN_STRUCTURE: ReadonlySet<string> = new Set([
+  "Succeed", "Fail", "All", "Race", "Map", "AndThen", "Branch", "Catch", "FlowCall", "FunctionIdentity", "PlannedReference"
+])
+
+/** How many checks a step's recorded output reports failed: a check receipt
+ * (`{checkId, status}`) or a list of them; zero for any other output. */
+const checkFailures = (output: string | undefined): number => {
+  if (output === undefined) return 0
+  let value: unknown
+  try {
+    value = JSON.parse(output)
+  } catch {
+    return 0
+  }
+  const receipts = Array.isArray(value) ? value : [value]
+  return receipts.filter((receipt) => {
+    const record = asRecord(receipt)
+    return typeof record.checkId === "string" && record.status === "failed"
+  }).length
+}
+
+/** Each recorded engine node's kind and action, by its trace span id (without instance). */
+const engineNodeShapes = (journal: ReadonlyArray<JournalRecord>) => {
+  const shapes = new Map<string, { kind?: string | undefined; action?: string | undefined }>()
+  for (const record of journal) {
+    if (record.kind !== "control.engine.event") continue
+    const envelope = asRecord(record.payload)
+    const executionId = asString(envelope.executionId)
+    const generation = asNumber(envelope.generation)
+    const payload = asRecord(envelope.payload)
+    if (executionId === undefined || generation === undefined) continue
+    const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(executionId)}:${generation}`)}:`
+    if (envelope.eventType === "flows.engine.plan-recorded" || envelope.eventType === "flows.engine.subgraph-appended") {
+      const nodes = asRecord(payload.graph).nodes
+      for (const node of Array.isArray(nodes) ? nodes : []) {
+        const shape = asRecord(node)
+        const id = asString(shape.id)
+        if (id !== undefined) shapes.set(prefix + encodeURIComponent(id), { kind: asString(shape.kind), action: asString(shape.action) })
+      }
+    } else if (envelope.eventType === "flows.engine.node-scheduled") {
+      const id = asString(payload.nodeId)
+      if (id === undefined) continue
+      const known = shapes.get(prefix + encodeURIComponent(id))
+      shapes.set(prefix + encodeURIComponent(id), {
+        kind: asString(payload.kind) ?? known?.kind,
+        action: asString(payload.action) ?? known?.action
+      })
+    }
+  }
+  return shapes
 }
 
 /** Adapt the canonical trace to the install monitor. IDs and timestamps come
@@ -2443,7 +2502,16 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   const bookkeeping = (row: TraceSpan) => engineLabel(row.label)
   const transcripts = stepTranscripts(journal)
   const dispatchesOf = new Map(trace.rows.map(row => [row.id, nodeDispatches(row)] as const))
-  const calls = trace.rows.filter(row => row.kind === "call" && !bookkeeping(row))
+  // A step is a node that dispatched an action. Plan structure (sequences,
+  // branches, maps) and child-flow calls, whose own nodes are the steps, are
+  // never steps of their own.
+  const structural = (kind: string | undefined) => kind !== undefined && PLAN_STRUCTURE.has(kind)
+  const nodeShapes = engineNodeShapes(journal)
+  const calls = trace.rows.filter(row => {
+    if (row.kind !== "call" || bookkeeping(row)) return false
+    const shape = nodeShapes.get(row.id.replace(/#\d+$/, ""))
+    return shape === undefined || !structural(shape.kind)
+  })
   const transcriptOf = (row: TraceSpan) => {
     const parts = (dispatchesOf.get(row.id) ?? []).flatMap(dispatch => {
       const found = transcripts.get(dispatch.slice(dispatch.lastIndexOf(":") + 1))
@@ -2474,9 +2542,14 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     : value === "completed" ? "ok" : value === "waiting" ? "wait" : "live"
   const phases = calls.map((row, index) => {
     const transcript = transcriptOf(row).cells
+    const failedChecks = checkFailures(row.detail.output)
     return {
-      id: `phase:${row.id}`, step: steps[index]!.key, title: row.label,
-      took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000, tone: tone(row.status),
+      id: `phase:${row.id}`, step: steps[index]!.key,
+      // The title is the Appendix C label plus the outcome its recorded
+      // output reports: "Ran checks · 1 failed".
+      title: failedChecks === 0 ? row.label : `${row.label} · ${failedChecks} failed`,
+      took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000,
+      tone: failedChecks === 0 ? tone(row.status) : "fail" as const,
       cells: transcript.length > 0 ? transcript : [{ id: `cell:${row.id}`, kind: /Edited/.test(row.label) ? "edit" as const : /Read/.test(row.label) ? "read" as const : "run" as const,
         label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
         tone: tone(row.status) }]
@@ -2485,7 +2558,8 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
   const declaredGraph = engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => {
     const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)}:`
     const nodes = execution.graph?.nodes ?? []
-    const hidden = new Map(nodes.filter(node => engineLabel(node.action ?? node.id)).map(node => [node.id, node]))
+    const hidden = new Map(nodes.filter(node => engineLabel(node.action ?? node.id) || structural(node.kind))
+      .map(node => [node.id, node]))
     // Engine bookkeeping stays in the Engine row. Its dependency edges still
     // order the visible steps, including across several hidden boundaries.
     const visibleDeps = (id: string, seen: ReadonlySet<string>): string[] => {

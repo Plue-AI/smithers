@@ -64,7 +64,7 @@ func (m *runMonitors) checkpoints(ctx context.Context, repo int64, id string) ([
 	}
 	return result, rows.Err()
 }
-func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64) (json.RawMessage, error) {
+func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64, withJournal ...bool) (json.RawMessage, error) {
 	cps, err := m.checkpoints(ctx, repo, id)
 	if err != nil {
 		return nil, err
@@ -72,23 +72,40 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 	if len(cps) != 1 {
 		return nil, pgx.ErrNoRows
 	}
-	return m.readCheckpoint(ctx, repo, id, at, cps[0])
+	return m.readCheckpoint(ctx, repo, id, at, cps[0], len(withJournal) > 0 && withJournal[0])
 }
 
-func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint) (json.RawMessage, error) {
+func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint, withJournal ...bool) (json.RawMessage, error) {
 	raw, err := m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
+	var archived *archivedRun
 	if err != nil {
 		// A sleeping branch is never woken by a read: its run is served from
 		// the host's own answers retained while it was live (runArchive).
-		archived, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
+		found, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
 		if at != nil || archiveErr != nil {
 			return nil, err
 		}
-		raw = archived.Monitor
+		raw, archived = found.Monitor, &found
 	}
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || value["id"] != cp.RunID {
 		return nil, errors.New("invalid monitor")
+	}
+	// The journal tab reads the run's journal page by page: from the live
+	// host's run-events projection, or from the archive of a sleeping branch.
+	if len(withJournal) > 0 && withJournal[0] && value["journal"] == nil {
+		var journal []any
+		if archived != nil {
+			journal, err = archived.journal(ctx)
+		} else {
+			journal, err = m.liveJournal(ctx, cp)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if journal != nil {
+			value["journal"] = journal
+		}
 	}
 	// Each step's spend is priced from the proxy rows its dispatches name.
 	if err := m.priceRunMonitor(ctx, cp.Target.WorkspaceID, value); err != nil {
@@ -277,7 +294,7 @@ func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *r
 			browserFlowJSON(w, 200, rows)
 			return
 		}
-		raw, e := m.read(r.Context(), repo, id, at)
+		raw, e := m.read(r.Context(), repo, id, at, strings.HasSuffix(r.URL.Path, "/trace"))
 		if errors.Is(e, pgx.ErrNoRows) {
 			browserFlowTyped(w, 404, "run_not_found", "Run unavailable")
 			return
@@ -309,4 +326,38 @@ func monitorRunState(status string) string {
 		return "waiting"
 	}
 	return "running"
+}
+
+// liveJournal pages the run's journal from its live host's run-events
+// projection, as the run:<id> topic reads it.
+func (m *runMonitors) liveJournal(ctx context.Context, cp flowdispatch.RuntimeCheckpoint) ([]any, error) {
+	caller, ok := m.reader.(interface {
+		CallRPC(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error)
+	})
+	if !ok {
+		// A monitor reader with no projection door serves no journal tab.
+		return nil, nil
+	}
+	reader := runProjectionReader{call: caller.CallRPC, target: cp.Target, run: cp.RunID}
+	entries := []any{}
+	var cursor *runProjectionCursor
+	for pages := 0; pages < 200; pages++ {
+		page, err := reader.snapshot(ctx, "run-events", cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, raw := range page.Rows {
+			entry, err := journalEntry(raw)
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
+		}
+		if len(page.Rows) == 0 || (cursor != nil && page.Cursor.Value == cursor.Value && page.Cursor.Offset == cursor.Offset) {
+			return entries, nil
+		}
+		next := page.Cursor
+		cursor = &next
+	}
+	return nil, errors.New("run journal exceeds the inspection limit")
 }

@@ -1405,12 +1405,13 @@ describe("the assembled gateway over a real loopback bind", () => {
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
       expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
       yield* emit(runId, "control.run.waiting-approval", { runId })
-      const waitingFrame = yield* monitor()
-      const waitingSeq = waitingFrame.journal.at(-1).seq
+      // The current monitor omits the journal; a replay at the end names its last sequence.
+      expect((yield* monitor()).journal).toBeUndefined()
+      const waitingSeq = (yield* monitor(Number.MAX_SAFE_INTEGER)).replay.last
       yield* emit(runId, "control.run.interrupted", { runId })
-      const interruptedFrame = yield* monitor()
+      const interruptedSeq = (yield* monitor(Number.MAX_SAFE_INTEGER)).replay.last
       expect((yield* monitor(waitingSeq)).state).toBe("waiting")
-      expect((yield* monitor(interruptedFrame.journal.at(-1).seq)).state).toBe("interrupted")
+      expect((yield* monitor(interruptedSeq)).state).toBe("interrupted")
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
 
     }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: "edge-secret",

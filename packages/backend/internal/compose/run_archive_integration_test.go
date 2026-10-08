@@ -29,8 +29,7 @@ type archiveHost struct {
 const archivedMonitorJSON = `{"id":"run-1","flow":"todo","version":"","title":"todo","state":"done",
 	"attempts":[{"n":1,"run_id":"run-1","state":"done","graph":[],"steps":[{"key":"edit#1","id":"edit","k":1,"label":"Edited the files","state":"completed"}],"phases":[]}],
 	"waits":[],"tokens":0,"time_s":2,"cost_usd":0,"engine":[],
-	"journal":[{"seq":1,"at":"2026-10-07T00:00:01Z","type":"control.run.accepted","text":"{\"runId\":\"run-1\"}"},
-		{"seq":3,"at":"2026-10-07T00:00:03Z","type":"control.run.completed","text":"{}"}]}`
+	"extent":{"start":"2026-10-07T00:00:01.000Z","end":"2026-10-07T00:00:03.000Z"}}`
 
 func (h *archiveHost) Monitor(_ context.Context, target flowruntime.Target, run string, at *int64) (json.RawMessage, error) {
 	h.calls = append(h.calls, "monitor")
@@ -69,20 +68,29 @@ func TestRunArchivePostgres(t *testing.T) {
 		Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "lane-1", BindingKind: "mythical-item", BindingID: "item-1"}}
 	host := &archiveHost{}
 	archive := &runArchive{pool: pool, host: host}
+	sequence := int64(0)
 	page := func(kinds ...string) flowdispatch.ProjectionUpdate {
 		update := flowdispatch.ProjectionUpdate{Scope: scope, Checkpoint: checkpoint}
-		for n, kind := range kinds {
-			update.Events = append(update.Events, flowruntime.Event{RunID: "run-1", Sequence: int64(n + 1), Kind: kind, Payload: json.RawMessage(`{}`)})
+		for _, kind := range kinds {
+			sequence += 2
+			update.Events = append(update.Events, flowruntime.Event{RunID: "run-1", Sequence: sequence, Kind: kind,
+				OccurredAt: float64(1791331200000 + sequence*1000), Payload: json.RawMessage(fmt.Sprintf(`{"n":%d}`, sequence))})
 		}
 		return update
 	}
 	archived := func() (archivedRun, error) { return readRunArchive(ctx, pool, repo.ID, "lane-1", "run-1") }
 
-	// Only lifecycle pages capture; a page of engine events reads nothing.
+	// Every page keeps its events; only lifecycle pages read the host.
 	require.NoError(t, archive.ProjectFlowRuntime(ctx, page("control.engine.event")))
 	require.Empty(t, host.calls)
 	_, err = archived()
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+	// A page replayed after a failed checkpoint keeps each event once.
+	sequence = 0
+	require.NoError(t, archive.ProjectFlowRuntime(ctx, page("control.engine.event")))
+	var stored int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM run_archive_events`).Scan(&stored))
+	require.Equal(t, 1, stored)
 	require.NoError(t, archive.ProjectFlowRuntime(ctx, page("control.engine.event", "control.run.completed")))
 	row, err := archived()
 	require.NoError(t, err)
@@ -90,8 +98,8 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.Equal(t, "completed", row.Status)
 	require.JSONEq(t, `[{"nodeId":"edit","state":"done"}]`, string(row.Tree))
 
-	// A capture on a stopped host never fails the observation, and keeps the
-	// answers the live host gave.
+	// A capture on a stopped host never fails the observation, keeps the
+	// answers the live host gave, and still keeps the page's events.
 	host.stopped = true
 	require.NoError(t, archive.ProjectFlowRuntime(ctx, page("control.run.running")))
 	kept, err := archived()
@@ -100,14 +108,14 @@ func TestRunArchivePostgres(t *testing.T) {
 
 	// Snapshots: the summary and tree rows as retained, the journal as events.
 	snapshot := func(payload string) (string, bool) {
-		answer, ok, err := kept.snapshot("run-1", json.RawMessage(payload))
+		answer, ok, err := kept.snapshot(ctx, json.RawMessage(payload))
 		require.NoError(t, err)
 		return string(answer), ok
 	}
 	summary, ok := snapshot(`{"selector":{"_tag":"run-summary","runId":"run-1"}}`)
 	require.True(t, ok)
 	require.JSONEq(t, `{"ok":true,"payload":{"selector":{"_tag":"run-summary","runId":"run-1"},
-		"cursor":{"selector":{"_tag":"run-summary","runId":"run-1"},"projection":"run-summary","runId":"run-1","value":3,"offset":0},
+		"cursor":{"selector":{"_tag":"run-summary","runId":"run-1"},"projection":"run-summary","runId":"run-1","value":8,"offset":0},
 		"rows":[{"runId":"run-1","flowId":"todo","status":"completed","turns":2,"statusRollup":{"freshness":"stale"}}]}}`, summary)
 	events, ok := snapshot(`{"selector":{"_tag":"run-events","runId":"run-1"}}`)
 	require.True(t, ok)
@@ -118,12 +126,18 @@ func TestRunArchivePostgres(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal([]byte(events), &journal))
 	require.Equal(t, []map[string]any{
-		{"sequence": 1.0, "kind": "control.run.accepted", "runId": "run-1", "occurredAt": 1791331201000.0, "payload": map[string]any{"runId": "run-1"}},
-		{"sequence": 3.0, "kind": "control.run.completed", "runId": "run-1", "occurredAt": 1791331203000.0, "payload": map[string]any{}},
+		{"sequence": 2.0, "kind": "control.engine.event", "runId": "run-1", "occurredAt": 1791331202000.0, "payload": map[string]any{"n": 2.0}},
+		{"sequence": 4.0, "kind": "control.engine.event", "runId": "run-1", "occurredAt": 1791331204000.0, "payload": map[string]any{"n": 4.0}},
+		{"sequence": 6.0, "kind": "control.run.completed", "runId": "run-1", "occurredAt": 1791331206000.0, "payload": map[string]any{"n": 6.0}},
+		{"sequence": 8.0, "kind": "control.run.running", "runId": "run-1", "occurredAt": 1791331208000.0, "payload": map[string]any{"n": 8.0}},
 	}, journal.Payload.Rows)
+	later, ok := snapshot(`{"selector":{"_tag":"run-events","runId":"run-1"},"after":{"value":4,"offset":0}}`)
+	require.True(t, ok)
+	require.Contains(t, later, `"value":8`)
+	require.Contains(t, later, `"rows":[{"kind":"control.run.completed"`)
 	for _, refused := range []string{
 		`{"selector":{"_tag":"run-summary","runId":"run-2"}}`,
-		`{"selector":{"_tag":"run-events","runId":"run-1"},"after":{"value":1}}`,
+		`{"selector":{"_tag":"run-summary","runId":"run-1"},"after":{"value":1}}`,
 		`{"selector":{"_tag":"approvals","runId":"run-1"}}`,
 		`{"selector":{"_tag":"run-summary","runId":"run-1","extra":"x"}}`,
 		`not json`,
@@ -134,17 +148,17 @@ func TestRunArchivePostgres(t *testing.T) {
 
 	// The run:<id> topic: the summary without its wall-clock rollup, and only
 	// the journal after the subscriber's cursor.
-	livePage, projection, err := kept.livePage("run-1", nil)
+	livePage, projection, err := kept.livePage(ctx, nil)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), livePage.Cursor)
+	require.Equal(t, int64(8), livePage.Cursor)
 	require.Empty(t, projection["events"])
 	require.NotContains(t, projection["summary"], "statusRollup")
-	after := int64(1)
-	_, projection, err = kept.livePage("run-1", &after)
+	after := int64(3)
+	_, projection, err = kept.livePage(ctx, &after)
 	require.NoError(t, err)
-	require.Len(t, projection["events"], 1)
+	require.Len(t, projection["events"], 3)
 	beyond := int64(9)
-	gap, _, err := kept.livePage("run-1", &beyond)
+	gap, _, err := kept.livePage(ctx, &beyond)
 	require.NoError(t, err)
 	require.True(t, gap.Gap)
 
@@ -170,6 +184,17 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.Equal(t, strings.Repeat("a", 64), monitor["version"])
 	require.Equal(t, "done", monitor["state"])
 	require.Equal(t, 0.0, monitor["cost_usd"])
+	require.NotContains(t, monitor, "journal")
+	// The journal tab of a sleeping branch is the archived journal.
+	traced, err := monitors.read(ctx, repo.ID, "lane-1:run-1", nil, true)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(traced, &monitor))
+	require.Equal(t, []any{
+		map[string]any{"seq": 2.0, "at": "2026-10-07T00:00:02.000Z", "type": "control.engine.event", "text": `{"n": 2}`},
+		map[string]any{"seq": 4.0, "at": "2026-10-07T00:00:04.000Z", "type": "control.engine.event", "text": `{"n": 4}`},
+		map[string]any{"seq": 6.0, "at": "2026-10-07T00:00:06.000Z", "type": "control.run.completed", "text": `{"n": 6}`},
+		map[string]any{"seq": 8.0, "at": "2026-10-07T00:00:08.000Z", "type": "control.run.running", "text": `{"n": 8}`},
+	}, monitor["journal"])
 	at := int64(1)
 	_, err = monitors.read(ctx, repo.ID, "lane-1:run-1", &at)
 	require.Error(t, err)

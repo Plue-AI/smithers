@@ -88,7 +88,7 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 		if archiveErr != nil {
 			return live.LogPage{}, err
 		}
-		page, projection, archiveErr := archived.livePage(run, after)
+		page, projection, archiveErr := archived.livePage(ctx, after)
 		if archiveErr != nil || page.Gap {
 			return page, archiveErr
 		}
