@@ -23,6 +23,17 @@ FORBIDDEN_KEYS = ('BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'CDPATH',
                   'SSL_CERT_FILE', 'SSL_CERT_DIR', 'HTTP_PROXY', 'HTTPS_PROXY',
                   'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy')
 CANARY = b'smithers-main-pinned-setup-v1\n'
+# Reopening the runner-owned action path as root must not execute a replacement
+# made after validate(). Hash the exact bytes that root will compile, using the
+# independently fetched main digest, rather than executing that path directly.
+ROOT_DISPATCH = '''import hashlib, pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_bytes()
+if hashlib.sha256(source).hexdigest() != sys.argv[2]:
+    sys.exit('trusted setup refused: root setup byte identity')
+namespace = {'__name__': 'smithers_trusted_root', '__file__': sys.argv[1]}
+exec(compile(source, sys.argv[1], 'exec'), namespace)
+namespace['root_setup']()
+'''
 # Ubuntu ubuntu-keyring_2023.11.28.1_all.deb from archive.ubuntu.com.
 # Package SHA256: 36de43b15853ccae0028e9a767613770c704833f82586f28eb262f0311adb8a8.
 # Root loads these main-pinned bytes, never the image's writable keyring.
@@ -133,6 +144,7 @@ def validate():
         expected = hashlib.sha256(response.read()).digest()
     if hashlib.sha256(Path(__file__).read_bytes()).digest() != expected:
         refuse('main-pinned setup byte identity')
+    return expected.hex()
 
 
 def root_setup():
@@ -172,22 +184,21 @@ def root_setup():
 
 
 def dispatch(activated=ACTIVATED):
-    validate()
+    source_digest = validate()
     if not activated:
         refuse('T-SEC-01 receipts and setup campaign acceptance pending')
     # Only main-pinned action bytes are re-entered. No shell, PATH search,
     # branch dependency, user-selected package, destination or sysctl exists.
     subprocess.run(['/usr/bin/sudo', '--non-interactive', '/usr/bin/env', '-i',
                     'PATH=' + PATH, 'HOME=/root', 'LANG=C.UTF-8',
-                    '/usr/bin/python3', '-I', str(Path(__file__).resolve()), '--root'],
+                    '/usr/bin/python3', '-I', '-c', ROOT_DISPATCH,
+                    str(Path(__file__).resolve()), source_digest],
                    cwd='/', check=True)
 
 
 if __name__ == '__main__':
     try:
-        if sys.argv[1:] == ['--root']:
-            root_setup()
-        elif sys.argv[1:] == ['--validate']:
+        if sys.argv[1:] == ['--validate']:
             validate()
         elif not sys.argv[1:]:
             dispatch()

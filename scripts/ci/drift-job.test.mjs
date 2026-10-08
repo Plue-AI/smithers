@@ -456,7 +456,7 @@ test('root-ci-setup-input-validation refuses hostile environment before privileg
       return true
     })
   }
-  for (const argv of [['--packages', 'bash'], ['--shell', '/tmp/branch-shell'], ['--enable'], ['--sysctl', 'kernel.modprobe']]) {
+  for (const argv of [['--packages', 'bash'], ['--shell', '/tmp/branch-shell'], ['--enable'], ['--sysctl', 'kernel.modprobe'], ['--root']]) {
     await assert.rejects(runFile('/usr/bin/python3', ['-I', trustedSetupPath, ...argv], {
       cwd: '/', env: setupEnvironment,
     }), (error) => {
@@ -465,6 +465,24 @@ test('root-ci-setup-input-validation refuses hostile environment before privileg
       return true
     })
   }
+})
+
+test('root-ci-setup-input-validation root handoff refuses replacement bytes before loading them', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'smithers-root-handoff-'))
+  try {
+    const replacement = join(directory, 'setup.py')
+    const canary = join(directory, 'executed')
+    await writeFile(replacement, `from pathlib import Path\nPath(${JSON.stringify(canary)}).write_text('hostile setup executed\\n')\n`)
+    // Load the actual production handoff; no sudo or setup helper is replaced.
+    // The committed literal digest cannot match this hostile program.
+    const dispatch = `import runpy, subprocess; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); subprocess.run(['/usr/bin/python3', '-I', '-c', m['ROOT_DISPATCH'], ${JSON.stringify(replacement)}, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'], check=True)`
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', dispatch], { cwd: '/', env: setupEnvironment }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: root setup byte identity/)
+      return true
+    })
+    await assert.rejects(readFile(canary), { code: 'ENOENT' })
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
 // Only the main-pinned campaign action selects this test, on a disposable
@@ -569,6 +587,16 @@ test('root-ci-setup-input-validation disposable Ubuntu positive and hostile cont
   const hook = '/etc/apt/apt.conf.d/99smithers-hostile-validation'
   const savedApt = '/usr/bin/apt-get.smithers-validation-original'
   try {
+    const replacement = join(hostile, 'setup.py')
+    await writeFile(replacement, 'from pathlib import Path\nPath("/run/smithers-hostile-root").write_text("hostile root setup executed\\n")\n')
+    const handoff = `import runpy, subprocess; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); subprocess.run(['/usr/bin/sudo', '--non-interactive', '/usr/bin/env', '-i', 'PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'HOME=/root', 'LANG=C.UTF-8', '/usr/bin/python3', '-I', '-c', m['ROOT_DISPATCH'], ${JSON.stringify(replacement)}, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'], cwd='/', check=True)`
+    await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', handoff], { cwd: '/', env: setupEnvironment }), (error) => {
+      assert.equal(error.code, 1)
+      assert.match(error.stderr, /trusted setup refused: root setup byte identity/)
+      return true
+    })
+    await assert.rejects(readFile(receipt), { code: 'ENOENT' })
+    await assert.rejects(readFile(canary), { code: 'ENOENT' })
     const originalSetup = await readFile(trustedSetupPath)
     try {
       await writeFile(trustedSetupPath, Buffer.concat([originalSetup, Buffer.from('\n# hostile branch setup bytes\n')]))
