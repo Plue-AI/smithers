@@ -166,6 +166,8 @@ class BundleAssembly(unittest.TestCase):
             real_run = subprocess.run
             def corrupt(argv, **kwargs):
                 result = real_run(argv, **kwargs)
+                if argv[0] != sys.executable:
+                    return result
                 import io
                 with tarfile.open(argv[-2], "w:gz") as archive:
                     info = tarfile.TarInfo("bin/trm06-gateway")
@@ -226,6 +228,8 @@ class BundleAssembly(unittest.TestCase):
             real_run = subprocess.run
             def race(argv, **kwargs):
                 result = real_run(argv, **kwargs)
+                if argv[0] != sys.executable:
+                    return result
                 destination.symlink_to(outside)
                 return result
             with patch.object(assemble.subprocess, "run", side_effect=race):
