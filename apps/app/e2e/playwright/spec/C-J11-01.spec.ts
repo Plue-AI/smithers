@@ -43,6 +43,16 @@ test("canonical merged archive remains inspectable through monitor and read-only
   expect(retained.status()).toBe(200)
   expect((await retained.json()).journal).toEqual(archive.journal)
   await page.screenshot({ path: testInfo.outputPath("completed-journal.png") })
+  // A new browser document must rediscover the durable archive through the
+  // production catalog and authenticated topic, without the old card state.
+  await page.reload()
+  await say(page, "/monitor")
+  const reloaded = page.getByTestId(`card-run:${id}`).last()
+  await expect(reloaded).toBeVisible({ timeout: 30_000 })
+  await reloaded.getByRole("button", { name: "Inspect", exact: true }).press("Enter")
+  const restored = page.locator('.mvp-run[data-maximized]')
+  await expect(restored.getByRole("list", { name: "Attempt 1", exact: true })).toBeVisible()
+  await expect(restored.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
 })
 
 // Run with SMITHERS_J11_BROWSER=1 through TestJ11Rehearsal. The install runs

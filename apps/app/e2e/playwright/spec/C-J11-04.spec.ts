@@ -92,6 +92,11 @@ test("native Retry launches another pinned attempt and retains the failed journa
   await context.addCookies(cookies.map(c => ({ name: c.Name, value: c.Value, url: origin! })))
   const before = await (await page.request.get(`${origin}/api/todos/${n}`)).json()
   expect(before.run.attempt).toBe(1)
+  const retainedBefore = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
+  expect(retainedBefore.status()).toBe(200)
+  const failedArchive = await retainedBefore.json()
+  expect(failedArchive.state).toBe("failed")
+  expect(failedArchive.journal.length).toBeGreaterThan(0)
   await page.goto(origin!)
   await say(page, `/run.inspect ${id}`)
   const run = page.locator('.mvp-run[data-maximized]')
@@ -104,7 +109,14 @@ test("native Retry launches another pinned attempt and retains the failed journa
   expect(after.flow_version).toEqual(before.flow_version)
   const previous = await page.request.get(`${origin}/api/runs/${encodeURIComponent(id!)}/trace`)
   expect(previous.status()).toBe(200)
-  expect((await previous.json()).state).toBe("failed")
+  const retainedAfter = await previous.json()
+  expect(retainedAfter.state).toBe("failed")
+  expect(retainedAfter.journal).toEqual(failedArchive.journal)
+  // Summaries can arrive while Inspect is open; the recorded graph and
+  // step receipts themselves must remain unchanged by Retry.
+  const receipts = (archive: { attempts: Array<{ n: number; run_id: string; state: string; graph: unknown; steps: unknown }> }) =>
+    archive.attempts.map(({ n, run_id, state, graph, steps }) => ({ n, run_id, state, graph, steps }))
+  expect(receipts(retainedAfter)).toEqual(receipts(failedArchive))
   const currentID = `${after.branch.id}:${after.run.id}`
   const current = await page.request.get(`${origin}/api/runs/${encodeURIComponent(currentID)}/trace`)
   expect(current.status()).toBe(200)

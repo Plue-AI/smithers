@@ -370,3 +370,44 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 		})
 	}
 }
+
+// Merged items no longer advance, but their native root and archive may still
+// be settling. A transient refusal must schedule another claim without a new
+// GitHub event or the stale-stack sweep.
+func TestMythicalMergedRootSettlementRetriesWithoutExternalWake(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "settlement-retry")
+	o.wake()
+	item = o.byID(uuidString(item.ID))
+	lane := item.WorkspaceID
+	require.NotEmpty(t, lane)
+	item.State, item.RequestOutcome, item.RequestRunID = "landed", "completed", "retained-root"
+	_, err := db.New(o.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	calls := 0
+	o.service.SetTodoRunSettlement(func(_ context.Context, repository int64, retained db.MythicalItem) error {
+		calls++
+		require.Equal(t, o.repoID, repository)
+		require.Equal(t, "retained-root", retained.RequestRunID)
+		if calls == 1 {
+			return errors.New("native settlement is pending")
+		}
+		return nil
+	})
+	started := time.Now()
+	stack := o.wake()
+	require.Equal(t, 1, calls)
+	require.Equal(t, lane, o.byID(uuidString(item.ID)).WorkspaceID)
+	require.NotContains(t, o.lanes.deleted, lane)
+	require.Equal(t, stack.ProcessedGeneration+1, stack.RequestedGeneration)
+	require.WithinDuration(t, started.Add(3*time.Second), stack.NextAttemptAt.Time, time.Second)
+	require.NoError(t, o.service.PollOnce(ctx))
+	require.Equal(t, 1, calls, "do not spin before the retry deadline")
+	time.Sleep(time.Until(stack.NextAttemptAt.Time) + 100*time.Millisecond)
+	require.NoError(t, o.service.PollOnce(ctx))
+	require.Equal(t, 2, calls)
+	require.Empty(t, o.byID(uuidString(item.ID)).WorkspaceID)
+	require.Contains(t, o.lanes.deleted, lane)
+}

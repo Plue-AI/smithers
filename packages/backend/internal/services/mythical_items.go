@@ -1601,6 +1601,9 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 				item = s.releaseLane(ctx, r, item)
 			}
 			if mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, step.now) {
+				// Completion and archive capture can outlive the merge. A retained
+				// lane still owes settlement even though the item cannot advance.
+				r.dueAt(mythicalDue(item, false, step.now))
 				continue
 			}
 		}
