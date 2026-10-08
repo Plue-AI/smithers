@@ -1428,7 +1428,7 @@ fn corrupted_deletion_metadata_refuses_recovery_without_touching_recreated_file(
 
 #[test]
 #[ignore = "requires Linux uid19998 and confined real filesystem"]
-fn new_files_use_public_default_mode_and_existing_permissions_survive() {
+fn new_files_are_team_writable_and_existing_permissions_survive() {
     let f = Fixture::new();
     fs::write(f.root.join("workspace/script"), b"before").unwrap();
     fs::set_permissions(
@@ -1446,7 +1446,7 @@ fn new_files_use_public_default_mode_and_existing_permissions_survive() {
         ],
     );
     assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
-    for (path, mode) in [("new", 0o644), ("a.rs", 0o640), ("script", 0o751)] {
+    for (path, mode) in [("new", 0o664), ("a.rs", 0o640), ("script", 0o751)] {
         assert_eq!(
             fs::metadata(f.root.join("workspace").join(path))
                 .unwrap()
@@ -1478,7 +1478,9 @@ fn nested_batch_create_reads_back_and_inherits_directory_group_and_setgid() {
         );
         assert_eq!(fs::read(workspace.join(path)).unwrap(), b"nested bytes");
         let gid = fs::metadata(&workspace).unwrap().gid();
-        assert_eq!(fs::metadata(workspace.join(path)).unwrap().gid(), gid);
+        let metadata = fs::metadata(workspace.join(path)).unwrap();
+        assert_eq!(metadata.gid(), gid);
+        assert_eq!(metadata.mode() & 0o7777, 0o664);
         let mut parent = workspace.join(path);
         while parent.pop() && parent != workspace {
             let metadata = fs::metadata(&parent).unwrap();

@@ -219,7 +219,8 @@ impl<V: Versions> Disk for LinuxDisk<V> {
             let metadata = old.metadata()?;
             super::saved_mode(metadata.mode())?
         } else {
-            0o644
+            // New working-copy files remain writable by the shared team.
+            0o664
         };
         let temp = format!(".smithers-doc-{}-{}", hex(&key), random()?);
         // Persist the displaced inode's original merge base before the swap.
