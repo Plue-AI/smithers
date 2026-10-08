@@ -39,7 +39,7 @@ func (l retryCapturedLanes) CapturedHead(ctx context.Context, id string, _, _ in
 }
 
 func TestTodoRetryCarriesTheStoppedCapture(t *testing.T) {
-	for _, scenario := range []string{"clean", "native", "native wrong parent", "unavailable", "invalid", "missing ref", "missing base"} {
+	for _, scenario := range []string{"clean", "retired", "released", "review", "verify", "native", "native wrong parent", "unavailable", "invalid", "missing ref", "missing base"} {
 		t.Run(scenario, func(t *testing.T) {
 			o, session := newTodoAdmission(t)
 			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
@@ -47,6 +47,9 @@ func TestTodoRetryCarriesTheStoppedCapture(t *testing.T) {
 			o.wake()
 			o.projectTodo(o.launcher.byFlow("todo")[0], jobs.StateWaiting, "old-root", todoPinOne, "")
 			item = o.byID(uuidString(item.ID))
+			branch := item.WorkspaceID
+			_, err := o.pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'stopped')`, branch, o.repoID, o.userID)
+			require.NoError(t, err)
 			prefix := o.landedMain()
 			head := o.commit("Captured member work", "MEMBER.md", "Keep these captured bytes\n")
 			if scenario != "missing ref" {
@@ -75,14 +78,33 @@ func TestTodoRetryCarriesTheStoppedCapture(t *testing.T) {
 				item.CandidateBase, item.BaseCommit, checks.InitialPrefix = "", "invalid", ""
 			}
 			item.State, item.Checks = "blocked", checks.encode()
-			_, err := o.service.queries().SaveMythicalItem(context.Background(), item)
+			if scenario == "retired" || scenario == "released" {
+				require.NoError(t, o.service.queries().RetireMythicalLane(t.Context(), branch))
+			}
+			if scenario == "released" {
+				item.WorkspaceID = ""
+			}
+			if scenario == "review" || scenario == "verify" {
+				q := o.service.queries()
+				isolated, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: o.userID, Name: scenario, Kind: "vm", Status: "stopped"})
+				require.NoError(t, err)
+				_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: isolated.ID, RepositoryID: o.repoID, ItemID: item.ID, Name: "TODO 1 " + scenario + " g2"})
+				require.NoError(t, err)
+				require.NoError(t, q.RetireMythicalLane(t.Context(), branch))
+				item.WorkspaceID = isolated.ID
+				if scenario == "review" {
+					checks.Review = &mythicalReview{Lane: isolated.ID}
+					item.Checks = checks.encode()
+				}
+			}
+			_, err = o.service.queries().SaveMythicalItem(context.Background(), item)
 			require.NoError(t, err)
 			_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "retry-capture"})
 			require.NoError(t, err)
 			o.wake()
 			o.wake()
 			next := o.byID(uuidString(item.ID))
-			if scenario != "clean" && scenario != "native" {
+			if scenario != "clean" && scenario != "native" && scenario != "retired" && scenario != "released" && scenario != "review" && scenario != "verify" {
 				require.EqualValues(t, 1, next.Attempt, "unknown source never admits a successor")
 				require.Len(t, o.launcher.byFlow("todo"), 1)
 				if scenario != "missing ref" {
@@ -100,11 +122,60 @@ func TestTodoRetryCarriesTheStoppedCapture(t *testing.T) {
 			require.Equal(t, head, next.BaseCommit, "Retry uses the final captured bytes")
 			require.Equal(t, prefix, mythicalChecksOf(next).InitialPrefix, "retain the captured delta's actual base")
 			require.Equal(t, todoPinOne, next.FlowDigest.String)
-			bound, err := o.service.queries().GetMythicalLane(context.Background(), item.WorkspaceID)
+			bound, err := o.service.queries().GetMythicalLane(context.Background(), branch)
 			require.NoError(t, err)
 			require.True(t, bound.RetiredAt.Valid, "retire only after successor admission")
 		})
 	}
+}
+
+func TestTodoRetryCannotRestoreAChangedOrForeignBinding(t *testing.T) {
+	for _, scenario := range []string{"changed item", "foreign item", "deleted branch"} {
+		t.Run(scenario, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			item := o.fileTodo(session, "Retry binding")
+			o.wake()
+			item = o.byID(uuidString(item.ID))
+			q := o.service.queries()
+			_, err := o.pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'stopped')`, item.WorkspaceID, o.repoID, o.userID)
+			require.NoError(t, err)
+			require.NoError(t, q.RetireMythicalLane(t.Context(), item.WorkspaceID))
+			switch scenario {
+			case "changed item":
+				_, err = q.SaveMythicalItem(t.Context(), item)
+			case "foreign item":
+				other := o.fileTodo(session, "Other binding")
+				_, err = o.pool.Exec(t.Context(), `UPDATE mythical_lanes SET item_id=$2 WHERE workspace_id=$1`, item.WorkspaceID, other.ID)
+			case "deleted branch":
+				_, err = o.pool.Exec(t.Context(), `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, item.WorkspaceID)
+			}
+			require.NoError(t, err)
+			step := mythicalItemStep{s: o.service}
+			_, err = step.restoreRetryBranch(t.Context(), item)
+			require.Error(t, err)
+			lane, err := q.GetMythicalLane(t.Context(), item.WorkspaceID)
+			require.NoError(t, err)
+			require.True(t, lane.RetiredAt.Valid, "refusal cannot restore execution authority")
+			require.Len(t, o.launcher.byFlow("todo"), 1)
+		})
+	}
+}
+
+func TestTodoRetryBeforeFirstAdmissionNeedsNoCapture(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "Retry admission")
+	item.State = "blocked"
+	_, err := o.service.queries().SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	o.service.lanes = retryCapturedLanes{fakeMythicalLanes: o.lanes, err: errors.New("no admitted machine exists")}
+	_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "retry-before-admission"})
+	require.NoError(t, err)
+	o.wake()
+	next := o.byID(uuidString(item.ID))
+	require.EqualValues(t, 1, next.Attempt)
+	require.Len(t, o.launcher.byFlow("todo"), 1)
 }
 
 func TestTodoRetryAdmitsBeforeOldNativeContinuation(t *testing.T) {

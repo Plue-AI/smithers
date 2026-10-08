@@ -10,10 +10,49 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+// Failure cleanup may already have retired the execution lane, and capture
+// publication may have won the CAS that clears its item binding. Retry reads
+// the retained coding branch in either case, never an isolated review/check
+// machine or an older candidate. Restore only this item's exact branch before
+// the existing confirmed-stop and verified-snapshot boundary consumes it.
+func (st *mythicalItemStep) restoreRetryBranch(ctx context.Context, item db.MythicalItem) (db.MythicalItem, error) {
+	q := st.s.queries()
+	branch, err := q.GetMythicalTodoBranchWorkspace(ctx, item)
+	if err != nil {
+		return item, err
+	}
+	lane, err := q.GetMythicalLane(ctx, branch.ID)
+	if err != nil {
+		return item, err
+	}
+	if lane.ItemID != item.ID || lane.RepositoryID != item.RepositoryID || branch.DeletedAt.Valid {
+		return item, db.ErrMythicalItemMoved
+	}
+	if item.WorkspaceID == branch.ID && !lane.RetiredAt.Valid {
+		return item, nil
+	}
+	next := item
+	next.WorkspaceID = branch.ID
+	next.Lane, next.LaneStartedAt = pgtype.Int4{}, pgtype.Timestamptz{}
+	err = pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		next, err = q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return err
+		}
+		return q.RestoreMythicalItemLane(ctx, next)
+	})
+	if err != nil {
+		return item, err
+	}
+	return next, nil
+}
 
 // todoSteer is one steer a person gave a TODO (spec §10.7.3): its text, its
 // author as a TodoCard actor, when, and the attempt it is held for. It reaches

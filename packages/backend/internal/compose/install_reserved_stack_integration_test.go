@@ -366,6 +366,50 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		require.Equal(t, before, runtime.calls)
 		require.Equal(t, reads, objects.reads)
 	})
+	t.Run("sealed source waits for native rebase then acknowledges its new tree", func(t *testing.T) {
+		before, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		defer func() {
+			runtime.head, runtime.tree = head, tree
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET state=$2,candidate_base=$3,candidate_verified=$4,checks=$5,integration=$6 WHERE id=$1`, itemID, before.State, before.CandidateBase, before.CandidateVerified, before.Checks, before.Integration)
+			require.NoError(t, err)
+		}()
+		sealed := source
+		sealed.CommitID, sealed.TreeID = strings.Repeat("e", 40), strings.Repeat("f", 40)
+		requestID := uuid.NewString()
+		body, err := json.Marshal(services.ReservedStackInput{RequestID: requestID, Source: &sealed})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='integrating',candidate_base=$2,candidate_verified=false,integration=jsonb_build_object('kind','captured','head',$3::text,'tree',$4::text),checks=checks || jsonb_build_object('proposal_run','current-run','proposal_head',$3::text,'rebase',jsonb_build_object('onto',$5::text)) WHERE id=$1`, itemID, strings.Repeat("d", 40), sealed.CommitID, sealed.TreeID, base)
+		require.NoError(t, err)
+		calls, reads := runtime.calls, objects.reads
+		call(t, token, "candidate", string(body), 202)
+		require.Equal(t, calls, runtime.calls, "pending native receipt must not observe a partial rewrite")
+		require.Equal(t, reads, objects.reads)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='verifying',candidate_base=$2,checks=jsonb_set(checks,'{rebase,rebased}','true') WHERE id=$1`, itemID, base)
+		require.NoError(t, err)
+		ack := call(t, token, "candidate", string(body), 200)
+		require.JSONEq(t, fmt.Sprintf(`{"generation":7,"base":%q,"head":%q}`, base, head), ack.Body.String())
+		propose := fmt.Sprintf(`{"requestId":%q,"generation":7}`, uuid.NewString())
+		call(t, token, "propose", propose, 202)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET state='proposed',candidate_verified=true WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		call(t, token, "propose", propose, 200)
+		// Fresh requests still bind the sealed tree and the actual live tree.
+		for _, altered := range []string{"source", "live"} {
+			input := services.ReservedStackInput{RequestID: uuid.NewString(), Source: &sealed}
+			if altered == "source" {
+				changed := sealed
+				changed.TreeID = tree
+				input.Source = &changed
+			} else {
+				runtime.head, runtime.tree = strings.Repeat("8", 40), strings.Repeat("9", 40)
+			}
+			raw, err := json.Marshal(input)
+			require.NoError(t, err)
+			call(t, token, "candidate", string(raw), 409)
+		}
+	})
+
 	t.Run("consumed old-prefix source cannot become pending again", func(t *testing.T) {
 		sealed := source
 		sealed.CommitID = strings.Repeat("e", 40)

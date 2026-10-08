@@ -189,6 +189,11 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 	}
 	checks.Rebase.BlockingSession = 0
 	checks.Rebase.Native = &result
+	if capture := checks.Capture; capture != nil && capture.SourceRef != "" && checks.ProposalRun == item.RequestRunID && checks.ProposalHead == capture.Head {
+		// Preserve the immutable request across the native rewrite. Its
+		// original bytes are not a new edit when the caller polls again.
+		next.Integration, _ = json.Marshal(map[string]string{"kind": "captured", "head": capture.Head, "tree": capture.Tree})
+	}
 	if materializing {
 		// The asleep data-only merge reserved this budget before a coding
 		// machine existed. Materialization binds that same reservation to the

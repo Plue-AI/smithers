@@ -145,6 +145,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	prefix := step.prefix(item)
 	initialBase := mythicalAttemptPrefix(item)
 	initialMoved := command == "stack.candidate" && item.CandidateHead == "" && codingCommitID.MatchString(initialBase) && initialBase != prefix
+	var integration struct{ Kind, Head, Tree string }
+	_ = json.Unmarshal(item.Integration, &integration)
+	consumedSource := command == "stack.candidate" && input.Source != nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && integration.Tree == input.Source.TreeID
 	if !codingCommitID.MatchString(prefix) || !initialMoved && (item.CandidateHead == "" && initialBase != prefix || item.CandidateHead != "" && item.CandidateBase != prefix) {
 		checks := mythicalChecksOf(item)
 		if command == "stack.candidate" && input.Source != nil && checks.Capture != nil &&
@@ -156,6 +159,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if _, err := q.RequestMythicalStack(live, repository); err != nil {
 				return empty, 0, err
 			}
+			return empty, 202, tx.Commit(live)
+		}
+		if consumedSource && checks.ProposalRun == item.RequestRunID && checks.ProposalHead == input.Source.CommitID && checks.Rebase != nil && !checks.Rebase.Rebased {
 			return empty, 202, tx.Commit(live)
 		}
 		return empty, 0, pkgerrors.Conflict("rebase pending")
@@ -212,11 +218,6 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		// invocation cannot put the old-prefix bytes back into pending work.
 		// Bind its original tree before comparing the rebased candidate to
 		// the live machine; these are different trees after a prefix move.
-		var integration struct {
-			Kind string `json:"kind"`
-			Head string `json:"head"`
-			Tree string `json:"tree"`
-		}
 		if json.Unmarshal(item.Integration, &integration) == nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && item.CandidateHead != input.Source.CommitID && mythicalChecksOf(item).Capture == nil {
 			if integration.Tree != input.Source.TreeID {
 				return empty, 0, pkgerrors.Conflict("captured source tree changed")

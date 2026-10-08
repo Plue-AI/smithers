@@ -12,6 +12,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/stretchr/testify/require"
 )
 
@@ -143,16 +144,27 @@ func (r *rebaseExecutionFixture) Capture(ctx context.Context, branch string) (ma
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=false,checks=jsonb_set(checks,'{capture}',$2::jsonb) WHERE workspace_id=$1`, branch, raw)
 	return machined.CaptureResult{Head: head, Tree: tree}, err
 }
-func TestBranchRebaseNowOccupiedRecovery(t *testing.T) { testOccupiedRebase(t, nil, false) }
+func TestBranchRebaseNowOccupiedRecovery(t *testing.T) {
+	testOccupiedRebase(t, nil, false, false, false)
+}
 func TestBranchRebaseNowOccupiedConflictHandoff(t *testing.T) {
-	testOccupiedRebase(t, []string{"SECOND.md"}, false)
+	testOccupiedRebase(t, []string{"SECOND.md"}, false, false, false)
 }
-func TestBranchRebaseNowCapturedStoppedReceipt(t *testing.T) { testOccupiedRebase(t, nil, true) }
+func TestBranchRebaseNowCapturedStoppedReceipt(t *testing.T) {
+	testOccupiedRebase(t, nil, true, false, false)
+}
 func TestBranchRebaseAutomaticPresenceShareFence(t *testing.T) {
-	testOccupiedRebase(t, nil, false, true)
+	testOccupiedRebase(t, nil, false, true, false)
 }
-func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automatic ...bool) {
+func TestReservedCaptureFollowsMainThroughNativeBranch(t *testing.T) {
+	testOccupiedRebase(t, nil, false, true, true)
+}
+func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture, automatic, reserved bool) {
 	f := newRebaseFixture(t)
+	if stopOnCapture {
+		// A stopped coding branch verifies on a separate execution lane.
+		f.service.lanes = &fakeMythicalLanes{}
+	}
 	first := f.candidate("First", f.main, "FIRST.md", "first\n")
 	f.wake()
 	second := f.candidate("Second", first.CandidateHead, "SECOND.md", "second\n")
@@ -178,7 +190,17 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automa
 	head := f.git(f.hostDir, "commit-tree", f.hostTree(second.CandidateHead), "-p", f.main, "-m", "native rebase result")
 	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true, Paths: paths}, failCapture: true, stopOnCapture: stopOnCapture}
 	f.service.SetBranchRebaseExecutor(executor)
-	if len(automatic) > 0 && automatic[0] {
+	if reserved {
+		checks := mythicalChecksOf(held)
+		checks.Capture = &MachineCapturePending{Head: held.CandidateHead, Tree: f.hostTree(held.CandidateHead), Base: held.CandidateBase, Onto: held.CandidateHead, SourceRef: repohost.WorkspaceSourceRef(workspace.ID, held.CandidateHead)}
+		checks.ProposalRun, checks.ProposalHead = "sealed-run", held.CandidateHead
+		held.RequestRunID, held.RequestOutcome = "sealed-run", ""
+		checks.RunAttached = true
+		held.Checks = checks.encode()
+		held, err = q.SaveMythicalItem(t.Context(), held)
+		require.NoError(t, err)
+	}
+	if automatic {
 		f.service.SetRebasePresence(func(ctx context.Context, _ int64, branch string) (RebasePresence, error) {
 			read, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
@@ -245,11 +267,26 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automa
 	require.Equal(t, held.Generation+1, next.Generation)
 	require.Equal(t, head, next.CandidateHead)
 	require.Equal(t, f.main, next.CandidateBase)
-	require.Equal(t, workspace.ID, next.WorkspaceID)
+	if stopOnCapture {
+		require.NotEqual(t, workspace.ID, next.WorkspaceID)
+		stopped, err := q.GetWorkspace(t.Context(), workspace.ID)
+		require.NoError(t, err)
+		require.Equal(t, "stopped", stopped.Status)
+	} else {
+		require.Equal(t, workspace.ID, next.WorkspaceID)
+	}
 	require.Equal(t, 1, f.verifies(next))
 	require.Equal(t, 1, executor.calls)
 	require.Nil(t, mythicalChecksOf(next).Capture)
-	if len(automatic) > 0 && automatic[0] {
+	if reserved {
+		var consumed struct{ Kind, Head, Tree string }
+		require.NoError(t, json.Unmarshal(next.Integration, &consumed))
+		require.Equal(t, "captured", consumed.Kind)
+		require.Equal(t, held.CandidateHead, consumed.Head)
+		require.Equal(t, f.hostTree(held.CandidateHead), consumed.Tree)
+		require.Equal(t, "sealed-run", next.RequestRunID)
+	}
+	if automatic {
 		require.Nil(t, rebaseRequester(next))
 	} else {
 		require.Equal(t, map[string]string{"person": owner.Username}, rebaseRequester(next))

@@ -608,8 +608,8 @@ func TestJ4Rehearsal(t *testing.T) {
 		return nil
 	})
 	// T3 failed on attempt n; Retry with a [FIXED] steer starts attempt n+1,
-	// whose first input is the steer, so its checks pass.
-	const steer3 = "[FIXED] Keep JOURNEY.md as it is and add the greeting to t3.md"
+	// whose first input repairs the stopped attempt’s retained failed bytes.
+	const steer3 = "[FIXED] [RESTORE] Restore JOURNEY.md and add the greeting to t3.md"
 	var failed3 j4Card
 	var traced3 int
 	var attempts3 []j4Evidence

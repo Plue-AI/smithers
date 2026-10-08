@@ -2120,10 +2120,10 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
-			// A reserved immutable source can be rebased and consumed under
-			// this claim without rewriting the live branch. Give it that
-			// atomic continuation before scheduling the branch rebase path.
-			if capture.SourceRef != "" {
+			// A moved prefix on an installed branch goes through the native
+			// rewrite below. Rebasing only the retained source would leave
+			// its live tree behind and make stack.candidate refuse its receipt.
+			if capture.SourceRef != "" && (st.s.branchRebase == nil && !st.s.installAuthorization || item.CandidateBase == st.prefix(item)) {
 				if next, saved, err := st.consumeCapturedEdits(ctx, item); next != nil || saved || err != nil {
 					return next, saved, err
 				}
@@ -3119,10 +3119,15 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	adopted := mythicalChecksOf(item).Seed != nil && item.WorkspaceID != ""
 	retryHead := ""
 	var snapshot func() error
-	if todoRetryPending(item) && item.WorkspaceID != "" && !adopted {
+	if todoRetryPending(item) && item.Attempt > 0 && !adopted {
 		if reader, ok := s.lanes.(interface {
 			CapturedHead(context.Context, string, int64, int64) (string, error)
 		}); ok {
+			var err error
+			item, err = st.restoreRetryBranch(ctx, item)
+			if err != nil {
+				return nil, false, err
+			}
 			snapshot = func() error {
 				var err error
 				retryHead, err = reader.CapturedHead(ctx, item.WorkspaceID, item.RepositoryID, r.row.ActorUserID.Int64)
@@ -3822,6 +3827,13 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		return st.s.recordTodoRebased(ctx, tx, saved, item, name)
 	}
 	if native := mythicalChecksOf(item).Rebase; native != nil && native.Native != nil {
+		// The sealed candidate request still names its pre-rebase source.
+		// Keep that binding while the live branch and verified candidate
+		// advance together; the transport checks both trees independently.
+		var consumed struct{ Kind, Head string }
+		if json.Unmarshal(item.Integration, &consumed) == nil && consumed.Kind == "captured" && consumed.Head == mythicalChecksOf(item).ProposalHead {
+			next.Integration = item.Integration
+		}
 		before = func(tx pgx.Tx) error { return st.lockNativeRebaseReceipt(ctx, tx, item, onto) }
 		rebase.Land = nil
 		if capture := rebase.Capture; capture != nil && capture.Head == rebased {
