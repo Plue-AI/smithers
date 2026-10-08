@@ -70,6 +70,46 @@ test("C-J3-05 browser and Claude Code steer the same implementing run", scenario
       expect(after.branch.id).toBe(before.branch.id)
       f.keep("browser-steer-amend", { before, held, after, events: f.sql("SELECT event_type,data FROM product_job_events WHERE event_type IN ('todo.steer_received','todo.amended','branch.activity') ORDER BY sequence") })
       await f.snapshot("todo-in-review", will)
+      const workspace = () => f.sql("SELECT request_run_id,attempt,workspace_id FROM mythical_items WHERE source='todo' AND number=1")
+      const originalWorkspace = workspace()
+      let reviewed = after
+      // The browser must be able to steer again after each completed review.
+      // A 202 followed by a stalled retained run is not successful steering.
+      for (const text of ["Also log each retry attempt 1", "Also log each retry attempt 2"]) {
+        const admission = ben.waitForResponse(response => response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/api/todos/1" && response.request().postDataJSON()?.steer === text)
+        await runSlash(ben, `/todo.steer T1 ${text}`)
+        expect((await admission).status()).toBe(202)
+        await expect(ben.getByRole("button", { name: "Chat", exact: true })).toBeEnabled()
+        // This fixture asks a planning question on every implement launch.
+        // Re-entry must reach that real wait, which only the owner answers.
+        await expect.poll(async () => (await read()).state, { timeout: 300_000 }).toBe("needs_you")
+        const question = (await read()).waits[0]
+        expect(question.kind).toBe("question")
+        expect(question.id).not.toBe(held.waits[0].id)
+        const resumed = will.waitForResponse(response => response.request().method() === "POST" &&
+          response.request().postDataJSON()?.wait === question.id)
+        await runSlash(will, `/todo.answer ${JSON.stringify({ n: 1, wait: question.id, answer: "Use the existing retry helper" })}`)
+        expect((await resumed).status()).toBe(202)
+        await expect.poll(async () => {
+          const current = await read()
+          return current.state === "in_review" && current.pr.head !== reviewed.pr.head
+        }, { timeout: 300_000 }).toBe(true)
+        const current = await read()
+        expect(current.run.id).toBe(before.run.id)
+        expect(current.run.attempt).toBe(before.run.attempt)
+        expect(current.branch.id).toBe(before.branch.id)
+        expect(current.pr.number).toBe(after.pr.number)
+        expect(workspace()).toEqual(originalWorkspace)
+        expect(current.steers.filter((steer: any) => steer.text === text)).toHaveLength(1)
+        await expect.poll(() => f.sql("SELECT checks->'review' AS review FROM mythical_items WHERE source='todo' AND number=1")[0]?.review,
+          { timeout: 300_000 }).toMatchObject({ head: current.pr.head, verdict: "approve", posted: true })
+        await openTodo(will, 1)
+        await expect(todoCard(will, 1)).toContainText(text)
+        f.keep(`retained-review-${current.pr.head}`, current)
+        reviewed = current
+      }
+      await f.snapshot("todo-retained-review", will)
     })
     return
   }
