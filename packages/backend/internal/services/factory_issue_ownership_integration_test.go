@@ -310,7 +310,7 @@ func TestFactoryIssueOwnershipRegistrationReplacementAndReplyAuthority(t *testin
 	replacementWorkspace := uuid.NewString()
 	var replacementUser int64
 	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES($1,$1) RETURNING id`, "replacement"+strings.ReplaceAll(uuid.NewString(), "-", "")).Scan(&replacementUser))
-	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, replacementWorkspace, f.o.repoID, replacementUser)
+	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status,target_bookmark) VALUES($1,$2,$3,'running','replacement')`, replacementWorkspace, f.o.repoID, replacementUser)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE repository_job_registrations SET revision=revision+1,digest='replacement',workspace_id=$3::uuid,user_id=$4,source_revision=$2 WHERE id=$1`, reg.ID, strings.Repeat("b", 40), replacementWorkspace, replacementUser)
 	require.NoError(t, err)
