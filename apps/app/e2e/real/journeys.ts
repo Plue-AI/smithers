@@ -16,6 +16,7 @@ export const journeySpecs = [
   "todo-from-issue.spec.ts",
   "fork-drop-install.spec.ts",
   "todo-needs-you.spec.ts",
+  "todo-steer.spec.ts",
   "todo-evidence.spec.ts",
   "todo-merge.spec.ts",
   "todo-merge-order.spec.ts",

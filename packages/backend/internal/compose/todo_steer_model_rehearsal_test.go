@@ -15,6 +15,15 @@ import (
 // This goes through the served install, durable dispatcher, packaged coding
 // host and scripted HTTP model. It does not need the unrelated Branch topic.
 func TestTodoSteerModelConsumption(t *testing.T) {
+	testTodoNextTurnInput(t, false)
+}
+
+func TestTodoAmendModelConsumption(t *testing.T) {
+	testTodoNextTurnInput(t, true)
+}
+
+func testTodoNextTurnInput(t *testing.T, amend bool) {
+	t.Helper()
 	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-06", "steer-model-")
 	require.True(t, r.install("install"))
@@ -29,8 +38,14 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 	const steer = "Keep the max at 5"
 	const answer = "Use the existing retry helper"
 	const secondSteer = "Use exponential backoff"
+	method, field := "POST", "steer"
+	if amend {
+		method, field = "PATCH", "prompt"
+	}
+	input, err := json.Marshal(map[string]string{field: steer})
+	require.NoError(t, err)
 	for range 2 {
-		code, data, err := r.keyed("POST", path, `{"steer":"Keep the max at 5"}`, "model-steer")
+		code, data, err := r.keyed(method, path, string(input), "model-steer")
 		require.NoError(t, err)
 		require.Equal(t, 202, code, string(data))
 	}
@@ -38,6 +53,15 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "needs_you", still.State)
 	require.Equal(t, question.Waits[0].ID, still.Waits[0].ID)
+	if amend {
+		var revisions []byte
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT revisions FROM mythical_items WHERE number=$1`, n).Scan(&revisions))
+		var entries []map[string]any
+		require.NoError(t, json.Unmarshal(revisions, &entries))
+		require.Len(t, entries, 2, "replayed amendment appends exactly one revision")
+		require.Equal(t, "amend", entries[1]["reason"])
+		require.Equal(t, steer, entries[1]["text"])
+	}
 	body, err := json.Marshal(map[string]string{"wait": question.Waits[0].ID, "answer": answer})
 	require.NoError(t, err)
 	// Both steers must be committed before dispatch is possible. Racing a
@@ -92,6 +116,68 @@ func TestTodoSteerModelConsumption(t *testing.T) {
 		require.Less(t, strings.Index(text, steer), strings.Index(text, secondSteer), "committed consumption order")
 		return true
 	}, 3*time.Minute, 50*time.Millisecond)
+	after, err := r.j3Lane(n)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "next-turn input preserves run, attempt and working copy")
+}
+
+// Hold an actual implementing model request, rather than a planning question.
+// The next implementing request must consume the amendment on the live run.
+func TestTodoWorkingAmendNextImplementModelCall(t *testing.T) {
+	t.Setenv("TRACE_MESSAGES", "1")
+	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-06", "implement-amend-")
+	require.True(t, r.install("install"))
+	n, err := r.file("Retry delivery", "[HOLD amend-turn] [FILE retry.ts] Add retries to webhook delivery in retry.ts")
+	require.NoError(t, err)
+	defer func() { _ = r.release("amend-turn") }()
+	require.NoError(t, r.waitHeld("amend-turn", 5*time.Minute))
+	before, err := r.j3Lane(n)
+	require.NoError(t, err)
+	prior, err := r.modelTurns()
+	require.NoError(t, err)
+	require.NotEmpty(t, prior)
+	held := slices.IndexFunc(prior, func(turn map[string]any) bool {
+		return turn["step"] == "coding/edit-atom" && turn["hold"] == "amend-turn"
+	})
+	require.NotEqual(t, -1, held, "a real implement turn is in flight")
+	const text = "Also log each retry and keep the max at 5"
+	for range 2 {
+		code, data, err := r.keyed("PATCH", fmt.Sprintf("/api/todos/%d", n), `{"prompt":"Also log each retry and keep the max at 5"}`, "implement-amend")
+		require.NoError(t, err)
+		require.Equal(t, 202, code, string(data))
+	}
+	var count int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT jsonb_array_length(revisions) FROM mythical_items WHERE number=$1`, n).Scan(&count))
+	require.Equal(t, 2, count, "one amendment revision after replay")
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body' LIKE $1`, text+"%").Scan(&count))
+	require.Equal(t, 1, count, "one delivery intent after replay")
+	// HTTP 202 is admission, not guest delivery. Hold the current request until
+	// the durable worker has the real runtime acknowledgement, so the input is
+	// committed in the agent's context before its next implementing dispatch.
+	require.Eventually(t, func() bool {
+		var delivered int
+		err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer' AND payload->>'body' LIKE $1 AND state='completed'`, text+"%").Scan(&delivered)
+		return err == nil && delivered == 1
+	}, time.Minute, 25*time.Millisecond, "amendment reaches the guest while implement is held")
+	require.NoError(t, r.release("amend-turn"))
+	require.Eventually(t, func() bool {
+		turns, err := r.modelTurns()
+		if err != nil || len(turns) <= len(prior) {
+			return false
+		}
+		first := slices.IndexFunc(turns[len(prior):], func(turn map[string]any) bool { return turn["kind"] == "chat" && turn["step"] == "coding/edit-atom" })
+		if first < 0 {
+			return false
+		}
+		require.Contains(t, turnText(turns[len(prior)+first]), text, "first implementing request after committed amendment")
+		return true
+	}, 3*time.Minute, 50*time.Millisecond)
+	after, err := r.j3Lane(n)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "amendment retains run, attempt and working copy")
+	items, err := r.todoList()
+	require.NoError(t, err)
+	require.Len(t, items, 1, "amendment allocates no TODO")
 }
 
 func TestTodoReviewSteerModelReentry(t *testing.T) {
