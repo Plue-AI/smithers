@@ -151,10 +151,13 @@ fn append_hold(path: &std::path::Path, record: &str) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let mut file = std::fs::OpenOptions::new().append(true).create(true)
-        .mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
+        .mode(0o600)
+        // rustix has these on every platform; libc is a Linux-only dependency.
+        .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32)
+        .open(path)?;
     let info = file.metadata()?;
     let limit = 1 << 20;
-    if !info.is_file() || info.uid() != unsafe { libc::geteuid() } || info.nlink() != 1
+    if !info.is_file() || info.uid() != rustix::process::geteuid().as_raw() || info.nlink() != 1
         || info.mode() & 0o077 != 0 || info.len() + record.len() as u64 + 1 > limit {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsafe or full hold log"));
     }
