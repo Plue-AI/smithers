@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,15 @@ import (
 func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runtime, id string, item db.MythicalItem, head, base, hostGit string, read func(string, int) []byte, capture *sleepCaptureFunc, serviceFinalWrites bool, sleep func()) {
 	t.Helper()
 	ctx := t.Context()
+	// History belongs to the retained branch, independently of its mutable disk.
+	activityTx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	activityID := uuid.NewString()
+	activity, err := jobs.RecordFactInTx(ctx, activityTx, jobs.Scope{TenantID: fmt.Sprint(item.RepositoryID), PrincipalID: "branch:" + id}, activityID, "branch.burst", "completed", json.RawMessage(`{"id":"cleanup-burst","kind":"burst","actor":{"id":"outside","kind":"outside","via":"tool"},"versions":"1111111111111111111111111111111111111111"}`))
+	require.NoError(t, err)
+	_, err = activityTx.Exec(ctx, `INSERT INTO burst_files(event_id,path,change,after_blob) VALUES($1,'retained.txt','added','2222222222222222222222222222222222222222')`, activity.EventID)
+	require.NoError(t, err)
+	require.NoError(t, activityTx.Commit(ctx))
 	observed, err := runtime.InspectWorkspace(ctx, id)
 	require.NoError(t, err)
 	settled := time.Now().Add(-25 * time.Hour).UTC().Format(time.RFC3339Nano)
@@ -156,7 +166,24 @@ func cleanupInstallProof(t *testing.T, pool *pgxpool.Pool, runtime *process.Runt
 		require.NoError(t, err)
 		require.Equal(t, "final\n", string(contents))
 	}
+	var entries []struct {
+		ID, Kind, Versions string
+		Files              json.RawMessage
+	}
+	require.NoError(t, json.Unmarshal(read("/api/branches/"+id+"/activity", 200), &entries))
+	var retainedActivity bool
+	for _, entry := range entries {
+		if entry.ID == "cleanup-burst" {
+			retainedActivity = true
+			require.Equal(t, "burst", entry.Kind)
+			require.Equal(t, "1111111111111111111111111111111111111111", entry.Versions)
+			require.Contains(t, string(entry.Files), "retained.txt")
+		}
+	}
+	require.True(t, retainedActivity, "closed branch activity stays readable after disk removal")
 	var kept int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM burst_files WHERE event_id=$1 AND path='retained.txt' AND after_blob='2222222222222222222222222222222222222222'`, activity.EventID).Scan(&kept))
+	require.Equal(t, 1, kept)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE id=$1`, item.ID).Scan(&kept))
 	require.Equal(t, 1, kept)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1 AND event_id=$2`, id, receipt).Scan(&kept))
