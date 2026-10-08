@@ -2092,9 +2092,11 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 				feedback.ReleasePending = false
 			}
 			// Inputs included in this launch payload must not be sent again
-			// when the host attaches. Later arrivals remain release-pending.
+			// when the host attaches, and the run consumes them as it starts:
+			// a later edit is activity only, never held for a run that ended.
+			// Later arrivals remain release-pending.
 			if feedback.Attempt <= item.Attempt {
-				feedback.ReleasePending = false
+				feedback.ReleasePending, feedback.InputConsumed = false, true
 			}
 			retained = append(retained, feedback)
 		}

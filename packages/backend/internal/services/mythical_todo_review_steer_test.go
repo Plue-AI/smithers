@@ -71,6 +71,22 @@ func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
 			launch := decodeJSON(t, raw)
 			require.Equal(t, item.FlowDigest.String, launch["pin"].(map[string]any)["executionDigest"], "the next attempt keeps its pin")
 			require.Contains(t, string(raw), text)
+			// The launch carried the input, so the run consumed it. A later
+			// version of the same review (GitHub re-batches its line comments)
+			// is activity only; it is never held for the ended run, which
+			// would block every later review of the PR behind it.
+			require.True(t, mythicalChecksOf(o.byID(uuidString(item.ID))).Steers[0].InputConsumed, "the launch payload carries the input")
+			if kind == "review" {
+				require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+					_, err := synced.install.consumers[gitHubReviews](ctx, tx, reviewFact(row, 77, "changes-rebatched", "CHANGES_REQUESTED"))
+					return err
+				}))
+				edited := mythicalChecksOf(o.byID(uuidString(item.ID)))
+				require.Len(t, edited.Steers, 1)
+				require.Equal(t, "changes-rebatched", edited.GitHubInputs[0].Version)
+				require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`))
+				require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch'`))
+			}
 			startWorker()
 			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)
 			peer.mu.Lock()
