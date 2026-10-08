@@ -122,7 +122,9 @@ test("cloud admission retains before any snapshot, then refuses source movement;
   }
 })
 
-test("admission snapshot failures distinguish changed source, refusals and outages", async () => {
+test("admission snapshot failures distinguish changed source, refusals and outages", async (t) => {
+  const logs: unknown[][] = []
+  t.mock.method(console, "warn", (...args: unknown[]) => { logs.push(args) })
   const capability = Capability.make("fs:write", "/workspace")
   const cases = [
     ...Jj.JjErrorCode.literals.map((code) => ({
@@ -151,6 +153,7 @@ test("admission snapshot failures distinguish changed source, refusals and outag
     }
   ]
   for (const scenario of cases) {
+    logs.length = 0
     const calls: Array<string> = []
     const runtime = Layer.merge(
       Layer.succeed(NativeCoding, {
@@ -175,6 +178,15 @@ test("admission snapshot failures distinguish changed source, refusals and outag
     assert.equal(error.code, scenario.code, scenario.error.code)
     assert.equal(Fault.of(error).class, scenario.fault, scenario.error.code)
     assert.match(error.message, new RegExp(scenario.error.code))
+    if (scenario.code === "source_refused") {
+      assert.match(error.message, /^source_refused: admission_snapshot_refused:/)
+      assert.deepEqual(logs, [[
+        "source_refused: admission_snapshot_refused",
+        JSON.stringify({ head: plan.observedHead!.commitId, base: plan.base.commitId })
+      ]])
+    } else {
+      assert.deepEqual(logs, [], "outages and source movement must not log a source refusal")
+    }
     assert.deepEqual(calls, ["read", "snapshot"], "failed snapshots must stop admission")
   }
 })
