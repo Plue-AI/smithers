@@ -83,6 +83,35 @@ impl<I: Input> Pipe<I> {
         self.pending.len()
     }
 
+    /// Credit available for another copy of local output on the host transport.
+    pub fn available(&self) -> usize {
+        self.sender.available()
+    }
+
+    /// Copy already-read PTY bytes into the existing bounded credit pipe. This
+    /// transport never reads a descriptor and never owns keyboard input.
+    pub fn relay(&mut self, frame: &Frame) -> io::Result<Option<Frame>> {
+        if self.closed || frame.stream != self.id || frame.kind != 5 {
+            return Err(invalid());
+        }
+        match frame.payload.as_slice() {
+            [1, fd @ 1..=2, bytes @ ..] if !bytes.is_empty() => {
+                if bytes.len() > self.available() {
+                    return Err(invalid());
+                }
+                self.poll(*fd, &mut io::Cursor::new(bytes))
+            }
+            [2, fd @ 1..=2] if self.outputs & (1 << fd) != 0 => {
+                self.output_eof |= 1 << fd;
+                Ok(Some(self.frame(vec![2, *fd])))
+            }
+            // The caller copies waitpid status separately, never PTY text.
+            [5, ..] => Ok(self.poll_exit()),
+            [6, ..] => Ok(None), // local stdin receipts belong only to its owner
+            _ => Err(invalid()),
+        }
+    }
+
     /// Validate the entire envelope before touching descriptors. Window receipts
     /// are produced by `flush`, only for bytes accepted by the actual consumer.
     pub fn accept(&mut self, frame: &Frame) -> io::Result<()> {

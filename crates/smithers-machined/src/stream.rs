@@ -18,6 +18,10 @@ pub struct SessionSender {
 }
 
 impl SessionSender {
+    pub fn available(&self) -> usize {
+        INITIAL_CREDIT - self.pipe.outstanding()
+    }
+
     pub fn read(&mut self, source: &mut impl Read) -> io::Result<ReadOutcome> {
         let outcome = self.pipe.read(source)?;
         if let ReadOutcome::Data(bytes) = &outcome {

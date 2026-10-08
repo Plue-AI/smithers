@@ -142,6 +142,8 @@ struct Stream<K> {
     pipe: Pipe<Descriptor<K>>,
     kind: Kind,
     local: bool,
+    observer: Option<Pipe<Descriptor<K>>>,
+    observed: VecDeque<Frame>,
     next_fd: u8,
     replay: VecDeque<Frame>,
 }
@@ -248,6 +250,10 @@ impl<K: Kernel> Supervisor<K> {
                 pipe,
                 kind,
                 local: caller.is_some(),
+                // Do not send unsolicited session frames: the host admits its
+                // observer with attach_session before the agent starts payload.
+                observer: None,
+                observed: VecDeque::new(),
                 next_fd: 1,
                 replay: VecDeque::new(),
             },
@@ -292,6 +298,36 @@ impl<K: Kernel> Supervisor<K> {
         if entry.closed {
             return Err(invalid());
         }
+        if let Some(stream) = self.streams.get_mut(&frame.stream).filter(|s| s.local) {
+            // Host observers return output credit only. Resizing, signaling,
+            // closing or typing would grant input authority to a watcher.
+            if frame.payload.first() != Some(&6) {
+                return Err(invalid());
+            }
+            return stream.observer.as_mut().ok_or_else(invalid)?.accept(frame);
+        }
+        self.owner_frame(frame)
+    }
+    pub fn frame_local(&mut self, frame: &Frame) -> io::Result<()> {
+        if !self.streams.get(&frame.stream).is_some_and(|s| s.local) {
+            return Err(invalid());
+        }
+        self.owner_frame(frame)
+    }
+    fn owner_frame(&mut self, frame: &Frame) -> io::Result<()> {
+        frame.encode().map_err(|_| invalid())?;
+        if frame.kind != 5 {
+            return Err(invalid());
+        }
+        let entry = self
+            .registry
+            .entries()
+            .find(|e| e.id == frame.stream)
+            .ok_or_else(invalid)?;
+        self.registry.authorize(&entry.user)?;
+        if entry.closed {
+            return Err(invalid());
+        }
         if frame.payload == [7] {
             self.registry.close(frame.stream)?;
             self.streams
@@ -318,11 +354,23 @@ impl<K: Kernel> Supervisor<K> {
             if entry.closed {
                 stream.pipe.closed_by_owner();
                 stream.replay.clear();
+                if let Some(mut observer) = stream.observer.take() {
+                    observer.closed_by_owner();
+                    stream.observed.clear();
+                    stream.observed.push_back(Frame {
+                        kind: 5,
+                        stream: entry.id,
+                        payload: vec![7],
+                    });
+                }
             }
             if !entry.exited {
                 if let Some(exit) = self.kernel.with(|k| k.exited(entry.id))? {
                     if !entry.closed {
                         stream.pipe.exited(exit)?;
+                        if let Some(observer) = &mut stream.observer {
+                            observer.exited(exit)?;
+                        }
                     }
                     self.registry.exited(entry.id)?;
                 }
@@ -337,14 +385,19 @@ impl<K: Kernel> Supervisor<K> {
         let mut entries: Vec<_> = self.registry.entries().cloned().collect();
         entries.sort_by_key(|e| (e.id <= self.cursor, e.id));
         for entry in entries {
-            if entry.closed {
+            let stream = self.streams.get_mut(&entry.id).ok_or_else(invalid)?;
+            if let Some(id) = local {
+                if !stream.local || id != entry.id {
+                    continue;
+                }
+            } else if stream.local {
+                if let Some(frame) = stream.observed.pop_front() {
+                    self.cursor = entry.id;
+                    return Ok(Some(frame));
+                }
                 continue;
             }
-            let stream = self.streams.get_mut(&entry.id).ok_or_else(invalid)?;
-            if match local {
-                Some(id) => !stream.local || id != entry.id,
-                None => stream.local,
-            } {
+            if entry.closed {
                 continue;
             }
             self.cursor = entry.id;
@@ -360,18 +413,32 @@ impl<K: Kernel> Supervisor<K> {
                 vec![1]
             };
             for fd in fds {
-                let mut source = Descriptor {
+                let source = Descriptor {
                     kernel: self.kernel.clone(),
                     id: entry.id,
                     kind: stream.kind,
                     fd,
                 };
-                if let Some(frame) = stream.pipe.poll(fd, &mut source)? {
+                let available = stream.observer.as_ref().map_or(usize::MAX, Pipe::available);
+                if available == 0 {
+                    continue;
+                }
+                if let Some(frame) = stream.pipe.poll(fd, &mut source.take(available as u64))? {
+                    if let Some(observer) = &mut stream.observer {
+                        if let Some(copy) = observer.relay(&frame)? {
+                            stream.observed.push_back(copy);
+                        }
+                    }
                     stream.next_fd = 3 - fd;
                     return Ok(Some(frame));
                 }
             }
             if let Some(frame) = stream.pipe.poll_exit() {
+                if let Some(observer) = &mut stream.observer {
+                    if let Some(copy) = observer.relay(&frame)? {
+                        stream.observed.push_back(copy);
+                    }
+                }
                 return Ok(Some(frame));
             }
         }
@@ -405,6 +472,11 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
             17 => {
                 let frame = Frame::decode(body).map_err(|_| invalid())?;
                 self.frame(&frame)?;
+                Ok(vec![])
+            }
+            29 => {
+                let frame = Frame::decode(body).map_err(|_| invalid())?;
+                self.frame_local(&frame)?;
                 Ok(vec![])
             }
             18 if body.len() == 4 => {
@@ -545,8 +617,26 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 self.registry.authorize(&entry.user)?;
                 self.registry.check_attach(session, now)?;
                 let stream = self.streams.get_mut(&session).ok_or_else(invalid)?;
-                if stream.local {
-                    return Err(invalid());
+                if stream.local && stream.observer.is_none() {
+                    if received != 0 || entry.exited {
+                        return Err(invalid());
+                    }
+                    stream.observer = Some(Pipe::new(
+                        session,
+                        Descriptor {
+                            kernel: self.kernel.clone(),
+                            id: session,
+                            kind: stream.kind,
+                            fd: 0,
+                        },
+                        false,
+                    )?);
+                }
+                if let Some(observer) = &mut stream.observer {
+                    let (_, frames) = observer.attach(received)?;
+                    self.registry.attach(session, now)?;
+                    stream.observed = frames.into();
+                    return Ok(conn::structure_bytes(&[conn::field(1, 0u64.to_be_bytes())]));
                 }
                 let (received, frames) = stream.pipe.attach(received)?;
                 self.registry.attach(session, now)?;

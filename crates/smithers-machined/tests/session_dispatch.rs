@@ -400,12 +400,11 @@ fn local_stream_is_scoped_to_kernel_registered_agent_run() {
         })
     );
     assert!(s.admission_of_cgroup("/smithers/sessions/../s1").is_none());
-    assert!(s
-        .session(Request::Attach {
-            session: child,
-            received: 0
-        })
-        .is_err());
+    s.session(Request::Attach {
+        session: child,
+        received: 0,
+    })
+    .unwrap();
     s.session(Request::KillRun("run-one".into())).unwrap();
     assert!(s.entries().next().is_none());
 }
@@ -1319,4 +1318,266 @@ fn registry_without_live_process_preserves_exit_and_confirmed_cleanup() {
     let next = open(&mut supervisor, user(), Kind::Exec);
     assert!(next > id);
     assert_eq!(state.lock().unwrap().spawns.len(), 2);
+}
+
+fn agent_terminal(s: &mut Supervisor<OS>) -> u32 {
+    let parent = open_bound(
+        s,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+        Some("terminal-run"),
+    );
+    s.session(Request::Register {
+        session: parent,
+        run: "terminal-run".into(),
+    })
+    .unwrap();
+    let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
+    let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
+    s.session(Request::Attach {
+        session: id,
+        received: 0,
+    })
+    .unwrap();
+    id
+}
+
+#[test]
+fn agent_output_fans_out_without_granting_host_input_or_consuming_local_credit() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_terminal(&mut s);
+    for payload in [
+        vec![1, 0, b'x'],
+        vec![2, 0],
+        vec![3, 0, 80, 0, 24],
+        vec![4, 1],
+        vec![7],
+    ] {
+        assert!(s.frame(&frame(id, payload)).is_err());
+    }
+    assert!(state.lock().unwrap().inputs.is_empty());
+    assert!(state.lock().unwrap().closes.is_empty());
+    // The dedicated socketpair operation, after the daemon's local admission,
+    // owns input; the ordinary host frame operation cannot impersonate it.
+    assert!(s
+        .frame_local(&Frame {
+            kind: 4,
+            stream: id,
+            payload: vec![7]
+        })
+        .is_err());
+    assert!(state.lock().unwrap().closes.is_empty());
+    s.stream(29, &frame(id, vec![1, 0, b'c']).encode().unwrap())
+        .unwrap();
+    assert_eq!(poll(&mut s, id).unwrap().payload, [6, 0, 0, 0, 1]);
+    assert_eq!(state.lock().unwrap().inputs[&id], b"c");
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), b"\x1b[31mlive\x1b[0m\r\n".to_vec());
+    let local = poll(&mut s, id).unwrap();
+    let host = poll(&mut s, 0).unwrap();
+    assert_eq!(host, local);
+    let credit = (host.payload.len() - 2) as u32;
+    s.frame(&frame(id, [&[6], credit.to_be_bytes().as_slice()].concat()))
+        .unwrap();
+    // Returning host credit cannot acknowledge bytes on the agent direction.
+    s.frame_local(&frame(id, [&[6], credit.to_be_bytes().as_slice()].concat()))
+        .unwrap();
+    assert!(s.frame_local(&frame(1, vec![7])).is_err());
+}
+
+#[test]
+fn agent_host_reattachment_replays_only_unreceived_output_without_resetting_keyboard() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_terminal(&mut s);
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), b"first-last".to_vec());
+    assert_eq!(
+        poll(&mut s, id).unwrap().payload,
+        [&[1, 1], b"first-last".as_slice()].concat()
+    );
+    let first = poll(&mut s, 0).unwrap();
+    assert_eq!(first.stream, id);
+    s.disconnected(Instant::now());
+    s.session(Request::Attach {
+        session: id,
+        received: 6,
+    })
+    .unwrap();
+    assert_eq!(
+        poll(&mut s, 0).unwrap().payload,
+        [&[1, 1], b"last".as_slice()].concat()
+    );
+    assert!(s
+        .session(Request::Attach {
+            session: id,
+            received: 11
+        })
+        .is_err());
+    s.frame_local(&frame(id, vec![1, 0, b'x'])).unwrap();
+    assert_eq!(poll(&mut s, id).unwrap().payload, [6, 0, 0, 0, 1]);
+    assert_eq!(state.lock().unwrap().inputs[&id], b"x");
+    // Independent local replay accounting still owns the original ten bytes.
+    s.frame_local(&frame(id, vec![6, 0, 0, 0, 10])).unwrap();
+}
+
+#[test]
+fn slow_agent_watcher_bounds_transport_and_receives_drained_exit_in_order() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_terminal(&mut s);
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), vec![b'a'; 262_145]);
+    for _ in 0..4 {
+        let local = poll(&mut s, id).unwrap();
+        assert_eq!(local.payload.len() - 2, 65_536);
+        s.frame_local(&frame(id, vec![6, 0, 1, 0, 0])).unwrap();
+    }
+    assert!(poll(&mut s, id).is_none());
+    assert_eq!(state.lock().unwrap().outputs[&(id, 1)], b"a");
+    // Consume one host frame, returning its credit opens only that much space.
+    assert_eq!(poll(&mut s, 0).unwrap().payload.len() - 2, 65_536);
+    s.frame(&frame(id, vec![6, 0, 1, 0, 0])).unwrap();
+    assert_eq!(poll(&mut s, id).unwrap().payload, [1, 1, b'a']);
+    state.lock().unwrap().exits.insert(id, Exit::Code(7));
+    assert_eq!(poll(&mut s, id).unwrap().payload, [2, 1]);
+    assert_eq!(poll(&mut s, id).unwrap().payload, [5, 0, 0, 0, 0, 7]);
+    for _ in 0..3 {
+        assert_eq!(poll(&mut s, 0).unwrap().payload.len() - 2, 65_536);
+    }
+    assert_eq!(poll(&mut s, 0).unwrap().payload, [1, 1, b'a']);
+    assert_eq!(poll(&mut s, 0).unwrap().payload, [2, 1]);
+    assert_eq!(poll(&mut s, 0).unwrap().payload, [5, 0, 0, 0, 0, 7]);
+    s.session(Request::KillRun("terminal-run".into())).unwrap();
+    assert!(poll(&mut s, 0).is_none());
+}
+
+// Real daemon/broker socketpair boundary. Only kernel effects are substituted:
+// this lane has no reference microVM/cgroup delegation or uid-19999 account.
+#[cfg(target_os = "linux")]
+#[test]
+fn agent_fanout_uses_production_socketpair_operations_and_read_only_host_channel() {
+    use rustix::net::{socketpair, AddressFamily, SocketFlags, SocketType};
+    use smithers_machined::{broker::control::SocketpairBroker, hooks::Sessions};
+    let (mut supervisor, state) = setup();
+    roster(&mut supervisor);
+    let id = agent_terminal(&mut supervisor);
+    let (server, client) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let serving = std::thread::spawn(move || control::serve(&server, &mut supervisor));
+    let broker = SocketpairBroker::new(client).unwrap();
+    assert!(Sessions::frame(&broker, &frame(id, vec![1, 0, b'x'])).is_err());
+    // A refused host frame must not poison the broker connection.
+    assert_eq!(
+        Sessions::frame_local(&broker, &frame(id, vec![1, 0, b'a'])).unwrap(),
+        None
+    );
+    assert_eq!(
+        Sessions::poll_local(&broker, id).unwrap()[0].payload,
+        [6, 0, 0, 0, 1]
+    );
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), vec![b'o'; 65_536]);
+    let local = Sessions::poll_local(&broker, id).unwrap();
+    let host = Sessions::poll(&broker).unwrap();
+    assert_eq!(local[0], host[0]);
+    assert_eq!(host[0].payload.len(), 65_538);
+    Sessions::frame(&broker, &frame(id, vec![6, 0, 1, 0, 0])).unwrap();
+    Sessions::frame_local(&broker, &frame(id, vec![6, 0, 1, 0, 0])).unwrap();
+    assert_eq!(state.lock().unwrap().inputs[&id], b"a");
+    drop(broker);
+    serving.join().unwrap().unwrap();
+}
+
+#[test]
+fn closing_agent_local_owner_ends_host_observer_once_without_another_hup() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_terminal(&mut s);
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), b"pending".to_vec());
+    poll(&mut s, id).unwrap();
+    s.frame_local(&frame(id, vec![7])).unwrap();
+    assert_eq!(poll(&mut s, 0).unwrap(), frame(id, vec![7]));
+    assert!(poll(&mut s, 0).is_none());
+    assert_eq!(state.lock().unwrap().closes, [id]);
+    // A closed stream cannot be revived into an observer or input channel.
+    assert!(s
+        .session(Request::Attach {
+            session: id,
+            received: 0
+        })
+        .is_err());
+    assert!(s.frame(&frame(id, vec![6, 0, 0, 0, 7])).is_err());
+}
+
+#[test]
+fn agent_local_output_without_host_admission_remains_local_and_does_not_block() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let parent = open_bound(
+        &mut s,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+        Some("run"),
+    );
+    s.session(Request::Register {
+        session: parent,
+        run: "run".into(),
+    })
+    .unwrap();
+    let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
+    let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
+    assert!(s
+        .session(Request::Attach {
+            session: id,
+            received: 1
+        })
+        .is_err());
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), vec![b'a'; 327_680]);
+    for _ in 0..5 {
+        assert_eq!(poll(&mut s, id).unwrap().payload.len() - 2, 65_536);
+        s.frame_local(&frame(id, vec![6, 0, 1, 0, 0])).unwrap();
+        assert!(poll(&mut s, 0).is_none());
+    }
+    state.lock().unwrap().exits.insert(id, Exit::Code(0));
+    assert_eq!(poll(&mut s, id).unwrap().payload, [2, 1]);
+    assert!(s
+        .session(Request::Attach {
+            session: id,
+            received: 0
+        })
+        .is_err());
+    assert_eq!(poll(&mut s, id).unwrap().payload, [5, 0, 0, 0, 0, 0]);
 }

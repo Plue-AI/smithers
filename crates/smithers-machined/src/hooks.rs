@@ -203,6 +203,10 @@ pub trait Sessions: Send + Sync {
     fn frame(&self, _frame: &Frame) -> Result<Option<Frame>> {
         Err(Error::unsupported())
     }
+    /// Only the admitted agent-local socket may deliver keyboard/control frames.
+    fn frame_local(&self, _frame: &Frame) -> Result<Option<Frame>> {
+        Err(Error::unsupported())
+    }
     /// Drain only this local socket's stream. Never implement this by draining
     /// `poll`: that would consume output belonging to the authenticated host.
     fn poll_local(&self, _session: u32) -> Result<Vec<Frame>> {

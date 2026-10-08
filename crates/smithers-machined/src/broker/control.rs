@@ -26,8 +26,8 @@ pub trait Controls {
     }
 }
 /// Operations with a raw body: session streams, the registry, and transcript
-/// sources (26 list, 27 start a reader, 28 release).
-const RAW: std::ops::RangeInclusive<u8> = 17..=28;
+/// sources (26 list, 27 start a reader, 28 release), and admitted local input (29).
+const RAW: std::ops::RangeInclusive<u8> = 17..=29;
 fn error(code: u8) -> Error {
     Error {
         code,
@@ -426,6 +426,13 @@ impl crate::hooks::Sessions for SocketpairBroker {
             return Err(error(1));
         }
         self.call_body(17, &frame.encode().map_err(|_| error(1))?)?;
+        Ok(None)
+    }
+    fn frame_local(&self, frame: &conn::Frame) -> crate::hooks::Result<Option<conn::Frame>> {
+        if frame.kind != 5 {
+            return Err(error(1));
+        }
+        self.call_body(29, &frame.encode().map_err(|_| error(1))?)?;
         Ok(None)
     }
     fn poll(&self) -> crate::hooks::Result<Vec<conn::Frame>> {

@@ -84,7 +84,7 @@ pub fn serve(
                 if !check(cx) {
                     return Err(crate::hooks::Error::unsupported());
                 }
-                cx.hooks.sessions.frame(&frame)
+                cx.hooks.sessions.frame_local(&frame)
             })
             .map_err(|_| io::Error::other("mutation executor stopped"))?
             .map_err(|_| io::Error::other("session input refused"))?;
