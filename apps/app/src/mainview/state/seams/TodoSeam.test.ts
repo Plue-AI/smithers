@@ -614,6 +614,25 @@ test("a move posts its direction once and settles when the card shows the place 
   } finally { h.close() }
 })
 
+test("a move fact arriving before its acknowledgement still settles once", async () => {
+  const admission = deferred<Response>()
+  const h = await harness(() => admission.promise)
+  try {
+    const before = { ...fixtures.working.model, place: 4 }
+    await h.seam.applyTodoProjection(12, before)
+    expect(await h.seam.moveTodo(12, "up")).toEqual({ value: "Requested" })
+    const key = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, { ...before, place: 3 })
+    expect(h.outcomes).toEqual([])
+    admission.resolve(json({ state: "accepted", place: 3 }))
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Moved" }])
+    expect(h.todo().payload.requests).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...before, place: 3 })
+    expect(h.outcomes).toHaveLength(1)
+  } finally { h.close() }
+})
+
 test("Needs you toasts anyone on the branch, but not a member who neither owns the TODO nor is on its branch (M-14)", async () => {
   const h = await harness(async () => json({ state: "accepted" }))
   try {

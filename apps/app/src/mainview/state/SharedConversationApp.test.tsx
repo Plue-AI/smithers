@@ -76,8 +76,11 @@ test("install shell reads shared authors and clears stale output across branch a
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
 
-test("composer persists before unresolved admission, deduplicates, and waits for host completion", async () => {
-  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+test("composer persists before unresolved admission without draining unrelated writes, deduplicates, and waits for host completion", async () => {
+  const durableStore = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  // Background view writes may never leave a globally idle store. Only the
+  // prompt request itself must be durable before admission starts.
+  const store = { ...durableStore, settled: () => new Promise<void>(() => {}) }
   let release!: (value: Response) => void
   let completed = false, starts = 0
   const writes: Array<{ path: string; method: string; body: unknown }> = []

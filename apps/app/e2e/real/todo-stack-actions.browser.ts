@@ -43,12 +43,16 @@ await withComposedInstall(async f => {
   await expect(page.locator('[data-testid="transcript"][aria-busy="false"]')).toBeAttached({ timeout: 60_000 })
   await expect(page.getByTestId("composer-input")).toBeEnabled()
   await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: TITLES[3] })).toHaveCount(0, { timeout: 60_000 })
-  await expect.poll(async () => (await samples(page)).some(sample => sample.notices.some(notice => notice.tone === "done" && notice.text.includes(TITLES[3]))), { timeout: 60_000 }).toBe(true)
+  try {
+    await expect.poll(async () => (await samples(page)).some(sample => sample.notices.some(notice => notice.tone === "done" && notice.id === timing.toastId)), { timeout: 60_000 }).toBe(true)
+  } finally {
+    f.keep("screen-samples", await samples(page))
+    f.keep("live-frames", frames)
+    await f.snapshot("notices", page)
+  }
   const screen = await samples(page)
-  f.keep("screen-samples", screen)
-  f.keep("live-frames", frames)
   expect(screen.filter(sample => sample.composerDisabled)).toEqual([])
-  expectSettledOnFact(screen, frames, TITLES[3], "todo.moved", t4, pressedAt)
+  expectSettledOnFact(screen, frames, TITLES[3], "todo.moved", t4, pressedAt, timing.toastId)
   // The engine moved, not only the cards: the API, the stack positions and one fact.
   expect((await readStack(page)).map(card => Number(card.n)).filter(n => ours.includes(n))).toEqual(moved)
   expect(engineOrder(f.sql, ours)).toEqual(moved)

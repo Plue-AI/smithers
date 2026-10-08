@@ -23,7 +23,7 @@ export const seedJ4 = (page: Page) => seedStack(page, `j4-${Date.now().toString(
 ])
 
 export type LiveFrame = { at: number; topic: string; type: string; n?: number }
-export type Sample = { at: number; notices: Array<{ tone: string; text: string }>; composerDisabled: boolean; answering: boolean }
+export type Sample = { at: number; notices: Array<{ id: string; tone: string; text: string }>; composerDisabled: boolean; answering: boolean }
 
 /**
  * Observes the page's real /api/live socket (no interception): each delta's
@@ -48,18 +48,24 @@ export const observeLive = (page: Page): LiveFrame[] => {
 }
 
 /** Samples live notices, the composer and the transcript's busy state on every DOM change. */
-export const sampleScreen = (page: Page) => page.evaluate(() => {
-  const samples: Sample[] = []
-  ;(window as any).__j4Samples = samples
-  const record = () => samples.push({
-    at: Date.now(),
-    notices: [...document.querySelectorAll<HTMLElement>(".notice")].map(node => ({ tone: node.dataset.tone ?? "", text: node.textContent ?? "" })),
-    composerDisabled: !!document.querySelector('[data-testid="composer-input"]:disabled'),
-    answering: !!document.querySelector('[data-testid="transcript"][aria-busy="true"]')
+export const sampleScreen = async (page: Page) => {
+  // Expand the existing notification stack so the action receipt remains
+  // observable when setup and TODO state notices occupy its first three slots.
+  const more = page.locator(".notify .notice-more")
+  if (await more.isVisible()) await more.click()
+  return page.evaluate(() => {
+    const samples: Sample[] = []
+    ;(window as any).__j4Samples = samples
+    const record = () => samples.push({
+      at: Date.now(),
+      notices: [...document.querySelectorAll<HTMLElement>(".notice")].map(node => ({ id: node.dataset.notice ?? "", tone: node.dataset.tone ?? "", text: node.textContent ?? "" })),
+      composerDisabled: !!document.querySelector('[data-testid="composer-input"]:disabled'),
+      answering: !!document.querySelector('[data-testid="transcript"][aria-busy="true"]')
+    })
+    new MutationObserver(record).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
+    record()
   })
-  new MutationObserver(record).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
-  record()
-})
+}
 export const samples = (page: Page): Promise<Sample[]> => page.evaluate(() => (window as any).__j4Samples)
 
 export const home = (page: Page): Locator => page.locator(".home.smithers-card").last()
@@ -72,7 +78,7 @@ export const engineOrder = (sql: (query: string) => any[], numbers: readonly num
 export const homeRow = (page: Page, n: number): Locator =>
   home(page).locator(".stack-row").filter({ has: page.locator(".ref", { hasText: new RegExp(`^T${n}$`) }) })
 
-export type Timing = { action: string; n: number; ackMs: number; status: number; ack: unknown; body: unknown; answering: boolean }
+export type Timing = { action: string; n: number; ackMs: number; status: number; ack: unknown; body: unknown; answering: boolean; toastId?: string; pressedAt?: number }
 
 /**
  * Step 4: Move T4 up once from its Home row's Order menu, pressed twice.
@@ -81,13 +87,20 @@ export type Timing = { action: string; n: number; ackMs: number; status: number;
 export const moveUp = async (page: Page, t4: number): Promise<Timing> => {
   await home(page).getByRole("button", { name: `Order ${TITLES[3]}`, exact: true }).click()
   const item = home(page).getByRole("menu", { name: `Order ${TITLES[3]}` }).getByRole("menuitem", { name: "Move up", exact: true })
+  // Playwright actionability waits happen before the person's click. Measure
+  // the DOM gesture to the response, excluding that test-driver preparation.
+  await item.evaluate(node => node.addEventListener("click", () => {
+    ;(window as any).__j4MovePressedAt = Date.now()
+  }, { once: true }))
   const acknowledged = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/todos/${t4}`)
-  const clickedAt = Date.now()
+    .then(response => ({ response, at: Date.now() }))
   await item.dblclick()
-  const response = await acknowledged
-  const ackMs = Date.now() - clickedAt
+  const { response, at } = await acknowledged
+  const clickedAt = await page.evaluate(() => (window as any).__j4MovePressedAt as number)
+  const ackMs = at - clickedAt
   const answering = await page.locator('[data-testid="transcript"][aria-busy="true"]').count() > 0
-  return { action: "move", n: t4, ackMs, status: response.status(), ack: await response.json(), body: response.request().postDataJSON(), answering }
+  return { action: "move", n: t4, ackMs, pressedAt: clickedAt, status: response.status(), ack: await response.json(), body: response.request().postDataJSON(), answering,
+    toastId: `toast-todo.request.${await response.request().headerValue("idempotency-key")}` }
 }
 
 /**
@@ -96,10 +109,10 @@ export const moveUp = async (page: Page, t4: number): Promise<Timing> => {
  * debounce) until the fact for `n` reaches the page, then done or failed.
  * Other notices for the same TODO (its quiet state notices) are not the action's.
  */
-export const expectSettledOnFact = (screen: Sample[], frames: LiveFrame[], title: string, type: string, n: number, pressedAt: number) => {
+export const expectSettledOnFact = (screen: Sample[], frames: LiveFrame[], title: string, type: string, n: number, pressedAt: number, toastId?: string) => {
   const terminal = frames.find(frame => frame.type === type && frame.n === n && frame.at >= pressedAt)
   expect(terminal, `the ${type} fact for T${n} reached the page`).toBeTruthy()
-  const settled = screen.find(sample => sample.at >= pressedAt && sample.notices.some(notice => notice.text.includes(title) && (notice.tone === "done" || notice.tone === "failed")))
+  const settled = screen.find(sample => sample.at >= pressedAt && sample.notices.some(notice => (toastId ? notice.id === toastId : notice.text.includes(title)) && (notice.tone === "done" || notice.tone === "failed")))
   expect(settled, `the ${title} notice settles`).toBeTruthy()
   expect(settled!.at, `the ${title} notice settles only after ${type}`).toBeGreaterThanOrEqual(terminal!.at)
 }

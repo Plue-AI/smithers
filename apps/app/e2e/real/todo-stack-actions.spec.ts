@@ -49,7 +49,7 @@ test("C-J4-02 answer, merge next, move up and retry with a steer, all while chat
     await runSlash(page, "/stack")
     const moved = await moveUp(page, t4)
     timings.push(moved)
-    pressed.move = Date.now() - moved.ackMs
+    pressed.move = moved.pressedAt!
     // Step 5: retry T3 with the steer, pressed twice.
     await runSlash(page, `/todo T${t3}`)
     const retry = card(t3).locator("form").filter({ has: page.getByRole("button", { name: "Retry", exact: true }) })
@@ -81,7 +81,7 @@ test("C-J4-02 answer, merge next, move up and retry with a steer, all while chat
     expect(screen.filter(sample => sample.composerDisabled)).toEqual([])
     await expect(page.getByTestId("composer-input")).toBeEnabled()
     expectSettledOnFact(screen, frames, TITLES[1], "todo.answered", t2, pressed.answer!)
-    expectSettledOnFact(screen, frames, TITLES[3], "todo.moved", t4, pressed.move!)
+    expectSettledOnFact(screen, frames, TITLES[3], "todo.moved", t4, pressed.move!, moved.toastId)
     // Final state: order T2, T4, T3 in the cards and the engine.
     const order = [t2, t4, t3]
     await runSlash(page, "/stack")

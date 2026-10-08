@@ -33,7 +33,8 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
     void ctx.withToast(`prompt-${saved.id}`, "Prompt", "Prompt", async () => {
       let row = saved
       try {
-        await ctx.store.settled?.()
+        // submit awaited this request's durable write; unrelated view writes
+        // must not hold its network admission behind a global store drain.
         if (!current()) return
         while (current()) {
           const local = ctx.store.session().sharedPrompts?.find(item => item.id === row.id)

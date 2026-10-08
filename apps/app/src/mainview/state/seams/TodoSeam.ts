@@ -413,11 +413,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           await write({ ...todo, payload: { ...todo.payload, requests: [...todo.payload.requests.filter(r => r.key !== request.key), accepted] } })
         }
         watch(n)
-        // The list may already follow this TODO and receive its committed
-        // model before admission creates the card. Reuse that source fact:
-        // an idle topic will not publish it again just because the card opened.
+        // A source fact can arrive before the acknowledgement. Reuse it after
+        // recording acceptance: an idle topic will not publish it again merely
+        // because the request now has its attempt or position receipt.
         const committed = shared.notableModels.get(n)
-        if (request.operation === "create" && committed && current(login, revision)) {
+        if ((request.operation === "create" || request.operation === "move") && committed && current(login, revision)) {
           await applyModel(n, committed, [], () => current(login, revision))
         }
       } else await fail("TODO admission did not name a TODO.")

@@ -344,7 +344,7 @@ func startStackJourney(t *testing.T, logs io.Writer, options Options) http.Handl
 
 // stackJourneyCommit names the checkout under test for the evidence.
 func stackJourneyCommit(root string) string {
-	output, err := exec.Command("jj", "--ignore-working-copy", "-R", root, "log", "-r", "@-", "--no-graph", "-T", "commit_id").Output()
+	output, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
 	if err != nil || len(strings.TrimSpace(string(output))) != 40 {
 		return "unknown"
 	}
