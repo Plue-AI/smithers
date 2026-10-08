@@ -86,13 +86,13 @@ func (m OwnerMeter) Execute(ctx context.Context, caller Caller, call Call, spend
 			}
 		}
 		tag, err := tx.Exec(ctx, `INSERT INTO model_usage (request_key, paid_by, owner_type, owner_id, source,
-				user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, workflow_step_id)
-			SELECT $1, 'owner', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+				user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, workflow_step_id, native_step)
+			SELECT $1, 'owner', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 			WHERE $14::bigint IS NULL OR EXISTS (SELECT 1 FROM workflow_steps
 			WHERE id=$14 AND workflow_run_id=$8 AND repository_id=$6)`,
 			key, caller.OwnerType, caller.OwnerID, caller.Source,
 			positive(caller.UserID), positive(caller.RepositoryID), nonEmpty(caller.WorkspaceID), positive(caller.WorkflowRunID),
-			caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream, bound, positive(caller.WorkflowStepID))
+			caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream, bound, positive(caller.WorkflowStepID), nonEmpty(caller.NativeStep))
 		if err == nil && tag.RowsAffected() != 1 {
 			err = errors.New("modelproxy: workflow step does not belong to the call")
 		}

@@ -102,6 +102,9 @@ func NewModelProxyCallers(q modelProxyCallerQuerier, pool *pgxpool.Pool, codec f
 func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Caller, error) {
 	ctx := r.Context()
 	if run := middleware.WorkflowRunFromContext(ctx); run != nil {
+		if r.Header.Get(modelproxy.NativeStepHeader) != "" {
+			return modelproxy.Caller{}, modelproxy.ErrForbidden
+		}
 		caller, err := c.repositoryOwner(ctx, run.RepositoryID)
 		if err == nil {
 			caller, err = c.automationPayer(ctx, caller, func() (int64, error) { return c.runActor(ctx, run.ID) })
@@ -123,7 +126,13 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 	if r.Header.Get(modelproxy.StepHeader) != "" {
 		return modelproxy.Caller{}, modelproxy.ErrForbidden
 	}
+	// A native engine dispatch is named only by the flow host that runs it,
+	// on its own workspace; every other credential is refused with one.
+	nativeStep := r.Header.Get(modelproxy.NativeStepHeader)
 	if token := bearerCredential(r); strings.HasPrefix(token, flowhost.ModelCredentialPrefix) {
+		if nativeStep != "" && !modelproxy.ValidNativeStep(nativeStep) {
+			return modelproxy.Caller{}, modelproxy.ErrForbidden
+		}
 		binding, err := flowhost.VerifyModelCredential(ctx, c.pool, c.codec, token)
 		if err != nil {
 			if errors.Is(err, flowhost.ErrModelCredentialInvalid) {
@@ -137,10 +146,14 @@ func (c *ModelProxyCallers) ResolveModelCaller(r *http.Request) (modelproxy.Call
 		}
 		caller.Source, caller.UserID, caller.RepositoryID = modelproxy.SourceFlowHost, binding.UserID, binding.RepositoryID
 		caller.WorkspaceID, caller.Reference, caller.FactoryRole = binding.WorkspaceID, binding.ID, binding.FactoryRole
+		caller.NativeStep = nativeStep
 		if binding.FactoryRole != "" {
 			caller.Reference += "#" + binding.FactoryRole
 		}
 		return caller, err
+	}
+	if nativeStep != "" {
+		return modelproxy.Caller{}, modelproxy.ErrForbidden
 	}
 	if token := bearerCredential(r); strings.HasPrefix(token, turncredential.Prefix) {
 		// A hosted chat turn spends its owner's managed credit, as the

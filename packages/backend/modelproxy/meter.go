@@ -40,6 +40,16 @@ var (
 // StepHeader binds a coding-host model call to a workflow step under its run credential.
 const StepHeader = "X-Smithers-Step-Id"
 
+// NativeStepHeader names the native engine dispatch a flow host's model call
+// ran under: "<execution id>:<step key digest>" (T-FLW-07). Only a flow host
+// credential may send it; the monitor prices each step from these rows.
+const NativeStepHeader = "X-Smithers-Native-Step"
+
+var nativeStepPattern = regexp.MustCompile(`^[A-Za-z0-9._/@#-]{1,256}:[0-9a-f]{64}$`)
+
+// ValidNativeStep reports whether value is a well-formed NativeStepHeader.
+func ValidNativeStep(value string) bool { return nativeStepPattern.MatchString(value) }
+
 // Caller is who pays for a call and what it is correlated with.
 type Caller struct {
 	// FactoryRole is authenticated by the host credential or persisted step.
@@ -53,6 +63,9 @@ type Caller struct {
 	WorkflowRunID int64
 	// WorkflowStepID is resolved under the run credential, never from model input.
 	WorkflowStepID int64
+	// NativeStep is the engine dispatch a flow host's call ran under
+	// (NativeStepHeader), accepted only with a flow host credential.
+	NativeStep string
 	// Reference names the calling Flow host binding or chat turn.
 	Reference string
 }
@@ -204,8 +217,8 @@ func (m Meter) Execute(ctx context.Context, caller Caller, call Call, spend func
 
 func insertUsage(ctx context.Context, db *pgxpool.Pool, key string, accountID int64, caller Caller, call Call) error {
 	tag, err := db.Exec(ctx, `INSERT INTO model_usage (request_key, credit_account_id, reservation_id, owner_type, owner_id, source,
-			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, workflow_step_id)
-		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+			user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, workflow_step_id, native_step)
+		SELECT $1, $2, r.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 		FROM credit_reservations r WHERE r.account_id = $2 AND r.request_key = $1
         AND ($15::bigint IS NULL OR EXISTS (
             SELECT 1 FROM workflow_steps s WHERE s.id = $15
@@ -213,7 +226,7 @@ func insertUsage(ctx context.Context, db *pgxpool.Pool, key string, accountID in
 		key, accountID, caller.OwnerType, caller.OwnerID, caller.Source,
 		positive(caller.UserID), positive(caller.RepositoryID), nonEmpty(caller.WorkspaceID), positive(caller.WorkflowRunID),
 		caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream,
-		call.Maximum.PromptTokens()+call.Maximum.OutputTokens, positive(caller.WorkflowStepID))
+		call.Maximum.PromptTokens()+call.Maximum.OutputTokens, positive(caller.WorkflowStepID), nonEmpty(caller.NativeStep))
 	if err == nil && tag.RowsAffected() != 1 {
 		err = errors.New("reservation not found")
 	}
