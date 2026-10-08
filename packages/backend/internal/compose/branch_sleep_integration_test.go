@@ -733,7 +733,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	_, err = activityTx.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-10-06T12:00:00Z' WHERE event_id=$1`, activity.EventID)
 	require.NoError(t, err)
 	require.NoError(t, activityTx.Commit(ctx))
-	assertActivity := func() {
+	assertActivity := func(afterApp bool) {
 		t.Helper()
 		var entries []struct {
 			ID, Kind, Versions, At string
@@ -741,7 +741,15 @@ func branchSleepInstall(t *testing.T, scenario string) {
 			Files                  json.RawMessage
 		}
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/activity", 200), &entries))
-		require.Len(t, entries, 1)
+		if afterApp {
+			require.Len(t, entries, 3)
+			require.Equal(t, "steer", entries[1].Kind)
+			require.True(t, strings.HasPrefix(entries[1].ID, "steer:"))
+			require.Equal(t, "answer", entries[2].Kind)
+			require.Equal(t, "answer:branch-question-1", entries[2].ID)
+		} else {
+			require.Len(t, entries, 1)
+		}
 		require.Equal(t, "sleep-burst", entries[0].ID)
 		require.Equal(t, "burst", entries[0].Kind)
 		require.Equal(t, "2026-10-06T12:00:00Z", entries[0].At)
@@ -749,7 +757,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.JSONEq(t, `{"id":"outside","kind":"outside","via":"tool"}`, string(entries[0].Actor))
 		require.JSONEq(t, `[{"path":"src/backoff.ts","change":"added","after_blob":"2222222222222222222222222222222222222222"}]`, string(entries[0].Files))
 	}
-	assertActivity()
+	assertActivity(false)
 	assertDiff := func() {
 		var diff services.BranchDiff
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/diff", 200), &diff))
@@ -911,7 +919,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.Equal(t, backoff, branchFile.Content.Text)
 		read("/files/content?path=src/retry.ts", 200)
 		assertDiff()
-		assertActivity()
+		assertActivity(true)
 		readPath("/api/branches/"+id+"/files?path=src", 200)
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 		require.NoError(t, err)
@@ -922,7 +930,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	cookie = ownerCookie
 	var tokenID int64
 	credential, tokenID = mint(id)
-	assertActivity()
+	assertActivity(true)
 	for _, op := range []string{"sleep", "wake"} {
 		req, err := http.NewRequest("POST", server.URL+"/api/branches/"+id, strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
 		require.NoError(t, err)
