@@ -190,12 +190,25 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
       const before = await f.read("Will", "/api/todos/1")
       let learning: any
       await expect.poll(async () => {
-        const runs = await f.read("Will", "/api/runs")
-        learning = runs.find((r: any) => r.flow === "learning" && r.input.todo === before.id)
-        return learning?.state
-      }, { timeout: 120_000 }).toBe("completed")
-      await runSlash(page, "/home")
-      await expect(home(page)).toContainText(learning.id)
+        // Learning launches live in product_job_requests, not workflow_runs.
+        // Observe the durable TODO binding and poll the served Home status door.
+        const runs = f.sql(`SELECT r.id, d.external_receipt->>'runId' AS run_id, r.payload
+          FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id = r.id
+          WHERE r.operation = 'flow.runtime.launch' AND r.payload->>'flowId' = 'learning'
+          AND r.payload->'target'->>'BindingKind' = 'learning'
+          AND r.payload->'target'->>'BindingID' = '${before.id.replace(/'/g, "''")}'`)
+        expect(runs.length).toBeLessThanOrEqual(1)
+        learning = runs[0]
+        if (!learning) return "not-admitted"
+        return (await f.read("Will", `/api/runs/${learning.id}/background-status`)).state
+      }, { timeout: 120_000 }).toBe("success")
+      expect(learning.payload.payload.todo).toBe(1)
+      expect(learning.run_id).toEqual(expect.any(String))
+      await runSlash(page, "/stack")
+      // Home contains active and failed background work. The completed run's
+      // durable record remains inspectable, while its row leaves Home.
+      await expect(home(page)).toBeVisible()
+      await expect(home(page)).not.toContainText("Learning · T1")
       expect((await f.read("Will", "/api/todos")).map((t: any) => t.n)).toEqual([1, 2])
       await openTodo(page, 1)
       const after = await f.read("Will", "/api/todos/1")
@@ -204,7 +217,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning", journey, a
       const receipt = todoCard(page, 1).getByRole("button", { name: `${after.lessons} lessons`, exact: true })
       await journeyActivate(receipt)
       await expect(page.locator('[data-subject="wiki"], .smithers-card[data-kind="proposal"]').last()).toBeVisible()
-      expect(events(before.id).filter(e => e.run_id === learning.id && (e.state || e.revision))).toEqual([])
+      expect(events(before.id).filter(e => e.run_id === learning.run_id && (e.state || e.revision))).toEqual([])
       await attachJson(info, "learning-run-and-events", { learning, events: events(before.id), todo: after })
       await info.attach("learning-receipt", { body: await page.screenshot(), contentType: "image/png" })
     }

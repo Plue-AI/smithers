@@ -13,7 +13,8 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
   await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: {} }))
   const id = "00000000-0000-4000-8000-000000000007"
-  let state = "failed", dismissed = false, posts = 0
+  let state = "failed", dismissed = false, posts = 0, retryFailed = false
+  const retryKeys: string[] = []
   let launch!: () => void
   const pending = new Promise<void>(resolve => { launch = resolve })
   let finishDismiss!: () => void
@@ -32,7 +33,16 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   await page.route(`**/api/runs/${id}`, async route => {
     posts++
     const { op } = route.request().postDataJSON()
-    if (op === "retry") { await pending; state = "running"; await route.fulfill({ status: 202, json: { state: "accepted", run_id: id } }) }
+    if (op === "retry") {
+      retryKeys.push(route.request().headers()["idempotency-key"])
+      if (!retryFailed) {
+        retryFailed = true
+        await route.fulfill({ status: 503, json: { code: "background_retry_unavailable", class: "infra", message: "Isolated Retry unavailable" } })
+        return
+      }
+      await pending; state = "running"
+      await route.fulfill({ status: 202, json: { state: "accepted", run_id: id } })
+    }
     else { dismissed = true; await dismissPending; await route.fulfill({ json: { state: "dismissed", run_id: id } }) }
   })
   await page.route(`**/api/runs/${id}/background-status`, route => route.fulfill({ json: { state, run_id: id } }))
@@ -42,6 +52,12 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   await expect(home).toContainText("Learning · T7")
   await home.getByRole("button", { name: "Retry", exact: true }).last().click()
   await expect.poll(() => posts).toBe(1)
+  await expect(page.getByText("Run action failed", { exact: true }).last()).toBeVisible()
+  await expect(home).toContainText("Learning · T7")
+  await home.getByRole("button", { name: "Retry", exact: true }).last().click()
+  await expect.poll(() => posts).toBe(2)
+  // Repeated input during an unresolved launch must share the durable request.
+  await home.getByRole("button", { name: "Retry", exact: true }).last().click()
   await fillComposer(page, "Keep chatting")
   await expect(page.getByTestId("composer-input")).toHaveValue("Keep chatting")
   launch()
@@ -56,5 +72,8 @@ test("Home Learning Retry stays usable through launch and completion; Dismiss su
   await expect(page.getByText("Dismissed", { exact: true })).toBeVisible()
   await page.reload()
   await expect(page.locator(".home").first()).not.toContainText("Learning · T7")
-  expect(posts).toBe(2)
+  expect(posts).toBe(3)
+  expect(retryKeys).toHaveLength(2)
+  expect(retryKeys[0]).toMatch(/^[a-f0-9-]{36}$/)
+  expect(retryKeys[1]).toBe(retryKeys[0])
 })

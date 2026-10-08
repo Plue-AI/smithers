@@ -280,6 +280,19 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.Equal(t, map[string]any{"state": "accepted", "run_id": operation}, receipt)
 	require.Equal(t, 202, post(operation, "retry", "retry-one").StatusCode)
 	require.Equal(t, 409, post(operation, "retry", "retry-two").StatusCode)
+	// Retry changes dispatch state, never the admitted Learning identity or
+	// immutable payload (including its source pin and merged TODO binding).
+	retried, err := store.Get(ctx, scope, operation)
+	require.NoError(t, err)
+	require.Equal(t, original.ID, retried.ID)
+	require.Equal(t, original.Scope, retried.Scope)
+	require.Equal(t, original.RequestID, retried.RequestID)
+	require.Equal(t, original.Operation, retried.Operation)
+	require.Equal(t, original.PayloadFingerprint, retried.PayloadFingerprint)
+	require.JSONEq(t, string(original.Payload), string(retried.Payload))
+	require.JSONEq(t, string(original.AuthorizationContext), string(retried.AuthorizationContext))
+	require.Equal(t, original.EffectKey, retried.EffectKey)
+	require.Equal(t, original.EffectPolicy, retried.EffectPolicy)
 	var attempt int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT external_attempt FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&attempt))
 	require.Equal(t, 2, attempt)
