@@ -1,6 +1,6 @@
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
-import { Action, FlowRuntime } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, Interpreter } from "@smthrs/flow"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import assert from "node:assert/strict"
@@ -17,6 +17,12 @@ import { CreateStackBase, PrepareStackBase } from "../coding/stack.ts"
 import { ReceiveFeedback } from "../coding/steering.ts"
 import { clipTodo, leafFeedback, MAX_TODO_BYTES, type Route, routeTodo, todoLayers } from "../coding/todo.ts"
 import { dependencyPagesLayer } from "../coding/wiki-route.ts"
+
+// Exercise the same inlined Request body used by TODO; keep its retired host door absent.
+const InlineRequest = Flow.make("test/factory-todo-request", {
+  payload: Request.payloadSchema, success: Request.successSchema, error: Request.errorSchema,
+  body: input => Request.call(input)
+})
 
 const prompt =
   "Resolve GitHub issue #7: Saving twice loses the title\n\n<issue>\nSaving twice drops the title.\n</issue>"
@@ -135,6 +141,7 @@ const fixture = (route: Route | "down", decline = false) => {
   })
   const layer = Layer.mergeAll(
     requestRegistration,
+    Interpreter.layer(InlineRequest),
     todoLayers(evaluator),
     dependencyPagesLayer(checkout),
     children,
@@ -181,13 +188,13 @@ test(
     const f = fixture("bug")
     t.after(() => f.host.dispose())
     const input = { prompt, feedback: "Keep the verifier", base }
-    const result = await f.host.runPromise(Request.execute(input, { executionId: "todo-bug" }))
+    const result = await f.host.runPromise(InlineRequest.execute(input, { executionId: "todo-bug" }))
     assert.equal(result.outcome.status, "validated")
     assert.equal(result.route, "bug", "the result says how the TODO was routed")
     assert.deepEqual(f.events, ["base", "jev", "plan", "implement"])
     assert.equal(f.planned[0], leafFeedback("bug", "Keep the verifier"), "the bug leaf plans a reproduction first")
     // A completed replay routes and plans nothing again.
-    await f.host.runPromise(Request.execute(input, { executionId: "todo-bug" }))
+    await f.host.runPromise(InlineRequest.execute(input, { executionId: "todo-bug" }))
     assert.deepEqual(f.events, ["base", "jev", "plan", "implement"])
   }
 )
@@ -199,7 +206,7 @@ test(
     for (const route of ["close", "feature", "implement"] as const) {
       const f = fixture(route)
       t.after(() => f.host.dispose())
-      await f.host.runPromise(Request.execute({ prompt, base }, { executionId: `todo-${route}` }))
+      await f.host.runPromise(InlineRequest.execute({ prompt, base }, { executionId: `todo-${route}` }))
       assert.equal(f.planned[0], leafFeedback(route, ""))
     }
   }
@@ -210,7 +217,7 @@ test("a declined TODO fails with the planner's decline and the route Jev gave it
     const f = fixture(route, true)
     t.after(() => f.host.dispose())
     const result = await f.host.runPromise(
-      Effect.result(Request.execute({ prompt, base }, { executionId: `todo-declined-${route}` }))
+      Effect.result(InlineRequest.execute({ prompt, base }, { executionId: `todo-declined-${route}` }))
     )
     const failure = result._tag === "Failure" ? result.failure : undefined
     assert.ok(failure instanceof CodingError, `expected a CodingError, got ${String(failure)}`)
@@ -245,7 +252,7 @@ test("a TODO's checkout gets the stack's dependency pages, and no other page", {
       page("dep-escape", "deps/../../x.md", "no")
     ]
   }
-  await f.host.runPromise(Request.execute({ prompt, base, wiki }, { executionId: "todo-deps" }))
+  await f.host.runPromise(InlineRequest.execute({ prompt, base, wiki }, { executionId: "todo-deps" }))
   const deps = join(f.checkout, ".flows/wiki/deps")
   assert.equal(readFileSync(join(deps, "effect/README.md"), "utf8"), "# Effect\n")
   assert.ok(!existsSync(join(deps, "start-here")) && !existsSync(join(f.checkout, "x.md")))
@@ -254,7 +261,7 @@ test("a TODO's checkout gets the stack's dependency pages, and no other page", {
 test("a request without a stack base is not a TODO and is never routed", { timeout: 60_000 }, async (t) => {
   const f = fixture("close")
   t.after(() => f.host.dispose())
-  const result = await f.host.runPromise(Request.execute({ prompt, feedback: "as written" }, { executionId: "chat" }))
+  const result = await f.host.runPromise(InlineRequest.execute({ prompt, feedback: "as written" }, { executionId: "chat" }))
   assert.deepEqual(f.events, ["plan", "implement"])
   assert.equal(result.route, undefined)
   assert.equal(f.planned[0], "as written")
@@ -264,7 +271,7 @@ test("Jev down fails the TODO's lane before anything is planned", { timeout: 60_
   const f = fixture("down")
   t.after(() => f.host.dispose())
   await assert.rejects(
-    f.host.runPromise(Request.execute({ prompt, base }, { executionId: "todo-down" })),
+    f.host.runPromise(InlineRequest.execute({ prompt, base }, { executionId: "todo-down" })),
     /Jev did not route the TODO: no answer/
   )
   assert.deepEqual(f.events, ["base", "jev"])
