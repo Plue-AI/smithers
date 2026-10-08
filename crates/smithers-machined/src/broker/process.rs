@@ -138,7 +138,8 @@ impl Installed {
             format!("{CGROUP}/broker/cgroup.procs"),
             std::process::id().to_string(),
         )?;
-        fs::write(format!("{CGROUP}/cgroup.subtree_control"), "+cpu +pids")?;
+        // Only core cgroup-v2 files are used: freeze, kill and cpu.stat
+        // usage_usec need no controllers delegated by the guest root.
         let mut controls = Cgroups::open()?;
         controls.recover(Instant::now() + Duration::from_secs(5))?;
         // Verify both required controls before a child can admit sessions.

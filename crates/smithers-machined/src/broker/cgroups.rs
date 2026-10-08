@@ -281,6 +281,44 @@ mod freeze_tests {
         File::open(path).unwrap()
     }
     #[test]
+    fn activity_reads_core_cpu_accounting_without_controller_files() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = group(root.path(), "parent", "populated 1\nfrozen 0\n");
+        let session = group(root.path(), "s1", "populated 1\nfrozen 0\n");
+        // Model a guest with no delegated controllers. Only core accounting
+        // fields exist; no cpu.max, cpu.weight, pids.max or throttling counters.
+        fs::write(root.path().join("cgroup.controllers"), b"").unwrap();
+        fs::write(root.path().join("cgroup.subtree_control"), b"").unwrap();
+        let stat = root.path().join("s1/cpu.stat");
+        fs::write(&stat, "usage_usec 41\nuser_usec 30\nsystem_usec 11\n").unwrap();
+        let controls = Cgroups {
+            parent,
+            groups: BTreeMap::from([(
+                1,
+                Group {
+                    name: "s1".into(),
+                    directory: session,
+                },
+            )]),
+        };
+        assert_eq!(controls.activity().unwrap(), vec![(1, 41, true)]);
+        // Keep reading the held directory even if its original path changes.
+        fs::rename(root.path().join("s1"), root.path().join("retained")).unwrap();
+        let stat = root.path().join("retained/cpu.stat");
+        fs::write(&stat, "usage_usec 73\nuser_usec 60\nsystem_usec 13\n").unwrap();
+        assert_eq!(controls.activity().unwrap(), vec![(1, 73, true)]);
+        fs::write(&stat, "user_usec 60\nsystem_usec 13\n").unwrap();
+        assert_eq!(
+            controls.activity().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_file(&stat).unwrap();
+        assert_eq!(
+            controls.activity().unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+    #[test]
     fn timeout_names_only_populated_unfrozen_session_and_thaws() {
         let root = tempfile::tempdir().unwrap();
         let parent = group(root.path(), "parent", "populated 1\nfrozen 0\n");
