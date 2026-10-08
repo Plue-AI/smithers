@@ -55,6 +55,36 @@ fn host(stream: &mut TcpStream, secret: &[u8], good: bool) {
     hello(4, &[]).write(stream).unwrap();
 }
 #[test]
+fn authenticated_link_accepts_request_after_idle() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let mut authenticated = link::authenticate(socket, &identity, 7, &[]).unwrap();
+        Frame::read(authenticated.stream())
+    });
+    let mut peer = TcpStream::connect(addr).unwrap();
+    host(&mut peer, &[9; 32], true);
+    // A reviewed branch can remain awake without a writer or terminal. An
+    // authenticated quiet connection must still accept its next operation.
+    thread::sleep(Duration::from_secs(31));
+    let request = Frame {
+        kind: 1,
+        stream: 0,
+        payload: conn::tagged(
+            1,
+            &[
+                conn::field(1, 41u32.to_be_bytes()),
+                conn::field(2, conn::tagged(1, &[])),
+            ],
+        ),
+    };
+    request.write(&mut peer).unwrap();
+    assert_eq!(worker.join().unwrap().unwrap(), request);
+}
+
+#[test]
 fn proof_failure_preserves_live_and_valid_candidate_replaces_it() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();

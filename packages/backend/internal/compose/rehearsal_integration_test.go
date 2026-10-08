@@ -1754,6 +1754,7 @@ func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProvider
 type rehearsalAdmissionRuntime struct {
 	*process.Runtime
 	admissionMu    sync.Mutex
+	daemonMu       sync.Mutex // one authenticated boot per retained process checkout
 	eligible       map[string]bool
 	released       map[string]bool
 	aliases        map[string]string
@@ -1879,6 +1880,11 @@ func (r bindingProcessRuntime) CompareWriteFiles(ctx context.Context, workspaceI
 }
 
 func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string) error {
+	// Gateway registration and a person's request can reach the same retained
+	// checkout concurrently. A second MintBoot must not fence the first boot
+	// while its real object transfer and reconciliation are still in progress.
+	r.daemonMu.Lock()
+	defer r.daemonMu.Unlock()
 	link, err := r.daemons.Current(id)
 	if err == nil && link.RequireReady(id) == nil {
 		return nil

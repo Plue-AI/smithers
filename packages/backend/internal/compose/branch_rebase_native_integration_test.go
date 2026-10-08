@@ -128,7 +128,31 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 			t.Log(string(log))
 		}
 	})
-	require.NoError(t, startRehearsalMachined(t, ctx, registry, f.row.ID, guest, evidence, os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY"), &machined.ItemBinding{Number: 1, Change: strings.TrimSpace(string(changeID))}))
+	bound, err := f.pool.Exec(ctx, `UPDATE mythical_lanes SET item_id=$2,name='coding',retired_at=NULL WHERE workspace_id=$1`, f.row.ID, item.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, bound.RowsAffected())
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{machineItemChanges}',jsonb_build_object($2::text,$3::text)) WHERE id=$1`, item.ID, f.row.ID, strings.TrimSpace(string(changeID)))
+	require.NoError(t, err)
+	runtime := bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{}, t: t, daemons: registry, pool: f.pool, repository: client, evidence: evidence, daemonBinary: os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")}
+	type bootResult struct {
+		link *machined.Link
+		err  error
+	}
+	boots := make(chan bootResult, 2)
+	for range 2 {
+		go func() {
+			err := runtime.ensureDaemon(ctx, f.row.ID, guest)
+			link, lookup := registry.Current(f.row.ID)
+			if err == nil {
+				err = lookup
+			}
+			boots <- bootResult{link, err}
+		}()
+	}
+	first, second := <-boots, <-boots
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	require.Same(t, first.link, second.link, "concurrent gateway and branch requests must retain one authenticated boot")
 	launcher := new(rebaseRecordedLauncher)
 	service.SetLauncher(launcher)
 	service.SetBranchRebaseExecutor(machineRebase{registry: registry, pool: f.pool})

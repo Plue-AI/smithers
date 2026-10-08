@@ -120,8 +120,10 @@ pub fn authenticate(
         .write(&mut stream)
         .map_err(|_| ProtocolError::Truncated)?;
         read_hello(&mut stream, 4)?;
+        // Authentication is bounded above. A live reviewed branch may be
+        // quiet indefinitely; EOF and authority replacement retire its link.
         stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
+            .set_read_timeout(None)
             .map_err(|_| ProtocolError::Truncated)?;
         Ok(())
     })();
