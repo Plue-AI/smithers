@@ -120,13 +120,15 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		// Import the backend-retained main ref before exporting its JJ tree.
 		// This uses the same authenticated source-import boundary as TODOs.
 		environment["SMITHERS_FLOW_SOURCE_MAIN"] = "1"
-	} else if launch.Binding.BindingKind == "review" {
+	} else if launch.Binding.BindingKind == "review" || launch.Binding.BindingKind == "learning" {
 		// A review machine's working copy is the reviewed PR. Its host loads
 		// flows only from the pinned commit its restore fetched beside it, and
 		// never imports, publishes or registers the working copy's flows.
+		// Learning uses this same authenticated local-source boundary, with
+		// its own pin and without a TODO execution digest.
 		pin := launch.Authority.ExecutionPin
-		if pin == nil || !pin.Valid() || pin.Flow != "review" || pin.SourceCommit != launch.Binding.SourceRevision {
-			return ProcessSpec{}, errors.New("review host requires its pinned review source")
+		if pin == nil || !pin.Valid() || pin.Flow != launch.Binding.BindingKind || pin.SourceCommit != launch.Binding.SourceRevision {
+			return ProcessSpec{}, errors.New(launch.Binding.BindingKind + " host requires its pinned " + launch.Binding.BindingKind + " source")
 		}
 		environment["SMITHERS_FLOW_SOURCE_PINNED"] = "1"
 		environment["SMITHERS_FLOW_SOURCE_LOCAL"] = "1"

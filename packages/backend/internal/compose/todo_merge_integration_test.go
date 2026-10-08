@@ -264,12 +264,33 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.NoError(t, err)
 	}
 
+	if learningJourney {
+		// Literal C-J8-01 history: T7 follows six older merged TODOs.
+		for n := 1; n <= 6; n++ {
+			_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,owner_id,pr_state,pr_merge_commit,checks) VALUES($1,'todo','landed',$2,'merged',$3,'{"attempts":[]}')`, repo.ID, owner.ID, base)
+			require.NoError(t, err)
+		}
+		for n := 1; n <= 40; n++ {
+			require.EqualValues(t, n, fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Earlier issue", "Recorded history"))
+		}
+	}
+
 	// A TODO in review: filed by the owner, its pull request open on GitHub.
 	// Candidate execution belongs to T-STK-01; this fixture supplies its
 	// accepted result, then exercises the real confirmation and merge worker.
 	filed, err := mythical.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: ownerSession}), repo.ID, owner.ID,
 		services.MythicalTodoInput{Title: "Wave", Prompt: "Wave hello", Request: "file-wave"})
 	require.NoError(t, err)
+	if learningJourney {
+		require.EqualValues(t, 7, filed.Number)
+		// Thirteen more historical outcomes make nineteen before T7's merge.
+		for n := 8; n <= 20; n++ {
+			_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,owner_id,pr_state,pr_merge_commit,checks) VALUES($1,'todo','landed',$2,'merged',$3,'{"attempts":[]}')`, repo.ID, owner.ID, base)
+			require.NoError(t, err)
+		}
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks || '{"attempts":[{"attempt":1,"run_id":"attempt-1","items":[{"kind":"check","name":"lint","state":"failed","tier":"slow","evidence":"Run lint before review to catch unused imports."}]},{"attempt":2,"run_id":"attempt-2","items":[]}],"steers":[{"text":"Use the existing retry helper because it already backs off.","attempt":1}],"githubInputs":[{"text":"Keep retries bounded because the provider can remain unavailable.","review_state":"COMMENTED"}]}' WHERE repository_id=$1 AND number=7`, repo.ID)
+		require.NoError(t, err)
+	}
 	token, err := connections.CreateGitHubInstallationTokenForRepositoryOwner(ctx, owner.ID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "write"})
 	require.NoError(t, err)
 	request, err := http.NewRequest(http.MethodPost, fake.URL+"/repos/rehearsal-owner/app/pulls", strings.NewReader(`{"title":"Wave","head":"smithers/wave","base":"main"}`))
@@ -435,7 +456,11 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations, bro
 		require.NoError(t, response.Body.Close())
 		require.Equal(t, 200, response.StatusCode)
 		require.Equal(t, "order", card["merge"].(map[string]any)["reason"])
-		require.Equal(t, "T1", card["merge"].(map[string]any)["detail"])
+		predecessor := "T1"
+		if learningJourney {
+			predecessor = "T7"
+		}
+		require.Equal(t, predecessor, card["merge"].(map[string]any)["detail"])
 		press, err := http.NewRequest(http.MethodPost, origin+fmt.Sprintf("/api/todos/%d/merge", later.Number), strings.NewReader(`{"reviewed_head_sha":"`+pull.Head.SHA+`"}`))
 		require.NoError(t, err)
 		press.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})

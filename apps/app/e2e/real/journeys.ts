@@ -20,6 +20,7 @@ export const journeySpecs = [
   "todo-merge.spec.ts",
   "todo-merge-order.spec.ts",
   "flow-activation.spec.ts",
+  "learning-journey.spec.ts",
   "flow-source-run.spec.ts",
   "duplicate-launch.spec.ts",
   "github-j10/merge-on-github.spec.ts",

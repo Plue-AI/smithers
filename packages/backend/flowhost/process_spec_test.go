@@ -446,6 +446,47 @@ func TestReviewHostLoadsOnlyItsLocalPinnedSource(t *testing.T) {
 	require.ErrorContains(t, err, "attempt pin conflicts")
 }
 
+func TestLearningHostLoadsOnlyItsLocalPinnedSource(t *testing.T) {
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "learning", BindingID: "operation"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "learning-machine", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: "84c0f902f865f47b4c722630b38ad46b0b7b519d", OwnerGeneration: 1, State: "starting"}
+	pin := flowruntime.Pin{Flow: "learning", SourceCommit: "84c0f902f865f47b4c722630b38ad46b0b7b519d", ExecutionDigest: strings.Repeat("c", 64)}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "learning-machine", CatalogKey: CatalogCoding, SourceRevision: binding.SourceRevision, ExecutionPin: &pin}
+	paths := WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}
+	launch := HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer",
+		// A caller can never pre-set or clear the source selection.
+		Environment: map[string]string{"SMITHERS_FLOW_SOURCE_LOCAL": "0"}}
+	_, err := BuildProcessSpec(launch, paths, 4317)
+	require.Error(t, err, "a start variable cannot name the source selection")
+	launch.Environment = nil
+	spec, err := BuildProcessSpec(launch, paths, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_LOCAL"])
+	require.Equal(t, "84c0f902f865f47b4c722630b38ad46b0b7b519d", spec.Environment["SMITHERS_SOURCE_REVISION"])
+	require.NotContains(t, spec.Environment, "SMITHERS_TODO_EXECUTION_DIGEST", "a learning host serves no TODO")
+	require.NotContains(t, spec.Environment, "SMITHERS_JJHUB_TOKEN")
+	require.NotContains(t, spec.Environment, "SMITHERS_CODING_LOCAL_OWNER")
+	for name, refused := range map[string]*flowruntime.Pin{
+		"unpinned":       nil,
+		"review pin":     {Flow: "review", SourceCommit: pin.SourceCommit, ExecutionDigest: pin.ExecutionDigest},
+		"todo pin":       {Flow: "todo", SourceCommit: pin.SourceCommit, ExecutionDigest: pin.ExecutionDigest},
+		"other source":   {Flow: "learning", SourceCommit: "4aec46d617b236e5b430c95a9c12a935ce5389e6", ExecutionDigest: pin.ExecutionDigest},
+		"invalid digest": {Flow: "learning", SourceCommit: pin.SourceCommit, ExecutionDigest: "c"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			launch := launch
+			launch.Authority.ExecutionPin = refused
+			_, err := BuildProcessSpec(launch, paths, 4317)
+			require.ErrorContains(t, err, "learning host requires its pinned learning source")
+		})
+	}
+	// A learning pin never selects local source for another binding.
+	launch.Binding.BindingKind, launch.Authority.Target.BindingKind = "browser-flow", "browser-flow"
+	_, err = BuildProcessSpec(launch, paths, 4317)
+	require.ErrorContains(t, err, "attempt pin conflicts")
+}
+
 func TestFlowLoadHostUsesAuthenticatedImmutableMain(t *testing.T) {
 	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
 	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "flow-load", BindingID: "5"}
