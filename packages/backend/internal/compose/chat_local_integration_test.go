@@ -466,10 +466,11 @@ func (b *lockedBuffer) String() string {
 // Reuse the same model HTTP fixture for composed journeys. Offered the app
 // agent's commands tool and asked about one of fileQuestions, it executes
 // files.read on that path; told "Run /name args", it executes that command;
-// a question marked "(forced)" calls the tool even when none is offered.
+// a prompt with several "Run /" lines executes them in order, one per model
+// leg; a question marked "(forced)" calls the tool even when none is offered.
 // Asked "(instructions)", it answers with the command lines its system
-// prompt lists, one per line. Given a tool result, it answers by quoting it,
-// so an answer shows what was read.
+// prompt lists, one per line. Given its tool results, it answers by quoting
+// them, so an answer shows what was read.
 func localChatProvider(receivedKey chan string, fileQuestions ...string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -505,24 +506,24 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 				return
 			}
 		}
-		var result *string
+		var results []string
 		for _, message := range body.Messages {
 			var text string
 			if message.Role == "tool" && json.Unmarshal(message.Content, &text) == nil {
-				result = &text
+				results = append(results, text)
 			}
-		}
-		if result != nil {
-			answer("From the source: " + *result)
-			return
 		}
 		offered := false
 		for _, tool := range body.Tools {
 			offered = offered || tool.Function.Name == "commands"
 		}
 		execute := func(name, args string) {
+			id := "read-source"
+			if len(results) > 0 {
+				id = fmt.Sprintf("read-source-%d", len(results))
+			}
 			arguments, _ := json.Marshal(map[string]string{"action": "execute", "name": name, "args": args})
-			chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "commands", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+			chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": id, "type": "function", "function": map[string]string{"name": "commands", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
 			_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 		}
 		var system string
@@ -552,24 +553,29 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 				answer(strings.Join(lines, "\n"))
 				return
 			case offered || strings.Contains(text, "(forced)"):
-				if command := runCommand.FindStringSubmatch(text); command != nil {
+				if commands := runCommand.FindAllStringSubmatch(text, -1); len(commands) > len(results) {
+					command := commands[len(results)]
 					execute(command[1], strings.TrimSpace(strings.TrimSuffix(command[2], "(forced)")))
 					return
 				}
 				for _, path := range fileQuestions {
-					if strings.Contains(text, path) {
+					if len(results) == 0 && strings.Contains(text, path) {
 						execute("files.read", path)
 						return
 					}
 				}
 			}
 		}
+		if len(results) > 0 {
+			answer("From the source: " + strings.Join(results, "\n"))
+			return
+		}
 		answer("hello from provider")
 	}))
 }
 
-// runCommand is the fixture's command directive: "Run /name args".
-var runCommand = regexp.MustCompile(`Run /(\S+)(.*)$`)
+// runCommand is the fixture's command directive: "Run /name args", one per line.
+var runCommand = regexp.MustCompile(`(?m)Run /(\S+)([^\n]*)$`)
 
 func TestLocalChatProviderSourceQuestion(t *testing.T) {
 	server := localChatProvider(make(chan string, 4), "JOURNEY.md")
@@ -612,6 +618,18 @@ func TestLocalChatProviderSourceQuestion(t *testing.T) {
 	require.Contains(t, command, `\"args\":\"T1\"`)
 	require.Contains(t, request(`{"messages":[{"role":"user","content":"Run /stack (forced)"}]}`), `\"name\":\"stack\"`)
 	require.NotContains(t, request(`{"messages":[{"role":"user","content":"Run /stack"}]}`), "tool_calls")
+	// Several directive lines run in order, one per leg; the answer quotes every result.
+	two := `{"role":"user","content":"Where? Run /file a.ts:3\nRun /wiki.open Webhooks.md"}`
+	first := request(`{"messages":[` + two + `],` + offered + `}`)
+	require.Contains(t, first, `\"name\":\"file\"`)
+	require.Contains(t, first, `\"args\":\"a.ts:3\"`)
+	second := request(`{"messages":[` + two + `,{"role":"tool","content":"A"}],` + offered + `}`)
+	require.Contains(t, second, `\"name\":\"wiki.open\"`)
+	require.Contains(t, second, `\"args\":\"Webhooks.md\"`)
+	require.Contains(t, second, `"id":"read-source-1"`)
+	both := request(`{"messages":[` + two + `,{"role":"tool","content":"A"},{"role":"tool","content":"B"}],` + offered + `}`)
+	require.Contains(t, both, `"content":"From the source: A\nB"`)
+	require.NotContains(t, both, "tool_calls")
 	// Asked for its instructions, it answers the command lines it was given.
 	listed := request(`{"messages":[{"role":"system","content":"Rules\n- /stack — Show the stack\nmore\n- /todo <Tn> — Open a TODO"},{"role":"user","content":"(instructions)"}]}`)
 	require.Contains(t, listed, `"content":"- /stack — Show the stack\n- /todo \u003cTn\u003e — Open a TODO"`)
