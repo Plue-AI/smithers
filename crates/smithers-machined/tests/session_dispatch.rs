@@ -1094,6 +1094,46 @@ fn TestSessionRootInputsValidated() {
         let reply = control::handle(&packet(operation, &body), &mut supervisor).unwrap();
         assert_eq!(reply[4], 255, "operation {operation}");
     }
+    // Lifecycle values bypass the host encoder here, so its early refusals
+    // cannot conceal a missing validation at the privileged broker boundary.
+    for session in [0u32, 0x80000000, 0xffffffff] {
+        for operation in [8, 9, 10, 15] {
+            let body = match operation {
+                9 => conn::structure_bytes(&[conn::field(
+                    1,
+                    conn::tagged(3, &[conn::field(1, session.to_be_bytes())]),
+                )]),
+                10 => conn::structure_bytes(&[
+                    conn::field(1, [0, 3, b'r', b'u', b'n']),
+                    conn::field(2, session.to_be_bytes()),
+                ]),
+                15 => conn::structure_bytes(&[
+                    conn::field(1, session.to_be_bytes()),
+                    conn::field(2, 0u64.to_be_bytes()),
+                ]),
+                _ => conn::structure_bytes(&[conn::field(1, session.to_be_bytes())]),
+            };
+            assert_eq!(
+                control::handle(&packet(operation, &body), &mut supervisor).unwrap()[4],
+                255,
+                "operation {operation}, session {session}"
+            );
+        }
+    }
+    for bytes in [vec![0, 0], vec![0, 3, b'r', 0, b'n'], vec![0, 1, 255]] {
+        for operation in [9, 10] {
+            let body = if operation == 9 {
+                conn::structure_bytes(&[conn::field(1, conn::tagged(2, &[conn::field(1, &bytes)]))])
+            } else {
+                conn::structure_bytes(&[conn::field(1, &bytes), conn::field(2, id.to_be_bytes())])
+            };
+            assert_eq!(
+                control::handle(&packet(operation, &body), &mut supervisor).unwrap()[4],
+                255,
+                "operation {operation}, run bytes {bytes:?}"
+            );
+        }
+    }
     // Construct hostile wire values directly: the client encoder must not
     // sanitize them before they reach the privileged production dispatcher.
     let user_bytes = conn::structure_bytes(&[
