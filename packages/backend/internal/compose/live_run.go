@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -13,12 +14,30 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
+
+// monitorReader answers whether r's credential may run monitor, the command
+// that reads every run (GET /api/runs/{id}), from the committed roster on
+// every call.
+func (t *liveTopics) monitorReader(r *http.Request) func() error {
+	return func() error {
+		if t.queries == nil {
+			return errors.New("monitor authorization unavailable")
+		}
+		_, err := services.Authorize(r.Context(), t.queries, "monitor")
+		return err
+	}
+}
 
 // Runs reuse the dispatch checkpoint's host binding and the host's journal.
 // Reading a topic never resolves a new host, launches a run, or copies its
-// events into a product table. Branch authorization precedes every read.
-func (t *liveTopics) runSource(ctx context.Context, run string, repository, member int64) (live.Source, string) {
+// events into a product table. Authorization precedes every read: a member
+// of the run's branch reads it on its live host. Once the branch grants no
+// read (a finished TODO's lane is retired with its machine), the run is the
+// monitor's: whoever may run monitor reads the answers its host gave while
+// it was live (runArchive), and nothing reaches a host.
+func (t *liveTopics) runSource(ctx context.Context, run string, repository, member int64, monitor func() error) (live.Source, string) {
 	if t.changePool == nil || t.presence == nil || t.presence.branches == nil || t.presence.dispatcher == nil {
 		return live.Source{}, live.Unsupported
 	}
@@ -50,12 +69,21 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	if err != nil || json.Unmarshal(raw, &checkpoint) != nil || checkpoint.RunID != run || checkpoint.Target.WorkspaceID == "" {
 		return live.Source{}, live.Unsupported
 	}
-	authorize := func(ctx context.Context) error {
-		_, err := t.presence.branches.PresenceBranch(ctx, checkpoint.Target.WorkspaceID, repository, member)
-		return err
+	authorize := func(ctx context.Context) (archiveOnly bool, err error) {
+		_, err = t.presence.branches.PresenceBranch(ctx, checkpoint.Target.WorkspaceID, repository, member)
+		if err == nil || monitor == nil || monitor() != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	if err := authorize(ctx); err != nil {
+	archiveOnly, err := authorize(ctx)
+	if err != nil {
 		return live.Source{}, live.Forbidden
+	}
+	if archiveOnly {
+		if _, err := readRunArchive(ctx, t.changePool, repository, checkpoint.Target.WorkspaceID, run); err != nil {
+			return live.Source{}, live.Forbidden
+		}
 	}
 	var launch struct {
 		Target flowruntime.Target `json:"target"`
@@ -75,17 +103,24 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	// metadata can name a version; reading never admits another TODO run.
 	reader := runProjectionReader{call: t.presence.dispatcher.CallRPC, target: checkpoint.Target, run: run, pin: launch.Pin, draft: draft}
 	return live.Source{Key: fmt.Sprintf("run:%d:%q:%q", repository, checkpoint.Target.WorkspaceID, run), Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
-		if err := authorize(ctx); err != nil {
+		archiveOnly, err := authorize(ctx)
+		if err != nil {
 			return live.LogPage{}, err
 		}
-		page, err := reader.page(ctx, after)
-		if err == nil {
-			return page, nil
+		if !archiveOnly {
+			page, hostErr := reader.page(ctx, after)
+			if hostErr == nil {
+				return page, nil
+			}
+			err = hostErr
 		}
 		// A read never wakes a sleeping branch: the run is served from its
 		// host's own answers retained while the host was live (runArchive).
 		archived, archiveErr := readRunArchive(ctx, t.changePool, repository, checkpoint.Target.WorkspaceID, run)
 		if archiveErr != nil {
+			if err == nil {
+				err = archiveErr
+			}
 			return live.LogPage{}, err
 		}
 		page, projection, archiveErr := archived.livePage(ctx, after)

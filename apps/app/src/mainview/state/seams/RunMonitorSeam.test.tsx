@@ -154,8 +154,9 @@ test("native run-topic journal updates read the canonical monitor before mountin
   const h = harness()
   const stop = h.seam.snapshots.subscribe("native-run", () => {})
   h.send({ summary: { runId: "native-run", flowId: "todo" }, steps: [], events: [] })
+  // The live update reads the monitor alone; the journal tab reads the trace.
   await h.seam.trace("native-run")
-  expect(h.requests).toEqual([{ path: "/api/runs/native-run/trace", method: "GET" }])
+  expect(h.requests).toEqual([{ path: "/api/runs/native-run", method: "GET" }, { path: "/api/runs/native-run/trace", method: "GET" }])
   expect(h.seam.snapshots.get("native-run").model?.state).toBe("interrupted")
   h.send({ summary: { runId: "foreign-run", flowId: "todo" }, steps: [], events: [] })
   expect(h.seam.snapshots.get("native-run")).toEqual({ error: "Run unavailable" })
@@ -174,7 +175,7 @@ test("workspace-qualified monitor identities retain colons in the opaque native 
   const stop = seam.snapshots.subscribe(id, () => {})
   expect(await seam.trace(id)).toBeUndefined()
   expect(seam.snapshots.get(id).model?.id).toBe(id)
-  expect(requests).toEqual(["/api/runs/box%3Anative%3Arun/trace"])
+  expect(requests).toEqual(["/api/runs/box%3Anative%3Arun", "/api/runs/box%3Anative%3Arun/trace"])
   stop(); seam.dispose()
 })
 
@@ -191,5 +192,26 @@ test("a run topic delta extends the journal view; the seam registers that projec
   } })
   const stop = seam.snapshots.subscribe("native-run", () => {})
   expect(registered).toEqual(["run:native-run"])
+  stop(); seam.dispose()
+})
+
+test("a live update mounts the monitor without its journal; an open journal tab reads the trace", async () => {
+  const requests: string[] = []
+  let tab: "run" | "journal" = "run"
+  let receive: (() => void) | undefined
+  const seam = createRunMonitorSeam({ view: () => ({ tab }), live: {
+    subscribe: (_topic, notify) => { receive = notify; return () => {} },
+    getSnapshot: () => ({ topic: "run:native-run", data: { summary: { runId: "native-run", flowId: "todo" }, steps: [], events: [] } })
+  }, http: async path => { requests.push(path); return Response.json(path.endsWith("/trace") ? { ...run, journal: [] } : run) } })
+  const stop = seam.snapshots.subscribe("native-run", () => {})
+  await Bun.sleep(0)
+  expect(requests).toEqual(["/api/runs/native-run"])
+  expect(seam.snapshots.get("native-run").model?.journal).toBeUndefined()
+  expect(seam.snapshots.get("native-run").model?.state).toBe("interrupted")
+  tab = "journal"
+  receive?.()
+  await Bun.sleep(0)
+  expect(requests).toEqual(["/api/runs/native-run", "/api/runs/native-run/trace"])
+  expect(seam.snapshots.get("native-run").model?.journal).toEqual([])
   stop(); seam.dispose()
 })

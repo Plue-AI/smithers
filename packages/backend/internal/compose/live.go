@@ -96,7 +96,7 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 	}
 	return func(ctx context.Context, topic string) (live.Source, string) {
 		if strings.HasPrefix(topic, "run:") {
-			return t.runSource(ctx, strings.TrimPrefix(topic, "run:"), repository, member)
+			return t.runSource(ctx, strings.TrimPrefix(topic, "run:"), repository, member, t.monitorReader(r))
 		}
 		if topic == "secrets" {
 			if _, err := services.Authorize(r.Context(), t.queries, "secrets.read"); err != nil {

@@ -76,14 +76,21 @@ capacity and background providers retain periodic committed snapshots; flows
 remain snapshot-only.
 
 `run:<id>` resolves a durable Flow dispatch checkpoint in the install's
-repository and rechecks branch read access before every poll. It reads the
-existing host's `run-summary`, `run-tree` and `run-events` projections without
-starting a host. Snapshots and deltas carry `{summary, steps, events}`: summary
-and steps share a committed journal cursor; a delta includes every later event
-through that cursor in source order. Gateway pages that split one journal entry
-are drained before advancing the numeric Live cursor. A missing retained entry
-returns `gap`, followed by a fresh snapshot on cursor-free resubscription.
-Unknown dispatch runs are refused; missing or stopped hosts remain unavailable.
+repository and rechecks access before every poll. A member with branch read
+access reads the existing host's `run-summary`, `run-tree` and `run-events`
+projections without starting a host. Snapshots and deltas carry
+`{summary, steps, events}`: summary and steps share a committed journal cursor;
+a delta includes every later event through that cursor in source order. Gateway
+pages that split one journal entry are drained before advancing the numeric Live
+cursor. A missing retained entry returns `gap`, followed by a fresh snapshot on
+cursor-free resubscription. Unknown dispatch runs are refused.
+
+A read never wakes a machine. When the host is stopped or asleep, the topic
+serves the run archive: the answers the host gave while the dispatcher observed
+it (`run_archives`, `run_archive_events`). When the branch grants no read, as
+after a finished TODO's lane retires, a credential that may run `monitor` reads
+the archive alone and no host is called; without `monitor`, or for a run with no
+archive, the topic answers `forbidden`.
 The gateway's wall-clock `statusRollup` is excluded from the base summary so
 readers at one journal cursor receive identical bytes. The monitor's health,
 cost, waits and journal presentation remain its owning projection's contract;

@@ -16,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
@@ -209,4 +210,125 @@ func TestRunArchivePostgres(t *testing.T) {
 	require.False(t, ok)
 	_, ok = browser.archivedSnapshot(ctx, db.Workspace{ID: "lane-2", RepositoryID: repo.ID}, json.RawMessage(`{"selector":{"_tag":"run-summary","runId":"run-1"}}`))
 	require.False(t, ok)
+}
+
+// finishedRunHost is the coding host of a run the dispatcher observed: the
+// live topic's host and the archive's source are the same answers.
+type finishedRunHost struct{ *liveRunFixture }
+
+func (finishedRunHost) Monitor(context.Context, flowruntime.Target, string, *int64) (json.RawMessage, error) {
+	return json.RawMessage(`{"id":"fixture-run","flow":"fixture","state":"done","attempts":[],"waits":[]}`), nil
+}
+
+// A finished TODO's lane is retired with its machine (releaseLane), so its
+// branch grants no read. The run:<id> topic then serves the run under the
+// monitor command, from the archive alone: an open Run View stays
+// subscribed, one opened later mounts, and neither reaches the host. A
+// session that may not run monitor, or a run nothing archived, is refused.
+func TestLiveRunFinishedTodoPostgres(t *testing.T) {
+	f := presenceInstall(t)
+	ctx := t.Context()
+	q := db.New(f.pool)
+	host := finishedRunHost{&liveRunFixture{head: 8}}
+	f.p.dispatcher = host
+	// The fixture's lane machine is on its TODO's item branch.
+	_, err := f.pool.Exec(ctx, `UPDATE workspaces SET target_bookmark='smithers/retry-webhooks' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", f.row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.user.ID)}
+	admit := func(run string) flowdispatch.RuntimeCheckpoint {
+		checkpoint := flowdispatch.RuntimeCheckpoint{Version: 1, RunID: run, FlowID: "fixture",
+			Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: f.row.ID, BindingKind: "mythical-item", BindingID: "fixture"}}
+		store, err := jobs.NewStore(f.pool)
+		require.NoError(t, err)
+		receipt, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: run, Payload: json.RawMessage(`{}`),
+			AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectReconcile, EffectKey: run})
+		require.NoError(t, err)
+		raw, err := json.Marshal(checkpoint)
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, receipt.OperationID, raw)
+		require.NoError(t, err)
+		return checkpoint
+	}
+	checkpoint := admit("fixture-run")
+	admit("unobserved-run")
+
+	// While the lane is bound, its member follows the run on the live host.
+	_, err = f.p.branches.PresenceBranch(ctx, f.row.ID, f.row.RepositoryID, f.user.ID)
+	require.NoError(t, err)
+	open := f.dial(t)
+	sendPresenceFrame(t, open, `{"t":"sub","id":1,"topic":"run:fixture-run"}`)
+	followed := readPresenceFrame(t, open)
+	require.Equal(t, "snap", followed.T)
+	require.EqualValues(t, 8, *followed.Cursor)
+
+	// The dispatcher's observation retains the run while its host answers.
+	archive := &runArchive{pool: f.pool, host: host}
+	offset := int64(1)
+	require.NoError(t, archive.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{Scope: scope, Checkpoint: checkpoint, Events: []flowruntime.Event{
+		{RunID: "fixture-run", Sequence: 1, Kind: "control.run.running", OccurredAt: 1000, Payload: json.RawMessage(`{}`)},
+		{RunID: "fixture-run", Sequence: 4, Kind: "step.started", OccurredAt: 1000, Payload: json.RawMessage(`{}`)},
+		{RunID: "fixture-run", Sequence: 4, Kind: "step.output", OccurredAt: 1000, Payload: json.RawMessage(`{}`), Cursor: &flowruntime.EventCursor{Sequence: 4, Offset: &offset}},
+		{RunID: "fixture-run", Sequence: 8, Kind: "control.run.completed", OccurredAt: 1000, Payload: json.RawMessage(`{}`)},
+	}}))
+	_, err = readRunArchive(ctx, f.pool, f.row.RepositoryID, f.row.ID, "fixture-run")
+	require.NoError(t, err)
+
+	// The TODO finishes and its lane retires: the branch grants no read. Any
+	// later answer of the host would name another flow.
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=clock_timestamp() WHERE workspace_id=$1`, f.row.ID)
+	require.NoError(t, err)
+	host.mu.Lock()
+	host.flowID = "read-after-retirement"
+	host.mu.Unlock()
+	_, err = f.p.branches.PresenceBranch(ctx, f.row.ID, f.row.RepositoryID, f.user.ID)
+	require.ErrorContains(t, err, "no lane of the stack")
+
+	// A Run View opened after the merge mounts from the archive, and replays
+	// the archived journal after a cursor it held.
+	later := f.dial(t)
+	sendPresenceFrame(t, later, fmt.Sprintf(`{"t":"sub","id":1,"topic":"run:%s:fixture-run"}`, f.row.ID))
+	archived := readPresenceFrame(t, later)
+	require.Equal(t, "snap", archived.T, archived.Code)
+	require.EqualValues(t, 8, *archived.Cursor)
+	require.JSONEq(t, `{"summary":{"runId":"fixture-run","flowId":"fixture","status":"completed"},
+		"steps":[{"nodeId":"step","label":"Read","status":"completed","startedAt":1000}],"events":[]}`, string(archived.Data))
+	sendPresenceFrame(t, later, `{"t":"sub","id":2,"topic":"run:fixture-run","cursor":4}`)
+	replayed := readPresenceFrame(t, later)
+	require.Equal(t, "delta", replayed.T, replayed.Code)
+	require.EqualValues(t, 8, *replayed.Cursor)
+	require.Contains(t, string(replayed.Data), `"control.run.completed"`)
+	require.NotContains(t, string(replayed.Data), `"step.started"`)
+	require.Contains(t, string(replayed.Data), `"flowId":"fixture"`)
+
+	// The Run View that was open through the retirement stays subscribed: its
+	// next polls refuse nothing, so the next frame answers the next request.
+	time.Sleep(time.Second)
+	sendPresenceFrame(t, open, `{"t":"sub","id":2,"topic":"run:unknown"}`)
+	next := readPresenceFrame(t, open)
+	require.EqualValues(t, 2, next.ID, "the open subscription was refused: %s %s", next.T, next.Code)
+	require.Equal(t, "unknown_topic", next.Code)
+
+	// A run nothing archived is not served past its branch.
+	sendPresenceFrame(t, later, `{"t":"sub","id":3,"topic":"run:unobserved-run"}`)
+	require.Equal(t, "forbidden", readPresenceFrame(t, later).Code)
+
+	// A credential that may not run monitor reads no finished run, and one
+	// that loses monitor is refused at its next poll.
+	topics := &liveTopics{changePool: f.pool, queries: q, presence: f.p}
+	_, refusal := topics.runSource(ctx, "fixture-run", f.row.RepositoryID, f.user.ID, func() error { return errors.New("permission") })
+	require.Equal(t, live.Forbidden, refusal)
+	permitted := true
+	source, refusal := topics.runSource(ctx, "fixture-run", f.row.RepositoryID, f.user.ID, func() error {
+		if permitted {
+			return nil
+		}
+		return errors.New("permission")
+	})
+	require.Empty(t, refusal)
+	page, err := source.Log.Page(ctx, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 8, page.Cursor)
+	permitted = false
+	_, err = source.Log.Page(ctx, nil)
+	require.ErrorContains(t, err, "no lane of the stack")
 }

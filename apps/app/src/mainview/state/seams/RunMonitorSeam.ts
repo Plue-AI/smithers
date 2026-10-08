@@ -39,7 +39,7 @@ export function createRunMonitorSeam(options: {
   const subscriptions = new Map<string, () => void>()
   const authorized = new Map<string, string | undefined>()
   const revisions = new Map<string, number>()
-  const reads = new Map<string, { at?: number; owner?: string; revision: number; promise: Promise<string | void> }>()
+  const reads = new Map<string, { at?: number; journal: boolean; owner?: string; revision: number; promise: Promise<string | void> }>()
   let disposed = false
   const publish = (id: string, next: RunMonitorSnapshot, owner = options.owner?.()) => {
     if (disposed || owner !== options.owner?.()) return
@@ -60,7 +60,10 @@ export function createRunMonitorSeam(options: {
       const source = RunTopicSchema.safeParse(value.data)
       if (source.success && (source.data.summary.runId === id || source.data.summary.runId === id.slice(id.indexOf(":") + 1))) {
         authorized.set(id, owner)
-        void trace(id, options.view?.(id)?.at).then(error => {
+        // A live update reads the monitor alone; the journal loads when its
+        // tab is open or a replay position is selected.
+        const view = options.view?.(id)
+        void read(id, view?.at, view?.tab === "journal" || view?.at !== undefined).then(error => {
           if (error) publish(id, { error }, owner)
         })
         return
@@ -93,26 +96,28 @@ export function createRunMonitorSeam(options: {
       }
     }
   }
-  const trace = async (id: string, at?: number): Promise<string | void> => {
+  const read = async (id: string, at: number | undefined, journal: boolean): Promise<string | void> => {
     if (disposed || !authorized.has(id) || authorized.get(id) !== options.owner?.()) return unavailable
     const owner = options.owner?.()
     const pending = reads.get(id)
-    if (pending && pending.owner === owner && pending.at === at && pending.revision === revisions.get(id)) return pending.promise
+    if (pending && pending.owner === owner && pending.at === at && pending.journal === journal && pending.revision === revisions.get(id)) return pending.promise
     const revision = (revisions.get(id) ?? 0) + 1
     revisions.set(id, revision)
-    const path = `/api/runs/${encodeURIComponent(id)}/trace${at === undefined ? "" : `?at=${at}`}`
+    const path = journal ? `/api/runs/${encodeURIComponent(id)}/trace${at === undefined ? "" : `?at=${at}`}` : `/api/runs/${encodeURIComponent(id)}`
     const promise = (async (): Promise<string | void> => {
       try {
         const response = await options.http(path, { method: "GET", credentials: "same-origin" })
         const parsed = response.ok ? MonitorCardSchema.safeParse(await response.json()) : undefined
         if (disposed || owner !== options.owner?.() || revisions.get(id) !== revision) return
-        if (!parsed?.success || parsed.data.id !== id || parsed.data.journal === undefined || (at !== undefined && parsed.data.replay?.at !== at)) return unavailable
+        if (!parsed?.success || parsed.data.id !== id || (journal && parsed.data.journal === undefined) || (at !== undefined && parsed.data.replay?.at !== at)) return unavailable
         publish(id, { model: parsed.data })
       } catch { if (!disposed && owner === options.owner?.() && revisions.get(id) === revision) return unavailable }
     })()
-    reads.set(id, { at, owner, revision, promise })
+    reads.set(id, { at, journal, owner, revision, promise })
     try { return await promise } finally { if (reads.get(id)?.revision === revision) reads.delete(id) }
   }
+  /** The journal tab and the replay scrubber: the monitor with its journal. */
+  const trace = (id: string, at?: number): Promise<string | void> => read(id, at, true)
   const list = async (): Promise<ReadonlyArray<Pick<MonitorCard, "id" | "title">> | undefined> => {
     if (disposed || !options.live) return undefined
     const owner = options.owner?.()
