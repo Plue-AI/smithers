@@ -71,7 +71,7 @@ export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEn
     HOME: options.home,
     PATH: `${options.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin`
   },
-  RunAtLoad: true, KeepAlive: true, ThrottleInterval: 5, ExitTimeOut: 30,
+  RunAtLoad: true, KeepAlive: { PathState: { [join(options.stateDir, "start-refusal.json")]: false } }, ThrottleInterval: 5, ExitTimeOut: 30,
   ProcessType: "Standard",
   StandardOutPath: join(options.stateDir, "logs/host.log"),
   StandardErrorPath: join(options.stateDir, "logs/host.log")
@@ -344,14 +344,40 @@ export const setupURLs = (
     req.on("error", () => reject(new Refused({ fault: "infra", code: "setup_socket_unavailable", message: "Host setup socket unavailable" })))
     req.end()
   })
+/** Durable backend refusal also survives a stopped or unloaded job. */
+export const startRefusal = (stateDir: string): Refused | undefined => {
+  const file = join(stateDir, "start-refusal.json")
+  if (!existsSync(file)) return undefined
+  const row = JSON.parse(readFileSync(file, "utf8"))
+  if (row.code !== "host_capacity_zero" || typeof row.message !== "string") return undefined
+  return new Refused({ fault: "infra", class: "capacity", code: row.code, message: `${row.code}: ${row.message}` })
+}
 export const start = async (input?: string, address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> } = {}) => {
   validateAddress(address)
   const system = launchd(), stateDir = stateDirectory()
   const bundle = realpathSync(resolveBundle(input))
-  await install({ bundle, stateDir, home: homedir(), ...address }, system)
-  await waitReady()
-  const result = await setupURLs(stateDir)
-  return address.bind && !address.origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
+  return startInstalled({ bundle, stateDir, home: homedir(), ...address }, system)
+}
+export const startInstalled = async (
+  options: ServiceOptions, system: Launchd,
+  probe: () => Promise<boolean | string> = ready,
+  handoff: typeof setupURLs = setupURLs
+) => {
+  verifyBundle(options.bundle)
+  const { stateDir, bind, origins } = options
+  if (startRefusal(stateDir)) await stop(system)
+  rmSync(join(stateDir, "start-refusal.json"), { force: true })
+  await install(options, system)
+  await waitReady(async () => {
+    const refusal = startRefusal(stateDir)
+    if (refusal) { await stop(system); throw refusal }
+    const answer = await probe()
+    const latest = startRefusal(stateDir)
+    if (latest) { await stop(system); throw latest }
+    return answer
+  })
+  const result = await handoff(stateDir)
+  return bind && !origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
 }
 /** One terminal rendering for the registered CLI and the bundled host door. */
 export const startText = (value: unknown): string => {
@@ -359,8 +385,10 @@ export const startText = (value: unknown): string => {
   return Array.isArray(row.setup_urls) ? [...row.setup_urls, ...(row.warning ? [row.warning] : [])].join("\n") : String(row.message ?? "")
 }
 
-export const status = async () => {
-  const system = launchd(), bundle = installedBundle(system)
+export const status = async (system: Launchd = launchd(), stateDir = stateDirectory()) => {
+  const refusal = startRefusal(stateDir)
+  if (refusal) throw refusal
+  const bundle = installedBundle(system)
   const verified = verifyBundle(bundle)
   if (!loaded(system) || await ready() !== true) throw new Refused({ fault: "infra", code: "host_unhealthy", message: `Host unhealthy: ${bundle}` })
   doctor(bundle, stateDirectory())

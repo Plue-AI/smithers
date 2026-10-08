@@ -118,6 +118,7 @@ type Sizing struct {
 	CoreCapacity     int    `json:"core_capacity"`
 	DiskCapacity     int    `json:"disk_capacity"`
 	LimitingTerm     string `json:"limiting_term"`
+	DiskFreeBytes    int64  `json:"disk_free_bytes"`
 	Missing          int64  `json:"missing,omitempty"` // Bytes for memory/disk, cores for cores.
 	Fix              string `json:"fix,omitempty"`
 }
@@ -128,7 +129,7 @@ func ComputeSizing(p HostProfile) Sizing {
 	if p.MemoryBytes < 24<<30 {
 		memory = SmallMachineMemoryBytes
 	}
-	s := Sizing{MemoryMiB: int(memory >> 20), CPUs: min(4, max(2, p.PerfCores/2)),
+	s := Sizing{DiskFreeBytes: p.DiskFreeBytes, MemoryMiB: int(memory >> 20), CPUs: min(4, max(2, p.PerfCores/2)),
 		MemoryCapacity: int(max(0, p.MemoryBytes-ReserveBytes) / memory), CoreCapacity: max(0, p.PerfCores/2),
 		DiskCapacity: int(max(0, p.DiskFreeBytes-MinFreeDiskBytes) / MachineDiskBytes), LayerBudgetBytes: min(48<<30, max(0, p.DiskFreeBytes)/4)}
 	s.Capacity = min(s.MemoryCapacity, s.CoreCapacity, s.DiskCapacity)
@@ -171,7 +172,11 @@ func (s Sizing) ValidateStart(hasOwner bool) error {
 		if s.LimitingTerm == "cores" {
 			amount = fmt.Sprintf("%d performance cores missing", s.Missing)
 		}
-		return &CapacityError{Code: "host_capacity_zero", Class: "capacity", Message: "cannot start a fresh install: " + s.LimitingTerm + ": " + s.Fix + "; " + amount, Fix: s.Fix, Missing: s.Missing}
+		message := "cannot start a fresh install: " + s.LimitingTerm + ": " + s.Fix + "; " + amount
+		if s.LimitingTerm == "disk" {
+			message = fmt.Sprintf("cannot start a fresh install: disk: %.2f GiB free on the state volume; %d GiB required", float64(s.DiskFreeBytes)/(1<<30), (MinFreeDiskBytes+MachineDiskBytes)>>30)
+		}
+		return &CapacityError{Code: "host_capacity_zero", Class: "capacity", Message: message, Fix: s.Fix, Missing: s.Missing}
 	}
 	return nil
 }

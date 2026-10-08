@@ -3,6 +3,7 @@ package native
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/app"
 	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/compose"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/postgres"
 )
 
@@ -27,7 +29,7 @@ type Config struct {
 	StartupAddr string
 }
 
-func Run(ctx context.Context, cfg Config) error {
+func Run(ctx context.Context, cfg Config) (runErr error) {
 	root := cfg.StateDir
 	if root == "" {
 		if cfg.Postgres.StateDir == "" {
@@ -35,6 +37,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		root = filepath.Dir(cfg.Postgres.StateDir)
 	}
+	defer func() { runErr = recordStartRefusal(root, runErr) }()
 	if err := requireStartAllowed(root); err != nil {
 		return err
 	}
@@ -154,4 +157,17 @@ func stop(database *postgres.Instance) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	return database.Stop(ctx)
+}
+
+// The launchd job stops restarting once the authoritative refusal is durable.
+func recordStartRefusal(root string, runErr error) error {
+	var refusal *microsandbox.CapacityError
+	if !errors.As(runErr, &refusal) || refusal.Code != "host_capacity_zero" {
+		return runErr
+	}
+	data, err := json.Marshal(refusal)
+	if err == nil {
+		err = os.WriteFile(filepath.Join(root, "start-refusal.json"), data, 0600)
+	}
+	return errors.Join(runErr, err)
 }

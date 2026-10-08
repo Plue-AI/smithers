@@ -116,7 +116,12 @@ func TestCapacityZeroFreshRefusesExistingStarts(t *testing.T) {
 		if r.term == "cores" {
 			require.Contains(t, err.Error(), "1 performance cores missing")
 		}
-		require.Contains(t, err.Error(), r.fix)
+		require.Equal(t, "host_capacity_zero", typed.Code)
+		if r.term == "disk" {
+			require.Contains(t, err.Error(), "71.90 GiB free on the state volume; 72 GiB required")
+		} else {
+			require.Contains(t, err.Error(), r.fix)
+		}
 		require.NoError(t, s.ValidateStart(true))
 	}
 	require.NoError(t, ComputeSizing(HostProfile{MemoryBytes: 24 << 30, PerfCores: 8, DiskFreeBytes: 200 << 30}).ValidateStart(false))
