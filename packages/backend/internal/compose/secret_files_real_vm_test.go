@@ -30,6 +30,7 @@ func seedInstalledSecretFiles(t *testing.T, h *rootLayerHarness) {
 	body := h.expect("POST", installedSecretsURL, `{"name":"ANTHROPIC_API_KEY","value":"mch-provider-real-fixture-0123456789abcdef","path":"~/.config/anthropic/key","hosts":["api.anthropic.com"],"match_headers":["x-api-key"]}`, 201)
 	require.NotContains(t, string(body), "mch-provider-real-fixture-0123456789abcdef")
 	h.expect("POST", installedSecretsURL, `{"name":"MCH_FILE","value":"mch-file-v1","path":"~/.config/mch/key"}`, 201)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_ABSOLUTE_FILE","value":"mch-absolute-v1","path":"/run/smithers/files/mch/key"}`, 201)
 }
 
 func testInstalledSecretFiles(t *testing.T, h *rootLayerHarness, branch string, term *rehearsalTerminal, browsers ...http.CookieJar) {
@@ -66,6 +67,27 @@ func testInstalledSecretFiles(t *testing.T, h *rootLayerHarness, branch string, 
 		installedSecretDeadline(t, member, deadline, deleted)
 	}
 	installedAgentSecretCheck(t, h, branch, deadline, deleted)
+	// Absolute files are shared with team, but remain root-owned. Observe the
+	// fresh-boot fixture and its lifecycle through the same person sessions.
+	absoluteInitial := `test "$(stat -c '%u:%g:%a' /run/smithers/files/mch/key)" = 0:20000:640 && test "$(cat /run/smithers/files/mch/key)" = mch-absolute-v1 && test ! -w /run/smithers/files/mch/key`
+	for _, member := range terminals {
+		installedShell(t, member, absoluteInitial)
+	}
+	installedAgentSecretCheck(t, h, branch, time.Now().Add(30*time.Second), absoluteInitial)
+	deadline = time.Now().Add(5 * time.Second)
+	h.expect("POST", installedSecretsURL, `{"name":"MCH_ABSOLUTE_FILE","value":"mch-absolute-v2"}`, 201)
+	absoluteUpdated := `for i in $(seq 1 50); do test "$(cat /run/smithers/files/mch/key)" = mch-absolute-v2 && break; sleep .1; done; test "$(cat /run/smithers/files/mch/key)" = mch-absolute-v2 && test "$(stat -c '%u:%g:%a' /run/smithers/files/mch/key)" = 0:20000:640 && test ! -w /run/smithers/files/mch/key`
+	for _, member := range terminals {
+		installedSecretDeadline(t, member, deadline, absoluteUpdated)
+	}
+	installedAgentSecretCheck(t, h, branch, deadline, absoluteUpdated)
+	deadline = time.Now().Add(5 * time.Second)
+	h.expect("DELETE", installedSecretsURL+"/MCH_ABSOLUTE_FILE", "", 204)
+	absoluteDeleted := `for i in $(seq 1 50); do test ! -e /run/smithers/files/mch/key && break; sleep .1; done; test ! -e /run/smithers/files/mch/key`
+	for _, member := range terminals {
+		installedSecretDeadline(t, member, deadline, absoluteDeleted)
+	}
+	installedAgentSecretCheck(t, h, branch, deadline, absoluteDeleted)
 	// Plant the link AFTER a valid declaration, exercising the writer's race
 	// defense without treating declaration-time acceptance of a link as valid.
 	deadline = time.Now().Add(5 * time.Second)

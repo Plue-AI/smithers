@@ -368,6 +368,25 @@ func testSecretsComposed(t *testing.T, install bool) {
 	require.Equal(t, 204, status, body)
 	require.Equal(t, []string{"OWNER_KEY"}, stored())
 
+	// Absolute delivery uses the same write-only metadata and preserves the
+	// path on value-only replacement, including across a home-to-file move.
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"ABSOLUTE_KEY","value":"absolute-canary","path":"/run/smithers/files/mch/key"}`)
+	require.Equal(t, 201, status, body)
+	require.Equal(t, "/run/smithers/files/mch/key", body["path"])
+	require.NotContains(t, body, "value")
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"ABSOLUTE_KEY","value":"absolute-rotated"}`)
+	require.Equal(t, 201, status, body)
+	require.Equal(t, "/run/smithers/files/mch/key", body["path"])
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"ABSOLUTE_KEY","value":"home-moved","path":"~/.config/mch/key"}`)
+	require.Equal(t, 201, status, body)
+	require.Equal(t, "~/.config/mch/key", body["path"])
+	var persistedPath string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT path FROM repository_secrets WHERE repository_id=$1 AND name='ABSOLUTE_KEY'`, repo.ID).Scan(&persistedPath))
+	require.Equal(t, "~/.config/mch/key", persistedPath)
+	status, body = request(ownerSession, "DELETE", "/secrets/ABSOLUTE_KEY", "")
+	require.Equal(t, 204, status, body)
+	require.Equal(t, []string{"OWNER_KEY"}, stored())
+
 	// All active member sessions read metadata, including main-only names.
 	status, body = request(ownerSession, "POST", "/secrets", `{"name":"CANARY_TOKEN","value":"machine-env-canary-value"}`)
 	require.Equal(t, 201, status, body)

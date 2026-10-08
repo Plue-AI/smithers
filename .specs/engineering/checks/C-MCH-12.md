@@ -28,3 +28,11 @@ process-environment scan with no hits for either literal host-bound key.
 Sentinels travel only over the trusted diagnostic's stdin; no terminal command
 contains them. This authors the disk scan; execution on the approved bundle
 and the installed coding-tool falsifier remain pending.
+
+The native chain additionally declares `/run/smithers/files/mch/key` before
+fresh boot, observes its literal `0:20000:640` ownership/mode and lack of write
+access from every member and agent session, and checks replacement and deletion
+within a shared five-second deadline. The composed HTTP/PostgreSQL campaign
+checks absolute-path metadata, value-only replacement, moving the declaration
+to a home path, persisted path identity and deletion. Native observations still
+require execution on the approved reference host.
