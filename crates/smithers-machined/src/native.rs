@@ -396,6 +396,24 @@ impl Repository {
             Err(e) => Err(e),
         }
     }
+    /// Bind a resolution to the retained logical change and its target before
+    /// inspecting disk. A checkout of another change is never a resolution.
+    pub fn resolution_paths(&self, retained: Oid, onto: Oid) -> io::Result<Vec<String>> {
+        let (workspace, repo) = self.load()?;
+        let expected = Self::commit(&repo, retained)?;
+        let current = repo.view().get_wc_commit_id(workspace.workspace_name())
+            .ok_or_else(|| invalid("missing working-copy commit"))?;
+        let current = repo.store().get_commit(current).map_err(invalid)?;
+        let target = CommitId::new(onto.to_vec());
+        if expected.change_id() != current.change_id()
+            || expected.parent_ids() != [target.clone()]
+            || current.parent_ids() != [target]
+            || !expected.has_conflict() {
+            return Err(invalid("retained conflict target changed"));
+        }
+        let (head, _) = self.snapshot()?;
+        self.conflict_paths(head)
+    }
     pub fn conflict_paths(&self, head: Oid) -> io::Result<Vec<String>> {
         let (_, repo) = self.load()?;
         Self::commit(&repo, head)?

@@ -38,6 +38,17 @@ func (w *bundleLimit) Write(b []byte) (int, error) {
 // The file then survives branch movement without holding DB/engine locks during
 // network transfer. No guest-supplied path or ref name is used.
 func GitBundleExporter(resolve func(context.Context, string) (string, error)) ObjectExporter {
+	return gitBundleExporter(resolve, "")
+}
+
+// GitRebaseBundleExporter accepts the target already admitted under the stack
+// claim. The caller must validate that binding inside its repository exclusion;
+// this is never selected by a guest object request.
+func GitRebaseBundleExporter(resolve func(context.Context, string) (string, error), target string) ObjectExporter {
+	return gitBundleExporter(resolve, target)
+}
+
+func gitBundleExporter(resolve func(context.Context, string) (string, error), target string) ObjectExporter {
 	return func(ctx context.Context, branch, head string, stream uint32) (source io.ReadCloser, result error) {
 		id, err := uuid.Parse(branch)
 		if err != nil || id.String() != branch || !objectID(head) || stream < 0x80000000 || resolve == nil {
@@ -58,7 +69,7 @@ func GitBundleExporter(resolve func(context.Context, string) (string, error)) Ob
 		if err != nil {
 			return nil, err
 		}
-		if strings.TrimSpace(string(actual)) != head {
+		if strings.TrimSpace(string(actual)) != head && (target == "" || target != head) {
 			return nil, ErrNotReady
 		}
 		ref := fmt.Sprintf("refs/smithers/xfer/%d", stream)

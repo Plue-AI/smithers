@@ -91,3 +91,23 @@ fn freeze_for<T>(
     cx.settle_rewrite()?;
     Ok(output)
 }
+
+/// Inspect one retained conflict while every broker writer is frozen. This is
+/// not a rewrite checkpoint; every outcome thaws the writers.
+pub fn inspect_then<T>(cx: &mut LockCx, inspect: impl FnOnce(&mut LockCx) -> Result<T>) -> Result<T> {
+    if cx.rewrite_pending { return Err(pending_error()); }
+    let broker = cx.hooks.broker.clone();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if let Some(session) = broker.freeze(Duration::from_secs(1))? {
+            return Err(Error { code:9, session:Some(session), ..Error::unsupported() });
+        }
+        let documents = cx.hooks.documents.clone();
+        documents.flush_all(cx)?;
+        inspect(cx)
+    }));
+    let thawed = broker.thaw();
+    match result {
+        Ok(result) => { thawed?; result }
+        Err(panic) => { let _ = thawed; std::panic::resume_unwind(panic) }
+    }
+}

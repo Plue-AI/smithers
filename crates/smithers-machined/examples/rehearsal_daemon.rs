@@ -45,20 +45,23 @@ fn main() -> std::io::Result<()> {
     if rustix::process::getuid().as_raw() != 19998 || rustix::process::geteuid().as_raw() != 19998 {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
-    let (parent, child) = rustix::net::socketpair(
+    let sockets = rustix::net::socketpair(
         rustix::net::AddressFamily::UNIX,
         rustix::net::SocketType::SEQPACKET,
         rustix::net::SocketFlags::CLOEXEC,
         None,
     )?;
     // Keep source descriptors above the installed daemon's fixed inherited FDs.
-    let parent = rustix::io::fcntl_dupfd_cloexec(&parent, 10)?;
-    let child = rustix::io::fcntl_dupfd_cloexec(&child, 10)?;
-    let relay = TcpListener::bind("127.0.0.1:0")?;
-    let port = relay.local_addr()?.port();
-    let relay = rustix::io::fcntl_dupfd_cloexec(&relay, 10)?;
-    let local = UnixListener::bind("/run/smithers/machined.sock")?;
-    let local = rustix::io::fcntl_dupfd_cloexec(&local, 10)?;
+    let parent = rustix::io::fcntl_dupfd_cloexec(&sockets.0, 10)?;
+    let child = rustix::io::fcntl_dupfd_cloexec(&sockets.1, 10)?;
+    drop(sockets);
+    let relay_listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = relay_listener.local_addr()?.port();
+    let relay = rustix::io::fcntl_dupfd_cloexec(&relay_listener, 10)?;
+    drop(relay_listener);
+    let local_listener = UnixListener::bind("/run/smithers/machined.sock")?;
+    let local = rustix::io::fcntl_dupfd_cloexec(&local_listener, 10)?;
+    drop(local_listener);
     for (source, target) in [
         (child.as_raw_fd(), 3),
         (relay.as_raw_fd(), 4),

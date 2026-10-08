@@ -1275,7 +1275,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient, services.WithMythicalInstallAuthorization(config.IsSingleOwner(cfg.Auth)))
 	if config.IsSingleOwner(cfg.Auth) {
-		bindConflictValidator(mythicalService, workspaceService, nil)
+		var inspect func(context.Context, string, string, string) ([]string, error)
+		if options.Machined != nil {
+			inspect = options.Machined.InspectConflict
+		}
+		bindConflictValidator(mythicalService, workspaceService, inspect)
 		mythicalService.SetConversationEntryPublisher(publishConversationSubject)
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {

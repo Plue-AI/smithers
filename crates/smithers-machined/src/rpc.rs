@@ -35,8 +35,14 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
             11 => {
                 let (onto, actor) = conn::rebase_args(args)?;
                 hooks.core.validate_rebase(onto).and_then(|()| {
-                    crate::freeze::freeze_then(cx, &actor, |cx| hooks.core.rebase(cx, onto))
-                        .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
+                    crate::freeze::freeze_then(cx, &actor, |cx| {
+                        let head = hooks.core.rebase(cx, onto)?;
+                        let mut fields = vec![conn::field(1, head)];
+                        if let Some(paths) = hooks.core.rebase_paths(head)? {
+                            fields.push(conn::field(2, crate::reconcile::paths_payload(&paths)?));
+                        }
+                        Ok(conn::structure_bytes(&fields))
+                    })
                 })
             }
 

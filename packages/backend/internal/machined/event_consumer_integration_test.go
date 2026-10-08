@@ -351,3 +351,34 @@ func TestEventConsumerTransientHints(t *testing.T) {
 		})
 	}
 }
+
+func TestEventConsumerReconcileHintsRetainDurableReceipts(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	registry := new(Registry)
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	ingestor := &Ingestor{Pool: pool, Write: func(ctx context.Context, tx pgx.Tx, b string, event Event) (Acknowledgement, error) {
+		_, err := tx.Exec(ctx, `UPDATE workspaces SET head_commit_id='captured' WHERE id=$1`, b)
+		return Acknowledgement{Outcome: AckApplied}, err
+	}}
+	entered := make(chan struct{}, 2)
+	stop, err := registry.ConsumeEvents(t.Context(), func(ctx context.Context, l *Link, b string, e Event) (Acknowledgement, error) {
+		return ingestor.Commit(ctx, l.Connection, b, e)
+	}, func(ctx context.Context, l *Link, b string, e Event) error { entered <- struct{}{}; return ErrNotReady })
+	require.NoError(t, err)
+	t.Cleanup(stop)
+	link, peer := connectTest(t, registry, branch, authority)
+	hint := wire.Frame{Kind: wire.Events, Payload: wire.Union(2, wire.Field(1, wire.Union(1, wire.Field(1, wire.String("a.txt")), wire.Field(2, wire.Union(4)))))}
+	require.NoError(t, wire.Write(peer, hint))
+	<-entered
+	sendConsumerEvent(t, peer, capturedEvent(1, [16]byte{91}))
+	readConsumerAck(t, peer, 1, AckApplied)
+	var receipts int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+	require.Equal(t, 1, receipts)
+	require.NoError(t, link.Reconciled())
+	require.NoError(t, wire.Write(peer, hint))
+	<-entered
+	_, err = wire.Read(peer)
+	require.Error(t, err, "a missing provider after admission must still close")
+}

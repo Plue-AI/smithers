@@ -10,7 +10,7 @@ pub enum Outcome {
     Moved(Oid),
     Conflict(Vec<String>),
 }
-fn paths_payload(paths: &[String]) -> Result<Vec<u8>> {
+pub(crate) fn paths_payload(paths: &[String]) -> Result<Vec<u8>> {
     let count = u16::try_from(paths.len()).map_err(|_| Error::unsupported())?;
     let mut bytes = count.to_be_bytes().to_vec();
     for path in paths {

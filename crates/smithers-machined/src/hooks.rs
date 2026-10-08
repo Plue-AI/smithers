@@ -326,6 +326,12 @@ pub trait Core: Send + Sync {
         Err(Error::unsupported())
     }
 
+    /// Inspect the retained native result under the same rewrite lock.
+    /// None denotes an older provider without conflict inspection.
+    fn rebase_paths(&self, _head: Oid) -> Result<Option<Vec<String>>> {
+        Ok(None)
+    }
+
     fn call(&self, _cx: &mut LockCx, _method: u8, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }

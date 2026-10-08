@@ -67,7 +67,11 @@ type ReconcileResult struct {
 	Head    string
 	Paths   []string
 }
-type RewriteResult struct{ Head string }
+type RewriteResult struct {
+	Head      string
+	Paths     []string
+	Inspected bool
+}
 
 // DocumentStream is the authenticated daemon peer. Close sends close_doc and
 // unblocks Receive; cancellation must unblock both Send and Receive.

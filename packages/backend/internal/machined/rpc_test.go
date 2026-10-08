@@ -1,6 +1,7 @@
 package machined
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -127,6 +128,34 @@ func answerCaptureStatus(t *testing.T, peer net.Conn, state byte, depth uint32, 
 		fields = append(fields[:4], append([][]byte{wire.Field(5, head)}, fields[4:]...)...)
 	}
 	answer(t, peer, wire.Status, fields...)
+}
+
+func TestRebaseResultRetainsNativeConflictInspection(t *testing.T) {
+	for _, paths := range [][]string{nil, {}, {"src/retry.ts", "README.md"}} {
+		r, _, peer := rpcFixture(t)
+		result := make(chan RewriteResult, 1)
+		go func() {
+			rewrite, err := r.Rebase(t.Context(), "a", []byte("actor"), strings.Repeat("a", 40))
+			require.NoError(t, err)
+			result <- rewrite
+		}()
+		fields := [][]byte{wire.Field(1, bytes.Repeat([]byte{0x22}, 20))}
+		if paths != nil {
+			list := wire.U16(uint16(len(paths)))
+			for _, path := range paths {
+				list = append(list, wire.String(path)...)
+			}
+			fields = append(fields, wire.Field(2, list))
+		}
+		answer(t, peer, wire.Rebase, fields...)
+		rewrite := <-result
+		require.Equal(t, strings.Repeat("22", 20), rewrite.Head)
+		require.Equal(t, paths != nil, rewrite.Inspected)
+		require.Equal(t, len(paths), len(rewrite.Paths))
+		if len(paths) > 0 {
+			require.Equal(t, paths, rewrite.Paths)
+		}
+	}
 }
 
 func TestRegistryCaptureRequiresAuthenticatedDrain(t *testing.T) {
@@ -640,4 +669,52 @@ func TestRegistryIdleSafetyRequiresFreshCompleteEvidence(t *testing.T) {
 	r := new(Registry)
 	_, _, err := r.IdleSafety(t.Context(), "missing")
 	require.Error(t, err)
+}
+
+func TestConflictInspectionRequiresBoundNativeReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		paths     []string
+		inspected bool
+	}{{"legacy", nil, false}, {"resolved", []string{}, true}, {"conflicted", []string{"src/retry.ts", "a.txt"}, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry, _, peer := rpcFixture(t)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			type inspection struct {
+				paths []string
+				err   error
+			}
+			done := make(chan inspection, 1)
+			go func() {
+				paths, err := registry.InspectConflict(ctx, "a", strings.Repeat("a", 40), strings.Repeat("b", 40))
+				done <- inspection{paths, err}
+			}()
+			request, err := wire.Read(peer)
+			require.NoError(t, err)
+			id, method, args, err := request.Request()
+			require.NoError(t, err)
+			require.Equal(t, byte(wire.Status), method)
+			fields, err := wire.Fields("args1", args)
+			require.NoError(t, err)
+			require.Equal(t, bytes.Repeat([]byte{0xaa}, 20), fields[1])
+			require.Equal(t, bytes.Repeat([]byte{0xbb}, 20), fields[2])
+			result := [][]byte{wire.Field(1, []byte{2}), wire.Field(2, wire.U16(wire.Protocol)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(0)), wire.Field(6, wire.U16(0))}
+			if tc.inspected {
+				list := wire.U16(uint16(len(tc.paths)))
+				for _, path := range tc.paths {
+					list = append(list, wire.String(path)...)
+				}
+				result = append(result, wire.Field(9, list))
+			}
+			require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(1, result...)))}))
+			got := <-done
+			if !tc.inspected {
+				require.ErrorIs(t, got.err, ErrNotReady)
+			} else {
+				require.NoError(t, got.err)
+				require.Equal(t, tc.paths, got.paths)
+			}
+		})
+	}
 }

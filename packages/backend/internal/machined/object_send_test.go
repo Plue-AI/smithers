@@ -265,3 +265,52 @@ func TestWakeBundleIDsSurviveReconnectAndQueuedCancellation(t *testing.T) {
 	require.Error(t, wakeResult(t, startWake(t, r, t.Context())))
 	require.Equal(t, int32(2), exports.Load())
 }
+
+func TestRebaseImportsTargetBeforeClaimGuardAndRewrite(t *testing.T) {
+	r := new(Registry)
+	bindFixtureExporter(r)
+	authority, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, peer := connectTest(t, r, "a", authority)
+	require.NoError(t, link.Reconciled())
+	require.NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
+	imported := make(chan struct{})
+	answered := make(chan struct{})
+	go func() {
+		defer close(answered)
+		sent := false
+		defer func() {
+			if !sent {
+				_ = peer.Close()
+			}
+		}()
+		acceptFixtureBundle(t, peer)
+		close(imported)
+		f, err := wire.Read(peer)
+		require.NoError(t, err)
+		id, method, args, err := f.Request()
+		require.NoError(t, err)
+		fields, err := wire.Fields("args11", args)
+		require.NoError(t, err)
+		require.Equal(t, byte(wire.Rebase), method)
+		require.Equal(t, bytes.Repeat([]byte{0xbb}, 20), fields[1])
+		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(11, wire.Field(1, bytes.Repeat([]byte{0xcc}, 20)), wire.Field(2, wire.U16(0)))))}))
+		sent = true
+	}()
+	guarded := false
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := r.RebaseWithObjects(ctx, "a", []byte("host-issued-actor"), strings.Repeat("b", 40), func(rewrite func() error) error {
+		<-imported
+		require.NoError(t, link.RequireReady("a"))
+		guarded = true
+		return rewrite()
+	})
+	require.NoError(t, err)
+	require.True(t, guarded)
+	require.Equal(t, strings.Repeat("c", 40), result.Head)
+	require.True(t, result.Inspected)
+	require.Empty(t, result.Paths)
+	<-answered
+	require.NoError(t, link.RequireReady("a"))
+}

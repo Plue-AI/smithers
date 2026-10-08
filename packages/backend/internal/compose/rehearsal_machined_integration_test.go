@@ -33,7 +33,7 @@ func (c rehearsalReadyConn) Read(p []byte) (int, error) { return c.reader.Read(p
 // The installed daemon runs unchanged as UID 19998 in an unprivileged mount
 // namespace. Only the broker's empty session census is a fixture. Agent/local
 // writes and personal terminals still require the real guest session broker.
-func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding) error {
+func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machined.Registry, branch, root, evidence, binary string, item *machined.ItemBinding) (result error) {
 	t.Helper()
 	if binary == "" {
 		return fmt.Errorf("SMITHERS_REHEARSAL_MACHINED_BINARY must name the rehearsal_daemon example")
@@ -75,6 +75,12 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 		return err
 	}
 	command.Stderr = log
+	defer func() {
+		if result != nil {
+			data, _ := os.ReadFile(log.Name())
+			result = fmt.Errorf("%w; daemon: %s", result, data)
+		}
+	}()
 	if err = command.Start(); err != nil {
 		log.Close()
 		return err
@@ -154,17 +160,31 @@ func startRehearsalMachined(t *testing.T, ctx context.Context, registry *machine
 	if _, err = link.Request(ctx, branch, wire.SetRoster, wire.Field(1, wire.U16(0))); err != nil {
 		return err
 	}
-	reply, err = link.Request(ctx, branch, wire.Status)
-	if err != nil {
-		return err
-	}
-	fields, err = wire.Fields("response", reply.Payload[1:])
-	if err != nil || len(fields[2]) == 0 || fields[2][0] != byte(wire.Status) {
-		return fmt.Errorf("machined status refused")
-	}
-	status, err := wire.Fields("result1", fields[2][1:])
-	if err != nil || len(status[1]) != 1 || status[1][0] != 3 {
-		return fmt.Errorf("machined is not ready: %x (%v)", fields[2], err)
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		reply, err = link.Request(ctx, branch, wire.Status)
+		if err != nil {
+			return err
+		}
+		fields, err = wire.Fields("response", reply.Payload[1:])
+		if err != nil || len(fields[2]) == 0 || fields[2][0] != byte(wire.Status) {
+			return fmt.Errorf("machined status refused")
+		}
+		status, err := wire.Fields("result1", fields[2][1:])
+		if err != nil {
+			return err
+		}
+		if len(status[1]) == 1 && status[1][0] == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("machined is not ready after event drain: %x", fields[2])
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 	return link.Reconciled()
 }

@@ -342,6 +342,9 @@ impl Core for Files {
     fn rebase(&self, cx: &mut LockCx, onto: hooks::Oid) -> hooks::Result<hooks::Oid> {
         self.next.rebase(cx, onto)
     }
+    fn rebase_paths(&self, head: hooks::Oid) -> hooks::Result<Option<Vec<String>>> {
+        self.next.rebase_paths(head)
+    }
     fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.restore_rewrite(cx)
     }

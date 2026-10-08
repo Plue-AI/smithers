@@ -357,9 +357,31 @@ impl Core for NativeCore {
         self.native.rebase(onto).map_err(hook)
     }
 
+    fn rebase_paths(&self, head: Oid) -> hooks::Result<Option<Vec<String>>> {
+        self.native.conflict_paths(head).map(Some).map_err(hook)
+    }
+
     fn call(&self, cx: &mut LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
         match method {
             1 => {
+                let request = conn::fields("args1", args).map_err(|_| hooks::Error::unsupported())?;
+                let retained = request.iter().find(|(tag,_)| *tag == 1).map(|(_,value)| *value);
+                let onto = request.iter().find(|(tag,_)| *tag == 2).map(|(_,value)| *value);
+                let paths = match (retained, onto) {
+                    (None, None) => None,
+                    (Some(retained), Some(onto)) => {
+                        self.require_settled_wake()?;
+                        let retained = retained.try_into().map_err(|_| hooks::Error::unsupported())?;
+                        let onto = onto.try_into().map_err(|_| hooks::Error::unsupported())?;
+                        Some(crate::freeze::inspect_then(cx, |cx| {
+                            // Drain already observed movement before validating identity.
+                            let watcher = cx.hooks.watcher.clone();
+                            watcher.drain(cx)?;
+                            self.native.resolution_paths(retained, onto).map_err(hook)
+                        })?)
+                    }
+                    _ => return Err(hooks::Error {code:1,..hooks::Error::unsupported()}),
+                };
                 let watcher = cx.hooks.watcher.clone();
                 let idle = watcher.idle(cx);
                 let flushed = cx
@@ -385,6 +407,9 @@ impl Core for NativeCore {
                 }
                 if let Some(flushed) = flushed {
                     fields.push(field(8, [u8::from(flushed)]));
+                }
+                if let Some(paths) = paths {
+                    fields.push(field(9, crate::reconcile::paths_payload(&paths)?));
                 }
                 Ok(structure_bytes(&fields))
             }
@@ -1827,7 +1852,11 @@ pub(crate) mod tests {
         core.native.move_to(item).unwrap();
         let mut git = core.git.clone();
         git.acknowledge_and_sync(item).unwrap();
-        let head = rebased_head(&rebase(&core, onto));
+        let rebase_response = rebase(&core, onto);
+        let head = rebased_head(&rebase_response);
+        let response = conn::fields("response", &rebase_response.payload[1..]).unwrap();
+        let rewritten = conn::fields("result11", &response[1].1[1..]).unwrap();
+        assert_eq!(rewritten[1].1, crate::reconcile::paths_payload(&["conflict".into()]).unwrap());
         crate::native::tests::assert_rebase(&core.native, head, onto, item, true);
         let markers = fs::read_to_string(root.join("conflict")).unwrap();
         assert!(markers.contains("<<<<<<<"), "{markers}");
@@ -1858,6 +1887,41 @@ pub(crate) mod tests {
         assert!(core.validate_rebase(head).is_err());
         assert_eq!(core.native.current().unwrap().0, item);
         core.native.settled().unwrap();
+    }
+    #[test]
+    fn rebase_rpc_inspection_binds_change_and_target_until_resolution() {
+        let (dir, core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("conflict"), b"original\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "item edit");
+        fs::write(root.join("conflict"), b"item\n").unwrap();
+        let item = core.native.snapshot().unwrap().0;
+        crate::native::tests::child(&core.native, base, "main edit");
+        fs::write(root.join("conflict"), b"main\n").unwrap();
+        let onto = core.native.snapshot().unwrap().0;
+        core.native.move_to(item).unwrap();
+        core.git.clone().acknowledge_and_sync(item).unwrap();
+        let head = rebased_head(&rebase(&core, onto));
+        let inspected = call(core.clone(),1,&[field(1,head),field(2,onto)]);
+        let response = conn::fields("response", &inspected.payload[1..]).unwrap();
+        assert_eq!(response[1].1[0],1);
+        let status = conn::fields("result1", &response[1].1[1..]).unwrap();
+        assert_eq!(status.iter().find(|(tag,_)| *tag==9).unwrap().1,
+            crate::reconcile::paths_payload(&["conflict".into()]).unwrap());
+        let markers = fs::read(root.join("conflict")).unwrap();
+        let stale = call(core.clone(),1,&[field(1,head),field(2,base)]);
+        let response = conn::fields("response", &stale.payload[1..]).unwrap();
+        assert_eq!(response[1].1[0],255);
+        assert_eq!(core.native.current().unwrap().0,head);
+        assert_eq!(fs::read(root.join("conflict")).unwrap(),markers);
+        fs::write(root.join("conflict"),b"resolved item and main\n").unwrap();
+        let inspected = call(core.clone(),1,&[field(1,head),field(2,onto)]);
+        let response = conn::fields("response", &inspected.payload[1..]).unwrap();
+        assert_eq!(response[1].1[0],1);
+        let status = conn::fields("result1", &response[1].1[1..]).unwrap();
+        assert_eq!(status.iter().find(|(tag,_)| *tag==9).unwrap().1,[0,0]);
+        assert_eq!(fs::read(root.join("conflict")).unwrap(),b"resolved item and main\n");
     }
     #[test]
     fn rebase_rpc_refuses_missing_self_and_descendant_before_capture() {

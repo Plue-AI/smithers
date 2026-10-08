@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -73,7 +74,11 @@ func bindMachineEvents(ctx context.Context, registry *machined.Registry, pool *p
 			}
 			return prepareMachineCaptureWriter(host)(ctx, tx, branch, event)
 		}}
-		return ingest.Commit(ctx, link.Connection, branch, event)
+		ack, err := ingest.Commit(ctx, link.Connection, branch, event)
+		if err != nil {
+			slog.Warn("machine event refused", "workspace_id", branch, "sequence", event.Seq, "error", err)
+		}
+		return ack, err
 	}, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) error {
 		return burst.Hint(ctx, link.Connection, branch, event)
 	})

@@ -364,6 +364,79 @@ func (r *Registry) Rebase(ctx context.Context, branch string, actor []byte, onto
 	}
 	return r.rewrite(ctx, branch, wire.Rebase, wire.Field(1, bytes), wire.Field(2, principal(actor)))
 }
+
+// RebaseWithObjects imports the host-admitted target on this authenticated
+// connection before invoking the daemon's single mutation-lock rewrite path.
+func (r *Registry) RebaseWithObjects(ctx context.Context, branch string, actor []byte, onto string, guard func(func() error) error) (RewriteResult, error) {
+	if _, err := oid(onto); err != nil || len(actor) == 0 || len(actor) > 1024 {
+		return RewriteResult{}, ErrUnauthorized
+	}
+	l, err := r.Current(branch)
+	if err != nil {
+		return RewriteResult{}, err
+	}
+	if err := l.RequireReady(branch); err != nil {
+		return RewriteResult{}, err
+	}
+	if guard == nil {
+		return RewriteResult{}, ErrNotReady
+	}
+	if err := l.sendWakeObjects(ctx, branch, onto); err != nil {
+		return RewriteResult{}, err
+	}
+	// This link was already reconciled before the object-only import. The
+	// acknowledged transfer adds the target; it does not change the working
+	// copy or require another wake. Restore admission before the rewrite RPC.
+	if err := l.Reconciled(); err != nil {
+		return RewriteResult{}, err
+	}
+	var result RewriteResult
+	err = guard(func() error {
+		var callErr error
+		target, _ := oid(onto)
+		result, callErr = l.rewrite(ctx, branch, wire.Rebase, wire.Field(1, target), wire.Field(2, principal(actor)))
+		return callErr
+	})
+	return result, err
+}
+
+// InspectConflict reads native unresolved paths for one retained change/target
+// under the daemon's mutation lock and broker freeze. Older peers refuse it.
+func (r *Registry) InspectConflict(ctx context.Context, branch, change, onto string) ([]string, error) {
+	retained, err := oid(change)
+	if err != nil {
+		return nil, err
+	}
+	target, err := oid(onto)
+	if err != nil {
+		return nil, err
+	}
+	link, err := r.Current(branch)
+	if err != nil {
+		return nil, err
+	}
+	if err := link.RequireReady(branch); err != nil {
+		return nil, err
+	}
+	fields, err := link.call(ctx, branch, wire.Status, wire.Field(1, retained), wire.Field(2, target))
+	if err != nil {
+		return nil, err
+	}
+	paths, found := fields[9]
+	if !found {
+		return nil, ErrNotReady
+	}
+	return decodeNativePaths(paths), nil
+}
+func decodeNativePaths(list []byte) []string {
+	paths := []string{}
+	for list = list[2:]; len(list) > 0; {
+		n := int(binary.BigEndian.Uint16(list))
+		paths = append(paths, string(list[2:2+n]))
+		list = list[2+n:]
+	}
+	return paths
+}
 func (r *Registry) ReturnToItem(ctx context.Context, branch string, actor []byte) (RewriteResult, error) {
 	if len(actor) == 0 || len(actor) > 1024 {
 		return RewriteResult{}, ErrUnauthorized
@@ -375,11 +448,19 @@ func (r *Registry) rewrite(ctx context.Context, branch string, method wire.Metho
 	if err != nil {
 		return RewriteResult{}, err
 	}
+	return l.rewrite(ctx, branch, method, args...)
+}
+func (l *Link) rewrite(ctx context.Context, branch string, method wire.Method, args ...[]byte) (RewriteResult, error) {
 	fields, err := l.call(ctx, branch, method, args...)
 	if err != nil {
 		return RewriteResult{}, err
 	}
-	return RewriteResult{Head: hex.EncodeToString(fields[1])}, nil
+	result := RewriteResult{Head: hex.EncodeToString(fields[1])}
+	if list, found := fields[2]; found {
+		result.Inspected = true
+		result.Paths = decodeNativePaths(list)
+	}
+	return result, nil
 }
 func (r *Registry) Events(branch string) EventStream {
 	l, err := r.Current(branch)

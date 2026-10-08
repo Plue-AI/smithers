@@ -2,6 +2,7 @@ package machined
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -133,6 +134,11 @@ func dispatchEvents(ctx context.Context, link *Link, branch string, apply EventH
 		if event.Seq == 0 {
 			if hint != nil {
 				if err := hint(ctx, link, branch, event); err != nil {
+					// Wake snapshots may emit transient file hints before admission.
+					// They publish nothing; retain the link for its durable receipts.
+					if errors.Is(err, ErrNotReady) && errors.Is(link.RequireReady(branch), ErrNotReady) {
+						continue
+					}
 					return err
 				}
 			}

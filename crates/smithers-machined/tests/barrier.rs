@@ -259,3 +259,70 @@ fn corrupt_or_symlinked_checkpoint_refuses_restart() {
         .is_err());
     std::fs::remove_dir_all(state).unwrap();
 }
+
+#[derive(Default)]
+struct InspectionBarrier {
+    busy: bool,
+    calls: Mutex<Vec<&'static str>>,
+}
+impl Broker for InspectionBarrier {
+    fn freeze(&self, deadline: std::time::Duration) -> Result<Option<u32>> {
+        assert_eq!(deadline, std::time::Duration::from_secs(1));
+        self.calls.lock().unwrap().push("freeze");
+        Ok(self.busy.then_some(17))
+    }
+    fn thaw(&self) -> Result<()> {
+        self.calls.lock().unwrap().push("thaw");
+        Ok(())
+    }
+}
+impl Documents for InspectionBarrier {
+    fn flush_all(&self, _: &mut LockCx) -> Result<u16> {
+        self.calls.lock().unwrap().push("flush");
+        Ok(0)
+    }
+}
+#[test]
+fn conflict_inspection_thaws_success_failure_panic_and_busy_without_rewrite() {
+    for outcome in 0..4 {
+        let barrier = Arc::new(InspectionBarrier {
+            busy: outcome == 3,
+            ..Default::default()
+        });
+        let mut cx = LockCx::new(Hooks {
+            broker: barrier.clone(),
+            documents: barrier.clone(),
+            ..Hooks::default()
+        });
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            freeze::inspect_then(&mut cx, |_| {
+                barrier.calls.lock().unwrap().push("inspect");
+                match outcome {
+                    0 => Ok(()),
+                    1 => Err(Error::unsupported()),
+                    2 => panic!("inspection failed"),
+                    _ => unreachable!(),
+                }
+            })
+        }));
+        match outcome {
+            0 => assert!(result.unwrap().is_ok()),
+            1 => assert!(result.unwrap().is_err()),
+            2 => assert!(result.is_err()),
+            _ => {
+                let err = result.unwrap().unwrap_err();
+                assert_eq!(err.code, 9);
+                assert_eq!(err.session, Some(17));
+            }
+        }
+        assert!(!cx.rewrite_pending);
+        assert_eq!(
+            *barrier.calls.lock().unwrap(),
+            if outcome == 3 {
+                vec!["freeze", "thaw"]
+            } else {
+                vec!["freeze", "flush", "inspect", "thaw"]
+            }
+        );
+    }
+}

@@ -158,7 +158,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 
 | id | method | arguments | result | S2 owner; until then |
 | --- | --- | --- | --- | --- |
-| 1 | `status` | — | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16`, `7 bursts_idle: bool`?, `8 documents_flushed: bool`? | T-COL-03a, T-MCH-06 |
+| 1 | `status` | `1 conflict_change: oid`?, `2 onto_revision: oid`? (both or neither) | `1 state: u8` (1 booting, 2 reconciling, 3 ready), `2 protocol: u16`, `3 version: str`, `4 outbox_depth: u32`, `5 acked_head: oid`?, `6 lock_queue: u16`, `7 bursts_idle: bool`?, `8 documents_flushed: bool`?, `9 conflict_paths: list<str>`? | T-COL-03a, T-MCH-06 |
 | 2 | `read_file` | `1 path: str`, `2 at: oid`? | `1 content: bytes`, `2 digest: digest`, `3 mode: u32` | T-COL-03a |
 | 3 | `write_file` | `1 path: str`, `2 base: Base`, `3 content: bytes`, `4 actor: Actor` | `1 post_digest: digest`, `2 raced: Raced`? | T-COL-03a |
 | 4 | `capture` | — | `1 head: oid`, `2 tree: oid`, `3 flushed_documents: u16` (the flush phase's count; 0 until S3) | T-COL-03a |
@@ -168,7 +168,7 @@ The host picks `req_id`, unique among its in-flight requests. Responses may arri
 | 8 | `close_session` | `1 session: u32` | — | T-TRM-07; `unsupported` |
 | 9 | `kill_sessions` | `1 target: union {1 user {1 user: User}, 2 run {1 run: str}, 3 session {1 session: u32}}` | `1 killed: u16` | T-TRM-07; `unsupported` |
 | 10 | `register_run` | `1 run: str`, `2 session: u32` | — | T-COL-04; `unsupported` |
-| 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid` | T-STK-08; `unsupported` |
+| 11 | `rebase` | `1 onto: oid`, `2 actor: Actor` | `1 head: oid`, `2? paths: list<str>` | T-STK-08; native paths inspected under the rewrite lock |
 | 12 | `return_to_item` | `1 actor: Actor` | `1 head: oid` | T-COL-05; `unsupported` |
 | 13 | `open_doc` | `1 path: str`, `2 actor: Actor.principal` | `1 stream: u32` | T-COL-08a (S3); `unsupported` |
 | 14 | `close_doc` | `1 stream: u32` | — | T-COL-08a (S3); `unsupported` |
@@ -187,6 +187,8 @@ must prevent session admission, not grant access. `set_roster` is host-only.
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
 T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation. A peer with a different protocol is refused. Capture still flushes, snapshots, publishes and drains before stop.
+
+T-STK-08 adds optional native conflict inspection to status. With both retained change and onto revision, the daemon freezes broker writers with the fixed one-second deadline, flushes documents and inspects the same logical change under its mutation lock. A changed target is refused; every inspection outcome thaws. Field 9 is present even when its path list is empty. Missing field 9 is unavailable inspection, never successful Done. Ordinary status omits these arguments and remains observational. Older request/response bytes remain readable.
 
 Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
 (`set_roster`) answers `not_ready`.
