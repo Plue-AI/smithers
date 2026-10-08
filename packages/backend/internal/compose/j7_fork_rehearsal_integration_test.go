@@ -7,15 +7,24 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
 
-// j7Scratch is the scratch branch J7 row 10 forks from T2: its name, T2's
-// verified head H2 it starts from, the base C1 that head is measured from,
-// and the Git door's token rows 11 and 12 use.
+// j7Scratch is the scratch branch J7 row 10 forks from T2: its name, its
+// machine, T2's verified head H2 it starts from, the base C1 that head is
+// measured from, the Git door's token rows 11 and 12 use, and the commit S
+// row 12 pushes on it.
 type j7Scratch struct {
-	name, head, base, token string
+	name, machine, head, base, token, edit string
+}
+
+// j7Added is the TODO row 13 adds from the scratch branch: its number and
+// its PR's head and tree in review, before row 15 drops T2.
+type j7Added struct {
+	n          int64
+	head, tree string
 }
 
 // j7Branch is what GET and POST /api/branches answer about one branch.
@@ -107,7 +116,7 @@ func (r *rehearsal) forkT2(t1, t2 int64, scratch *j7Scratch) error {
 	if err := json.Unmarshal(data, &created); err != nil {
 		return err
 	}
-	scratch.name, scratch.head, scratch.base = "scratch/rehearsal-owner/try-retry", c2.Head, c2.Base
+	scratch.name, scratch.machine, scratch.head, scratch.base = "scratch/rehearsal-owner/try-retry", created.Machine.ID, c2.Head, c2.Base
 	read, err := r.j7Branch(scratch.name)
 	if err != nil {
 		return err
@@ -232,7 +241,193 @@ func (r *rehearsal) editScratch(scratch *j7Scratch) error {
 	if refs, err := r.githubGit("for-each-ref", "--format=%(refname)", "refs/heads/scratch"); err != nil || refs != "" {
 		return fmt.Errorf("GitHub has %q after the push: %v", refs, err)
 	}
+	scratch.edit = s
 	r.actual = fmt.Sprintf("200 %s head %s -> S %s (parent H2); forked_from.commit stays %s; GitHub still has no scratch ref",
 		scratch.name, short7(scratch.head), short7(s), short7(branch.ForkedFrom.Commit))
+	return nil
+}
+
+// diffPaths are the paths a git diff names in its "diff --git a/<p> b/<p>"
+// headers.
+func diffPaths(diff string) []string {
+	var paths []string
+	for _, line := range strings.Split(diff, "\n") {
+		if rest, ok := strings.CutPrefix(line, "diff --git a/"); ok {
+			if at := strings.Index(rest, " b/"); at >= 0 {
+				paths = append(paths, rest[:at])
+			}
+		}
+	}
+	return paths
+}
+
+// addScratch is row 13: Add to stack (/branch.add-to-stack's door) with the
+// default placement puts a new TODO directly after T2, the scratch branch's
+// source, with no PR yet. Its revision 1 seeds the diff from C1 to the
+// scratch head S: T2's change plus the src/retry.ts edit (spec §8.5.3). The
+// branch becomes the TODO's smithers/ branch on the same machine. The TODO
+// then reaches review with a PR holding that change; row 15 drops T2 only
+// once the TODO's run has ended.
+func (r *rehearsal) addScratch(t1, t2, tn, t3 int64, scratch *j7Scratch, added *j7Added) error {
+	if scratch.edit == "" || scratch.machine == "" {
+		return fmt.Errorf("rows 10-12 left no edited scratch branch")
+	}
+	var status, head string
+	if err := r.pool.QueryRow(r.ctx, `SELECT status, head_commit_id FROM workspaces WHERE id::text = $1`, scratch.machine).Scan(&status, &head); err != nil {
+		return err
+	}
+	body, _ := json.Marshal(map[string]string{"text": "[FILE ta.md] Keep the exponential backoff in src/retry.ts"})
+	code, data, err := r.keyed("POST", "/api/branches/"+url.PathEscape(scratch.name)+"/add-to-stack", string(body), r.keyPrefix+"add-try-retry")
+	if err != nil {
+		return err
+	}
+	var receipt struct {
+		State string `json:"state"`
+		N     int64  `json:"n"`
+	}
+	if code != 202 || json.Unmarshal(data, &receipt) != nil || receipt.State != "accepted" || receipt.N <= 0 {
+		return fmt.Errorf("Add to stack: HTTP %d %s (the scratch machine %s is %s at %s)", code, data, scratch.machine, status, short7(head))
+	}
+	added.n = receipt.N
+	want := []int64{t1, t2, added.n}
+	if tn > 0 {
+		want = append(want, tn)
+	}
+	want = append(want, t3)
+	list, err := r.todoList()
+	if err != nil {
+		return err
+	}
+	var placed []int64
+	for _, todo := range list {
+		if todo.State != "merged" && todo.State != "dropped" {
+			placed = append(placed, todo.N)
+		}
+	}
+	if !slices.Equal(placed, want) {
+		return fmt.Errorf("GET /api/todos lists %v, want %v: T%d directly after T%d", placed, want, added.n, t2)
+	}
+	if data, err = r.expect("GET", fmt.Sprintf("/api/todos/%d", added.n), "", 200); err != nil {
+		return err
+	}
+	var card struct {
+		Branch *struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"branch"`
+		PR *struct {
+			Number int64 `json:"number"`
+		} `json:"pr"`
+		PromptRevisions []struct {
+			Reason string `json:"reason"`
+			Seed   *struct {
+				Base     string `json:"base"`
+				Captured string `json:"captured"`
+				Diff     string `json:"diff"`
+			} `json:"seed"`
+		} `json:"prompt_revisions"`
+	}
+	if err := json.Unmarshal(data, &card); err != nil {
+		return err
+	}
+	if len(card.PromptRevisions) != 1 || card.PromptRevisions[0].Reason != "add-to-stack" || card.PromptRevisions[0].Seed == nil {
+		return fmt.Errorf("T%d's revisions are %s, want one add-to-stack revision with a seed", added.n, data)
+	}
+	seed := card.PromptRevisions[0].Seed
+	paths := diffPaths(seed.Diff)
+	if seed.Base != scratch.base || seed.Captured != scratch.edit || !slices.Contains(paths, "t2.md") || !slices.Contains(paths, "src/retry.ts") {
+		return fmt.Errorf("T%d's seed is base %s, captured %s, paths %v; want C1 %s, S %s, t2.md and src/retry.ts", added.n, short7(seed.Base), short7(seed.Captured), paths, short7(scratch.base), short7(scratch.edit))
+	}
+	if card.Branch == nil || card.Branch.ID != scratch.machine || !strings.HasPrefix(card.Branch.Name, "smithers/") {
+		return fmt.Errorf("T%d's branch is %+v, want smithers/<slug> on the scratch machine %s", added.n, card.Branch, scratch.machine)
+	}
+	if card.PR != nil && card.PR.Number > 0 {
+		return fmt.Errorf("T%d has PR #%d as it is added", added.n, card.PR.Number)
+	}
+	v, err := r.waitTodoWithin(added.n, 8*time.Minute, "in_review")
+	if err != nil {
+		return fmt.Errorf("T%d: %w", added.n, err)
+	}
+	pull, err := r.checkPull(v.PR.Number, v.PR.Head)
+	if err != nil {
+		return err
+	}
+	files, err := r.prFiles(pull)
+	if err != nil {
+		return err
+	}
+	for _, file := range []string{"t2.md", "src/retry.ts", "ta.md"} {
+		if !slices.Contains(files, file) {
+			return fmt.Errorf("T%d's PR #%d changes %v, want t2.md, src/retry.ts and ta.md", added.n, pull.Number, files)
+		}
+	}
+	if added.tree, err = r.githubGit("rev-parse", pull.Head.SHA+"^{tree}"); err != nil {
+		return err
+	}
+	added.head = pull.Head.SHA
+	r.actual = fmt.Sprintf("202 T%d; order %v; revision 1 add-to-stack seeds %v from C1 %s (S %s); %s on machine %s, no PR at once; in review, PR #%d head %s changes %v",
+		added.n, placed, paths, short7(seed.Base), short7(seed.Captured), card.Branch.Name, card.Branch.ID, pull.Number, short7(pull.Head.SHA), files)
+	return nil
+}
+
+// keepsT2 is row 14, read after row 15 drops T2: the added TODO's tree is
+// the one it had in review, now measured from T1's verified head C1, so its
+// item diff and its PR still carry T2's file and the scratch edit (J7.3,
+// spec §8.5.3a), and its PR no longer includes T2.
+func (r *rehearsal) keepsT2(t1, t2 int64, added *j7Added) error {
+	if added.n == 0 || added.tree == "" {
+		return fmt.Errorf("row 13 left no added TODO in review")
+	}
+	c1, err := r.candidate(t1)
+	if err != nil {
+		return err
+	}
+	var card j7Card
+	var ca j7Candidate
+	for deadline := time.Now().Add(8 * time.Minute); ; time.Sleep(time.Second) {
+		if card, err = r.j7Card(added.n); err != nil {
+			return err
+		}
+		if ca, err = r.candidate(added.n); err != nil {
+			return err
+		}
+		if card.State == "in_review" && ca.Base == c1.Head && ca.Head != "" && card.PR.Head == ca.Head {
+			break
+		}
+		if card.State == "dropped" || card.State == "merged" || time.Now().After(deadline) {
+			return fmt.Errorf("T%d %s, candidate %s on %s (item %s %q), PR head %s; want its candidate on C1 %s in review", added.n, card.State, short7(ca.Head), short7(ca.Base), ca.State, ca.Reason, short7(card.PR.Head), short7(c1.Head))
+		}
+	}
+	tree, err := r.githubGit("rev-parse", card.PR.Head+"^{tree}")
+	if err != nil {
+		return err
+	}
+	if tree != added.tree {
+		return fmt.Errorf("T%d's tree moved from %s to %s when T%d was dropped", added.n, short7(added.tree), short7(tree), t2)
+	}
+	diff, err := r.githubGit("diff", "--name-only", c1.Head, card.PR.Head)
+	if err != nil {
+		return err
+	}
+	items := strings.Fields(diff)
+	if !slices.Contains(items, "t2.md") || !slices.Contains(items, "src/retry.ts") {
+		return fmt.Errorf("T%d's item diff from C1 %s lists %v, want t2.md and src/retry.ts", added.n, short7(c1.Head), items)
+	}
+	pull, err := r.readFakePull(card.PR.Number)
+	if err != nil {
+		return err
+	}
+	files, err := r.prFiles(pull)
+	if err != nil {
+		return err
+	}
+	if pull.State != "open" || pull.Head.SHA != card.PR.Head || !slices.Contains(files, "t2.md") || !slices.Contains(files, "src/retry.ts") {
+		return fmt.Errorf("T%d's PR #%d is %s at %s changing %v, want open at %s with t2.md and src/retry.ts", added.n, pull.Number, pull.State, short7(pull.Head.SHA), files, short7(card.PR.Head))
+	}
+	if slices.Contains(card.PR.IncludedItems, t2) {
+		return fmt.Errorf("T%d's PR still includes dropped T%d: %v", added.n, t2, card.PR.IncludedItems)
+	}
+	r.actual = fmt.Sprintf("200 T%d in_review on C1 %s, tree %s unchanged (head %s -> %s); item diff %v; PR #%d includes %v, changes %v",
+		added.n, short7(c1.Head), short7(tree), short7(added.head), short7(card.PR.Head), items, pull.Number, card.PR.IncludedItems, files)
 	return nil
 }
