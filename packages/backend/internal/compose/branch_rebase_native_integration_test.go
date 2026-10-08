@@ -127,6 +127,12 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	change.Dir = guest
 	changeID, err := change.Output()
 	require.NoError(t, err)
+	// A coding workspace keeps a working-copy descendant above its item.
+	// Rebase must include the item's delta and keep its bound identity.
+	descendant := exec.CommandContext(ctx, jj, "new", "-r", "@")
+	descendant.Dir = guest
+	output, err = descendant.CombinedOutput()
+	require.NoError(t, err, string(output))
 	evidence := t.TempDir()
 	t.Cleanup(func() {
 		if t.Failed() {

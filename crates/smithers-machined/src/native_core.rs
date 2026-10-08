@@ -382,6 +382,7 @@ impl Core for NativeCore {
             .filter(|item| item.number > 0)
             .map(|item| item.change.as_str());
         self.native.rebase_bound(onto, change).map_err(hook)
+
     }
 
     fn rebase_paths(&self, head: Oid) -> hooks::Result<Option<Vec<String>>> {

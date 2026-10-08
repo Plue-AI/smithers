@@ -630,54 +630,52 @@ impl Repository {
     pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
         self.rebase_bound(onto, None)
     }
-    // A TODO may contain several authoring changes below the host-bound root.
-    // Rewrite their complete tree delta as that one logical item, so rebase
-    // neither drops earlier edits nor leaves the daemon off its admitted item.
-    pub fn rebase_bound(&self, onto: Oid, change: Option<&str>) -> io::Result<Oid> {
+    /// Rebase the owning item, including captured working-copy descendants.
+    /// A descendant alone does not contain the item's full delta and dropping
+    /// its ancestor would revoke the machine's bound change authority.
+    pub fn rebase_bound(&self, onto: Oid, item: Option<&str>) -> io::Result<Oid> {
         let (mut workspace, repo) = self.load_rebase_target(onto)?;
         let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
-        if let Some(change) = change {
-            if !Self::descends_in(&workspace, &repo, change)? {
-                return Err(invalid("working copy is off the admitted item"));
+        let bound = if let Some(change) = item {
+            if change.len() != 32 || !change.bytes().all(|c| (b'k'..=b'z').contains(&c)) {
+                return Err(invalid("invalid item change identity"));
             }
-        }
-        if current.parent_ids() == [onto.id().clone()] {
+            let prefix = HexPrefix::try_from_reverse_hex(change)
+                .ok_or_else(|| invalid("invalid item change identity"))?;
+            let PrefixResolution::SingleMatch(targets) = repo.resolve_change_id_prefix(&prefix).map_err(invalid)? else {
+                return Err(invalid("owning item unavailable"));
+            };
+            let mut selected = None;
+            for (_, id) in targets.visible_with_offsets() {
+                if repo.index().is_ancestor(id, current.id()).block_on().map_err(invalid)? {
+                    if selected.is_some() { return Err(invalid("ambiguous owning item ancestry")); }
+                    selected = Some(repo.store().get_commit(id).map_err(invalid)?);
+                }
+            }
+            Some(selected.ok_or_else(|| invalid("working copy moved off the owning item"))?)
+        } else { None };
+        if current.parent_ids() == [onto.id().clone()] && bound.as_ref().is_none_or(|bound| bound.id() == current.id()) {
             return oid(current.id().as_bytes());
         }
         let mut tx = repo.start_transaction();
-        let mut source = current.clone();
-        if let Some(change) = change {
-            let mut pending = vec![current.clone()];
-            let mut seen = std::collections::HashSet::new();
-            let root = loop {
-                let commit = pending
-                    .pop()
-                    .ok_or_else(|| invalid("item ancestor missing"))?;
-                if !seen.insert(commit.id().clone()) {
-                    continue;
-                }
-                if seen.len() > 128_000 {
-                    return Err(invalid("item ancestry too large"));
-                }
-                if commit.change_id().reverse_hex() == change {
-                    break commit;
-                }
-                for parent in commit.parent_ids() {
-                    pending.push(repo.store().get_commit(parent).map_err(invalid)?);
-                }
-            };
-            source = tx
-                .repo_mut()
-                .rewrite_commit(&current)
-                .set_change_id(root.change_id().clone())
-                .set_parents(root.parent_ids().to_vec())
-                .write()
-                .block_on()
-                .map_err(invalid)?;
-        }
-        let rebased = rebase_commit(tx.repo_mut(), source, vec![onto.id().clone()])
-            .block_on()
-            .map_err(invalid)?;
+        let rebased = if let Some(bound) = bound.as_ref().filter(|bound| bound.id() != current.id()) {
+            if bound.parent_ids().len() != 1 { return Err(invalid("owning item has no linear base")); }
+            let base = repo.store().get_commit(&bound.parent_ids()[0]).map_err(invalid)?;
+            let tree = MergedTree::merge(Merge::from_removes_adds(
+                vec![(base.tree(), "before rebase".into())],
+                vec![(current.tree(), "branch".into()), (onto.tree(), "main".into())],
+            )).block_on().map_err(invalid)?;
+            let builder = tx.repo_mut().rewrite_commit(bound)
+                .set_parents(vec![onto.id().clone()])
+                .set_description(current.description())
+                .set_author(current.author().clone())
+                .set_tree(tree)
+                .detach();
+            write_reconciled(tx.repo_mut(), bound, builder)?
+        } else {
+            rebase_commit(tx.repo_mut(), current.clone(), vec![onto.id().clone()])
+                .block_on().map_err(invalid)?
+        };
         tx.repo_mut()
             .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
             .map_err(invalid)?;
@@ -1156,6 +1154,44 @@ pub(crate) mod tests {
         assert_eq!(result.change_id(), prior.change_id());
         assert_eq!(result.description(), prior.description());
         assert_eq!(result.tree().has_conflict(), conflict);
+    }
+    #[test]
+    fn rebase_bound_item_retains_descendant_bytes_and_change_authority() {
+        for conflict in [false, true] {
+            let (_dir, repo) = fixture();
+            fs::write(repo.root.join("file"), b"base\n").unwrap();
+            let base = repo.snapshot().unwrap().0;
+            child(&repo, base, "owning item");
+            fs::write(repo.root.join("file"), b"item\n").unwrap();
+            let item = repo.snapshot().unwrap().0;
+            let change = change(&repo, item);
+            child(&repo, item, "working-copy descendant");
+            fs::write(repo.root.join("later"), b"captured descendant bytes\n").unwrap();
+            let descendant = repo.snapshot().unwrap().0;
+            child(&repo, base, "new main");
+            fs::write(repo.root.join("main"), b"new main bytes\n").unwrap();
+            if conflict { fs::write(repo.root.join("file"), b"main\n").unwrap(); }
+            let onto = repo.snapshot().unwrap().0;
+            repo.move_to(descendant).unwrap();
+            let result = repo.rebase_bound(onto, Some(&change)).unwrap();
+            let (_, loaded) = repo.load().unwrap();
+            let result_commit = Repository::commit(&loaded, result).unwrap();
+            assert_eq!(result_commit.parent_ids(), &[CommitId::new(onto.to_vec())]);
+            assert_eq!(result_commit.change_id().reverse_hex(), change);
+            assert_eq!(result_commit.description(), "working-copy descendant");
+            assert_eq!(result_commit.tree().has_conflict(), conflict);
+            assert!(repo.descends_from_item(&change).unwrap());
+            assert_eq!(fs::read(repo.root.join("later")).unwrap(), b"captured descendant bytes\n");
+            assert_eq!(fs::read(repo.root.join("main")).unwrap(), b"new main bytes\n");
+            let bytes = fs::read(repo.root.join("file")).unwrap();
+            if conflict {
+                assert!(String::from_utf8_lossy(&bytes).contains("item"));
+                assert!(String::from_utf8_lossy(&bytes).contains("main"));
+            } else { assert_eq!(bytes, b"item\n"); }
+            let reopened = Repository::open(&repo.root, &repo.state).unwrap();
+            assert!(reopened.descends_from_item(&change).unwrap());
+            assert_eq!(reopened.current().unwrap().0, result);
+        }
     }
     #[test]
     fn conflicted_rebase_reopens_captures_and_resolves_without_losing_sides() {
