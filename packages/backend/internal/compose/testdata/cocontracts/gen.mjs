@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=7;
+const protocol=8;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'bf835b8b735a29000a5b1db8369ec694b8b8fa8f786ed931ff4dfc06be3566f4'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'c6fc90e2834fdc3176329238a8033b9a354b0b03d36036b7e12f5e164371e837'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'5a3bf6b8cdc911f0e0b8b56b77fcb8313bb5c2910d9b51f52f76f440c26d84a2'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'d686bd784d6e1895c535d0e9444d0ed1e7db80443a19da25fbef382b9b797d8e'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f68cb22bfc24ddae7be2ca31d46e166a703fe7ea73f48675fd62558633549af1'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f2d4b2d45385f501dae86711a3fbb9439e21f6c4d2d98cc38245085bb8ae1536'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -95,6 +95,16 @@ for(const [name,n] of [['res_kill_sessions',1],['res_kill_sessions_none',0]])emi
 emit('res_status',1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(5,oid),f(6,num(0,2))),0,'ok','daemon-to-host');
 // acked_head is optional: absent before the first acknowledged capture.
 emit('res_status_no_acked_head',1,res(1,f(1,[2]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(3,4)),f(6,num(0,2))),0,'ok','daemon-to-host');
+// Protocol 8 safety observations: absence means unavailable, false means busy.
+// Keep all combinations and invalid boolean bytes in the independent corpus.
+for(const bursts of [undefined,0,1])for(const documents of [undefined,0,1]){
+  const observations=[];
+  if(bursts!==undefined)observations.push(f(7,[bursts]));
+  if(documents!==undefined)observations.push(f(8,[documents]));
+  emit(`res_status_safety_${bursts??'missing'}_${documents??'missing'}`,1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),...observations),0,'ok','daemon-to-host');
+}
+for(const tag of [7,8])emit(`res_status_safety_invalid_${tag}`,1,res(1,f(1,[3]),f(2,num(protocol,2)),f(3,str('0.1.0')),f(4,num(0,4)),f(6,num(0,2)),f(tag,[2])),0,'bad_value','daemon-to-host');
+
 emit('res_read_file',1,res(2,f(1,bytes(Buffer.from('hello'))),f(2,digest),f(3,num(420,4))),0,'ok','daemon-to-host');
 emit('res_write_file',1,res(3,f(1,digest)),0,'ok','daemon-to-host');
 emit('res_capture',1,res(4,f(1,oid),f(2,oid2),f(3,num(0,2))),0,'ok','daemon-to-host');

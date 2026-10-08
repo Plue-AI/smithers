@@ -133,9 +133,9 @@ The boot file `/run/smithers/machined/boot` (written by the runtime, T-COL-03; o
 
 Rejected: the host presenting the relay secret as a bearer value (§9.5.3's wording). A process that reached the listening port first, or a stale bridge listener, would learn the secret; the HMAC proof costs one extra half round trip and leaks nothing. Rejected: version negotiation. Host and daemon ship in one bundle and the daemon is planted, digest-checked, on every boot (§16.1.1), so a skew lives only until the machine's next boot; one exact `protocol` value keeps one code path.
 
-`protocol` is `7`: protocol 5's exact live-connection rule (8a, 2026-10-07,
+`protocol` is `8`: protocol 5's exact live-connection rule (8a, 2026-10-07,
 #3626) continues, with the bump required by the compared text-batch addition
-and delete/move mutations below. There is no negotiation or older live protocol accepted. Host and daemon
+and delete/move mutations below, plus the safe-idle status observations (T-MCH-06, #3567). There is no negotiation or older live protocol accepted. Host and daemon
 ship in the same verified install bundle (spec §17.3); a different handshake
 version ends the connection with `version_mismatch` (error 13) before credentials
 or operations. Any wire change increments the version and regenerates the golden
@@ -186,7 +186,7 @@ must prevent session admission, not grant access. `set_roster` is host-only.
 
 `?` marks an optional field. `Base := union {1 digest {1 digest: digest}, 2 absent {}}`. `Size := struct {1 cols: u16, 2 rows: u16}`. `rebase` and `return_to_item` carry the actor the rewrite is attributed to ("Rebased onto Tk"). `attach_session` re-attaches a stream after a reconnect (§9.6.4): each side reports how many bytes it received and the other resends from there; unacknowledged bytes never exceed the 256 KiB credit, so that is all either side keeps.
 
-T-MCH-06 adds optional status observations 7 and 8 without changing existing frames. The native core reads them on the mutation lock after draining watcher events. An unavailable watcher or document provider omits its observation; older daemons therefore retain their machine instead of authorizing safe-idle release. Capture still flushes, snapshots, publishes and drains before stop.
+Protocol 8 (T-MCH-06, #3567) adds optional status observations 7 and 8. The native core reads them on the mutation lock after draining watcher events. Only an unavailable watcher or document provider omits its observation; a missing observation retains the machine instead of authorizing safe-idle release. Capture still flushes, snapshots, publishes and drains before stop.
 
 Until `wake_reconcile` succeeds on this boot, every method except `status`, `wake_reconcile` and handshake roster synchronization
 (`set_roster`) answers `not_ready`.
@@ -498,7 +498,7 @@ and other producer migrations.
 
 ### Wire review rulings (8a, 2026-10-07, #3626; 3f's independent review)
 
-1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 7, mac), the two vectors introduced at bc7887554b regenerated for protocol 7, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
+1. **The version is authenticated.** The HostProof MAC covers `protocol` (row 2 above), so a relay cannot rewrite it unseen. The daemon checks `protocol` equality first (`version_mismatch`), then the MAC (`auth_failed`). The corpus carries committed vectors (secret, boot_id, nonce, protocol 8, mac), the two vectors introduced at bc7887554b regenerated for protocol 8, and a wrong-mac frame expecting `auth_failed`; both codecs must compute each exact mac.
 2. **Durable event variant 5 (transcripts) is defined, not reserved** (superseding this ruling's first version: #3622 ships it, in both codecs). `5 transcript` payload: `1 version: u16` (must be 1), `2 session: u32` (1..=0x7FFFFFFF), `3 participant: id128` (non-zero), `4 source: id128` (non-zero; survives reconnects), `5 profile: str` (non-empty; names the pinned host adapter), `6 generation: u64` (≥ 1; changes only when the identified source is replaced or truncated), `7 start: u64`, `8 end: u64` (end > start, and end − start = length of record + 1, the omitted newline), `9 record: bytes` (length-prefixed, as #3622 encodes it: one transcript record without its newline. It must be UTF-8 without NUL, else `bad_utf8`; contain no newline, else `bad_value`; and be 1 byte to 1 MiB long, else `bad_value`, so an empty record is refused. Its length is `end − start − 1`). Any violated bound is `bad_value`; no path, home, uid or executable crosses this event. The transcript frames stay in the manifest under these bounds; an expectation of `bad_utf8` on valid UTF-8 is a fixture bug.
 3. **One rule for reserved variants:** a reserved union variant is refused with `bad_value` (a forbidden variant) whatever its body, before the body is decoded. Event variant 6 follows it (variant 5 is defined, ruling 2); document `msg` bytes keep their own §documents rule until T-COL-08b defines them.
 4. **Sequences that span connections** name each connection: every sequence step carries `conn` (`a`, `b`, …; default `a`). `seq_newer_boot` is: `a` completes its handshake; `b` (newer boot, same machine) completes its handshake and is accepted; `a` receives `Goodbye{superseded}`; a third connection `c` presenting the older boot's credential receives `auth_failed`.
