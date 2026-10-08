@@ -27,6 +27,9 @@ func TestInstallRetainedReadCommandsPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.q.CreateLandingRequestComment(f.ctx, db.CreateLandingRequestCommentParams{LandingRequestID: landing.ID, UserID: pgtype.Int8{Int64: f.owner.ID, Valid: true}, Side: "both", Body: "Stored note"})
 	require.NoError(t, err)
+	app := f.token(f.other, "retained-read-app", "read:repository,write:repository,via:smithers,terminal-session:"+liveAppTurnCredentialFixture(t, f.pool, f.other.ID)+"/1", true)
+	external := f.token(f.other, "retained-read-external", "read:repository,write:repository,via:codex", true)
+	limited := f.token(f.other, "retained-read-limited", "read:repository,via:smithers,terminal-session:"+liveAppTurnCredentialFixture(t, f.pool, f.other.ID)+"/1", true)
 	run := f.token(f.owner, "retained-read-run", "read:repository,write:repository", true)
 	call := func(path, command, token string, status int) string {
 		t.Helper()
@@ -45,23 +48,30 @@ func TestInstallRetainedReadCommandsPostgres(t *testing.T) {
 		return out.Body.String()
 	}
 	for _, row := range []struct{ path, command, content string }{
-		{"/landings", "prs.list", "Stored review"},
-		{fmt.Sprintf("/landings/%d", landing.Number), "prs.view", "Stored review"},
-		{fmt.Sprintf("/landings/%d/changes", landing.Number), "prs.view", "[]"},
-		{fmt.Sprintf("/landings/%d/diff", landing.Number), "prs.view", `"changes":[]`},
-		{fmt.Sprintf("/landings/%d/conflicts", landing.Number), "prs.view", `"has_conflicts":false`},
-		{fmt.Sprintf("/landings/%d/reviews", landing.Number), "prs.view", "Stored review body"},
-		{fmt.Sprintf("/landings/%d/comments", landing.Number), "prs.view", "Stored note"},
+		{"/landings", "landings.read", "Stored review"},
+		{fmt.Sprintf("/landings/%d", landing.Number), "landings.read", "Stored review"},
+		{fmt.Sprintf("/landings/%d/changes", landing.Number), "landings.read", "[]"},
+		{fmt.Sprintf("/landings/%d/diff", landing.Number), "landings.read", `"changes":[]`},
+		{fmt.Sprintf("/landings/%d/conflicts", landing.Number), "landings.read", `"has_conflicts":false`},
+		{fmt.Sprintf("/landings/%d/reviews", landing.Number), "landings.read", "Stored review body"},
+		{fmt.Sprintf("/landings/%d/comments", landing.Number), "landings.read", "Stored note"},
 	} {
 		t.Run("member"+row.path, func(t *testing.T) {
 			require.Contains(t, call(row.path, row.command, "", 200), row.content)
+		})
+		t.Run("app"+row.path, func(t *testing.T) { require.Contains(t, call(row.path, row.command, app, 200), row.content) })
+		t.Run("external"+row.path, func(t *testing.T) {
+			require.Contains(t, call(row.path, row.command, external, 403), `"code":"permission"`)
+		})
+		t.Run("scope"+row.path, func(t *testing.T) {
+			require.Contains(t, call(row.path, row.command, limited, 403), `"code":"permission"`)
 		})
 	}
 	// Every retained alias below must reach the stated command before a run
 	// could inspect repository-wide or another execution's data.
 	for _, row := range []struct{ path, command string }{
-		{"/landings", "prs.list"}, {"/landings/1", "prs.view"}, {"/landings/1/changes", "prs.view"},
-		{"/landings/1/diff", "prs.view"}, {"/landings/1/comments", "prs.view"}, {"/landings/1/conflicts", "prs.view"}, {"/landings/1/reviews", "prs.view"},
+		{"/landings", "landings.read"}, {"/landings/1", "landings.read"}, {"/landings/1/changes", "landings.read"},
+		{"/landings/1/diff", "landings.read"}, {"/landings/1/comments", "landings.read"}, {"/landings/1/conflicts", "landings.read"}, {"/landings/1/reviews", "landings.read"},
 	} {
 		t.Run("run"+row.path, func(t *testing.T) {
 			require.Contains(t, call(row.path, row.command, run, 403), `"code":"permission"`)

@@ -6971,6 +6971,34 @@
       }
     },
     {
+      "name": "landings.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "run",
+      "summary": "Read recorded review data",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/landings"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "learning.accept",
       "slash": null,
       "cli": null,

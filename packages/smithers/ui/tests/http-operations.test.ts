@@ -294,3 +294,7 @@ test("mirror diagnostics keep the owner person read boundary", () => {
 test("saved command output has no external-agent or system door", () => {
  expect(httpProjections.find(row => row.name === "workspace.command.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"read:repository",cli:null})
 })
+
+test("native review records retain their private actor and scope boundary", () => {
+ expect(httpProjections.find(row => row.name === "landings.read")).toMatchObject({minimumRole:"member",agent:"run",actors:["person","app_agent"],credentialScope:"write:repository",visibility:"hidden",slash:null,cli:null})
+})
