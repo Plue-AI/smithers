@@ -2,12 +2,10 @@ package compose
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -91,6 +89,19 @@ func (t *rehearsalTerminal) close() {
 	t.cancel()
 }
 
+// capture runs command in the terminal and answers its exit status and
+// output. The guest's files are not the host's, so the output comes back
+// base64 on one line after marker, spelled split in the typed line.
+func (t *rehearsalTerminal) capture(command, marker string, within time.Duration) (string, []byte, error) {
+	line := fmt.Sprintf(`j6out=$(%s 2>&1); j6code=$?; printf '%%s %%s %%s\n' %s "$j6code" "$(printf %%s "$j6out" | base64 | tr -d '\n')"`, command, marker[:2]+`""`+marker[2:])
+	match, err := t.run(line, regexp.MustCompile(regexp.QuoteMeta(marker)+` (\d+) ([A-Za-z0-9+/=]*)`), within)
+	if err != nil {
+		return "", nil, err
+	}
+	output, err := base64.StdEncoding.DecodeString(match[2])
+	return match[1], output, err
+}
+
 func tail(s string) string {
 	if len(s) > 600 {
 		return s[len(s)-600:]
@@ -98,11 +109,12 @@ func tail(s string) string {
 	return s
 }
 
-// terminalRows are J6 rows 5-9 (T-TRM-02, T-ACC-04): the owner opens a
-// terminal on T1's branch; it is signed in to Smithers with a delegated
-// credential in its own file; the CLI in it reads that credential; an edit
-// lands on the branch; a wiki read through Claude Code is recorded as
-// delegated via claude-code; and closing the terminal revokes it.
+// terminalRows are J6 rows 5-9 (T-TRM-02, T-ACC-04) on a microVM: the
+// owner's terminal on T1's branch, an owner-uid PTY smithers-machined opens,
+// is signed in to Smithers with a delegated credential in its own session
+// file; the guest's smthrs CLI reads that credential; an edit lands on the
+// branch; a wiki read through Claude Code is recorded as delegated via
+// claude-code; and closing the terminal revokes it.
 func (r *rehearsal) terminalRows(branch, sessionID string) {
 	var term *rehearsalTerminal
 	defer func() {
@@ -110,44 +122,45 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 			term.close()
 		}
 	}()
-	node, _ := exec.LookPath("node")
-	cli := filepath.Join(r.root, "packages/smithers/bin/smithers.mjs")
 	tokenPath, token := "", ""
-	if !r.step("5 Terminal opens with a delegated token", "GET .../workspace/sessions/{id}/terminal (WebSocket); SMITHERS_TOKEN_FILE", "no SMITHERS_TOKEN; the token file has mode 600; access_tokens holds it delegated via terminal with branch and terminal_s1", "T-TRM-02, T-ACC-04", func() error {
+	if !r.step("5 Terminal opens with a delegated token", "GET .../workspace/sessions/{id}/terminal (WebSocket); SMITHERS_TOKEN_FILE", "no SMITHERS_TOKEN; /run/smithers/<uid>/token/sessions/<id>/token, mode 600 and the owner's, in 700 directories; access_tokens holds it delegated via terminal with branch and terminal_s1", "T-TRM-02, T-ACC-04", func() error {
 		if sessionID == "" {
-			return fmt.Errorf("blocked by Branch session: no terminal session")
+			return fmt.Errorf("blocked by row 2c: no branch terminal")
 		}
 		var err error
 		if term, err = r.openTerminal(sessionID); err != nil {
 			return err
 		}
-		match, err := term.run(`printf '%s %s %s\n' J6""ENV "${SMITHERS_TOKEN_FILE:-none}" "${SMITHERS_TOKEN:+set}${SMITHERS_URL:+url}"`, regexp.MustCompile(`J6ENV (\S+) (\S+)`), 30*time.Second)
+		match, err := term.run(`printf '%s %s %s %s\n' J6""ENV "${SMITHERS_TOKEN_FILE:-none}" "${SMITHERS_TOKEN:+set}${SMITHERS_URL:+url}" "$(id -u)"`, regexp.MustCompile(`J6ENV (\S+) (\S+) (\d+)`), 30*time.Second)
 		if err != nil {
 			return err
 		}
-		tokenPath = match[1]
+		tokenPath, uid := match[1], match[3]
 		if match[2] != "url" {
 			return fmt.Errorf("terminal environment %q: want SMITHERS_TOKEN unset and SMITHERS_URL set", match[2])
 		}
-		if want := "/run/smithers/sessions/" + sessionID + "/token"; !strings.HasSuffix(tokenPath, want) {
-			return fmt.Errorf("SMITHERS_TOKEN_FILE %q does not end in %s", tokenPath, want)
+		var member string
+		if err = r.pool.QueryRow(r.ctx, `SELECT c.unix_uid::text FROM collaborators c JOIN users u ON u.id=c.user_id WHERE u.lower_username='rehearsal-owner'`).Scan(&member); err != nil {
+			return fmt.Errorf("the owner's unix uid: %w", err)
 		}
-		info, err := os.Stat(tokenPath)
+		if uid != member {
+			return fmt.Errorf("the terminal runs as uid %s, want the owner's %s", uid, member)
+		}
+		if want := "/run/smithers/" + uid + "/token/sessions/" + sessionID + "/token"; tokenPath != want {
+			return fmt.Errorf("SMITHERS_TOKEN_FILE %q, want %s", tokenPath, want)
+		}
+		modes, err := term.run(`printf '%s %s %s %s\n' J6""MODE "$(stat -c %a:%u "$SMITHERS_TOKEN_FILE")" "$(stat -c %a:%u "${SMITHERS_TOKEN_FILE%/token}")" "$(stat -c %a:%u /run/smithers/$(id -u))"`, regexp.MustCompile(`J6MODE (\S+) (\S+) (\S+)`), 30*time.Second)
 		if err != nil {
 			return err
 		}
-		directory, err := os.Stat(filepath.Dir(tokenPath))
+		if modes[1] != "600:"+uid || modes[2] != "700:"+uid || modes[3] != "700:"+uid {
+			return fmt.Errorf("token file %s in session directory %s under member directory %s, want 600, 700 and 700, each the owner's", modes[1], modes[2], modes[3])
+		}
+		read, err := term.run(`printf '%s %s\n' J6""TOKEN "$(cat "$SMITHERS_TOKEN_FILE")"`, regexp.MustCompile(`J6TOKEN (\S+)`), 30*time.Second)
 		if err != nil {
 			return err
 		}
-		if info.Mode().Perm() != 0o600 || directory.Mode().Perm() != 0o700 {
-			return fmt.Errorf("token file mode %o in a %o directory, want 600 in 700", info.Mode().Perm(), directory.Mode().Perm())
-		}
-		data, err := os.ReadFile(tokenPath)
-		if err != nil {
-			return err
-		}
-		token = strings.TrimSpace(string(data))
+		token = read[1]
 		var scopes string
 		var systemIssued bool
 		var expires time.Time
@@ -162,22 +175,19 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		if !systemIssued || time.Until(expires) > time.Hour || time.Until(expires) < 50*time.Minute {
 			return fmt.Errorf("token system_issued=%v expires in %s, want system-issued within 1 h", systemIssued, time.Until(expires).Round(time.Second))
 		}
-		r.actual = fmt.Sprintf("SMITHERS_TOKEN unset; .../run/smithers/sessions/%s/token mode 600 in 700; scopes %s", sessionID, scopes)
+		r.actual = fmt.Sprintf("SMITHERS_TOKEN unset; %s mode 600 in 700 as uid %s; scopes %s", tokenPath, uid, scopes)
 		return nil
 	}) {
 		return
 	}
 	r.step("6 auth status", "smthrs auth status in the terminal", "delegated, via terminal, as the member", "T-TRM-02, T-ACC-04", func() error {
-		if term == nil || node == "" {
-			return fmt.Errorf("blocked by Terminal opens (node %q)", node)
+		if term == nil {
+			return fmt.Errorf("blocked by Terminal opens")
 		}
-		match, err := term.run(fmt.Sprintf(`%q %q auth status --json > "$TMPDIR/j6-status.json" 2>&1; printf '%%s %%s\n' J6""STATUS $?`, node, cli), regexp.MustCompile(`J6STATUS (\d+)`), 2*time.Minute)
+		code, data, err := term.capture("smthrs auth status --json", "J6STATUS", 2*time.Minute)
 		if err != nil {
 			return err
 		}
-		// The trusted-process runtime's TMPDIR is the workspace's tmp beside
-		// the run directory that holds the session's token.
-		data, _ := os.ReadFile(filepath.Join(strings.TrimSuffix(tokenPath, "/run/smithers/sessions/"+sessionID+"/token"), "tmp", "j6-status.json"))
 		var status struct {
 			LoggedIn       bool   `json:"logged_in"`
 			TokenSource    string `json:"token_source"`
@@ -185,8 +195,8 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 			CredentialKind string `json:"credential_kind"`
 			Via            string `json:"via"`
 		}
-		if match[1] != "0" || json.Unmarshal(data, &status) != nil {
-			return fmt.Errorf("auth status exit %s: %s", match[1], data)
+		if code != "0" || json.Unmarshal(data, &status) != nil {
+			return fmt.Errorf("auth status exit %s: %s", code, data)
 		}
 		r.actual = strings.Join(strings.Fields(string(data)), " ")
 		if !status.LoggedIn || status.TokenSource != "token_file" || status.CredentialKind != "delegated" || status.Via != "terminal" || status.Username != "rehearsal-owner" {
@@ -195,9 +205,8 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		return nil
 	})
 	// The branch's head is its checkout's working-copy commit (@), which the
-	// guest's head publisher pushes to refs/smithers/branches/<id>/head on a
-	// microVM. The trusted-process runtime runs no publisher on macOS (it needs
-	// flock, bash 4 and the guest's helper path), so this row reads @ itself.
+	// guest's head publisher pushes to refs/smithers/branches/<id>/head. The
+	// row reads @ in the terminal's checkout.
 	r.step("7 Edit lands on the branch", "echo > j6-terminal.md in the terminal; jj log -r @ in T1's checkout", "the branch head (@) advances to a commit holding the edit", "T-TRM-02", func() error {
 		if term == nil {
 			return fmt.Errorf("blocked by Terminal opens")
@@ -219,10 +228,10 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		return nil
 	})
 	r.step("8 Wiki read", "CLAUDECODE=1 smthrs api /api/repos/{o}/{r}/wiki in the terminal; audit_log", "200; recorded as delegated via claude-code", "T-TRM-02, T-ACC-04", func() error {
-		if term == nil || node == "" {
-			return fmt.Errorf("blocked by Terminal opens (node %q)", node)
+		if term == nil {
+			return fmt.Errorf("blocked by Terminal opens")
 		}
-		match, err := term.run(fmt.Sprintf(`CLAUDECODE=1 %q %q api /api/repos/rehearsal-owner/app/wiki >/dev/null 2>&1; printf '%%s %%s\n' J6""WIKI $?`, node, cli), regexp.MustCompile(`J6WIKI (\d+)`), 2*time.Minute)
+		match, err := term.run(`CLAUDECODE=1 smthrs api /api/repos/rehearsal-owner/app/wiki >/dev/null 2>&1; printf '%s %s\n' J6""WIKI $?`, regexp.MustCompile(`J6WIKI (\d+)`), 2*time.Minute)
 		if err != nil {
 			return err
 		}
@@ -278,13 +287,28 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 			}
 			if code == 401 {
 				elapsed := time.Since(closed)
-				if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
-					return fmt.Errorf("token file still present after close: %v", err)
-				}
-				r.actual = fmt.Sprintf("401 %s after close; token file removed", elapsed.Round(time.Millisecond))
 				if elapsed > 5*time.Second {
 					return fmt.Errorf("revoked after %s, want within 5 s", elapsed)
 				}
+				// The file is in the guest: a fresh terminal of the same
+				// member looks for it.
+				fresh, err := r.openBranchTerminal(r.keyed, branch)
+				if err != nil {
+					return fmt.Errorf("a fresh terminal to look for the closed one's token file: %w", err)
+				}
+				look, err := r.openTerminal(fresh)
+				if err != nil {
+					return err
+				}
+				defer look.close()
+				gone, err := look.run(fmt.Sprintf(`if test -e %q; then echo J6""GONE no; else echo J6""GONE yes; fi`, tokenPath), regexp.MustCompile(`J6GONE (yes|no)`), 30*time.Second)
+				if err != nil {
+					return err
+				}
+				if gone[1] != "yes" {
+					return fmt.Errorf("token file %s still present after close", tokenPath)
+				}
+				r.actual = fmt.Sprintf("401 %s after close; token file removed", elapsed.Round(time.Millisecond))
 				return nil
 			}
 			if time.Since(closed) > 5*time.Second {

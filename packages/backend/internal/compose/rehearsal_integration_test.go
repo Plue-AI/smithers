@@ -153,7 +153,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
-	realMicroVM := enable == pinnedMicroVMRehearsal || enable == "SMITHERS_J5_MICROVM_REHEARSAL"
+	realMicroVM := enable == pinnedMicroVMRehearsal || enable == "SMITHERS_J5_MICROVM_REHEARSAL" || enable == "SMITHERS_J6_MICROVM_REHEARSAL"
 	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"), "rehearsal requires real PostgreSQL")
 	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
 	// Each run gets its own TMPDIR: the stack's scratch repositories live at
