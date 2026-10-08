@@ -517,3 +517,53 @@ func TestBurstPreparationAllowsBootReplacement(t *testing.T) {
 		require.Zero(t, count, table)
 	}
 }
+
+// A session admission can hold the workspace while waiting for its RPC reply.
+// Burst authority waits outside the registry fence, then refuses a replaced boot.
+func TestBurstWorkspaceAuthorityDoesNotHoldRegistry(t *testing.T) {
+	pool, branch, repository := machineReceiptDatabase(t)
+	ctx := t.Context()
+	registry := new(Registry)
+	boot, err := registry.MintBoot(branch, "burst-lock")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, boot)
+	blocker, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer blocker.Rollback(context.WithoutCancel(ctx))
+	_, err = blocker.Exec(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch)
+	require.NoError(t, err)
+	objects := new(burstObjectFixture)
+	ingest := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"kind":"person","id":"retained"}`), nil
+	}}
+	done := make(chan error, 1)
+	go func() {
+		_, err := ingest.Apply(ctx, link.Connection, jobs.Scope{TenantID: fmt.Sprint(repository), PrincipalID: "branch:" + branch}, Event{Seq: 1, EventID: boot.ID, Payload: burstPayload(boot.ID, "a.txt")})
+		done <- err
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'SELECT repository_id FROM workspaces WHERE id=%FOR %UPDATE')`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	replaced := make(chan error, 1)
+	go func() { _, err := registry.MintBoot(branch, "replacement"); replaced <- err }()
+	select {
+	case err := <-replaced:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("workspace wait blocked authenticated daemon replacement")
+	}
+	require.NoError(t, blocker.Rollback(ctx))
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrUnauthorized)
+	case <-time.After(5 * time.Second):
+		t.Fatal("burst authority did not settle")
+	}
+	require.Zero(t, objects.publications)
+	var receipts int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+	require.Zero(t, receipts)
+
+}
