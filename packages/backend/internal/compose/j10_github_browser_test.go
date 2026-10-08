@@ -75,6 +75,10 @@ func runJ10Browser(t *testing.T, check, spec, scenario string) {
 }
 
 func runPreparedGitHubBrowser(t *testing.T, check, spec, scenario string, prepare func(*rehearsal)) {
+	runPreparedGitHubBrowserRuntime(t, "SMITHERS_J10_BROWSER", check, spec, scenario, prepare)
+}
+
+func runPreparedGitHubBrowserRuntime(t *testing.T, enable, check, spec, scenario string, prepare func(*rehearsal)) {
 	if os.Getenv("SMITHERS_J10_BROWSER") != "1" {
 		t.Skip("set SMITHERS_J10_BROWSER=1 for the composed C-J10-01 and C-J10-05 browser journeys")
 	}
@@ -89,7 +93,7 @@ func runPreparedGitHubBrowser(t *testing.T, check, spec, scenario string, prepar
 	if _, err := os.Stat(filepath.Join(os.Getenv("SMITHERS_REHEARSAL_SPA_DIR"), "index.html")); err != nil {
 		t.Fatalf("build the app first (pnpm --dir apps/app build): %v", err)
 	}
-	r := newRehearsal(t, "SMITHERS_J10_BROWSER", check, "j10b-")
+	r := newRehearsal(t, enable, check, "j10b-")
 	if !r.install("0 Install through Machine ready") {
 		t.FailNow()
 	}

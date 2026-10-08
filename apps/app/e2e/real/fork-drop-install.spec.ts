@@ -25,6 +25,8 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     const todos = await f.read("Ben", "/api/todos")
     expect(todos.map((v: any) => [v.n, v.state])).toEqual([[1, "in_review"], [2, "working"], [3, "queued"]])
     const second = todos[1]
+    const prefixHead = f.sql("SELECT candidate_head FROM mythical_items WHERE number=1")[0].candidate_head
+    expect(prefixHead).toMatch(/^[0-9a-f]{40}$/)
     const original = f.sql("SELECT id,request_run_id,attempt,workspace_id,candidate_head,candidate_base,base_commit FROM mythical_items WHERE number=2")[0]
     expect(second.pr.head).toMatch(/^[0-9a-f]{40}$/)
     const runBefore = f.sql("SELECT id,state,owner_generation FROM flow_runtime_host_bindings WHERE workspace_id=(SELECT workspace_id::uuid FROM mythical_items WHERE number=2)")
@@ -39,14 +41,14 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     expect(response.status()).toBe(201)
     expect(response.request().postDataJSON()).toEqual({ from: "T2" })
     const scratch = await response.json()
+    await attachJson(info, "scratch-before", { scratch, original, prefixHead, runBefore })
     expect(scratch.kind).toBe("scratch")
     expect(scratch.name).toMatch(/^scratch\/ben\//)
-    expect(scratch.forked_from).toMatchObject({ item: 2, base: original.base_commit })
+    expect(scratch.forked_from).toMatchObject({ item: 2, base: prefixHead })
     expect(scratch.forked_from.commit).toMatch(/^[0-9a-f]{40}$/)
     expect((await f.read("Ben", "/api/todos/2")).state).toBe("working")
     expect(f.sql("SELECT id,request_run_id,attempt,workspace_id,candidate_head,candidate_base,base_commit FROM mythical_items WHERE number=2")[0]).toEqual(original)
     expect(f.sql("SELECT id,state,owner_generation FROM flow_runtime_host_bindings WHERE workspace_id=(SELECT workspace_id::uuid FROM mythical_items WHERE number=2)")).toEqual(runBefore)
-    await attachJson(info, "scratch-before", scratch)
     await runSlash(page, `/branch ${scratch.name}`)
     let output = "", closed = false
     page.on("websocket", socket => {
@@ -54,7 +56,11 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
       socket.on("framereceived", frame => { output += typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8") })
       socket.on("close", () => { closed = true })
     })
+    const opening = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/terminals")
     await page.locator('[data-flow="terminal"]').last().press("Enter")
+    const opened = await opening
+    await attachJson(info, "terminal-open", { status: opened.status(), body: await opened.json() })
+    expect(opened.status(), "C-J7-02 requires the installed microVM member terminal").toBe(202)
     const terminal = page.locator(".terminal-view").last()
     await terminal.locator(".xterm-helper-textarea").focus()
     await page.keyboard.type("mkdir -p src; printf 'export const backoff = 2\\n' >> src/retry.ts; jj commit -m 'try exponential backoff' && printf 'J7_COMMITTED\\n'")
@@ -79,7 +85,7 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     const seed = f.sql("SELECT checks->'seed' AS seed FROM mythical_items WHERE number=4")[0].seed
     expect(seed.diff).toContain("export const backoff = 2")
     expect(seed.diff).toContain("source.md")
-    expect(seed.base).toBe(original.base_commit)
+    expect(seed.base).toBe(prefixHead)
     expect(closed).toBe(false)
     await runSlash(page, "/todo.drop T2")
     await page.getByRole("button", { name: "Drop", exact: true }).last().press("Enter")
@@ -91,7 +97,7 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     const after = f.sql("SELECT checks->'seed' AS seed FROM mythical_items WHERE number=4")[0].seed
     expect(after.diff).toContain("export const backoff = 2")
     expect(after.diff).toContain("source.md")
-    expect(after.base).toBe(original.base_commit)
+    expect(after.base).toBe(prefixHead)
     expect(closed).toBe(false)
     await expect(page.getByRole("button", { name: "Replace T2", exact: true })).toHaveCount(0)
     await expect.poll(async () => (await f.read("Ben", "/api/todos/4")).state, { timeout: 120_000 }).toBe("working")
