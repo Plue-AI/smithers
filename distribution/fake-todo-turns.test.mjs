@@ -42,10 +42,10 @@ const plan = async (prompt, extra = {}) => {
 }
 
 test("markers are bracketed words; [FIXED] ends [FAIL]", () => {
-  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false })
+  assert.deepEqual(markersOf("Add a greeting"), { ask: false, fail: false, failonce: false, restore: false, fixed: false, pr: false, hold: undefined, resolve: true, file: undefined, flowedit: false, changelog: false })
   assert.equal(markersOf("ASK FAIL HOLD").ask, false)
   const all = markersOf("[ASK] [FAIL] [PR] [HOLD t-2] [NORESOLVE] [FILE notes/t2.md] [FLOWEDIT]")
-  assert.deepEqual(all, { ask: true, fail: true, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false })
+  assert.deepEqual(all, { ask: true, fail: true, failonce: false, restore: false, fixed: false, pr: true, hold: "t-2", resolve: false, file: "notes/t2.md", flowedit: true, changelog: false })
   assert.equal(markersOf(["[FAIL] add it", ["steer: [FIXED]"]]).fail, false)
 })
 
@@ -97,6 +97,22 @@ test("[FAIL] empties JOURNEY.md until a steer or retry feedback says [FIXED]", a
   const fixed = await plan("[FAIL] [FILE t3.md] Add a greeting", { feedback: ["[FIXED]"] })
   assert.deepEqual(fixed.writes, ["t3.md"])
   assert.equal((await run(todoTurn(turn(EDIT, { atom: fixed })).content, { "JOURNEY.md": "x\n" })).tree["JOURNEY.md"], "x\n")
+})
+
+test("[FAILONCE] fails the first check attempt and its repair passes the second", async () => {
+  const failing = await plan("[ASK] [FAILONCE] [FILE t5.md] Add a greeting", { answer: "Say hello" })
+  assert.deepEqual(failing.writes, ["t5.md", "JOURNEY.md"])
+  const first = await run(todoTurn(turn(EDIT, { atom: failing })).content, { "JOURNEY.md": "x\n" })
+  assert.deepEqual(first.tree, { "JOURNEY.md": "", "t5.md": `${GREETING} Say hello\n` })
+  // The repair needs no steer: it restores JOURNEY.md on the same atom.
+  const repair = todoTurn(turn(REPAIR, { owner: { atoms: [{ changeId: "c1", intent: failing.intent }] }, findings: [] }))
+  const selected = (await run(repair.content)).settled
+  assert.equal(selected.changeId, "c1")
+  assert.match(selected.intent, /\[RESTORE\]/)
+  assert.doesNotMatch(selected.intent, /\[FAILONCE\]/)
+  const second = await run(todoTurn(turn(EDIT, { atom: { ...failing, intent: selected.intent } })).content, first.tree)
+  assert.deepEqual(second.tree, { "JOURNEY.md": `${GREETING} Say hello\n`, "t5.md": `${GREETING} Say hello\n${GREETING} Say hello\n` })
+  assert.equal(markersOf("[FAILONCE] [FIXED]").failonce, false)
 })
 
 test("[FLOWEDIT] writes only the TODO flow, whose changelog step later TODOs follow", async () => {

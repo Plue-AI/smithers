@@ -20,6 +20,8 @@ export declare const systemOf: (messages: ReadonlyArray<TodoChatMessage>) => str
 export interface TodoMarkers {
   readonly ask: boolean
   readonly fail: boolean
+  readonly failonce: boolean
+  readonly restore: boolean
   readonly fixed: boolean
   readonly pr: boolean
   readonly hold: string | undefined

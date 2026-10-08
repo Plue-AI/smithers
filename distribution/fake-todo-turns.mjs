@@ -82,6 +82,10 @@ export const subject = "📝 docs: add a greeting to JOURNEY.md"
  * - `[FAIL]`: the edit empties JOURNEY.md, so the repository's checks fail,
  *   until a later message of the TODO (an answer, a steer, a retry's
  *   feedback) says `[FIXED]`.
+ * - `[FAILONCE]`: the first edit empties JOURNEY.md, so the first check
+ *   attempt fails; the correction's repair restores it (`[RESTORE]`: the
+ *   edit appends a line to JOURNEY.md), so the second attempt passes in the
+ *   same run.
  * - `[PR]`: no detour; plan, edit and propose at once. The default path, named.
  * - `[HOLD key]`: the edit turn waits until `POST /release/<key>` on
  *   fake-todo-provider.mjs; the TODO stays Working meanwhile.
@@ -100,6 +104,8 @@ export const markersOf = (value) => {
   return {
     ask: raw.includes("[ASK]"),
     fail: raw.includes("[FAIL]") && !raw.includes("[FIXED]"),
+    failonce: raw.includes("[FAILONCE]") && !raw.includes("[FIXED]"),
+    restore: raw.includes("[RESTORE]"),
     fixed: raw.includes("[FIXED]"),
     pr: raw.includes("[PR]"),
     hold: /\[HOLD ([A-Za-z0-9._-]+)\]/.exec(raw)?.[1],
@@ -129,6 +135,7 @@ const answerText = (answer) =>
 const intentMarkers = (markers, answer) =>
   [
     markers.fail ? "[FAIL]" : "",
+    markers.failonce ? "[FAILONCE]" : "",
     markers.hold ? `[HOLD ${markers.hold}]` : "",
     markers.flowedit ? "[FLOWEDIT]" : "",
     markers.changelog ? "[CHANGELOG]" : "",
@@ -208,9 +215,14 @@ const editCell = (hosted, greeting) => {
     lines.push(`await append("CHANGELOG.md", ${JSON.stringify(`- ${line}`)});`)
     writes.push("CHANGELOG.md")
   }
-  if (markers.fail) {
+  if (markers.fail || markers.failonce) {
     // An empty JOURNEY.md fails the repository's checks (test -s, grep -q .).
     lines.push(`await put("JOURNEY.md", "");`)
+    if (!writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
+  }
+  if (markers.restore) {
+    // The repair of a [FAILONCE] edit gives JOURNEY.md a line again.
+    lines.push(`await append("JOURNEY.md", ${JSON.stringify(line)});`)
     if (!writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
   }
   lines.push(`ctx.done(${JSON.stringify({ summary: `Appended a greeting to ${writes.join(", ")}.`, reads: writes, writes })});`)
@@ -258,7 +270,7 @@ const steps = [
       const file = markers.file ?? "JOURNEY.md"
       const writes = markers.flowedit ? ["flows/todo/flow.ts"] : [file]
       if (markers.changelog) writes.push("CHANGELOG.md")
-      if (markers.fail && !writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
+      if ((markers.fail || markers.failonce) && !writes.includes("JOURNEY.md")) writes.push("JOURNEY.md")
       fileMarkers.set(file, markers)
       return done({
         rationale: "Append one documentation change on the current head.",
@@ -290,8 +302,10 @@ const steps = [
     answer: (payload, _greeting, all) => {
       const atom = firstAtom(payload)
       const intent = String(atom?.intent ?? "Append a greeting line to JOURNEY.md.")
-      // A [FIXED] anywhere in the turn (a steer, an answer) ends the scripted failure.
-      return done({ changeId: atom?.changeId ?? "unknown", intent: markersOf(all).fixed ? intent.replace("[FAIL]", "").trim() : intent })
+      // A [FIXED] anywhere in the turn (a steer, an answer) ends the scripted
+      // failure; a [FAILONCE] edit is always repaired by restoring JOURNEY.md.
+      const repaired = markersOf(all).fixed ? intent.replace("[FAIL]", "").trim() : intent
+      return done({ changeId: atom?.changeId ?? "unknown", intent: repaired.replace("[FAILONCE]", "[RESTORE]") })
     }
   },
   {
