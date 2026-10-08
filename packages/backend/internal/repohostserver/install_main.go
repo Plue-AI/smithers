@@ -2,6 +2,8 @@ package repohostserver
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -181,4 +183,31 @@ func refuseInstallMainRepair(collisions []repohost.RefCaseCollision, defaultBook
 			collision.Action, collision.Variants = repohost.RefCaseCollisionReported, nil
 		}
 	}
+}
+
+// A reset is a single expected-old command from the sync bridge, after its
+// journal verifier acquired this write lock. No ordinary sync push carries it.
+func (s *Server) mainResetBinding(r *http.Request, commands []repohost.ReceivePackCommand) (*repohost.MainResetBinding, error) {
+	raw := r.Header.Get(repohost.MainResetHeader)
+	if raw == "" {
+		return nil, nil
+	}
+	var binding repohost.MainResetBinding
+	validOID := func(value string) bool {
+		if len(value) != 40 || value == strings.Repeat("0", 40) {
+			return false
+		}
+		_, err := hex.DecodeString(value)
+		return err == nil
+	}
+	if len(raw) > 512 || json.Unmarshal([]byte(raw), &binding) != nil || !s.config.InstallMainMirror ||
+		r.Header.Get(repohost.PusherCredentialHeader) != string(middleware.CredentialSync) || r.Header.Get(repohost.StartedHeader) != "1" ||
+		binding.ID == "" || len(binding.ID) > 128 || !validOID(binding.Old) || !validOID(binding.New) || binding.Old == binding.New || len(commands) != 1 {
+		return nil, installMainRefusal("invalid main reset binding")
+	}
+	command := commands[0]
+	if command.RefName != "refs/heads/main" || command.OldOID != binding.Old || command.NewOID != binding.New {
+		return nil, installMainRefusal("main reset binding changed")
+	}
+	return &binding, nil
 }

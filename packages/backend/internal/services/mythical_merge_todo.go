@@ -300,6 +300,9 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 	}
 	var saved db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		if err := lockMainOperationTx(ctx, tx, repositoryID); err != nil {
+			return err
+		}
 		// The repository's request lock (FileTodo's) orders presses that
 		// share an Idempotency-Key; the stack row lock orders stack changes.
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
@@ -1211,6 +1214,9 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 // claim records nothing and sends nothing, and the next pass decides
 // again.
 func lockMergeFacts(ctx context.Context, tx pgx.Tx, item db.MythicalItem, session string, standingUser int64, b mythicalMergeBinding) error {
+	if err := lockMainOperationTx(ctx, tx, item.RepositoryID); err != nil {
+		return err
+	}
 	destinations := []any{strings.ToLower(b.githubOwner), strings.ToLower(b.githubRepo), strings.ToLower(b.owner), strings.ToLower(b.name)}
 	for _, lock := range []struct {
 		sql  string

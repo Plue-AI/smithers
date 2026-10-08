@@ -1901,7 +1901,17 @@ func (c *Client) ImportRefs(ctx context.Context, owner, repo string) error {
 
 // ReceivePackMetadata carries push context forwarded from the Go proxy layer
 // to the repo-host so it can be included in the push-hook callback.
+// MainResetBinding is sent only by the owner-admitted GitHub reset bridge.
+type MainResetBinding struct {
+	ID  string `json:"id"`
+	Old string `json:"old"`
+	New string `json:"new"`
+}
+
+const MainResetHeader = "X-Smithers-Main-Reset"
+
 type ReceivePackMetadata struct {
+	MainReset    *MainResetBinding
 	RepositoryID int64
 	RefName      string
 	CommitSHA    string
@@ -2287,6 +2297,13 @@ func (c *Client) proxyGitRPCWithMeta(
 	}
 	if meta.PusherLogin != "" {
 		req.Header.Set("X-Smithers-Pusher-Login", meta.PusherLogin)
+	}
+	if meta.MainReset != nil {
+		binding, err := json.Marshal(meta.MainReset)
+		if err != nil {
+			return err
+		}
+		req.Header.Set(MainResetHeader, string(binding))
 	}
 	if meta.PusherCredential != "" {
 		req.Header.Set(PusherCredentialHeader, string(meta.PusherCredential))

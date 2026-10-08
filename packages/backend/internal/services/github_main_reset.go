@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"net/http"
 	"os"
 )
@@ -14,6 +15,7 @@ type GitHubMainResetIntent struct {
 	ID           string `json:"id"`
 	Old          string `json:"old"`
 	New          string `json:"new"`
+	ActorID      int64  `json:"actor_id,omitempty"`
 	Settled      bool   `json:"settled,omitempty"`
 }
 
@@ -136,11 +138,11 @@ func (s *GitHubMainPullService) resetPrepared(ctx context.Context, fence GitHubM
 			return refuse(fmt.Errorf("verify GitHub main: %s", sanitizeMirrorError(err, upstream)))
 		}
 		if refs[ref] != intent.New {
-			return refuse(staleMainReset())
+			return refuse(s.refreshResetAttention(ctx, fence, intent, refs[ref]))
 		}
 		return nil
 	}
-	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: intent.Old, writer: s.mainWriter()}, verify)
+	bridge, err := startGitHubMainPullBridge(ctx, s.host, owner, repository.Name, gitHubMainPullUpdate{repositoryID: repository.ID, ref: ref, old: intent.Old, writer: s.mainWriter(), reset: &repohost.MainResetBinding{ID: intent.ID, Old: intent.Old, New: intent.New}}, verify)
 	if err != nil {
 		return err
 	}
@@ -154,8 +156,11 @@ func (s *GitHubMainPullService) resetPrepared(ctx context.Context, fence GitHubM
 	if err != nil {
 		return fmt.Errorf("fetch reset: %s", sanitizeMirrorError(err, upstream, bridge.URL()))
 	}
-	if base != intent.Old || tip != intent.New {
+	if base != intent.Old {
 		return staleMainReset()
+	}
+	if tip != intent.New {
+		return s.refreshResetAttention(ctx, fence, intent, tip)
 	}
 	resetter, ok := s.git.(interface {
 		Reset(context.Context, string, string, string, string, string) error
@@ -237,6 +242,19 @@ func (s *GitHubMainPullService) RecoverMainResets(ctx context.Context) error {
 func (g cliGitHubMainPullGit) Reset(ctx context.Context, dir, mirrorURL, old, new, ref string) error {
 	_, err := g.run(ctx, dir, "push", "--quiet", "--no-verify", "--force-with-lease="+ref+":"+old, mirrorURL, new+":"+ref)
 	return err
+}
+
+// A stale owner press must show the latest upstream binding before returning.
+func (s *GitHubMainPullService) refreshResetAttention(ctx context.Context, fence GitHubMainFence, intent GitHubMainResetIntent, tip string) error {
+	if err := fence.LeaveOpen(ctx, intent); err != nil {
+		return err
+	}
+	if tip != intent.Old && repositorySourceSHA.MatchString(tip) {
+		if err := fence.OpenForcePush(ctx, GitHubMainForcePush{Old: intent.Old, New: tip}); err != nil {
+			return err
+		}
+	}
+	return staleMainReset()
 }
 
 func staleMainReset() error {

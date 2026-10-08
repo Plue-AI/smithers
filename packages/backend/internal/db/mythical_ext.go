@@ -127,7 +127,11 @@ const claimMythicalStacks = `
 WITH due AS (
 	SELECT repository_id
 	FROM mythical_stacks
-	WHERE requested_generation > processed_generation
+ WHERE requested_generation > processed_generation
+   -- An owner-bound rewrite freezes the stack until reset commits its
+   -- rebase projections. The row lock orders this claim with opening attention.
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(attention) a
+       WHERE a->>'kind'='force_push' AND a->>'settled_at' IS NULL)
 	  AND next_attempt_at <= NOW()
 	  AND (NOT running OR lease_expires_at IS NULL OR lease_expires_at < NOW())
 	ORDER BY next_attempt_at, repository_id

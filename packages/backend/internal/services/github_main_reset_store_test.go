@@ -125,7 +125,7 @@ func TestMainResetJournalRetainsRepositoryLockAfterPrepareCommit(t *testing.T) {
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
 		var acquired bool
-		require.NoError(t, tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, repo).Scan(&acquired))
+		require.NoError(t, tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('github_main_operation:' || $1::bigint::text,0))`, repo).Scan(&acquired))
 		require.False(t, acquired, "merge's xact lock waits through ref transfer and settlement")
 		stale := intent
 		stale.ID = "obsolete"
@@ -137,7 +137,7 @@ func TestMainResetJournalRetainsRepositoryLockAfterPrepareCommit(t *testing.T) {
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 	var acquired bool
-	require.NoError(t, tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock($1)`, repo).Scan(&acquired))
+	require.NoError(t, tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('github_main_operation:' || $1::bigint::text,0))`, repo).Scan(&acquired))
 	require.True(t, acquired)
 }
 

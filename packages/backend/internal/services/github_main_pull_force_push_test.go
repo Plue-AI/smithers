@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// These are dark-consumer unit tests, not the PostgreSQL/reset qualification
-// journey. No stack attention or durable reset provider exists in this checkout.
+// Detection unit tests complement the production stack adapter database tests
+// and compose/github_main_reset_acceptance_test.go's full install journey.
 func TestInstallMainPullAlwaysFollowsWithoutDeclaration(t *testing.T) {
 	for _, policy := range []string{"undeclared", "none", "push", "pull"} {
 		t.Run(policy, func(t *testing.T) {

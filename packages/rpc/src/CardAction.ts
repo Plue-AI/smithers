@@ -285,7 +285,7 @@ interface CurrentCardCommandInput {
   readonly "order.ok": { readonly id: string; readonly revision: number }
   readonly "background.retry": { readonly id: string }
   readonly "background.dismiss": { readonly id: string }
-  readonly "main.reset-to-github": { readonly revision: string }
+  readonly "main.reset-to-github": { readonly id: string; readonly old: string; readonly new: string }
   readonly "members.add": { readonly login: string; readonly role: "maintainer" | "member" }
   readonly "members.role": { readonly login: string; readonly role: "owner" | "maintainer" | "member" }
   readonly "members.remove": { readonly login: string }

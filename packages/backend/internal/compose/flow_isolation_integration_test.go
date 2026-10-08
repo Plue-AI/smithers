@@ -301,3 +301,10 @@ func TestCSEC02CanaryListenerRecordsConnections(t *testing.T) {
 	defer canary.mu.Unlock()
 	require.Len(t, canary.connections, 1)
 }
+
+// Reference-host companion to the Linux reset acceptance: the same production
+// poll, bound reset, settlement fault and recovery run on actual microVMs.
+// The sampler/canary cases above remain required isolation receipts.
+func TestCSEC02MainResetLoadsInMicroVM(t *testing.T) {
+	runMainResetProductionInstall(t, pinnedMicroVMRehearsal)
+}

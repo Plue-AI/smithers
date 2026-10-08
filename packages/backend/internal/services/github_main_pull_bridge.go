@@ -33,6 +33,7 @@ type gitHubMainPullRepoHost interface {
 
 // gitHubMainPullUpdate is the only ref update the bridge accepts.
 type gitHubMainPullUpdate struct {
+	reset        *repohost.MainResetBinding
 	repositoryID int64
 	ref          string
 	old          string
@@ -174,7 +175,7 @@ func (b *gitHubMainPullBridge) ServeHTTP(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		meta := repohost.ReceivePackMetadata{RepositoryID: update.repositoryID, RefName: update.ref, CommitSHA: update.new, PusherLogin: "github",
-			PusherCredential: update.writer, VerifyLocked: b.verify}
+			PusherCredential: update.writer, VerifyLocked: b.verify, MainReset: update.reset}
 		b.proxy(w, "application/x-git-receive-pack-result", func(out io.Writer) error {
 			return b.host.ProxyReceivePack(ctx, b.owner, b.repo, rebuilt, out, meta)
 		})

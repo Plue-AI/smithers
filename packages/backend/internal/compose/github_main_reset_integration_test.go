@@ -262,10 +262,15 @@ func TestMainResetJournalRecoveryThroughComposedInstall(t *testing.T) {
 			}
 			pending, err := journal.Pending(ctx)
 			require.NoError(t, err)
-			require.Len(t, pending, 1)
 			var reason string
 			require.NoError(t, f.pool.QueryRow(ctx, `SELECT reason FROM mythical_stacks WHERE repository_id=$1`, f.repository).Scan(&reason))
-			require.Empty(t, reason, "no projection before atomic settlement")
+			if crash == "after_write" {
+				require.Len(t, pending, 1)
+				require.Empty(t, reason, "no projection before atomic settlement")
+			} else {
+				require.Empty(t, pending, "a proven stale upstream binding retires the unwritten intent")
+				require.Equal(t, "|open", reason)
+			}
 			contracts.fail = false
 			restarted := services.NewGitHubMainPullService(f.q, mirror, f.sync.connections, f.sync.connections)
 			restarted.UseInstallPolicy()

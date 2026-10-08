@@ -51,10 +51,11 @@ test("Home fixtures parse and every supplied row control dispatches through cata
 })
 test("reset is owner-only and binds the actual main revision", () => {
   const base = Object.values(fixtures)[0]!.model
-  const model = { ...base, attention: [{ kind: "force_push", text: "Main moved", actions: [{ tag: "main.reset-to-github", label: "Reset to GitHub main" }] }] }
+  const binding = { id: "force-one", old: "1".repeat(40), new: "2".repeat(40) }
+  const model = { ...base, attention: [{ kind: "force_push", text: "Main moved", actions: [{ tag: "main.reset-to-github", label: "Reset to GitHub main", args: binding }] }] }
   const owner = mount(model)
   owner.props.onAction("main.reset-to-github")
-  expect(owner.calls).toEqual([{ tag: "main.reset-to-github", input: { revision: base.main.sha } }])
+  expect(owner.calls).toEqual([{ tag: "main.reset-to-github", input: binding }])
   for (const role of ["member", "maintainer"] as const) {
     const h = mount(model, role)
     expect(h.props.model.attention).toEqual([])
@@ -797,4 +798,13 @@ test("Home derives each member's merged count from committed sequences and prese
   expect(html).toContain("1234567")
   expect(html).toContain('title="1234567890abcdef1234567890abcdef12345678"')
   expect(html).toContain("Ship the install Home")
+ })
+
+ test("old Home history remains readable without offering an unbound reset", () => {
+  const base = Object.values(fixtures)[0]!.model
+  const h = mount({ ...base, attention: [{ kind: "force_push", text: "Main moved", actions: [{ tag: "main.reset-to-github", label: "Reset to GitHub main", args: { revision: base.main.sha } }] }] })
+  expect(h.props.model.attention).toHaveLength(1)
+  expect(h.props.model.attention[0]!.actions).toEqual([])
+  h.props.onAction("main.reset-to-github")
+  expect(h.calls).toEqual([])
  })

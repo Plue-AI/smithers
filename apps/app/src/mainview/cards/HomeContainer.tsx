@@ -52,7 +52,13 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   const attention = parsed.attention.filter(row => row.kind === "force_push" ? role === "owner" : role !== "member").map(row => {
     const start = definitions.length
     for (const action of row.actions) {
-      if (row.kind === "force_push" && action.tag === "main.reset-to-github") admitted({ ...action, tag: "main.reset-to-github", command_input: { revision: parsed.main.sha } })
+      if (row.kind === "force_push" && action.tag === "main.reset-to-github") {
+        const { id, old, new: next } = action.args ?? {}
+        if (typeof id === "string" && id && typeof old === "string" && /^[a-f0-9]{40}$/.test(old)
+          && typeof next === "string" && /^[a-f0-9]{40}$/.test(next) && old !== next) {
+          admitted({ ...action, tag: "main.reset-to-github", command_input: { id, old, new: next } })
+        }
+      }
       if (row.kind === "order" && action.tag === "order.ok" && row.id && row.revision) admitted({ ...action, tag: "order.ok", args: { id: row.id }, command_input: { id: row.id, revision: row.revision } })
     }
     return { ...row, start, end: definitions.length }

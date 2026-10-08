@@ -972,6 +972,10 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) (retErr err
 	if peekErr != nil {
 		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
+	resetBinding, err := s.mainResetBinding(r, commands)
+	if err != nil {
+		return err
+	}
 	if err := refuseRefListingGrowth(beforeRefs, commands); err != nil {
 		return err
 	}
@@ -1046,7 +1050,10 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) (retErr err
 	// The sync copies GitHub's refs as they are, except on an install, where
 	// it only fast-forwards main: a GitHub rewrite waits for the owner's
 	// reset (§12.3) and leaves main where it was.
-	if sender.PusherCredential != jjmiddleware.CredentialSync || s.config.InstallMainMirror {
+	if resetBinding != nil && (beforeRefs["refs/heads/main"] != resetBinding.Old || afterRefs["refs/heads/main"] != resetBinding.New) {
+		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, installMainRefusal("main reset binding changed"))
+	}
+	if resetBinding == nil && (sender.PusherCredential != jjmiddleware.CredentialSync || s.config.InstallMainMirror) {
 		if err := refuseDefaultBookmarkRewind(enforceCtx, gitDir, beforeRefs, afterRefs, s.config.InstallMainMirror); err != nil {
 			return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, err)
 		}

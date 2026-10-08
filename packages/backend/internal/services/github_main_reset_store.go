@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // GitHubMainStackContracts is supplied by the stack lanes. Its transaction
@@ -56,8 +57,8 @@ func (j *GitHubMainResetJournal) WithRepository(ctx context.Context, repository 
 		return err
 	}
 	// Session lock survives the intent transaction's commit and the ref transfer.
-	// It uses the exact key used by stack merge dispatch's xact advisory lock.
-	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, repository); err != nil {
+	// Namespacing avoids the stack worker's nested placement/factory locks.
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended('github_main_operation:' || $1::text,0))`, fmt.Sprint(repository)); err != nil {
 		// A cancelled lock acquisition can have acquired just before cancellation.
 		// Never return a possibly locked connection to the pool.
 		_ = conn.Hijack().Close(context.Background())
@@ -67,7 +68,7 @@ func (j *GitHubMainResetJournal) WithRepository(ctx context.Context, repository 
 		release, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		var unlocked bool
-		if err := conn.QueryRow(release, `SELECT pg_advisory_unlock($1)`, repository).Scan(&unlocked); err != nil || !unlocked {
+		if err := conn.QueryRow(release, `SELECT pg_advisory_unlock(hashtextextended('github_main_operation:' || $1::text,0))`, fmt.Sprint(repository)).Scan(&unlocked); err != nil || !unlocked {
 			_ = conn.Hijack().Close(release)
 		} else {
 			conn.Release()
@@ -142,6 +143,9 @@ func (f *githubMainJournalFence) Prepare(ctx context.Context, id, old, new strin
 			return err
 		}
 		intent = GitHubMainResetIntent{RepositoryID: f.repository, ID: attention, Old: old, New: new}
+		if auth := middleware.AuthInfoFromContext(ctx); auth != nil && auth.User != nil {
+			intent.ActorID = auth.User.ID
+		}
 		if attention == "" || (id != "" && id != attention) || old == new || !repositorySourceSHA.MatchString(old) || !repositorySourceSHA.MatchString(new) {
 			return staleMainReset()
 		}
@@ -248,4 +252,11 @@ func (f *githubMainJournalFence) Settle(ctx context.Context, intent GitHubMainRe
 }
 func (f *githubMainJournalFence) LeaveOpen(ctx context.Context, intent GitHubMainResetIntent) error {
 	return f.finish(ctx, intent, false)
+}
+
+// Merge dispatch records its persistent fence before releasing this same
+// operation lock. Reset cannot overtake either the claim or its sent request.
+func lockMainOperationTx(ctx context.Context, tx pgx.Tx, repository int64) error {
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('github_main_operation:' || $1::text,0))`, fmt.Sprint(repository))
+	return err
 }
