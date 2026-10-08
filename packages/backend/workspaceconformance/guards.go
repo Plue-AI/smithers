@@ -75,6 +75,15 @@ func runHead(t *testing.T, h CoreHarness) string {
 	if !ok {
 		t.Fatal("advertised source revision has no resolver")
 	}
+	// A Jujutsu workspace resolves its working-copy commit, which captures the
+	// tree as it is; only a plain Git checkout has a HEAD that a dirty tree refuses.
+	kind, err := h.Runtime.ExecuteCommand(h.Context("head-kind"), h.Spec.ID, workspace.Command{Args: []string{"/bin/sh", "-c", "test -d .jj && printf jj || printf git"}})
+	if err != nil || kind.ExitCode != 0 {
+		t.Fatalf("head fixture kind: %#v, %v", kind, err)
+	}
+	if kind.Stdout == "jj" {
+		return runJujutsuHead(t, h, resolver)
+	}
 	result, err := h.Runtime.ExecuteCommand(h.Context("head-fixture"), h.Spec.ID, workspace.Command{Args: []string{"/bin/sh", "-c", "git init -q && git add . && git -c user.name=Conformance -c user.email=conformance@example.invalid commit -qm fixture && git rev-parse HEAD"}})
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("head fixture: %#v, %v", result, err)
@@ -93,6 +102,42 @@ func runHead(t *testing.T, h CoreHarness) string {
 		t.Fatal(err)
 	}
 	return head
+}
+
+// runJujutsuHead checks each resolved revision against the Git tree it names:
+// an uncommitted file appears in a new commit, and leaves the next one.
+func runJujutsuHead(t *testing.T, h CoreHarness, resolver workspace.WorkspaceSourceRevisionResolver) string {
+	t.Helper()
+	capture := func(label string) (string, bool) {
+		head, err := resolver.ResolveWorkspaceSourceRevision(h.Context("resolve-"+label), h.Spec.ID)
+		if err != nil {
+			t.Fatalf("captured %s head = %q, %v", label, head, err)
+		}
+		tree, err := h.Runtime.ExecuteCommand(h.Context("tree-"+label), h.Spec.ID, workspace.Command{Args: []string{"git", "ls-tree", "-r", "--name-only", head}})
+		if err != nil || tree.ExitCode != 0 {
+			t.Fatalf("captured %s head %q names no Git tree: %#v, %v", label, head, tree, err)
+		}
+		return head, strings.Contains("\n"+tree.Stdout, "\nuncommitted\n")
+	}
+	clean, present := capture("clean")
+	if present {
+		t.Fatalf("clean capture %q already holds the uncommitted file", clean)
+	}
+	if err := writeConformanceFile(h.Runtime, h.Context("dirty-head"), h.Spec.ID, "uncommitted", []byte("dirty"), 0644, "absent"); err != nil {
+		t.Fatal(err)
+	}
+	dirty, present := capture("dirty")
+	if dirty == clean || !present {
+		t.Fatalf("dirty Jujutsu capture = %q (file present %t); want a new commit after %q holding the file", dirty, present, clean)
+	}
+	if err := h.Runtime.RemoveFile(h.Context("clean-head"), h.Spec.ID, "uncommitted"); err != nil {
+		t.Fatal(err)
+	}
+	restored, present := capture("restored")
+	if restored == dirty || present {
+		t.Fatalf("restored Jujutsu capture = %q (file present %t); want a new commit after %q without the file", restored, present, dirty)
+	}
+	return restored
 }
 
 // runCompareWrites covers base_digest batch atomicity when the adapter has
