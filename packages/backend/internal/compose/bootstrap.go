@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/cors"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // BuildVersion and BuildSHA are set by release builds. Plain local Go builds
@@ -134,7 +135,30 @@ func buildIdentity() (version, sha string) {
 }
 
 func withAppBootstrap(next http.Handler, bootstrap appBootstrap, corsOptions cors.Options) http.Handler {
-	bootstrapHandler := cors.Handler(corsOptions)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return serveBootstrap(next, cors.Handler(corsOptions)(bootstrapDocument(bootstrap)))
+}
+
+// withInstallBootstrap serves an install's bootstrap document to its known
+// origins only (spec §16.3.3): the document is read before sign-in, so an
+// unknown Host gets 421 unknown_origin and a foreign Origin 403 here, as on
+// every other route. The app and its API share one origin, so no answer
+// carries a CORS allow header.
+func withInstallBootstrap(next http.Handler, bootstrap appBootstrap, origins func() []string) http.Handler {
+	return serveBootstrap(next, middleware.EffectiveOrigin(origins)(bootstrapDocument(bootstrap)))
+}
+
+func serveBootstrap(next, document http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/bootstrap" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		document.ServeHTTP(w, r)
+	})
+}
+
+func bootstrapDocument(bootstrap appBootstrap) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, HEAD")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -146,12 +170,5 @@ func withAppBootstrap(next http.Handler, bootstrap appBootstrap, corsOptions cor
 			return
 		}
 		_ = json.NewEncoder(w).Encode(bootstrap)
-	}))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/bootstrap" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		bootstrapHandler.ServeHTTP(w, r)
 	})
 }

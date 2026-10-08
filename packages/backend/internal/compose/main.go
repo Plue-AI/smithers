@@ -2236,7 +2236,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer assets.Close()
 		router.NotFound(assets.ServeHTTP)
 	}
-	var r http.Handler = withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{
+	bootstrap := newAppBootstrap(bootstrapFeatures{
 		role: options.topology, identity: authHandler != nil, install: gitHubAppSetup != nil,
 		debugAPI:     config.IsSingleOwner(cfg.Auth) && queries != nil && options.topology.servesHTTP(),
 		agent:        options.ChatHost != nil && chatService != nil && options.topology.servesHTTP(),
@@ -2256,7 +2256,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		workspaceRuntime: options.Workspace != nil,
 		isolatedSandbox:  provider != nil || (options.Workspace != nil && options.Workspace.Isolation() == workspace.IsolationSandboxed),
 		codeIntelligence: languageServers != nil && languageServers.Provider.Available(),
-	}), apiCORSOptions(cfg))
+	})
+	var r http.Handler = withAppBootstrap(router, bootstrap, apiCORSOptions(cfg))
+	if installAddress != nil {
+		// An install's bootstrap answers its known origins only (§16.3.3).
+		r = withInstallBootstrap(router, bootstrap, installAddress.Origins)
+	}
 	// An in-process repository has no network health endpoint; a remote
 	// client, whatever the identity mode, is probed at repo_host.url by the router.
 	if options.Repository != nil && options.Repository.InProcess() {
