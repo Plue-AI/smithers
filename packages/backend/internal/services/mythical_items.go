@@ -2145,13 +2145,14 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 		}
 	}
 	id := uuidString(saved.ID)
-	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(r.row.ActorUserID.Int64, 10)
+	sponsor := mythicalExecutionSponsor(saved, r.row)
+	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(sponsor, 10)
 	// Every launch of a pinned attempt (its composition and the engine's
 	// delivery and review) carries the one pin it was admitted with; the
 	// dispatcher and the host refuse any other code under it.
 	var launchPin *flowruntime.Pin
 	projected := mythicalProjection{Kind: mythicalBindingKind, ItemID: id, Generation: saved.Generation, Attempt: saved.Attempt, Phase: phase}
-	binding := map[string]any{"repositoryId": r.row.RepositoryID, "userId": r.row.ActorUserID.Int64,
+	binding := map[string]any{"repositoryId": r.row.RepositoryID, "userId": sponsor,
 		"workspaceId": saved.WorkspaceID, "itemId": id, "generation": saved.Generation}
 	if pin, pinned := mythicalPinOf(saved); pinned {
 		launchPin = &pin
@@ -2247,7 +2248,7 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 			return "", err
 		}
 		var winner db.MythicalLane
-		workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, candidate, placement, func(workspaceID string) error {
+		workspaceID, err := s.lanes.Create(ctx, repository, owner, mythicalExecutionSponsor(item, r.row), candidate, placement, func(workspaceID string) error {
 			// An outsider's lane is marked before it is provisioned: its box
 			// boots with GitHub conversation withheld, and its credentials
 			// read no issue or conversation (middleware.ConversationWithheld).
@@ -4671,6 +4672,17 @@ func NewMythicalFlowHostTargetResolver(service *MythicalService) *MythicalFlowHo
 	return &MythicalFlowHostTargetResolver{service: service}
 }
 
+// Person-owned TODO execution belongs to its sponsor, not the actor who enabled the stack.
+func mythicalExecutionSponsor(item db.MythicalItem, stack db.MythicalStack) int64 {
+	if mythicalTodo(item) {
+		if item.OwnerID.Valid {
+			return item.OwnerID.Int64
+		}
+		return 0
+	}
+	return stack.ActorUserID.Int64
+}
+
 func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx context.Context, target flowruntime.FlowRuntimeTarget) (flowhost.Authority, error) {
 	if resolver != nil && resolver.service != nil && target.BindingKind == mythicalWikiBindingKind {
 		return resolver.resolveWikiTarget(ctx, target)
@@ -4696,7 +4708,7 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	if err != nil {
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_binding_unavailable", retryable: !errors.Is(err, pgx.ErrNoRows)}
 	}
-	if item.RepositoryID != repositoryID || !stack.ActorUserID.Valid || stack.ActorUserID.Int64 != userID || item.WorkspaceID == "" ||
+	if item.RepositoryID != repositoryID || mythicalExecutionSponsor(item, stack) != userID || item.WorkspaceID == "" ||
 		(target.WorkspaceID != "" && target.WorkspaceID != item.WorkspaceID) {
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_target_forbidden"}
 	}

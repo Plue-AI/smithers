@@ -352,7 +352,7 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 		UpdatedAt:     authRow.UpdatedAt,
 	}
 	if s.ownerBoundary != nil {
-		if err := s.ownerBoundary.AuthorizeMember(ctx, user.ID); err != nil {
+		if err := s.ownerBoundary.AuthorizeMember(identity.WithMemberRoute(ctx), user.ID); err != nil {
 			return gitHTTPCredential{}, err
 		}
 	}

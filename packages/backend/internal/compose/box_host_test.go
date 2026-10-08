@@ -42,12 +42,18 @@ func (b *recordingBoxes) RetireBoxHostCredential(_ context.Context, hostID strin
 type recordingHostTransport struct {
 	refusingHostTransport
 	started []flowhost.HostLaunch
+	stopped []flowhost.Binding
 	fail    error
 }
 
 func (r *recordingHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	r.started = append(r.started, launch)
 	return flowhost.Connection{}, r.fail
+}
+
+func (r *recordingHostTransport) StopFlowHost(_ context.Context, binding flowhost.Binding) error {
+	r.stopped = append(r.stopped, binding)
+	return nil
 }
 
 type revisionHostTransport struct {
@@ -96,6 +102,7 @@ func TestBoxHostLauncherMintsPerStartAndRevokes(t *testing.T) {
 	_, err = launcher.StartFlowHost(context.Background(), launch)
 	require.Error(t, err)
 	require.Equal(t, []string{"host-1"}, boxes.retired)
+	require.Equal(t, []flowhost.Binding{launch.Binding}, transport.stopped)
 
 	require.NoError(t, launcher.StopFlowHost(context.Background(), launch.Binding))
 	require.Equal(t, []string{"host-1", "host-1"}, boxes.retired)

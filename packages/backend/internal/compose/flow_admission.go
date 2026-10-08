@@ -309,7 +309,11 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 	launch.Environment = environment
 	connection, err := l.Launcher.StartFlowHost(ctx, launch)
 	if err != nil {
-		l.boxes.RetireBoxHostCredential(context.WithoutCancel(ctx), launch.Binding.ID, launch.Authority.UserID)
+		cleanup := context.WithoutCancel(ctx)
+		l.boxes.RetireBoxHostCredential(cleanup, launch.Binding.ID, launch.Authority.UserID)
+		// Readiness can fail after the process starts. Never reuse that process
+		// on retry with the credential we just revoked.
+		err = errors.Join(err, l.stopper.StopFlowHost(cleanup, launch.Binding))
 	}
 	return connection, err
 }
