@@ -28,5 +28,16 @@ export const runSourceCommand = <Name extends string>(
   cardId: string,
   send: (name: Name, args?: string) => void
 ): typeof send => (name, args) => {
+  if (name === "flow.run" && args?.trim().startsWith("{")) {
+    try {
+      const payload: unknown = JSON.parse(args)
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const target = payload as Record<string, unknown>
+        // Lifecycle controls already name their run card. Launches and stop-all keep the origin separately.
+        send(name, target.operation === "stop" || target.operation === "retry" || target.sourceCard !== undefined ? args : JSON.stringify({ ...target, sourceCard: cardId }))
+        return
+      }
+    } catch { /* The dispatcher owns malformed input refusal. */ }
+  }
   send(name, takesRunSource(name) && splitRunSource(args).sourceCard === undefined ? `sourceCard=${cardId}${args === undefined ? "" : ` ${args}`}` : args)
 }

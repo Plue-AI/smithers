@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../flows/RunLifecyclePayload"
 import { runsArgs } from "../flows/RunsPayload"
 import { expect, test } from "bun:test"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
@@ -159,7 +160,7 @@ for (const change of ["sign-out", "replacement", "ABA", "dispose"] as const) {
     let reopened: AppStore | undefined
     try {
       await t.store.dispatch({ type: "card.upsert", actor: "system", card: trace }).isPersisted.promise
-      expect((await t.controller.commands.run("flow.run.retry", traceId)).status).toBe("executed")
+      expect((await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", traceId))).status).toBe("executed")
       await t.entered.promise
       expect(t.store.collections.runtimeApprovals.size).toBe(1)
       await t.change(change)
@@ -237,7 +238,7 @@ test("same-account pump publishes approvals and run completion only after its he
   let reopened: AppStore | undefined
   try {
     await t.store.dispatch({ type: "card.upsert", actor: "system", card: trace }).isPersisted.promise
-    expect((await t.controller.commands.run("flow.run.retry", traceId)).status).toBe("executed")
+    expect((await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", traceId))).status).toBe("executed")
     await t.entered.promise
     expect(t.store.collections.cards.get(id)).toBeUndefined()
     expect(t.requests).toEqual(["run-summary", "approvals"])
@@ -258,11 +259,11 @@ test("a replaced pump cannot publish after its successor has completed", async (
   const t = await fixture(), id = approvalCardIdFor(t.store, scope, approval.requestId)
   try {
     await t.store.dispatch({ type: "card.upsert", actor: "system", card: trace }).isPersisted.promise
-    expect((await t.controller.commands.run("flow.run.retry", traceId)).status).toBe("executed")
+    expect((await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", traceId))).status).toBe("executed")
     await t.entered.promise
     // Cancellation removes the original watcher; its accepted receipt starts
     // the successor while the original still awaits the local approval receipt.
-    expect((await t.controller.commands.run("flow.run.stop", traceId)).status).toBe("executed")
+    expect((await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop", traceId))).status).toBe("executed")
     await waitFor(() => t.store.collections.cards.get(traceId)?.status === "acted" && t.requests.includes("flow-durations"))
     expect(actionableEnvelope(t.store, id)).toEqual(approval.payload)
     await t.store.settled?.()

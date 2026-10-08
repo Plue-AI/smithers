@@ -51,6 +51,19 @@ const valueSchema = (schema: Record<string, any>): z.ZodType => {
   }, decoded)
 }
 
+/** A union's HTTP door selects the declared variant that carries its binding fields. */
+const httpPayloadSchema = (row: typeof catalogCommands[number]): Record<string, any> => {
+  const schema = row.payload.schema as Record<string, any>
+  if (!schema.anyOf) return schema
+  const binding = row.client?.http ?? row.http
+  const keys = [...Array.from(binding?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!), ...Object.values(binding?.body ?? {}), ...Object.values(binding?.query ?? {})]
+  const hasValue = (field: Record<string, any>): boolean => field.not === undefined && (field.anyOf === undefined || field.anyOf.some((member: Record<string, any>) => member.type !== "null" && member.not === undefined))
+  const variants = schema.anyOf.filter((variant: Record<string, any>) => variant.type === "object" && keys.every(key => variant.properties?.[key] && hasValue(variant.properties[key])))
+  if (variants.length !== 1) throw new UsageError({ message: "This HTTP door has no unique payload variant" })
+  const variant = variants[0]
+  return { ...variant, properties: Object.fromEntries(Object.entries(variant.properties).filter(([, field]) => hasValue(field as Record<string, any>))) }
+}
+
 /** An explicit GET query projection also limits this door's accepted payload fields. */
 const httpInputFields = (row: typeof catalogCommands[number]): ReadonlySet<string> | undefined => {
   const binding = row.client?.http ?? row.http
@@ -69,7 +82,8 @@ export const dispatchCatalog = async (
   row: typeof catalogCommands[number],
   values: Record<string, unknown>
 ): Promise<unknown> => {
-  const fields = (row.payload.schema as { properties?: Record<string, unknown> }).properties ?? {}
+  const schema = httpPayloadSchema(row)
+  const fields: Record<string, any> = schema.properties ?? {}
   const supplied: Record<string, unknown> = {
     ...values,
     ...(row.name === "todo.answer" && values.todo !== undefined
@@ -86,13 +100,16 @@ export const dispatchCatalog = async (
   if (row.http === null && row.client === undefined) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
   }
+  const variantFields = (row.payload.schema as Record<string, any>).anyOf?.flatMap((variant: Record<string, any>) => Object.keys(variant.properties ?? {})) as string[] | undefined
+  const otherVariant = variantFields?.find(key => supplied[key] !== undefined && !(key in fields))
+  if (otherVariant) throw new UsageError({ message: `This HTTP door does not accept ${otherVariant}` })
   const exposed = httpInputFields(row)
   const unsupported = exposed && Object.keys(fields).find(key => supplied[key] !== undefined && !exposed.has(key))
   if (unsupported) throw new UsageError({ message: `This HTTP door does not accept ${unsupported}` })
   const input = Object.fromEntries(
     Object.keys(fields).filter((key) => supplied[key] !== undefined).map((key) => [key, supplied[key]])
   )
-  const payload = payloadSchema({ ...row.payload.schema, $defs: row.payload.definitions }).parse(
+  const payload = payloadSchema({ ...schema, $defs: row.payload.definitions }).parse(
     input
   ) as Record<string, unknown>
   if (row.name === "todo.answer" && typeof payload.answer === "string" && !payload.answer.trim()) {
@@ -202,8 +219,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     // Compose one door with the local parser and explicit destination dispatch.
     // A group may still need a catalog root without losing its local children.
     const local = existing && "_group" in existing ? existing.root : existing
-    const schema = row.payload.schema as { properties?: Record<string, any>; required?: Array<string> }
-    const fields = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!).filter(key => row.http?.defaults?.[key] === undefined)])
+    const schema = httpPayloadSchema(row)
+    const fields: Record<string, any> = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!).filter(key => row.http?.defaults?.[key] === undefined)])
     const positional = row.name === "ssh" ? "branch" : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
     const positionalKeys = new Set([
       positional,

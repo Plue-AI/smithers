@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../flows/RunLifecyclePayload"
 import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 import { runsArgs } from "../flows/RunsPayload"
 import { workflowLaunchOf, workflowInputOf } from "./WorkflowLaunch"
@@ -593,7 +594,7 @@ describe("runs.open / resume / signal / steer — the run's acts", () => {
       const controller = createAppController(store, silentAgent, double.services)
       await signIn(store)
       await openMonitor(controller, store, "run-2")
-      expect((await controller.commands.run("flow.run.stop", boxRunCard("run-2"))).status).toBe("executed")
+      expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop", boxRunCard("run-2")))).status).toBe("executed")
       return double
     }
 
@@ -703,7 +704,7 @@ describe("source-bound durable reruns", () => {
     expect(request.error?.message).not.toContain("Launch unavailable")
     expect(double.state.launched).toHaveLength(0)
     delete refusals.Plan
-    await controller.commands.run("flow.run.retry", `flow-request-${request.id}`)
+    await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", `flow-request-${request.id}`))
     await waitFor(() => double.state.launched.length === 1)
     expect(requests(store)[0]?.id).toBe(request.id)
     expect(double.state.launched[0]?.input).toEqual({ args: "b" })
@@ -1139,7 +1140,7 @@ describe("flow.run.stop-all — every live run, cancelled", () => {
     await openMonitor(controller, store, "run-a")
     await openMonitor(controller, store, "run-b")
 
-    const stopped = await controller.commands.run("flow.run.stop-all")
+    const stopped = await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop-all"))
     expect(said(stopped)).toContain("stopped=2 of 2")
     expect(double.state.cancelled.map((entry) => entry.runId).sort()).toEqual(["run-a", "run-b"])
     expect(double.state.cancelled[0]?.reason).toContain("every run")
@@ -1150,7 +1151,7 @@ describe("flow.run.stop-all — every live run, cancelled", () => {
     const double = relay()
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
-    const stopped = await controller.commands.run("flow.run.stop-all")
+    const stopped = await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop-all"))
     expect(said(stopped)).toContain("No runs are live")
     expect(double.state.cancelled).toHaveLength(0)
   })
@@ -2122,7 +2123,7 @@ describe("workspace-bound run cards", () => {
       const otherReads = other.calls.length
       const snapshots = () => double.calls.filter(call => (call.body as { procedure?: string })?.procedure === "Projection.Snapshot").length
       const beforeRetry = snapshots()
-      expect((await controller.commands.run("flow.run.retry", card.id)).status).toBe("executed")
+      expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", card.id))).status).toBe("executed")
       await waitFor(() => snapshots() >= beforeRetry + 2)
       expect(other.calls.length).toBe(otherReads)
       expect((await controller.commands.run("runs", runsArgs("approval-open", source))).status).toBe("executed")
@@ -2189,10 +2190,10 @@ describe("workspace-bound run cards", () => {
     if (list.kind !== "run-list") throw new Error("missing list")
     const recordedA = store.collections.runtimeRuns.get(runtimeRunKey(scopeA))!.summary!
     await store.dispatch({ type: "gateway.run.observed", actor: "system", observation: { scope: scopeA, summary: { ...recordedA, status: "running", updatedAt: recordedA.updatedAt + 1 } } }).isPersisted.promise
-    await controller.commands.run("flow.run.stop-all", `sourceCard=${listA} ${REPO}`)
+    await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop-all", `sourceCard=${listA} ${REPO}`))
     expect(a.state.cancelled).toHaveLength(1)
     expect(b.state.cancelled).toHaveLength(0)
-    await controller.commands.run("flow.run.stop", cardB.id)
+    await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop", cardB.id))
     await waitFor(() => b.state.cancelled.length === 1, 10_000)
     for (const [double, workspace] of [[a, workspaceId], [b, workspaceB]] as const) {
       for (const call of double.calls.filter((call) => call.path.startsWith("/api/workflow/"))) expect(call.body).toMatchObject({ workspaceId: workspace })

@@ -263,6 +263,11 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
     try { expect((await f.invoke(["flows", ...args])).exitCode).toBe(1); expect(f.seen).toEqual([]) }
     finally { await f.close() }
   })
+  it.each([["--operation", "stop", "--cardId", "run-1"], ["--operation", "retry", "--cardId", "request-1"], ["--operation", "stop-all", "--sourceCard", "private"]])("Flow launch CLI refuses private lifecycle input before HTTP: %s", async (...args) => {
+    const f = await fixture()
+    try { expect((await f.invoke(["flow", "run", "todo", ...args])).exitCode).toBe(1); expect(f.seen).toEqual([]) }
+    finally { await f.close() }
+  })
   it.each([["--operation", "approval-list"], ["--operation", "approval-open", "--runId", "run-1"], ["--operation", "attention", "--sourceCard", "private"]])("Runs CLI refuses browser-only variants before HTTP: %s", async (...args) => {
     const f = await fixture()
     try {

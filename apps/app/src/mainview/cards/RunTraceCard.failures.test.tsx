@@ -91,7 +91,7 @@ describe("a launch refusal", () => {
     const root = createRoot(host)
     flushSync(() => root.render(<WorkflowRunCardBody card={launchCard({ stage: "preparation", code: "box_gone", message: "gone" })}
       onStopRun={() => {}} onRetryRun={id => { retried.push(id) }} onRunCommand={() => {}} />))
-    const retry = host.querySelector<HTMLButtonElement>('[data-testid="flow-run-launch-failure"] button[data-flow="flow.run.retry"]')!
+    const retry = host.querySelector<HTMLButtonElement>('[data-testid="flow-run-launch-failure"] button[data-flow="flow.run"]')!
     expect(retry.textContent).toBe("Retry")
     retry.click()
     expect(retried).toEqual(["flow-request-request"])

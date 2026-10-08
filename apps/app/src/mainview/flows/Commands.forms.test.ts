@@ -370,7 +370,8 @@ const decodeInput = (input: Schema.Top) => Schema.decodeUnknownOption(input as u
 
 /** Each input property past `Schema.optional`: the shape a sample must take, and whether the schema lets it go. */
 const propertyShapes = (input: Schema.Top): ReadonlyMap<string, { readonly tag: string; readonly optional: boolean }> => {
-  const ast = input.ast as { _tag: string; propertySignatures?: ReadonlyArray<{ name: PropertyKey; type: any }> }
+  const declared = input.ast
+  const ast = (declared._tag === "Union" ? declared.types.find(member => member._tag === "Objects") ?? declared : declared) as { _tag: string; propertySignatures?: ReadonlyArray<{ name: PropertyKey; type: any }> }
   const shapes = new Map<string, { readonly tag: string; readonly optional: boolean }>()
   for (const signature of ast.propertySignatures ?? []) {
     const type = signature.type

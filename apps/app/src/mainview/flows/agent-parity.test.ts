@@ -133,7 +133,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "diff", args: savedDiffArgs("change.checks", "c1 1"), confirm: false },
   { name: "box.facet", args: "ws-1 files", confirm: false },
   { name: "change.facet", args: "c1 diff", confirm: false },
-  { name: "flow.run.retry", args: "card-1", confirm: true },
+  { name: "flow.run", args: JSON.stringify({ cardId: "card-1", operation: "retry" }), confirm: true },
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
   /* Agents as data (custom-agents.md): listing and the form render cards; defining what spends money confirms. */
   { name: "agents", confirm: false },
@@ -424,7 +424,7 @@ describe("the three-door law", () => {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("cloud.prompt")).toBe(false)
-    expect(disclosed.has("flow.run.retry")).toBe(true)
+    expect(disclosed.has("flow.run")).toBe(true)
     // The form card's acts (THE FORM LAW) are hidden from the catalog and callable, like every id-scoped card act.
     for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(true)
   })

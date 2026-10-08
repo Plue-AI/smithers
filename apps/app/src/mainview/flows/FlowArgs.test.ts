@@ -247,7 +247,7 @@ test("card configuration args round-trip through their production grammars", () 
     ["review.reopen", { changeId: "c1", threadId: 7 }],
     ["findings.please-fix", { changeId: "c1", findingId: 7 }],
     ["findings.not-useful", { changeId: "c1", findingId: 7 }],
-    ["flow.run.stop-all", { sourceCard: "card1", repo: "owner/repo" }]
+    ["flow.run", { sourceCard: "card1", repo: "owner/repo", operation: "stop-all" }]
   ] as const
   for (const [name, input] of cases) expect(payloadFor(name, flowArgs(name, input))).toEqual({ payload: input })
 })

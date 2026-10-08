@@ -4896,179 +4896,255 @@
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "repo": {
-              "anyOf": [
-                {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "name": {
                   "type": "string"
                 },
-                {
-                  "type": "null"
+                "repo": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sourceCard": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "workspaceId": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "input": {
+                  "anyOf": [
+                    {
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "operation": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cardId": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
-              ]
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": true
             },
-            "sourceCard": {
-              "anyOf": [
-                {
+            {
+              "type": "object",
+              "properties": {
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "stop",
+                    "retry"
+                  ]
+                },
+                "cardId": {
                   "type": "string"
                 },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "workspaceId": {
-              "anyOf": [
-                {
-                  "type": "string"
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "input": {
-              "anyOf": [
-                {
-                  "type": "object"
+                "name": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
-                {
-                  "type": "null"
+                "repo": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sourceCard": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "workspaceId": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "input": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
-              ]
+              },
+              "required": [
+                "operation",
+                "cardId"
+              ],
+              "additionalProperties": true
+            },
+            {
+              "type": "object",
+              "properties": {
+                "operation": {
+                  "type": "string",
+                  "enum": [
+                    "stop-all"
+                  ]
+                },
+                "repo": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sourceCard": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cardId": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "workspaceId": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "input": {
+                  "anyOf": [
+                    {
+                      "not": {}
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "operation"
+              ],
+              "additionalProperties": true
             }
-          },
-          "required": [
-            "name"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "flow.run.retry",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Check a run again",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "cardId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "cardId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "flow.run.stop",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Stop a run",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "cardId": {
-              "type": "string"
-            },
-            "reason": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "cardId"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "flow.run.stop-all",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Stop every live run on your workspace",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "sourceCard": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
+          ]
         },
         "definitions": {}
       }

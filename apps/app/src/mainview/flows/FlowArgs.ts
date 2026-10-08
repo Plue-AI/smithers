@@ -53,7 +53,6 @@ export interface FlowInput {
   readonly "egress.allow": { readonly host: string; readonly repo: string }
   readonly "box.session.destroy": { readonly sessionId: string; readonly workspaceId: string }
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
-  readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets": NonNullable<import("@smthrs/rpc/CardAction").CardCommandInput["secrets"]>
   readonly "issues.close": { readonly number: number; readonly repo: string }
@@ -99,13 +98,7 @@ export interface FlowInput {
   readonly "issues.comment": { readonly number: number; readonly text: string; readonly repo?: string }
 
   /** Source-qualified launch uses the existing plan/approval/run path. */
-  readonly "flow.run": {
-    readonly name: string
-    readonly repo?: string
-    readonly sourceCard?: string
-    readonly workspaceId?: string
-    readonly input?: Readonly<Record<string, unknown>>
-  }
+  readonly "flow.run": { readonly name: string; readonly repo?: string; readonly sourceCard?: string; readonly workspaceId?: string; readonly input?: Readonly<Record<string, unknown>> } | { readonly operation: "stop" | "retry"; readonly cardId: string; readonly reason?: string } | { readonly operation: "stop-all"; readonly repo?: string; readonly sourceCard?: string }
   /** The same address as a launch, stopping at the plan. */
   readonly "flow.plan": {
     readonly name: string
@@ -210,7 +203,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "egress.allow": payload => line(token(payload, "host"), token(payload, "repo")),
   "box.session.destroy": payload => line(token(payload, "sessionId"), token(payload, "workspaceId")),
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
-  "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "runs": payload => JSON.stringify(payload),
   "github": payload => JSON.stringify(payload),
@@ -252,8 +244,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "review": (payload) => line(token(payload, "number"), token(payload, "repo")),
   "issue.add-flow": (payload) => JSON.stringify(payload),
   "issues.comment": (payload) => JSON.stringify(payload),
-  "flow.run": (payload) => payload.workspaceId !== undefined ? JSON.stringify(payload) : line(keyed(payload, "sourceCard"), token(payload, "name"), token(payload, "repo"),
-    payload.input === undefined ? undefined : JSON.stringify(payload.input)),
+  "flow.run": payload => "operation" in payload ? JSON.stringify(payload) : payload.workspaceId !== undefined ? JSON.stringify(payload) : line(keyed(payload, "sourceCard"), token(payload, "name"), token(payload, "repo"), payload.input === undefined ? undefined : JSON.stringify(payload.input)),
   "flow.plan": (payload) => line(keyed(payload, "sourceCard"), keyed(payload, "against"), token(payload, "name"), token(payload, "repo"),
     payload.input === undefined ? undefined : JSON.stringify(payload.input)),
   "change.facet": (payload) => line(token(payload, "changeId"), token(payload, "facet")),

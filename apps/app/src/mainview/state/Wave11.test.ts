@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../flows/RunLifecyclePayload"
 import { workspaceFlowsArgs } from "../flows/WorkspaceFlowsPayload"
 /*
  * Wave 11 — "make me a workflow" becomes true, proven at the controller.
@@ -520,7 +521,7 @@ describe("wave 11 — the run card never silently stalls", () => {
     expect(double.calls.length).toBe(reads)
     unavailable = false
     events.push({ sequence: 2, occurredAt: 2, kind: "control.engine.projection-settled", payload: { version: 1, executionId: "run-w11", generation: 0 } })
-    await resumed.commands.run("flow.run.retry", runCard(store)!.id)
+    await resumed.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", runCard(store)!.id))
     expect(runCard(store)?.payload.error).toBe(double.state.verdict)
     await waitFor(() => runCard(store)?.payload.observationError === undefined)
     expect(runCard(store)?.payload.error).toBe(double.state.verdict)
@@ -860,7 +861,7 @@ describe("wave 11 — workflows are presented", () => {
      * brought two hidden graph gestures with it. The Flow card (T-APP-05)
      * added `flow.edit` and `flow.source`, its two buttons.
      */
-    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(10)
+    expect(controller.commands.all().filter((command) => command.name.startsWith("flow."))).toHaveLength(7)
     expect(
       controller.commands
         .all()

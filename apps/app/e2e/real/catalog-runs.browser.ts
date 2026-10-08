@@ -20,6 +20,17 @@ try {
   for (const run of runs) await expect(page.getByTestId(`card-run:${run.id}`)).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('[data-testid^="card-run:"]')).toHaveCount(runs.length)
   await expect(page.getByTestId("composer-input")).toBeEditable()
+  // Canonical lifecycle inputs refuse unknown cards on the real controller; no active run is borrowed.
+  for (const operation of ["stop", "retry"]) {
+    await fillComposer(page, `/flow.run ${JSON.stringify({ cardId: "absent-run", operation })}`)
+    await page.keyboard.press("Enter")
+    await expect(page.getByText("That isn't a run card.", { exact: true }).last()).toBeVisible()
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+  }
+  const afterLifecycle = await page.request.get(origin + "/api/runs")
+  expect(afterLifecycle.status()).toBe(200)
+  expect(await afterLifecycle.json()).toEqual(runs)
+  console.log("C-CAT-01 LIFECYCLE PASS: canonical stop/retry refuse absent cards; real install run inventory unchanged")
   const flowRead = page.waitForResponse(r => new URL(r.url()).pathname === "/api/flows" && r.request().method() === "GET")
   await fillComposer(page, "/flows")
   await page.keyboard.press("Enter")

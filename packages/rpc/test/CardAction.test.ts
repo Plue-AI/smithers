@@ -69,3 +69,11 @@ it.each([
 ])("recorded Diff controls retain their explicit targets: %s", (tag, operation, args) => {
   expect(ActionSchema.parse({ tag, label: "Open", args })).toMatchObject({ tag: "diff", args: { ...args, operation } })
 })
+
+it("recorded run lifecycle actions retain explicit targets without another executable tag", () => {
+  for (const [tag, args, operation] of [
+    ["flow.run.stop", { cardId: "run-1", reason: "original reason" }, "stop"],
+    ["flow.run.retry", { cardId: "request-1" }, "retry"],
+    ["flow.run.stop-all", { repo: "owner/repo", sourceCard: "list-1" }, "stop-all"]
+  ] as const) expect(ActionSchema.parse({ tag, args, label: "Run" })).toEqual({ tag: "flow.run", args: { ...args, operation }, label: "Run" })
+})

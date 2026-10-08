@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../flows/RunLifecyclePayload"
 /*
  * Every flow call names a box (#2194). The one rule for which box a call on a
  * repository means lives in RepoContext: a recorded run's own box, else the
@@ -159,10 +160,11 @@ describe("a flow launch with no box", () => {
     expect(agent.status).toBe("failed")
     if (agent.status === "failed") expect(agent.error).toBe(refusal)
     expect(workflowCalls).toEqual([])
-    // Chat is untouched.
+    // A missing conversation host refuses without invoking the retired browser model.
     controller.send("what should I do?")
     await settle()
-    expect(turns).toBe(1)
+    expect(turns).toBe(0)
+    expect([...store.collections.toasts.values()].some(toast => toast.status === "failed")).toBe(true)
     expect(store.session().phase).not.toBe("busy")
     // Retry after opening the box: the request is acknowledged at once and names the box.
     await loadBox(store, REPO, BOX_A)
@@ -204,7 +206,7 @@ describe("a request saved with no box", () => {
       }
     })
     const refusal = `Open a box of ${REPO} first: /box.open ${REPO}`
-    expect((await controller.commands.run("flow.run.retry", REQUEST_CARD)).status).toBe("executed")
+    expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", REQUEST_CARD))).status).toBe("executed")
     await waitFor(() => {
       const card = store.collections.cards.get(REQUEST_CARD)
       return card?.kind === "run-trace" && card.payload.error === refusal
@@ -212,7 +214,7 @@ describe("a request saved with no box", () => {
     expect(workflowCalls).toEqual([])
     // Once a box is open, Retry launches on it.
     await loadBox(store, REPO, BOX_A)
-    expect((await controller.commands.run("flow.run.retry", REQUEST_CARD)).status).toBe("executed")
+    expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", REQUEST_CARD))).status).toBe("executed")
     await waitFor(() => workflowCalls.length > 0)
     expect(workflowCalls[0]).toMatchObject({ path: "/api/workflow/provision", body: { repo: REPO, workspaceId: BOX_A } })
     expect(store.collections.cards.get(REQUEST_CARD)).toMatchObject({ payload: { workspaceId: BOX_A, phase: "launching" } })

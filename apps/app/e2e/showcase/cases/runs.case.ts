@@ -27,7 +27,7 @@ export default showcase({
   order: 100,
   title: "Runs",
   summary: "The run inbox; a run's trace and transcript; steer, re-seat and stop a live run.",
-  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run.retry", "flow.run.stop"],
+  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run", "flow.run"],
   run: async ({ page, app, backend }) => {
     const now = Date.now()
     const steers: Array<{ kind: string; body?: string }> = []

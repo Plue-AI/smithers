@@ -879,7 +879,7 @@ export const WorkflowRunCardBody = ({
     {request.error === undefined ? <p className="smithers-card-note" role="status">Requested</p> : (
       <FailureNotice className="sui-approval-error" data-testid="flow-run-launch-failure" data-stage={request.error.stage}
         failure={launchFailure(request.error)}
-        actions={{ retry: { ...flowProps("flow.run.retry"), onClick: () => onRetryRun(card.id) } }} />
+        actions={{ retry: { ...flowProps("flow.run", flowArgs("flow.run", { cardId: card.id, operation: "retry" })), onClick: () => onRetryRun(card.id) } }} />
     )}
   </div>
   const { phase, error, observationError, runId, kind } = card.payload
@@ -966,13 +966,13 @@ export const WorkflowRunCardBody = ({
       {phase === "quiet" ?
         (
           <div className="flow-run-actions">
-            <Button size="sm" {...flowProps("flow.run.retry")} onClick={() => onRetryRun(card.id)}>
+            <Button size="sm" {...flowProps("flow.run", flowArgs("flow.run", { cardId: card.id, operation: "retry" }))} onClick={() => onRetryRun(card.id)}>
               Check again
             </Button>
             <Button
               size="sm"
               variant="outline"
-              {...flowProps("flow.run.stop")}
+              {...flowProps("flow.run", flowArgs("flow.run", { cardId: card.id, operation: "stop" }))}
               onClick={() => onStopRun(card.id)}
             >
               Stop watching
@@ -981,7 +981,7 @@ export const WorkflowRunCardBody = ({
         ) :
         null}
       {TERMINAL_RUN_PHASES.has(phase) && (error !== undefined || observationError !== undefined || card.payload.events?.some((event) => event.kind === "control.engine.projection-gap")) ? (
-        <Button size="sm" {...flowProps("flow.run.retry")} onClick={() => onRetryRun(card.id)}>
+        <Button size="sm" {...flowProps("flow.run", flowArgs("flow.run", { cardId: card.id, operation: "retry" }))} onClick={() => onRetryRun(card.id)}>
           Check again
         </Button>
       ) : null}
@@ -1038,7 +1038,7 @@ export const WorkflowRunCardBody = ({
               <Button
                 size="sm"
                 variant="outline"
-                {...flowProps("flow.run.stop")}
+                {...flowProps("flow.run", flowArgs("flow.run", { cardId: card.id, operation: "stop" }))}
                 data-testid={`flow-run-stop-${runId}`}
                 onClick={() => onStopRun(card.id)}
               >

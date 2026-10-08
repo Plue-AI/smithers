@@ -1,3 +1,4 @@
+import { flowArgs } from "../flows/FlowArgs"
 import type { CardViewProps } from "../ChatCards"
 import type { AppController } from "../state/AppController"
 import type { Card } from "../state/AppState"
@@ -48,8 +49,8 @@ export const controllerCardActions = (controller: AppController, card?: Card): C
     onFrameForward: () => runCommand("frame.forward"),
     onConnectGitHub: () => runCommand("sign-in"),
     onRunWorkflow: (name) => runCommand("flow.run", name),
-    onStopRun: (id) => runCommand("flow.run.stop", id),
-    onRetryRun: (id) => runCommand("flow.run.retry", id),
+    onStopRun: (id) => runCommand("flow.run", flowArgs("flow.run", { cardId: id, operation: "stop" })),
+    onRetryRun: (id) => runCommand("flow.run", flowArgs("flow.run", { cardId: id, operation: "retry" })),
     onChooseWorkflowRepo: (name) => runCommand("flow.repo.choose", name),
     onChangeWorldDocument: (id, body) =>
       runCommand("wiki.edit", `${id} ${JSON.stringify(body)}`),

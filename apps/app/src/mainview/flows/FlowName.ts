@@ -20,6 +20,9 @@
  * button still runs; nothing writes these names.
  */
 export const RENAMED_FLOWS: Readonly<Record<string, string>> = {
+  "flow.run.stop": "flow.run",
+  "flow.run.retry": "flow.run",
+  "flow.run.stop-all": "flow.run",
   "change.view": "diff",
   "change.diff": "diff",
   "change.pins": "diff",
@@ -219,9 +222,6 @@ export const FLOW_NAMES = [
   "flow.plan.select",
   "flow.plan.tab",
   "flow.run",
-  "flow.run.retry",
-  "flow.run.stop",
-  "flow.run.stop-all",
   "flow.source",
   "flows",
   "form.set",

@@ -91,8 +91,10 @@ export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBo
 
 /** The confirmation label an agent invocation of this flow needs, or undefined when it needs none. */
 export const confirmLabel = (metadata: FlowMetadata, payload: Record<string, unknown>): string | undefined =>
-  metadata.agent === "run" || metadata.agent === "never" ? undefined :
+  metadata.agent === "never" ? undefined :
+  // A command may keep a run door while stronger, payload-specific controls require confirmation.
   typeof metadata.confirm === "function" ? metadata.confirm(payload) :
+  metadata.agent === "run" ? undefined :
   metadata.confirm ?? (metadata.agent === "confirm" ? metadata.summary : undefined)
 
 /**

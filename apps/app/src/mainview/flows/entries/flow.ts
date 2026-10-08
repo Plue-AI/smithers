@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flow,  CardTarget } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import { flowPlanParts, flowRunParts, payloadFor } from "../SlashPayload"
 import { line, text } from "@smthrs/ui/flow-form"
@@ -125,42 +125,14 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ description, repo }) => actions.createWorkflow(description, repo)
   }),
   flow({
-    /*
-     * Wave 12 §3 — the acts a run that has gone quiet offers, bound to the
-     * card's buttons. Hidden from the slash menu and the catalog. Stopping a
-     * run is consequential (the cancel is durable), so the model may ASK but
-     * never perform it: `confirm` turns an agent invocation into a
-     * confirmation message whose button runs the stop as the user.
-     */
-    name: "flow.run.stop", visibility: "in-card",
-    summary: "Stop a run",
-    runtime: ["cloud"],
-    hidden: true,
-    confirm: "stop the run",
-    args: "<cardId> [reason]",
-    input: Schema.Struct({
-      cardId: Schema.String,
-      reason: Schema.optional(Schema.String)
-    }),
-    handler: ({ cardId, reason }) => actions.stopWatchingRun(cardId, reason)
-  }),
-  flow({
-    /* A retry spends (.specs/engineering/spec.md §6.1): the model may ask, the human confirms. */
-    name: "flow.run.retry", visibility: "in-card",
-    summary: "Check a run again",
-    runtime: ["cloud"],
-    hidden: true,
-    confirm: "check the run again",
-    args: "<cardId>",
-    input: CardTarget,
-    handler: ({ cardId }) => actions.retryRunWatch(cardId)
-  }),
-  flow({
-    name: "flow.run",
+    name: "flow.run", agent: "run",
+    confirm: payload => payload.operation === "stop" ? "stop the run" : payload.operation === "retry" ? "check the run again" : payload.operation === "stop-all" ? "stop every run" : undefined,
+    confirmArgs: payload => JSON.stringify(payload),
      slash: "/flow.run", cli: ["flow","run"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/flows/{name}/run", body: { workspaceId: "workspaceId", input: "input" } }, form: {
-      fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" }, workspaceId: { hidden: true } },
+      fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" }, workspaceId: { hidden: true }, operation: { hidden: true }, cardId: { hidden: true } },
+      requires: payload => payload.operation === "stop" || payload.operation === "retry" ? ["cardId"] : payload.operation === "stop-all" ? [] : undefined,
       partial: flowRunParts,
-      args: (payload) => payload.workspaceId !== undefined ? JSON.stringify(payload) : line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
+      args: (payload) => payload.operation !== undefined || payload.workspaceId !== undefined ? JSON.stringify(payload) : line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
         text(payload, "name"), text(payload, "repo"),
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
@@ -168,14 +140,16 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     runtime: ["cloud"],
     args: "[sourceCard=id] <name> [owner/repo] [JSON object]",
     requires: ["signed-in"],
-    input: Schema.Struct({
-      name: Schema.String,
-      repo: Schema.optional(Schema.String),
-      sourceCard: Schema.optional(Schema.String),
-      workspaceId: Schema.optional(Schema.String),
-      input: Schema.optional(Schema.Record(Schema.String, Schema.Json))
-    }),
-    handler: ({ name, repo, input, sourceCard, workspaceId }) => actions.runWorkflow(name, repo, input, sourceCard, true, workspaceId)
+    input: Schema.Union([
+      Schema.Struct({ name: Schema.String, repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String), workspaceId: Schema.optional(Schema.String), input: Schema.optional(Schema.Record(Schema.String, Schema.Json)), operation: Schema.optional(Schema.Never), cardId: Schema.optional(Schema.Never), reason: Schema.optional(Schema.Never) }),
+      Schema.Struct({ operation: Schema.Literals(["stop", "retry"]), cardId: Schema.String, reason: Schema.optional(Schema.String), name: Schema.optional(Schema.Never), repo: Schema.optional(Schema.Never), sourceCard: Schema.optional(Schema.Never), workspaceId: Schema.optional(Schema.Never), input: Schema.optional(Schema.Never) }),
+      Schema.Struct({ operation: Schema.Literal("stop-all"), repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String), name: Schema.optional(Schema.Never), cardId: Schema.optional(Schema.Never), reason: Schema.optional(Schema.Never), workspaceId: Schema.optional(Schema.Never), input: Schema.optional(Schema.Never) })
+    ]),
+    handler: ({ name, repo, input, sourceCard, workspaceId, operation, cardId, reason }) => {
+      if (operation === "stop" || operation === "retry") return cardId === undefined ? "Choose a run" : operation === "stop" ? actions.stopWatchingRun(cardId, reason) : actions.retryRunWatch(cardId)
+      if (operation === "stop-all") return actions.stopAllRuns(repo, sourceCard)
+      return name === undefined ? "Choose a flow" : actions.runWorkflow(name, repo, input, sourceCard, true, workspaceId)
+    }
   }),
   /*
    * The plan door (docs/flow-builder): the same address as a launch, stopping
@@ -270,19 +244,3 @@ export const repositoryFlowLeaves = (
       })
     ]
   })
-
-/** `flow.run.stop-all`, registered after the `runs.*` block it acts across. */
-export const flowRunStopAllFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    /* Stopping every run is consequential: agent invocations confirm first. */
-    name: "flow.run.stop-all", visibility: "in-card",
-    summary: "Stop every live run on your workspace",
-    runtime: ["cloud"],
-    hidden: true,
-    confirm: "stop every run",
-    args: "[sourceCard=id] [owner/repo]",
-    requires: ["signed-in"],
-    input: Schema.Struct({ repo: Schema.optional(Schema.String), sourceCard: Schema.optional(Schema.String) }),
-    handler: ({ repo, sourceCard }) => actions.stopAllRuns(repo, sourceCard)
-  })
-]

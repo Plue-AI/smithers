@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../../flows/RunLifecyclePayload"
 import type { StorageApi } from "@tanstack/db"
 import { describe, expect, setDefaultTimeout, test } from "bun:test"
 
@@ -205,9 +206,12 @@ describe("triggers seam: the declaration, signed out", () => {
     if (unavailable.status === "failed") expect(unavailable.error).toBe("The rules of will/flows couldn't be read: the mirror did not answer for .smithers/factory.json.")
   })
 
-  test("the slash door and the agent door run the read signed out, and the register door defers behind sign-in", async () => {
+  test("the person reads signed out, the app agent refuses deferred controls, and registration waits for sign-in", async () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }))
-    expect((await controller.commands.runForAgent("triggers.list", "will/flows")).status).toBe("executed")
+    const read = await controller.commands.runForAgent("triggers.list", "will/flows")
+    expect(read.status).toBe("failed")
+    if (read.status === "failed") expect(read.error).toContain("user-only")
+    expect((await controller.commands.run("triggers.list", "will/flows")).status).toBe("executed")
     expect(store.session().pendingCommand ?? null).toBeNull()
     /* The human's door parks the write behind sign-in: the outcome is sign-in's, the parked flow is the register. */
     await controller.commands.run("triggers.register")
@@ -215,7 +219,7 @@ describe("triggers seam: the declaration, signed out", () => {
     expect(store.session().pendingCommand?.requirement).toBe("signed-in")
     const agentRefused = await controller.commands.runForAgent("triggers.register", "will/flows")
     expect(agentRefused.status).toBe("failed")
-    if (agentRefused.status === "failed") expect(agentRefused.error).toContain("Sign in with GitHub first")
+    if (agentRefused.status === "failed") expect(agentRefused.error).toContain("user-only")
   })
 })
 
@@ -644,17 +648,15 @@ describe("triggers seam: registering a repository flow on a schedule", () => {
     await controller.dispose()
   })
 
-  test("the agent's one-flow request keeps the preview and the human's Approve: approvals belong to the human", async () => {
+  test("the app agent cannot invoke a deferred schedule or approve its registration", async () => {
     const calls: RelayCall[] = []
     const { store, controller } = await readyToRegister(registrationBackend(calls, { status: "running", verdict: "" }, async () => {}))
     const outcome = await controller.submitCommand({ name: "triggers.register", payload: { flow: "nightly-lint", input: '{"label":"nightly"}' }, actor: "agent" })
-    expect(outcome.status).toBe("executed")
-    const prepared = () => preparationOf(store, "nightly-lint")
-    await waitFor(() => ["prepared", "failed"].includes(prepared()?.phase ?? ""))
-    expect(prepared()).toMatchObject({ phase: "prepared", draft: { schedule: "0 2 * * *" } })
-    expect(prepared()?.approve).toBeUndefined()
-    expect(lastAction(store)?.flow).toBe("triggers.approve")
-    expect(calls.some(call => call.procedure === "Approval.Submit" || call.procedure === "Run")).toBe(false)
+    expect(outcome.status).toBe("failed")
+    if (outcome.status === "failed") expect(outcome.error).toContain("user-only")
+    expect(preparationOf(store, "nightly-lint")).toBeUndefined()
+    expect(lastAction(store)?.flow).not.toBe("triggers.approve")
+    expect(calls).toEqual([])
     await controller.dispose()
   })
 
@@ -2176,11 +2178,12 @@ describe("triggers seam: listing and pausing a schedule", () => {
     }
   })
 
-  test("the pause door is the agent's to ask for and the human's to confirm", async () => {
+  test("the deferred pause control refuses the app agent before a mutation", async () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(DAY_ONE) }), { signedIn: true })
     const asked = await controller.commands.runForAgent("triggers.pause", JSON.stringify({ repo: "will/flows", slug: "nightly" }))
-    expect(asked.status).toBe("executed")
-    expect(lastAction(store)?.flow).toBe("triggers.pause")
+    expect(asked.status).toBe("failed")
+    if (asked.status === "failed") expect(asked.error).toContain("user-only")
+    expect(lastAction(store)?.flow).not.toBe("triggers.pause")
   })
 })
 
@@ -2333,7 +2336,7 @@ describe("triggers seam: running a registered schedule now", () => {
       expect(calls).toEqual([])
       await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.sourceCard === card.id && toast.status === "failed"))
       enabled = true
-      await controller.commands.run("flow.run.retry", card.id)
+      await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", card.id))
       await waitFor(() => dispatchCards(store)[0]?.payload.runId === REGISTRAR_RUN)
       expect(workflowLaunchOf(dispatchCards(store)[0])?.id).toBe(original.id)
       expect(calls.filter(call => call.procedure === "Run")).toHaveLength(1)
@@ -2404,7 +2407,7 @@ describe("triggers seam: running a registered schedule now", () => {
     expect(card.payload.error).toBe("The schedules could not be read. Retry the request.")
     expect(calls).toEqual([])
     available = true
-    expect((await controller.commands.run("flow.run.retry", card.id)).status).toBe("executed")
+    expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", card.id))).status).toBe("executed")
     await waitFor(() => dispatchCards(store)[0]?.payload.runId === REGISTRAR_RUN)
     expect(workflowLaunchOf(dispatchCards(store)[0])?.id).toBe(original.id)
     expect(calls.find(call => call.procedure === "Plan")?.payload.input).toMatchObject({ requestId: original.input.requestId })
@@ -2425,7 +2428,7 @@ describe("triggers seam: running a registered schedule now", () => {
     expect(card.payload.error).toBe(GATEWAY_REFUSED)
     expect(card.payload.error).not.toContain("Workspace unavailable")
     refused = false
-    await controller.commands.run("flow.run.retry", card.id)
+    await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", card.id))
     await waitFor(() => dispatchCards(store)[0]?.payload.runId === REGISTRAR_RUN)
     const plans = calls.filter(call => call.procedure === "Plan")
     expect(plans).toHaveLength(2)
@@ -2535,12 +2538,13 @@ describe("triggers seam: running a registered schedule now", () => {
     expect(calls.map((call) => call.procedure)).toEqual(["Plan"])
   })
 
-  for (const command of ["triggers.run", "triggers.resume"] as const) test(`${command}: agent requests confirmation and missing input opens a form`, async () => {
+  for (const command of ["triggers.run", "triggers.resume"] as const) test(`${command}: the app agent refuses while the person can fill missing input`, async () => {
     const calls: Array<RelayCall> = []
     const { store, controller } = await readyToRegister(ROUTES(calls))
     const asked = await controller.commands.runForAgent(command, "nightly will/flows")
-    expect(asked.status).toBe("executed")
-    expect(lastAction(store)?.flow).toBe(command)
+    expect(asked.status).toBe("failed")
+    if (asked.status === "failed") expect(asked.error).toContain("user-only")
+    expect(lastAction(store)?.flow).not.toBe(command)
     expect(calls).toEqual([])
     const form = await controller.commands.run(command)
     expect(form.status).toBe("form")

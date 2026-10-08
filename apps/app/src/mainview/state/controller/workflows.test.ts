@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../../flows/RunLifecyclePayload"
 import { expect, test } from "bun:test"
 import type { RunSummaryRow } from "./gateway"
 import { GATEWAY_REFUSED } from "./GatewayFailureCopy"
@@ -218,7 +219,7 @@ test("a gateway that never becomes ready fails the durable request and can be re
     expect(card.payload.error).toContain("did not become ready")
     expect(t.calls.filter(call => call.procedure === "Run")).toHaveLength(0)
     t.provision(async () => json(200, { status: "ready" }))
-    await t.controller.commands.run("flow.run.retry", card.id)
+    await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", card.id))
     await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
     expect(t.cards()[0]!.id).toBe(card.id)
   } finally { await t.controller.dispose(); await t.store.dispose?.() }
@@ -234,7 +235,7 @@ test("a refused launch stays visible and the existing retry flow retries the sam
   expect(t.cards()[0]!.payload.error).toBe(GATEWAY_REFUSED)
   expect(t.cards()[0]!.payload.error).not.toContain("Provider unavailable")
   t.run(async () => json(200, { ok: true, payload: { runId: "run-1" } }))
-  await t.controller.commands.run("flow.run.retry", id)
+  await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", id))
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
   expect(t.cards()[0]!.id).toBe(id)
   const plans = t.calls.filter(call => call.procedure === "Plan")
@@ -276,7 +277,7 @@ test("a refused launch whose error cannot be saved records a typed persistence f
     stage: "persistence", code: "request_persistence_failed", message: "The run request could not be saved. Try again."
   } })
   t.run(async () => json(200, { ok: true, payload: { runId: "run-1" } }))
-  await t.controller.commands.run("flow.run.retry", t.cards()[0]!.id)
+  await t.controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", t.cards()[0]!.id))
   await waitFor(() => t.cards()[0]?.payload.runId === "run-1")
 })
 

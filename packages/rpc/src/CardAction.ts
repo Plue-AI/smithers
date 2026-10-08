@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type CatalogTag = RegisteredCatalogTag | typeof historicalDiff[number] | typeof historicalFileNavigation[number] | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
+export type CatalogTag = RegisteredCatalogTag | typeof historicalRunLifecycle[number] | typeof historicalDiff[number] | typeof historicalFileNavigation[number] | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"
 
 /**
  * An action form field.
@@ -47,6 +47,8 @@ export type FormField = z.infer<typeof FormFieldSchema>
  * @since 1.0.0
  * @category schemas
  */
+const historicalRunLifecycle = ["flow.run.stop", "flow.run.retry", "flow.run.stop-all"] as const
+const runLifecycleOperation = (tag: string) => tag.slice("flow.run.".length)
 const historicalDiff = ["change.view", "change.diff", "change.pins", "change.checks", "files.open-diff"] as const
 const diffOperation = (tag: string): string => tag === "change.view" ? "change" : tag === "change.diff" ? "change-diff" : tag === "change.pins" ? "pins" : tag === "change.checks" ? "checks" : "file"
 const historicalFileNavigation = ["files.list", "box.files", "box.file", "repo.tree"] as const
@@ -63,13 +65,13 @@ const recordedSecretArgs = (tag: string, args: Readonly<Record<string, string>> 
   } : {}) }
 }
 export const ActionSchema = z.object({
-  tag: z.union([CatalogTagSchema, z.enum(historicalDiff), z.enum(historicalFileNavigation), z.literal("files.read"), z.literal("proposal"), z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
+  tag: z.union([CatalogTagSchema, z.enum(historicalRunLifecycle), z.enum(historicalDiff), z.enum(historicalFileNavigation), z.literal("files.read"), z.literal("proposal"), z.literal("flow.list"), z.enum(historicalRuns), z.enum(historicalGitHub), z.enum(historicalSettings), z.literal("context.inspect"), z.enum(["secrets.set", "secrets.delete", "secrets.scope", "secrets.bind"])]),
   label: z.string(),
   args: z.record(z.string(), z.string()).optional(),
   primary: z.boolean().optional(),
   disabled: z.object({ reason: z.string() }).optional(),
   input: z.array(FormFieldSchema).optional()
-}).overwrite(action => historicalDiff.some(tag => tag === action.tag) ? { ...action, tag: "diff" as const, args: { ...action.args, operation: diffOperation(action.tag) } } : historicalFileNavigation.some(tag => tag === action.tag) ? { ...action, tag: action.tag === "box.file" ? "file" as const : "files" as const, args: { ...action.args, operation: action.tag === "repo.tree" ? "tree" : action.tag === "files.list" ? "repository" : "workspace" } } : action.tag === "files.read" ? { ...action, tag: "file" as const, args: { ...action.args, operation: "repository" } } : action.tag === "proposal" ? { ...action, tag: "wiki" as const, args: { ...action.args, operation: "proposal" } } : action.tag === "flow.list" ? { ...action, tag: "flows" as const, args: { ...action.args, operation: "workspace" } } : historicalRuns.some(tag => tag === action.tag)
+}).overwrite(action => historicalRunLifecycle.some(tag => tag === action.tag) ? { ...action, tag: "flow.run" as const, args: { ...action.args, operation: runLifecycleOperation(action.tag) } } : historicalDiff.some(tag => tag === action.tag) ? { ...action, tag: "diff" as const, args: { ...action.args, operation: diffOperation(action.tag) } } : historicalFileNavigation.some(tag => tag === action.tag) ? { ...action, tag: action.tag === "box.file" ? "file" as const : "files" as const, args: { ...action.args, operation: action.tag === "repo.tree" ? "tree" : action.tag === "files.list" ? "repository" : "workspace" } } : action.tag === "files.read" ? { ...action, tag: "file" as const, args: { ...action.args, operation: "repository" } } : action.tag === "proposal" ? { ...action, tag: "wiki" as const, args: { ...action.args, operation: "proposal" } } : action.tag === "flow.list" ? { ...action, tag: "flows" as const, args: { ...action.args, operation: "workspace" } } : historicalRuns.some(tag => tag === action.tag)
   ? { ...action, tag: "runs" as const, args: { ...action.args, operation: runsOperation(action.tag) } }
   : historicalGitHub.some(tag => tag === action.tag)
   ? { ...action, tag: "github" as const, args: { ...action.args, operation: githubOperation(action.tag) } }
@@ -167,7 +169,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  * @category models
  */
 /** Historical tags are decodable data; no new typed command can use them. */
-export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalDiff[number] | typeof historicalFileNavigation[number] | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
+export type CardCommandInput = CurrentCardCommandInput & { readonly [Tag in typeof historicalRunLifecycle[number] | typeof historicalDiff[number] | typeof historicalFileNavigation[number] | "files.read" | "proposal" | "flow.list" | typeof historicalRuns[number] | typeof historicalGitHub[number] | typeof historicalSettings[number] | "context.inspect" | "secrets.set" | "secrets.delete" | "secrets.scope" | "secrets.bind"]: never }
 
 interface CurrentCardCommandInput {
   readonly "approval.approve": { readonly cardId: string }
@@ -217,7 +219,7 @@ interface CurrentCardCommandInput {
   readonly "flow": { readonly name: string }
   readonly "agent.edit": { readonly name: "planner" | "implementer" | "reviewer" | "app"; readonly request: string; readonly diff?: string }
   readonly "flow.edit": { readonly name: string }
-  readonly "flow.run": { readonly name: string; readonly input?: Readonly<Record<string, unknown>> }
+  readonly "flow.run": { readonly name: string; readonly input?: Readonly<Record<string, unknown>> } | { readonly operation: "stop" | "retry"; readonly cardId: string; readonly reason?: string } | { readonly operation: "stop-all"; readonly repo?: string; readonly sourceCard?: string }
   readonly "flow.new": { readonly name: string }
   readonly "runs": undefined | { readonly operation?: "approval-list" | "approval-open" | "attention"; readonly runId?: string; readonly repo?: string; readonly sourceCard?: string }
   readonly "run": { readonly id: string }

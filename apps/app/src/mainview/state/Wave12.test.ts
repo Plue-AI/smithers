@@ -1,3 +1,4 @@
+import { savedRunLifecycleArgs } from "../flows/RunLifecyclePayload"
 /*
  * Wave 12 — result claims are deterministic, and the last first-run polish.
  *
@@ -197,11 +198,11 @@ const transcript = (store: Awaited<ReturnType<typeof webStore>>): string =>
 const WAVE11_LIE =
   "The workflow \"summarize-open-issues\" has been created and is now running on codeplanesmithers/smithers-demo."
 
-describe("wave 12 §1 — the model may not narrate run state", () => {
-  test("the wave-11 transcript replayed: the rendered turn contains no 'has been created'", async () => {
+describe("recorded browser model scripts cannot substitute for the conversation host", () => {
+  test("a recorded launch and success claim do not execute without a conversation host", async () => {
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         {
           type: "tool_call" as const,
@@ -223,24 +224,22 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
-    controller.send("can you make me a smithers workflow that summarizes my open issues?")
-    await settle(30)
-
-    const rendered = transcript(store)
-    // The lie is not on screen, in whole or in part.
-    expect(rendered).not.toContain("has been created")
-    expect(rendered).not.toContain("summarize-open-issues")
-    // What IS on screen: the deterministic line, and the card beside it.
-    expect(rendered).toContain("Waiting for you to confirm.")
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
+    controller.send("make me a workflow")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
     expect(runCard(store)).toBeUndefined()
-    // The act line names the run the CLIENT started, from the machine ack.
-    expect(rendered).toContain("Smithers asked for confirmation of /flow.new")
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
+    expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
-  test("prose that claims nothing about the run is rendered untouched", async () => {
+  test("ordinary recorded model prose cannot revive browser execution", async () => {
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         {
           type: "tool_call" as const,
@@ -262,18 +261,25 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
     controller.send("make me a workflow")
-    await settle(30)
-    expect(transcript(store)).toContain("Approvals go to you, never to me.")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
+    expect(runCard(store)).toBeUndefined()
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
+    expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
-  test("a slash-prefixed launch arms the gate exactly like the bare spelling", async () => {
+  test("a recorded slash-prefixed launch cannot revive browser execution", async () => {
     // ui-state-store/api-design/1: the tool schema accepts the catalog's
     // "/flow.new"; execution launched from it while the classifier read
     // the raw name and left the claim gate unarmed, so the lie rendered.
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         {
           type: "tool_call" as const,
@@ -291,19 +297,22 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
     controller.send("make me a workflow")
-    await settle(30)
-    const rendered = transcript(store)
-    expect(rendered).not.toContain("has been created")
-    expect(rendered).toContain("Waiting for you to confirm.")
-    expect(rendered).toContain("Smithers asked for confirmation of /flow.new")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
     expect(runCard(store)).toBeUndefined()
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
+    expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
-  test("a preamble before the tool call is covered too — half a suppressed claim is still a claim", async () => {
+  test("a recorded preamble and tool call cannot fabricate a run", async () => {
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         { type: "delta" as const, kind: "text" as const, text: "Creating that workflow for you now. " },
         {
@@ -319,18 +328,24 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
     controller.send("make me a workflow")
-    await settle(30)
-    expect(transcript(store)).not.toContain("Creating that workflow for you now")
-    expect(transcript(store)).toContain("Waiting for you to confirm.")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
+    expect(runCard(store)).toBeUndefined()
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
+    expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
-  test("an unknown remote flow is requested, then its recorded refusal appears on the card", async () => {
+  test("a recorded unknown-flow call does not create a run card", async () => {
     // The command records intent before the remote registry can refuse it.
     // Model prose cannot turn that receipt into an execution verdict.
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         {
           type: "tool_call" as const,
@@ -352,17 +367,19 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
-    controller.send("run nope")
-    await settle(30)
-    expect(transcript(store)).toContain("Smithers requested a nope run")
-    expect(transcript(store)).toContain("Run requested.")
-    expect(transcript(store)).not.toContain("Smithers started")
-    const refusal = `There's no flow called nope on ${REPO}. The workspace has: create-flow, review-pr.`
-    await waitFor(() => [...store.collections.cards.values()].some(card => card.kind === "run-trace" && card.payload.error === refusal))
-    expect(transcript(store)).not.toContain("Unknown workflow: nope")
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
+    controller.send("make me a workflow")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
+    expect(runCard(store)).toBeUndefined()
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
+    expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
-  test("held-back whitespace still settles the turn — the composer never locks (review)", async () => {
+  test("unavailable conversation admission leaves the composer idle despite recorded whitespace", async () => {
     /*
      * Review pass: after a launch the model's text is BUFFERED, so a
      * continuation of nothing but whitespace left no answer message behind.
@@ -373,7 +390,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
      */
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         {
           type: "tool_call" as const,
@@ -391,14 +408,19 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
     controller.send("make me a workflow")
-    await waitFor(() => store.session().phase === "idle")
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
+    expect(runCard(store)).toBeUndefined()
+    expect(transcript(store)).not.toContain("has been created")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
     expect(store.session().phase).toBe("idle")
-    // The launch itself still happened and is stated by the client.
-    expect(transcript(store)).toContain("Smithers asked for confirmation of /flow.new")
+    controller.stop()
   })
 
-  test("a turn stopped mid-flight does not leave a claiming preamble standing (review)", async () => {
+  test("stopping unavailable conversation admission leaves no recorded success claim", async () => {
     /*
      * Review pass: the substitution only ran on the natural settle. A preamble
      * streamed BEFORE the tool call is already on screen, and stopping the turn
@@ -407,7 +429,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
      */
     const store = await webStore()
     const double = relay()
-    const { agent } = scriptedToolAgent([
+    const { agent, requests } = scriptedToolAgent([
       () => [
         { type: "delta" as const, kind: "text" as const, text: "Your workflow has been created. " },
         {
@@ -424,15 +446,16 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     const controller = createAppController(store, agent, double.services)
     await signIn(store)
 
+    // The MVP uses its conversation host. This fixture has none; legacy browser frames cannot launch or narrate a run.
     controller.send("make me a workflow")
-    await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "flow.new"))
+    await waitFor(() => [...store.collections.toasts.values()].some(toast => toast.status === "failed"))
+    expect(requests).toEqual([])
+    expect(double.state.launched).toEqual([])
     expect(runCard(store)).toBeUndefined()
-    controller.stop()
-    await settle(4)
-
     expect(transcript(store)).not.toContain("has been created")
-    expect(transcript(store)).toContain("Waiting for you to confirm.")
+    expect(transcript(store)).not.toContain("Smithers asked for confirmation")
     expect(store.session().phase).toBe("idle")
+    controller.stop()
   })
 
   test("the detector, in isolation: the live lie is a claim; a launch ack arms it", () => {
@@ -564,7 +587,7 @@ describe("wave 12 §3 — a run the workspace never finishes", () => {
     await waitFor(() => runCard(store)?.payload.phase === "quiet")
 
     // Retry restarts the watch and says so in words.
-    expect((await controller.commands.run("flow.run.retry", runCard(store)!.id)).status).toBe("executed")
+    expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.retry", runCard(store)!.id))).status).toBe("executed")
     expect(runCard(store)?.payload.steps.join(" ")).toContain("Checking the run again")
     await settle(4)
 
@@ -573,7 +596,7 @@ describe("wave 12 §3 — a run the workspace never finishes", () => {
      * the card can say the run was cancelled without claiming anything the
      * workspace did not do.
      */
-    expect((await controller.commands.run("flow.run.stop", runCard(store)!.id)).status).toBe("executed")
+    expect((await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop", runCard(store)!.id))).status).toBe("executed")
     await waitFor(() => runCard(store)?.payload.phase === "cancelled")
     expect(runCard(store)?.payload.steps.join(" ")).toContain("Cancelled this run.")
     expect(
@@ -611,7 +634,7 @@ describe("reopening a run whose watch went quiet or stopped re-reads its history
 
     await controller.commands.run("flow.run", "review-pr")
     await waitFor(() => runCard(store)?.payload.phase === "quiet")
-    await controller.commands.run("flow.run.stop", runCard(store)!.id)
+    await controller.commands.run("flow.run", savedRunLifecycleArgs("flow.run.stop", runCard(store)!.id))
     await waitFor(() => runCard(store)?.payload.phase === "stopped")
     expect(runCard(store)?.payload.observationError).toBe(GATEWAY_REFUSED)
     expect(runCard(store)?.payload.observationError).not.toContain("Cancel failed.")

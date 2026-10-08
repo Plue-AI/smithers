@@ -158,7 +158,7 @@ describe("the run inbox card", () => {
     const stopAll = host.querySelector("[data-testid='run-list-stop-all']")
     expect(stopAll?.textContent).toBe("Stop all 1")
     click(stopAll!)
-    expect(dispatched[0]).toEqual({ name: "flow.run.stop-all", args: `sourceCard=run-list-${REPO} ${REPO}` })
+    expect(dispatched[0]).toEqual({ name: "flow.run", args: JSON.stringify({ sourceCard: `run-list-${REPO}`, repo: REPO, operation: "stop-all" }) })
   })
 
   test("a row opens its run card", () => {

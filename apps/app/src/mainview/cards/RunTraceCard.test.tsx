@@ -246,7 +246,7 @@ describe("the run card as a trace", () => {
     const observed = host.querySelector("[data-failure='run.observe.completed']")!
     expect(observed.querySelector(":scope > p")?.textContent).toBe("This run finished, but Smithers could not read all of its record. Not your fault.")
     expect(observed.querySelector("details pre")?.textContent).toBe("Engine evidence could not be read.")
-    const retry = host.querySelector("[data-flow='flow.run.retry']") as HTMLButtonElement
+    const retry = host.querySelector("[data-flow='flow.run']") as HTMLButtonElement
     retry.focus()
     expect(document.activeElement).toBe(retry)
     click(retry)
@@ -1231,17 +1231,17 @@ describe("a runaway guard's park", () => {
     expect(header(host).querySelector("[data-flow='runs']")).toBeNull()
     expect([...header(host).querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Continue", "Stop"])
     click(header(host).querySelector("[data-flow='runs.continue']"))
-    click(header(host).querySelector("[data-flow='flow.run.stop']"))
+    click(header(host).querySelector("[data-flow='flow.run']"))
     expect(dispatched).toEqual([
       { name: "runs.continue", args: "sourceCard=flow-run-run-1 run-1 budget/run-1/usd" },
-      { name: "flow.run.stop", args: "flow-run-run-1" }
+      { name: "flow.run", args: JSON.stringify({ cardId: "flow-run-run-1", operation: "stop" }) }
     ])
   })
   test("continued: the approval settles the incident and the run reads as running", () => {
     const approved = stamp(10, "control.approval.approved", { tokenId: "budget/run-1/usd" }, 5600)
     const { host } = renderTrace({ events: [...JOURNAL, requested, approved], traceView: undefined })
     expect(header(host).querySelector("[data-flow='runs.continue']")).toBeNull()
-    expect(header(host).querySelector("[data-flow='flow.run.stop']")).toBeNull()
+    expect(header(host).querySelector("[data-flow='flow.run']")).toBeNull()
     expect(header(host).textContent).not.toContain("Runaway")
   })
   test("stopped: the cancelled run offers neither act", () => {
@@ -1264,7 +1264,7 @@ test("a pending launch states only Requested and a refusal offers the existing R
   expect(refused).not.toContain("<p>Provider unavailable")
   expect(refused).toContain('<details><summary>Details</summary><pre tabindex="0" role="region" aria-label="Failure details">provider_unavailable — Provider unavailable</pre></details>')
   expect(refused).toContain('data-fault="infra" data-failure="run.launch.launch"')
-  expect(render()).toContain('data-flow="flow.run.retry"')
+  expect(render()).toContain('data-flow="flow.run"')
   expect(render()).toContain(">Retry</button>")
 })
 

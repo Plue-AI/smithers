@@ -127,7 +127,7 @@ describe("card bindings are stable for their controller and origin", () => {
       actions.onRunCommand("theme", "dark")
       expect(run).toHaveBeenLastCalledWith("theme", "dark", card.id)
       actions.onStopRun("run-1")
-      expect(run).toHaveBeenLastCalledWith("flow.run.stop", "run-1", card.id)
+      expect(run).toHaveBeenLastCalledWith("flow.run", JSON.stringify({ cardId: "run-1", operation: "stop" }), card.id)
     } finally { run.mockRestore() }
   })
 

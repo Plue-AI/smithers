@@ -20,7 +20,7 @@ export default showcase({
   order: 106,
   title: "Needs attention",
   summary: "Gates, parked and failed runs in one place: approve, deny, resume, stop all.",
-  flows: ["runs", "approval.approve", "approval.deny", "runs.open", "runs.resume", "runs.list", "flow.run.stop-all"],
+  flows: ["runs", "approval.approve", "approval.deny", "runs.open", "runs.resume", "runs.list", "flow.run"],
   run: async ({ page, app, backend }) => {
     const now = Date.now()
     const decided = new Map<string, string>()

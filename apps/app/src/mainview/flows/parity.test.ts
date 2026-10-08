@@ -1386,7 +1386,7 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/IssueCards.tsx": 12, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips, the saved view toggles and Make TODO (todo.from-issue)
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 4, // Includes the durable PR tab flow.
-      "../cards/FileCards.tsx": 2,
+      "../cards/FileCards.tsx": 3, // File navigation retains its third canonical directory control.
       "../cards/ModelCards.tsx": 7, // Settings model-assignment controls include the current catalog action.
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
@@ -1528,8 +1528,8 @@ describe("launch-law parity: every affordance is a command", () => {
     expect(actions).toContain("runCommand(\"frame.forward\"")
     expect(actions).toContain("runCommand(\"sign-in\"")
     expect(actions).toContain("runCommand(\"flow.run\"")
-    expect(actions).toContain("runCommand(\"flow.run.stop\"")
-    expect(actions).toContain("runCommand(\"flow.run.retry\"")
+    expect(actions).toContain("runCommand(\"flow.run\"")
+    expect(actions).toContain("runCommand(\"flow.run\"")
     expect(actions).toContain("runCommand(\"flow.repo.choose\"")
     expect(actions).toContain("runCommand(\"wiki.edit\"")
     for (const surface of ["../App.tsx"] as const) {

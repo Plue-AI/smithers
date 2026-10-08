@@ -47,7 +47,7 @@ import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
 import {  filesFlows } from "./entries/files"
 import { findingsFlows } from "./entries/findings"
-import { flowFlows, flowRunStopAllFlows, flowVersionFlows } from "./entries/flow"
+import { flowFlows, flowVersionFlows } from "./entries/flow"
 import { imageFlows } from "./entries/image"
 import { todoFlows } from "./entries/todo"
 import { homeFlows } from "./entries/home"
@@ -126,7 +126,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...triggersFlows(actions),
   ...runsFlows(actions),
   ...graphFlows(actions),
-  ...flowRunStopAllFlows(actions),
   ...cardFlows(actions),
   ...frameFlows(actions),
   ...chatCopyFlows(actions),
