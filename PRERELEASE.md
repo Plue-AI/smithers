@@ -73,10 +73,10 @@ The machine daemon has never started in a real machine on main. A TODO needs it.
 | 1 | The guest helper refused the boot file the host writes, so the daemon never booted. | Landed, 0889378440 |
 | 2 | The helper needs `/run` on tmpfs. The guest has none. | Open |
 | 3 | The broker cannot enable `+cpu +pids`. The guest's root cgroup delegates no controllers. | Open |
-| 4 | jj writes the repository 0600. The daemon's user cannot read what the agent's user created. | Open |
+| 4 | jj writes the repository 0600. The daemon's user cannot read what the agent's user created. | Fix landed, 42b5401381; Linux init/snapshot/checkout regression passes. Two-UID real-VM startup remains unverified. |
 | 5 | The daemon's git refuses `/workspace` as dubious ownership. | Open |
 
-Source: `~/smithers-lanes/release/REAL-RUN.md` lists 0 and 1. Defects 2 to 5 come from the real-VM agent's report to the lead and are not in that file yet. No commit for 2 to 5 is on main. None has smithers-3f's review.
+Source: `~/smithers-lanes/release/REAL-RUN.md` lists 0 and 1. Defects 2 to 5 come from the real-VM agent's report to the lead and are not in that file yet. Failure 4's implementation is on main; its real-VM proof is still pending. None has smithers-3f's review.
 
 ### Journey rows
 

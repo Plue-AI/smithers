@@ -120,6 +120,11 @@ fn workspace_permissions_child() {
         .block_on()
         .unwrap();
     shared(workspace);
+    assert_eq!(
+        fs::metadata(workspace.join(".git/config")).unwrap().mode() & 0o660,
+        0o660,
+        "Git configuration must remain writable by the shared team"
+    );
     for body in ["first", "second"] {
         fs::write(workspace.join("file"), body).unwrap();
         flows_jj::ops::snapshot(workspace, None).unwrap();
@@ -145,6 +150,7 @@ fn workspace_permissions_child() {
     fs::write(workspace.join("file"), "changed").unwrap();
     flows_jj::ops::snapshot(workspace, None).unwrap();
     flows_jj::ops::restore(workspace, &saved.commit_id).unwrap();
+    shared(workspace);
     assert_eq!(
         fs::read_to_string(workspace.join("file")).unwrap(),
         "second"
