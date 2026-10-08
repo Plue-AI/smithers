@@ -3,8 +3,8 @@ import { describe, expect, test } from "vitest"
 import {
   durationWords,
   inspectLabel,
-  monitorFromJournal,
   isTraceFilter,
+  monitorFromJournal,
   phaseBandGeometry,
   phaseExtent,
   spanMatches,
@@ -1439,102 +1439,189 @@ describe("what the journal did not say", () => {
   })
 })
 
-
 describe("Appendix C Inspect labels", () => {
   test("recorded coding actions use literal past-tense titles on every replay", () => {
     const journal = [
       at(1, "control.agent.cell-call-started", { flowName: "coding/edit-atom", callId: "edit" }, 1000),
-      at(2, "control.agent.cell-call-settled", { flowName: "coding/edit-atom", callId: "edit", outcome: "success", value: {} }, 2000),
+      at(2, "control.agent.cell-call-settled", {
+        flowName: "coding/edit-atom",
+        callId: "edit",
+        outcome: "success",
+        value: {}
+      }, 2000),
       at(3, "control.agent.cell-call-started", { flowName: "coding/check-command", callId: "check" }, 3000),
-      at(4, "control.agent.cell-call-settled", { flowName: "coding/check-command", callId: "check", outcome: "failure", message: "2 failed" }, 4000),
+      at(4, "control.agent.cell-call-settled", {
+        flowName: "coding/check-command",
+        callId: "check",
+        outcome: "failure",
+        message: "2 failed"
+      }, 4000),
       at(5, "control.agent.cell-call-started", { flowName: "<cell-call:coding/PreparePlan>", callId: "plan" }, 5000),
       at(6, "control.agent.cell-call-started", { flowName: "historical/action", callId: "old" }, 6000)
     ]
     const run = { runId: "labels", flowId: "todo", status: "running" }
     const first = traceFromJournal(run, journal)
-    expect(first.rows.filter(row => row.kind === "call").map(row => row.label)).toEqual([
-      "Edited the files", "Ran checks", "Planned the change", "historical/action"
+    expect(first.rows.filter((row) => row.kind === "call").map((row) => row.label)).toEqual([
+      "Edited the files",
+      "Ran checks",
+      "Planned the change",
+      "historical/action"
     ])
     expect(traceFromJournal(run, journal)).toEqual(first)
-    expect(first.rows.find(row => row.id === "call-2")?.detail.message).toBe("2 failed")
+    expect(first.rows.find((row) => row.id === "call-2")?.detail.message).toBe("2 failed")
   })
 })
 
-
 describe("install monitor adapter", () => {
   test.each([
-    ["running", "running"], ["completed", "done"], ["done", "done"], ["failed", "failed"],
-    ["cancelled", "interrupted"], ["interrupted", "interrupted"], ["held", "held"],
-    ["waiting", "waiting"], ["waiting-approval", "waiting"], ["paused", "waiting"], ["suspended", "waiting"]
+    ["running", "running"],
+    ["completed", "done"],
+    ["done", "done"],
+    ["failed", "failed"],
+    ["cancelled", "interrupted"],
+    ["interrupted", "interrupted"],
+    ["held", "held"],
+    ["waiting", "waiting"],
+    ["waiting-approval", "waiting"],
+    ["paused", "waiting"],
+    ["suspended", "waiting"]
   ])("maps recorded %s to %s", (status, expected) => {
     expect(monitorFromJournal({ ...RUN, status: status! }, []).state).toBe(expected)
   })
   test("maps recorded I/O, measurable usage and waits without running repository code", () => {
     const model = monitorFromJournal(RUN, JOURNAL)
     expect(model.tokens).toBe(1280)
-    expect(model.attempts[0]!.steps.find(row => row.label === "files.read")).toMatchObject({ input: { path: "README.md" }, output: "# Smithers" })
+    expect(model.attempts[0]!.steps.find((row) => row.label === "files.read")).toMatchObject({
+      input: { path: "README.md" },
+      output: "# Smithers"
+    })
     expect(model.waits).toMatchObject([{ id: "approval-req-1", kind: "approval", since: "1970-01-01T00:00:06.000Z" }])
     expect(model.waits[0]!.settled).toBeUndefined()
     const replay = monitorFromJournal(RUN, JOURNAL, 5)
     expect(replay.replay).toEqual({ at: 5, last: 14 })
-    expect(replay.attempts[0]!.steps.every(row => row.output === undefined)).toBe(true)
+    expect(replay.attempts[0]!.steps.every((row) => row.output === undefined)).toBe(true)
     expect(replay.waits).toEqual([])
     expect(monitorFromJournal(RUN, JOURNAL)).toEqual(model)
   })
   test("historical terminal state comes from the journal rather than the current run", () => {
-    const records = [at(1,"control.run.completed",{},2000)]
-    expect(monitorFromJournal({ ...RUN, status: "running" }, records,1).state).toBe("done")
-    expect(monitorFromJournal({ ...RUN, status: "failed" }, records,0).state).toBe("running")
-    expect(monitorFromJournal(RUN,records,100).replay).toEqual({ at:1,last:1 })
+    const records = [at(1, "control.run.completed", {}, 2000)]
+    expect(monitorFromJournal({ ...RUN, status: "running" }, records, 1).state).toBe("done")
+    expect(monitorFromJournal({ ...RUN, status: "failed" }, records, 0).state).toBe("running")
+    expect(monitorFromJournal(RUN, records, 100).replay).toEqual({ at: 1, last: 1 })
   })
 })
-
 
 test("native monitor keeps rescheduled instances, waits and bookkeeping apart", () => {
   const wrap = (sequence: number, eventType: string, payload: unknown): JournalRecord => ({
-    sequence, kind: "control.engine.event", occurredAt: sequence,
-    payload: { version: 1, executionId: "native", generation: 0, sequence, eventId: `event-${sequence}`,
-      sourceId: "engine", sourceSequence: sequence, emittedAtMs: sequence * 1000, eventType, payload, meta: {} }
+    sequence,
+    kind: "control.engine.event",
+    occurredAt: sequence,
+    payload: {
+      version: 1,
+      executionId: "native",
+      generation: 0,
+      sequence,
+      eventId: `event-${sequence}`,
+      sourceId: "engine",
+      sourceSequence: sequence,
+      emittedAtMs: sequence * 1000,
+      eventType,
+      payload,
+      meta: {}
+    }
   })
   const rows = [
-    wrap(1,"flows.engine.node-scheduled",{ nodeId:"read",kind:"action",attempt:1,action:"agent/opening-instructions" }),
-    wrap(2,"flows.engine.node-settled",{ nodeId:"read",outcome:"deferred",attempts:1 }),
-    wrap(3,"flows.engine.node-scheduled",{ nodeId:"seal",kind:"action",attempt:1,action:"<seal-step>" }),
-    wrap(4,"flows.engine.node-scheduled",{ nodeId:"boundary",kind:"action",attempt:1,action:"<boundary:finished>" }),
-    wrap(5,"flows.engine.node-scheduled",{ nodeId:"read",kind:"action",attempt:2,action:"agent/opening-instructions" }),
-    { sequence:6,kind:"control.approval.requested",occurredAt:6000,payload:{requestId:"approval",question:"Continue?"} },
-    { sequence:7,kind:"control.approval.approved",occurredAt:7000,payload:{requestId:"approval"} },
+    wrap(1, "flows.engine.node-scheduled", {
+      nodeId: "read",
+      kind: "action",
+      attempt: 1,
+      action: "agent/opening-instructions"
+    }),
+    wrap(2, "flows.engine.node-settled", { nodeId: "read", outcome: "deferred", attempts: 1 }),
+    wrap(3, "flows.engine.node-scheduled", { nodeId: "seal", kind: "action", attempt: 1, action: "<seal-step>" }),
+    wrap(4, "flows.engine.node-scheduled", {
+      nodeId: "boundary",
+      kind: "action",
+      attempt: 1,
+      action: "<boundary:finished>"
+    }),
+    wrap(5, "flows.engine.node-scheduled", {
+      nodeId: "read",
+      kind: "action",
+      attempt: 2,
+      action: "agent/opening-instructions"
+    }),
+    {
+      sequence: 6,
+      kind: "control.approval.requested",
+      occurredAt: 6000,
+      payload: { requestId: "approval", question: "Continue?" }
+    },
+    { sequence: 7, kind: "control.approval.approved", occurredAt: 7000, payload: { requestId: "approval" } },
     {} as JournalRecord
   ]
   const model = monitorFromJournal(RUN, rows)
-  expect(model.attempts[0]!.steps.map(row=>[row.label,row.k])).toEqual([["Read the instructions",1],["Read the instructions",2]])
-  expect(model.attempts[0]!.graph.map(row=>row.state)).toEqual(["waiting","current"])
-  expect(model.attempts[0]!.phases.map(row=>row.tone)).toEqual(["wait","live"])
+  expect(model.attempts[0]!.steps.map((row) => [row.label, row.k])).toEqual([["Read the instructions", 1], [
+    "Read the instructions",
+    2
+  ]])
+  expect(model.attempts[0]!.graph.map((row) => row.state)).toEqual(["waiting", "current"])
+  expect(model.attempts[0]!.phases.map((row) => row.tone)).toEqual(["wait", "live"])
   expect(model.attempts[0]!.phases[0]!.cells[0]!.kind).toBe("read")
-  expect(model.engine.map(row=>row.label)).toContain("<seal-step>")
-  expect(model.engine.map(row=>row.label)).toContain("<boundary:finished>")
-  expect(model.waits[0]!.settled).toMatchObject({ at:"1970-01-01T00:00:07.000Z" })
-  expect(model.journal.at(-1)).toEqual({ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" })
-  expect(monitorFromJournal(RUN,rows,0).journal).toEqual([{ seq:0,at:"1970-01-01T00:00:00.000Z",type:"event",text:"null" }])
+  expect(model.engine.map((row) => row.label)).toContain("<seal-step>")
+  expect(model.engine.map((row) => row.label)).toContain("<boundary:finished>")
+  expect(model.waits[0]!.settled).toMatchObject({ at: "1970-01-01T00:00:07.000Z" })
+  expect(model.journal.at(-1)).toEqual({ seq: 0, at: "1970-01-01T00:00:00.000Z", type: "event", text: "null" })
+  expect(monitorFromJournal(RUN, rows, 0).journal).toEqual([{
+    seq: 0,
+    at: "1970-01-01T00:00:00.000Z",
+    type: "event",
+    text: "null"
+  }])
 })
 
 test("declared monitor nodes use recorded live states and retain unreached dependencies", () => {
-  const event = (sequence: number, eventType: string, payload: unknown): JournalRecord => ({ sequence, kind: "control.engine.event", occurredAt: sequence,
-    payload: { version: 1, executionId: "graph", generation: 0, sequence, eventId: `g${sequence}`, sourceId: "engine", sourceSequence: sequence, emittedAtMs: sequence, eventType, payload, meta: {} } })
+  const event = (sequence: number, eventType: string, payload: unknown): JournalRecord => ({
+    sequence,
+    kind: "control.engine.event",
+    occurredAt: sequence,
+    payload: {
+      version: 1,
+      executionId: "graph",
+      generation: 0,
+      sequence,
+      eventId: `g${sequence}`,
+      sourceId: "engine",
+      sourceSequence: sequence,
+      emittedAtMs: sequence,
+      eventType,
+      payload,
+      meta: {}
+    }
+  })
   const rows = [
-    event(1, "flows.engine.plan-recorded", { graph: { nodes: [
-      { id: "active", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
-      { id: "failed", kind: "action", tier: "sealed", dependsOn: [], action: "coding/check-command" },
-      { id: "wait", kind: "action", tier: "sealed", dependsOn: [] },
-      { id: "future", kind: "action", tier: "sealed", dependsOn: ["active"] }
-    ] } }),
+    event(1, "flows.engine.plan-recorded", {
+      graph: {
+        nodes: [
+          { id: "active", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
+          { id: "failed", kind: "action", tier: "sealed", dependsOn: [], action: "coding/check-command" },
+          { id: "wait", kind: "action", tier: "sealed", dependsOn: [] },
+          { id: "future", kind: "action", tier: "sealed", dependsOn: ["active"] }
+        ]
+      }
+    }),
     event(2, "flows.engine.node-scheduled", { nodeId: "active", kind: "action", attempt: 1 }),
     event(3, "flows.engine.node-settled", { nodeId: "failed", outcome: "failed", attempts: 1 }),
     event(4, "flows.engine.node-settled", { nodeId: "wait", outcome: "deferred", attempts: 1 }),
     event(5, "flows.engine.node-scheduled", { nodeId: "unlisted", kind: "action", attempt: 1 })
   ]
   const monitor = monitorFromJournal(RUN, rows)
-  expect(monitor.attempts[0]!.steps.map(step => step.label)).toEqual(["Edited the files", "Ran checks", "Waited", "unlisted"])
+  expect(monitor.attempts[0]!.steps.map((step) => step.label)).toEqual([
+    "Edited the files",
+    "Ran checks",
+    "Waited",
+    "unlisted"
+  ])
   expect(monitor.attempts[0]!.graph).toEqual([
     { id: "engine-node:graph%3A0:active", label: "Edited the files", state: "current", deps: [] },
     { id: "engine-node:graph%3A0:failed", label: "Ran checks", state: "failed", deps: [] },
@@ -1543,20 +1630,27 @@ test("declared monitor nodes use recorded live states and retain unreached depen
   ])
 })
 
-
 test("historical monitor lifecycle retains waits and interruption without today's state", () => {
-  const records = [at(1, "control.run.running", {}, 1000),
+  const records = [
+    at(1, "control.run.running", {}, 1000),
     at(2, "control.run.waiting-approval", {}, 2000),
     at(3, "control.run.running", {}, 3000),
     { ...at(4, "control.run.failed", {}, 4000), runId: "other-run" },
-    at(5, "control.run.interrupted", {}, 5000), at(6, "control.run.completed", {}, 6000)]
+    at(5, "control.run.interrupted", {}, 5000),
+    at(6, "control.run.completed", {}, 6000)
+  ]
   const current = { ...RUN, status: "completed" }
-  expect([0, 1, 2, 3, 4, 5, 6].map(at => monitorFromJournal(current, records, at).state)).toEqual([
-    "running", "running", "waiting", "running", "running", "interrupted", "done"
+  expect([0, 1, 2, 3, 4, 5, 6].map((at) => monitorFromJournal(current, records, at).state)).toEqual([
+    "running",
+    "running",
+    "waiting",
+    "running",
+    "running",
+    "interrupted",
+    "done"
   ])
   expect(monitorFromJournal(current, records).state).toBe("done")
 })
-
 
 test("monitor collapses bookkeeping graph nodes while retaining visible dependency order", () => {
   const nodes = [
@@ -1566,12 +1660,32 @@ test("monitor collapses bookkeeping graph nodes while retaining visible dependen
     { id: "cycle", kind: "action", tier: "sealed", dependsOn: ["cycle"], action: "<quota-park>/session" },
     { id: "edit", kind: "action", tier: "sealed", dependsOn: ["boundary", "cycle"], action: "coding/edit-atom" }
   ]
-  const records: JournalRecord[] = [{ sequence: 1, kind: "control.engine.event", occurredAt: 1,
-    payload: { version: 1, executionId: "collapsed", generation: 0, sequence: 1, eventId: "graph", sourceId: "engine", sourceSequence: 1,
-      emittedAtMs: 1, eventType: "flows.engine.plan-recorded", payload: { graph: { nodes } }, meta: {} } }]
+  const records: JournalRecord[] = [{
+    sequence: 1,
+    kind: "control.engine.event",
+    occurredAt: 1,
+    payload: {
+      version: 1,
+      executionId: "collapsed",
+      generation: 0,
+      sequence: 1,
+      eventId: "graph",
+      sourceId: "engine",
+      sourceSequence: 1,
+      emittedAtMs: 1,
+      eventType: "flows.engine.plan-recorded",
+      payload: { graph: { nodes } },
+      meta: {}
+    }
+  }]
   expect(monitorFromJournal(RUN, records).attempts[0]!.graph).toEqual([
     { id: "engine-node:collapsed%3A0:read", label: "Read the instructions", state: "next", deps: [] },
-    { id: "engine-node:collapsed%3A0:edit", label: "Edited the files", state: "next", deps: ["engine-node:collapsed%3A0:read"] }
+    {
+      id: "engine-node:collapsed%3A0:edit",
+      label: "Edited the files",
+      state: "next",
+      deps: ["engine-node:collapsed%3A0:read"]
+    }
   ])
 })
 
@@ -1582,51 +1696,150 @@ describe("native step transcripts and metered dispatches", () => {
   const CALL_READ = `cell-call-v1:${"a".repeat(64)}`
   const CALL_WRITE = `cell-call-v1:${"b".repeat(64)}`
   const scope = `exec/coding/edit-atom@${D1}:1#0`
-  const envelope = (sequence: number, eventType: string, payload: unknown, sourceId: string, sourceSequence: number): JournalRecord => ({
-    sequence, kind: "control.engine.event", runId: "run-1", occurredAt: sequence * 1000,
-    payload: { version: 1, executionId: "exec", generation: 0, sequence, eventId: `e${sequence}`, sourceId, sourceSequence,
-      emittedAtMs: sequence * 1000, eventType, payload, meta: {} }
+  const envelope = (
+    sequence: number,
+    eventType: string,
+    payload: unknown,
+    sourceId: string,
+    sourceSequence: number
+  ): JournalRecord => ({
+    sequence,
+    kind: "control.engine.event",
+    runId: "run-1",
+    occurredAt: sequence * 1000,
+    payload: {
+      version: 1,
+      executionId: "exec",
+      generation: 0,
+      sequence,
+      eventId: `e${sequence}`,
+      sourceId,
+      sourceSequence,
+      emittedAtMs: sequence * 1000,
+      eventType,
+      payload,
+      meta: {}
+    }
   })
-  const node = (sequence: number, eventType: string, payload: unknown) => envelope(sequence, eventType, payload, "engine", sequence)
-  const fact = (sequence: number, kind: string, ordinal: number, payload: unknown) => envelope(sequence, "flows.harness.step-fact.v1", {
-    version: 1, generation: 0, frame: 0, ordinal, cell: "", at: sequence * 1000, eventType: kind, sourceSequence: ordinal, payload,
-    step: { stepId: D1, executionId: "exec", action: "coding/edit-atom", attempt: 1, ask: 0, retry: 1, scope: `${scope}` }
-  }, `step-fact-v1:${D1}:1:0:1`, ordinal)
+  const node = (sequence: number, eventType: string, payload: unknown) =>
+    envelope(sequence, eventType, payload, "engine", sequence)
+  const fact = (sequence: number, kind: string, ordinal: number, payload: unknown) =>
+    envelope(
+      sequence,
+      "flows.harness.step-fact.v1",
+      {
+        version: 1,
+        generation: 0,
+        frame: 0,
+        ordinal,
+        cell: "",
+        at: sequence * 1000,
+        eventType: kind,
+        sourceSequence: ordinal,
+        payload,
+        step: {
+          stepId: D1,
+          executionId: "exec",
+          action: "coding/edit-atom",
+          attempt: 1,
+          ask: 0,
+          retry: 1,
+          scope: `${scope}`
+        }
+      },
+      `step-fact-v1:${D1}:1:0:1`,
+      ordinal
+    )
   const identity = { runId: scope, frame: 0, cell: "c", ordinal: 0, declaration: "d", layers: [] }
   const call = (sequence: number, callId: string, phase: "invoked" | "settled", rest: Record<string, unknown>) =>
-    envelope(sequence, "flows.harness.call-fact.v1", { version: 1, callId, identity, phase, ...rest }, `call-fact-v1:${callId}:${phase}`, 0)
-  const verbs = (verb: string, failure: string) => ({ subject: "path", verb: { success: verb, failure, pending: verb } })
+    envelope(
+      sequence,
+      "flows.harness.call-fact.v1",
+      { version: 1, callId, identity, phase, ...rest },
+      `call-fact-v1:${callId}:${phase}`,
+      0
+    )
+  const verbs = (verb: string, failure: string) => ({
+    subject: "path",
+    verb: { success: verb, failure, pending: verb }
+  })
   const journal: Array<JournalRecord> = [
     node(1, "flows.engine.node-scheduled", { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" }),
     fact(2, "control.agent.turn-opened", 0, { seat: "coding/implement" }),
-    fact(100, "control.agent.model-requested", 5, { modelId: "gpt-oss-120b", system: ["Implement the change.", "The task for this run:\n\n{\"atom\":\"t5.md\"}"], messages: [] }),
-    fact(3, "control.agent.model-settled", 1, { text: "```cell\nwrite\n```", durationMillis: 500, usage: { inputTokens: 100, outputTokens: 100 } }),
-    fact(4, "control.agent.cell-produced", 2, { language: "javascript", digest: "c", text: "await ctx.call(\"read\", { path: \"t5.md\" })" }),
-    call(5, CALL_READ, "invoked", { flowName: "read", input: { path: "t5.md" },
-      descriptor: { name: "read", activity: "reads", presentation: verbs("read", "failed to read") } }),
+    fact(100, "control.agent.model-requested", 5, {
+      modelId: "gpt-oss-120b",
+      system: ["Implement the change.", "The task for this run:\n\n{\"atom\":\"t5.md\"}"],
+      messages: []
+    }),
+    fact(3, "control.agent.model-settled", 1, {
+      text: "```cell\nwrite\n```",
+      durationMillis: 500,
+      usage: { inputTokens: 100, outputTokens: 100 }
+    }),
+    fact(4, "control.agent.cell-produced", 2, {
+      language: "javascript",
+      digest: "c",
+      text: "await ctx.call(\"read\", { path: \"t5.md\" })"
+    }),
+    call(5, CALL_READ, "invoked", {
+      flowName: "read",
+      input: { path: "t5.md" },
+      descriptor: { name: "read", activity: "reads", presentation: verbs("read", "failed to read") }
+    }),
     call(6, CALL_READ, "settled", { flowName: "read", outcome: "success", value: { content: "hi" } }),
-    call(7, CALL_WRITE, "invoked", { flowName: "write", input: { path: "t5.md", content: "hello" },
-      descriptor: { name: "write", activity: "writes", presentation: verbs("wrote", "failed to write") } }),
-    call(8, CALL_WRITE, "settled", { flowName: "write", outcome: "failure", value: null, message: "Flow write failed" }),
+    call(7, CALL_WRITE, "invoked", {
+      flowName: "write",
+      input: { path: "t5.md", content: "hello" },
+      descriptor: { name: "write", activity: "writes", presentation: verbs("wrote", "failed to write") }
+    }),
+    call(8, CALL_WRITE, "settled", {
+      flowName: "write",
+      outcome: "failure",
+      value: null,
+      message: "Flow write failed"
+    }),
     fact(9, "control.agent.cell-printed", 3, { cell: "c", text: "done" }),
     fact(10, "control.agent.cell-settled", 4, { outcome: "success" }),
-    node(11, "flows.engine.node-settled", { nodeId: "edit", outcome: "built", attempts: 1, action: "coding/edit-atom",
-      stepKeyDigests: [D1, D2, D1], result: { preview: "{\"writes\":[\"t5.md\"]}", bytes: 20, truncated: false } }),
-    node(12, "flows.engine.node-scheduled", { nodeId: "check", kind: "action", attempt: 1, action: "coding/check-command" }),
-    node(13, "flows.engine.node-settled", { nodeId: "check", outcome: "built", attempts: 1, action: "coding/check-command", stepKeyDigests: [D3] })
+    node(11, "flows.engine.node-settled", {
+      nodeId: "edit",
+      outcome: "built",
+      attempts: 1,
+      action: "coding/edit-atom",
+      stepKeyDigests: [D1, D2, D1],
+      result: { preview: "{\"writes\":[\"t5.md\"]}", bytes: 20, truncated: false }
+    }),
+    node(12, "flows.engine.node-scheduled", {
+      nodeId: "check",
+      kind: "action",
+      attempt: 1,
+      action: "coding/check-command"
+    }),
+    node(13, "flows.engine.node-settled", {
+      nodeId: "check",
+      outcome: "built",
+      attempts: 1,
+      action: "coding/check-command",
+      stepKeyDigests: [D3]
+    })
   ]
   const run = { runId: "run-1", flowId: "todo", status: "completed" }
 
   test("a step carries its dispatches, its journaled model usage and its agent transcript", () => {
     const model = monitorFromJournal(run, journal)
     const [edit, check] = model.attempts[0]!.steps
-    expect(edit).toMatchObject({ label: "Edited the files", meter: [`exec:${D1}`, `exec:${D2}`], model_calls: 1, tokens: 200,
-      input: { atom: "t5.md" }, output: "{\"writes\":[\"t5.md\"]}" })
+    expect(edit).toMatchObject({
+      label: "Edited the files",
+      meter: [`exec:${D1}`, `exec:${D2}`],
+      model_calls: 1,
+      tokens: 200,
+      input: { atom: "t5.md" },
+      output: "{\"writes\":[\"t5.md\"]}"
+    })
     expect(check).toMatchObject({ label: "Ran checks", meter: [`exec:${D3}`] })
     expect(check).not.toHaveProperty("tokens")
     expect(check).not.toHaveProperty("usage")
     const cells = model.attempts[0]!.phases[0]!.cells
-    expect(cells.map(cell => [cell.kind, cell.label, cell.tone])).toEqual([
+    expect(cells.map((cell) => [cell.kind, cell.label, cell.tone])).toEqual([
       ["think", "Model reply", undefined],
       ["run", "Ran a cell", "ok"],
       ["read", "Read t5.md", "ok"],
@@ -1636,7 +1849,7 @@ describe("native step transcripts and metered dispatches", () => {
     expect(cells[1]).toMatchObject({ code: "await ctx.call(\"read\", { path: \"t5.md\" })", output: "done" })
     expect(cells[2]).toMatchObject({ code: "{\"path\":\"t5.md\"}", output: "{\"content\":\"hi\"}" })
     expect(cells[3]).toMatchObject({ output: "Flow write failed" })
-    expect(model.attempts[0]!.phases[1]!.cells.map(cell => cell.label)).toEqual(["Ran checks"])
+    expect(model.attempts[0]!.phases[1]!.cells.map((cell) => cell.label)).toEqual(["Ran checks"])
   })
 
   test("a run with model tokens leaves its USD total to the metering install", () => {
@@ -1644,62 +1857,238 @@ describe("native step transcripts and metered dispatches", () => {
     expect(model.tokens).toBe(200)
     expect(model).not.toHaveProperty("cost_usd")
     expect(model).not.toHaveProperty("unmetered_tokens")
-    expect(monitorFromJournal(run, journal.filter(row => row.sequence !== 3))).toMatchObject({ tokens: 0, cost_usd: 0 })
+    expect(monitorFromJournal(run, journal.filter((row) => row.sequence !== 3))).toMatchObject({
+      tokens: 0,
+      cost_usd: 0
+    })
   })
 
   test("an agent step's input is its journaled task when its system text was too large", () => {
-    const tasked = journal.map(row => row.sequence === 100
-      ? fact(100, "control.agent.model-requested", 5, { modelId: "gpt-oss-120b", system: { truncated: true, bytes: 70000, digest: "d" }, task: "{\"atom\":\"t6.md\"}", messages: [] })
-      : row)
+    const tasked = journal.map((row) =>
+      row.sequence === 100
+        ? fact(100, "control.agent.model-requested", 5, {
+          modelId: "gpt-oss-120b",
+          system: { truncated: true, bytes: 70000, digest: "d" },
+          task: "{\"atom\":\"t6.md\"}",
+          messages: []
+        })
+        : row
+    )
     expect(monitorFromJournal(run, tasked).attempts[0]!.steps[0]).toMatchObject({ input: { atom: "t6.md" } })
   })
 
   test("plan structure and child-flow calls are never steps; long cell text is an excerpt", () => {
     const shaped = [
-      node(20, "flows.engine.node-scheduled", { nodeId: "root", kind: "FlowCall", attempt: 1, action: "registry/entry/x/todo" }),
+      node(20, "flows.engine.node-scheduled", {
+        nodeId: "root",
+        kind: "FlowCall",
+        attempt: 1,
+        action: "registry/entry/x/todo"
+      }),
       node(21, "flows.engine.node-scheduled", { nodeId: "root.flow", kind: "AndThen", attempt: 1 }),
       node(22, "flows.engine.node-scheduled", { nodeId: "root.flow.then", kind: "Branch", attempt: 1 }),
-      ...journal.map(row => row.sequence === 3
-        ? fact(3, "control.agent.model-settled", 1, { text: "y".repeat(3000), usage: { inputTokens: 100, outputTokens: 100 } })
-        : row)
+      ...journal.map((row) =>
+        row.sequence === 3
+          ? fact(3, "control.agent.model-settled", 1, {
+            text: "y".repeat(3000),
+            usage: { inputTokens: 100, outputTokens: 100 }
+          })
+          : row
+      )
     ]
     const model = monitorFromJournal(run, shaped)
-    expect(model.attempts[0]!.steps.map(step => step.label)).toEqual(["Edited the files", "Ran checks"])
-    expect(model.attempts[0]!.graph.map(node => node.label)).toEqual(["Edited the files", "Ran checks"])
+    expect(model.attempts[0]!.steps.map((step) => step.label)).toEqual(["Edited the files", "Ran checks"])
+    expect(model.attempts[0]!.graph.map((node) => node.label)).toEqual(["Edited the files", "Ran checks"])
     expect(model.attempts[0]!.phases[0]!.cells[0]!.quote).toBe(`${"y".repeat(2000)}…`)
   })
 
   test("agent tool calls stay in the transcript and a branch not taken stays next", () => {
     const skipped = [
-      node(50, "flows.engine.node-scheduled", { nodeId: "decline", kind: "ActionCall", attempt: 1, action: "coding/decline-request" }),
-      node(51, "flows.engine.node-settled", { nodeId: "decline", outcome: "skipped", attempts: 0, action: "coding/decline-request" })
+      node(50, "flows.engine.node-scheduled", {
+        nodeId: "decline",
+        kind: "ActionCall",
+        attempt: 1,
+        action: "coding/decline-request"
+      }),
+      node(51, "flows.engine.node-settled", {
+        nodeId: "decline",
+        outcome: "skipped",
+        attempts: 0,
+        action: "coding/decline-request"
+      })
     ]
     const model = monitorFromJournal(run, [...journal, ...skipped])
-    expect(model.attempts[0]!.steps.some(step => step.key.startsWith("step:"))).toBe(false)
-    expect(model.attempts[0]!.graph.find(node => node.id.includes(":decline"))?.state).toBe("next")
+    expect(model.attempts[0]!.steps.some((step) => step.key.startsWith("step:"))).toBe(false)
+    expect(model.attempts[0]!.graph.find((node) => node.id.includes(":decline"))?.state).toBe("next")
   })
 
   test("a check phase is titled by the failures its recorded output reports", () => {
     const check = (sequence: number, status: string) => [
-      node(sequence, "flows.engine.node-scheduled", { nodeId: `check-${sequence}`, kind: "ActionCall", attempt: 1, action: "coding/check-command" }),
-      node(sequence + 1, "flows.engine.node-settled", { nodeId: `check-${sequence}`, outcome: "built", attempts: 1, action: "coding/check-command",
-        result: { preview: JSON.stringify({ checkId: "test", status }), bytes: 30, truncated: false } })
+      node(sequence, "flows.engine.node-scheduled", {
+        nodeId: `check-${sequence}`,
+        kind: "ActionCall",
+        attempt: 1,
+        action: "coding/check-command"
+      }),
+      node(sequence + 1, "flows.engine.node-settled", {
+        nodeId: `check-${sequence}`,
+        outcome: "built",
+        attempts: 1,
+        action: "coding/check-command",
+        result: { preview: JSON.stringify({ checkId: "test", status }), bytes: 30, truncated: false }
+      })
     ]
     // The engine cuts long previews short; the receipt's leading fields still name the status.
     const cut = [
-      node(60, "flows.engine.node-scheduled", { nodeId: "cut", kind: "ActionCall", attempt: 1, action: "coding/check-command" }),
-      node(61, "flows.engine.node-settled", { nodeId: "cut", outcome: "built", attempts: 1, action: "coding/check-command",
-        result: { preview: "{\"checkId\":\"test\",\"target\":\".\",\"startedAt\":17,\"status\":\"failed\",\"evidence\":\"{\\\"argv", bytes: 9000, truncated: true } })
+      node(60, "flows.engine.node-scheduled", {
+        nodeId: "cut",
+        kind: "ActionCall",
+        attempt: 1,
+        action: "coding/check-command"
+      }),
+      node(61, "flows.engine.node-settled", {
+        nodeId: "cut",
+        outcome: "built",
+        attempts: 1,
+        action: "coding/check-command",
+        result: {
+          preview:
+            "{\"checkId\":\"test\",\"target\":\".\",\"startedAt\":17,\"status\":\"failed\",\"evidence\":\"{\\\"argv",
+          bytes: 9000,
+          truncated: true
+        }
+      })
     ]
     const model = monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed"), ...cut])
-    expect(model.attempts[0]!.phases.map(phase => [phase.title, phase.tone])).toEqual([["Ran checks · 1 failed", "fail"], ["Ran checks", "ok"], ["Ran checks · 1 failed", "fail"]])
-    expect(JSON.stringify(monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed"), ...cut]))).toBe(JSON.stringify(model))
+    expect(model.attempts[0]!.phases.map((phase) => [phase.title, phase.tone])).toEqual([
+      ["Ran checks · 1 failed", "fail"],
+      ["Ran checks", "ok"],
+      ["Ran checks · 1 failed", "fail"]
+    ])
+    expect(JSON.stringify(monitorFromJournal(run, [...check(30, "failed"), ...check(40, "passed"), ...cut]))).toBe(
+      JSON.stringify(model)
+    )
+  })
+
+  test("sparse transcript facts preserve text tasks, optional replies and cell output order", () => {
+    const records = [
+      journal[0]!,
+      fact(2, "control.agent.model-requested", 0, {}),
+      fact(3, "control.agent.model-requested", 1, { task: "Write the file" }),
+      fact(4, "control.agent.model-requested", 2, { task: "ignored later task" }),
+      fact(5, "control.agent.model-settled", 3, {}),
+      fact(6, "control.agent.cell-printed", 4, { text: "orphan" }),
+      fact(7, "control.agent.cell-settled", 5, { outcome: "failure" }),
+      fact(8, "control.agent.cell-produced", 6, {}),
+      fact(9, "control.agent.cell-printed", 7, {}),
+      fact(10, "control.agent.cell-printed", 8, { text: "" }),
+      fact(11, "control.agent.cell-printed", 9, { text: "first" }),
+      fact(12, "control.agent.cell-printed", 10, { text: "second" }),
+      fact(13, "control.agent.cell-settled", 11, { outcome: "failure" }),
+      journal[11]!
+    ]
+    const model = monitorFromJournal(run, records)
+    expect(model.attempts[0]!.steps[0]).toMatchObject({ input: "Write the file", model_calls: 1, tokens: 0 })
+    expect(model.attempts[0]!.phases[0]!.cells).toEqual([
+      { id: "cell:5", kind: "think", label: "Model reply", tokens: 0 },
+      { id: "cell:8", kind: "run", label: "Ran a cell", output: "first\nsecond", tone: "fail" }
+    ])
+  })
+
+  test("tool transcript labels handle sparse descriptors, questions and orphan settlements", () => {
+    const records = [
+      journal[0]!,
+      call(2, CALL_READ, "settled", { flowName: "read", outcome: "success", value: "orphan" }),
+      call(3, CALL_READ, "invoked", { flowName: "ask", input: null }),
+      call(4, CALL_READ, "settled", { flowName: "ask", outcome: "success", value: null }),
+      call(5, CALL_WRITE, "invoked", { flowName: "custom", descriptor: { name: "custom" }, input: null }),
+      call(6, CALL_WRITE, "settled", { flowName: "custom", outcome: "failure", value: null }),
+      journal[11]!
+    ]
+    expect(monitorFromJournal(run, records).attempts[0]!.phases[0]!.cells).toEqual([
+      { id: "cell:3", kind: "ask", label: "Ask", tone: "ok" },
+      { id: "cell:5", kind: "run", label: "Failed custom", tone: "fail" }
+    ])
+    const descriptorOnly = call(7, CALL_READ, "invoked", {
+      flowName: "named",
+      descriptor: { name: "named", presentation: { subject: "missing" } },
+      input: {}
+    })
+    const unnamed = call(8, CALL_WRITE, "invoked", { flowName: "call", input: {} })
+    expect(
+      monitorFromJournal(run, [journal[0]!, descriptorOnly, unnamed, journal[11]!]).attempts[0]!.phases[0]!.cells.map(
+        (cell) => cell.label
+      )
+    ).toEqual(["Named", "Call"])
+  })
+
+  test("invalid call envelopes cannot create transcript cells", () => {
+    const valid = call(2, CALL_READ, "invoked", { flowName: "read", input: {} })
+    const payload = valid.payload as Record<string, unknown>
+    const invalid = [
+      { ...valid, payload: { ...payload, payload: {} } },
+      { ...valid, payload: { ...payload, sourceId: "wrong" } },
+      call(3, CALL_READ, "invoked", { flowName: "read", input: {}, identity: { ...identity, runId: "unscoped" } })
+    ]
+    expect(
+      monitorFromJournal(run, [journal[0]!, ...invalid, journal[11]!]).attempts[0]!.phases[0]!.cells.map((cell) =>
+        cell.label
+      )
+    ).toEqual(["Edited the files"])
+  })
+
+  test("check lists count only failed receipts and ordinary JSON is not a check", () => {
+    const outputs = [
+      JSON.stringify([
+        { checkId: "one", status: "failed" },
+        { checkId: "two", status: "passed" },
+        { status: "failed" },
+        null,
+        { checkId: "three", status: "failed" }
+      ]),
+      "{}"
+    ]
+    const records = outputs.flatMap((preview, index) => [
+      node(index * 2 + 1, "flows.engine.node-scheduled", {
+        nodeId: `check-${index}`,
+        kind: "ActionCall",
+        attempt: 1,
+        action: "coding/check-command"
+      }),
+      node(index * 2 + 2, "flows.engine.node-settled", {
+        nodeId: `check-${index}`,
+        outcome: "built",
+        attempts: 1,
+        action: "coding/check-command",
+        result: { preview, bytes: preview.length, truncated: false }
+      })
+    ])
+    expect(monitorFromJournal(run, records).attempts[0]!.phases.map((phase) => [phase.title, phase.tone])).toEqual([[
+      "Ran checks · 2 failed",
+      "fail"
+    ], ["Ran checks", "ok"]])
+  })
+
+  test("sparse node shapes keep known structural kinds and ignore malformed declarations", () => {
+    const records = [
+      { kind: "control.engine.event", payload: {} },
+      node(1, "flows.engine.plan-recorded", { graph: {} }),
+      node(2, "flows.engine.subgraph-appended", {
+        graph: { nodes: [{ kind: "Branch" }, { id: "branch", kind: "Branch", action: "branch" }] }
+      }),
+      node(3, "flows.engine.node-scheduled", {}),
+      node(4, "flows.engine.node-scheduled", { nodeId: "branch", attempt: 1 }),
+      node(5, "flows.engine.node-scheduled", { nodeId: "visible", attempt: 1 }),
+      node(6, "flows.engine.node-settled", { nodeId: "visible", outcome: "built", attempts: 1 })
+    ]
+    const model = monitorFromJournal(run, records)
+    expect(model.attempts[0]!.steps.map((step) => step.id)).toEqual(["engine-node:exec%3A0:visible"])
   })
 
   test("the transcript is a pure function of the journal, and replay stops at the cursor", () => {
     expect(JSON.stringify(monitorFromJournal(run, journal))).toBe(JSON.stringify(monitorFromJournal(run, journal)))
     const replay = monitorFromJournal(run, journal, 4)
-    expect(replay.attempts[0]!.phases[0]!.cells.map(cell => cell.label)).toEqual(["Edited the files"])
+    expect(replay.attempts[0]!.phases[0]!.cells.map((cell) => cell.label)).toEqual(["Edited the files"])
     expect(replay.attempts[0]!.steps[0]).not.toHaveProperty("meter")
   })
 })

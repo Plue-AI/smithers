@@ -132,18 +132,23 @@ describe("RuntimeBridge", () => {
     Effect.gen(function*() {
       let seen: Control.RunInput | undefined
       const keys: Array<string> = []
-      const control = service({ run: (input) => {
-        seen = input
-        keys.push(input.idempotencyKey)
-        return Effect.succeed({ ...accepted, runId: "dispatch:review-attempt-1" })
-      } })
+      const control = service({
+        run: (input) => {
+          seen = input
+          keys.push(input.idempotencyKey)
+          return Effect.succeed({ ...accepted, runId: "dispatch:review-attempt-1" })
+        }
+      })
       const result = yield* RuntimeBridge.execute(config, control, principal, {
-        ...launch, runId: "dispatch:review-attempt-1"
+        ...launch,
+        runId: "dispatch:review-attempt-1"
       })
       expect(seen).toMatchObject({ reservedRunId: "dispatch:review-attempt-1", principal })
       expect(result).toMatchObject({ receipt: { runId: "dispatch:review-attempt-1" } })
       yield* RuntimeBridge.execute(config, control, principal, {
-        ...launch, attempt: 3, runId: "dispatch:review-attempt-1"
+        ...launch,
+        attempt: 3,
+        runId: "dispatch:review-attempt-1"
       })
       expect(keys).toEqual([
         "bridge:v1:request-1:run:dispatch:review-attempt-1",
@@ -947,4 +952,26 @@ it.effect("refuses monitors exceeding the journal scan or encoded response bound
     const current = yield* RuntimeBridge.monitor(tooLarge, "run-1")
     expect("journal" in current).toBe(false)
     expect(current.extent).toEqual({ start: "1970-01-01T00:00:00.001Z", end: "1970-01-01T00:00:00.001Z" })
+  }))
+
+it.effect("monitor extent ignores nonpositive times and bounds unordered observations", () =>
+  Effect.gen(function*() {
+    const timeless = [{ sequence: 1, kind: "control.run.running", occurredAt: 0, payload: null }, {
+      sequence: 2,
+      kind: "control.run.running",
+      occurredAt: -1,
+      payload: null
+    }]
+    const empty = yield* RuntimeBridge.monitor(service({ watch: () => Stream.fromIterable(timeless) }), "run-1")
+    expect(empty).not.toHaveProperty("extent")
+    expect(empty).not.toHaveProperty("journal")
+    const records = [...timeless, { sequence: 3, kind: "control.run.running", occurredAt: 9000, payload: null }, {
+      sequence: 4,
+      kind: "control.run.running",
+      occurredAt: 2000,
+      payload: null
+    }]
+    const replay = yield* RuntimeBridge.monitor(service({ watch: () => Stream.fromIterable(records) }), "run-1", 2)
+    expect(replay.extent).toEqual({ start: "1970-01-01T00:00:02.000Z", end: "1970-01-01T00:00:09.000Z" })
+    expect(replay.journal?.map((row) => row.seq)).toEqual([1, 2])
   }))

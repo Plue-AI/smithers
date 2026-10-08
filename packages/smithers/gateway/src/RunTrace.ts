@@ -20,11 +20,11 @@
 import { CallFact } from "@smthrs/journal"
 import { CallPresentation, FlowActivity, type FlowDescriptor } from "@smthrs/registry/Descriptor"
 import { Schema } from "effect"
-import { inspectLabel } from "./internal/inspectLabels.ts"
 import { callScope, openCallIndex } from "./Diagnosis.ts"
 import { engineExecutionEvidence, engineTraceFromJournal } from "./EngineTrace.ts"
 import { ACTION_RENDERINGS } from "./internal/actionRenderings.ts"
 import { type CallEventFilter, callEventFilter, nativeStepEvent, uniqueCallEvents } from "./internal/callEvents.ts"
+import { inspectLabel } from "./internal/inspectLabels.ts"
 
 export { inspectLabel } from "./internal/inspectLabels.ts"
 
@@ -2327,11 +2327,11 @@ const cellText = (value: unknown): string | undefined => {
 }
 
 /** The recorded presentation of a tool call: "Read t5.md", "Failed to write t5.md". */
-const callCellLabel = (started: Record<string, unknown>, failed: boolean): string => {
+const callCellLabel = (started: Extract<CallFact.Fact, { phase: "invoked" }>, failed: boolean): string => {
   const descriptor = asRecord(started.descriptor)
   const presentation = asRecord(descriptor.presentation)
   const verbs = asRecord(presentation.verb)
-  const name = asString(started.flowName) ?? asString(descriptor.name) ?? "call"
+  const name = started.flowName
   const verb = asString(failed ? verbs.failure : verbs.success) ?? (failed ? `failed ${name}` : name)
   const subjectKey = asString(presentation.subject)
   const subject = subjectKey === undefined ? undefined : asString(asRecord(started.input)[subjectKey])
@@ -2339,9 +2339,9 @@ const callCellLabel = (started: Record<string, unknown>, failed: boolean): strin
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-const callCellKind = (started: Record<string, unknown>): TranscriptCell["kind"] => {
+const callCellKind = (started: Extract<CallFact.Fact, { phase: "invoked" }>): TranscriptCell["kind"] => {
   const activity = asString(asRecord(started.descriptor).activity)
-  const name = asString(started.flowName)
+  const name = started.flowName
   return name === "ask" ? "ask" : activity === "reads" ? "read" : activity === "writes" ? "edit" : "run"
 }
 
@@ -2351,9 +2351,13 @@ const decodeCallFact = Schema.decodeUnknownOption(CallFact.Fact)
 const callFactOf = (record: JournalRecord) => {
   if (record.kind !== "control.engine.event") return undefined
   const envelope = asRecord(record.payload)
-  if (envelope.version !== 1 || envelope.eventType !== CallFact.eventType || envelope.sourceSequence !== 0) return undefined
+  if (envelope.version !== 1 || envelope.eventType !== CallFact.eventType || envelope.sourceSequence !== 0) {
+    return undefined
+  }
   const fact = decodeCallFact(envelope.payload)
-  if (fact._tag === "None" || envelope.sourceId !== `call-fact-v1:${fact.value.callId}:${fact.value.phase}`) return undefined
+  if (fact._tag === "None" || envelope.sourceId !== `call-fact-v1:${fact.value.callId}:${fact.value.phase}`) {
+    return undefined
+  }
   const stepId = /@([0-9a-f]{64}):\d+#\d+$/.exec(fact.value.identity.runId)?.[1]
   return stepId === undefined ? undefined : { stepId, fact: fact.value }
 }
@@ -2372,14 +2376,17 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
     return found
   }
   const lastCell = new Map<string, TranscriptCell>()
-  const calls = new Map<string, { readonly cell: TranscriptCell; readonly started: Record<string, unknown> }>()
+  const calls = new Map<
+    string,
+    { readonly cell: TranscriptCell; readonly started: Extract<CallFact.Fact, { phase: "invoked" }> }
+  >()
   for (const record of journal) {
     const sequence = record.sequence ?? 0
     const step = nativeStepEvent(record)
     if (step !== undefined) {
       const payload = asRecord(step.payload)
-      const stepId = asString(asRecord(payload.step).stepId)
-      if (stepId === undefined || !hexDigest.test(stepId)) continue
+      // nativeStepEvent has decoded StepFact.Scope, whose stepId is a 64-digit hex string.
+      const stepId = asString(asRecord(payload.step).stepId)!
       const transcript = entry(stepId)
       if (step.kind === "control.agent.model-requested" && transcript.input === undefined) {
         const task = taskOf(payload)
@@ -2392,13 +2399,21 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
         transcript.tokens += tokens
         transcript.models += 1
         transcript.cells.push({
-          id: `cell:${sequence}`, kind: "think", label: "Model reply",
-          ...(text === undefined ? {} : { quote: text }), tokens,
+          id: `cell:${sequence}`,
+          kind: "think",
+          label: "Model reply",
+          ...(text === undefined ? {} : { quote: text }),
+          tokens,
           ...(duration === undefined ? {} : { took_s: Math.max(0, duration) / 1000 })
         })
       } else if (step.kind === "control.agent.cell-produced") {
         const code = cellText(payload.text)
-        const cell: TranscriptCell = { id: `cell:${sequence}`, kind: "run", label: "Ran a cell", ...(code === undefined ? {} : { code }) }
+        const cell: TranscriptCell = {
+          id: `cell:${sequence}`,
+          kind: "run",
+          label: "Ran a cell",
+          ...(code === undefined ? {} : { code })
+        }
         transcript.cells.push(cell)
         lastCell.set(stepId, cell)
       } else if (step.kind === "control.agent.cell-printed") {
@@ -2416,15 +2431,17 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
     const call = callFactOf(record)
     if (call === undefined) continue
     const handle = `${call.stepId}:${call.fact.callId}`
-    const payload = asRecord(call.fact)
     if (call.fact.phase === "invoked") {
       const input = cellText(call.fact.input)
       const cell: TranscriptCell = {
-        id: `cell:${sequence}`, kind: callCellKind(payload), label: callCellLabel(payload, false),
-        ...(input === undefined ? {} : { code: input }), tone: "live"
+        id: `cell:${sequence}`,
+        kind: callCellKind(call.fact),
+        label: callCellLabel(call.fact, false),
+        ...(input === undefined ? {} : { code: input }),
+        tone: "live"
       }
       entry(call.stepId).cells.push(cell)
-      calls.set(handle, { cell, started: payload })
+      calls.set(handle, { cell, started: call.fact })
       continue
     }
     const open = calls.get(handle)
@@ -2445,13 +2462,25 @@ const nodeDispatches = (row: TraceSpan): ReadonlyArray<string> => {
   const execution = asString(fields.executionId)
   const digests = asRecord(fields.payload).stepKeyDigests
   if (execution === undefined || !Array.isArray(digests)) return []
-  return [...new Set(digests.filter((digest): digest is string => typeof digest === "string" && hexDigest.test(digest)))]
+  return [
+    ...new Set(digests.filter((digest): digest is string => typeof digest === "string" && hexDigest.test(digest)))
+  ]
     .map((digest) => `${execution}:${digest}`)
 }
 
 /** Plan node kinds that only shape the plan (@smthrs/plan); a child flow's own nodes are its steps. */
 const PLAN_STRUCTURE: ReadonlySet<string> = new Set([
-  "Succeed", "Fail", "All", "Race", "Map", "AndThen", "Branch", "Catch", "FlowCall", "FunctionIdentity", "PlannedReference"
+  "Succeed",
+  "Fail",
+  "All",
+  "Race",
+  "Map",
+  "AndThen",
+  "Branch",
+  "Catch",
+  "FlowCall",
+  "FunctionIdentity",
+  "PlannedReference"
 ])
 
 /** A check receipt's leading scalar fields, read from a preview the engine
@@ -2488,12 +2517,16 @@ const engineNodeShapes = (journal: ReadonlyArray<JournalRecord>) => {
     const payload = asRecord(envelope.payload)
     if (executionId === undefined || generation === undefined) continue
     const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(executionId)}:${generation}`)}:`
-    if (envelope.eventType === "flows.engine.plan-recorded" || envelope.eventType === "flows.engine.subgraph-appended") {
+    if (
+      envelope.eventType === "flows.engine.plan-recorded" || envelope.eventType === "flows.engine.subgraph-appended"
+    ) {
       const nodes = asRecord(payload.graph).nodes
       for (const node of Array.isArray(nodes) ? nodes : []) {
         const shape = asRecord(node)
         const id = asString(shape.id)
-        if (id !== undefined) shapes.set(prefix + encodeURIComponent(id), { kind: asString(shape.kind), action: asString(shape.action) })
+        if (id !== undefined) {
+          shapes.set(prefix + encodeURIComponent(id), { kind: asString(shape.kind), action: asString(shape.action) })
+        }
       }
     } else if (envelope.eventType === "flows.engine.node-scheduled") {
       const id = asString(payload.nodeId)
@@ -2515,27 +2548,38 @@ const engineNodeShapes = (journal: ReadonlyArray<JournalRecord>) => {
  */
 export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<JournalRecord>, at?: number) => {
   const last = records.reduce((last, row) => Math.max(last, row.sequence ?? 0), 0)
-  const journal = at === undefined ? records : records.filter(row => (row.sequence ?? 0) <= at)
+  const journal = at === undefined ? records : records.filter((row) => (row.sequence ?? 0) <= at)
   // A historical frame must not inherit the current run's terminal status.
-  const lifecycleRow = [...journal].reverse().find(row =>
-    /^control\.run\.(running|waiting-approval|paused|suspended|held|completed|failed|cancelled|interrupted)$/.test(row.kind ?? "") &&
-    (row.runId === undefined || row.runId === run.runId))
+  const lifecycleRow = [...journal].reverse().find((row) =>
+    /^control\.run\.(running|waiting-approval|paused|suspended|held|completed|failed|cancelled|interrupted)$/.test(
+      row.kind ?? ""
+    ) &&
+    (row.runId === undefined || row.runId === run.runId)
+  )
   const status = at === undefined ? run.status : lifecycleRow?.kind?.split(".").at(-1) ?? "running"
   const state = (value: string): "running" | "waiting" | "held" | "failed" | "done" | "interrupted" =>
-    value === "completed" || value === "done" ? "done" : value === "failed" ? "failed"
-    : value === "cancelled" || value === "interrupted" ? "interrupted" : value === "held" ? "held"
-    : value === "waiting" || value === "waiting-approval" || value === "paused" || value === "suspended" ? "waiting" : "running"
+    value === "completed" || value === "done" ? "done" : value === "failed" ?
+      "failed"
+      : value === "cancelled" || value === "interrupted" ?
+      "interrupted" :
+      value === "held" ?
+      "held"
+      : value === "waiting" || value === "waiting-approval" || value === "paused" || value === "suspended"
+      ? "waiting"
+      : "running"
   const trace = traceFromJournal({ ...run, status }, journal)
-  const engineLabel = (label: string) => ACTION_RENDERINGS[label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(label)
+  const engineLabel = (label: string) =>
+    ACTION_RENDERINGS[label] === null || /^<(?:boundary:|quota-park>|structured-output-count>)/.test(label)
   const bookkeeping = (row: TraceSpan) => engineLabel(row.label)
   const transcripts = stepTranscripts(journal)
-  const dispatchesOf = new Map(trace.rows.map(row => [row.id, nodeDispatches(row)] as const))
+  // Every call below is a member of trace.rows, so both lookups are total.
+  const dispatchesOf = new Map(trace.rows.map((row) => [row.id, nodeDispatches(row)] as const))
   // A step is a node that dispatched an action. Plan structure (sequences,
   // branches, maps) and child-flow calls, whose own nodes are the steps, are
   // never steps of their own.
   const structural = (kind: string | undefined) => kind !== undefined && PLAN_STRUCTURE.has(kind)
   const nodeShapes = engineNodeShapes(journal)
-  const calls = trace.rows.filter(row => {
+  const calls = trace.rows.filter((row) => {
     // A tool call an agent made inside a step is a cell of that step's
     // transcript (step:<scope>/…), never a step of its own.
     if (row.kind !== "call" || bookkeeping(row) || row.id.startsWith("step:")) return false
@@ -2543,25 +2587,40 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
     return shape === undefined || !structural(shape.kind)
   })
   const transcriptOf = (row: TraceSpan) => {
-    const parts = (dispatchesOf.get(row.id) ?? []).flatMap(dispatch => {
+    const parts = dispatchesOf.get(row.id)!.flatMap((dispatch) => {
       const found = transcripts.get(dispatch.slice(dispatch.lastIndexOf(":") + 1))
       return found === undefined ? [] : [found]
     })
     return {
-      cells: parts.flatMap(part => part.cells).sort((left, right) => Number(left.id.slice(5)) - Number(right.id.slice(5))),
+      cells: parts.flatMap((part) => part.cells).sort((left, right) =>
+        Number(left.id.slice(5)) - Number(right.id.slice(5))
+      ),
       tokens: parts.reduce((total, part) => total + part.tokens, 0),
       models: parts.reduce((total, part) => total + part.models, 0),
-      input: parts.find(part => part.input !== undefined)?.input
+      input: parts.find((part) => part.input !== undefined)?.input
     }
   }
-  const steps = calls.map(row => {
-    const meter = dispatchesOf.get(row.id) ?? []
+  const steps = calls.map((row) => {
+    const meter = dispatchesOf.get(row.id)!
     const transcript = transcriptOf(row)
     return {
-      ...(() => { const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id); const id = matched?.[1] ?? row.id; const k = Number(matched?.[2] ?? 1); return { key: `${id}#${k}`, id, k } })(), label: row.label, state: row.status,
+      ...(() => {
+        const matched = /^(engine-node:.*)#(\d+)$/.exec(row.id)
+        const id = matched?.[1] ?? row.id
+        const k = Number(matched?.[2] ?? 1)
+        return { key: `${id}#${k}`, id, k }
+      })(),
+      label: row.label,
+      state: row.status,
       started_at: new Date(row.startedAt).toISOString(),
-      ...(row.endedAt === undefined ? {} : { ended_at: new Date(row.endedAt).toISOString(), took_s: Math.max(0, row.endedAt - row.startedAt) / 1000 }),
-      ...(row.detail.input !== undefined ? { input: row.detail.input } : transcript.input !== undefined ? { input: transcript.input } : {}),
+      ...(row.endedAt === undefined
+        ? {}
+        : { ended_at: new Date(row.endedAt).toISOString(), took_s: Math.max(0, row.endedAt - row.startedAt) / 1000 }),
+      ...(row.detail.input !== undefined
+        ? { input: row.detail.input }
+        : transcript.input !== undefined
+        ? { input: transcript.input }
+        : {}),
       ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
       // The install prices these dispatches from its metered proxy rows and
       // replaces them with `usage`; the journal's own token count rides along.
@@ -2569,72 +2628,155 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
       ...(transcript.models === 0 ? {} : { model_calls: transcript.models, tokens: transcript.tokens })
     }
   })
-  const tone = (value: string): "live" | "ok" | "fail" | "wait" => value === "failed" ? "fail"
-    : value === "completed" ? "ok" : value === "waiting" ? "wait" : "live"
+  const tone = (value: string): "live" | "ok" | "fail" | "wait" =>
+    value === "failed" ?
+      "fail"
+      : value === "completed"
+      ? "ok"
+      : value === "waiting"
+      ? "wait"
+      : "live"
   const phases = calls.map((row, index) => {
     const transcript = transcriptOf(row).cells
     const failedChecks = checkFailures(row.detail.output)
+    const cells: Array<Omit<TranscriptCell, "tone"> & { tone?: ReturnType<typeof tone> }> = transcript.length > 0
+      ? transcript
+      : [{
+        id: `cell:${row.id}`,
+        kind: /Edited/.test(row.label) ? "edit" : /Read/.test(row.label) ? "read" : "run",
+        label: row.label,
+        ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
+        tone: tone(row.status)
+      }]
     return {
-      id: `phase:${row.id}`, step: steps[index]!.key,
+      id: `phase:${row.id}`,
+      step: steps[index]!.key,
       // The title is the Appendix C label plus the outcome its recorded
       // output reports: "Ran checks · 1 failed".
       title: failedChecks === 0 ? row.label : `${row.label} · ${failedChecks} failed`,
       took_s: Math.max(0, (row.endedAt ?? row.startedAt) - row.startedAt) / 1000,
       tone: failedChecks === 0 ? tone(row.status) : "fail" as const,
-      cells: transcript.length > 0 ? transcript : [{ id: `cell:${row.id}`, kind: /Edited/.test(row.label) ? "edit" as const : /Read/.test(row.label) ? "read" as const : "run" as const,
-        label: row.label, ...(row.detail.output === undefined ? {} : { output: row.detail.output }),
-        tone: tone(row.status) }]
+      cells
     }
   })
-  const declaredGraph = engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => {
-    const prefix = `engine-node:${encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)}:`
-    const nodes = execution.graph?.nodes ?? []
-    const hidden = new Map(nodes.filter(node => engineLabel(node.action ?? node.id) || structural(node.kind))
-      .map(node => [node.id, node]))
-    // Engine bookkeeping stays in the Engine row. Its dependency edges still
-    // order the visible steps, including across several hidden boundaries.
-    const visibleDeps = (id: string, seen: ReadonlySet<string>): string[] => {
-      const node = hidden.get(id)
-      if (node === undefined) return [prefix + encodeURIComponent(id)]
-      if (seen.has(id)) return []
-      return node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([...seen, id])))
+  const declaredGraph = engineExecutionEvidence(journal).filter((execution) => execution.coherent).flatMap(
+    (execution) => {
+      const prefix = `engine-node:${
+        encodeURIComponent(`${encodeURIComponent(execution.executionId)}:${execution.generation}`)
+      }:`
+      const nodes = execution.graph?.nodes ?? []
+      const hidden = new Map(
+        nodes.filter((node) => engineLabel(node.action ?? node.id) || structural(node.kind))
+          .map((node) => [node.id, node])
+      )
+      // Engine bookkeeping stays in the Engine row. Its dependency edges still
+      // order the visible steps, including across several hidden boundaries.
+      const visibleDeps = (id: string, seen: ReadonlySet<string>): string[] => {
+        const node = hidden.get(id)
+        if (node === undefined) return [prefix + encodeURIComponent(id)]
+        if (seen.has(id)) return []
+        return node.dependsOn.flatMap((dependency) => visibleDeps(dependency, new Set([...seen, id])))
+      }
+      return nodes.filter((node) => !hidden.has(node.id)).map((node) => {
+        const id = prefix + encodeURIComponent(node.id)
+        const instances = calls.filter((row) => row.id.startsWith(`${id}#`))
+        const current = instances.at(-1)
+        return {
+          id,
+          label: inspectLabel(node.action ?? node.id),
+          // A branch not taken never ran: it stays next, even in a finished run.
+          state: current === undefined || current.status === "skipped" ?
+            "next" as const :
+            current.status === "completed" ?
+            "done" as const
+            : current.status === "failed"
+            ? "failed" as const
+            : current.status === "waiting"
+            ? "waiting" as const
+            : "current" as const,
+          deps: [...new Set(node.dependsOn.flatMap((dependency) => visibleDeps(dependency, new Set([node.id]))))]
+        }
+      })
     }
-    return nodes.filter(node => !hidden.has(node.id)).map(node => {
-      const id = prefix + encodeURIComponent(node.id)
-      const instances = calls.filter(row => row.id.startsWith(`${id}#`))
-      const current = instances.at(-1)
-      return { id, label: inspectLabel(node.action ?? node.id),
-        // A branch not taken never ran: it stays next, even in a finished run.
-        state: current === undefined || current.status === "skipped" ? "next" as const : current.status === "completed" ? "done" as const
-          : current.status === "failed" ? "failed" as const : current.status === "waiting" ? "waiting" as const : "current" as const,
-        deps: [...new Set(node.dependsOn.flatMap(dependency => visibleDeps(dependency, new Set([node.id]))))] }
-    })
-  })
+  )
   const usageOf = (row: TraceSpan) => (row.detail.usage?.inputTokens ?? 0) + (row.detail.usage?.outputTokens ?? 0)
   const tokens = trace.rows.reduce((total, row) => total + usageOf(row), 0)
   // Model calls no native dispatch recorded (a legacy agent journal) can
   // never be joined to metered rows; the install refuses to price them.
-  const unmetered = trace.rows.filter(row => row.kind === "model" && asRecord(row.detail.fields).step === undefined)
+  const unmetered = trace.rows.filter((row) => row.kind === "model" && asRecord(row.detail.fields).step === undefined)
     .reduce((total, row) => total + usageOf(row), 0)
-  const approvalWaits = trace.rows.filter(row => row.kind === "approval").map(row => ({
-    id: row.id, kind: "approval" as const, label: row.label, since: new Date(row.startedAt).toISOString(),
-    ...(row.endedAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() } })
+  const approvalWaits = trace.rows.filter((row) => row.kind === "approval").map((row) => ({
+    id: row.id,
+    kind: "approval" as const,
+    label: row.label,
+    since: new Date(row.startedAt).toISOString(),
+    ...(row.endedAt === undefined
+      ? {}
+      : {
+        settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(row.endedAt).toISOString() }
+      })
   }))
   return {
-    id: run.runId, flow: run.flowId, version: "", title: run.flowId, state: state(status),
-    attempts: [{ n: 1, run_id: run.runId, state: state(status), steps, phases,
-      graph: declaredGraph.length > 0 ? declaredGraph : calls.map(row => ({ id: row.id, label: row.label, state: row.status === "skipped" ? "next" as const : row.status === "completed" ? "done" as const
-        : row.status === "failed" ? "failed" as const : row.status === "waiting" ? "waiting" as const : "current" as const, deps: [] as string[] })) }],
-    waits: [...approvalWaits, ...engineExecutionEvidence(journal).filter(execution => execution.coherent).flatMap(execution => execution.waits.map(wait => ({
-      id: wait.id, kind: wait.kind, label: inspectLabel("wait"), since: new Date(wait.since).toISOString(),
-      ...(wait.settledAt === undefined ? {} : { settled: { by: { kind: "system" as const, color_index: 7 as const }, at: new Date(wait.settledAt).toISOString() } })
-    })))], tokens,
+    id: run.runId,
+    flow: run.flowId,
+    version: "",
+    title: run.flowId,
+    state: state(status),
+    attempts: [{
+      n: 1,
+      run_id: run.runId,
+      state: state(status),
+      steps,
+      phases,
+      graph: declaredGraph.length > 0 ?
+        declaredGraph :
+        calls.map((row) => ({
+          id: row.id,
+          label: row.label,
+          state: row.status === "skipped" ? "next" as const : row.status === "completed" ?
+            "done" as const
+            : row.status === "failed"
+            ? "failed" as const
+            : row.status === "waiting"
+            ? "waiting" as const
+            : "current" as const,
+          deps: [] as string[]
+        }))
+    }],
+    waits: [
+      ...approvalWaits,
+      ...engineExecutionEvidence(journal).filter((execution) => execution.coherent).flatMap((execution) =>
+        execution.waits.map((wait) => ({
+          id: wait.id,
+          kind: wait.kind,
+          label: inspectLabel("wait"),
+          since: new Date(wait.since).toISOString(),
+          ...(wait.settledAt === undefined
+            ? {}
+            : {
+              settled: {
+                by: { kind: "system" as const, color_index: 7 as const },
+                at: new Date(wait.settledAt).toISOString()
+              }
+            })
+        }))
+      )
+    ],
+    tokens,
     // Spend is priced where model calls are metered. The host never publishes
     // an unknown total as zero: a run with model tokens leaves cost to the install.
-    time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000, ...(tokens === 0 ? { cost_usd: 0 } : {}),
+    time_s: Math.max(0, trace.extent.end - trace.extent.start) / 1000,
+    ...(tokens === 0 ? { cost_usd: 0 } : {}),
     ...(unmetered === 0 ? {} : { unmetered_tokens: unmetered }),
-    engine: trace.rows.filter(row => row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)).map(row => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
-    journal: journal.map(row => ({ seq: row.sequence ?? 0, at: new Date(row.occurredAt ?? 0).toISOString(), type: row.kind ?? "event", text: JSON.stringify(row.payload) ?? "null" })),
+    engine: trace.rows.filter((row) =>
+      row.kind === "event" || row.kind === "execution" || row.kind === "attempt" || bookkeeping(row)
+    ).map((row) => ({ label: row.label, detail: row.detail.output ?? row.detail.message ?? "" })),
+    journal: journal.map((row) => ({
+      seq: row.sequence ?? 0,
+      at: new Date(row.occurredAt ?? 0).toISOString(),
+      type: row.kind ?? "event",
+      text: JSON.stringify(row.payload) ?? "null"
+    })),
     ...(at === undefined ? {} : { replay: { at: Math.min(at, last), last } })
   }
 }

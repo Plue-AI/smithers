@@ -496,26 +496,47 @@ export const monitor = (control: Control["Service"], runId: string, at?: number)
   Effect.gen(function*() {
     const listed = yield* control.list({ _tag: "runs", filters: { runId }, limit: 1 })
     const run = listed._tag === "runs" ? listed.items[0] : undefined
-    if (run === undefined || run.runId !== runId) return yield* new BridgeError({ code: "run_not_found", message: "Runtime execution was not found", retryable: false })
-    const records = Array.from(yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1)))
-    if (records.length > Projections.maxEventsScanned) return yield* new BridgeError({ code: "resource_limit", message: "Run journal exceeds the inspection limit", retryable: false })
+    if (run === undefined || run.runId !== runId) {
+      return yield* new BridgeError({
+        code: "run_not_found",
+        message: "Runtime execution was not found",
+        retryable: false
+      })
+    }
+    const records = Array.from(
+      yield* Stream.runCollect(Stream.take(control.watch({ runId, follow: false }), Projections.maxEventsScanned + 1))
+    )
+    if (records.length > Projections.maxEventsScanned) {
+      return yield* new BridgeError({
+        code: "resource_limit",
+        message: "Run journal exceeds the inspection limit",
+        retryable: false
+      })
+    }
     const folded = monitorFromJournal({ runId, flowId: run.flowId, status: run.status }, records, at)
     // The journal is read page by page when its tab opens (run-events). Only a
     // replay frame carries its own journal prefix. The extent bounds the run.
     let start = Infinity
     let end = 0
     for (const row of records) {
-      if ((row.occurredAt ?? 0) > 0) {
-        start = Math.min(start, row.occurredAt!)
-        end = Math.max(end, row.occurredAt!)
+      if (row.occurredAt > 0) {
+        start = Math.min(start, row.occurredAt)
+        end = Math.max(end, row.occurredAt)
       }
     }
-    const value: Partial<typeof folded> & Omit<typeof folded, "journal"> & { extent?: { start: string; end: string } } = {
-      ...folded,
-      ...(end === 0 ? {} : { extent: { start: new Date(start).toISOString(), end: new Date(end).toISOString() } })
-    }
+    const value: Partial<typeof folded> & Omit<typeof folded, "journal"> & { extent?: { start: string; end: string } } =
+      {
+        ...folded,
+        ...(end === 0 ? {} : { extent: { start: new Date(start).toISOString(), end: new Date(end).toISOString() } })
+      }
     if (at === undefined) delete value.journal
-    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > Projections.maxProjectionBytes) return yield* new BridgeError({ code: "resource_limit", message: "Run monitor exceeds the inspection limit", retryable: false })
+    if (new TextEncoder().encode(JSON.stringify(value)).byteLength > Projections.maxProjectionBytes) {
+      return yield* new BridgeError({
+        code: "resource_limit",
+        message: "Run monitor exceeds the inspection limit",
+        retryable: false
+      })
+    }
     return value
   })
 
@@ -677,15 +698,23 @@ export const layer = (config: Config) => {
       Effect.withSpan("runtime-bridge.observe")
     )
 
-  const inspection = authenticated(config, () => Effect.gen(function*() {
-    const body = yield* readJson
-    const input = yield* Schema.decodeUnknownEffect(Schema.Struct({
-      protocol: Schema.Literal(protocol), runId: Schema.NonEmptyString,
-      at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
-    }))(body).pipe(Effect.mapError(() => new BridgeError({ code: "invalid_request", message: "Invalid monitor request", retryable: false })))
-    const control = yield* Control
-    return HttpServerResponse.jsonUnsafe({ protocol, ok: true, value: yield* monitor(control, input.runId, input.at) })
-  })).pipe(Effect.catch(respondToFailure("runtime-bridge.observe")))
+  const inspection = authenticated(config, () =>
+    Effect.gen(function*() {
+      const body = yield* readJson
+      const input = yield* Schema.decodeUnknownEffect(Schema.Struct({
+        protocol: Schema.Literal(protocol),
+        runId: Schema.NonEmptyString,
+        at: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+      }))(body).pipe(Effect.mapError(() =>
+        new BridgeError({ code: "invalid_request", message: "Invalid monitor request", retryable: false })
+      ))
+      const control = yield* Control
+      return HttpServerResponse.jsonUnsafe({
+        protocol,
+        ok: true,
+        value: yield* monitor(control, input.runId, input.at)
+      })
+    })).pipe(Effect.catch(respondToFailure("runtime-bridge.observe")))
 
   return HttpRouter.add("POST", "/runtime/v1/command", command).pipe(
     Layer.merge(HttpRouter.add("POST", "/runtime/v1/monitor", inspection)),
