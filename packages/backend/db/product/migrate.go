@@ -189,6 +189,7 @@ var migrationRegistry = []migrationSpec{
 	{151, "migrations/0151_run_summaries.sql"},
 	{152, "migrations/0152_fast_model_credential_lookup.sql"},
 	{153, "migrations/0153_model_usage_native_step.sql"},
+	{154, "migrations/0154_run_archives.sql"},
 }
 
 type migration struct {

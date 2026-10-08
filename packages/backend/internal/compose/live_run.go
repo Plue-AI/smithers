@@ -78,7 +78,28 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 		if err := authorize(ctx); err != nil {
 			return live.LogPage{}, err
 		}
-		return reader.page(ctx, after)
+		page, err := reader.page(ctx, after)
+		if err == nil {
+			return page, nil
+		}
+		// A read never wakes a sleeping branch: the run is served from its
+		// host's own answers retained while the host was live (runArchive).
+		archived, archiveErr := readRunArchive(ctx, t.changePool, repository, checkpoint.Target.WorkspaceID, run)
+		if archiveErr != nil {
+			return live.LogPage{}, err
+		}
+		page, projection, archiveErr := archived.livePage(run, after)
+		if archiveErr != nil || page.Gap {
+			return page, archiveErr
+		}
+		if launch.Pin != nil {
+			projection["flow_version"] = map[string]string{"flow_name": launch.Pin.Flow, "source_commit": launch.Pin.SourceCommit, "digest": launch.Pin.ExecutionDigest}
+		}
+		if draft {
+			projection["version"] = "draft version"
+		}
+		page.Data, archiveErr = json.Marshal(projection)
+		return page, archiveErr
 	}}}, ""
 }
 

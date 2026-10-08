@@ -78,7 +78,13 @@ func (m *runMonitors) read(ctx context.Context, repo int64, id string, at *int64
 func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string, at *int64, cp flowdispatch.RuntimeCheckpoint) (json.RawMessage, error) {
 	raw, err := m.reader.Monitor(ctx, cp.Target, cp.RunID, at)
 	if err != nil {
-		return nil, err
+		// A sleeping branch is never woken by a read: its run is served from
+		// the host's own answers retained while it was live (runArchive).
+		archived, archiveErr := readRunArchive(ctx, m.pool, repo, cp.Target.WorkspaceID, cp.RunID)
+		if at != nil || archiveErr != nil {
+			return nil, err
+		}
+		raw = archived.Monitor
 	}
 	var value map[string]any
 	if json.Unmarshal(raw, &value) != nil || value["id"] != cp.RunID {
@@ -249,12 +255,22 @@ func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *r
 				browserFlowTyped(w, 503, "run_unavailable", "Run unavailable")
 				return
 			}
+			// Every run is listed with its state and Inspect door. A run whose
+			// monitor cannot be read now keeps its row from the admission's
+			// last observation, never hiding it from the list.
 			rows := []json.RawMessage{}
 			for _, cp := range cps {
-				v, e := m.read(r.Context(), repo, cp.Target.WorkspaceID+":"+cp.RunID, nil)
+				id := cp.Target.WorkspaceID + ":" + cp.RunID
+				v, e := m.read(r.Context(), repo, id, nil)
 				if e != nil {
-					browserFlowTyped(w, 503, "run_unavailable", "Run unavailable")
-					return
+					status := ""
+					if cp.Run != nil {
+						status = cp.Run.Status
+					}
+					if v, e = json.Marshal(map[string]any{"id": id, "flow": cp.FlowID, "title": cp.FlowID, "state": monitorRunState(status), "unavailable": true}); e != nil {
+						browserFlowTyped(w, 503, "run_unavailable", "Run unavailable")
+						return
+					}
 				}
 				rows = append(rows, v)
 			}
@@ -275,4 +291,22 @@ func mountRunMonitors(router chi.Router, cfg *config.Config, q *db.Queries, m *r
 	router.With(access...).Get("/api/runs", handler)
 	router.With(access...).Get("/api/runs/{id}", handler)
 	router.With(access...).Get("/api/runs/{id}/trace", handler)
+}
+
+// monitorRunState is a recorded run status in the monitor's words (the
+// gateway's monitor uses the same mapping).
+func monitorRunState(status string) string {
+	switch status {
+	case "completed", "done":
+		return "done"
+	case "failed":
+		return "failed"
+	case "cancelled", "interrupted":
+		return "interrupted"
+	case "held":
+		return "held"
+	case "waiting", "waiting-approval", "paused", "suspended":
+		return "waiting"
+	}
+	return "running"
 }

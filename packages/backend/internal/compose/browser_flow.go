@@ -477,6 +477,15 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 		writeConfirmationDispatchError(w, err)
 		return
 	}
+	// A read never wakes a sleeping or stopped box: a run it ran is served
+	// from its host's own answers, retained while the host was live.
+	if snapshot && workspace.Status != "running" {
+		if answer, ok := api.archivedSnapshot(r.Context(), workspace, request.Payload); ok {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(answer)
+			return
+		}
+	}
 	running, err := api.wake(r.Context(), request, target, workspace, false)
 	if err != nil {
 		browserFlowWakeFailed(w, err)
@@ -516,6 +525,30 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(answer)
+}
+
+// archivedSnapshot answers a run snapshot on box from the run archive, when
+// the archive holds that run and selector. The relay's authorization of the
+// box and repository precedes it; the archive is keyed by both.
+func (api *browserFlowAPI) archivedSnapshot(ctx context.Context, box db.Workspace, payload json.RawMessage) (json.RawMessage, bool) {
+	reader, ok := api.installTransactions.(runArchiveReader)
+	if !ok {
+		return nil, false
+	}
+	var request struct {
+		Selector struct {
+			RunID string `json:"runId"`
+		} `json:"selector"`
+	}
+	if json.Unmarshal(payload, &request) != nil || request.Selector.RunID == "" {
+		return nil, false
+	}
+	archived, err := readRunArchive(ctx, reader, box.RepositoryID, box.ID, request.Selector.RunID)
+	if err != nil {
+		return nil, false
+	}
+	answer, ok, err := archived.snapshot(request.Selector.RunID, payload)
+	return answer, ok && err == nil
 }
 
 // mountBrowserFlow serves the browser Flow seam. The OpenAPI conformance test

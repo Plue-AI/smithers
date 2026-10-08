@@ -190,10 +190,15 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
+	// Each run stays readable after its machine stops: lifecycle pages retain
+	// the live host's own answers for it (T-FLW-07).
+	archive := &runArchive{pool: pool}
+	projectors = append(projectors, archive)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
+	archive.host = dispatcher
 	var review *reviewMachine
 	if config.IsSingleOwner(cfg.Auth) && options.Workspace.Isolation() == workspace.IsolationSandboxed {
 		// Bypass the box launcher, repository variables and write credentials.

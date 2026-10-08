@@ -1,52 +1,18 @@
 /**
- * Names the native engine dispatch each model call runs under on requests to
- * the install's metered model proxy, so the monitor prices every step from
- * the proxy's own rows (T-FLW-07).
- *
- * The header is applied as the request leaves the executor: it never enters a
- * prepared request or a sealed-step key, so a replay is served the same step.
- * Requests to any other origin, and calls outside an engine dispatch, are sent
- * unchanged.
+ * The native coding host's request executor, naming the engine dispatch each
+ * model call runs under on requests to the install's metered proxy (T-FLW-07).
+ * The attribution itself is shared with the host's judge client
+ * (packages/smithers/src/internal/MeteredDispatch.ts).
  */
-import * as Digest from "@smthrs/core/Digest"
-import * as Action from "@smthrs/flow/Action"
-import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
-import { Effect, Layer, Option } from "effect"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import { Effect, Layer } from "effect"
+import * as MeteredDispatch from "../../packages/smithers/src/internal/MeteredDispatch.ts"
 
 /** The proxy reads this header only from a flow host credential. */
-export const header = "X-Smithers-Native-Step"
-
-const executionPattern = /^[A-Za-z0-9._/@#-]{1,256}$/
-
-/** `<execution id>:<step key digest>` of the dispatch running now, when there is one. */
-export const currentDispatch: Effect.Effect<string | undefined> = Effect.gen(function*() {
-  const instance = yield* Effect.serviceOption(FlowRuntime.FlowInstance)
-  const key = yield* Action.CurrentInvocationKey
-  if (Option.isNone(instance) || key === undefined || !executionPattern.test(instance.value.executionId)) {
-    return undefined
-  }
-  return `${instance.value.executionId}:${Digest.digest(key)}`
-})
-
-const onProxy = (url: string, proxy: string): boolean => {
-  const base = proxy.replace(/\/+$/, "")
-  return url === base || url.startsWith(`${base}/`)
-}
+export const header = MeteredDispatch.header
 
 /** `executor`, naming the current dispatch on every request to `proxy`. */
-export const attribute = (
-  executor: RequestExecutor.RequestExecutor,
-  proxy: string | undefined
-): RequestExecutor.RequestExecutor =>
-  proxy === undefined || proxy.trim() === "" ? executor : {
-    execute: (request, options) =>
-      Effect.flatMap(currentDispatch, (step) =>
-        step === undefined || !onProxy(request.url, proxy)
-          ? executor.execute(request, options)
-          : executor.execute(HttpClientRequest.setHeader(request, header, step), options))
-  }
+export const attribute = MeteredDispatch.attributeExecutor
 
 /** `base`, attributed to the proxy the host's environment names. */
 export const layer = (

@@ -2,11 +2,13 @@ import * as Action from "@smthrs/flow/Action"
 import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { Effect, Layer } from "effect"
+import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { test } from "node:test"
+import * as MeteredDispatch from "../../packages/smithers/src/internal/MeteredDispatch.ts"
 import { attribute, header, layer } from "../coding/metered-steps.ts"
 
 const proxy = "http://127.0.0.1:4100/model-proxy"
@@ -64,4 +66,26 @@ test("the layer attributes the composed executor only when a proxy is named", ()
     Effect.scoped(Effect.provide(Effect.service(RequestExecutor.RequestExecutor), layer(base, proxy)))
   )
   assert.equal(send(executor, `${proxy}/cerebras/v1`, "run-1", "k"), `run-1:${sha256("k")}`)
+})
+
+test("the judge's HTTP client names the dispatch on proxy requests too", () => {
+  const seen: Array<string | undefined> = []
+  const client = HttpClient.make((request) =>
+    Effect.sync(() => {
+      seen.push(request.headers[header.toLowerCase()])
+      return HttpClientResponse.fromWeb(request, new Response("{}"))
+    })
+  )
+  const judge = MeteredDispatch.attributeClient(client, proxy)
+  const post = (url: string) =>
+    Effect.runSync(
+      Effect.scoped(judge.execute(HttpClientRequest.post(url))).pipe(
+        Effect.provideService(Action.CurrentInvocationKey, "judge-key"),
+        Effect.provideService(FlowRuntime.FlowInstance, instance("run-1"))
+      )
+    )
+  post(`${proxy}/vercel/v4/ai/evaluation-model`)
+  post("https://ai-gateway.vercel.sh/v4/ai/evaluation-model")
+  assert.deepEqual(seen, [`run-1:${sha256("judge-key")}`, undefined])
+  assert.equal(MeteredDispatch.attributeClient(client, undefined), client)
 })

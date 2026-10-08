@@ -171,7 +171,10 @@ const server = createServer(async (request, response) => {
     try {
       const answers = Object.fromEntries(Object.entries(input.questions ?? {}).map(([name, question]) => [name, todoAnswer(name, question)]))
       record("evaluator", names.join(",") || "empty", { answers })
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ answers }))
+      // The Gateway reports the judgment's usage in camelCase; the metered
+      // proxy prices each judgment from it, as it prices every model call.
+      response.writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ answers, usage: { inputTokens: 120, outputTokens: 0 } }))
     } catch (error) {
       record("evaluator", "refused", { error: error.message, questions: JSON.stringify(input.questions ?? {}).slice(0, 4000) })
       response.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ error: error.message }))

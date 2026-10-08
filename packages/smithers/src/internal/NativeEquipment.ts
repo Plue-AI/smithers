@@ -26,7 +26,7 @@ import * as TestRunner from "@smthrs/std/TestRunner"
 import { Clock, Context, Effect, FileSystem, Layer, Path, Redacted } from "effect"
 import type { Result, Scope } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import type * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import { statSync } from "node:fs"
 import { homedir } from "node:os"
@@ -38,6 +38,7 @@ import * as Providers from "../Providers.ts"
 import * as ClaudeCode from "./ClaudeCode.ts"
 import * as CodexCode from "./CodexCode.ts"
 import { readText } from "./HostFiles.ts"
+import * as MeteredDispatch from "./MeteredDispatch.ts"
 
 const apiKeyVariable: Readonly<Record<string, string>> = {
   anthropic: "ANTHROPIC_API_KEY",
@@ -737,7 +738,15 @@ export const layerSeatEvaluator = (
       : Context.get(
         yield* Layer.build(
           Evaluator.layerVercelGateway({ apiKey: Redacted.make(key), baseUrl: jevBaseUrl(environment) }).pipe(
-            Layer.provide(jevHttp)
+            // A judgment through the install's metered proxy names the engine
+            // dispatch it ran under, as every other model call does.
+            Layer.provide(Layer.effect(
+              HttpClient.HttpClient,
+              Effect.map(
+                HttpClient.HttpClient,
+                (client) => MeteredDispatch.attributeClient(client, environment[Endpoint.modelProxyVariable])
+              )
+            ).pipe(Layer.provide(jevHttp)))
           )
         ),
         Evaluator.Evaluator
