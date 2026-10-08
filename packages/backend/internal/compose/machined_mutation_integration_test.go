@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -28,22 +29,28 @@ import (
 // Production HTTP, PostgreSQL, registry, object ingest, native rewrite and FIFO
 // are real. The rehearsal's empty broker cannot qualify cgroup freeze or W2-W4;
 // those require the approved reference VM. Build rehearsal_daemon with killpoints.
-func TestMachinedMutationQueuedHTTPWrites(t *testing.T) { testMachinedNativeMutation(t, false, false) }
+func TestMachinedMutationQueuedHTTPWrites(t *testing.T) { testMachinedNativeMutation(t, "queued") }
 
 // Real daemon capture/event dispatch following authenticated composed HTTP saves.
 // Unlike the scripted capture peer, this executes the native snapshot/outbox.
-func TestMachinedCapturePendingWorkNative(t *testing.T) { testMachinedNativeMutation(t, true, false) }
+func TestMachinedCapturePendingWorkNative(t *testing.T) { testMachinedNativeMutation(t, "pending") }
 
-func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMutation(t, false, true) }
+func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMutation(t, "ack") }
 
-func testMachinedNativeMutation(t *testing.T, pendingOnly, ackOnly bool) {
+func TestMachinedMutationOutsideRename(t *testing.T) { testMachinedNativeMutation(t, "race") }
+
+func testMachinedNativeMutation(t *testing.T, mode string) {
 	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
 	if os.Getenv("SMITHERS_MACHINED_MUTATION_DEBUG") != "1" {
 		t.Skip("debug rehearsal daemon with killpoints required")
 	}
 	require.NotEmpty(t, binary)
 	server, provider, pool, branch, cookie := workspaceFileInstallFixture(t, nil)
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	budget := 90 * time.Second
+	if mode == "race" {
+		budget = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), budget)
 	defer cancel()
 	root, state, run := t.TempDir(), t.TempDir(), t.TempDir()
 	evidence := t.TempDir()
@@ -151,7 +158,76 @@ func testMachinedNativeMutation(t *testing.T, pendingOnly, ackOnly bool) {
 	first, err := registry.Capture(ctx, branch)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.Head)
-	if ackOnly {
+	if mode == "race" {
+		awaitIdle := func() {
+			t.Helper()
+			require.Eventually(t, func() bool {
+				bursts, docs, err := registry.IdleSafety(ctx, branch)
+				return err == nil && bursts && docs
+			}, 10*time.Second, 10*time.Millisecond)
+		}
+		awaitIdle()
+		original := "original race bytes"
+		res := request("PUT", "race.txt", `{"content":"original race bytes","base_digest":"absent"}`)
+		require.NoError(t, res.err)
+		require.Equal(t, 200, res.status, "%s", res.body)
+		_, err := registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		var outsideSaves []string
+		for run := 0; run < 100; run++ {
+			awaitIdle()
+			outside := fmt.Sprintf("outside rename %03d", run)
+			replacement := fmt.Sprintf("daemon save %03d", run)
+			digest := sha256.Sum256([]byte(original))
+			body, err := json.Marshal(map[string]string{"content": replacement, "base_digest": hex.EncodeToString(digest[:])})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-write_swap.arm"), nil, 0600))
+			saved := make(chan reply, 1)
+			go func() { saved <- request("PUT", "race.txt", string(body)) }()
+			hit := filepath.Join(state, "qualification-write_swap.hit")
+			require.Eventually(t, func() bool { _, err := os.Stat(hit); return err == nil }, 5*time.Second, time.Millisecond)
+			select {
+			case early := <-saved:
+				t.Fatalf("save completed before outside rename: %+v", early)
+			default:
+			}
+			temp := filepath.Join(root, "outside-rename")
+			require.NoError(t, os.WriteFile(temp, []byte(outside), 0644))
+			require.NoError(t, os.Rename(temp, filepath.Join(root, "race.txt")))
+			require.NoError(t, os.Remove(hit))
+			res = <-saved
+			require.NoError(t, res.err)
+			require.Equal(t, 200, res.status, "run %d: %s", run, res.body)
+			var result struct {
+				Raced []struct{ Path, Version string }
+			}
+			require.NoError(t, json.Unmarshal(res.body, &result))
+			require.Len(t, result.Raced, 1)
+			require.Equal(t, "race.txt", result.Raced[0].Path)
+			outsideDigest := sha256.Sum256([]byte(outside))
+			require.Equal(t, hex.EncodeToString(outsideDigest[:]), result.Raced[0].Version)
+			require.Equal(t, []byte(replacement), mustReadMutationFile(t, filepath.Join(root, "race.txt")))
+			outsideSaves = append(outsideSaves, outside)
+			original = replacement
+		}
+		// Drain once after the writers finish, then inspect every retained
+		// outside version independently. This is not a retry of any mutation.
+		require.Eventually(t, func() bool {
+			bursts, docs, err := registry.IdleSafety(ctx, branch)
+			return err == nil && bursts && docs
+		}, 10*time.Second, 10*time.Millisecond)
+		captured, err := registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		require.Equal(t, []byte(original), git("-C", store, "show", captured.Head+":race.txt"))
+		for run, outside := range outsideSaves {
+			digest := sha256.Sum256([]byte(outside))
+			var blob string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT f.after_blob FROM burst_files f JOIN product_job_events e ON e.event_id=f.event_id WHERE f.path='race.txt' AND f.post_digest=$1 AND e.data->>'branch'=$2 LIMIT 1`, hex.EncodeToString(digest[:]), branch).Scan(&blob))
+			require.Equal(t, []byte(outside), git("-C", store, "cat-file", "blob", blob), "outside save lost at run %d", run)
+		}
+		return
+	}
+	if mode == "ack" {
 		res := request("PUT", "ack.txt", `{"content":"pinned before rewrite","base_digest":"absent"}`)
 		require.NoError(t, res.err)
 		require.Equal(t, 200, res.status, "%s", res.body)
@@ -204,7 +280,7 @@ func testMachinedNativeMutation(t *testing.T, pendingOnly, ackOnly bool) {
 		}
 		return
 	}
-	if pendingOnly {
+	if mode == "pending" {
 		_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
 		require.NoError(t, err)
 		var itemID string
