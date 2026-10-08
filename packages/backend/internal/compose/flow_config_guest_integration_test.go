@@ -217,6 +217,103 @@ print('hostile-data:19999:19999')`, marker}})
 			flw02RequireAgentConfigAndCheck(t, h, marker)
 		})
 	}
+
+	t.Run("T-STK-04 merge-refresh missing-provider recovery", func(t *testing.T) {
+		h := startRootLayerHarnessRuntime(t, true, fixture)
+		marker := flw02Canary(t)
+		main := h.commitMain(flw02Repository(marker))
+		h.runSetupThroughSource()
+		state, message := h.runMachine(t, "flw02-merge-refresh")
+		require.Equal(t, "done", state, message)
+		flw02StackActive(t, h)
+		flw02FileTodo(t, h)
+		flw02WaitTodo(t, h, "in_review")
+		flw02RequireAgentConfigAndCheck(t, h, marker)
+
+		// Settle setup's refresh first, so neither an old publication nor an
+		// already admitted launch can masquerade as recovery after the merge.
+		flw02WaitWikiPublished(t, h, main)
+		priorRevisions := map[string]int64{}
+		for _, slug := range []string{"generated-overview", "generated-architecture"} {
+			var page services.WikiPageResponse
+			require.NoError(t, json.Unmarshal(h.expect("GET", "/api/repos/rehearsal-owner/app/wiki/"+slug, "", 200), &page))
+			require.NotNil(t, page.Generated)
+			require.Equal(t, main, page.Generated.SourceRevision)
+			priorRevisions[slug] = page.Revision
+		}
+		before := flw02WikiLaunches(t, h)
+		require.Positive(t, before, "the supplied provider must have a positive control")
+		todo := flw02Todo(t, h)
+		require.NotNil(t, todo.PullRequest)
+		require.Len(t, todo.PullRequest.Head, 40)
+
+		// Remove the real dispatcher from the composition, after the TODO
+		// has finished. Merge settlement remains available; its dependent
+		// generated-page refresh must refuse before admission or execution.
+		h.halt()
+		missing := h.options
+		missing.FlowHostRegistry = nil
+		h.compose(missing)
+		body, err := json.Marshal(map[string]string{"reviewed_head_sha": todo.PullRequest.Head})
+		require.NoError(t, err)
+		h.expect("POST", "/api/todos/1/merge", string(body), 202)
+		flw02WaitTodo(t, h, "merged")
+		var merged string
+		require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT pr_merge_commit FROM mythical_items WHERE number=1`).Scan(&merged))
+		require.Len(t, merged, 40)
+		require.NotEqual(t, main, merged)
+		require.Eventually(t, func() bool {
+			var landed string
+			require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT landed_main FROM mythical_stacks`).Scan(&landed))
+			return landed == merged
+		}, time.Minute, 100*time.Millisecond, "GitHub sync must fold the real squash merge")
+		for deadline := time.Now().Add(hold); time.Now().Before(deadline); time.Sleep(time.Second) {
+			var published, wikiState string
+			require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT published_commit,state FROM mythical_wikis`).Scan(&published, &wikiState))
+			require.Equal(t, main, published, "missing provider must retain the prior pages")
+			require.Equal(t, "idle", wikiState, "no refresh may start without its provider")
+			require.Equal(t, before, flw02WikiLaunches(t, h), "no merge-refresh launch without guest dispatch")
+			_, err := os.Lstat(marker)
+			require.True(t, os.IsNotExist(err), "merge refresh must never execute repository code on the host")
+		}
+
+		// Supply the provider on the same persisted install. No seeded wiki
+		// result, manual main move or second merge is needed to recover.
+		h.recompose()
+		flw02WaitWikiPublished(t, h, merged)
+		require.Greater(t, flw02WikiLaunches(t, h), before)
+		for _, slug := range []string{"generated-overview", "generated-architecture"} {
+			var page services.WikiPageResponse
+			require.NoError(t, json.Unmarshal(h.expect("GET", "/api/repos/rehearsal-owner/app/wiki/"+slug, "", 200), &page))
+			require.Equal(t, slug, page.Slug)
+			require.NotEmpty(t, page.Body, "the real guest refresh must publish a page")
+			require.NotNil(t, page.Generated)
+			require.Equal(t, merged, page.Generated.SourceRevision)
+			require.Greater(t, page.Revision, priorRevisions[slug])
+		}
+		var items int
+		require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM mythical_items`).Scan(&items))
+		require.Equal(t, 1, items, "refresh is background work, never another TODO")
+		_, err = os.Lstat(marker)
+		require.True(t, os.IsNotExist(err))
+		require.Equal(t, "merged", flw02Todo(t, h).State, "recovery must not create or restart a TODO")
+	})
+}
+
+func flw02WikiLaunches(t *testing.T, h *rootLayerHarness) int {
+	t.Helper()
+	var count int
+	require.NoError(t, h.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation=$1 AND request_id LIKE 'mythical-wiki:%'`, flowdispatch.OperationLaunch).Scan(&count))
+	return count
+}
+
+func flw02WaitWikiPublished(t *testing.T, h *rootLayerHarness, commit string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var published string
+		err := h.pool.QueryRow(t.Context(), `SELECT published_commit FROM mythical_wikis`).Scan(&published)
+		return err == nil && published == commit
+	}, 15*time.Minute, 250*time.Millisecond, "guest refresh did not publish %s: %s", commit, h.logs.String())
 }
 
 const flw02TodoBody = `{"title":"First TODO","prompt":"Add a greeting to JOURNEY.md","place":{"mode":"append"}}`
