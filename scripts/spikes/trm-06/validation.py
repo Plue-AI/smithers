@@ -252,6 +252,35 @@ for label, target in (("boot-parent", "/run/smithers/trm06"),
         STARTUP_MUTATIONS["startup-" + label + "-" + mutation] = (target, mutation)
 
 
+INSTALL_MUTATIONS = {}
+for label, target in (("opt", "/opt"), ("opt-parent", "/opt/smithers"),
+                      ("run", "/run"), ("run-parent", "/run/smithers")):
+    for mutation in ("writable", "owner"):
+        INSTALL_MUTATIONS["install-" + label + "-" + mutation] = (target, mutation)
+for label, target in (("prototype", "/opt/smithers/prototype"),
+                      ("state", "/run/smithers/trm06")):
+    for mutation in ("regular", "fifo", "directory", "dangling"):
+        INSTALL_MUTATIONS["install-" + label + "-" + mutation] = (target, mutation)
+
+
+def mutate_install(target, mutation):
+    """Only fresh installed-fixture literal targets; no retained state repair."""
+    path = Path(target)
+    if mutation in ("writable", "owner"):
+        path.mkdir(mode=0o755, parents=True, exist_ok=True)
+        mutate_startup(target, mutation)
+        return
+    path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+    if mutation == "regular":
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755)
+        with os.fdopen(fd, "wb") as output:
+            output.write(b"#!/bin/sh\nprintf canary >> /var/tmp/trm06-outside\n")
+    elif mutation == "fifo": os.mkfifo(path, 0o755)
+    elif mutation == "directory": path.mkdir(mode=0o755)
+    elif mutation == "dangling": path.symlink_to("/var/tmp/trm06-missing")
+    else: raise ValueError("unknown install mutation")
+
+
 def mutate_startup(target, mutation):
     # Called only with the literal table above by installed root fixture dispatch.
     # Ordinary-file tests reuse these syscalls; they confer no root authority.
@@ -551,7 +580,7 @@ def main():
             os.close(process)
         print(json.dumps({"killed": pid, "before": observed}))
         return
-    if operation not in ("positive", "race-parent", "poison-imports", "symlink-opt", "symlink-run", "existing-prototype"):
+    if operation not in INSTALL_MUTATIONS and operation not in ("positive", "race-parent", "poison-imports", "symlink-opt", "symlink-run", "existing-prototype"):
         raise ValueError("unknown fixture")
     # Fresh disposable VM only, before sessions exist. The fixture's permitted
     # outside write would succeed under Ben's Unix permissions; Landlock must
@@ -561,6 +590,8 @@ def main():
         output.write(b"outside-fixture\x00")
         os.fchmod(output.fileno(), 0o640)
     os.chown(OUTSIDE, 20001, 20001)
+    if operation in INSTALL_MUTATIONS:
+        mutate_install(*INSTALL_MUTATIONS[operation])
     if operation == "poison-imports":
         for name in ["sitecustomize.py", "json.py", "subprocess.py"]:
             path = Path("/workspace", name)

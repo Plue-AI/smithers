@@ -345,3 +345,11 @@ fixed selectors reuse the installed mutation code, then require init's explicit
 startup refusal and no new admission. Together with the previous parent and
 child-mode cases, eight cgroup restart refusals are scheduled. Local filesystem
 tests substitute root metadata and ownership; they are not kernel receipts.
+
+The fresh-install campaign schedules 16 additional literal destination controls:
+writable/owner mutations of `/opt`, `/opt/smithers`, `/run` and `/run/smithers`,
+and regular-file/FIFO/directory/dangling-link entries at both prototype and boot
+state destinations. Preparation and refusal go through the installed fixture
+and actual `install.py` path in separate fresh machines. Outside sentinels must
+remain unchanged and no init may be launched. Local installer tests substitute
+root ownership and process launch; installed execution remains required.

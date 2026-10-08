@@ -276,3 +276,20 @@ func TestInstalledStartupMatrixHasEveryLiteralMutation(t *testing.T) {
 		}
 	}
 }
+
+func TestInstalledDestinationMatrixUsesFixedSelectors(t *testing.T) {
+	names := installMutationScenarios()
+	if len(names) != 16 {
+		t.Fatalf("destination controls: %d", len(names))
+	}
+	for _, name := range names {
+		if !installMutationFixture(name) || startupMutationFixture(name) {
+			t.Fatalf("wrong dispatch: %s", name)
+		}
+	}
+	for _, name := range []string{"install-root-owner", "install-opt-symlink", "install-opt-parent-../", "install-state-dangling --path=/"} {
+		if installMutationFixture(name) {
+			t.Fatalf("caller selector: %s", name)
+		}
+	}
+}

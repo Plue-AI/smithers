@@ -149,6 +149,48 @@ finally:
                 self.assertEqual(result.returncode, 0 if kind == "positive" else 78,
                                  result.stderr.decode())
 
+    def test_installed_destination_selectors_refuse_through_installer(self):
+        fixture_spec = importlib.util.spec_from_file_location("validation", Path(__file__).with_name("validation.py"))
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture)
+        self.assertEqual(len(fixture.INSTALL_MUTATIONS), 16)
+        for selector, (target, mutation) in fixture.INSTALL_MUTATIONS.items():
+            with self.subTest(selector=selector), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for relative in ("opt", "opt/smithers", "run", "run/smithers"):
+                    (root / relative).mkdir(exist_ok=True)
+                    (root / relative).chmod(0o755)
+                outside = root / "outside"
+                outside.write_bytes(b"outside-fixture\0")
+                before = (outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode)
+                selected = root / target.removeprefix("/")
+                ownership = {}
+                real_fstat, real_open = os.fstat, os.open
+                def owner(fd, uid, gid):
+                    self.assertEqual((uid, gid), (20001, 20001))
+                    ownership[real_fstat(fd).st_ino] = uid
+                # No elevation: substitute only the root metadata observations.
+                # Mutation, no-follow resolution and refusals use real syscalls.
+                with patch.object(fixture.os, "fchown", side_effect=owner):
+                    fixture.mutate_install(str(selected), mutation)
+                def root_owned(fd):
+                    original = real_fstat(fd)
+                    values = list(original)
+                    values[4] = ownership.get(original.st_ino, 0)
+                    return os.stat_result(values)
+                def rooted_open(path, flags, mode=0o777, *, dir_fd=None):
+                    return real_open(str(root) if path == "/" and dir_fd is None else path, flags, mode, dir_fd=dir_fd)
+                binary = b"literal-supervisor-fixture"
+                sha = hashlib.sha256(binary).hexdigest()
+                request = {"supervisor": base64.b64encode(binary).decode(), "sha256": sha,
+                           "boot": {"revision": "a" * 40, "supervisor_sha256": sha,
+                                    "boot": [1] * 16, "secret": [2] * 32}}
+                with patch.object(installer.os, "getuid", return_value=0), patch.object(installer.os, "geteuid", return_value=0), patch.object(installer.os, "open", side_effect=rooted_open), patch.object(installer.os, "fstat", side_effect=root_owned), patch.object(installer.sys, "stdin", types.SimpleNamespace(buffer=io.BytesIO(json.dumps(request).encode()))), patch.object(installer.subprocess, "Popen") as launch:
+                    with self.assertRaises((ValueError, OSError)):
+                        installer.install()
+                    launch.assert_not_called()
+                self.assertEqual((outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode), before)
+
 
 if __name__ == "__main__":
     unittest.main()

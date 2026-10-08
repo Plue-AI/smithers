@@ -251,3 +251,8 @@ Also run the five added restart selectors `cgroup-ancestor-replaced`,
 `cgroup-child-owner`. They use fresh VMs and the installed init restart/refusal
 path, distinct from enrolled-session live revocation. Eight cgroup restart
 refusals are now scheduled; none has been qualified on this Linux lane.
+
+`check-install` includes 16 `install-*` controls over fresh destination ancestor
+permissions/ownership and both destination object types. They use the installed
+provider's actual installer dispatch, preserve outside fingerprints and require
+refusal before init. Local syscall tests do not replace installed receipts.

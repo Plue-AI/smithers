@@ -83,6 +83,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		}
 		scenarios = append(scenarios, "environment-all")
 		scenarios = append(scenarios, startupMutationScenarios()...)
+		scenarios = append(scenarios, installMutationScenarios()...)
 	}
 	var campaignErrors []error
 	type scenarioReceipt struct {
@@ -193,6 +194,29 @@ func startupEnvironmentFixture(scenario string) (map[string]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+func installMutationScenarios() []string {
+	var scenarios []string
+	for _, parent := range []string{"opt", "opt-parent", "run", "run-parent"} {
+		for _, mutation := range []string{"writable", "owner"} {
+			scenarios = append(scenarios, "install-"+parent+"-"+mutation)
+		}
+	}
+	for _, destination := range []string{"prototype", "state"} {
+		for _, mutation := range []string{"regular", "fifo", "directory", "dangling"} {
+			scenarios = append(scenarios, "install-"+destination+"-"+mutation)
+		}
+	}
+	return scenarios
+}
+func installMutationFixture(scenario string) bool {
+	for _, name := range installMutationScenarios() {
+		if name == scenario {
+			return true
+		}
+	}
+	return false
 }
 
 // Mirror the literal installed observer selectors. Each runs in a fresh VM
@@ -443,7 +467,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if !cgroupRestartFixture(mode) && !cgroupLiveFixture(mode) && !startupMutationFixture(mode) && mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
+	if !installMutationFixture(mode) && !cgroupRestartFixture(mode) && !cgroupLiveFixture(mode) && !startupMutationFixture(mode) && mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "cgroup-live-child-replaced" && mode != "cgroup-live-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or
