@@ -785,6 +785,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 					projectTodoWatchdog(&next, update, s.now().UTC())
 				}
 				projectTodoThrash(&next, update)
+				projectTodoFailureStep(&next, projection, update)
 			}
 			if err := s.persistTodoLogs(ctx, &next); err != nil {
 				return err
@@ -6181,6 +6182,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	FailureStep           *todoFailureStep                   `json:"failureStep,omitempty"`
 	InitialPrefix         string                             `json:"initialPrefix,omitempty"`
 	Pause                 *todoPause                         `json:"pause,omitempty"`
 	Capture               *MachineCapturePending             `json:"capture,omitempty"`
@@ -6414,6 +6416,7 @@ func (c mythicalChecks) bounded() bool {
 func (c *mythicalChecks) resume() {
 	c.LaunchBase, c.Outages, c.GitHubOutages, c.VeryHard, c.Fault = c.Launches, 0, 0, false, nil
 	c.MissingTool = nil
+	c.FailureStep = nil
 }
 
 // mythicalNotice is one issue comment the stack owes, keyed so it is posted

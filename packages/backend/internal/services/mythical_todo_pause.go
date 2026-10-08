@@ -88,9 +88,18 @@ func (s *MythicalService) pauseTodo(ctx context.Context, number int64, input Tod
 		}
 		pin, pinned := mythicalPinOf(item)
 		digests, err := builtinFlowDigests()
-		// Historical and unqualified overrides cannot promise this pause protocol.
-		if err != nil || !pinned || pin.ExecutionDigest != digests["todo"] || item.RequestRunID == "" || item.WorkspaceID == "" {
+		// A repository override must have a successfully inspected packaged pause
+		// boundary on its exact retained pin. Never borrow the current Active graph.
+		if err != nil || !pinned || item.RequestRunID == "" || item.WorkspaceID == "" {
 			return todoControlUnavailable()
+		}
+		if pin.ExecutionDigest != digests["todo"] {
+			var config []byte
+			err := tx.QueryRow(ctx, `SELECT config FROM workflow_definitions
+ WHERE repository_id=$1 AND name='todo' AND digest=$2 AND source_commit=$3 AND status='loaded'`, item.RepositoryID, pin.ExecutionDigest, pin.SourceCommit).Scan(&config)
+			if err != nil || !todoInspectedPauseBoundary(config) {
+				return todoControlUnavailable()
+			}
 		}
 		stack, err := q.GetMythicalStack(ctx, input.Repository)
 		if err != nil {
@@ -279,4 +288,27 @@ func (s *MythicalService) projectTodoPauseReceipt(ctx context.Context, update fl
 		}
 		return todoControlConflict("TODO is busy")
 	})
+}
+
+// Inspection is the pinned loader's graph, not the display steps (which older
+// versions may inherit). Opaque or invalid declarations remain unavailable.
+func todoInspectedPauseBoundary(config []byte) bool {
+	var metadata struct {
+		Inspection *struct {
+			Nodes []struct {
+				Kind  string `json:"kind"`
+				Label string `json:"label"`
+			} `json:"nodes"`
+			Diagnostics *[]json.RawMessage `json:"diagnostics"`
+		} `json:"inspection"`
+	}
+	if json.Unmarshal(config, &metadata) != nil || metadata.Inspection == nil || metadata.Inspection.Diagnostics == nil || len(*metadata.Inspection.Diagnostics) != 0 {
+		return false
+	}
+	for _, node := range metadata.Inspection.Nodes {
+		if node.Kind == "FlowCall" && node.Label == "coding/todo-boundary" {
+			return true
+		}
+	}
+	return false
 }
