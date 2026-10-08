@@ -231,6 +231,12 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
               .map((n) => (
                 <span key={n}> · Includes T{n}</span>
               ))}
+            {todo.pr.reviews?.map(review => (
+              <div key={review.id}>
+                {({ APPROVED: "Approved by", CHANGES_REQUESTED: "Changes requested by", COMMENTED: "Commented by", DISMISSED: "Dismissed review by" } as const)[review.state]}{" "}
+                <ActorChip actor={review.by} size="s" /> {actorName(review.by)}
+              </div>
+            ))}
           </div>
         </div>
       )}

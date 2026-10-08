@@ -68,6 +68,10 @@ func (r *reviewFixtureReceiver) Steer(_ context.Context, input flowruntime.Steer
 	return flowruntime.MutationResult{Operation: "steer", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: tag, ReceiptID: input.ApplicationRequestID, RunID: input.RunID, InputConsumed: r.consumed, InputBody: &effective}}, nil
 }
 
+func TestGitHubApprovedReviewThroughComposedInstall(t *testing.T) {
+	testGitHubCommentSteerThroughComposedInstall(t, "approved")
+}
+
 func TestGitHubCommentSteerThroughComposedInstall(t *testing.T) {
 	testGitHubCommentSteerThroughComposedInstall(t, "")
 }
@@ -168,7 +172,7 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	wakeStarted, releaseWake := make(chan struct{}), make(chan struct{})
 	var wakeOnce sync.Once
 	settledDuringWake := strings.HasPrefix(revocation, "settled-")
-	wakeAvailable.Store(revocation == "" || revocation == "before-commit" || revocation == "consumed-edit")
+	wakeAvailable.Store(revocation == "approved" || revocation == "" || revocation == "before-commit" || revocation == "consumed-edit")
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(ctx context.Context, _ flowruntime.Target) (flowruntime.Runtime, error) {
 		wakeCalls.Add(1)
 		if settledDuringWake {
@@ -296,7 +300,7 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		require.NoError(t, err)
 		hint()
 	}
-	if revocation != "" && revocation != "before-commit" && revocation != "consumed-edit" {
+	if revocation != "" && revocation != "approved" && revocation != "before-commit" && revocation != "consumed-edit" {
 
 		// Admission and the unavailable-runtime checkpoint are committed before
 		// revocation. The real dispatcher must recheck authority before retrying wake.
@@ -419,6 +423,67 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 	_, err = pool.Exec(ctx, `INSERT INTO github_synced_issues(synced_repo_id,resource,github_id,number,payload) VALUES($1,'pulls',101,1,$2::jsonb) ON CONFLICT(synced_repo_id,resource,number) DO UPDATE SET payload=EXCLUDED.payload`, row.ID, `{"id":101,"number":1,"head":{"sha":"head"}}`)
 	require.NoError(t, err)
 	require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+
+	if revocation == "approved" {
+		// Submitted approvals follow the same sync as steers, but carry no input or
+		// Smithers approval. Both active members and outsiders are visible.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposed' WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		for _, login := range []string{"owner", "dana"} {
+			payload := strings.NewReader(fmt.Sprintf(`{"repo":"owner/app","number":1,"login":%q,"state":"APPROVED"}`, login))
+			result, postErr := http.Post(upstream.URL+"/_fake/reviews", "application/json", payload)
+			require.NoError(t, postErr)
+			require.Equal(t, http.StatusOK, result.StatusCode)
+			require.NoError(t, result.Body.Close())
+		}
+		for range 2 {
+			payload := []byte(fmt.Sprintf(`{"action":"submitted","installation":{"id":%d},"repository":{"id":100,"name":"app","owner":{"login":"owner"}},"pull_request":{"number":1},"review":{"id":1,"state":"CHANGES_REQUESTED","body":"FORGED APPROVAL HINT"}}`, installationID))
+			mac := hmac.New(sha256.New, []byte(credentials.WebhookSecret))
+			_, _ = mac.Write(payload)
+			request := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(payload))
+			request.Header.Set("X-GitHub-Event", "pull_request_review")
+			request.Header.Set("X-GitHub-Delivery", uuid.NewString())
+			request.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, 200, response.Code, response.Body.String())
+			require.NoError(t, assembled.synced.ReadInstallPullFacts(ctx, row, 1, "head", "reviews"))
+		}
+		require.Eventually(t, func() bool {
+			request := httptest.NewRequest("GET", "/api/todos/1", nil).WithContext(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"}))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != 200 {
+				return false
+			}
+			var card struct {
+				State string `json:"state"`
+				PR    struct {
+					Reviews []struct {
+						State string         `json:"state"`
+						By    map[string]any `json:"by"`
+					} `json:"reviews"`
+				} `json:"pr"`
+			}
+			if json.Unmarshal(response.Body.Bytes(), &card) != nil || len(card.PR.Reviews) != 2 {
+				return false
+			}
+			require.Equal(t, "in_review", card.State)
+			require.Equal(t, "APPROVED", card.PR.Reviews[0].State)
+			require.Equal(t, "person", card.PR.Reviews[0].By["kind"])
+			require.Equal(t, "APPROVED", card.PR.Reviews[1].State)
+			require.Equal(t, map[string]any{"kind": "github", "login": "dana", "color_index": float64(7)}, card.PR.Reviews[1].By)
+			return true
+		}, 5*time.Second, 10*time.Millisecond)
+		current, readErr := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, readErr)
+		require.NotContains(t, string(current.Checks), `"land":`)
+		var approvalSignals int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&approvalSignals))
+		require.Equal(t, expectedEvents, approvalSignals, "approvals admit no steer")
+
+	}
+
 	if revocation == "consumed-edit" {
 		receiver.mu.Lock()
 		receiver.consumed = true
@@ -470,6 +535,13 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		expectedIntents = 2
 	}
 	require.Equal(t, expectedIntents, count)
+}
+
+func TestGitHubApprovedFactsBrowserPostgres(t *testing.T) {
+	if os.Getenv("SMITHERS_REVIEW_ASSETS_URL") == "" {
+		t.Skip("run PR approval proof against the composed install")
+	}
+	testGitHubCommentSteerThroughComposedInstall(t, "approved")
 }
 
 func TestGitHubFactsBrowserPostgres(t *testing.T) {

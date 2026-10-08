@@ -32,3 +32,8 @@ merge approval or restart a completed attempt.
 Reference-host validation must additionally prove guest wake, non-root execution,
 and a pushed fix on the same PR. The Linux protocol fixtures prove transaction
 and dispatch behavior; they do not provide those machine receipts.
+
+Approved reviews are retained by the fetched-review consumer and projected as
+`todo:<n>.pr.reviews`, with the shared actor and submission time. The TODO card
+shows Approved by beside the PR. Replays keep one record per review; approvals
+neither steer the run nor create a Smithers merge approval.

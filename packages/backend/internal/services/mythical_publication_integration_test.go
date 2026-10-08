@@ -242,7 +242,7 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	card := f.card(first.Number.Int64)
 	assert.Equal(t, "in_review", card["state"])
 	assert.Equal(t, map[string]any{"number": float64(1), "url": "https://github.com/rehearsal-owner/app/pull/1", "head": head, "draft": false,
-		"included_items": []any{float64(first.Number.Int64)}}, card["pr"])
+		"included_items": []any{float64(first.Number.Int64)}, "reviews": []any{}}, card["pr"])
 
 	// Following an unchanged pull request writes nothing.
 	f.wake()

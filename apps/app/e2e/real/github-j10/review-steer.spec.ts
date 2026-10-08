@@ -322,8 +322,8 @@ test("C-J10-02 a GitHub review steers the TODO and its fix updates the same PR",
     expect(landApproved(f, n), "no checks.Land approval").toBe(false)
     expect(steerJobs(f)).toBe(jobs)
     await attachJson(info, "activity", githubInputs(f, n))
-    // The PR card's review list waits on T-GH-04's pr-card-reviews lane; the rest of the check still runs.
-    expect.soft(approved.pr.reviews, "the PR card lists the owner's approval").toEqual(
+    expect(approved.pr.reviews, "the PR card lists the owner's approval").toEqual(
       expect.arrayContaining([expect.objectContaining({ state: "APPROVED" })]))
+    await expect(reopened).toContainText("Approved by")
   })
 })

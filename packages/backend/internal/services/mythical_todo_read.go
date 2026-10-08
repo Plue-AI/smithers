@@ -357,7 +357,7 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		// included_items are the earlier items its body includes, then this TODO.
 		checks := mythicalChecksOf(item)
 		card["pr"] = map[string]any{"number": item.PRNumber.Int64, "url": item.PRURL, "head": item.PRHead, "draft": checks.PRDraft,
-			"included_items": append(append([]int64{}, checks.PRIncludes...), item.Number.Int64)}
+			"included_items": append(append([]int64{}, checks.PRIncludes...), item.Number.Int64), "reviews": todoPRReviews(checks.GitHubInputs)}
 	}
 	evidence := todoEvidence(item)
 	// The run's model access is read from the lane it holds, else from the
@@ -690,4 +690,22 @@ func (s *MythicalService) TodoEvents(ctx context.Context, repositoryID, number, 
 		return jobs.ReplayPage{}, err
 	}
 	return store.Replay(ctx, todoOperationScope(item), cursor, 1000)
+}
+
+// Reviews are the fetched consumer's durable PR facts. Projecting them never
+// performs a GitHub read or changes the human merge approval.
+func todoPRReviews(inputs []todoGitHubInput) []map[string]any {
+	reviews := []map[string]any{}
+	for _, input := range inputs {
+		if input.Hidden || !strings.HasPrefix(input.Key, "review:") {
+			continue
+		}
+		switch input.ReviewState {
+		case "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED":
+		default:
+			continue
+		}
+		reviews = append(reviews, map[string]any{"id": strings.TrimPrefix(input.Key, "review:"), "state": input.ReviewState, "by": input.Actor, "at": input.UpdatedAt.UTC().Format(time.RFC3339Nano)})
+	}
+	return reviews
 }

@@ -120,7 +120,13 @@ export const TodoCardSchema = z.object({
     head: z.string(),
     draft: z.boolean(),
     draft_after: z.number().int().positive().optional(),
-    included_items: z.array(z.number().int().positive())
+    included_items: z.array(z.number().int().positive()),
+    reviews: z.array(z.object({
+      id: z.string(),
+      state: z.enum(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"]),
+      by: ActorSchema,
+      at: z.string()
+    })).optional()
   }).optional(),
   preapproval: z.object({ by: z.string(), at: z.string() }).optional(),
   merged_via: z.number().int().positive().optional(),

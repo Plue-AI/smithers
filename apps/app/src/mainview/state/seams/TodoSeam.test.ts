@@ -1560,3 +1560,26 @@ for (const operation of ["stop", "resume"] as const) test(`${operation} surfaces
     expect(await h.seam.controlTodo(12, operation)).toEqual({ value: "Requested" })
   } finally { h.close() }
 })
+
+ test("synced GitHub approvals survive the real TODO seam and render on the PR without merging", async () => {
+  const model: TodoCard = { ...fixtures.in_review.model, pr: { ...fixtures.in_review.model.pr!, reviews: [
+   { id: "19", state: "APPROVED", by: { ...fixtures.in_review.model.prompt_revisions[0]!.by, kind: "person", ...fixtures.in_review.model.owner, name: "Alice", color_index: 1 }, at: "2026-10-08T00:00:00Z" },
+   { id: "20", state: "APPROVED", by: { kind: "github", login: "dana", color_index: 7 }, at: "2026-10-08T00:00:01Z" }
+  ] } }
+  const h = await harness(async () => json(model, 200), memoryStorage(), undefined, false, undefined, undefined, [model])
+  try {
+   await h.seam.showTodo(12)
+   await waitFor(() => h.todo()?.payload.model?.pr?.reviews?.length === 2)
+   const render = () => renderToStaticMarkup(createElement(TodoContainer, { card: h.todo(), role: "owner", View: TodoView,
+    dispatch: () => {}, view: { maximized: false }, onView: () => {} }))
+   expect(render()).toContain("Approved by")
+   expect(render()).toContain("Alice")
+   expect(render()).toContain("@dana")
+   expect(h.todo().payload.model?.state).toBe("in_review")
+   expect(h.todo().payload.model?.preapproval).toBeUndefined()
+   await h.seam.applyTodoProjection(12, model)
+   expect(h.todo().payload.model?.pr?.reviews).toHaveLength(2)
+   await h.seam.applyTodoProjection(12, { ...model, pr: { ...model.pr!, reviews: [] } })
+   expect(render()).not.toContain("Approved by")
+  } finally { h.close() }
+ })
