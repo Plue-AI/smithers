@@ -16,6 +16,7 @@ import (
 // completion; the protocol/card journey proves the subsequent park settlement.
 func TestTodoResumeTransitionLiteralCases(t *testing.T) {
 	h := newTodoSignalLiteralInstall(t)
+	digest := rehearsalBuiltinTodoDigest(t) // Input identity; permission expectations stay literal.
 	ctx := t.Context()
 	cases := []struct {
 		engine, plain, resumed string
@@ -56,7 +57,7 @@ func TestTodoResumeTransitionLiteralCases(t *testing.T) {
 				}
 				raw, err := json.Marshal(checks)
 				require.NoError(t, err)
-				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome='',workspace_id=$4,flow_digest='11d0beb616ada0375414dffa11c9d9f1feb52a4b196f0db64d3d79bf33ed407e',paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, raw, target.WorkspaceID, mode.parked)
+				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome='',workspace_id=$4,flow_digest=$6,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, raw, target.WorkspaceID, mode.parked, digest)
 				require.NoError(t, err)
 				from := c.plain
 				if c.unmerged && mode.parked {

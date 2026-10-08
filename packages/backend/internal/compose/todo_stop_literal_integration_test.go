@@ -18,6 +18,7 @@ import (
 // guard. The durable dispatcher is real; no worker runs or guest is invented.
 func TestTodoStopTransitionLiteralCases(t *testing.T) {
 	h := newTodoSignalLiteralInstall(t)
+	digest := rehearsalBuiltinTodoDigest(t) // Input identity; permission expectations stay literal.
 	ctx := t.Context()
 	cases := []struct {
 		engine, plain, wait, paused string
@@ -70,7 +71,7 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				if mode.ended {
 					outcome = "validated"
 				}
-				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome=$4,workspace_id='11111111-1111-4111-8111-111111111111',flow_digest='11d0beb616ada0375414dffa11c9d9f1feb52a4b196f0db64d3d79bf33ed407e',paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, outcome, mode.paused)
+				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome=$4,workspace_id='11111111-1111-4111-8111-111111111111',flow_digest=$6,paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, outcome, mode.paused, digest)
 				require.NoError(t, err)
 				from := c.plain
 				if mode.wait != "" {
