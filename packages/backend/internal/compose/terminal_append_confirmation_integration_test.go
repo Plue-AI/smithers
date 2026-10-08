@@ -23,7 +23,7 @@ import (
 )
 
 // C-SEC-05's present-consumer path uses a terminal credential minted by the
-// authenticated WebSocket lifecycle, then the source CLI and composed router.
+// authenticated WebSocket lifecycle, then the compiled guest CLI and composed router.
 // The PTY/filesystem double does not qualify packaged guest isolation.
 func TestTerminalAppendConfirmationComposedInstall(t *testing.T) {
 	terminalReplacementInstall(t, false, false, false, true)
@@ -68,7 +68,7 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 	}
 	server.Start()
 	defer server.Close()
-	invoke := catalogCLIInvoker(t, ctx, server.URL, token)
+	invoke := packagedTerminalCLIInvoker(t, ctx, server.URL, token)
 	argv := []string{"todo", "new", "--text", "Keep the terminal request private", "--title", "Terminal follow-up", "--idempotencyKey", "terminal-confirm"}
 	code, receipt := invoke(argv...)
 	require.Equal(t, 3, code, receipt)

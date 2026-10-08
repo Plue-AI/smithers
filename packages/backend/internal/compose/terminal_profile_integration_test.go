@@ -70,6 +70,7 @@ func TestTerminalRootInputsValidated(t *testing.T) {
 			req.Header.Set("Authorization", "Bearer "+raw)
 			req.Header.Set("Origin", cfg.Server.PublicURL)
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "terminal-root-input-refusal")
 			req.Header.Set("Smithers-Actor", "person")
 			req.Header.Set("Smithers-Profile", "full")
 			req.Header.Set("Smithers-Branch", "main")

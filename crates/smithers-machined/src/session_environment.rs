@@ -202,11 +202,18 @@ pub fn run(args: &[String]) -> io::Result<()> {
     }
     binding.token(&bounded(token)?)?;
     env.extend(binding.environment);
+    install_smithers_skill(&format!("/home/{}", user.login))?;
     env.insert("HOME".into(), format!("/home/{}", user.login));
     env.insert("USER".into(), user.login.clone());
     env.insert("LOGNAME".into(), user.login);
-    env.entry("PATH".into())
-        .or_insert("/usr/local/bin:/usr/bin:/bin".into());
+    let path = env
+        .get("PATH")
+        .cloned()
+        .unwrap_or_else(|| "/usr/local/bin:/usr/bin:/bin".into());
+    env.insert(
+        "PATH".into(),
+        format!("/opt/smithers/bundle/bin/linux-arm64:{path}"),
+    );
     let error = std::process::Command::new(&args[0])
         .args(&args[1..])
         .env_clear()
@@ -214,9 +221,48 @@ pub fn run(args: &[String]) -> io::Result<()> {
         .exec();
     Err(error)
 }
+// This runs only in the permanently unprivileged session child.
+#[cfg(target_os = "linux")]
+fn install_smithers_skill(home: &str) -> io::Result<()> {
+    use std::os::unix::fs::symlink;
+    let target = std::path::Path::new("/opt/smithers/bundle/share/skills/smithers");
+    for directory in [".claude/skills", ".agents/skills"] {
+        let parent = std::path::Path::new(home).join(directory);
+        std::fs::create_dir_all(&parent)?;
+        let link = parent.join("smithers");
+        match symlink(target, &link) {
+            Ok(()) => (),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if std::fs::read_link(&link)? != target {
+                    return Err(invalid());
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn generated_skill_is_discoverable_and_foreign_links_refuse() {
+        let home = tempfile::tempdir().unwrap();
+        let home_path = home.path().to_str().unwrap();
+        install_smithers_skill(home_path).unwrap();
+        install_smithers_skill(home_path).unwrap();
+        for directory in [".claude/skills", ".agents/skills"] {
+            assert_eq!(
+                std::fs::read_link(home.path().join(directory).join("smithers")).unwrap(),
+                std::path::Path::new("/opt/smithers/bundle/share/skills/smithers")
+            );
+        }
+        let link = home.path().join(".agents/skills/smithers");
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink("/tmp/foreign", link).unwrap();
+        assert!(install_smithers_skill(home_path).is_err());
+    }
     fn source() -> Vec<u8> {
         br#"{"login":"ben","uid":20001,"session":"terminal-a","token_sha256":"696e66e7bfa9c8319a19a7dfb18f2db9a151a680ba3c2c87e0dd204ea8ff11dd","environment":{"SMITHERS_TOKEN_FILE":"/run/smithers/20001/token/sessions/terminal-a/token","SMITHERS_URL":"http://127.0.0.1:4000"}}"#.to_vec()
     }
@@ -240,14 +286,16 @@ mod tests {
             ("SMITHERS_URL", "OTHER_URL"),
             ("696e66", "FFFF66"),
         ] {
-            assert!(Binding::parse(
-                String::from_utf8(source())
-                    .unwrap()
-                    .replace(from, to)
-                    .as_bytes(),
-                &user
-            )
-            .is_err());
+            assert!(
+                Binding::parse(
+                    String::from_utf8(source())
+                        .unwrap()
+                        .replace(from, to)
+                        .as_bytes(),
+                    &user
+                )
+                .is_err()
+            );
         }
         assert!(Binding::parse(&vec![b' '; LIMIT + 1], &user).is_err());
         assert!(environment(br#"{"1INVALID":"x"}"#).is_err());
@@ -271,12 +319,14 @@ mod tests {
             "/run/smithers/20002/token/sessions/terminal-a/token",
             "/run/smithers/20001/token/sessions/terminal-b/token",
         ] {
-            assert!(Binding::parse(
-                text.replace("/run/smithers/20001/token/sessions/terminal-a/token", path)
-                    .as_bytes(),
-                &member
-            )
-            .is_err());
+            assert!(
+                Binding::parse(
+                    text.replace("/run/smithers/20001/token/sessions/terminal-a/token", path)
+                        .as_bytes(),
+                    &member
+                )
+                .is_err()
+            );
         }
         let agent = text
             .replace("\"ben\"", "\"agent\"")
@@ -290,16 +340,18 @@ mod tests {
             uid: 19999,
         };
         assert!(Binding::parse(agent.as_bytes(), &user).is_ok());
-        assert!(Binding::parse(
-            agent
-                .replace(
-                    "/run/smithers/sessions",
-                    "/run/smithers/20001/token/sessions"
-                )
-                .as_bytes(),
-            &user
-        )
-        .is_err());
+        assert!(
+            Binding::parse(
+                agent
+                    .replace(
+                        "/run/smithers/sessions",
+                        "/run/smithers/20001/token/sessions"
+                    )
+                    .as_bytes(),
+                &user
+            )
+            .is_err()
+        );
     }
     #[test]
     fn token_digest_and_framing_are_exact() {

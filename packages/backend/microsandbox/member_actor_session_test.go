@@ -32,6 +32,7 @@ import sys,json
 args=sys.argv[1:]; operands=args[args.index('run')+1:]
 with open(%q,'a') as f: f.write(json.dumps(operands)+'\n')
 sys.stdin.buffer.read()
+if operands[0] == "managed-artifact-check": print("replace")
 `, python, log)), 0700))
 	member := MemberIdentity{"ben", 20001, true}
 	r := &Runtime{config: Config{Bundle: pinned(t, bundle)}, cli: &cli{binary: binary, home: dir}, workspaces: map[string]*workspace{"branch-a": {metadata: metadata{ID: "branch-a", Machine: "machine-a", State: "running"}}}}

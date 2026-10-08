@@ -35,6 +35,8 @@ func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 		"bin/linux-arm64/smithers-jj-export": helper,
 		"bin/linux-arm64/jj":                 append(append([]byte(nil), helper...), "jj"...),
 		"bin/flow-hosts.json":                []byte("{}\n"),
+		"bin/linux-arm64/smthrs":             helper,
+		"share/skills/smithers/SKILL.md":     []byte("---\nname: smithers\n---\n"),
 		"bin/smithers-backend":               []byte("approved backend"),
 		// The fixture msb records each run beside the bundle and reports a
 		// version no runtime qualifies, so New stops at its qualification.
@@ -42,7 +44,7 @@ func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 		// The guest kernel msb loads from lib/ beside its bin/.
 		"lib/libkrunfw.5.dylib": []byte("approved guest kernel"),
 	}
-	modes := map[string]os.FileMode{"bin/flow-hosts.json": 0o644, "lib/libkrunfw.5.dylib": 0o644}
+	modes := map[string]os.FileMode{"bin/flow-hosts.json": 0o644, "share/skills/smithers/SKILL.md": 0o644, "lib/libkrunfw.5.dylib": 0o644}
 	var entries []map[string]any
 	for name, body := range files {
 		mode := modes[name]
@@ -304,7 +306,6 @@ func TestRootManagedArtifactInstallUsesApprovedBundleOnly(t *testing.T) {
 			{name: "mode differs", program: codingHost, mutate: func(t *testing.T, bundle string, _ *Runtime) {
 				require.NoError(t, os.Chmod(filepath.Join(bundle, "bin", "smithers-coding-host"), 0o775))
 			}},
-			{name: "not executable", program: "bin/flow-hosts.json"},
 			{name: "symlink entry", program: "bin/coding-link"},
 			{name: "manifest edited after the bundle was pinned", program: codingHost, mutate: func(t *testing.T, bundle string, runtime *Runtime) {
 				body := []byte("#!/usr/bin/env node\nconsole.log('branch-built host!')\n")
@@ -674,4 +675,94 @@ func TestMSBStateHomeIgnoresTheEnvironment(t *testing.T) {
 	require.Equal(t, filepath.Clean(account.HomeDir), client.home)
 	require.Equal(t, []string{"HOME=" + filepath.Clean(account.HomeDir), "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "MSB_BACKEND=local", "NO_COLOR=1"},
 		client.environment(), "no ambient variable, such as the one that selects msb's guest kernel, reaches msb")
+}
+
+func TestApprovedNonExecutableArtifactPlanting(t *testing.T) {
+	bundle, files := approvedBundleFixture(t)
+	runtime, argv, guestRoot := guestArtifactMSB(t, bundle)
+	relative := "share/skills/smithers/SKILL.md"
+	for range 2 {
+		planted, err := runtime.plantArtifact(t.Context(), "retained", filepath.Join(bundle, relative))
+		require.NoError(t, err)
+		require.Equal(t, "/opt/smithers/bundle/"+relative, planted)
+		body, info := guestPlanted(t, guestRoot, relative)
+		require.Equal(t, files[relative], body)
+		require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	}
+	require.Equal(t, 1, guestCalls(t, argv, "managed-artifact"))
+	target := filepath.Join(guestRoot, "opt/smithers/bundle", relative)
+	require.NoError(t, os.Chmod(target, 0o755))
+	_, err := runtime.plantArtifact(t.Context(), "retained", filepath.Join(bundle, relative))
+	require.NoError(t, err)
+	_, info := guestPlanted(t, guestRoot, relative)
+	require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	require.Equal(t, 2, guestCalls(t, argv, "managed-artifact"))
+	require.NoError(t, os.Remove(target))
+	sentinel := filepath.Join(t.TempDir(), "sentinel")
+	require.NoError(t, os.WriteFile(sentinel, []byte("unchanged"), 0o600))
+	require.NoError(t, os.Symlink(sentinel, target))
+	_, err = runtime.plantArtifact(t.Context(), "retained", filepath.Join(bundle, relative))
+	require.Error(t, err)
+	body, err := os.ReadFile(sentinel)
+	require.NoError(t, err)
+	require.Equal(t, "unchanged", string(body))
+}
+
+func TestCompiledGuestCLIPlanting(t *testing.T) {
+	bundle, _ := approvedBundleFixture(t)
+	entry, err := filepath.Abs("../../smithers/src/guest-bin.ts")
+	require.NoError(t, err)
+	binary := filepath.Join(bundle, "bin/linux-arm64/smthrs")
+	build := exec.Command("bun", "build", "--compile", "--target=bun-linux-arm64", entry, "--outfile", binary)
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, string(output))
+	// Re-inventory this test bundle exactly as the production assembler does.
+	manifest, err := os.ReadFile(filepath.Join(bundle, "manifest.json"))
+	require.NoError(t, err)
+	var inventory struct {
+		Files []map[string]any `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(manifest, &inventory))
+	body, err := os.ReadFile(binary)
+	require.NoError(t, err)
+	require.Greater(t, len(body), managedArtifactLimit, "exercise the embedded runtime's separate bound")
+	sum := sha256.Sum256(body)
+	for _, file := range inventory.Files {
+		if file["path"] == "bin/linux-arm64/smthrs" {
+			file["sha256"] = hex.EncodeToString(sum[:])
+		}
+	}
+	writeBundleManifest(t, bundle, inventory.Files)
+	runtime, _, guestRoot := guestArtifactMSB(t, bundle)
+	_, err = runtime.plantArtifact(t.Context(), "fresh", binary)
+	require.NoError(t, err)
+	planted, info := guestPlanted(t, guestRoot, "bin/linux-arm64/smthrs")
+	require.Equal(t, body, planted)
+	require.Equal(t, os.FileMode(0o755), info.Mode().Perm())
+}
+
+func TestGuestArtifactManifestRefusesUnsafeModeAndArchitecture(t *testing.T) {
+	for _, fixture := range []struct {
+		name, relative string
+		mode           os.FileMode
+		data           []byte
+	}{
+		{"writable skill", "share/skills/smithers/SKILL.md", 0o664, []byte("skill")},
+		{"private skill", "share/skills/smithers/SKILL.md", 0o600, []byte("skill")},
+		{"wrong architecture CLI", "bin/linux-arm64/smthrs", 0o755, []byte("#!/bin/sh\necho host fallback\n")},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			bundle, _ := approvedBundleFixture(t)
+			target := filepath.Join(bundle, fixture.relative)
+			require.NoError(t, os.WriteFile(target, fixture.data, fixture.mode))
+			require.NoError(t, os.Chmod(target, fixture.mode))
+			sum := sha256.Sum256(fixture.data)
+			writeBundleManifest(t, bundle, []map[string]any{{"path": fixture.relative, "sha256": hex.EncodeToString(sum[:]), "stage": "fixture", "mode": int(fixture.mode)}})
+			runtime, argv, _ := guestArtifactMSB(t, bundle)
+			_, err := runtime.plantArtifact(t.Context(), "fresh", target)
+			require.ErrorIs(t, err, ErrUnapprovedArtifact)
+			_, err = os.Stat(argv)
+			require.ErrorIs(t, err, os.ErrNotExist, "refuse before guest root consumes the artifact")
+		})
+	}
 }

@@ -69,8 +69,13 @@ bundle means:
 - The coding helper, the guest jj (`bin/linux-arm64/jj`) and every
   `Config.BundlePrograms` entry must be declared,
   non-symlink files with exactly their bytes and mode, read through the same
-  protected descriptor walk. Planted files are mode 0755 and at most 8 path
-  segments deep.
+  protected descriptor walk. Planted files use manifest mode 0755 or 0644 and
+  at most 8 path segments. Files are bounded to 64 MiB; the compiled
+  `bin/linux-arm64/smthrs` alone allows 128 MiB for its embedded runtime.
+  Installed terminal admission plants that CLI and the generated
+  `share/skills/smithers/SKILL.md`. After identity drop, the session child
+  links the skill into `~/.claude/skills` and `~/.agents/skills` and prepends
+  the packaged CLI directory to the existing toolchain PATH.
 - With a bundle, the state root (`Config.Root`) and its machine and layer
   record directories must be reached through a protected chain before msb is
   asked anything.
@@ -80,7 +85,8 @@ bundle means:
   distribution (T-INS-05), not this package.
 
 The guest helper's `managed-artifact` and `coding-helper` subcommands check
-the digest again and write as root, mode 0755, through one descriptor walk
+the digest again and write as root (manifest mode 0644 or 0755 for artifacts;
+0755 for coding helpers), through one descriptor walk
 from `/` (`protected_directory`): every ancestor root-owned, not group or
 world writable, never followed. A retained machine gets drifted bytes or mode
 replaced and refuses a link or writable directory. A file outside the bundle

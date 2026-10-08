@@ -18,11 +18,10 @@ const guestBundleRoot = "/opt/smithers/bundle"
 // same bound to the bytes it receives.
 const managedArtifactLimit = 64 << 20
 
-// managedArtifactDepth and managedArtifactMode are the guest helper's own
-// bounds: a planted path has at most this many segments, and every planted
-// file is written with this mode, so only a manifest entry with exactly it
-// is planted.
+// Managed artifacts have bounded paths and only executable or read-only data
+// modes. The compiled Bun CLI embeds its runtime and needs a separate size bound.
 const (
+	guestCLILimit        = 128 << 20
 	managedArtifactDepth = 8
 	managedArtifactMode  = 0o755
 )
@@ -114,7 +113,7 @@ func (r *Runtime) bundleArtifact(program string) (relative string, ok bool) {
 	return r.config.Bundle.Member(program)
 }
 
-// plantable returns the bytes of one declared mode-0755 file that a guest may
+// plantable returns the bytes of one declared mode-0644 or mode-0755 file that a guest may
 // plant, only when they match the pinned manifest's digest and mode.
 func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, error) {
 	entry, ok := bundle.Entry(relative)
@@ -122,8 +121,8 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 	switch {
 	case !ok:
 		return nil, "", fmt.Errorf("%w: %s is not declared by the bundle manifest", ErrUnapprovedArtifact, relative)
-	case entry.Mode != managedArtifactMode:
-		return nil, "", fmt.Errorf("%w: %s is not a mode 0755 executable", ErrUnapprovedArtifact, relative)
+	case entry.Mode != managedArtifactMode && entry.Mode != 0o644:
+		return nil, "", fmt.Errorf("%w: %s must have mode 0644 or 0755", ErrUnapprovedArtifact, relative)
 	case len(parts) > managedArtifactDepth:
 		return nil, "", fmt.Errorf("%w: %s is deeper than %d segments", ErrUnapprovedArtifact, relative, managedArtifactDepth)
 	}
@@ -132,9 +131,16 @@ func plantable(bundle *installbundle.Bundle, relative string) ([]byte, string, e
 			return nil, "", fmt.Errorf("%w: %s is not a plantable path", ErrUnapprovedArtifact, relative)
 		}
 	}
-	data, entry, err := bundle.Read(relative, managedArtifactLimit)
+	limit := int64(managedArtifactLimit)
+	if relative == "bin/linux-arm64/smthrs" {
+		limit = guestCLILimit
+	}
+	data, entry, err := bundle.Read(relative, limit)
 	if err != nil {
 		return nil, "", err
+	}
+	if relative == "bin/linux-arm64/smthrs" && (len(data) < 64 || string(data[:6]) != "\x7fELF\x02\x01" || data[18] != 183 || data[19] != 0 || entry.Mode != 0o755) {
+		return nil, "", fmt.Errorf("%w: guest smthrs must be Linux arm64 executable", ErrUnapprovedArtifact)
 	}
 	return data, entry.SHA256, nil
 }

@@ -206,6 +206,11 @@ func (c *MemberCredentials) withAdmission(ctx context.Context, id, session, dige
 	if r.config.Bundle == nil || r.cli == nil {
 		return ErrUnavailable
 	}
+	for _, relative := range []string{"bin/linux-arm64/smthrs", "share/skills/smithers/SKILL.md"} {
+		if _, err := r.plantArtifact(ctx, ws.Machine, r.config.Bundle.Path(relative)); err != nil {
+			return err
+		}
+	}
 	actor, err := commitActor(ctx, id, ws.Machine, c.member, via)
 	if err != nil {
 		return err

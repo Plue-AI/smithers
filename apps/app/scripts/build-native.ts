@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import {
   cpSync,
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -359,6 +360,14 @@ await run("web bundle", [pnpmBinary, "run", "build:web"], appDir, { ...nodeEnvir
 cpSync(join(appDir, "dist"), join(nativeDir, "views", "mainview"), { recursive: true })
 await run("server launcher", ["bun", "build", "--compile", "--target=bun-darwin-arm64", "src/bun/serve.ts", "--outfile", join(nativeDir, "bin", "smithers-server")], appDir)
 await run("bundle host CLI", ["bun", "build", "--compile", "--target=bun-darwin-arm64", "scripts/bundle-cli.ts", "--outfile", join(nativeDir, "bin", "smthrs")], appDir)
+await run("bundle guest CLI", ["bun", "build", "--compile", "--target=bun-linux-arm64", "../../packages/smithers/src/guest-bin.ts", "--outfile", join(nativeDir, "bin", "linux-arm64", "smthrs")], appDir)
+chmodSync(join(nativeDir, "bin", "linux-arm64", "smthrs"), 0o755)
+requireLinuxArm64(join(nativeDir, "bin", "linux-arm64", "smthrs"), "guest smthrs")
+await run("verify generated Smithers skill", ["bun", "scripts/catalog-mvp.ts", "--check", "--skill"], root)
+const skillDirectory = join(nativeDir, "share", "skills", "smithers")
+mkdirSync(skillDirectory, { recursive: true })
+cpSync(join(root, "packages", "smithers", "skills", "smithers", "SKILL.md"), join(skillDirectory, "SKILL.md"))
+chmodSync(join(skillDirectory, "SKILL.md"), 0o644)
 const instructions = readFileSync(join(appDir, "scripts/README.md"), "utf8").split("## Stage-1 service\n")[1]?.split("\n## ")[0]
 if (!instructions) throw new Error("Missing bundle instructions")
 writeFileSync(join(nativeDir, "README.md"), "# Smithers server bundle\n" + instructions)

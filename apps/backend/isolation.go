@@ -168,7 +168,7 @@ func microVMConfig(dataRoot string, bundle *installbundle.Bundle, codingHost str
 		return config, errors.New("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: the backend does not run from an installed bundle")
 	}
 	config.Bundle = bundle
-	config.BundlePrograms = []string{codingHost}
+	config.BundlePrograms = []string{codingHost, bundle.Path("bin/linux-arm64/smthrs"), bundle.Path("share/skills/smithers/SKILL.md")}
 	profile, err := detect(dataRoot)
 	if err != nil {
 		var typed *microsandbox.HostProfileError

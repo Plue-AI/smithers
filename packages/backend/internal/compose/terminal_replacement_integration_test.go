@@ -207,7 +207,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		cfg.Server.PublicURL = origin
 		cfg.Server.AllowedOrigins = []string{origin}
 		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
-		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, terminal: handler})
+		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}})
 		server.Start()
 		t.Cleanup(server.Close)
 		url := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/repos/ben/demo/workspace/sessions/" + session + "/terminal"

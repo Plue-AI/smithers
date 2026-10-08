@@ -25,10 +25,10 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
                   bytes are stdin and must hash to DIGEST
   coding-helper-check DIGEST
                   report whether the fixed helper holds DIGEST
-  managed-artifact PATH DIGEST
+  managed-artifact PATH DIGEST [MODE]
                   atomically plant one approved bundle file under
                   /opt/smithers/bundle; the bytes are stdin
-  managed-artifact-check PATH DIGEST
+  managed-artifact-check PATH DIGEST [MODE]
                   report whether that planted file is current
 """
 
@@ -2100,27 +2100,42 @@ def install_coding_helper(digest, body, name=CODING_HELPER_NAME):
     install_protected_file(CODING_HELPER_DIRECTORY, target, digest, body, MANAGED_ARTIFACT_LIMIT)
 
 
-def managed_artifact_request(relative, digest):
+def managed_artifact_limit(relative):
+    # Bun's compiled CLI embeds its runtime; no other artifact gets this bound.
+    return 128 << 20 if relative == "bin/linux-arm64/smthrs" else MANAGED_ARTIFACT_LIMIT
+
+
+def managed_artifact_mode(args):
+    if len(args) == 3:
+        return 0o755
+    if args[3] not in ("0644", "0755"):
+        fail(3, "managed artifact mode is invalid")
+    return int(args[3], 8)
+
+
+def managed_artifact_request(relative, digest, mode):
     # The adapter sends a manifest path and digest from the approved bundle.
     # Neither can name another directory or skip the byte check.
     if os.geteuid() != ROOT_UID:
         fail(3, "managed artifact requires root")
     if not valid_digest(digest):
         fail(3, "managed artifact digest is invalid")
+    if mode not in (0o644, 0o755):
+        fail(3, "managed artifact mode is invalid")
     parts = relative.split("/") if isinstance(relative, str) else []
     if not 0 < len(parts) <= 8 or not all(valid_id(part) for part in parts):
         fail(3, "managed artifact path is invalid")
     return parts
 
 
-def managed_artifact_current(relative, digest):
-    parts = managed_artifact_request(relative, digest)
-    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, MANAGED_ARTIFACT_LIMIT)
+def managed_artifact_current(relative, digest, mode=0o755):
+    parts = managed_artifact_request(relative, digest, mode)
+    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, managed_artifact_limit(relative), mode)
 
 
-def install_managed_artifact(relative, digest, body):
-    parts = managed_artifact_request(relative, digest)
-    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, MANAGED_ARTIFACT_LIMIT)
+def install_managed_artifact(relative, digest, body, mode=0o755):
+    parts = managed_artifact_request(relative, digest, mode)
+    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, managed_artifact_limit(relative), mode)
 
 
 def protected_directory(names, create):
@@ -2310,7 +2325,7 @@ def start_machined(digest, body):
         os.close(parent)
 
 
-def protected_file_current(names, target, digest, limit):
+def protected_file_current(names, target, digest, limit, mode=0o755):
     # Whether the root-owned file target under names already holds exactly
     # the approved bytes with mode 0755. Anything but a root-owned regular
     # file there refuses: it is never followed, read or replaced.
@@ -2333,7 +2348,7 @@ def protected_file_current(names, target, digest, limit):
             info = os.fstat(handle.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
                 fail(3, "protected file is not a root-owned file")
-            if stat.S_IMODE(info.st_mode) != 0o755 or info.st_size > limit:
+            if stat.S_IMODE(info.st_mode) != mode or info.st_size > limit:
                 return False
             checksum = hashlib.sha256()
             remaining = limit + 1
@@ -2348,7 +2363,7 @@ def protected_file_current(names, target, digest, limit):
         os.close(parent)
 
 
-def install_protected_file(names, target, digest, body, limit):
+def install_protected_file(names, target, digest, body, limit, mode=0o755):
     # Atomically replace target under names with body, mode 0755, only when
     # body is exactly the approved digest: an exclusive no-follow temporary
     # file in the held parent descriptor, then a rename over it.
@@ -2370,7 +2385,7 @@ def install_protected_file(names, target, digest, body, limit):
         with os.fdopen(fd, "wb") as handle:
             handle.write(body)
             handle.flush()
-            os.fchmod(handle.fileno(), 0o755)
+            os.fchmod(handle.fileno(), mode)
             os.fsync(handle.fileno())
         os.rename(temporary, target, src_dir_fd=parent, dst_dir_fd=parent)
         temporary = None
@@ -2673,11 +2688,11 @@ def main(args):
     if command == "coding-helper" and len(args) in (2, 3):
         install_coding_helper(args[1], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1), *args[2:])
         return
-    if command == "managed-artifact-check" and len(args) == 3:
-        print("current" if managed_artifact_current(args[1], args[2]) else "replace")
+    if command == "managed-artifact-check" and len(args) in (3, 4):
+        print("current" if managed_artifact_current(args[1], args[2], managed_artifact_mode(args)) else "replace")
         return
-    if command == "managed-artifact" and len(args) == 3:
-        install_managed_artifact(args[1], args[2], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
+    if command == "managed-artifact" and len(args) in (3, 4):
+        install_managed_artifact(args[1], args[2], sys.stdin.buffer.read(managed_artifact_limit(args[1]) + 1), managed_artifact_mode(args))
         return
     if command == "coding-binding" and len(args) == 1:
         body = sys.stdin.buffer.read(65537)

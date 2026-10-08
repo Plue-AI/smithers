@@ -463,14 +463,19 @@ func (r *Runtime) plant(ctx context.Context, machine, program string) (string, [
 	if err != nil {
 		return "", nil, err
 	}
-	state, err := r.guest(ctx, machine, nil, "managed-artifact-check", relative, sum)
+	args := []string{relative, sum}
+	entry, _ := r.config.Bundle.Entry(relative)
+	if entry.Mode == 0o644 {
+		args = append(args, "0644")
+	}
+	state, err := r.guest(ctx, machine, nil, append([]string{"managed-artifact-check"}, args...)...)
 	if err != nil {
 		return "", nil, err
 	}
 	switch strings.TrimSpace(string(state)) {
 	case "current":
 	case "replace":
-		if _, err := r.guest(ctx, machine, data, "managed-artifact", relative, sum); err != nil {
+		if _, err := r.guest(ctx, machine, data, append([]string{"managed-artifact"}, args...)...); err != nil {
 			return "", nil, err
 		}
 	default:

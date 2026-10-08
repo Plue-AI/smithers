@@ -153,6 +153,7 @@ func exerciseInstalledMemberTerminalAndSSHChain(t *testing.T, check func(*rootLa
 	_, err = term.run(fmt.Sprintf(`test "$SMITHERS_TOKEN_FILE" = %q && test "$(stat -c %%u "$SMITHERS_TOKEN_FILE")" = "$(id -u)" && test "$(stat -c %%a /run/smithers/$(id -u)/token)" = 700 && printf 'TRM''BINDING=private\n'`, expectedToken), regexp.MustCompile(`TRMBINDING=private`), 30*time.Second)
 	require.NoError(t, err)
 
+	testInstalledTerminalCLIAndSkill(t, term)
 	testInstalledUsers(t, h, branch, term, benBrowser, aliceBrowser)
 	testInstalledSecretFiles(t, h, branch, term, benBrowser, aliceBrowser)
 	installedShell(t, term, fmt.Sprintf(`test "$(cat "$HOME/.config/mch/relay")" = MCH_RELAY_KEY && test "$(curl --silent --show-error --fail --noproxy '' --proxy "$http_proxy" -H "x-api-key: $(cat "$HOME/.config/mch/relay")" %q)" = provider-fixture-ok`, provider.URL))
