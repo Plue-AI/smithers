@@ -301,9 +301,24 @@ export const parseBlock = (text, version) => {
   return { from, fromHash, groups }
 }
 
+/**
+ * The most output one git command may return.
+ *
+ * Node stops a synchronous child at 1 MiB by default. The 1.0.0-rc.1 range
+ * held about 11,000 subjects, 1.02 MiB of `git log`, so both the cut and the
+ * release gate died with `ENOBUFS` before rendering a line. A range is bounded
+ * by history, not by this script, so the limit is set far above any release.
+ */
+export const gitOutputLimit = 256 * 1024 * 1024
+
 /** Runs one git command in `root` and returns its trimmed stdout. */
 const git = (args, root = repoRoot) =>
-  execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+  execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: gitOutputLimit
+  }).trim()
 
 /** Whether `root` is inside a git work tree this script can read history from. */
 export const hasRepository = (root = repoRoot) => {

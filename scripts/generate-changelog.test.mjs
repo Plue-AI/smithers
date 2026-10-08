@@ -402,6 +402,35 @@ test("a write followed by a check is green, and a second write changes nothing",
   })
 })
 
+test("a range whose log is larger than Node's default child buffer is read whole", () => {
+  // The 1.0.0-rc.1 range produced 1.02 MiB of `git log`. execFileSync stops a
+  // child at 1 MiB unless told otherwise, so the cut and the release gate
+  // both died with ENOBUFS. Eighteen 64 KiB subjects cross that line without
+  // eleven thousand commits.
+  withFixture((root) => {
+    const subject = `🐛 fix(big): ${"x".repeat(64 * 1024)}`
+    const date = "2026-02-05T00:00:00+00:00"
+    for (let index = 0; index < 18; index += 1) {
+      execFileSync("git", ["commit", "-q", "--allow-empty", "-m", subject], {
+        cwd: root,
+        env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+      })
+    }
+
+    const commits = readCommits({ from: "v0.1.0", to: "HEAD", root })
+    assert.equal(commits.length, 22)
+    assert.ok(
+      commits.reduce((bytes, entry) => bytes + entry.subject.length, 0) > 1024 * 1024,
+      "the fixture must exceed the default buffer to prove anything"
+    )
+
+    main([], root)
+    assert.match(readFileSync(join(root, "CHANGELOG.md"), "utf8"), /^21 commits since \[v0\.1\.0\]/m)
+    main(["--check"], root)
+    assert.equal(process.exitCode, undefined)
+  })
+})
+
 test("a check fails on a stale section and on a missing one", () => {
   withFixture((root) => {
     const changelogPath = join(root, "CHANGELOG.md")
