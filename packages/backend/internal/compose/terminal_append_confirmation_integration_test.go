@@ -176,6 +176,7 @@ func exerciseTerminalAppendConfirmation(t *testing.T, ctx context.Context, pool 
 		req.Header.Set("Smithers-Via", "browser")
 		req.Header.Set("Smithers-Actor-Kind", "person")
 		req.Header.Set("Smithers-Profile", "full")
+		req.Header.Set("Smithers-Agent-Session", "forged-person-session")
 		response, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer response.Body.Close()

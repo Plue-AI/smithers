@@ -91,6 +91,36 @@ func exerciseTerminalRealServiceMatrix(t *testing.T, ctx context.Context, pool *
 			var pending map[string]any
 			require.NoError(t, json.Unmarshal(raw, &pending))
 			require.Equal(t, "pending", pending["state"])
+			// Each issuer-attribution cell crosses the private confirmation doors.
+			// A forged browser identity cannot reveal or decide the pending row.
+			for _, fixture := range []struct{ method, path, body, cookie, bearer string }{
+				{"GET", "/api/confirmations", "", "", token},
+				{"POST", "/api/confirmations/" + pending["confirmation"].(string) + "/approve", `{}`, "", token},
+				{"POST", "/api/confirmations/" + pending["confirmation"].(string) + "/approve", `{}`, "replacement-cookie", token},
+				{"POST", "/api/confirmations/" + pending["confirmation"].(string) + "/deny", `{}`, "", token},
+				{"POST", "/api/confirmations/" + pending["confirmation"].(string) + "/approve", `{}`, "other-terminal-confirm-cookie", ""},
+				{"POST", "/api/confirmations", `{"command":"todo.new","payload":{"prompt":"Forbidden explicit confirmation"}}`, "", token},
+			} {
+				status, raw = call(fixture.method, fixture.path, fixture.body, fixture.cookie, fixture.bearer, "matrix-private-"+via)
+				require.Equal(t, 403, status, string(raw))
+				var refused map[string]any
+				require.NoError(t, json.Unmarshal(raw, &refused))
+				require.Equal(t, "permission", refused["class"])
+				require.Equal(t, "permission", refused["code"])
+				require.Equal(t, beforeTodos, count("mythical_items"))
+				require.Equal(t, beforeConfirm+1, count("approvals"))
+				require.Equal(t, beforeJobs, count("product_job_requests"))
+			}
+			status, raw = call("GET", "/api/confirmations", "", "other-terminal-confirm-cookie", "", "")
+			require.Equal(t, 200, status, string(raw))
+			require.JSONEq(t, `[]`, string(raw))
+			// Retrying append before approval must retain the same private id.
+			status, raw = call("POST", path, `{"title":"Matrix","prompt":"Delegated append"}`, "", token, "matrix-append-"+via)
+			require.Equal(t, 202, status, string(raw))
+			var replay map[string]any
+			require.NoError(t, json.Unmarshal(raw, &replay))
+			require.Equal(t, pending, replay)
+			require.Equal(t, beforeConfirm+1, count("approvals"))
 			for range 2 {
 				status, raw = call("POST", "/api/confirmations/"+pending["confirmation"].(string)+"/approve", `{}`, "replacement-cookie", "", "matrix-approve-"+via)
 				require.Equal(t, 200, status, string(raw))
@@ -124,6 +154,19 @@ func exerciseTerminalRealServiceMatrix(t *testing.T, ctx context.Context, pool *
 					require.Equal(t, 1, code, result)
 					require.Equal(t, "permission", result["code"])
 					require.Equal(t, before, signals())
+					// Submitted kind is untrusted: the stored approval remains
+					// a person decision, even with a question-shaped request.
+					status, raw = call("POST", fmt.Sprintf("/api/todos/%d/answer", own),
+						fmt.Sprintf(`{"wait":%q,"answer":"true","kind":"question"}`, waitID), "", token, "matrix-forged-kind-"+via)
+					require.Equal(t, 400, status, string(raw))
+					var denied map[string]any
+					require.NoError(t, json.Unmarshal(raw, &denied))
+					require.Equal(t, "user", denied["class"])
+					require.Equal(t, "invalid_answer", denied["code"])
+					require.Equal(t, before, signals())
+					var settled bool
+					require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'waits'->0->>'settled_at' IS NOT NULL FROM mythical_items WHERE number=$1`, own).Scan(&settled))
+					require.False(t, settled)
 				}
 			}
 			beforeJobs = count("product_job_requests")
@@ -139,6 +182,10 @@ func exerciseTerminalRealServiceMatrix(t *testing.T, ctx context.Context, pool *
 				require.Equal(t, "permission", result["code"])
 			}
 			require.Equal(t, beforeJobs, count("product_job_requests"))
+			// Forged headers and payload assertions never rewrite issuer authority.
+			require.NoError(t, pool.QueryRow(ctx, `SELECT scopes,system_issued FROM access_tokens WHERE token_hash=$1`, hash).Scan(&stored, &system))
+			require.Equal(t, scopes, stored)
+			require.True(t, system)
 		})
 	}
 }
