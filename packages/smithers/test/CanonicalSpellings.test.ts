@@ -137,12 +137,13 @@ describe("printed command spellings", () => {
       })
     )
     const topLevel = new Set(manifest.commands.map((command) => command.name.split(" ")[0]!))
-    // Every word the compatibility tree answers that the canonical one does not.
+    // Published library doors remain valid in their own output even when install
+    // discovery omits them. Only compatibility spellings are hidden aliases.
     const hidden = new Set(
       [
         ...cli.subcommands.flatMap((group) => group.commands.map((command) => command.name)),
         ...Unsupported.removedVerbs.map((verb) => verb.name)
-      ].filter((name) => !topLevel.has(name))
+      ].filter((name) => !topLevel.has(name) && !canonical.has(name))
     )
     const sharedFlags = new Set(
       [...(await capture(["--help"])).matchAll(/--([a-z][a-z0-9-]*)/g)].map((match) => match[1]!)

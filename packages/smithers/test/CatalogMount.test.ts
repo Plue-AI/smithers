@@ -112,8 +112,15 @@ it.each(["standalone", "origin", "credential", "token-file", "repo", "cloud"])("
     // A local project remains local even with a globally configured install.
     expect(await serve(["--root", home])).toEqual({ source: "local" })
     expect(requests).toEqual([])
-    {
-      expect(await serve(mode === "repo" ? ["--repo", "owner/repo"] : mode === "cloud" ? ["--cloud"] : []))
+    if (mode === "repo") {
+      // One repository per install: /api/runs accepts no repository selector.
+      expect(await serve(["--repo", "owner/repo"])).toEqual({
+        code: "UsageError",
+        message: "This HTTP door does not accept repo"
+      })
+      expect(requests).toEqual([])
+    } else {
+      expect(await serve(mode === "cloud" ? ["--cloud"] : []))
         .toEqual({ source: mode === "standalone" ? "local" : "catalog" })
       expect(requests).toEqual(mode === "standalone" ? [] : ["/api/runs"])
     }

@@ -277,7 +277,8 @@ describe("smthrs init", () => {
 
     const result = await canonical(["init", "../outside"], root)
 
-    expect(result.code).toBe(1)
+    expect(result.code).toBe(2)
+    expect(result.data.code).toBe("UsageError")
     expect(result.output).toContain("one path segment")
     // The refusal is a refusal, not a partial scaffold: nothing was created
     // under the project and nothing was created beside it.
