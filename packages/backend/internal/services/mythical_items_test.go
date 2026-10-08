@@ -1939,7 +1939,7 @@ func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) 
 	require.NoError(t, err)
 	want := map[string]any{"id": "foreign-1", "kind": "foreign_push", "prompt": "Alice pushed to smithers/retry-webhooks on GitHub",
 		"since": "2026-10-05T12:00:00Z", "sha": "1111111111111111111111111111111111111111",
-		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{map[string]any{"tag": "branch.discard-foreign", "label": "Discard"}}}
+		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{map[string]any{"tag": "branch.bring-in", "label": "Bring in"}, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"}}}
 	card := o.todoCard(item.Number.Int64)
 	waits := card["waits"].([]any)
 	require.Len(t, waits, 2)

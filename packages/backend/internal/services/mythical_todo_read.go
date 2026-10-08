@@ -174,10 +174,15 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 			actions = append(actions, map[string]any{"tag": "todo.keep-moved", "label": "Keep for now"})
 		}
 		// Only offer the composed person-decision door for the retained head.
-		// Bring in still requires the machine checkpoint provider.
+		// Bring in runs through the existing stack worker at its safe boundary.
 		if wait.Kind == "foreign_push" && wait.ID != "" && mythicalSHA.MatchString(wait.SHA) && strings.Trim(wait.SHA, "0") != "" &&
 			checks.ForeignHead == wait.SHA && mythicalTodoBranchValid(checks.Branch) {
-			actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
+			if s.host != nil && s.launcher != nil {
+				actions = append(actions, map[string]any{"tag": "branch.bring-in", "label": "Bring in"})
+			}
+			if checks.ForeignBring == nil || checks.ForeignBring.SHA != wait.SHA {
+				actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
+			}
 		}
 		projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions}
 		if wait.Return != nil && wait.Return.Error != "" {

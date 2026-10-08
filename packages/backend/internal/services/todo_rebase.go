@@ -78,6 +78,10 @@ func (s *MythicalService) mayExecuteRequestedRebase(ctx context.Context, item db
 	return s.rebaseRequestAuthorized(ctx, s.queries(), item, mythicalChecksOf(item).Rebase.Request)
 }
 func (s *MythicalService) rebaseRequestAuthorized(ctx context.Context, q *db.Queries, item db.MythicalItem, request *mythicalRebaseRequest) bool {
+	return s.storedBranchRequestAuthorized(ctx, q, item, request, "branch.rebase-now")
+}
+
+func (s *MythicalService) storedBranchRequestAuthorized(ctx context.Context, q *db.Queries, item db.MythicalItem, request *mythicalRebaseRequest, command string) bool {
 	info, err := middleware.ReloadCredential(ctx, q, request.Credential, s.now())
 	if err != nil || info == nil || info.User == nil || info.User.ID != request.User || info.RawScopes != request.RawScopes || !middleware.BindInstallCredential(info) {
 		return false
@@ -88,7 +92,7 @@ func (s *MythicalService) rebaseRequestAuthorized(ctx context.Context, q *db.Que
 	if err != nil || repository != item.RepositoryID {
 		return false
 	}
-	_, err = Authorize(current, q, "branch.rebase-now")
+	_, err = Authorize(current, q, command)
 	if err != nil {
 		return false
 	}

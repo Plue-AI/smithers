@@ -1925,6 +1925,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	// Captured edits belong to this attempt. Until its pending-work boundary
 	// consumes them, do not turn invalidated verification into a coding retry
 	// or publish an older candidate. Running composition work may still settle.
+	if mythicalChecksOf(item).ForeignBring != nil {
+		return st.consumeForeignBring(ctx, item)
+	}
 	if mythicalChecksOf(item).Capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
@@ -3148,6 +3151,17 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	also := func(tx pgx.Tx, saved db.MythicalItem) error {
 		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
 	}
+	if pending := mythicalChecksOf(item).ForeignBring; pending != nil {
+		rebase.Rebase.Request = pending.Request
+		before = func(tx pgx.Tx) error {
+			return st.lockForeignBring(ctx, tx, item, *pending)
+		}
+		also = func(tx pgx.Tx, saved db.MythicalItem) error {
+			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": mythicalChecksOf(item).ForeignHead, "head": saved.CandidateHead, "by": pending.Request.By, "pusher": foreignBringPusher(item, pending.Wait), "actor": map[string]string{"kind": "system", "id": "stack"}})
+			_, err := st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact)
+			return err
+		}
+	}
 	if captured != nil {
 		rebase.Capture, rebase.Rebase, rebase.Review, rebase.Land = nil, nil, nil, nil
 		next.Integration, _ = json.Marshal(map[string]any{"kind": "captured", "head": captured.Head, "tree": captured.Tree})
@@ -3576,6 +3590,12 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 				checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: s.now().UTC()})
 			}
 			wait := &checks.Waits[waitIndex]
+			if wait.SHA != head && checks.ForeignBring != nil {
+				// A newer push supersedes an unexecuted choice. Its SHA cannot
+				// inherit the older request's authority or answered-by display.
+				checks.ForeignBring = nil
+				wait.AnsweredBy, wait.Answer = "", ""
+			}
 			wait.SHA, wait.By = head, by
 			wait.Prompt = actor.Login + " pushed to `" + checks.Branch + "` on GitHub"
 			checks.ForeignHead, waitID = head, wait.ID
@@ -3721,10 +3741,11 @@ func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input
 		}
 		checks := mythicalChecksOf(item)
 		wait := &checks.Waits[index]
+		if input.Op == "discard-foreign" && checks.ForeignBring != nil && checks.ForeignBring.SHA == input.Revision {
+			return todoControlConflict("Bring in is pending")
+		}
 		if input.Op == "bring-in" {
-			// No host integrate/rebaseCandidate fallback. The checkpoint provider
-			// must deliver the pinned commit to the current machine-bound run.
-			return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
+			return s.requestForeignBring(ctx, tx, q, item, input, person, credential, index, &receipt)
 		}
 		if len(item.PendingOp) > 0 {
 			pending, err := decodeMythicalOutbound(item.PendingOp)
@@ -5464,7 +5485,8 @@ type mythicalChecks struct {
 	Review *mythicalReview `json:"review,omitempty"`
 	// ForeignHead is the pull request head someone other than Smithers
 	// pushed; the stack neither reviews nor merges it.
-	ForeignHead string `json:"foreignHead,omitempty"`
+	ForeignHead  string                `json:"foreignHead,omitempty"`
+	ForeignBring *mythicalForeignBring `json:"foreignBring,omitempty"`
 	// Branch is the TODO's smithers/<slug> branch on GitHub, recorded with
 	// its first publication intent and never derived again (§8.1.1).
 	Branch string `json:"branch,omitempty"`

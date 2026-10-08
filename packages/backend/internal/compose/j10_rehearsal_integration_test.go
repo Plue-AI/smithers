@@ -744,7 +744,37 @@ func TestJ10Rehearsal(t *testing.T) {
 		r.actual = "20 samples at " + short7(a1)
 		return nil
 	})
-	r.pending("3 Bring in Alice's commit", "POST /api/branches/{b} {op: bring-in, id, revision}", "T2 works on top of Alice's commit; her line in the item's diff; same PR", "T-GH-06, T-STK-08", "checkpoint-rebase")
+	if !r.step("3 Bring in Alice's commit", "POST /api/branches/{b} {op: bring-in, id, revision}", "Alice's bytes join T2's change; same PR; checks rerun once", "T-GH-06, T-STK-08", func() error {
+		return r.bringInReleased(t2, branch2, a1, wait1)
+	}) {
+		return
+	}
+	// Discard exercises a separate later push, so Bringing in Alice's first
+	// commit cannot remove the existing person-decision proof.
+	if !r.step("3 A later push waits for Discard", "GitHub fake: Alice pushes again → GET /api/todos/{T2}", "a new foreign-push wait binds Alice's later commit", "T-GH-06", func() error {
+		var err error
+		a1, err = r.fake.PushAs(repo, branch2, 202, "alice", "A later laptop change", map[string]string{"ALICE-DISCARD.md": "discard this later push\n"})
+		if err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
+			card, err := r.j10Card(t2)
+			if err != nil {
+				return err
+			}
+			for _, wait := range card.Waits {
+				if wait.Kind == "foreign_push" && wait.SHA == a1 {
+					wait1 = wait.ID
+					return nil
+				}
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T%d did not hold Alice's later push", t2)
+			}
+		}
+	}) {
+		return
+	}
 	if !r.step("3 Discard Alice's commit", "POST /api/branches/smithers%2Fretry-webhooks {op: discard-foreign, id, revision} as Alice, then the owner; SQL activity",
 		"403 for member Alice; 202 for the owner; the Needs you settles, T2 reads In review, and activity links Alice's kept commit", "T-GH-06", func() error {
 			if a1 == "" || wait1 == "" {
@@ -866,10 +896,13 @@ func TestJ10Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	// Presence-aware rebase is S2 (spec §10, C-J10-04): the Branch topic and the
-	// machine daemon's presence census it reads are not on the S1 install.
-	r.pending("4 Rebase pending while a person is present", "Ben's Branch card (branch:<T1>); GitHub fake main moves; GET /api/todos/{T1}",
-		"T1 reads rebase_pending and keeps its head while Ben is present; it rebases within 60 s of presence expiry", "T-STK-08", "presence-rebase")
+	if !r.step("4 Rebase pending while a person is present", "Branch browser presence; GitHub fake main moves; GET /api/todos/{T1}",
+		"T1 keeps its head while present; one rebase within 60 s of departure; same PR", "T-STK-08", func() error {
+			_, err := r.rebaseReleased(t1, false)
+			return err
+		}) {
+		return
+	}
 
 	// J10.5: the lead merges on GitHub instead of in Smithers.
 	r.step("5 Merge on GitHub turns T1 Merged", "GitHub fake: the owner merges T1's PR → GET /api/todos/{T1}; GET /api/repos/{o}/{r}/mythical; GitHub write log",

@@ -98,8 +98,8 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',stack_position=1,candidate_base=$2,candidate_head=$3,checks=checks || jsonb_build_object('branch','smithers/test','rebase',jsonb_build_object('onto',$4::text,'name','main')) WHERE id=$1`, item.ID, source, head, onto)
 	require.NoError(t, err)
-	call := func(key string) (int, map[string]any) {
-		req, err := http.NewRequest("POST", origin+"/api/branches/smithers%2Ftest", strings.NewReader(`{"rebase":true}`))
+	callBody := func(key, body string) (int, map[string]any) {
+		req, err := http.NewRequest("POST", origin+"/api/branches/smithers%2Ftest", strings.NewReader(body))
 		require.NoError(t, err)
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "pin-cookie"})
 		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
@@ -114,6 +114,7 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&data))
 		return res.StatusCode, data
 	}
+	call := func(key string) (int, map[string]any) { return callBody(key, `{"rebase":true}`) }
 	// An event write failure rolls back the scheduling override and receipt.
 	_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_rebase_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.rebase-requested' THEN RAISE EXCEPTION 'injected rebase fact failure'; END IF; RETURN NEW; END $$;
  CREATE TRIGGER refuse_rebase_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_rebase_fact()`)
@@ -156,4 +157,30 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	code, data = call("new-press")
 	require.Equal(t, 409, code, data)
 	require.Equal(t, "rebase_target_changed", data["code"])
+	retained, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "smithers/test", Status: "stopped"})
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: retained.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "TODO 1 coding"})
+	require.NoError(t, err)
+	// The same composed Branch door admits Bring in without waiting for Git.
+	// The worker receives the displayed foreign SHA, not an unbound target.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET workspace_id='',state='proposed',checks=jsonb_set(checks,'{foreignHead}',to_jsonb($2::text)) || jsonb_build_object('waits',jsonb_build_array(jsonb_build_object('id','foreign-1','kind','foreign_push','sha',$2::text,'since','2026-10-08T00:00:00Z','by',jsonb_build_object('kind','github','login','alice')))) WHERE id=$1`, item.ID, onto)
+	require.NoError(t, err)
+	body := fmt.Sprintf(`{"op":"bring-in","id":"foreign-1","revision":%q}`, onto)
+	for range 2 {
+		code, data = callBody("bring-in-press", body)
+		require.Equal(t, 202, code, data)
+	}
+	current, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, head, current.CandidateHead)
+	require.NoError(t, json.Unmarshal(current.Checks, &checks))
+	bring := checks["foreignBring"].(map[string]any)
+	require.Equal(t, onto, bring["sha"])
+	require.Equal(t, onto, bring["onto"])
+	require.Equal(t, head, bring["request"].(map[string]any)["head"])
+	require.Equal(t, map[string]any{"person": "pin-owner"}, bring["request"].(map[string]any)["by"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.foreign_bring-in'`).Scan(&count))
+	require.Equal(t, 1, count)
+	require.False(t, host.touched.Load())
+
 }

@@ -12,6 +12,7 @@ import (
 // fake. The machine runtime is the existing rehearsal process boundary; it is
 // not microVM or broker freeze evidence.
 func TestRebaseNowRehearsal(t *testing.T) {
+	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_REBASE_REHEARSAL", "C-J10-04", "rebase-now-")
 	if !r.setupSource() || !r.setupMachine() {
 		return
@@ -31,10 +32,43 @@ func TestRebaseNowRehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowReleased(n); return err })
+	if !r.step("Bring in Alice's clean commit", "GitHub fake push; POST /api/branches/{b} {op:bring-in}", "one Bring in, Alice's bytes in the same PR", "T-STK-08, T-GH-06", func() error {
+		before, err := r.todo(n)
+		if err != nil || before.Branch == nil {
+			return fmt.Errorf("TODO branch unavailable: %v", err)
+		}
+		foreign, err := r.fake.PushAs("rehearsal-owner/app", before.Branch.Name, 202, "alice", "Log each retry", map[string]string{"alice.md": "log each retry\n"})
+		if err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
+			card, err := r.j10Card(n)
+			if err != nil {
+				return err
+			}
+			for _, wait := range card.Waits {
+				if wait.Kind == "foreign_push" && wait.SHA == foreign {
+					return r.bringInReleased(n, before.Branch.Name, foreign, wait.ID)
+				}
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T%d has no foreign-push wait", n)
+			}
+		}
+	}) {
+		return
+	}
+	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowReleased(n); return err }) {
+		return
+	}
+	r.step("Rebase after browser departure", "POST /api/live presence; GitHub main sync", "hold while present, one clean rebase within 60 s of departure, same PR", "T-STK-08", func() error { _, err := r.rebaseReleased(n, false); return err })
 }
 
 func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
+	return r.rebaseReleased(n, true)
+}
+
+func (r *rehearsal) rebaseReleased(n int64, press bool) (string, error) {
 	// A completed review releases its lane. The retained candidate then uses
 	// the existing host rebase path, with checks on a fresh machine.
 	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
@@ -67,11 +101,18 @@ func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
 	if err = tab.presence(map[string]any{"branch": before.Branch.ID}); err != nil {
 		return "", err
 	}
-	main, err := r.pushMain("REBASE-NOW.md", "clean main change\n", "Clean rebase target")
+	targetPath := "REBASE-NOW.md"
+	if !press {
+		targetPath = "PRESENCE-REBASE.md"
+	}
+	main, err := r.pushMain(targetPath, "clean main change\n", "Clean rebase target")
 	if err != nil {
 		return "", err
 	}
 	for deadline := time.Now().Add(2 * time.Minute); ; time.Sleep(time.Second) {
+		if err := tab.presence(map[string]any{"branch": before.Branch.ID}); err != nil {
+			return "", err
+		}
 		card, err := r.j10Card(n)
 		if err != nil {
 			return "", err
@@ -83,14 +124,35 @@ func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
 			return "", fmt.Errorf("T%d did not hold its pending rebase", n)
 		}
 	}
-	path := "/api/branches/" + url.PathEscape(before.Branch.Name)
-	for range 2 {
-		code, data, err := r.keyed("POST", path, `{"rebase":true}`, r.keyPrefix+"rebase-press")
-		if err != nil || code != 202 {
-			return "", fmt.Errorf("Rebase now: %d %s %v", code, data, err)
+	// Keep a real browser lease alive across worker passes. A pending label
+	// alone does not prove the person prevented a rewrite.
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(time.Second) {
+		if err := tab.presence(map[string]any{"branch": before.Branch.ID}); err != nil {
+			return "", err
+		}
+		card, err := r.j10Card(n)
+		if err != nil || card.RebasePending == nil || card.PR.Head != before.PR.Head {
+			return "", fmt.Errorf("T%d moved while its browser lease was active: %+v %v", n, card, err)
 		}
 	}
+	departed := time.Now()
+	if press {
+		path := "/api/branches/" + url.PathEscape(before.Branch.Name)
+		for range 2 {
+			code, data, err := r.keyed("POST", path, `{"rebase":true}`, r.keyPrefix+"rebase-press")
+			if err != nil || code != 202 {
+				return "", fmt.Errorf("Rebase now: %d %s %v", code, data, err)
+			}
+		}
+	} else if err := tab.presence(nil); err != nil {
+		return "", err
+	}
 	for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
+		if press {
+			if err := tab.presence(map[string]any{"branch": before.Branch.ID}); err != nil {
+				return "", err
+			}
+		}
 		card, err := r.todo(n)
 		if err != nil {
 			return "", err
@@ -112,7 +174,16 @@ func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
 				return "", err
 			}
 			if count != 1 {
-				return "", fmt.Errorf("%d rebase completions for two presses", count)
+				return "", fmt.Errorf("%d rebase completions, want one", count)
+			}
+			if !press {
+				var completed time.Time
+				if err := r.pool.QueryRow(r.t.Context(), `SELECT created_at FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&completed); err != nil {
+					return "", err
+				}
+				if completed.Sub(departed) > time.Minute {
+					return "", fmt.Errorf("T%d rebased %s after departure, want within 60 s", n, completed.Sub(departed))
+				}
 			}
 			if card.Branch == nil {
 				return "", fmt.Errorf("rebased TODO lost its branch")
@@ -139,6 +210,64 @@ func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
 		}
 		if time.Now().After(deadline) {
 			return "", fmt.Errorf("T%d did not publish its rebase: %s %+v", n, card.State, card.Merge)
+		}
+	}
+}
+
+func (r *rehearsal) bringInReleased(n int64, branch, foreign, wait string) error {
+	before, err := r.j10Card(n)
+	if err != nil {
+		return err
+	}
+	// A completed review must finish releasing its lane before a host rewrite.
+	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
+		var workspace string
+		if err := r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&workspace); err != nil {
+			return err
+		}
+		if workspace == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("T%d has not released its review lane", n)
+		}
+	}
+	body, _ := json.Marshal(map[string]string{"op": "bring-in", "id": wait, "revision": foreign})
+	for range 2 {
+		code, data, err := r.keyed("POST", "/api/branches/"+url.PathEscape(branch), string(body), r.keyPrefix+"bring-"+foreign)
+		if err != nil || code != 202 {
+			return fmt.Errorf("Bring in: %d %s %v", code, data, err)
+		}
+	}
+	for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
+		card, err := r.j10Card(n)
+		if err != nil {
+			return err
+		}
+		if card.State == "in_review" && len(card.Waits) == 0 && card.PR.Head != before.PR.Head {
+			pull, err := r.readFakePull(card.PR.Number)
+			if err != nil {
+				return err
+			}
+			if card.PR.Number != before.PR.Number || pull.Head.SHA != card.PR.Head {
+				return fmt.Errorf("Bring in changed the PR binding: %+v", card.PR)
+			}
+			content, err := r.githubGit("show", pull.Head.SHA+":alice.md")
+			if err != nil || content != "log each retry" {
+				return fmt.Errorf("Alice's bytes were not brought in: %q %v", content, err)
+			}
+			var count int
+			if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_brought-in' AND (data->>'n')::bigint=$1 AND data->>'sha'=$2`, n, foreign).Scan(&count); err != nil {
+				return err
+			}
+			if count != 1 {
+				return fmt.Errorf("two Bring in presses recorded %d executions", count)
+			}
+			r.actual = fmt.Sprintf("T%d PR #%d head %s; Alice's bytes retained; one Bring in", n, card.PR.Number, short7(card.PR.Head))
+			return nil
+		}
+		if card.State == "failed" || time.Now().After(deadline) {
+			return fmt.Errorf("T%d did not publish Bring in: %s waits %+v", n, card.State, card.Waits)
 		}
 	}
 }
