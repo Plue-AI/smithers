@@ -182,6 +182,11 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 		{"path traversal", "SMITHERS_TOKEN_FILE", "/run/smithers/20001/token/sessions/../foreign/token"},
 		{"oversized envelope", "SAFE", strings.Repeat("x", 256*1024)},
 		{"too many entries", "SAFE", "x"},
+		{"foreign working directory", "SAFE", "x"},
+		{"traversing working directory", "SAFE", "x"},
+		{"NUL executable", "SAFE", "x"},
+		{"oversized executable", "SAFE", "x"},
+		{"invalid UTF8 executable", "SAFE", "x"},
 	}
 	for _, cell := range cases {
 		t.Run(phase+"/"+cell.name, func(t *testing.T) {
@@ -199,9 +204,20 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 				}
 			}
 			marker := "/workspace/trm-invalid-" + session
-			terminal, openErr := writer.OpenTerminal(t.Context(), branch, session, digest, workspaceapi.Command{
-				Args: []string{"/bin/sh", "-c", "touch " + marker + "; printf INVALID_ADMISSION_EXECUTED"}, Environment: environment,
-			})
+			command := workspaceapi.Command{Args: []string{"/bin/sh", "-c", "touch " + marker + "; printf INVALID_ADMISSION_EXECUTED"}, Environment: environment}
+			switch cell.name {
+			case "foreign working directory":
+				command.Directory = "/root"
+			case "traversing working directory":
+				command.Directory = "/workspace/../root"
+			case "NUL executable":
+				command.Args[0] = "/bin/sh\x00"
+			case "oversized executable":
+				command.Args[0] = strings.Repeat("x", 4097)
+			case "invalid UTF8 executable":
+				command.Args[0] = "\xff"
+			}
+			terminal, openErr := writer.OpenTerminal(t.Context(), branch, session, digest, command)
 			// The broker can refuse synchronously, or its dropped-uid launcher can
 			// reject the sealed binding and exit before evaluating the executable.
 			if openErr == nil {
@@ -227,6 +243,7 @@ func testInstalledTerminalAdmissionInputs(t *testing.T, h *rootLayerHarness, bra
 		})
 	}
 	testInstalledTerminalAdmissionControl(t, writer, branch)
+	testInstalledTerminalOpeningReplacement(t, writer, branch, observer, phase)
 }
 
 // A valid binding must execute on both sides of the refusal matrix; an
