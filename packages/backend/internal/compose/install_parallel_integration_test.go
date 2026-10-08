@@ -206,7 +206,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		for _, disk := range []struct {
 			free      int64
 			effective int
-		}{{104 << 30, 2}, {60 << 30, 0}} {
+		}{{microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes, 2}, {microsandbox.MinFreeDiskBytes + (20 << 30), 0}} {
 			capacity.FreeDisk = func(context.Context) (int64, error) { return disk.free, nil }
 			providers.FreeDisk = capacity.FreeDisk
 			setting, err := capacity.Parallel(ctx)
@@ -284,7 +284,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		capacity int
 	}{
 		{400 << 30, 3},
-		{104 << 30, 2},
+		{microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes, 2},
 	} {
 		capacity.FreeDisk = func(context.Context) (int64, error) { return disk.free, nil }
 		w = request("GET", "/api/install", "quiesceowner-session", "")
@@ -305,7 +305,7 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		require.EqualValues(t, 64<<30, capacity.Profile.MemoryBytes)
 		require.Equal(t, 10, capacity.Profile.PerfCores)
 	}
-	capacity.FreeDisk = func(context.Context) (int64, error) { return 60 << 30, nil }
+	capacity.FreeDisk = func(context.Context) (int64, error) { return microsandbox.MinFreeDiskBytes + (20 << 30), nil }
 	w = request("GET", "/api/install", "quiesceowner-session", "")
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"parallel":8`)
@@ -338,12 +338,12 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 		capacity, parallel int
 		free               int64
 	}{
-		{0, 1, 60 << 30},
-		{1, 1, 72 << 30},
-		{2, 1, 104 << 30},
-		{3, 2, 136 << 30},
-		{6, 5, 232 << 30},
-		{7, 6, 264 << 30},
+		{0, 1, microsandbox.MinFreeDiskBytes + (20 << 30)},
+		{1, 1, microsandbox.MinFreeDiskBytes + microsandbox.MachineDiskBytes},
+		{2, 1, microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes},
+		{3, 2, microsandbox.MinFreeDiskBytes + 3*microsandbox.MachineDiskBytes},
+		{6, 5, microsandbox.MinFreeDiskBytes + 6*microsandbox.MachineDiskBytes},
+		{7, 6, microsandbox.MinFreeDiskBytes + 7*microsandbox.MachineDiskBytes},
 	} {
 		t.Run(fmt.Sprintf("default_capacity_%d", fixture.capacity), func(t *testing.T) {
 			capacity.FreeDisk = func(context.Context) (int64, error) { return fixture.free, nil }
@@ -366,8 +366,10 @@ func testParallelInstallBoundary(t *testing.T, card bool) {
 	require.NoError(t, err)
 	capacity.Profile.MemoryBytes = 128 << 30
 	capacity.Profile.PerfCores = 32
-	capacity.Profile.DiskFreeBytes = 360 << 30
-	capacity.FreeDisk = func(context.Context) (int64, error) { return 360 << 30, nil }
+	capacity.Profile.DiskFreeBytes = microsandbox.MinFreeDiskBytes + 10*microsandbox.MachineDiskBytes
+	capacity.FreeDisk = func(context.Context) (int64, error) {
+		return microsandbox.MinFreeDiskBytes + 10*microsandbox.MachineDiskBytes, nil
+	}
 	w = request("PUT", "/api/install", "quiesceowner-session", `{"capacity":10}`)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"parallel":8`)

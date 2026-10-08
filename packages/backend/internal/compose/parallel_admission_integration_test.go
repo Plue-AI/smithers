@@ -197,14 +197,14 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 	require.NoError(t, host.git(ctx, nil, io.Discard, "update-ref", "refs/heads/main", strings.TrimSpace(commit.String())))
 
 	// Host measurements: startup memory/cores never change; free disk alone
-	// moves capacity. 136 GiB free is capacity 3.
+	// moves capacity. The shared floor plus three machine disks is capacity 3.
 	var freeDisk atomic.Int64
-	freeDisk.Store(136 << 30)
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + 3*microsandbox.MachineDiskBytes)
 	if beforeCapacityRecovery {
-		freeDisk.Store(104 << 30) // capacity 2; both slots will be held
+		freeDisk.Store(microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes) // capacity 2; both slots will be held
 	}
 	readDisk := func(context.Context) (int64, error) { return freeDisk.Load(), nil }
-	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 136 << 30, MacOSVersion: "15.6", Hypervisor: true}
+	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: microsandbox.MinFreeDiskBytes + 3*microsandbox.MachineDiskBytes, MacOSVersion: "15.6", Hypervisor: true}
 	sizing := microsandbox.ComputeSizing(profile)
 	require.Equal(t, 3, sizing.Capacity)
 	// Ben's sleeping scratch branch: a stopped machine the runtime retains.
@@ -391,7 +391,7 @@ esac
 		return byNumber
 	}
 	if matrix {
-		freeDisk.Store(72 << 30) // exactly one slot
+		freeDisk.Store(microsandbox.MinFreeDiskBytes + microsandbox.MachineDiskBytes) // exactly one slot
 		exerciseTenBranchTerminals(t, branches, runtime.Runtime, server.URL, cfg.Server.PublicURL, mayaCookie, benCookie, call, &freeDisk, queuedSSHProbe(t, pool, workspaces, cfg, ben.ID))
 		return
 	}
@@ -675,7 +675,7 @@ esac
 				require.Empty(t, queued.WorkspaceID, "no machine without released capacity")
 				require.Empty(t, queued.RequestRunID, "no run without released capacity")
 			}
-			freeDisk.Store(136 << 30)
+			freeDisk.Store(microsandbox.MinFreeDiskBytes + 3*microsandbox.MachineDiskBytes)
 		}
 		var last map[int]parallelCard
 		require.True(t, assertEventually(30*time.Second, func() bool {
@@ -715,7 +715,7 @@ esac
 		held("Before capacity recovery", expectedHeld)
 		if releasedHolder != "" {
 			require.False(t, runtime.AdmissionHeld(releasedHolder))
-			require.Equal(t, int64(104<<30), freeDisk.Load(), "a released slot, not more disk, admitted T6")
+			require.Equal(t, microsandbox.MinFreeDiskBytes+2*microsandbox.MachineDiskBytes, freeDisk.Load(), "a released slot, not more disk, admitted T6")
 		}
 		saved, err := q.GetInstallParallel(ctx)
 		require.NoError(t, err)
@@ -771,7 +771,7 @@ esac
 	for _, fixture := range []struct {
 		free     int64
 		parallel int
-	}{{104 << 30, 2}, {60 << 30, 0}} {
+	}{{microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes, 2}, {microsandbox.MinFreeDiskBytes + (20 << 30), 0}} {
 		freeDisk.Store(fixture.free)
 		step := fmt.Sprintf("step 4 effective %d", fixture.parallel)
 		homeEventually := assertEventually(10*time.Second, func() bool {
@@ -801,7 +801,7 @@ esac
 	// Step 5: Ben opens a terminal on his sleeping scratch branch through the
 	// install's terminal door while TODOs wait. His person request waits
 	// ahead of every TODO; one Home delta moves all their positions.
-	freeDisk.Store(104 << 30)
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes)
 	homeConn := dial("home")
 	kind, before := readHome(homeConn)
 	require.Equal(t, "snap", kind)
@@ -1027,7 +1027,7 @@ esac
 	}
 	// Capacity returns to 4: one machine is free and T3 is eligible again.
 	// Ben's person request is granted before it; T3 starts and waits #1.
-	freeDisk.Store(168 << 30)
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + 4*microsandbox.MachineDiskBytes)
 	require.True(t, assertEventually(15*time.Second, func() bool { return runtime.AdmissionHeld("workspace:" + scratchBranch.ID) }), "Ben's wake is granted: %s %+v", scratchBranch.ID, runtime.AdmissionSnapshot())
 	settle("step 5 granted", map[int]string{1: "in_review", 2: "working", 3: "working", 4: "starting", 5: "queued", 6: "working"}, map[int]int{4: 1, 5: 2})
 	homeSnapshot("step 5 granted", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{4: 1, 5: 2}, Parallel: 4})
@@ -1299,7 +1299,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 	}
 	// Capacity falling below held must neither stop the in-flight boot nor
 	// admit any waiting branch. Read-only doors remain usable during the boot.
-	freeDisk.Store(60 << 30)
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + (20 << 30))
 	until := time.Now().Add(2100 * time.Millisecond)
 	for time.Now().Before(until) {
 		require.True(t, check(), "disk pressure changed held ownership: %+v", runtime.AdmissionSnapshot())
@@ -1307,7 +1307,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 		require.Equal(t, http.StatusOK, code, string(body))
 		time.Sleep(20 * time.Millisecond)
 	}
-	freeDisk.Store(72 << 30)
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + microsandbox.MachineDiskBytes)
 	require.True(t, check(), "restored capacity cannot spend an unconfirmed slot")
 
 	// Keep the actual subscriptions alive across disk recovery and owner
@@ -1385,7 +1385,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 			require.Equal(t, position, branch.Machine.WaitPosition)
 		}
 	}
-	freeDisk.Store(104 << 30) // two slots; the oldest waiting holder wins
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + 2*microsandbox.MachineDiskBytes) // two slots; the oldest waiting holder wins
 	observe(2)
 	sshPosition(8)
 	closeSSH()
@@ -1400,7 +1400,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 	}, 5*time.Second, 10*time.Millisecond, "SSH cancellation cannot remove either terminal actor or spend the holder's slot")
 	code, body := call("PUT", "/api/install", `{"capacity":1}`, mayaCookie)
 	require.Equal(t, http.StatusOK, code, string(body))
-	freeDisk.Store(136 << 30) // three disk slots, still limited by owner to one
+	freeDisk.Store(microsandbox.MinFreeDiskBytes + 3*microsandbox.MachineDiskBytes) // three disk slots, still limited by owner to one
 	until = time.Now().Add(2100 * time.Millisecond)
 	for time.Now().Before(until) {
 		require.Equal(t, 2, runtime.InUse(), "lowering capacity cannot preempt either unresolved wake")
