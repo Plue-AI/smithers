@@ -43,7 +43,10 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 	if i == nil || i.Pool == nil || (i.Write == nil && i.Prepare == nil && i.Bursts == nil) || (i.Write != nil && i.Prepare != nil) {
 		return ack, ErrNotReady
 	}
-	if connection == nil || connection.registry == nil {
+	// Reject a caller-selected branch before preparing database projections.
+	// Preparation acquires stack/workspace locks; the final registry fence below
+	// still validates this connection's live boot lease through commit.
+	if connection == nil || connection.registry == nil || connection.boot == nil || connection.boot.branch != branch {
 		return ack, ErrUnauthorized
 	}
 	// Payload is the inner event union supplied by the authenticated link.
@@ -64,9 +67,6 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		}
 		// Scope comes from the host row; neither caller nor daemon chooses a
 		// repository stream. Apply fences this exact lease through commit.
-		if connection.boot == nil || connection.boot.branch != branch {
-			return ack, ErrUnauthorized
-		}
 		var repository int64
 		if err := i.Pool.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1`, branch).Scan(&repository); err != nil {
 			return ack, err
