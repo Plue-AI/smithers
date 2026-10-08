@@ -265,7 +265,12 @@ export default Flow.make("cloud-install", {
       expect(observed).toEqual([])
       expect(JSON.stringify(events)).toContain("ProviderError")
       expect(JSON.stringify(events)).toContain("unavailable")
-      expect(JSON.stringify(events)).toMatch(/Operation not permitted|Permission denied/)
+      expect(existsSync(ssh)).toBe(true)
+      if (process.platform === "linux") {
+        expect(JSON.stringify(events)).toContain(`exec: ${ssh}: not found`)
+      } else {
+        expect(JSON.stringify(events)).toMatch(/Operation not permitted|Permission denied/)
+      }
       expect(existsSync(workdir)).toBe(false)
       expect(JSON.stringify(events)).not.toContain("Expected JSON value")
       expect(methods).toEqual(["POST", "GET", "DELETE"])
