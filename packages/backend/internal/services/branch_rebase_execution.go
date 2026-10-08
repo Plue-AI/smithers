@@ -33,6 +33,10 @@ func (st *mythicalItemStep) lockNativeRebaseReceipt(ctx context.Context, tx pgx.
 }
 
 func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string, executing bool) error {
+	return st.lockNativeRebasePrefix(ctx, tx, item, onto, onto, executing)
+}
+
+func (st *mythicalItemStep) lockNativeRebasePrefix(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto, prefix string, executing bool) error {
 	// Presence resolves the existing host through its own authority transaction
 	// and SHARE lock on this workspace. Read that live boundary before taking
 	// mutation locks here; otherwise the fence waits on its own presence read.
@@ -66,7 +70,7 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 	}
 	step := *st
 	step.items = order
-	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid != item.PausedAt.Valid || (current.PausedAt.Valid && !current.PausedAt.Time.Equal(item.PausedAt.Time)) || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
+	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid != item.PausedAt.Valid || (current.PausedAt.Valid && !current.PausedAt.Time.Equal(item.PausedAt.Time)) || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != prefix {
 		return fmt.Errorf("rebase binding changed: %w", db.ErrMythicalItemMoved)
 	}
 	// The existing host's roster read holds SHARE on the workspace. Read it
@@ -85,7 +89,7 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 		}
 	} else {
 		pending := mythicalChecksOf(current).Rebase
-		if pending == nil || pending.Native == nil || !pending.Native.Inspected || len(pending.Native.Paths) != 0 || pending.Native.Head != head || (status != "running" && status != "stopped" && status != "suspended") {
+		if pending == nil || pending.Native == nil || !pending.Native.Inspected || len(pending.Native.Paths) != 0 || pending.Onto != onto || pending.Native.Head != head || (status != "running" && status != "stopped" && status != "suspended") {
 			return machined.ErrNotReady
 		}
 	}
@@ -151,11 +155,15 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 
 func (st *mythicalItemStep) continueNativeRebase(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	pending := mythicalChecksOf(item).Rebase
-	if st.s.branchRebase == nil || pending == nil || pending.Native == nil || pending.Onto != st.prefix(item) {
+	if st.s.branchRebase == nil || pending == nil || pending.Native == nil {
 		return nil, false, nil
 	}
 	result := pending.Native
 	if len(result.Paths) != 0 {
+		// Conflict continuation retains its original target and budget.
+		if pending.Onto != st.prefix(item) {
+			return nil, false, nil
+		}
 		reservation, err := st.reserveConflict(ctx, item, result.Head, pending.Onto)
 		if err != nil {
 			return nil, false, err
@@ -206,5 +214,62 @@ func (st *mythicalItemStep) continueNativeRebase(ctx context.Context, item db.My
 	} else if len(paths) > 0 {
 		return nil, false, errors.New("rebased branch changes protected paths")
 	}
+	if pending.Onto != st.prefix(current) {
+		return st.retargetCapturedNativeRebase(ctx, current, next, capture, commit.Tree)
+	}
 	return st.verifyCandidate(ctx, current, next, pending.Onto, result.Head, nil)
+}
+
+// A clean native rewrite can finish just before main moves again. Consume its
+// exact capture as unverified data, then rebase that own diff onto the current
+// prefix. Leaving the old receipt pending would wait forever; verifying the
+// superseded target would spend a launch without checking the current prefix.
+func (st *mythicalItemStep) retargetCapturedNativeRebase(ctx context.Context, item, next db.MythicalItem, capture machined.CaptureResult, tree string) (*db.MythicalItem, bool, error) {
+	pending := mythicalChecksOf(item).Rebase
+	retained := mythicalChecksOf(item).Capture
+	if pending == nil || pending.Native == nil || !pending.Native.Inspected || len(pending.Native.Paths) != 0 || capture.Head != pending.Native.Head || capture.Tree != tree || retained == nil || retained.Head != capture.Head || retained.Tree != tree || retained.Stale || retained.Conflict {
+		return nil, false, machined.ErrNotReady
+	}
+	review, err := st.cleanRebaseReview(ctx, item, pending.Onto, capture.Head)
+	if err != nil {
+		return nil, false, err
+	}
+	checks := mythicalChecksOf(next)
+	checks.Capture, checks.Review = nil, review
+	next.Checks = checks.encode()
+	next = *st.invalidatePrefix(next)
+	tx, err := st.s.store.Begin(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if err = st.lockNativeRebasePrefix(ctx, tx, item, pending.Onto, st.prefix(item), false); err != nil {
+		return nil, false, err
+	}
+	var raw []byte
+	if err = tx.QueryRow(ctx, `SELECT capture_pending FROM workspaces WHERE id=$1`, item.WorkspaceID).Scan(&raw); err != nil {
+		return nil, false, err
+	}
+	var current MachineCapturePending
+	if json.Unmarshal(raw, &current) != nil || current.Head != capture.Head || current.Tree != tree || current.Stale || current.Conflict {
+		return nil, false, machined.ErrNotReady
+	}
+	saved, err := db.New(tx).SaveMythicalItem(ctx, next)
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
+		return nil, false, err
+	}
+	receipt := saved
+	recorded := mythicalChecksOf(receipt)
+	recorded.Rebase = &mythicalRebase{Onto: pending.Onto, Name: pending.Name, ReceiptID: pending.Native.ReceiptID, Request: pending.Request, Rebased: true, HeadChanged: item.CandidateHead != capture.Head}
+	receipt.Checks = recorded.encode()
+	if err = st.s.recordTodoRebased(ctx, tx, receipt, item, pending.Name); err != nil {
+		return nil, false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, false, err
+	}
+	return &saved, true, nil
 }

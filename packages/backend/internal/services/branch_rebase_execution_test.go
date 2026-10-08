@@ -191,3 +191,36 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automa
 		require.Equal(t, map[string]string{"person": owner.Username}, rebaseRequester(next))
 	}
 }
+
+func TestSupersededNativeRebaseRefusesUnboundCapture(t *testing.T) {
+	head, tree := "1111111111111111111111111111111111111111", "2222222222222222222222222222222222222222"
+	cases := map[string]func(*mythicalChecks, *machined.CaptureResult){
+		"missing receipt":             func(c *mythicalChecks, _ *machined.CaptureResult) { c.Rebase = nil },
+		"missing native result":       func(c *mythicalChecks, _ *machined.CaptureResult) { c.Rebase.Native = nil },
+		"uninspected result":          func(c *mythicalChecks, _ *machined.CaptureResult) { c.Rebase.Native.Inspected = false },
+		"conflict result":             func(c *mythicalChecks, _ *machined.CaptureResult) { c.Rebase.Native.Paths = []string{"a.txt"} },
+		"changed capture head":        func(_ *mythicalChecks, r *machined.CaptureResult) { r.Head = tree },
+		"changed capture tree":        func(_ *mythicalChecks, r *machined.CaptureResult) { r.Tree = head },
+		"missing retained capture":    func(c *mythicalChecks, _ *machined.CaptureResult) { c.Capture = nil },
+		"changed retained head":       func(c *mythicalChecks, _ *machined.CaptureResult) { c.Capture.Head = tree },
+		"changed retained tree":       func(c *mythicalChecks, _ *machined.CaptureResult) { c.Capture.Tree = head },
+		"stale retained capture":      func(c *mythicalChecks, _ *machined.CaptureResult) { c.Capture.Stale = true },
+		"conflicted retained capture": func(c *mythicalChecks, _ *machined.CaptureResult) { c.Capture.Conflict = true },
+	}
+	for name, damage := range cases {
+		t.Run(name, func(t *testing.T) {
+			checks := mythicalChecks{Rebase: &mythicalRebase{Onto: tree, Native: &machined.RewriteResult{Head: head, Inspected: true}}, Capture: &MachineCapturePending{Head: head, Tree: tree}}
+			capture := machined.CaptureResult{Head: head, Tree: tree}
+			damage(&checks, &capture)
+			item := db.MythicalItem{Checks: checks.encode()}
+			before := string(item.Checks)
+			// No storage or executor is provided: every damaged binding must refuse
+			// before patch comparison, mutation, verification or any database effect.
+			next, saved, err := (&mythicalItemStep{}).retargetCapturedNativeRebase(t.Context(), item, item, capture, tree)
+			require.ErrorIs(t, err, machined.ErrNotReady)
+			require.Nil(t, next)
+			require.False(t, saved)
+			require.Equal(t, before, string(item.Checks))
+		})
+	}
+}

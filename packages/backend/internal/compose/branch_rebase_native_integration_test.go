@@ -91,7 +91,11 @@ func TestForeignBringNativeComposedExecution(t *testing.T) {
 	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Bring: true})
 }
 
-type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring bool }
+func TestNativeCleanRebaseFollowsMainAgainBeforeVerification(t *testing.T) {
+	testBranchRebaseNative(t, false, "", rebaseNativeOptions{AdvanceMain: true})
+}
+
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain bool }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
 	var option rebaseNativeOptions
@@ -244,6 +248,9 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	bound, err := f.pool.Exec(ctx, `UPDATE mythical_lanes SET item_id=$2,name='coding',retired_at=NULL WHERE workspace_id=$1`, f.row.ID, item.ID)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, bound.RowsAffected())
+	// Native boot resolves the real immutable item source through repohost.
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET source_commit=$2 WHERE id=$1`, f.row.ID, boundHead)
+	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{machineItemChanges}',jsonb_build_object($2::text,$3::text)) WHERE id=$1`, item.ID, f.row.ID, strings.TrimSpace(string(changeID)))
 	require.NoError(t, err)
 	runtime := bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{Runtime: processRuntime}, t: t, daemons: registry, daemonStops: new(sync.Map), pool: f.pool, repository: client, evidence: evidence, daemonBinary: os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")}
@@ -509,12 +516,31 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{foreignBring,checkpoint}','true'::jsonb) WHERE id=$1`, item.ID)
 		require.NoError(t, err)
 	}
+	advancedMain := false
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 		require.NoError(t, err)
 		require.NoError(t, service.PollOnce(ctx))
 		current, err = q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
+		if option.AdvanceMain && !advancedMain {
+			var pending struct {
+				Rebase struct{ Native *machined.RewriteResult }
+			}
+			require.NoError(t, json.Unmarshal(current.Checks, &pending))
+			if pending.Rebase.Native != nil {
+				require.Empty(t, launcher.requests, "no verification of the superseded main")
+				require.NoError(t, os.WriteFile(filepath.Join(source, "late-main.txt"), []byte("main moved again\n"), 0600))
+				git("-C", source, "add", ".")
+				git("-C", source, "commit", "-m", "Main moves before native result consumption")
+				newMain := git("-C", source, "rev-parse", "HEAD")
+				onto = newMain
+				git("-C", store, "fetch", source, "main:refs/heads/main")
+				require.NoError(t, native.ImportGitRefs(repoPath))
+				advancedMain = true
+				continue
+			}
+		}
 		if current.State == "verifying" || (conflict && current.Reason == "rebase_conflict_pending") {
 			break
 		}
@@ -594,6 +620,10 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		readReceipt("completed")
 	}
 
+	if option.AdvanceMain {
+		require.True(t, advancedMain)
+		require.Equal(t, "main moved again", git("--git-dir", store, "show", current.CandidateHead+":late-main.txt"))
+	}
 	require.Equal(t, onto, current.CandidateBase)
 	require.NotEqual(t, edited, current.CandidateHead)
 	require.Equal(t, int64(1), current.Generation)
@@ -616,14 +646,18 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		return
 	}
 	var system, requester string
-	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor'->>'id',COALESCE(data->'by'->>'person','') FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&system, &requester))
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor'->>'id',COALESCE(data->'by'->>'person','') FROM product_job_events WHERE event_type='todo.rebased' ORDER BY sequence DESC LIMIT 1`).Scan(&system, &requester))
 	require.Equal(t, "stack", system)
 	if people {
 		require.Equal(t, "presence-owner", requester)
 	}
 	var entries int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&entries))
-	require.Equal(t, 1, entries)
+	if option.AdvanceMain {
+		require.Equal(t, 2, entries, "one receipt for each actual native rewrite")
+	} else {
+		require.Equal(t, 1, entries)
+	}
 	if observe {
 		require.Eventually(t, func() bool { delay = ackRequest("GET", ""); return delay.State == "acknowledged" }, 30*time.Second, 50*time.Millisecond)
 		require.GreaterOrEqual(t, delay.WithheldMS, float64(10000))
