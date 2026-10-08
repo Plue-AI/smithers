@@ -7,7 +7,7 @@ import * as Edit from "@smthrs/std/Edit"
 import * as Read from "@smthrs/std/Read"
 import { StdError } from "@smthrs/std/StdError"
 import * as Write from "@smthrs/std/Write"
-import { Context, Effect, FileSystem, Option, Path, Sink, Stream } from "effect"
+import { Cause, Context, Effect, Exit, FileSystem, Option, Path, Sink, Stream } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
@@ -148,7 +148,7 @@ test("lost write receipt and resumed coding host require a fresh read before ret
       assert.equal(yield* fs.readFileString(path), "published")
       const retry = yield* Effect.flip(call(Write.run({ path, content: "blind retry" })))
       assert.equal(retry.code, "stale_read")
-      assert.equal(retry.base_digest, hash(Buffer.from("before")))
+      assert.equal(retry.base_digest, "unread")
       assert.equal(retry.current_digest, hash(Buffer.from("published")))
       assert.equal(calls, 1)
       const resumed = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, provider)
@@ -407,12 +407,19 @@ test("installed coding std tools use daemon single and batch clients and validat
           [JSON.stringify({ error: { code: "stale", current_digest: world } }), 0]
         ] as const
       ) {
+        yield* call(Read.run({ path }))
         reply = body
         status = code
         assert.equal((yield* Effect.flip(call(Write.run({ path, content: "hello" })))).code, "provider_unavailable")
         assert.equal(calls.at(-1)![4], world, "bad receipts never advance the ledger")
+        const beforeRetry: number = calls.length
+        const retry = yield* Effect.flip(call(Write.run({ path, content: "hello" })))
+        assert.equal(retry.code, "stale_read")
+        assert.equal(retry.base_digest, "unread", "unknown settlement revokes authority even for unchanged bytes")
+        assert.equal(calls.length, beforeRetry, "retry must stop before another daemon call")
         assert.equal(yield* fs.readFileString(path), "world")
       }
+      yield* call(Read.run({ path }))
       reply = JSON.stringify({ error: { code: "stale" } })
       status = 1
       assert.equal((yield* Effect.flip(call(Write.run({ path, content: "hello" })))).current_digest, "absent")
@@ -482,8 +489,13 @@ test("installed coding std tools use daemon single and batch clients and validat
           { error: { code: "moved_off" } }
         ]
       ) {
+        yield* call(Read.run({ path: moved }))
         reply = JSON.stringify(body)
         assert.equal((yield* Effect.flip(call(ApplyPatch.run({ input: patch })))).code, "provider_unavailable")
+        const beforeRetry: number = calls.length
+        const retry = yield* Effect.flip(call(Write.run({ path: moved, content: "hello" })))
+        assert.equal(retry.base_digest, "unread")
+        assert.equal(calls.length, beforeRetry)
       }
       // Production schema-decoding coding/edit-atom bindings; test transport.
       mode = "success"
@@ -528,6 +540,18 @@ test("installed coding std tools use daemon single and batch clients and validat
         assert.equal(yield* fs.readFileString(moved), "hello")
       }
       assert.equal((yield* dispatch(Read.name, { path: moved })).outcome, "success")
+      mode = "reply"
+      reply = "not json"
+      status = 0
+      assert.equal((yield* dispatch(Write.name, { path: moved, content: "world" })).outcome, "failure")
+      const beforeRetry: number = calls.length
+      const retry = yield* dispatch(Write.name, { path: moved, content: "world" })
+      assert.equal(retry.outcome, "failure")
+      assert.match(retry.message!, /Re-read/)
+      assert.equal(calls.length, beforeRetry)
+      assert.equal(yield* fs.readFileString(moved), "hello")
+      mode = "success"
+      assert.equal((yield* dispatch(Read.name, { path: moved })).outcome, "success")
       const accepted = yield* dispatch(ApplyPatch.name, {
         input: `*** Begin Patch\n*** Update File: ${moved}\n*** Move to: ${added}\n@@\n-hello\n+world\n*** End Patch`
       })
@@ -537,3 +561,38 @@ test("installed coding std tools use daemon single and batch clients and validat
     }).pipe(Effect.provide(NodeServices.layer))
   )
 })
+
+// Supplementary cause handling: installed acceptance cannot safely inject a
+// crash into a broker-owned mutation child from this host.
+for (const defect of [false, true]) {
+  test(`unknown mutation ${defect ? "defect" : "interruption"} revokes read authority and preserves its cause`, async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "coding-unknown-settlement-"))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const path = join(root, "a")
+    await writeFile(path, "hello")
+    let calls = 0
+    await Effect.runPromise(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, {
+        commit: () => Effect.sync(() => calls++).pipe(Effect.andThen(
+          defect ? Effect.die("lost settlement") : Effect.interrupt
+        ))
+      })
+      const call = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
+        Effect.provideService(FileSystem.FileSystem, coding),
+        Effect.provideService(Read.ReadSession, "run")
+      )
+      yield* call(Read.run({ path }))
+      const exit = yield* Effect.exit(call(Write.run({ path, content: "world" })))
+      assert.ok(Exit.isFailure(exit))
+      assert.equal(Cause.hasInterruptsOnly(exit.cause), !defect)
+      if (defect) assert.equal(Cause.squash(exit.cause), "lost settlement")
+      const retry = yield* Effect.flip(call(Write.run({ path, content: "world" })))
+      assert.equal(retry.code, "stale_read")
+      assert.equal(retry.base_digest, "unread")
+      assert.equal(calls, 1)
+      assert.equal(yield* fs.readFileString(path), "hello")
+    }).pipe(Effect.provide(NodeServices.layer)))
+  })
+}

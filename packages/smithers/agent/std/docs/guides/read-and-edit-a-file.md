@@ -164,9 +164,14 @@ On versioned hosts, the existing `Read.Preconditions` policy must provide
 and returns `read(path)` and `commit(changes)` operations. `read` must return
 bytes matching the captured base, or refuse; edits compute only from those bytes. Each handler submits one complete
 batch of writes and removals; a move includes both its destination write and
-source removal. The provider must recompare the captured bases, apply the whole
-batch atomically, and advance its ledger only after settlement. Tool-internal
-reads never refresh the model's read base.
+source removal. The provider must compare every captured base before applying
+any mutation: a stale preflight leaves the whole batch unchanged. The production
+coding provider follows ADR 0004 protocol 7: an application failure may retain a
+durable prefix and requires fresh reads of every affected path. The host does
+not issue compensating writes. Only a complete validated settlement advances
+the ledger. Missing or malformed receipts and transport failures revoke read
+authority even when the old bytes remain. Tool-internal reads never refresh the
+model's read base.
 
 A host semaphore keeps preparation and diagnostics ordered. It does not exclude
 outside writers; that is the provider's responsibility. Versioned handlers create

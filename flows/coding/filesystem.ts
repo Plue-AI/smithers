@@ -255,13 +255,16 @@ export const make = (
             // A provider's interruption/failure can have an unknown outcome. Never
             // reuse this prepared invocation or claim its ledger advanced.
             committed = true
-            yield* provider!.commit(run, request).pipe(Effect.catch((error) => {
-              // A batch application failure may have committed a prefix. Remove
-              // read authority rather than treating any old base as a receipt.
-              if (error.code === "command_failed") {
+            yield* provider!.commit(run, request).pipe(Effect.catchCause((cause) => {
+              // Only a validated preflight refusal establishes an unchanged
+              // batch. Transport errors, invalid receipts and interruption can
+              // hide an applied prefix, including a stopped path with old bytes.
+              const error = Cause.squash(cause)
+              if (!(error instanceof StdError) ||
+                (error.code !== "stale_read" && error.code !== "moved_off")) {
                 for (const change of request) ledgers.get(run)?.delete(change.path)
               }
-              return Effect.fail(error)
+              return Effect.failCause(cause)
             }))
             let ledger = ledgers.get(run)
             if (ledger === undefined) {

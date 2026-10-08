@@ -308,6 +308,15 @@ its in-memory bases and requires new reads. A multi-file patch checks all source
 and destination bases before applying any hunk. A stale refusal does not update
 the bases or emit successful file diagnostics.
 
-`provider_unavailable` means the authenticated atomic mutation provider is not
-composed. Re-reading cannot enable that provider; the coding host refuses writes
-rather than using a host-side read followed by an unconditional replacement.
+`provider_unavailable` means no trustworthy mutation settlement is available:
+the provider may be missing, the transport may have failed, or its receipt may
+be malformed. An attempted commit with unknown settlement revokes the affected
+read bases. Re-read those paths before retrying after the provider recovers;
+re-reading alone cannot enable a missing provider. The coding host never falls
+back to an unconditional filesystem replacement.
+
+A batch application failure reports `command_failed` with the stopped path and
+durable prefix length. Earlier changes may remain, and the stopped path may
+also have changed. Re-read every affected path and rebuild the patch. This is
+not a stale preflight refusal or a successful patch; the host does not roll it
+back with compensating writes.

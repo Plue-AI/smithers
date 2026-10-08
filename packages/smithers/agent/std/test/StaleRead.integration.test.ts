@@ -13,6 +13,7 @@ import * as Write from "@smthrs/std/Write"
 import { Context, Effect, FileSystem, Option, Path } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import assert from "node:assert/strict"
+import { existsSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -194,6 +195,22 @@ for (const available of [false, true]) {
       yield* expect(Read.name, { path: b }, "success")
       yield* expect(Edit.name, { path: b, oldString: "world", newString: "hello" }, "success")
       assert.equal(yield* fs.readFileString(b), "hello\n")
+      // A singleton I/O failure has no batch-prefix receipt. Even if the file
+      // still has its old bytes, restoring directory permissions must not let
+      // the old read authorize a retry after unknown settlement.
+      const singleton = join(locked, "existing")
+      yield* Effect.promise(() => chmod(locked, 0o700))
+      yield* Effect.promise(() => writeFile(singleton, "hello\n"))
+      yield* expect(Read.name, { path: singleton }, "success")
+      yield* Effect.promise(() => chmod(locked, 0o555))
+      yield* expect(Write.name, { path: singleton, content: "world\n" }, "failure")
+      assert.equal(yield* fs.readFileString(singleton), "hello\n")
+      yield* Effect.promise(() => chmod(locked, 0o700))
+      yield* expect(Write.name, { path: singleton, content: "world\n" }, "failure", /Re-read/)
+      assert.equal(yield* fs.readFileString(singleton), "hello\n")
+      yield* expect(Read.name, { path: singleton }, "success")
+      yield* expect(Write.name, { path: singleton, content: "world\n" }, "success")
+      assert.equal(yield* fs.readFileString(singleton), "world\n")
       // Confinement at the same production tool door. This is supplemental;
       // it does not claim root-input or fresh/retained-machine qualification.
       const outside = yield* Effect.promise(() => mkdtemp(join(tmpdir(), "col10-outside-")))
@@ -219,6 +236,66 @@ for (const available of [false, true]) {
       assert.equal(result.outcome, "failure")
       assert.match(result.message!, /Re-read/)
       assert.equal(yield* Effect.promise(() => readFile(a, "utf8")), "world\n")
+      const resumedRead = resumedBindings.find((entry) => entry.descriptor.name === Read.name)!
+      const resumedCall = (flowName: string, input: Cell.Call["input"]) => new Cell.Call({
+        flowName, input, capabilities: [],
+        effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+        placement: Option.none(), identity: new Cell.CallIdentity({ session: "col10-acceptance", frame: 1,
+          cell: "coding/edit-atom", ordinal: ++ordinal, declaration: "col10", layers: [] })
+      })
+      assert.equal((yield* resumedRead.run(resumedCall(Read.name, { path: a }))).outcome, "success")
+      assert.equal((yield* write.run(resumedCall(Write.name, { path: a, content: "hello\n" }))).outcome, "success")
+      assert.equal(yield* Effect.promise(() => readFile(a, "utf8")), "hello\n")
     }).pipe(Effect.provide(NodeServices.layer)))
   }, 120_000)
 }
+
+// Exercise the actual child-process adapter when the main-installed client is
+// absent. No injected spawner, filesystem or provider can manufacture settlement.
+// Installed hosts run the guest matrix above instead of this missing-client case.
+test.skipIf(existsSync("/opt/smithers/bin/smithers-machined"))(
+  "C-COL-01 production dispatcher loses authority after missing installed client",
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "col10-missing-client-"))
+    t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const a = join(root, "a"), b = join(root, "b"), dest = join(root, "dest")
+    await writeFile(a, "hello\n")
+    await writeFile(b, "world\n")
+    await Effect.runPromise(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const path = yield* Path.Path
+      const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, "/workspace")
+      const bindings = yield* StandardFlows.filesystem(
+        Context.make(FileSystem.FileSystem, coding).pipe(Context.add(Path.Path, path))
+      ).bindings()
+      let ordinal = 0
+      const dispatch = (name: string, input: Cell.Call["input"]) => bindings.find(
+        (entry) => entry.descriptor.name === name
+      )!.run(new Cell.Call({ flowName: name, input, capabilities: [],
+        effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+        placement: Option.none(), identity: new Cell.CallIdentity({ session: "missing-client",
+          frame: 0, cell: "coding/edit-atom", ordinal: ordinal++, declaration: "col10", layers: [] })
+      }))
+      for (const [name, input, affected] of [
+        [Write.name, { path: a, content: "bad" }, [a]],
+        [Edit.name, { path: a, oldString: "hello", newString: "bad" }, [a]],
+        [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${a}\n@@\n-hello\n+bad\n*** Delete File: ${b}\n*** End Patch` }, [a, b]],
+        [ApplyPatch.name, { input: `*** Begin Patch\n*** Update File: ${a}\n*** Move to: ${dest}\n@@\n-hello\n+bad\n*** End Patch` }, [a]]
+      ] as const) {
+        for (const target of affected) assert.equal((yield* dispatch(Read.name, { path: target })).outcome, "success")
+        const refused = yield* dispatch(name, input)
+        assert.equal(refused.outcome, "failure")
+        assert.match(refused.message!, /provider unavailable/i)
+        for (const target of affected) {
+          const retry = yield* dispatch(Write.name, { path: target, content: "bad" })
+          assert.equal(retry.outcome, "failure")
+          assert.match(retry.message!, /Re-read/, "unknown settlement requires fresh reads of every affected existing path")
+        }
+        assert.equal(yield* fs.readFileString(a), "hello\n")
+        assert.equal(yield* fs.readFileString(b), "world\n")
+        assert.equal(yield* fs.exists(dest), false)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
+  }, 120_000
+)
