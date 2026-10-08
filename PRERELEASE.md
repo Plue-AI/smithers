@@ -1,25 +1,21 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 16:58 PDT
-main          3a7f3b31fe when written
+Updated       2026-10-08 16:59 PDT
+main          4556117406 when written
 
-Publish       CANNOT PUBLISH YET. Dry run #6 decides. It reaches the smoke test
-              about 17:10 PDT.
+Publish       CANNOT PUBLISH YET. Dry run #6 decides; smoke test about 17:10 PDT.
 Real install  RUNNING on this MacBook since 16:18 PDT: production launcher, bundle
               built here from 3fc44ee1e8. Done: start, address, GitHub App, owner
-              sign-in, repository connected (16:49 PDT). Model access reached
-              with no key entered. Pending: models, source, machine.
-              Next: the same bundle and state restart under the test launcher
-              with the scripted model, for a TODO to a merged PR.
+              sign-in, repository connected (16:49 PDT). Model access reached,
+              no key entered. Pending: models, source, machine. Next: restart
+              under the test launcher with the scripted model, then a TODO.
               TODO to merged PR: NOT YET PROVEN.
 Broken        On the install, each with a lane:
-              1. The setup card's Model access line reads "Not signed incoding
-                 model".
+              1. The setup card's Model access line reads "Not signed incoding model".
               2. `GET /setup` shows raw JSON to a signed-in owner.
-              3. The bundle README's setup-link format does not match what
-                 `host start` prints.
-Fixed on main Not yet proven on a real install. Needs a bundle built after
+              3. The bundle README's setup-link format differs from what start prints.
+Fixed on main Not yet proven on a real install; needs a bundle built after
               9a218b7f68: the missing setup card (c5120a5856), the sign-in path
               404 and the stale-cookie 401 (9a218b7f68).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
@@ -28,11 +24,10 @@ Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
               Pass running on c5120a5856: J1 to J4 so far, no failed row.
 Doneish       No. It needs the install run to take a TODO to a merged PR, and
               all 11 journeys passing on one commit.
-Dry runs      Version 1.0.0-rc.1. None is green.
-              #6 37860903519 running on 06209aa7b1 since 16:42 PDT.
-              #5 failed the installed-package smoke at 16:39 PDT on a stale
-              fixture. Fixed in 06209aa7b1, with a real bug the smoke found:
-              `smithers-build` could not start in any installed project.
+Dry runs      Version 1.0.0-rc.1. None is green. #6 37860903519 runs on
+              06209aa7b1 since 16:42 PDT. #5 failed the installed-package smoke
+              on a stale fixture; the fix also repairs `smithers-build`, which
+              could not start in any installed project.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
@@ -40,11 +35,9 @@ Tag push      Publishes npm under `next` and nothing else. No publish after a
 Ships         npm packages under `next`. The Apple Silicon server bundle is an
               artifact of the tag's Release run. No Homebrew. No public download.
 To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
-              44 GiB free on your home volume until the owner has signed in.
-              Measured on this run: refused at 39.19 GiB, started at 44.77.
-              Two machines need 76. Commands: section 6.
-No mini,      The Mac mini will not be online (Will, today). Smithers Cloud
-no Cloud      cannot run a TODO.
+              44 GiB free on your home volume until the owner has signed in
+              (refused at 39.19, started at 44.77). Commands: section 6.
+No mini/Cloud The Mac mini is offline (Will, today). Cloud cannot run a TODO.
 
 Needs Will    Now: nothing required. Optional: say yes to using your model keys
               if the install run should also run a TODO with a real model.
@@ -53,12 +46,13 @@ Needs Will    Now: nothing required. Optional: say yes to using your model keys
 
 ## 1. What works
 
-**On a real install.** This MacBook, production launcher, bundle built here from 3fc44ee1e8. Source: the install run's report at 16:37 PDT.
+**On a real install.** This MacBook, production launcher, bundle built here from 3fc44ee1e8. Source: the install run's reports at 16:37 and 16:57 PDT.
 
 - With 39.19 GiB free, `./bin/smthrs host start --bundle .` refuses once: `host_capacity_zero ... 44 GiB required`. No restart loop.
 - With 44.77 GiB free it starts (16:18 PDT). `host status` reads ready and `/readyz` answers 200.
-- The address is set, the GitHub App is created on the test account, and the owner is signed in (16:34 PDT).
-- Those three setup steps were sent as the setup card's requests from the browser. The card itself does not appear (section 3).
+- Setup steps done: address, GitHub App on the test account, owner sign-in (16:34 PDT), repository (16:49 PDT; the App is on `codeplanesmithers/canary-sandbox` only).
+- Model access is reached (16:50 PDT) with no key entered. Steps pending: models, source, machine.
+- The setup card appears from Model access on. The first four steps were sent as the card's requests from the browser, because the card stayed hidden until an owner session existed.
 
 **In a real VM.** At 99a4356a1a the machine daemon starts, admits its session and lands reads and writes, and the agent's git and jj work afterwards. A development run on this MacBook, no workarounds (Detail B).
 
@@ -93,14 +87,21 @@ Two features ship switched off because of a known hole (ruled by smithers-8a).
 
 ### Real install
 
-Found by the install run on this MacBook.
+Found by the install run on this MacBook. Still broken, each with a lane:
+
+| | Defect |
+|---|---|
+| 1 | The setup card's Model access line reads "Not signed incoding model". |
+| 2 | `GET /setup` shows raw JSON to a signed-in owner. |
+| 3 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. |
+
+Fixed on main, not yet proven on a real install. Each needs a bundle built after 9a218b7f68; the running install's bundle predates them.
 
 | | Defect | Fix |
 |---|---|---|
-| 1 | A fresh install's setup link shows no setup card. A regression from c818f8df41. | c5120a5856 landed 16:35 PDT (lane fr23-setup-card-missing); it passes a Linux browser test. The running install's bundle predates it. Not confirmed on a Mac. |
-| 2 | The app's sign-in path `/api/auth/github/start` answers 404 on an install. `/api/auth/github` works. | Fixed on main at 9a218b7f68: app, setup and CLI use `/api/auth/github`. Composed-install redirect and RPC route contract pass on Linux. Mac bundle rerun unverified. |
-| 3 | A `smithers_session` cookie left by an earlier install on the same address blocks the setup link with 401. | Fixed on main at 9a218b7f68: token exchange clears the member cookie; valid setup authority ignores it within existing setup scope. Composed-install reads and writes pass on Linux. Mac bundle rerun unverified. |
-| 4 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | No lane found. |
+| 4 | A fresh install's setup link showed no setup card. A regression from c818f8df41. | c5120a5856 (16:31 PDT). Passes a Linux browser test. |
+| 5 | The app's sign-in path `/api/auth/github/start` answered 404 on an install. `/api/auth/github` works. | 9a218b7f68 (16:43 PDT): app, setup and CLI use `/api/auth/github`. Passes on a Linux install. |
+| 6 | A `smithers_session` cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68: token exchange clears the member cookie. Passes on a Linux install. |
 
 ### Journey rows
 
@@ -108,7 +109,7 @@ Found by the install run on this MacBook.
 |---|---|---|---|
 | J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | Lane fr18-j10. 5e1bc3c020 is on main and not yet on the board. |
 
-`source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal now names its reason (7a2c228bfa, a64960b9c3). The rows fixed today: Detail G.
+A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so far. `source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal now names its reason (7a2c228bfa, a64960b9c3). The rows fixed today: Detail G.
 
 ### Real VM
 
@@ -116,14 +117,15 @@ Found by the install run on this MacBook.
 
 ### Release
 
-- No Release run has passed the installed-package smoke. That script could not load from 10-01 until today, so its fixed expectations went stale. Dry runs #3 and #4 each failed on one (fixed in 0489b1c08c and a3e6ac767e). Dry run #5 may find another.
+- No Release run has passed the installed-package smoke. That script could not load from 10-01 until today, so its fixed expectations went stale. Dry runs #3, #4 and #5 each failed on one (fixed in 0489b1c08c, a3e6ac767e and 06209aa7b1). The release agent now runs build, pack and smoke locally, in about 7 minutes, to find the rest before CI does.
+- The smoke found a product bug: `smithers-build` (`@smthrs/build-cli`) could not start in any installed project since #3093. Fixed in 06209aa7b1.
 
 ## 4. Unverified
 
-- **TODO to merged PR on the real install: not yet run.** The install has reached owner sign-in. Remaining:
-  1. Connect the test repository and set model access, under the production launcher.
-  2. TODO to merged PR on the same install, with the scripted model, under the test launcher. The production launcher cannot reach the scripted model, by design.
-  3. A TODO with a real model under the production launcher, only if Will says yes to using his keys. Not received.
+- **TODO to merged PR on the real install: not yet run.** The install has reached Model access. Remaining:
+  1. Restart the same bundle and state under the test launcher with the scripted model, then take a TODO to a merged PR. The production launcher cannot reach the scripted model, by design.
+  2. A TODO with a real model under the production launcher, only if Will says yes to using his keys. Not received.
+- **Three install fixes on main** (the setup card, the sign-in path, the stale cookie) have not run on a Mac. They need a bundle built after 9a218b7f68.
 - **Not yet exercised in a real VM:** the coding agent started as a daemon session, member terminals, capture, sleep and wake. 3fc44ee1e8 landed after the proof at 99a4356a1a.
 - **The real-machine fixes** await smithers-3f's review (Detail B). For `/run` on tmpfs (88e7f6521c), the 64 MiB size is not verified and machines created earlier keep the old flags.
 - **Disk per machine.** Measured in a real VM: one running machine holding the Smithers repository uses 0.74 GiB of host disk, and a TODO-sized commit adds 7.4 MiB. A working machine with dependencies installed is estimated at about 15 GiB; not measured.
@@ -142,7 +144,7 @@ Found by the install run on this MacBook.
 
 ## 6. Publish
 
-**Cannot publish yet.** No dry run is green. Dry run #5 is in pack and smoke-test. Source: `~/smithers-lanes/release/STATE.md`, updated 16:20 PDT.
+**Cannot publish yet.** No dry run is green. Dry run #6 reaches the smoke test about 17:10 PDT. Source: `~/smithers-lanes/release/STATE.md`, updated 16:20 PDT.
 
 ### Dry runs
 
@@ -152,11 +154,12 @@ Found by the install run on this MacBook.
 | 2 | 37842512795 | Old workflow. The bundle upload failed the same way. |
 | 3 | 37843714479 | Build and pack passed. The installed-package smoke failed on a removed import (fixed in 0489b1c08c). Delivered the first Mac bundle artifact. |
 | 4 | 37846701537 | Build and pack passed. The smoke failed one fixture further, on a stale migration list (fixed in a3e6ac767e). Delivered a Mac bundle artifact. |
-| 5 | 37858229125 | Running on a3e6ac767e since 16:13 PDT. In pack and smoke-test. |
+| 5 | 37858229125 | The smoke failed at 16:39 PDT: a fixture imported `@effect/platform-node`, which installed projects no longer have (fixed in 06209aa7b1). |
+| 6 | 37860903519 | Running on 06209aa7b1 since 16:42 PDT. Smoke test about 17:10 PDT. |
 
 ### Before the tag
 
-1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #5 is the next that can be.
+1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #6 is the next that can be.
 2. A final cut lands tonight on top of the real-machine, disk floor and install-run fixes. Every commit after a cut makes its changelog section stale.
 3. One last dry run passes on that commit.
 4. The tag goes on that commit.
