@@ -27,6 +27,13 @@ try {
   const reads: string[] = []
   page.on("request", request => { if (request.url().includes("/api/todos")) reads.push(`${request.method()} ${request.url()}`) })
   let unblock: Promise<void> | undefined
+  let releaseDelivery: (() => void) | undefined
+  await page.route("**/api/todos{,/**}", async route => {
+    // A network outage holds HTTP fallback reads as well as the live socket.
+    // Mutation requests use the harness's fetch and still commit on the install.
+    if (route.request().method() === "GET" && unblock) await unblock
+    await route.continue()
+  })
   const connections = new Set<() => void>()
   // Transparent proxy to the real install; fault injection changes delivery
   // only. Every forwarded snapshot/delta comes from committed PostgreSQL rows.
@@ -106,7 +113,8 @@ try {
   const beforeFrames = frames.length
   const beforeReads = reads.length
   const at = Date.now()
-  unblock = new Promise(resolve => setTimeout(resolve, 10000))
+  const outageMinimum = new Promise(resolve => setTimeout(resolve, 10000))
+  unblock = new Promise(resolve => { releaseDelivery = resolve })
   expect(connections.size).toBe(1)
   for (const cut of connections) cut()
   for (const n of [1, 2]) {
@@ -119,6 +127,8 @@ try {
   await expect(page.getByTestId("composer-input")).toBeEnabled()
   await expect(first).not.toContainText("Dropped")
   await expect(second).not.toContainText("Dropped")
+  await outageMinimum
+  releaseDelivery!()
   await expect(first).toContainText("Dropped", { timeout: 20000 })
   await expect(second).toContainText("Dropped")
   if (Date.now() - at < 10000) console.log(JSON.stringify({ reads: reads.slice(beforeReads), subscriptions: subscriptions.slice(before), frames: frames.slice(beforeFrames) }))

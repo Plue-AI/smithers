@@ -54,6 +54,7 @@ test("Context opens a pinned wiki revision by keyboard and mouse and retains it 
   await page.getByRole("button", { name: "Inspect", exact: true }).last().click()
   await expect(page.locator('.mvp-run[data-maximized]')).toContainText("Retry policy")
   await page.getByTestId("card-run:chat-0").locator('[data-flow="card.minimize"]').click()
+  await expect(page.locator('.mvp-run[data-maximized]')).toHaveCount(0)
   await item.press("Enter")
   const content = page.getByTestId("wiki-pinned-content")
   await expect(content).toContainText("Retry three times.")
