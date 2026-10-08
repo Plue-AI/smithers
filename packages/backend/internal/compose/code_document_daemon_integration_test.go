@@ -159,12 +159,96 @@ func TestLiveCodeDocumentsRealDaemonRoute(t *testing.T) {
 	forbidden.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
 	require.Equal(t, want, f.disk(t))
 	// Outside reconciliation has a separate explicit qualification entry point.
-	// Its current failure must never be mistaken for real-provider acceptance.
+	// This route smoke alone must never be mistaken for that qualification.
+}
+
+// Reuse the mounted CardRenderers/CodeEditorView journey with the actual
+// document dispatcher and LinuxDisk. No saved frame comes from a scripted peer.
+// The empty broker census still excludes Mac/microVM acceptance.
+func TestLiveCodeDocumentsRealDaemonMountedCards(t *testing.T) {
+	f := startRealDocumentInstall(t, "")
+	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-install.fixture.ts")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	command := exec.CommandContext(ctx, "bun", "run", script)
+	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+f.origin, "SMITHERS_CODE_DOCUMENT_TOPIC="+f.topic, "SMITHERS_CODE_DOCUMENT_OUTSIDE=1")
+	input, err := command.StdinPipe()
+	require.NoError(t, err)
+	output, err := command.StdoutPipe()
+	require.NoError(t, err)
+	stderr := &lockedBuffer{}
+	command.Stderr = stderr
+	require.NoError(t, command.Start())
+	t.Cleanup(func() { cancel(); _ = command.Process.Kill() })
+	scanner := bufio.NewScanner(output)
+	var last string
+	restarts := 0
+	outside := 0
+	revocations := 0
+	for scanner.Scan() {
+		if scanner.Text() == "REVOKE" {
+			_, err = f.pool.Exec(t.Context(), `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, f.alice)
+			require.NoError(t, err)
+			revocations++
+			_, err = io.WriteString(input, "REVOKED\n")
+			require.NoError(t, err)
+			continue
+		}
+		if scanner.Text() == "OUTSIDE" {
+			bytes := f.disk(t) + "\n// OUTSIDE_MOUNTED_CANARY\n"
+			temp := filepath.Join(f.root, "outside.tmp")
+			require.NoError(t, os.WriteFile(temp, []byte(bytes), 0640))
+			require.NoError(t, os.Rename(temp, filepath.Join(f.root, "retry.ts")))
+			outside++
+			_, err = io.WriteString(input, "WRITTEN\n")
+			require.NoError(t, err)
+			continue
+		}
+		if scanner.Text() == "RESTART" {
+			f.handler.Store(http.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, "restarting", http.StatusServiceUnavailable)
+			})))
+			f.stop()
+			f.stopGuest()
+			f.registry = new(machined.Registry)
+			options := f.options
+			options.Machined = f.registry
+			handler, stop := startCodeDocumentProcess(t, options)
+			f.stop = stop
+			// A fresh host registry mints a fresh boot secret; preserve document
+			// state, but do not authenticate the restarted guest with the old one.
+			require.NoError(t, os.Remove(filepath.Join(f.restart.Run, "machined", "boot")))
+			f.resume(t)
+			f.handler.Store(handler)
+			restarts++
+			_, err = io.WriteString(input, "RESTARTED\n")
+			require.NoError(t, err)
+			continue
+		}
+		last = scanner.Text()
+	}
+	require.NoError(t, scanner.Err())
+	require.NoError(t, command.Wait(), stderr.String())
+	var result struct {
+		Text           string
+		MountedSamples int
+		MountedP95     float64
+	}
+	require.NoError(t, json.Unmarshal([]byte(last), &result), last)
+	require.Equal(t, 1, restarts)
+	require.Equal(t, 1, outside)
+	require.Equal(t, 1, revocations)
+	require.Equal(t, 1000, result.MountedSamples)
+	require.Less(t, result.MountedP95, float64(1000))
+	t.Logf("%d mounted edits, Linux p95 %.1f ms; empty broker census, not reference-Mac acceptance", result.MountedSamples, result.MountedP95)
+	require.Equal(t, result.Text, f.disk(t), "both mounted cards agree with the daemon's actual durable file")
+	f.documentEvidence(t, "mounted")
 }
 
 func TestLiveCodeDocumentRealProviderQualification(t *testing.T) {
 	if os.Getenv("SMITHERS_CODE_DOCUMENT_PROVIDER_QUALIFICATION") != "1" {
-		t.Skip("explicit provider qualification: installed watcher must dispatch completed writes into documents")
+		t.Skip("explicit provider qualification: real outside writes and capture acknowledgments")
 	}
 	f := startRealDocumentInstall(t, "")
 	ben, alice := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")

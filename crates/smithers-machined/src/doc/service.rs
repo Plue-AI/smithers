@@ -387,7 +387,10 @@ impl<D: Disk> Documents for Service<D> {
             return Err(error(Error::Invalid));
         }
         let message = SyncMessage::decode_v1(&input.data).map_err(|_| error(Error::Invalid))?;
-        if message.encode_v1() != input.data {
+        if !matches!(&message, SyncMessage::SyncStep1(_)) && message.encode_v1() != input.data {
+            return Err(error(Error::Invalid));
+        }
+        if matches!(&message, SyncMessage::SyncStep1(_)) && !valid_sync_step1(&input.data) {
             return Err(error(Error::Invalid));
         }
         let key = principal_key(&input.actor)?;
@@ -643,12 +646,63 @@ impl<D: Disk> Documents for Service<D> {
         s.collect()
     }
     fn poll(&self, cx: &mut LockCx) -> hooks::Result<Vec<Frame>> {
-        self.tick(cx)?;
+        if let Err(error) = self.tick(cx) {
+            // Metadata changes temporarily bar writes until the existing
+            // watcher settles its moved-off check. Keep the stream and queued
+            // edits alive; a later tick retries without issuing a save receipt.
+            if error.code != 3 || error.detail.as_deref() != Some("moved-off check required") {
+                return Err(error);
+            }
+        }
         Ok(self.state()?.output.drain(..).collect())
     }
     fn all_flushed(&self) -> bool {
         self.state().is_ok_and(|s| s.host.all_flushed())
     }
+}
+
+// State vectors are maps: Yrs may encode their entries in a different order
+// from Yjs. Validate canonical integers and exhaustion in the received order,
+// rather than requiring a hash-map iteration order to match the browser.
+fn valid_sync_step1(data: &[u8]) -> bool {
+    use yrs::encoding::{
+        read::{Cursor, Read},
+        write::Write,
+    };
+    let validate = || -> std::result::Result<bool, yrs::encoding::read::Error> {
+        if data.first() != Some(&0) {
+            return Ok(false);
+        }
+        let mut outer = Cursor::new(&data[1..]);
+        let vector = outer.read_buf()?.to_vec();
+        if outer.has_content() {
+            return Ok(false);
+        }
+        let mut encoded = vec![0];
+        encoded.write_buf(&vector);
+        if encoded != data {
+            return Ok(false);
+        }
+        let mut cursor = Cursor::new(&vector);
+        let count: u32 = cursor.read_var()?;
+        if count as usize > vector.len() {
+            return Ok(false);
+        }
+        let mut clients = std::collections::BTreeSet::new();
+        let mut canonical = vec![];
+        canonical.write_var(count);
+        for _ in 0..count {
+            let client: u32 = cursor.read_var()?;
+            let clock: u32 = cursor.read_var()?;
+            if !clients.insert(client) {
+                return Ok(false);
+            }
+            canonical.write_var(client);
+            canonical.write_var(clock);
+        }
+        Ok(!cursor.has_content() && canonical == vector)
+    };
+    validate().unwrap_or(false)
 }
 
 // Relative positions are bounded presentation data. They never choose a path,
@@ -673,4 +727,34 @@ fn valid_relative_position(value: &serde_json::Value) -> bool {
         }),
         _ => false,
     })
+}
+
+#[cfg(test)]
+mod sync_vector_tests {
+    use super::valid_sync_step1;
+
+    #[test]
+    fn browser_vectors_accept_both_orders_but_refuse_malformed_maps() {
+        for vector in [
+            &[0, 5, 2, 1, 2, 3, 4][..],
+            &[0, 5, 2, 3, 4, 1, 2],
+            &[0, 1, 0],
+        ] {
+            assert!(valid_sync_step1(vector), "{vector:?}");
+        }
+        for vector in [
+            &[][..],
+            &[1, 1, 0],
+            &[0, 5, 2, 1, 2, 1, 4],    // duplicate client
+            &[0, 6, 2, 1, 2, 3, 4, 0], // trailing vector data
+            &[0, 1, 0, 0],             // trailing frame data
+            &[0, 2, 0x80, 0],          // nonminimal count
+            &[0, 4, 1, 0x81, 0, 2],    // nonminimal client
+            &[0, 4, 1, 1, 0x82, 0],    // nonminimal clock
+            &[0, 1, 2],                // truncated entries
+            &[0, 0x81, 0, 0],          // nonminimal vector length
+        ] {
+            assert!(!valid_sync_step1(vector), "{vector:?}");
+        }
+    }
 }

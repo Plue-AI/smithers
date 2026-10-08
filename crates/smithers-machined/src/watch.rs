@@ -384,6 +384,7 @@ impl<I: Ignore> Inotify<I> {
 struct SessionPresence<P> {
     provider: P,
     sessions: std::sync::Arc<dyn crate::hooks::Sessions>,
+    completed: Vec<(String, crate::hooks::Actor)>,
 }
 impl<P: crate::versions::Objects> crate::versions::Objects for SessionPresence<P> {
     type Blob = P::Blob;
@@ -432,7 +433,12 @@ impl<P: crate::events::Provider<crate::hooks::Actor>> crate::events::Provider<cr
         actor: Option<&crate::hooks::Actor>,
         digest: Option<[u8; 32]>,
     ) -> io::Result<()> {
-        self.provider.hint(path, actor, digest)
+        self.provider.hint(path, actor, digest)?;
+        self.completed.push((
+            path.into(),
+            actor.cloned().unwrap_or(crate::hooks::Actor::Outside),
+        ));
+        Ok(())
     }
     fn where_file(&mut self, session: u32, path: &str) -> io::Result<()> {
         self.sessions
@@ -529,6 +535,7 @@ impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::ho
         let mut provider = SessionPresence {
             provider,
             sessions: cx.hooks.sessions.clone(),
+            completed: vec![],
         };
         crate::events::Provider::activate(&mut provider).map_err(hook_error)?;
         let mut watcher =
@@ -592,7 +599,38 @@ impl<
         })
     }
     fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
-        self.job(cx, |w, p, now| w.drain(p, now))
+        let completed = self.job(cx, |w, p, now| {
+            w.drain(p, now)?;
+            Ok(std::mem::take(&mut p.completed))
+        })?;
+        if completed.is_empty() {
+            return Ok(());
+        }
+        // Release the watcher mutex before documents reconcile: a save calls
+        // this watcher again to pin its own version on the same mutation lock.
+        let documents = cx.hooks.documents.clone();
+        match documents.ready() {
+            Ok(()) => {
+                for (index, (path, actor)) in completed.iter().enumerate() {
+                    if let Err(error) = documents.completed_write(cx, path, actor) {
+                        self.job(cx, |_, p, _| {
+                            p.completed.splice(0..0, completed[index..].iter().cloned());
+                            Ok(())
+                        })?;
+                        return Err(error);
+                    }
+                }
+                Ok(())
+            }
+            Err(error) if error.code == 2 => Ok(()), // S2 has no document host.
+            Err(error) => {
+                self.job(cx, |_, p, _| {
+                    p.completed.splice(0..0, completed);
+                    Ok(())
+                })?;
+                Err(error)
+            }
+        }
     }
     fn settle_rewrite(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
         self.job(cx, |w, p, now| {

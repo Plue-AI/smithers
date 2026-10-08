@@ -42,6 +42,8 @@ export async function mountDocument(provider: LiveDocProvider) {
     nameFlag(name: string) { render(); assert.ok([...host.querySelectorAll(".code-name-flag")].some(node => node.textContent?.includes(name)), `authenticated ${name} line flag mounted`); },
     authors() { render(); assert.ok(host.querySelector('.code-author[title*="Ben"]'), "committed Ben reference renders author colour"); assert.ok(host.querySelector('.code-author[title*="Alice"]'), "committed Alice reference renders author colour"); },
     saved() { render(); assert.equal(host.querySelector(".code-saved")?.textContent, "Saved to the machine") },
+    readOnly() { render(); assert.ok(host.querySelector('[data-mode="read_only"]'), "revoked mounted File is read-only"); assert.equal(host.querySelector('[contenteditable="true"]'), null); },
+    typeReadOnly(value: string) { flushSync(() => editor().contentDOM.dispatchEvent(new InputEvent("beforeinput", { inputType: "insertText", data: value, bubbles: true, cancelable: true }))) },
     dispose() { flushSync(() => root.unmount()); host.remove(); resource.dispose(); }
   }
 }

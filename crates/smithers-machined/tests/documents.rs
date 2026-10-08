@@ -32,6 +32,20 @@ impl Model {
     }
     fn step(&mut self, step: &'static str) -> Result<()> {
         self.log.push(step);
+        if step == "swap" && matches!(self.fail, Some("metadata" | "other-provider")) {
+            return Err(Error::Provider(smithers_machined::hooks::Error {
+                code: 3,
+                detail: Some(
+                    if self.fail == Some("metadata") {
+                        "moved-off check required"
+                    } else {
+                        "another refusal"
+                    }
+                    .into(),
+                ),
+                ..smithers_machined::hooks::Error::unsupported()
+            }));
+        }
         if self.fail == Some(step) {
             Err(Error::Io(step.into()))
         } else {
@@ -1216,6 +1230,50 @@ mod dispatcher {
             assert_eq!(disk.files["a.rs"], b"abc");
         }
     }
+    #[test]
+    fn metadata_guard_retries_without_losing_stream_or_acknowledging_unsaved_bytes() {
+        for fault in ["metadata", "other-provider", "swap"] {
+            let (disk, clock, service, mut cx, id, epoch) = setup();
+            let peer = editor(&sync(&mut cx, id), epoch.client_id as u64);
+            let before = peer.transact().state_vector();
+            peer.get_or_insert_text("content")
+                .insert(&mut peer.transact_mut(), 3, " pending");
+            let update = peer.transact().encode_state_as_update_v1(&before);
+            assert_eq!(
+                rpc::dispatch(&input(id, 1, "host", SyncMessage::Update(update)), &mut cx)
+                    .unwrap()
+                    .payload[0],
+                3
+            );
+            disk.0.lock().unwrap().fail = Some(fault);
+            clock.0.store(200, Ordering::Relaxed);
+            let result = service.poll(&mut cx);
+            if fault == "metadata" {
+                let frames = result.unwrap();
+                assert!(frames
+                    .iter()
+                    .all(|frame| Document::decode_v2(&frame.payload).unwrap().msg != 6));
+                assert!(service.poll(&mut cx).unwrap().is_empty());
+            } else {
+                assert!(result.is_err(), "other failures must remain visible");
+            }
+            assert!(!service.all_flushed());
+            assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc");
+            disk.0.lock().unwrap().fail = None;
+            let frames = service.poll(&mut cx).unwrap();
+            let saved = frames
+                .iter()
+                .map(|frame| Document::decode_v2(&frame.payload).unwrap())
+                .find(|frame| frame.msg == 6)
+                .unwrap();
+            assert_eq!(saved.through_seq, 1);
+            assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc pending");
+            clock.0.store(400, Ordering::Relaxed);
+            service.poll(&mut cx).unwrap();
+            assert!(service.all_flushed());
+        }
+    }
+
     #[test]
     fn dispatch_faults_withhold_receipts_and_restart_recovers_same_epoch() {
         for fault in ["record", "swap", "displaced", "own"] {
