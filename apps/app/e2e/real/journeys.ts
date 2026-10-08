@@ -12,6 +12,7 @@ export const journeySpecs = [
   "fresh-repository.spec.ts",
   "wiki-generated-refresh.spec.ts",
   "wiki-coedit.spec.ts",
+  "wiki-decision-follow.spec.ts",
   "todo-from-issue.spec.ts",
   "todo-needs-you.spec.ts",
   "todo-evidence.spec.ts",

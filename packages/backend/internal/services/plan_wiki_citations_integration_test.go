@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -120,6 +121,8 @@ func TestPlanWikiCitationsIntegration(t *testing.T) {
 	subject, err := ResolveInstallExecutionSubject(run, q, repositoryID)
 	require.NoError(t, err)
 	require.Equal(t, InstallSubject{RepositoryID: repositoryID, WorkspaceID: planWorkspaceID, TodoNumber: number}, subject)
+	subject, err = InstallExecutionWikiSubject(run, q, repositoryID, "wiki.public-page", citedSlug)
+	require.NoError(t, err)
 	decision, err := Authorize(run, q, "wiki.read", subject)
 	require.NoError(t, err)
 	require.Equal(t, owner.ID, decision.UserID)
@@ -190,6 +193,12 @@ func TestPlanWikiCitationsIntegration(t *testing.T) {
 		if os.Getenv("SMITHERS_C_J8_04_REFERENCE_HOST") == "" {
 			t.Skip("C-J8-04's dispatcher, microVM coding host and recorded selector run only on the reference host")
 		}
-		t.Fatal("the reference-host harness is not in this repository yet; record C-J8-04 as pending, never passed")
+		require.Equal(t, "1", os.Getenv("SMITHERS_C_J8_04_REFERENCE_HOST"))
+		command := exec.CommandContext(t.Context(), "go", "test", "-v", "-p", "4", "-count=1", "./internal/compose", "-run", "^TestPlanWikiCitationsReferenceHost$", "-timeout", "25m")
+		command.Dir = "../.."
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		require.Contains(t, string(output), "--- PASS: TestPlanWikiCitationsReferenceHost")
+		require.NotContains(t, string(output), "--- SKIP: TestPlanWikiCitationsReferenceHost")
 	})
 }
