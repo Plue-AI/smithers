@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,4 +68,38 @@ func TestLiveLogRefusalsAndReplayBoundary(t *testing.T) {
 			c.conn.CloseNow()
 		})
 	}
+}
+
+func TestLiveLogRefreshKeepsNativeCursor(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	hub := NewHub(ctx, nil)
+	var revision atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Protocol}})
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		hub.Serve(r.Context(), conn, func(context.Context, string) (Source, string) {
+			return Source{Key: "run", Every: 10 * time.Millisecond, RefreshSnapshot: func(raw json.RawMessage) json.RawMessage { return raw }, Log: &LogSource{Page: func(context.Context, *int64) (LogPage, error) {
+				return LogPage{Cursor: 12, Data: json.RawMessage(fmt.Sprintf(`{"revision":%d}`, revision.Load()))}, nil
+			}}}, ""
+		})
+	}))
+	defer server.Close()
+	c := dial(t, "ws"+strings.TrimPrefix(server.URL, "http"))
+	defer c.conn.CloseNow()
+	c.send(`{"t":"sub","id":1,"topic":"run"}`)
+	first := c.next()
+	require.Equal(t, "snap", first.T)
+	require.Equal(t, int64(12), *first.Cursor)
+	require.JSONEq(t, `{"revision":0}`, string(first.Data))
+	revision.Store(1)
+	next := c.next()
+	require.Equal(t, "snap", next.T)
+	require.Equal(t, int64(12), *next.Cursor)
+	require.JSONEq(t, `{"revision":1}`, string(next.Data))
+	c.send(`{"t":"unsub","id":1}`)
+	require.Eventually(t, func() bool { return hub.Streams() == 0 }, time.Second, time.Millisecond)
 }

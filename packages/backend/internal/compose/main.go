@@ -1992,6 +1992,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if config.IsSingleOwner(cfg.Auth) && chatService != nil {
 		conversationSummaries = composeConversationSummaries(pool, commandJobs, chatService.runtime.Handler.Store, modelStreamHost)
 	}
+	if conversationSummaries != nil && flow != nil {
+		conversationSummaries.RunSource = monitorSummarySource{}
+		flow.archive.summaries = conversationSummaries
+	}
 	var installSetup *services.InstallSetupService
 	if config.IsSingleOwner(cfg.Auth) {
 		// The install's known origins: configuration's, then the Address the
@@ -2148,7 +2152,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				return fmt.Errorf("compose automatic branch release: %w", err)
 			}
 		}
-		topics := &liveTopics{changePool: pool, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics := &liveTopics{changePool: pool, summaries: conversationSummaries, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
 		topics.main = repoHostClient
 		if flow != nil {
@@ -2283,7 +2287,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			resumes: background.Jobs[string]{Timeout: 6 * time.Minute, FailureTTL: time.Minute},
 			limit:   middleware.GlobalAPIRateLimit(queries)}
 		mountBrowserFlow(router, cfg, queries, browser)
-		mountRunMonitors(router, cfg, queries, &runMonitors{pool: pool, reader: flow.dispatcher})
+		mountRunMonitors(router, cfg, queries, &runMonitors{pool: pool, reader: flow.dispatcher, summaries: conversationSummaries})
 	}
 	var modelTests *modelhost.OwnerModels
 	if chatService != nil && options.topology.servesHTTP() {

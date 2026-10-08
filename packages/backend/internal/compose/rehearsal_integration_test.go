@@ -440,6 +440,9 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
+	if enable == "SMITHERS_J11_SUMMARY_BROWSER" {
+		options.ModelStreamHost = newRehearsalSummaryModel(t, r.evidence)
+	}
 	if workspace.Isolation() == workspaceapi.IsolationSandboxed {
 		options.BranchMachines = nil
 		options.InstallBranchMachines = true

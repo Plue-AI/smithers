@@ -35,6 +35,7 @@ type flowComposition struct {
 	dispatcher *flowdispatch.Service
 	bindings   *flowhost.Store
 	stopper    flowhost.RetirementStopper
+	archive    *runArchive
 }
 
 func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, presence ...*branchPresence) (*flowComposition, error) {
@@ -260,7 +261,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// repository source retention it needs exists (services.ReviewSource).
 		// An absent source refuses in Prepare before machine allocation.
 	}
-	return &flowComposition{pool: pool, review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
+	return &flowComposition{pool: pool, review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper, archive: archive}, nil
 }
 
 // relayPlanStore keeps the browser relay's plans in PostgreSQL, so a plan

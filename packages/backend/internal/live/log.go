@@ -1,6 +1,7 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"time"
@@ -67,6 +68,7 @@ func (h *Hub) serveLog(ctx context.Context, source Source, out *outbox, id uint3
 		defer ticker.Stop()
 		cursor := after
 		first := true
+		var refresh json.RawMessage
 		for {
 			page, err := source.Log.Page(ctx, cursor)
 			if ctx.Err() != nil {
@@ -81,9 +83,14 @@ func (h *Hub) serveLog(ctx context.Context, source Source, out *outbox, id uint3
 				sub.gap(out, id)
 				return
 			}
-			if first || cursor == nil || page.Cursor > *cursor {
+			var currentRefresh json.RawMessage
+			if source.RefreshSnapshot != nil {
+				currentRefresh = source.RefreshSnapshot(page.Data)
+			}
+			refreshChanged := !first && cursor != nil && page.Cursor == *cursor && source.RefreshSnapshot != nil && !bytes.Equal(refresh, currentRefresh)
+			if first || cursor == nil || page.Cursor > *cursor || refreshChanged {
 				kind := "delta"
-				if first && after == nil {
+				if first && after == nil || refreshChanged {
 					kind = "snap"
 				}
 				if !json.Valid(page.Data) {
@@ -103,6 +110,7 @@ func (h *Hub) serveLog(ctx context.Context, source Source, out *outbox, id uint3
 					return
 				}
 			}
+			refresh = append(refresh[:0], currentRefresh...)
 			current := page.Cursor
 			cursor = &current
 			first = false

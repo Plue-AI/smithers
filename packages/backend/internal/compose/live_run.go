@@ -102,15 +102,21 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 	// Legacy receipts without a pin retain their journal read. Only admitted
 	// metadata can name a version; reading never admits another TODO run.
 	reader := runProjectionReader{call: t.presence.dispatcher.CallRPC, target: checkpoint.Target, run: run, pin: launch.Pin, draft: draft}
-	return live.Source{Key: fmt.Sprintf("run:%d:%q:%q", repository, checkpoint.Target.WorkspaceID, run), Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
+	return live.Source{RefreshSnapshot: runSummaryRefresh, Key: fmt.Sprintf("run:%d:%q:%q", repository, checkpoint.Target.WorkspaceID, run), Every: 250 * time.Millisecond, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
 		archiveOnly, err := authorize(ctx)
 		if err != nil {
 			return live.LogPage{}, err
 		}
+		if t.summaries != nil {
+			monitors := &runMonitors{pool: t.changePool, summaries: t.summaries}
+			if err := monitors.inspect(ctx, checkpoint.Target.WorkspaceID+":"+run, checkpoint); err != nil {
+				return live.LogPage{}, err
+			}
+		}
 		if !archiveOnly {
 			page, hostErr := reader.page(ctx, after)
 			if hostErr == nil {
-				return page, nil
+				return t.withRunSummaryRevision(ctx, checkpoint, page)
 			}
 			err = hostErr
 		}
@@ -134,7 +140,10 @@ func (t *liveTopics) runSource(ctx context.Context, run string, repository, memb
 			projection["version"] = "draft version"
 		}
 		page.Data, archiveErr = json.Marshal(projection)
-		return page, archiveErr
+		if archiveErr != nil {
+			return page, archiveErr
+		}
+		return t.withRunSummaryRevision(ctx, checkpoint, page)
 	}}}, ""
 }
 
@@ -291,4 +300,31 @@ func (r runProjectionReader) page(ctx context.Context, after *int64) (live.LogPa
 		return live.LogPage{Cursor: head, Data: data}, err
 	}
 	return live.LogPage{}, fmt.Errorf("run changed throughout snapshot read")
+}
+
+// Summaries are committed provider updates at the native cursor. A refresh
+// sends a snapshot at that cursor; it never invents a journal sequence.
+func runSummaryRefresh(raw json.RawMessage) json.RawMessage {
+	var value map[string]json.RawMessage
+	if json.Unmarshal(raw, &value) != nil {
+		return nil
+	}
+	return value["model_summary_revision"]
+}
+func (t *liveTopics) withRunSummaryRevision(ctx context.Context, cp flowdispatch.RuntimeCheckpoint, page live.LogPage) (live.LogPage, error) {
+	if t.summaries == nil || page.Gap {
+		return page, nil
+	}
+	var revision int64
+	if err := t.changePool.QueryRow(ctx, `SELECT coalesce(sum(rev),0) FROM run_summaries WHERE run_id=$1 AND attempt=$2`, cp.Target.WorkspaceID+":"+cp.RunID, checkpointAttempt(cp)).Scan(&revision); err != nil {
+		return page, err
+	}
+	var value map[string]any
+	if err := json.Unmarshal(page.Data, &value); err != nil {
+		return page, err
+	}
+	value["model_summary_revision"] = revision
+	raw, err := json.Marshal(value)
+	page.Data = raw
+	return page, err
 }

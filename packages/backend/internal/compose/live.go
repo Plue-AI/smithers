@@ -48,6 +48,7 @@ type liveSync interface {
 // so one stream serves every member byte for byte.
 type liveTopics struct {
 	changePool    *pgxpool.Pool
+	summaries     *services.ConversationSummaries
 	queries       *db.Queries
 	sources       workspaceapi.SourceFiles
 	main          homeMainReader

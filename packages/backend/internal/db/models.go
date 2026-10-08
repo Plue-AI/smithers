@@ -2418,15 +2418,18 @@ type RevocationEvent struct {
 }
 
 type RunArchive struct {
-	RepositoryID int64           `json:"repository_id"`
-	WorkspaceID  string          `json:"workspace_id"`
-	RunID        string          `json:"run_id"`
-	FlowID       string          `json:"flow_id"`
-	Status       string          `json:"status"`
-	Summary      json.RawMessage `json:"summary"`
-	Tree         json.RawMessage `json:"tree"`
-	Monitor      json.RawMessage `json:"monitor"`
-	CapturedAt   time.Time       `json:"captured_at"`
+	RepositoryID            int64           `json:"repository_id"`
+	WorkspaceID             string          `json:"workspace_id"`
+	RunID                   string          `json:"run_id"`
+	FlowID                  string          `json:"flow_id"`
+	Status                  string          `json:"status"`
+	Summary                 json.RawMessage `json:"summary"`
+	Tree                    json.RawMessage `json:"tree"`
+	Monitor                 json.RawMessage `json:"monitor"`
+	CapturedAt              time.Time       `json:"captured_at"`
+	InspectionUntil         time.Time       `json:"inspection_until"`
+	SummaryRevision         int64           `json:"summary_revision"`
+	SummaryCapturedRevision int64           `json:"summary_captured_revision"`
 }
 
 type RunArchiveEvent struct {

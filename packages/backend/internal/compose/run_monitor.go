@@ -31,8 +31,9 @@ type monitorReader interface {
 // graph, lifecycle and journal data are read from Control, never reconstructed
 // from product job status.
 type runMonitors struct {
-	pool   *pgxpool.Pool
-	reader monitorReader
+	pool      *pgxpool.Pool
+	reader    monitorReader
+	summaries *services.ConversationSummaries
 }
 
 func (m *runMonitors) checkpoints(ctx context.Context, repo int64, id string) ([]flowdispatch.RuntimeCheckpoint, error) {
@@ -344,6 +345,11 @@ func (m *runMonitors) readCheckpoint(ctx context.Context, repo int64, id string,
 		}
 		for _, check := range services.RunThrashChecks(cp.RunID, events) {
 			markMonitorThrash(value, check)
+		}
+	}
+	if at == nil {
+		if err := m.overlaySummaries(ctx, cp.Target.WorkspaceID+":"+cp.RunID, checkpointAttempt(cp), value); err != nil {
+			return nil, err
 		}
 	}
 	return json.Marshal(value)

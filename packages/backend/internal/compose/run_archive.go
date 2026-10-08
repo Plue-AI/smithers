@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // runArchiveHost is the dispatcher's read-only reach into a run's live host.
@@ -32,7 +34,8 @@ type runArchiveHost interface {
 type runArchive struct {
 	pool *pgxpool.Pool
 	// host is bound after the dispatcher it reads through is built.
-	host runArchiveHost
+	host      runArchiveHost
+	summaries *services.ConversationSummaries
 }
 
 // runArchiveReader is the product database the archive is read from.
@@ -65,19 +68,27 @@ func (a *runArchive) ProjectFlowRuntime(ctx context.Context, update flowdispatch
 	if a == nil || a.pool == nil {
 		return nil
 	}
-	if err := a.keep(ctx, update); err != nil {
-		return err
-	}
+
 	terminal := archiveCheckpointTerminal(update.Checkpoint)
 	if terminal && a.host == nil {
 		return errors.New("run archive: terminal capture has no host")
 	}
-	if a.host == nil || (!runArchiveLifecycle(update) && !terminal) {
-		return nil
+	var inspected bool
+	if a.summaries != nil {
+		err := a.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM run_archives WHERE workspace_id=$1 AND run_id=$2 AND inspection_until>clock_timestamp())`, update.Checkpoint.Target.WorkspaceID, update.Checkpoint.RunID).Scan(&inspected)
+		if err != nil {
+			return err
+		}
 	}
-	if err := a.capture(ctx, update.Checkpoint); err != nil {
+	if a.host == nil || (!runArchiveLifecycle(update) && !terminal && !(inspected && len(update.Events) > 0)) {
+		return a.keep(ctx, update)
+	}
+	if err := a.capture(ctx, update.Checkpoint, update); err != nil {
 		if terminal {
 			return err
+		}
+		if keepErr := a.keep(ctx, update); keepErr != nil {
+			return keepErr
 		}
 		if ctx.Err() == nil {
 			slog.Warn("run archive capture failed", "run_id", update.Checkpoint.RunID,
@@ -107,6 +118,22 @@ func archiveRepository(target flowruntime.Target) (int64, bool) {
 
 // keep appends the page's events to the run's archived journal.
 func (a *runArchive) keep(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
+	tx, err := a.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if err := a.keepIn(ctx, tx, update); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+type archiveWriter interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func (a *runArchive) keepIn(ctx context.Context, writer archiveWriter, update flowdispatch.ProjectionUpdate) error {
 	cp := update.Checkpoint
 	repository, ok := archiveRepository(cp.Target)
 	if !ok || cp.RunID == "" || cp.Target.WorkspaceID == "" || len(update.Events) == 0 {
@@ -130,14 +157,20 @@ func (a *runArchive) keep(ctx context.Context, update flowdispatch.ProjectionUpd
 		}
 		sequences, offsets, events = append(sequences, event.Sequence), append(offsets, offset), append(events, string(raw))
 	}
-	_, err := a.pool.Exec(ctx, `INSERT INTO run_archive_events (repository_id, workspace_id, run_id, sequence, cursor_offset, event)
+	inserted, err := writer.Exec(ctx, `INSERT INTO run_archive_events (repository_id, workspace_id, run_id, sequence, cursor_offset, event)
 		SELECT $1, $2, $3, page.sequence, page.cursor_offset, page.event::jsonb
 		FROM unnest($4::bigint[], $5::bigint[], $6::text[]) AS page(sequence, cursor_offset, event)
 		ON CONFLICT DO NOTHING`, repository, cp.Target.WorkspaceID, cp.RunID, sequences, offsets, events)
+	if err != nil {
+		return err
+	}
+	if inserted.RowsAffected() > 0 {
+		_, err = writer.Exec(ctx, `UPDATE run_archives SET summary_revision=summary_revision+1 WHERE repository_id=$1 AND workspace_id=$2 AND run_id=$3`, repository, cp.Target.WorkspaceID, cp.RunID)
+	}
 	return err
 }
 
-func (a *runArchive) capture(ctx context.Context, cp flowdispatch.RuntimeCheckpoint) error {
+func (a *runArchive) capture(ctx context.Context, cp flowdispatch.RuntimeCheckpoint, updates ...flowdispatch.ProjectionUpdate) error {
 	repository, ok := archiveRepository(cp.Target)
 	if !ok || cp.RunID == "" || cp.Target.WorkspaceID == "" {
 		return errors.New("run archive: checkpoint names no repository run")
@@ -194,12 +227,30 @@ func (a *runArchive) capture(ctx context.Context, cp flowdispatch.RuntimeCheckpo
 	if json.Unmarshal(monitor, &identity) != nil || identity.ID != cp.RunID {
 		return errors.New("run archive: invalid monitor")
 	}
-	_, err = a.pool.Exec(ctx, `INSERT INTO run_archives (repository_id, workspace_id, run_id, flow_id, status, summary, tree, monitor)
+	tx, err := a.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	for _, update := range updates {
+		if err := a.keepIn(ctx, tx, update); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO run_archives (repository_id, workspace_id, run_id, flow_id, status, summary, tree, monitor)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (repository_id, workspace_id, run_id) DO UPDATE SET flow_id = EXCLUDED.flow_id, status = EXCLUDED.status,
-			summary = EXCLUDED.summary, tree = EXCLUDED.tree, monitor = EXCLUDED.monitor, captured_at = now()`,
+			summary = EXCLUDED.summary, tree = EXCLUDED.tree, monitor = EXCLUDED.monitor, captured_at = now(), summary_revision = run_archives.summary_revision + CASE WHEN run_archives.monitor IS DISTINCT FROM EXCLUDED.monitor THEN 1 ELSE 0 END, summary_captured_revision = run_archives.summary_revision + CASE WHEN run_archives.monitor IS DISTINCT FROM EXCLUDED.monitor THEN 1 ELSE 0 END`,
 		repository, cp.Target.WorkspaceID, cp.RunID, row.FlowID, row.Status, summaries[0], treeRows, monitor)
-	return err
+	if err != nil {
+		return err
+	}
+	if a.summaries != nil {
+		if err := a.summaries.AdmitRun(ctx, tx, cp.Target.WorkspaceID+":"+cp.RunID, checkpointAttempt(cp)); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // readRunArchive is the run's retained host answers, or pgx.ErrNoRows.
