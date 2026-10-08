@@ -28,6 +28,20 @@ test("a committed live TODO reaches both members through the install seam", asyn
       const history = await memberRequest(page, "GET", "/api/conversations/main")
       expect(history.status).toBe(200)
       expect(history.body.entries.find((entry: any) => entry.subject?.n === host.todos.live).subject).toMatchObject({ state: "working", tone: "live" })
+      if (who === "Alice") {
+        const hidden = await memberRequest(page, "PUT", "/api/conversations/main/view-state", { toasts_hidden: true }, "live-entry-hide")
+        expect(hidden.status).toBe(200)
+        await page.reload()
+        await expect(line).toHaveCount(1)
+        await expect(line).toHaveAttribute("data-tone", "live")
+        expect((await memberRequest(page, "GET", "/api/conversations/main/view-state")).body.toasts_hidden).toBe(true)
+        await line.getByRole("button").first().press("Enter")
+        await expect(page.locator(`[data-message-id="todo:${host.todos.live}"]`)).toBeInViewport()
+        await expect(page.getByTestId("composer-input")).toBeEditable()
+        const maya = contexts[0]!.pages()[0]!
+        expect((await memberRequest(maya, "GET", "/api/conversations/main/view-state")).body.toasts_hidden).not.toBe(true)
+        await expect(maya.getByRole("navigation", { name: "Timeline", exact: true }).locator(`[data-entry="todo:${host.todos.live}"]`)).toHaveAttribute("data-tone", "live")
+      }
     }
   } finally { for (const context of contexts) await context.close() }
 })
