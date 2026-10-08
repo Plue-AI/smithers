@@ -418,6 +418,17 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		if err := s.withholdRuntimeConversation(ctx, row, requesterID); err != nil {
 			return row, err
 		}
+		if recipes, ok := s.runtime.(interface {
+			RefreshWorkspaceRecipe(context.Context, workspaceapi.WorkspaceSpec) (bool, error)
+		}); ok && observed.State == workspaceapi.WorkspaceStopped && !row.SourceSnapshotID.Valid {
+			spec, specErr := s.runtimeWorkspaceSpec(startCtx, row)
+			if specErr != nil {
+				return row, specErr
+			}
+			if _, refreshErr := recipes.RefreshWorkspaceRecipe(startCtx, spec); refreshErr != nil {
+				return row, runtimeOperationError("refresh workspace recipe", refreshErr)
+			}
+		}
 		waking := !create && row.Status == "suspended"
 		if waking {
 			if err := s.transitionBranchMachine(ctx, row, "suspended", "starting", ""); err != nil {

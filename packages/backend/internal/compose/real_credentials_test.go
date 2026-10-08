@@ -2,6 +2,8 @@ package compose
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -108,6 +110,7 @@ func testInstalledCredentials(t *testing.T, h *rootLayerHarness, branch string, 
 	installedShell(t, second, `test -L "$HOME/.mch-preboot-link" && test "$(cat "$HOME/.mch-preboot-outside")" = preboot-unchanged`)
 
 	h.expect("DELETE", installedSecretsURL+"/MCH_PREBOOT_FILE", "", 204)
+	testInstalledRecipeRecreation(t, h, branch, term, browser, second)
 	// Scan every persisted product table, rather than just audit metadata.
 	// Table names come from PostgreSQL and are quoted as identifiers; sentinel
 	// values remain bound parameters and are never printed in evidence.
@@ -329,4 +332,86 @@ func TestInstalledCredentialEventScanner(t *testing.T) {
 	scan.observe("branch", []byte("prefix:mch-claude-A-refreshed:suffix"))
 	require.Equal(t, 4, scan.frames)
 	require.Equal(t, 7, scan.hits)
+}
+
+func installedRecipeLayer(t *testing.T, h *rootLayerHarness, id string) string {
+	t.Helper()
+	sum := sha256.Sum256([]byte(id))
+	data, err := os.ReadFile(filepath.Join(h.runtimeState, "workspaces", hex.EncodeToString(sum[:]), "metadata.json"))
+	require.NoError(t, err)
+	var metadata struct {
+		LayerKey string `json:"layerKey"`
+	}
+	require.NoError(t, json.Unmarshal(data, &metadata))
+	require.NotEmpty(t, metadata.LayerKey)
+	return metadata.LayerKey
+}
+
+func installedChangeRecipe(t *testing.T, h *rootLayerHarness) {
+	t.Helper()
+	h.moveMain(t, map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n", "JOURNEY.md": "Add a greeting to JOURNEY.md\n", ".smithers/machine.json": `{"packages":["jq"]}`})
+}
+
+func testInstalledRecipeRecreation(t *testing.T, h *rootLayerHarness, branch string, term *rehearsalTerminal, browser http.CookieJar, other *rehearsalTerminal) {
+	t.Helper()
+	oldLayer := installedRecipeLayer(t, h, branch)
+	// Refresh after logout: a positive fixture proves recreation, not logout,
+	// removes the logins on the next disk. B keeps its independently made files.
+	installedShell(t, term, `printf 'mch-claude-A-fixture\n' > "$HOME/.claude/.credentials.json" && printf 'mch-codex-A-fixture\n' > "$HOME/.codex/auth.json" && printf 'mch-gh-A-fixture\n' > "$HOME/.config/gh/hosts.yml" && test "$(cat "$HOME/.marker")" = mch-marker-A-fixture && printf 'mch-working-copy-retained\n' > /workspace/.mch-recipe-working-copy`)
+	term.close()
+	code, body := h.request("POST", "/api/branches/"+branch, `{"op":"sleep"}`, uuid.NewString())
+	require.Equal(t, 202, code, string(body))
+	require.Eventually(t, func() bool {
+		machine, err := h.runtime.InspectWorkspace(t.Context(), branch)
+		return err == nil && machine.State == workspaceapi.WorkspaceStopped
+	}, 2*time.Minute, 100*time.Millisecond)
+	installedChangeRecipe(t, h)
+	term = installedMemberTerminal(t, h, branch, browser)
+	require.NotEqual(t, oldLayer, installedRecipeLayer(t, h, branch))
+	installedShell(t, term, `test "$(stat -c '%u:%g:%a' "$HOME")" = 20001:20001:700 && test ! -e "$HOME/.marker" && test ! -e "$HOME/.claude/.credentials.json" && test ! -e "$HOME/.codex/auth.json" && test ! -e "$HOME/.config/gh/hosts.yml" && test ! -e "$HOME/.claude/mch-load" && test ! -e "$HOME/.config/gh/mch-load" && test ! -e "$HOME/.npm/_cacache/mch-load" && command -v jq && test "$(cat /workspace/.mch-recipe-working-copy)" = mch-working-copy-retained`)
+	installedShell(t, other, `test "$(cat "$HOME/.claude/.credentials.json")" = mch-claude-B-fixture && test "$(cat "$HOME/.codex/auth.json")" = mch-codex-B-fixture && test "$(cat "$HOME/.config/gh/hosts.yml")" = mch-gh-B-fixture`)
+}
+
+// Supplemental recording-msb evidence over the real runtime and the composed
+// setup's repository reader. Only the native chain qualifies member homes.
+func TestInstalledNewRecipeRecreation(t *testing.T) {
+	if os.Getenv("SMITHERS_TEST_DATABASE_URL") == "" {
+		t.Skip("real PostgreSQL and FFI mirror required")
+	}
+	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
+	h := startRootLayerHarness(t)
+	h.commitMain(map[string]string{"go.mod": "module example.com/terminalproof\n\ngo 1.26.8\n", "x.go": "package terminalproof\n"})
+	h.runSetupThroughSource()
+	state, message := h.runMachine(t, "recipe-recreation")
+	require.Equal(t, "done", state, message)
+	spec := workspaceapi.WorkspaceSpec{ID: uuid.NewString(), Source: &workspaceapi.WorkspaceSource{Repository: h.slug, Revision: "main"}}
+	_, err := h.runtime.CreateWorkspace(t.Context(), spec)
+	require.NoError(t, err)
+	oldLayer := installedRecipeLayer(t, h, spec.ID)
+	changed, err := h.runtime.RefreshWorkspaceRecipe(t.Context(), spec)
+	require.Error(t, err, "awake machines cannot lose their homes")
+	require.False(t, changed)
+	require.NoError(t, h.runtime.StopWorkspace(t.Context(), spec.ID))
+	changed, err = h.runtime.RefreshWorkspaceRecipe(t.Context(), spec)
+	require.NoError(t, err)
+	require.False(t, changed, "unchanged recipe must retain the disk")
+	h.moveMain(t, map[string]string{".smithers/machine.json": `{"packages":["jq"],"command":"unapproved-root-command"}`})
+	from := h.msb.mark()
+	changed, err = h.runtime.RefreshWorkspaceRecipe(t.Context(), spec)
+	require.Error(t, err)
+	require.False(t, changed)
+	for _, call := range h.msb.since(from) {
+		if len(call.Argv) > 0 {
+			require.NotEqual(t, "remove", call.Argv[0], "invalid recipe cannot remove the retained disk")
+		}
+	}
+	require.Equal(t, oldLayer, installedRecipeLayer(t, h, spec.ID), "invalid recipe must not replace the retained disk")
+	installedChangeRecipe(t, h)
+	changed, err = h.runtime.RefreshWorkspaceRecipe(t.Context(), spec)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.NotEqual(t, oldLayer, installedRecipeLayer(t, h, spec.ID))
+	_, err = h.runtime.StartWorkspace(t.Context(), spec.ID)
+	require.NoError(t, err)
+	require.NoError(t, h.runtime.DeleteWorkspace(t.Context(), spec.ID))
 }

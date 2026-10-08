@@ -34,7 +34,7 @@ The native chain also denies Alice and agent reads of all three fixture login
 files, retains replacement terminals after wake, verifies logins across backend
 recomposition and checks B again after A logs out and B sleeps/wakes. Backend
 recomposition does not replace step 2's physical host-service restart. New-recipe
-recreation remains pending.
+recreation is now authored in the same native chain; execution remains pending.
 
 Private-login reads by Alice and agent now require the kernel's `EACCES` for
 Ben's directory and all three login paths. Ben first reads the exact fixtures
@@ -48,3 +48,21 @@ all seven literal credential sentinels. The observer survives recomposition
 and wake, requires a nonempty stream, and checks again on cleanup. It adds no
 second event consumer and retains no event bytes. Reference-host execution
 remains pending.
+
+
+New-recipe coverage wakes A through an authenticated terminal after a fixture
+GitHub-main image declaration change. The common service wake path refreshes
+only a stopped machine whose recipe changed; the production runtime persists
+the target recipe before removing the old disk. It requires a new layer,
+installed jq, absent old personal logins/marker/cache workload and unchanged B
+logins. The branch's durable identity and captured working copy remain intact.
+`TestInstalledNewRecipeRecreation` is supplemental Linux coverage over the
+composed setup reader and recording msb, not an empty-home/security receipt.
+It covers awake refusal, unchanged-recipe retention, changed-recipe selection
+and fresh boot through production runtime methods.
+
+The [physical restart campaign](../campaigns/mch-host-restart.md) is executable
+as `TestInstalledPhysicalHomeRestart` against a running disposable Mac install.
+It requires an unloaded launchd job and a changed service PID, new authenticated
+terminals and unchanged per-machine login/workload hashes after host stop/start.
+Physical and native execution remain pending.

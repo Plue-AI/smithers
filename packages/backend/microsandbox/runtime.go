@@ -1059,10 +1059,89 @@ func (r *Runtime) startMachine(ctx context.Context, ws *workspace) error {
 	return r.prepareGuest(ctx, ws)
 }
 
+// RefreshWorkspaceRecipe replaces only a stopped machine's root disk when its
+// current repository recipe changed. Layer preparation completes before any
+// retained disk is removed; homes are never transferred to the new image.
+func (r *Runtime) RefreshWorkspaceRecipe(ctx context.Context, spec workspaceapi.WorkspaceSpec) (bool, error) {
+	ctx, releaseFence, err := r.CleanupGate.Enter(ctx, spec.ID)
+	if err != nil {
+		return false, err
+	}
+	defer releaseFence()
+	r.mu.Lock()
+	existing, lookupErr := r.workspaceLocked(spec.ID)
+	if lookupErr != nil {
+		r.mu.Unlock()
+		return false, lookupErr
+	}
+	if existing.State != string(workspaceapi.WorkspaceStopped) {
+		state := existing.State
+		r.mu.Unlock()
+		return false, fmt.Errorf("workspace is %s; recipe replacement requires a stopped machine", state)
+	}
+	if existing.LayerKey != "" && spec.Source == nil {
+		r.mu.Unlock()
+		return false, errors.New("recipe replacement requires the workspace source")
+	}
+	r.mu.Unlock()
+	if r.environments != nil {
+		if err := r.environments.admit(ctx); err != nil {
+			return false, err
+		}
+	}
+	layer, release, err := r.resolveWorkspaceLayerForCreate(ctx, spec)
+	defer release()
+	if err != nil {
+		return false, err
+	}
+	r.mu.Lock()
+	ws, err := r.workspaceLocked(spec.ID)
+	if err != nil {
+		r.mu.Unlock()
+		return false, err
+	}
+	if ws.State != string(workspaceapi.WorkspaceStopped) {
+		r.mu.Unlock()
+		return false, fmt.Errorf("workspace is %s; recipe replacement requires a stopped machine", ws.State)
+	}
+	if ws.LayerKey == layer.Key && ws.Snapshot == layer.Snapshot {
+		changed := ws.Reclaimed
+		r.mu.Unlock()
+		return changed, nil
+	}
+	old := ws.metadata
+	ws.State = string(workspaceapi.WorkspaceStopping)
+	ws.Snapshot, ws.LayerKey, ws.Link, ws.Reclaimed = layer.Snapshot, layer.Key, layer.Link, true
+	// Persist the target before removal: recovery never mistakes the missing
+	// old disk for a lost workspace or restores credentials from an old layer.
+	if err := writeMetadata(ws); err != nil {
+		ws.metadata = old
+		r.mu.Unlock()
+		return false, err
+	}
+	r.mu.Unlock()
+	removeErr := r.removeMachine(ctx, ws.Machine)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws.State = string(workspaceapi.WorkspaceStopped)
+	return true, errors.Join(removeErr, writeMetadata(ws))
+}
+
 // recreateMachine boots a fresh machine for a reclaimed workspace from its
 // environment layer, or the base image, with an empty root. A partial boot is
 // removed so the workspace stays reclaimed and startable.
 func (r *Runtime) recreateMachine(ctx context.Context, ws *workspace) error {
+	// A crash or unconfirmed removal can leave the old stopped disk present.
+	// Never boot it under the new recipe or reuse its member homes.
+	_, found, err := r.cli.sandboxStatus(ctx, ws.Machine)
+	if err != nil {
+		return err
+	}
+	if found {
+		if err := r.removeMachine(ctx, ws.Machine); err != nil {
+			return err
+		}
+	}
 	if r.environments != nil {
 		if err := r.environments.admit(ctx); err != nil {
 			return err

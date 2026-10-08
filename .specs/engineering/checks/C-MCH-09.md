@@ -42,3 +42,10 @@ rows in each directory's DELETE and WAL database. It checks every literal row,
 JSON read, append record and reopened database, including integrity checks.
 `TestInstalledHomeWorkloadFixture` validates the workload on Linux; that is
 supplemental fixture evidence, not this check's real-machine receipt.
+
+
+Step 7 is authored in `TestInstalledPhysicalHomeRestart`; see the
+[physical host campaign](../campaigns/mch-host-restart.md). It stops and starts
+the installed launchd service and checks per-machine bytes/ownership/modes
+through replacement authenticated terminals. Execution on the reference Mac
+remains pending; Linux cannot supply that receipt.
