@@ -16,3 +16,12 @@ test("C-MCH-11: concurrent terminals share the real branch queue and grant curso
   expect(output).toContain("--- PASS: TestTodoOrderedRecovery")
   expect(output).toContain("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
 })
+
+
+test("C-MCH-11: released TODO controls and Learning use production machine admission", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^Test(ReleasedTodoResumeAdmissionComposedInstall|ReleasedTodoSteerAnswerAdmissionComposedInstall|LearningMergeDispatchComposedInstall)$")
+  expect(output).toContain("--- PASS: TestReleasedTodoResumeAdmissionComposedInstall")
+  expect(output).toContain("--- PASS: TestReleasedTodoSteerAnswerAdmissionComposedInstall")
+  expect(output).toContain("--- PASS: TestLearningMergeDispatchComposedInstall")
+})

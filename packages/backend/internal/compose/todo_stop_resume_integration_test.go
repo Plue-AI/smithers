@@ -9,10 +9,12 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
@@ -20,12 +22,14 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -154,7 +158,13 @@ func TestTodoHeldReviewStopResumeComposedInstall(t *testing.T) {
 	testTodoStopResumeComposedInstall(t, "proposed", "in_review")
 }
 
-func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState string) {
+func TestReleasedTodoResumeAdmissionComposedInstall(t *testing.T) {
+	testTodoStopResumeComposedInstall(t, "running", "working", true)
+}
+
+func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState string, released ...bool) {
+	scheduled := len(released) > 0 && released[0]
+
 	if os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE") == "" {
 		t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todocontrol")
 	}
@@ -208,7 +218,13 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	var launcher flowhost.Launcher = transport
+	var guest *releasedTodoGuest
+	var disk atomic.Int64
+	if scheduled {
+		guest, launcher = composeReleasedTodoHost(t, pool, owner, repo.ID, item.ID, source, transport, &disk)
+	}
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: launcher, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
 	require.NoError(t, err)
 	// The original run already owns a verified host. Reads and control signals
 	// inspect that binding; they cannot start a replacement guest.
@@ -328,24 +344,27 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	status, body := call("POST", `{"op":"stop"}`, "uncomposed")
 	require.Equal(t, 503, status, body)
 	service.SetLauncher(dispatcher)
-	token := "smithers_" + strings.Repeat("d", 40)
-	tokenBytes := sha256.Sum256([]byte(token))
-	tokenHash := hex.EncodeToString(tokenBytes[:])
-	// Delegated Stop/Resume follows catalog policy; a read-only credential
-	// must still refuse both controls before recording any runtime intent.
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "pause-agent", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
-	for _, op := range []string{"stop", "resume"} {
-		req, err := http.NewRequest("POST", origin+"/api/todos/1", strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
+	// A run credential cannot control TODOs. A delegated person credential
+	// (via:codex) is allowed by MVP Appendix C and is not a run credential.
+	for index, scopes := range []string{"read:repository,write:repository", "read:repository,via:codex"} {
+		token := "smithers_" + strings.Repeat([]string{"d", "e"}[index], 40)
+		tokenBytes := sha256.Sum256([]byte(token))
+		tokenHash := hex.EncodeToString(tokenBytes[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: fmt.Sprintf("pause-agent-%d", index), TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", "agent-"+op)
-		response, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		response.Body.Close()
-		require.Equal(t, 403, response.StatusCode)
+		for _, op := range []string{"stop", "resume"} {
+			req, err := http.NewRequest("POST", origin+"/api/todos/1", strings.NewReader(fmt.Sprintf(`{"op":%q}`, op)))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "agent-"+op)
+			response, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, 403, response.StatusCode)
+		}
 	}
+
 	var intents int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&intents))
 	require.Zero(t, intents)
@@ -491,7 +510,30 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	_, card = call("GET", "", "")
 	require.Equal(t, "needs_you", card["state"])
 	require.Contains(t, card, "pause")
+	if scheduled {
+		guest.mu.Lock()
+		guest.state = workspaceapi.WorkspaceStopped
+		guest.mu.Unlock()
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, guest.row.ID)
+		require.NoError(t, err)
+		disk.Store(40 << 30)
+	}
 	status, receipt = call("POST", `{"op":"resume"}`, "resume-1")
+	if scheduled {
+		require.Eventually(t, func() bool {
+			for _, row := range guest.queue.AdmissionSnapshot() {
+				if row.Holder == "workspace:"+guest.row.ID {
+					return row.Class == "person" && row.State == "waiting" && row.Position == 1
+				}
+			}
+			return false
+		}, 8*time.Second, 10*time.Millisecond)
+		require.Empty(t, receiver.signals, "Resume must wait for capacity before delivery")
+		require.EqualValues(t, 1, transport.starts.Load())
+		require.Zero(t, guest.queue.InUse())
+		disk.Store(140 << 30)
+	}
+
 	require.Equal(t, 202, status, receipt)
 	_, card = call("GET", "", "")
 	require.Equal(t, "needs_you", card["state"])
@@ -593,6 +635,96 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	_, card = call("GET", "", "")
 	require.NotContains(t, card, "pause")
 	require.Equal(t, map[string]any{"op": "stop", "message": "Finished before Stop"}, card["control_failure"])
-	require.EqualValues(t, 1, transport.starts.Load(), "control retries must reuse the original fenced host")
+	expectedStarts := 1
+	if scheduled {
+		expectedStarts = 2
+		require.Equal(t, 1, guest.queue.InUse())
+	}
+	require.EqualValues(t, expectedStarts, transport.starts.Load(), "control retries reuse the fenced host after a released machine wakes")
 
+}
+
+// Guest observations only: production box preparation, wake, member authority,
+// slot allocation, credentials and dispatch remain installed implementations.
+type releasedTodoGuest struct {
+	*perfWakeRuntime
+	source, clone string
+}
+
+func (r *releasedTodoGuest) EnsureMachined(context.Context, string) error { return nil }
+func (r *releasedTodoGuest) Capabilities() workspaceapi.WorkspaceCapabilities {
+	c := r.perfWakeRuntime.Capabilities()
+	c.ManagedServices = true
+	return c
+}
+func (r *releasedTodoGuest) InstallWorkspaceCodingBinding(_ context.Context, _ string, b workspaceapi.WorkspaceCodingBinding) error {
+	return b.Validate()
+}
+func (r *releasedTodoGuest) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
+	b, e := r.perfWakeRuntime.ReadFile(ctx, id, path)
+	return []byte(strings.ReplaceAll(strings.ReplaceAll(string(b), perfWakeHead, r.source), perfWakeClone, r.clone)), e
+}
+func (r *releasedTodoGuest) ExecuteCommand(ctx context.Context, id string, c workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	for i, v := range c.Args {
+		c.Args[i] = strings.ReplaceAll(v, r.source, perfWakeHead)
+	}
+	result, e := r.perfWakeRuntime.ExecuteCommand(ctx, id, c)
+	result.Stdout = strings.ReplaceAll(strings.ReplaceAll(result.Stdout, perfWakeHead, r.source), perfWakeClone, r.clone)
+	return result, e
+}
+
+type releasedTodoTransport struct {
+	*todoControlHostTransport
+	guest *releasedTodoGuest
+}
+
+func (r *releasedTodoTransport) InspectFlowHost(ctx context.Context, l flowhost.HostLaunch) (flowhost.Connection, error) {
+	w, e := r.guest.InspectWorkspace(ctx, l.Authority.WorkspaceID)
+	if e != nil {
+		return flowhost.Connection{}, e
+	}
+	if w.State != workspaceapi.WorkspaceRunning {
+		return flowhost.Connection{}, workspaceapi.ErrWorkspaceStopped
+	}
+	return r.todoControlHostTransport.InspectFlowHost(ctx, l)
+}
+func (r *releasedTodoTransport) ResolveFlowHostSource(context.Context, flowhost.Authority) (string, error) {
+	return r.guest.source, nil
+}
+func (r *releasedTodoTransport) StopFlowHost(context.Context, flowhost.Binding) error {
+	r.mu.Lock()
+	r.launch = flowhost.HostLaunch{}
+	r.mu.Unlock()
+	return nil
+}
+
+func composeReleasedTodoHost(t *testing.T, pool *pgxpool.Pool, owner db.User, repository int64, itemID pgtype.UUID, source string, transport *todoControlHostTransport, disk *atomic.Int64) (*releasedTodoGuest, flowhost.Launcher) {
+	t.Helper()
+	ctx, q := t.Context(), db.New(pool)
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\necho '[]'\n"), 0700))
+	queue, e := microsandbox.New(t.Context(), microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 1, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
+	require.NoError(t, e)
+	t.Cleanup(func() { require.NoError(t, queue.Close()) })
+	queue.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	machineOwner, e := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, e)
+	_, e = pool.Exec(ctx, `UPDATE workspaces SET user_id=$1,vm_id=id,target_bookmark='todo/1' WHERE id='11111111-1111-4111-8111-111111111111'`, machineOwner)
+	require.NoError(t, e)
+	_, e = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES('11111111-1111-4111-8111-111111111111',$1,$2,'write')`, machineOwner, owner.ID)
+	require.NoError(t, e)
+	_, e = pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES('11111111-1111-4111-8111-111111111111',$1,$2,'todo')`, repository, itemID)
+	require.NoError(t, e)
+	row, e := q.GetWorkspace(ctx, "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, e)
+	guest := &releasedTodoGuest{perfWakeRuntime: &perfWakeRuntime{queue: queue, row: row, state: workspaceapi.WorkspaceRunning, entered: make(chan struct{})}, source: source, clone: "http://127.0.0.1:4000/" + owner.Username + "/app.git"}
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	auth := services.NewAuthService(q, cfg.Auth, nil, nil)
+	boxes := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(guest), services.WithWorkspaceTransactions(pool), services.WithWorkspaceInstallAuthorization(q), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), guest)), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+	disk.Store(140 << 30)
+	boxes.EnableMachineAdmission(func(context.Context) (int64, error) { return disk.Load(), nil })
+	launcher := newBoxHostLauncher(&releasedTodoTransport{todoControlHostTransport: transport, guest: guest}, boxes, nil)
+	return guest, launcher
 }

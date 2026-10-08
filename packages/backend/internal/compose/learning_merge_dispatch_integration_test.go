@@ -2,11 +2,10 @@ package compose
 
 import (
 	"context"
-	"crypto/sha256"
+
 	"encoding/json"
 	"fmt"
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
@@ -27,13 +26,16 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
 )
 
 // Real served TODO/merge/check doors and production GitHub polling precede
-// production admission and dispatch. Only the unavailable Learning execution
-// machine lifecycle is recorded; extraction uses the production Learning flow; this does not qualify reference-host isolation.
+// production admission, shared machine queue and authenticated host dispatch.
+// Guest lifecycle/source observations are injected; extraction executes the
+// production Learning flow. This does not qualify reference-host isolation.
 func TestLearningMergeDispatchComposedInstall(t *testing.T) {
 	testTodoMergeComposedRouteBoundaryPostgres(t, false, false, true, false, false, true)
 }
@@ -51,6 +53,16 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 					t.Log(op, state, message, receipt)
 				}
 			}
+			events, e := pool.Query(context.Background(), `SELECT event_type,data::text FROM product_job_events WHERE event_type LIKE '%failed%'`)
+			if e == nil {
+				defer events.Close()
+				for events.Next() {
+					var kind, data string
+					_ = events.Scan(&kind, &data)
+					t.Log(kind, data)
+				}
+			}
+
 		}
 	}()
 	q := db.New(pool)
@@ -77,7 +89,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	_, err = q.ActivateFlowVersion(ctx, item.RepositoryID, "learning", replacementDigest)
 	require.NoError(t, err)
 	require.EqualValues(t, 41, item.PRNumber.Int64)
-	runtime := &learningCompletionExtraction{pool: pool, service: service, origin: server.URL, source: item.PRMergeCommit, digest: digest}
+	runtime := &learningCompletionExtraction{origin: server.URL, source: item.PRMergeCommit, digest: digest}
 	content, err := blob.NewFilesystemStore(blob.FilesystemConfig{Root: t.TempDir(), PublicBaseURL: server.URL, SigningKey: []byte("learning-test-key-with-32-bytes!!")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, content.Close()) })
@@ -156,11 +168,35 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Len(t, refusedHome.Runs, 1)
 	require.Equal(t, "Learning · T7", refusedHome.Runs[0].Title)
 	require.Equal(t, "waiting", refusedHome.Runs[0].State)
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nif [ \"$1\" = list ]; then echo '[]'; else exit 99; fi\n"), 0700))
+	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768, MaxRunningVMs: 1, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, SkipQualification: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, queue.Close()) })
+	queue.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	// The observed occupied slot is a precondition; the confirmed merge still
+	// enters only through the served merge/check doors above.
+	_, err = queue.WaitAdmission(ctx, microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}, "person", "occupied", "owner", "terminal")
+	require.NoError(t, err)
+
+	source := &learningSourceContract{}
+	guest := &learningRuntimeContract{queue: queue, source: source}
+	source.runtime = guest
+	require.True(t, bindLearningMachines(service, cfg, pool, guest, source))
+	codec, err := webhook.NewSecretCodec("learning-admission-host-key")
+	require.NoError(t, err)
+	bindings, err := flowhost.NewStore(pool, codec)
+	require.NoError(t, err)
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}}
+	guestServer := httptest.NewServer(transport)
+	t.Cleanup(guestServer.Close)
+	transport.endpoint = guestServer.URL
+	runtime.transport = transport.todoControlHostTransport
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: consumer, Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	require.NoError(t, err)
 	var failedReceipt atomic.Bool
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
-		runtime.target = target
-		return runtime, nil
-	}), Projector: flowdispatch.ProjectorFunc(func(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, Projector: flowdispatch.ProjectorFunc(func(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 		err := consumer.ProjectFlowRuntime(ctx, update)
 		if err != nil && strings.Contains(err.Error(), "recorded receipt failure") {
 			failedReceipt.Store(true)
@@ -169,7 +205,6 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	})})
 	require.NoError(t, err)
 	service.SetLauncher(dispatcher)
-	service.SetLearningMachines(learningExtractionMachine{pool: pool})
 	require.NoError(t, store.Wake(ctx, jobs.Scope{TenantID: fmt.Sprintf("repository:%d", item.RepositoryID), PrincipalID: principal}, admissionID))
 	// Fail in the production transaction after wiki/note writes. The durable
 	// dispatcher must retry the same completion, without relaunching execution.
@@ -184,7 +219,21 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 		dispatchDone <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "merged-learning-output", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond})
 	}()
 	defer func() { cancel(); require.NoError(t, <-admissionDone); require.NoError(t, <-dispatchDone) }()
+	require.Eventually(t, func() bool {
+		for _, row := range queue.AdmissionSnapshot() {
+			if row.Class == "background" && row.State == "waiting" && row.Position == 1 {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, learningCounts{}, guest.counts(), "waiting background work never allocates a guest")
+	require.Zero(t, transport.starts.Load())
+	queue.ConfirmAdmissionStop("occupied", false)
 	require.Eventually(t, failedReceipt.Load, 15*time.Second, 20*time.Millisecond)
+	require.Equal(t, 1, queue.InUse(), "receipt rollback retains the learning machine's slot")
+	require.Equal(t, learningCounts{creates: 1, restores: 1}, guest.counts())
+
 	for _, query := range []string{`SELECT count(*) FROM wiki_pages`, `SELECT count(*) FROM memory_notes`, `SELECT count(*) FROM mythical_items WHERE learning_receipt IS NOT NULL`, `SELECT count(*) FROM product_job_events WHERE event_type IN ('learning.receipt','todo.learning.receipt')`} {
 		require.NoError(t, pool.QueryRow(ctx, query).Scan(&count))
 		require.Zero(t, count)
@@ -212,7 +261,8 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	}, 15*time.Second, 20*time.Millisecond)
 	var lessons []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT learning_receipt FROM mythical_items WHERE id=$1`, item.ID).Scan(&lessons))
-	require.Contains(t, string(lessons), "learning-recorded")
+	require.NotEmpty(t, runtime.run)
+	require.Contains(t, string(lessons), runtime.run)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_page_revisions`).Scan(&count))
 	require.Equal(t, 1, count)
 	var pageBody string
@@ -242,7 +292,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Contains(t, string(readLive("todo:7").Data), `"lessons":2`)
 	var author []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT learning_author FROM wiki_page_revisions`).Scan(&author))
-	require.JSONEq(t, `{"agent":"coding","run":"learning-recorded"}`, string(author))
+	require.JSONEq(t, fmt.Sprintf(`{"agent":"coding","run":%q}`, runtime.run), string(author))
 	var checkpoint []byte
 	var operation string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT r.id,d.external_receipt FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation='flow.runtime.launch'`).Scan(&operation, &checkpoint))
@@ -265,18 +315,26 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Equal(t, "merged", card["state"])
 	require.Equal(t, float64(2), card["lessons"])
 	require.EqualValues(t, 1, runtime.starts.Load())
+	require.EqualValues(t, 1, transport.starts.Load())
+	require.Equal(t, learningCounts{creates: 1, restores: 1, deletes: 2}, guest.counts())
+	require.Zero(t, queue.InUse())
+	require.Equal(t, item.PRMergeCommit, source.restored.SourceCommit)
+	require.Equal(t, digest, source.restored.ExecutionDigest)
 	var completionFact []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.learning.receipt'`).Scan(&completionFact))
 	var completed map[string]any
 	require.NoError(t, json.Unmarshal(completionFact, &completed))
 	require.Equal(t, "merged", completed["from"])
 	require.Equal(t, "merged", completed["to"])
-	require.Equal(t, map[string]any{"kind": "run", "id": "learning-recorded"}, completed["actor"])
+	require.Equal(t, map[string]any{"kind": "run", "id": runtime.run}, completed["actor"])
 	require.Contains(t, runtime.output, "1 of the last 20 failed check:lint@review")
 	t.Logf("C-J8-01 output: %s", runtime.output)
 	t.Logf("C-J8-01 page: %s", pageBody)
 	t.Logf("C-J8-01 receipt: %s", lessons)
 	t.Logf("C-J8-01 event: %s", completionFact)
+	// Finish live observation before mutating source rows for refusal cases.
+	// Otherwise its polling projector legitimately appends unrelated card facts.
+	stopHub()
 	// Independently authored completion sources: only Merged may accept
 	// Learning's receipt. A late completion never changes the TODO's state.
 	for _, c := range []struct {
@@ -345,27 +403,12 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Equal(t, 1, count)
 }
 
-// Ports for the unavailable microVM only. No Learning host or allocator is
-// implemented here; the production resolver and shared process spec qualify
-// the authenticated pin before the recorded guest executes the packaged flow.
-type learningExtractionMachine struct{ pool *pgxpool.Pool }
-
-func (m learningExtractionMachine) EnsureLearningMachine(ctx context.Context, repo, actor int64, item string, _ flowruntime.Pin) (flowruntime.Target, error) {
-	id := learningWorkspaceID(item)
-	_, err := m.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,status,vm_id) VALUES($1,$2,$3,'Learning','running','recorded-guest') ON CONFLICT(id) DO NOTHING`, id, repo, actor)
-	return flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", actor), WorkspaceID: id, BindingKind: "learning", BindingID: item}, err
-}
-func (learningExtractionMachine) RetireLearningMachine(context.Context, flowruntime.Target) error {
-	return nil
-}
-
 type learningCompletionExtraction struct {
-	target flowruntime.Target
+	transport  *todoControlHostTransport
+	credential string
 	flowruntime.Runtime
-	pool                                 *pgxpool.Pool
-	service                              *services.MythicalService
-	origin, source, digest, output, host string
-	starts                               atomic.Int64
+	origin, source, digest, output, host, run string
+	starts                                    atomic.Int64
 }
 
 func (r *learningCompletionExtraction) Identity(context.Context) (flowruntime.Identity, error) {
@@ -373,23 +416,12 @@ func (r *learningCompletionExtraction) Identity(context.Context) (flowruntime.Id
 }
 func (r *learningCompletionExtraction) Launch(ctx context.Context, l flowruntime.Launch) (flowruntime.LaunchResult, error) {
 	r.starts.Add(1)
-	authority, err := r.service.LearningRuntime().ResolveFlowHostTarget(ctx, r.target)
-	if err != nil {
-		return flowruntime.LaunchResult{}, err
-	}
-	r.host = uuid.NewString()
-	catalog := flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: l.RuntimeArtifactDigest, ServiceName: "smithers-coding-host"}
-	binding := flowhost.Binding{ID: r.host, TenantID: r.target.TenantID, PrincipalID: r.target.PrincipalID, BindingKind: "learning", BindingID: r.target.BindingID, RepositoryID: authority.RepositoryID, UserID: authority.UserID, WorkspaceID: r.target.WorkspaceID, CatalogKey: catalog.Key, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: l.RuntimeArtifactDigest, SourceRevision: l.SourceRevision, OwnerGeneration: l.OwnerGeneration, State: "starting"}
-	_, err = flowhost.BuildProcessSpec(flowhost.HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "recorded-guest-secret"}, flowhost.WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
-	if err != nil {
-		return flowruntime.LaunchResult{}, err
-	}
-	hash := sha256.Sum256([]byte("recorded-guest-secret"))
-	_, err = r.pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state) VALUES($1,$2,$3,'learning',$4,$5,$6,$7,'coding','smithers-coding-host',$8,$9,$10,'fixture-only',$11,'running')`, r.host, r.target.TenantID, r.target.PrincipalID, r.target.BindingID, authority.RepositoryID, authority.UserID, r.target.WorkspaceID, l.RuntimeArtifactDigest, l.SourceRevision, l.OwnerGeneration, hash[:])
-	if err != nil {
-		return flowruntime.LaunchResult{}, err
-	}
-	return flowruntime.LaunchResult{ApplicationRequestID: l.ApplicationRequestID, OwnerGeneration: l.OwnerGeneration, RuntimeArtifactDigest: l.RuntimeArtifactDigest, SourceRevision: l.SourceRevision, ExecutionDigest: r.digest, PlanID: "learning-plan", Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: "learning-recorded"}}, nil
+	r.run = l.RunID
+	r.transport.mu.Lock()
+	r.host = r.transport.launch.Binding.ID
+	r.credential = r.transport.launch.Credential
+	r.transport.mu.Unlock()
+	return flowruntime.LaunchResult{ApplicationRequestID: l.ApplicationRequestID, OwnerGeneration: l.OwnerGeneration, RuntimeArtifactDigest: l.RuntimeArtifactDigest, SourceRevision: l.SourceRevision, ExecutionDigest: r.digest, PlanID: "learning-plan", Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: r.run}}, nil
 }
 func (r *learningCompletionExtraction) Observe(ctx context.Context, _, _ string, _ int) (flowruntime.Observation, error) {
 	if r.output == "" {
@@ -397,8 +429,8 @@ func (r *learningCompletionExtraction) Observe(ctx context.Context, _, _ string,
 		if err != nil {
 			return flowruntime.Observation{}, err
 		}
-		command := exec.CommandContext(ctx, "node", "--experimental-strip-types", script, r.origin, r.host, "learning-recorded")
-		command.Env = append(os.Environ(), "SMITHERS_LEARNING_TEST_CREDENTIAL=recorded-guest-secret")
+		command := exec.CommandContext(ctx, "node", "--experimental-strip-types", script, r.origin, r.host, r.run)
+		command.Env = append(os.Environ(), "SMITHERS_LEARNING_TEST_CREDENTIAL="+r.credential)
 		var stderr strings.Builder
 		command.Stderr = &stderr
 		output, err := command.Output()
@@ -407,5 +439,5 @@ func (r *learningCompletionExtraction) Observe(ctx context.Context, _, _ string,
 		}
 		r.output = string(output)
 	}
-	return flowruntime.Observation{Run: flowruntime.Run{RunID: "learning-recorded", FlowID: "learning", Status: "completed", FinalOutput: &r.output}, Terminal: true}, nil
+	return flowruntime.Observation{Run: flowruntime.Run{RunID: r.run, FlowID: "learning", Status: "completed", FinalOutput: &r.output}, Terminal: true}, nil
 }

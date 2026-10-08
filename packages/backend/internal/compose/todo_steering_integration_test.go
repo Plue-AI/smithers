@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,7 +102,11 @@ func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.
 
 // Real PostgreSQL, install router, host resolver and authenticated bridge.
 // Only guest observations are controlled; this does not qualify a physical VM.
-func TestTodoOrderedRecovery(t *testing.T) {
+func TestTodoOrderedRecovery(t *testing.T) { testTodoOrderedRecovery(t, false) }
+func TestReleasedTodoSteerAnswerAdmissionComposedInstall(t *testing.T) {
+	testTodoOrderedRecovery(t, true)
+}
+func testTodoOrderedRecovery(t *testing.T, scheduled bool) {
 	if os.Getenv("SMITHERS_TEST_DATABASE_NAMESPACE") == "" {
 		t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr6todoordered")
 	}
@@ -155,7 +161,13 @@ func TestTodoOrderedRecovery(t *testing.T) {
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	var launcher flowhost.Launcher = transport
+	var guest *releasedTodoGuest
+	var disk atomic.Int64
+	if scheduled {
+		guest, launcher = composeReleasedTodoHost(t, pool, owner, repo.ID, item.ID, source, transport, &disk)
+	}
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: launcher, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
 	require.NoError(t, err)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, SteerAuthorizer: service, Projector: service})
 	require.NoError(t, err)
@@ -350,10 +362,33 @@ func TestTodoOrderedRecovery(t *testing.T) {
 			require.NoError(t, err)
 			call(method, string(body), fmt.Sprintf("ordered-steer-%d", index))
 		}
+		if scheduled && index < 2 {
+			guest.mu.Lock()
+			guest.state = workspaceapi.WorkspaceStopped
+			guest.mu.Unlock()
+			guest.queue.ConfirmAdmissionStop("workspace:"+guest.row.ID, false)
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, guest.row.ID)
+			require.NoError(t, err)
+			disk.Store(40 << 30)
+		}
 		if pair.answerFirst {
 			answer(pair.first)
 		} else {
 			steer(pair.first)
+		}
+		if scheduled && index < 2 {
+			require.Eventually(t, func() bool {
+				for _, row := range guest.queue.AdmissionSnapshot() {
+					if row.Holder == "workspace:"+guest.row.ID && row.State == "waiting" {
+						return row.Class == "person" && row.Position == 1
+					}
+				}
+				return false
+			}, 8*time.Second, 10*time.Millisecond)
+			require.Empty(t, receiver.entered, "delivery waits for a machine grant")
+			require.EqualValues(t, index+1, transport.starts.Load())
+			require.Zero(t, guest.queue.InUse())
+			disk.Store(140 << 30)
 		}
 		if pair.amendment {
 			committed, err := q.GetMythicalItem(ctx, item.ID)
@@ -689,6 +724,11 @@ func TestTodoOrderedRecovery(t *testing.T) {
 		}
 		require.NoError(t, err)
 	}
-	require.EqualValues(t, 1, transport.starts.Load(), "Steer, Answer and retries keep the same fenced host")
+	expectedStarts := 1
+	if scheduled {
+		expectedStarts = 3
+		require.Equal(t, 1, guest.queue.InUse())
+	}
+	require.EqualValues(t, expectedStarts, transport.starts.Load(), "Steer, Answer and retries keep the fenced host after released machines wake")
 
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestLearningEvidenceComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
 	call := func(token, run string) (int, string) {
-		req := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/gateways/"+host+"/learning/"+run+"/evidence", nil)
+		req := httptest.NewRequest(http.MethodGet, cfg.Server.PublicURL+"/api/gateways/"+host+"/learning/"+strings.ReplaceAll(url.PathEscape(run), ":", "%3A")+"/evidence", nil)
 		req.RemoteAddr = "127.0.0.1:51900"
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
@@ -97,6 +98,22 @@ func TestLearningEvidenceComposedInstall(t *testing.T) {
 	require.Equal(t, "control.agent.steering-drained", result.Journal[0].EventType)
 	require.Contains(t, body, "because it already backs off")
 	require.Contains(t, body, "because the provider can remain unavailable")
+
+	// The dispatcher reserves colon-prefixed IDs. The machine's HTTP client
+	// escapes them; decode exactly once, including literal percent characters.
+	for _, runID := range []string{"dispatch:reserved", "percent%literal", "dispatch:percent%literal"} {
+		checkpoint.RunID = runID
+		encoded, e := json.Marshal(checkpoint)
+		require.NoError(t, e)
+		_, e = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, encoded)
+		require.NoError(t, e)
+		code, body = call(bearer, runID)
+		require.Equal(t, 200, code, body)
+		require.NoError(t, json.Unmarshal([]byte(body), &result))
+		require.Equal(t, runID, result.Run)
+	}
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admitted.OperationID, raw)
+	require.NoError(t, err)
 	for _, row := range []struct{ token, run string }{{"", "learning-1"}, {"wrong", "learning-1"}, {bearer, "another-run"}} {
 		code, body = call(row.token, row.run)
 		require.Equal(t, 403, code, body)
