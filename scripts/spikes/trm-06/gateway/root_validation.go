@@ -465,7 +465,7 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			return err
 		}
 	}
-	for _, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`, `{"type":"data","stream":0,"bytes":[]}`, `{"type":"eof","stream":3}`, `{"type":"resize","cols":0,"rows":24}`, `{"type":"signal","name":"TERM","name":"KILL"}`, `{"type":"exit","code":0}`, `{"type":"data","stream":0,"bytes":[256]}`} {
+	for index, bad := range []string{`{"type":"signal","name":"STOP"}`, `{"type":"signal","name":"TERM","uid":0}`, `{"type":"window","bytes":0}`, `{"type":"window","bytes":262145}`, `{"type":"data","stream":3,"bytes":[1]}`, `{"type":"data","stream":0,"bytes":[]}`, `{"type":"eof","stream":3}`, `{"type":"resize","cols":0,"rows":24}`, `{"type":"signal","name":"TERM","name":"KILL"}`, `{"type":"exit","code":0}`, `{"type":"data","stream":0,"bytes":[256]}`} {
 		stream, err := control.connect(ctx)
 		if err != nil {
 			return err
@@ -474,40 +474,10 @@ func validateSessionBoundary(ctx context.Context, control relayControl, observe 
 			stream.Close()
 			return err
 		}
-		stream.SetDeadline(time.Now().Add(2 * time.Second))
-		if err = binary.Write(stream, binary.BigEndian, uint32(len(bad))); err == nil {
-			err = writeAll(stream, []byte(bad))
-		}
-		if err != nil {
-			stream.Close()
-			return err
-		}
-		for {
-			var length uint32
-			err = binary.Read(stream, binary.BigEndian, &length)
-			if err != nil {
-				break
-			}
-			if length > 65536 {
-				stream.Close()
-				return errors.New("oversized invalid-frame reply")
-			}
-			body := make([]byte, length)
-			if _, err = io.ReadFull(stream, body); err != nil {
-				break
-			}
-			var frame struct {
-				Type  string `json:"type"`
-				Bytes uint32 `json:"bytes"`
-			}
-			if json.Unmarshal(body, &frame) != nil || frame.Type != "window" || frame.Bytes != 262144 {
-				stream.Close()
-				return errors.New("invalid signal/credit changed the running fixture")
-			}
-		}
+		err = validateMalformedSessionFrame(stream, bad, evidence, index)
 		stream.Close()
-		if err != io.EOF {
-			return fmt.Errorf("invalid frame did not close transport: %v", err)
+		if err != nil {
+			return err
 		}
 	}
 	// Real SSH key/channel boundary over control's actual DialWorkspacePort relay.
