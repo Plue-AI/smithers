@@ -11,7 +11,7 @@ import { APP_SCHEMA_VERSION } from "../chain/SchemaVersion"
 import { openSqliteRowStorage, ROW_TABLE_NAME } from "../chain/SqliteRowStorage"
 import { createAppStore, PERSISTED_COLLECTION_SPECS } from "./AppStore"
 import { createAppController } from "./AppController"
-import { settled, silentAgent } from "./TestFixtures"
+import { settled, silentAgent, waitFor } from "./TestFixtures"
 
 GlobalRegistrator.register({ url: "https://activity.test/" })
 afterAll(async () => { await settled(); await GlobalRegistrator.unregister() })
@@ -32,17 +32,20 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
  test(`${refresh ? "refreshed" : "first"} activity waits for ${interrupted ? "an interrupted" : "a successful"} SQLite commit and restores only committed bodies`, async () => {
   const directory = mkdtempSync(join(tmpdir(), "smithers-activity-receipt-"))
   const path = join(directory, "app.sqlite")
-  const entered = Promise.withResolvers<void>()
   const release = Promise.withResolvers<void>()
-  let hold = false, activityWrite = false
+  let hold = false, activityWrite = false, commitEntered = false
   const open = async () => {
     const db = new Database(path)
     const adapter = await openSqliteRowStorage({
       execute: async <Row,>(sql: string, params: ReadonlyArray<unknown> = []) => {
-        if (hold && /^\s*INSERT\b/i.test(sql) && params[0] === "app-cards" &&
-          typeof params[3] === "string" && JSON.parse(params[3]).kind === "repo-update") activityWrite = true
+        if (hold && /^\s*INSERT\b/i.test(sql)) {
+          for (let offset = 0; offset < params.length; offset += 4) {
+            const value = params[offset + 3]
+            if (params[offset] === "app-cards" && typeof value === "string" && JSON.parse(value).kind === "repo-update") activityWrite = true
+          }
+        }
         if (hold && activityWrite && /^\s*COMMIT\b/i.test(sql)) {
-          hold = false; entered.resolve(); await release.promise
+          hold = false; commitEntered = true; await release.promise
           if (interrupted) throw new Error("Interrupted activity publication before SQLite COMMIT")
         }
         const statement = db.query(sql)
@@ -57,11 +60,13 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
   let title = "Committed previous receipt"
   const controller = createController(store, silentAgent, {
-    applicationIdentity: { current: async () => null },
+    applicationIdentity: { current: async () => ({ memberId: 1, username: "alice", admin: false, scopes: null }) },
     fetchImpl: async input => String(input).includes("/issues?state=open")
       ? Response.json([{ number: 1, title, state: "open", updated_at: "2026-09-29T00:00:00Z" }])
       : Response.json([])
   })
+  await controller.loadSession()
+  await store.settled?.()
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
   const paint = () => {
@@ -83,7 +88,7 @@ for (const refresh of [false, true]) for (const interrupted of [false, true]) {
     error => { completed = true; return { error } }
   )
   try {
-    await entered.promise
+    await waitFor(() => commitEntered || completed)
     expect(completed).toBe(false)
     const reader = new Database(path, { readonly: true })
     try {
