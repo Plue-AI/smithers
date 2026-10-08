@@ -137,7 +137,7 @@ describe("evaluation suite discovery and execution", () => {
     await writeFile(join(root, "evals"), "not a directory")
     const unreadable = await serve(root, ["list"])
     expect(unreadable.code).toBe(1)
-    expect(unreadable.output).toContain("eval_list_failed")
+    expect(unreadable.json.code).toBe("eval_directory_unreadable")
     expect(unreadable.json.message).toBe(`Cannot read ${join(root, "evals")} as a directory`)
     expect(unreadable.output).not.toContain("ENOTDIR")
     vi.stubEnv("SMITHERS_REMOTE", "https://control.invalid")
@@ -247,7 +247,7 @@ describe("evaluation suite discovery and execution", () => {
     await writeModule(root, `${name}.eval.mjs`, source)
     const result = await serve(root, ["run", name])
     expect(result.code).toBe(5)
-    expect(result.output).toContain("eval_run_failed")
+    expect(result.json.code).toBe("eval_module_invalid")
     expect(result.output).toContain("must export { suite, executor }")
     expect(await readdir(root)).toEqual(["evals"])
   })
@@ -345,7 +345,7 @@ describe("evaluation suite discovery and execution", () => {
     await writeModule(root, "unsafe.eval.mjs", "throw \"api_key=private-eval-fixture\"")
     const response = await serve(root, ["run", "unsafe"])
     expect(response.code).toBe(5)
-    expect(response.output).toContain("eval_run_failed")
+    expect(response.json.code).toBe("eval_module_failed")
     expect(response.output).not.toContain("private-eval-fixture")
     expect(response.json.message).toBe(
       `Could not import ${join(root, "evals", "unsafe.eval.mjs")}; run it directly to see why`
@@ -467,7 +467,7 @@ describe("evaluation artifact selection and verdicts", () => {
     await persist(root, run)
     const missing = await serve(root, ["compare", run.runId])
     expect(missing.code).toBe(5)
-    expect(missing.output).toContain("eval_compare_failed")
+    expect(missing.json.code).toBe("eval_baseline_not_found")
     for (const source of ["{", JSON.stringify({ version: 7, suite: run.suite, records: [] })]) {
       await writeFile(join(root, "invalid.json"), source)
       const invalid = await serve(root, ["compare", run.runId, "--baseline", "invalid.json"])

@@ -171,7 +171,7 @@ describe("evaluation CLI", () => {
     const missing = await serve(root, ["compare", "absent"])
     expect(missing.code, missing.output).toBe(5)
     expect(missing.json).toMatchObject({
-      code: "eval_compare_failed",
+      code: "eval_run_not_found",
       message: `No saved evaluation run at ${Evaluation.runPath(root, "absent")}; run the suite first`
     })
     expect(missing.output).not.toMatch(/ENOENT|no such file/)
@@ -179,7 +179,7 @@ describe("evaluation CLI", () => {
     const broken = await serve(root, ["baseline", "broken.json"])
     expect(broken.code, broken.output).toBe(1)
     expect(broken.json).toMatchObject({
-      code: "eval_baseline_failed",
+      code: "eval_run_invalid",
       message: `${join(root, "broken.json")} is not a saved evaluation run`
     })
     expect(broken.output).not.toMatch(/Unexpected|JSON|position/)
@@ -205,7 +205,7 @@ describe("evaluation CLI", () => {
     const incomplete = await serve(root, ["baseline", "empty"])
     expect(incomplete.code, incomplete.output).toBe(1)
     expect(incomplete.json).toMatchObject({
-      code: "eval_baseline_failed",
+      code: "eval_run_incomplete",
       message: "Cannot commit an incomplete or inconclusive evaluation as a baseline"
     })
   })
