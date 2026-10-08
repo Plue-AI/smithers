@@ -1,12 +1,14 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +54,10 @@ func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[
 	if err != nil {
 		return nil, err
 	}
+	// The list and the Home card follow the stack the engine admits and merges
+	// in: a failed TODO keeps its place, since later TODOs still merge after
+	// it. Only merged and dropped TODOs, which left the stack, follow.
+	slices.SortStableFunc(items, todoStackOrder)
 	ctx = s.todoMachineProjection(ctx, repositoryID, items)
 	views := []map[string]any{}
 	queuePosition := int64(0)
@@ -66,6 +72,23 @@ func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+// todoStackOrder orders items still on the stack by place, then the ones
+// that left it; it keeps the list query's order among equals.
+func todoStackOrder(a, b db.MythicalItem) int {
+	left, right := slices.Contains(mythicalTerminalStates, a.State), slices.Contains(mythicalTerminalStates, b.State)
+	switch {
+	case left != right && left:
+		return 1
+	case left != right:
+		return -1
+	case a.StackPosition.Valid != b.StackPosition.Valid && a.StackPosition.Valid:
+		return -1
+	case a.StackPosition.Valid != b.StackPosition.Valid:
+		return 1
+	}
+	return cmp.Compare(a.StackPosition.Int64, b.StackPosition.Int64)
 }
 func todoAvatar(user db.User) string {
 	if strings.HasPrefix(user.AvatarUrl, "https://") || strings.HasPrefix(user.AvatarUrl, "http://") {

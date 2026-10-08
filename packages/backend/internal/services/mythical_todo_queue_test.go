@@ -92,3 +92,43 @@ func TestTodoQueueReasonAndPositionRealPostgres(t *testing.T) {
 	}
 
 }
+
+// The TODO list and the Home card follow the stack order the engine admits
+// and merges in (C-J4-02): a failed TODO keeps its place ahead of later
+// TODOs, and only merged or dropped TODOs follow the stack.
+func TestTodoListKeepsFailedTodoInStackOrderRealPostgres(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	var userID, repoID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('owner','owner') RETURNING id`).Scan(&userID))
+	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES(true,$1)`, userID)
+	require.NoError(t, err)
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'repo','repo') RETURNING id`, userID).Scan(&repoID))
+	q := db.New(pool)
+	_, err = q.RequestMythicalBootstrap(ctx, repoID, userID, 1, false)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repoID)
+	require.NoError(t, err)
+	s := NewMythicalService(pool, nil)
+	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
+	for _, title := range []string{"One", "Two", "Three", "Four"} {
+		_, err = s.FileTodo(ctx, repoID, userID, MythicalTodoInput{Title: title, Prompt: "Change " + title, Request: title})
+		require.NoError(t, err)
+	}
+	listed := func() []int64 {
+		cards, err := s.Todos(ctx, repoID)
+		require.NoError(t, err)
+		numbers := []int64{}
+		for _, card := range cards {
+			numbers = append(numbers, card["n"].(int64))
+		}
+		return numbers
+	}
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked' WHERE repository_id=$1 AND number=3`, repoID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 2, 3, 4}, listed())
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='cancelled' WHERE repository_id=$1 AND number=2`, repoID)
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 3, 4, 2}, listed())
+}
