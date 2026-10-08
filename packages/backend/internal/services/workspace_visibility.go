@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -42,6 +44,12 @@ func (s *WorkspaceService) workspaceVisibilityOwner(ctx context.Context, id stri
 	return q, nil
 }
 func (s *WorkspaceService) SetWorkspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16, public bool) error {
+	if s != nil && s.installQueries != nil {
+		return s.setInstallWorkspaceServicePublic(ctx, id, repo, user, port, public)
+	}
+	return s.setWorkspaceServicePublic(ctx, id, repo, user, port, public)
+}
+func (s *WorkspaceService) setWorkspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16, public bool) error {
 	q, err := s.workspaceVisibilityOwner(ctx, id, repo, user, port)
 	if err != nil {
 		return err
@@ -50,6 +58,53 @@ func (s *WorkspaceService) SetWorkspaceServicePublic(ctx context.Context, id str
 		return pkgerrors.Internal("save workspace visibility").WithCause(err)
 	}
 	return nil
+}
+
+type WorkspaceVisibilityInput struct {
+	Public *bool `json:"public"`
+}
+
+func InstallWorkspaceVisibilityWriteSubject(repo int64, workspace string, port uint16, public bool) InstallSubject {
+	subject := InstallWorkspaceVisibilitySubject(repo, workspace, port)
+	digest := sha256.Sum256([]byte(strconv.FormatBool(public)))
+	subject.PayloadDigest = hex.EncodeToString(digest[:])
+	return subject
+}
+
+func (s *WorkspaceService) setInstallWorkspaceServicePublic(ctx context.Context, id string, repo, user int64, port uint16, public bool) error {
+	if s.transactions == nil {
+		return confirmationPermission()
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	q := db.New(tx)
+	scoped := *s
+	scoped.q, scoped.installQueries = q, q
+	subject := InstallWorkspaceVisibilityWriteSubject(repo, id, port, public)
+	ctx, err = scoped.authorizeInstallWorkspaceMetadata(ctx, "workspace.preview.update", repo, user, subject)
+	if err != nil {
+		return err
+	}
+	if err = guardInstallMemberCredential(ctx, tx, repo, user, false); err != nil {
+		return err
+	}
+	// Consent cannot race a change of workspace ownership.
+	if _, err = tx.Exec(ctx, "SELECT id FROM workspaces WHERE id=$1::uuid AND repository_id=$2 FOR UPDATE", id, repo); err != nil {
+		if isInvalidTextRepresentation(err) {
+			return pkgerrors.NotFound("workspace not found")
+		}
+		return err
+	}
+	if err = scoped.setWorkspaceServicePublic(ctx, id, repo, user, port, public); err != nil {
+		return err
+	}
+	if err = guardInstallMemberCredential(ctx, tx, repo, user, false); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // InstallWorkspaceVisibilitySubject binds the exact preview consent being read.

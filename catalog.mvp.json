@@ -15098,6 +15098,41 @@
       }
     },
     {
+      "name": "workspace.preview.update",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "write:repository",
+      "agent": "never",
+      "summary": "workspace.preview.update",
+      "http": {
+        "method": "PUT",
+        "path": "/api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "public": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "public"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "workspace.provider-pool",
       "slash": null,
       "cli": null,

@@ -279,3 +279,10 @@ test("private import progress retains the owner person read door", () => {
   const row = httpProjections.find(row => row.name === "runs.cancel")!
   expect(row).toMatchObject({ minimumRole: "member", agent: "confirm", credentialScope: "write:repository", actors: ["person", "app_agent"], visibility: "hidden", slash: null, cli: null, http: { method: "POST", path: "/api/repos/{owner}/{repo}/runs/{id}/cancel" } })
  })
+
+test("preview publication keeps an owner person and concrete boolean", () => {
+ const row = httpProjections.find(row => row.name === "workspace.preview.update")!
+ expect(row).toMatchObject({ minimumRole:"owner", agent:"never", actors:["person"], credentialScope:"write:repository" })
+ expect(Schema.decodeUnknownSync(row.input)({public:false})).toEqual({public:false})
+ expect(() => Schema.decodeUnknownSync(row.input)({public:null})).toThrow()
+})

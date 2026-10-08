@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/go-chi/chi/v5"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"io"
 	"net/http"
 	"strconv"
@@ -33,9 +34,7 @@ func (h *WorkspaceHandler) WorkspaceServiceVisibility(w http.ResponseWriter, r *
 	}
 	var public bool
 	if r.Method == http.MethodPut {
-		var body struct {
-			Public *bool `json:"public"`
-		}
+		var body services.WorkspaceVisibilityInput
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&body); err != nil || body.Public == nil {
