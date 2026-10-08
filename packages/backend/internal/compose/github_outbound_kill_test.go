@@ -302,6 +302,10 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					traceMu.Unlock()
 					lookup := false
 					for _, request := range requests {
+						parts := strings.SplitN(request, " ", 2)
+						if len(parts) == 2 && targetWrite(&http.Request{Method: parts[0], URL: &url.URL{Path: parts[1]}}) {
+							require.True(t, lookup, "repeat must follow lookup, not merely accompany it: %v", requests)
+						}
 						switch kind {
 						case "push":
 							lookup = lookup || strings.HasPrefix(request, "GET ") && strings.HasSuffix(request, "/info/refs")
@@ -335,6 +339,15 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						}
 					}
 					require.Equal(t, 1, writes, "one effective write across SIGKILL")
+					if dropLate {
+						closes := 0
+						for _, write := range r.fake.Writes()[before:] {
+							if write.Method == "PATCH" && strings.Contains(write.Path, "/pulls/") && strings.Contains(string(write.Body), `"closed"`) {
+								closes++
+							}
+						}
+						require.Equal(t, 1, closes, "Drop retains exactly one close obligation for the late-created PR")
+					}
 					var settled, retainedGeneration int64
 					require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.github_operation_settled' AND payload->>'n'=$1 AND payload->'operation'->>'kind'=$2`, fmt.Sprint(number), kind).Scan(&settled))
 					require.EqualValues(t, 1, settled, "one committed settlement fact across restart")
