@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/col01/guestfixture"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -64,7 +65,7 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("snapshot store archive: %w", err)
 	}
-	if err := h.runtime.WriteFile(h.ctx, h.id, "snapshot-store.tar", store, 0600); err != nil {
+	if err := guestfixture.WriteFile(h.ctx, h.runtime, h.id, "snapshot-store.tar", store, 0600); err != nil {
 		return err
 	}
 	// Preparation alone needs GitHub/npm/Node downloads. This exact loopback
@@ -84,7 +85,7 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		if err != nil {
 			return err
 		}
-		if err = h.runtime.WriteFile(h.ctx, h.id, destination, data, 0755); err != nil {
+		if err = guestfixture.WriteFile(h.ctx, h.runtime, h.id, destination, data, 0755); err != nil {
 			return err
 		}
 	}
@@ -213,7 +214,7 @@ func (h *harness) prepareStore(dir string) error {
 		if err != nil {
 			return err
 		}
-		if err = h.runtime.WriteFile(h.ctx, h.id, destination, data, 0755); err != nil {
+		if err = guestfixture.WriteFile(h.ctx, h.runtime, h.id, destination, data, 0755); err != nil {
 			return err
 		}
 	}

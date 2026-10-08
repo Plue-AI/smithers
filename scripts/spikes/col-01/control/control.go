@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/col01/guestfixture"
 	"math"
 	"os"
 	"path/filepath"
@@ -122,7 +123,7 @@ func measure(ctx context.Context, dir, name string, write func(context.Context, 
 
 // Run owns only its fixture PostgreSQL process, never the supplied VM.
 // The service's provider path currently performs two execs: its canonical path
-// guard, then the microsandbox WriteFile operation. The second control records
+// guard, then the unprivileged session fixture write. The second control records
 // the one-exec alternative separately instead of mislabelling either result.
 func Run(ctx context.Context, runtime *microsandbox.Runtime, workspaceID, artifactDir string) (retErr error) {
 	if runtime == nil || workspaceID == "" {
@@ -141,7 +142,7 @@ func Run(ctx context.Context, runtime *microsandbox.Runtime, workspaceID, artifa
 	const name = "col01-control.txt"
 	baseDigest := "absent"
 	write := func(ctx context.Context, content string) error {
-		result, err := svc.WriteWorkspaceFile(ctx, workspaceID, 1, 1, name, content, baseDigest)
+		result, err := svc.WriteWorkspaceFile(ctx, workspaceID, 1, 101, name, content, baseDigest)
 		if err != nil {
 			return err
 		}
@@ -156,11 +157,11 @@ func Run(ctx context.Context, runtime *microsandbox.Runtime, workspaceID, artifa
 		return err
 	}
 	if err := measure(ctx, artifactDir, "one-exec-control", func(ctx context.Context, content string) error {
-		return runtime.WriteFile(ctx, workspaceID, name, []byte(content), 0644)
+		return guestfixture.WriteFile(ctx, runtime, workspaceID, name, []byte(content), 0644)
 	}, read); err != nil {
 		return err
 	}
-	method := map[string]any{"service": "WorkspaceService.WriteWorkspaceFile", "service_path": "sandbox provider with live microsandbox adapter", "service_execs_per_write": 2, "one_exec_path": "microsandbox.Runtime.WriteFile", "one_exec_execs_per_write": 1, "postgres": "isolated local unix socket; product table definitions; fsync enabled; permission and DB work inside service interval", "path_translation": "provider and microsandbox share /workspace", "readback": "real VM Runtime.ReadFile after each write; outside measured interval", "samples_per_path": 100, "warmup_discarded": 0}
+	method := map[string]any{"service": "WorkspaceService.WriteWorkspaceFile", "service_path": "sandbox provider with live microsandbox adapter", "service_execs_per_write": 2, "one_exec_path": "guestfixture.WriteFile (unprivileged session)", "one_exec_execs_per_write": 1, "postgres": "isolated local unix socket; product table definitions; fsync enabled; permission and DB work inside service interval", "path_translation": "provider and microsandbox share /workspace", "readback": "real VM Runtime.ReadFile after each write; outside measured interval", "samples_per_path": 100, "warmup_discarded": 0}
 	data, err := json.MarshalIndent(method, "", "  ")
 	if err != nil {
 		return err

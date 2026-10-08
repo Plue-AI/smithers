@@ -17,8 +17,10 @@ Compilation and local fixture tests do not qualify this measurement path.
 
 - `control.csv` calls the actual `WorkspaceService.WriteWorkspaceFile`, including
   authorization, SQL, VM inspection, the canonical-path guard, and the write.
-- `one-exec-control.csv` calls the actual `microsandbox.Runtime.WriteFile` once
-  per write, matching the ticket's rejected one-exec alternative.
+- `one-exec-control.csv` writes through an ordinary unprivileged session once per small payload.
+  The unconditional runtime writer was removed in #3560; this historical
+  control no longer measures that removed API. New observations must retain
+  this method change and cannot be compared as the same implementation.
 
 The current service's provider path uses **two** guest execs per write, whereas
 the ticket describes one. Its provider adapter forwards real observations,

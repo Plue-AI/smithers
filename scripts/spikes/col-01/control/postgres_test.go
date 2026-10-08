@@ -36,7 +36,7 @@ func TestControlPostgresFixtureEnforcesServiceAuthorizationAndCleansUp(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.ID != id || row.UserID != 1 || row.Status != "running" {
+	if row.ID != id || row.UserID != 101 || row.Status != "running" {
 		t.Fatalf("bad real fixture row: %+v", row)
 	}
 	svc := services.NewWorkspaceService(db.New(f.pool), services.WithWorkspaceTransactions(f.pool))
@@ -45,7 +45,7 @@ func TestControlPostgresFixtureEnforcesServiceAuthorizationAndCleansUp(t *testin
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusForbidden {
 		t.Fatalf("unshared writer should be refused before runtime: %v", err)
 	}
-	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 1, "../outside", "refused", "absent")
+	_, err = svc.WriteWorkspaceFile(ctx, id, 1, 101, "../outside", "refused", "absent")
 	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusBadRequest {
 		t.Fatalf("invalid path should be refused: %v", err)
 	}

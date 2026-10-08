@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"net/url"
@@ -12,11 +11,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
-
-//go:embed fixture.sql
-var fixtureSQL string
 
 type fixture struct {
 	dir     string
@@ -68,16 +65,16 @@ func newFixture(ctx context.Context, workspaceID string) (f *fixture, retErr err
 	if err != nil {
 		return f, err
 	}
-	if _, err = f.pool.Exec(ctx, fixtureSQL); err != nil {
+	if err = product.Apply(ctx, f.pool); err != nil {
 		return f, fmt.Errorf("control schema: %w", err)
 	}
 	// Identity and repository fixture values follow the service suite fixtures.
-	_, err = f.pool.Exec(ctx, `INSERT INTO users(id,username,lower_username,email,lower_email,display_name) VALUES(1,'col01-owner','col01-owner','col01@example.test','col01@example.test','col01-owner');
-	INSERT INTO repositories(id,user_id,name,lower_name,description,is_public,default_bookmark,next_issue_number) VALUES(1,1,'col01','col01','',TRUE,'main',1)`)
+	_, err = f.pool.Exec(ctx, `INSERT INTO users(id,username,lower_username,email,lower_email,display_name) VALUES(101,'col01-owner','col01-owner','col01@example.test','col01@example.test','col01-owner');
+	INSERT INTO repositories(id,user_id,name,lower_name,description,is_public,default_bookmark,next_issue_number) VALUES(1,101,'col01','col01','',TRUE,'main',1)`)
 	if err != nil {
 		return f, err
 	}
-	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status,vm_id,vcpu_count,memory_mb) VALUES($1::uuid,1,1,'col01-control','container','running',$1::text,4,8192)`, workspaceID)
+	_, err = f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,kind,status,vm_id,vcpu_count,memory_mb) VALUES($1::uuid,1,101,'col01-control','container','running',$1::text,4,8192)`, workspaceID)
 	return f, err
 }
 

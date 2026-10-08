@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/col01/guestfixture"
 	"io"
 	"net"
 	"net/http"
@@ -302,7 +303,7 @@ func run() (retErr error) {
 		if err != nil {
 			return err
 		}
-		if err = runtime.WriteFile(ctx, h.id, "col01-"+name, binary, 0755); err != nil {
+		if err = guestfixture.WriteFile(ctx, runtime, h.id, "col01-"+name, binary, 0755); err != nil {
 			return err
 		}
 	}
@@ -314,7 +315,7 @@ func run() (retErr error) {
 		if err != nil {
 			return err
 		}
-		if err = runtime.WriteFile(ctx, h.id, "col01-bridge-nodelay.py", forwarder, 0755); err != nil {
+		if err = guestfixture.WriteFile(ctx, runtime, h.id, "col01-bridge-nodelay.py", forwarder, 0755); err != nil {
 			return err
 		}
 		for _, transport := range rttTransports {

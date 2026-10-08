@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/col01/guestfixture"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func (p *runtimeProvider) WriteFile(ctx context.Context, id, path string, reques
 	if !strings.HasPrefix(path, root) {
 		return fmt.Errorf("control provider refuses path %q", path)
 	}
-	return p.runtime.WriteFile(ctx, id, strings.TrimPrefix(path, root), []byte(request.Content), 0644)
+	return guestfixture.WriteFile(ctx, p.runtime, id, strings.TrimPrefix(path, root), []byte(request.Content), 0644)
 }
 
 // Lifecycle calls are outside this already-running-VM control and fail closed.
