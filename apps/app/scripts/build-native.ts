@@ -198,7 +198,15 @@ writeFileSync(zigcc, zigWrapperScript, { mode: 0o755 })
 const linuxEnvironment = { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
 const jjInstallRoot = join(nativeDir, ".jj-install")
 const guestJjInstallRoot = join(nativeDir, ".jj-linux-arm64-install")
-const jjSource = ["--git", "https://github.com/smithersai/jj.git", "--rev", jjRevision]
+// Build the pinned CLI with the same library source as the
+// daemon/helper. An upstream-only cargo install would restore 0600 guest files.
+const jjSourceDir = join(nativeDir, ".jj-source")
+mkdirSync(jjSourceDir, { recursive: true })
+await run("jj source", ["git", "init", jjSourceDir])
+await run("pinned jj source", ["git", "fetch", "--depth=1", "https://github.com/smithersai/jj.git", jjRevision], jjSourceDir)
+await run("jj checkout", ["git", "checkout", "--detach", "FETCH_HEAD"], jjSourceDir)
+cpSync(join(root, "third_party/jj/lib/src"), join(jjSourceDir, "lib/src"), { recursive: true })
+const jjSource = ["--force", "--path", join(jjSourceDir, "cli")]
 const jjTargetDir = join(cargoTargetDir, `jj-${jjRevision}`)
 try {
   await run(
@@ -236,6 +244,7 @@ await run(
   root,
   { NIX_JJ_GIT_HASH: jjRevision, CARGO_TARGET_DIR: jjTargetDir }
 )
+rmSync(jjSourceDir, { recursive: true, force: true })
 const installedJj = join(jjInstallRoot, "bin", "jj")
 if (output([installedJj, "--version"]) !== jjVersion) throw new Error(`Native releases require ${jjVersion}.`)
 cpSync(installedJj, join(nativeDir, "bin", "jj"))

@@ -219,6 +219,51 @@ fn to_slash_separated(path: &Path) -> OsString {
     buf
 }
 
+// Smithers guests share one repository between agent/member and daemon UIDs.
+// tempfile deliberately creates 0600 files even with umask 002. Grant the
+// workspace group access before publishing the inode, never by sweeping paths.
+// The kernel's descriptor path excludes symlinks that lead outside /workspace.
+#[cfg(target_os = "linux")]
+pub(crate) fn share_workspace_file(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+    let workspace = Path::new("/workspace");
+    let root = match fs::symlink_metadata(workspace) {
+        Ok(root) => root,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if !root.is_dir()
+        || root.uid() != 0
+        || root.gid() != 20000
+        || root.mode() & 0o2070 != 0o2070
+        || root.mode() & 0o002 != 0
+    {
+        return Ok(());
+    }
+    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+    if !path.starts_with(workspace) {
+        return Ok(());
+    }
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.gid() != 20000 {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "workspace temporary file did not inherit team ownership",
+        ));
+    }
+    // Setgid parents already supply team; fchown/fchmod operate on our new
+    // inode, not on a branch-controlled pathname or a preexisting hard link.
+    rustix::fs::fchown(file, None, Some(rustix::fs::Gid::from_raw(20000)))?;
+    file.set_permissions(fs::Permissions::from_mode(metadata.mode() | 0o060))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn share_workspace_file(_file: &File) -> io::Result<()> {
+    Ok(())
+}
+
 /// Persists the temporary file after synchronizing the content.
 ///
 /// After system crash, the persisted file should have a valid content if
@@ -230,6 +275,7 @@ pub fn persist_temp_file<P: AsRef<Path>>(
     temp_file: NamedTempFile,
     new_path: P,
 ) -> io::Result<File> {
+    share_workspace_file(temp_file.as_file())?;
     // Ensure persisted file content is flushed to disk.
     temp_file.as_file().sync_data()?;
     temp_file
@@ -243,6 +289,7 @@ pub fn persist_content_addressed_temp_file<P: AsRef<Path>>(
     temp_file: NamedTempFile,
     new_path: P,
 ) -> io::Result<File> {
+    share_workspace_file(temp_file.as_file())?;
     // Ensure new file content is flushed to disk, so the old file content
     // wouldn't be lost if existed at the same location.
     temp_file.as_file().sync_data()?;

@@ -270,11 +270,12 @@ impl ExecBit {
 /// This is necessary because we write all files by creating them new, so files
 /// won't preserve their permissions naturally.
 #[cfg_attr(not(unix), expect(unused_variables))]
-fn set_executable(exec_bit: ExecBit, disk_path: &Path) -> Result<(), io::Error> {
+fn set_executable(exec_bit: ExecBit, file: &File) -> Result<(), io::Error> {
     #[cfg(unix)]
     {
         let mode = if exec_bit.0 { 0o755 } else { 0o644 };
-        fs::set_permissions(disk_path, fs::Permissions::from_mode(mode))?;
+        file.set_permissions(fs::Permissions::from_mode(mode))?;
+        crate::file_util::share_workspace_file(file)?;
     }
     Ok(())
 }
@@ -2083,7 +2084,7 @@ impl TreeState {
                 ),
                 err: err.into(),
             })?;
-        set_executable(exec_bit, disk_path)
+        set_executable(exec_bit, &file)
             .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
         // Read the file state from the file descriptor. That way, know that the file
         // exists and is of the expected type, and the stat information is most likely
@@ -2161,7 +2162,7 @@ impl TreeState {
                 message: format!("Failed to write conflict to file {}", disk_path.display()),
                 err: err.into(),
             })? as u64;
-        set_executable(exec_bit, disk_path)
+        set_executable(exec_bit, &file)
             .map_err(|err| checkout_error_for_stat_error(err, disk_path))?;
         let metadata = file
             .metadata()
