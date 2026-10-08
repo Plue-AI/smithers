@@ -1,4 +1,5 @@
 import { expect, test } from "./browserTest"
+import { queryDatabase, trackDatabaseWorker } from "./databaseProbe"
 import { owner } from "./spec/j1-fixtures"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
 
@@ -25,6 +26,7 @@ test("install reads the shared conversation with author attribution after reload
 })
 
 test("composer admits in the background and reconnects the same host turn after reload", async ({ page }) => {
+  await trackDatabaseWorker(page)
   await owner(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
@@ -55,6 +57,13 @@ test("composer admits in the background and reconnects the same host turn after 
   expect(requests[0]).toEqual({ prompt: "Shared prompt", idempotencyKey: expect.any(String) })
   admit()
   await expect(page.locator('[data-shared-turn="host-turn"]')).toHaveAttribute("data-state", "running")
+  // A host read can paint the turn before its admission receipt commits locally.
+  // Reload after that receipt, so this assertion exercises accepted recovery.
+  await expect.poll(async () => {
+    const rows = await queryDatabase(page, "SELECT value FROM smithers_collection_rows WHERE collection_id = 'app-sessions'") as { value: string }[]
+    return rows.some(row => JSON.parse(row.value).sharedPrompts?.some((prompt: { id: string; state: string; turnId?: string }) =>
+      prompt.id === (requests[0] as { idempotencyKey: string }).idempotencyKey && prompt.state === "accepted" && prompt.turnId === "host-turn"))
+  }).toBe(true)
   await page.reload()
   await expect(page.locator('[data-shared-turn="host-turn"]')).toHaveAttribute("data-state", "running")
   completed = true
