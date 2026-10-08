@@ -194,7 +194,7 @@ func credentialEnvironment(binding Binding) (map[string]string, error) {
 	return environment, nil
 }
 
-func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.ChatTurnGrant, binding Binding) (lease Lease, launchErr error) {
+func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.ChatTurnGrant, binding Binding) (Lease, error) {
 	if grant.OwnerID <= 0 || grant.TurnID == "" || grant.ProducerBaseURL == "" {
 		return nil, errors.New("chat model host grant is incomplete")
 	}
@@ -222,14 +222,34 @@ func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.C
 		}
 		environment["SMITHERS_CHAT_PREFLIGHT_MODEL"] = string(binding.Preflight.Model)
 	}
+	environment["SMITHERS_CHAT_CALLBACK_URL"] = grant.ProducerBaseURL
+	environment["SMITHERS_CHAT_MODEL"] = string(binding.Model)
+	return launcher.launch(ctx, grant.TurnID+":"+strconv.FormatInt(grant.Generation, 10), environment)
+}
+
+// LaunchTranscriptHost starts the same verified bundle with no model and no
+// provider credential in its environment. It serves only the pure transcript
+// adapters; a turn sent to it has no key to spend. The caller keeps the lease
+// across records and closes it.
+func (launcher *LocalLauncher) LaunchTranscriptHost(ctx context.Context) (Lease, error) {
+	// The host requires a callback address and a model at startup. Neither is
+	// reachable: the discard port takes no chat callback, and an empty model
+	// names no provider.
+	return launcher.launch(ctx, "transcripts", map[string]string{
+		"SMITHERS_CHAT_CALLBACK_URL": "http://127.0.0.1:9",
+		"SMITHERS_CHAT_MODEL":        "{}",
+	})
+}
+
+// launch starts one host process in its own workspace with a fresh private
+// bearer and returns its lease. Environment holds only what the caller chose.
+func (launcher *LocalLauncher) launch(ctx context.Context, identity string, environment map[string]string) (lease Lease, launchErr error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("create private model host token: %w", err)
 	}
 	token := hex.EncodeToString(tokenBytes)
 	environment["SMITHERS_CHAT_HOST_TOKEN"] = token
-	environment["SMITHERS_CHAT_CALLBACK_URL"] = grant.ProducerBaseURL
-	environment["SMITHERS_CHAT_MODEL"] = string(binding.Model)
 	environment["SMITHERS_CHAT_HOST_PARENT_PID"] = strconv.Itoa(os.Getpid())
 
 	// A fresh workspace per launch prevents a duplicate recovery candidate
@@ -261,7 +281,7 @@ func (launcher *LocalLauncher) LaunchChatHost(ctx context.Context, grant ports.C
 		return nil, err
 	}
 	service, err := launcher.runtime.StartService(ctx, workspaceID, workspace.ServiceSpec{
-		Name: "model-host", Identity: grant.TurnID + ":" + strconv.FormatInt(grant.Generation, 10),
+		Name: "model-host", Identity: identity,
 		Command:      workspace.Command{Args: []string{launcher.node, launcher.bundle, "serve", "--host", "127.0.0.1", "--port", port}, Environment: environment},
 		ReadyAddress: address, ReadyTimeout: 15 * time.Second,
 	})

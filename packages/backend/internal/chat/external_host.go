@@ -28,6 +28,12 @@ type ExternalNormalized struct {
 	NeedsMore bool            `json:"needs_more"`
 }
 
+// ErrExternalInvalid means the host answered and would not normalize the
+// request itself: a forged envelope, a checkpoint that is not this source's,
+// or a caller without its bearer. The host is healthy; retrying on another
+// host changes nothing.
+var ErrExternalInvalid = errors.New("external transcript normalization refused")
+
 // ExternalRefusal is the adapter's answer that it does not read this record:
 // a release line or a kind of record outside the ones it names. It is a fact
 // about the agent's transcript, never a transport failure, so the caller stops
@@ -91,7 +97,7 @@ func (h *HTTPChatHost) NormalizeExternalTranscript(ctx context.Context, input Ex
 		}
 	}
 	if res.StatusCode != http.StatusOK {
-		return ExternalNormalized{}, errors.New("external transcript normalization refused")
+		return ExternalNormalized{}, ErrExternalInvalid
 	}
 	data, err := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024+1))
 	if err != nil {

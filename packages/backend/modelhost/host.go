@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -81,6 +82,72 @@ type Host struct {
 	resolver Resolver
 	launcher Launcher
 	standIn  providerStandIn
+
+	// transcripts is the one credential-free host that normalizes external
+	// transcripts. It is launched at the first record and kept: a process per
+	// record would add its start time to every line of a member's session.
+	transcriptMu sync.Mutex
+	transcripts  Lease
+}
+
+// TranscriptLauncher starts the packaged host with no model credential. A
+// launcher that cannot do so leaves transcript import unavailable.
+type TranscriptLauncher interface {
+	LaunchTranscriptHost(context.Context) (Lease, error)
+}
+
+// ErrTranscriptHostUnavailable means this deployment's launcher cannot start
+// the credential-free host, so no transcript can be normalized.
+var ErrTranscriptHostUnavailable = errors.New("model host launcher cannot normalize transcripts")
+
+// transcriptTimeout bounds one record's normalization. The adapters are pure
+// and a record is at most 1 MiB; a host that takes longer is not answering.
+const transcriptTimeout = 30 * time.Second
+
+// NormalizeExternalTranscript sends one framed record to the install-shipped
+// TypeScript adapters and returns their inert drafts and checkpoint. The host
+// it uses holds no provider credential and never reaches a model. The adapter's
+// refusal and the host's rejection of a request are returned as they are; only
+// a host that did not answer is replaced, once, before the error is returned.
+func (host *Host) NormalizeExternalTranscript(ctx context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
+	launcher, ok := host.launcher.(TranscriptLauncher)
+	if !ok {
+		return chat.ExternalNormalized{}, ErrTranscriptHostUnavailable
+	}
+	// Records of one source arrive in order and each needs the checkpoint of
+	// the one before, so one request at a time loses nothing.
+	host.transcriptMu.Lock()
+	defer host.transcriptMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, transcriptTimeout)
+	defer cancel()
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if host.transcripts == nil {
+			lease, err := launcher.LaunchTranscriptHost(ctx)
+			if err != nil {
+				return chat.ExternalNormalized{}, fmt.Errorf("launch transcript host: %w", err)
+			}
+			host.transcripts = lease
+		}
+		baseURL, client, token := leaseEndpoint(host.transcripts)
+		transport, err := chat.NewHTTPChatHost(baseURL, client, token)
+		if err != nil {
+			return chat.ExternalNormalized{}, err
+		}
+		normalized, err := transport.NormalizeExternalTranscript(ctx, input)
+		var refusal *chat.ExternalRefusal
+		if err == nil || errors.As(err, &refusal) || errors.Is(err, chat.ErrExternalInvalid) || ctx.Err() != nil {
+			return normalized, err
+		}
+		// The host did not answer: it exited, or its connection failed. Its
+		// state is the caller's checkpoint, so a new host continues exactly.
+		lastErr = err
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		_ = host.transcripts.Close(cleanupCtx)
+		cancelCleanup()
+		host.transcripts = nil
+	}
+	return chat.ExternalNormalized{}, lastErr
 }
 
 // HostOption configures a Host.
@@ -323,8 +390,15 @@ func (host *Host) SelectContext(ctx context.Context, grant ports.ContextSelectio
 
 // Close releases any launcher's retained cleanup work after dispatcher drain.
 func (host *Host) Close(ctx context.Context) error {
-	if closer, ok := host.launcher.(interface{ Close(context.Context) error }); ok {
-		return closer.Close(ctx)
+	host.transcriptMu.Lock()
+	var transcriptErr error
+	if host.transcripts != nil {
+		transcriptErr = host.transcripts.Close(ctx)
+		host.transcripts = nil
 	}
-	return nil
+	host.transcriptMu.Unlock()
+	if closer, ok := host.launcher.(interface{ Close(context.Context) error }); ok {
+		return errors.Join(transcriptErr, closer.Close(ctx))
+	}
+	return transcriptErr
 }
