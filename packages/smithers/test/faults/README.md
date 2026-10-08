@@ -246,6 +246,14 @@ Their successful exit is not C-DUR-04 evidence. Existing check-run log/receipt
 handling remains the only receipt mechanism; pending-owner mappings remain
 closed. No branch-built code runs as root.
 
+Supplemental `TestBranchRebaseNowNativeComposedExecution` controls now use the
+installed daemon over authenticated production transport for retained file and
+directory symlinks, traversal, and an outside-file canary. Refused writes apply
+nothing; a trusted read and the composed HTTP rebase still succeed afterwards.
+The rehearsal broker has no member sessions: write refusals do not qualify
+successful member writes, cgroup freezing, privileged startup or kill recovery.
+These controls remain separate from the required unavailable matrix.
+
 Still required: approved guest startup and artifact-substitution controls,
 retained symlink/outside/root canaries, actual UID/GID/groups and broker cgroup
 freeze with real member writers; dispatcher-driven rebase kills and recovery

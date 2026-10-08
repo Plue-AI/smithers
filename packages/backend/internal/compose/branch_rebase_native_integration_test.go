@@ -159,6 +159,38 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	require.NoError(t, first.err)
 	require.NoError(t, second.err)
 	require.Same(t, first.link, second.link, "concurrent gateway and branch requests must retain one authenticated boot")
+	// Exercise retained member paths against the installed daemon, rather than
+	// accepting the host-only socket fixture as filesystem confinement proof.
+	// This process provider has no member cgroups and cannot qualify root use.
+	t.Run("retained root input transport controls", func(t *testing.T) {
+		canary := filepath.Join(t.TempDir(), "outside-canary")
+		require.NoError(t, os.WriteFile(canary, []byte("outside preserved\n"), 0600))
+		require.NoError(t, os.Symlink(canary, filepath.Join(guest, "hostile-file")))
+		require.NoError(t, os.Symlink(filepath.Dir(canary), filepath.Join(guest, "hostile-directory")))
+		t.Cleanup(func() {
+			require.NoError(t, os.Remove(filepath.Join(guest, "hostile-file")))
+			require.NoError(t, os.Remove(filepath.Join(guest, "hostile-directory")))
+		})
+		for _, path := range []string{"hostile-file", "hostile-directory/outside-canary", "../outside-canary", "/root/canary"} {
+			file, err := registry.ReadFile(ctx, f.row.ID, path, "")
+			require.Error(t, err, path)
+			require.Empty(t, file.Content, path)
+			result, err := registry.WriteFiles(ctx, f.row.ID, []byte("member"), []machined.FileChange{{Path: path, Content: []byte("must not write\n")}})
+			require.Error(t, err, path)
+			require.Empty(t, result.Applied, path)
+		}
+		for _, target := range []string{"../../root-canary", "--config=alias.rebase=!touch /root/canary", "LD_PRELOAD=/workspace/evil.so", "SMITHERS_MACHINED_KILL_AT=rebase-mid"} {
+			result, err := registry.Rebase(ctx, f.row.ID, []byte("stack"), target)
+			require.Error(t, err, target)
+			require.Zero(t, result, target)
+		}
+		bytes, err := os.ReadFile(canary)
+		require.NoError(t, err)
+		require.Equal(t, "outside preserved\n", string(bytes))
+		file, err := registry.ReadFile(ctx, f.row.ID, "a.txt", "")
+		require.NoError(t, err, "refusals must preserve the authenticated transport")
+		require.Equal(t, "first\n", string(file.Content))
+	})
 	launcher := new(rebaseRecordedLauncher)
 	service.SetLauncher(launcher)
 	service.SetBranchRebaseExecutor(machineRebase{registry: registry, pool: f.pool})
