@@ -84,7 +84,10 @@ func TestBranchRebaseNowOccupiedConflictHandoff(t *testing.T) {
 	testOccupiedRebase(t, []string{"SECOND.md"}, false)
 }
 func TestBranchRebaseNowCapturedStoppedReceipt(t *testing.T) { testOccupiedRebase(t, nil, true) }
-func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool) {
+func TestBranchRebaseAutomaticPresenceShareFence(t *testing.T) {
+	testOccupiedRebase(t, nil, false, true)
+}
+func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool, automatic ...bool) {
 	f := newRebaseFixture(t)
 	first := f.candidate("First", f.main, "FIRST.md", "first\n")
 	f.wake()
@@ -111,8 +114,27 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool) {
 	head := f.git(f.hostDir, "commit-tree", f.hostTree(second.CandidateHead), "-p", f.main, "-m", "native rebase result")
 	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true, Paths: paths}, failCapture: true, stopOnCapture: stopOnCapture}
 	f.service.SetBranchRebaseExecutor(executor)
-	_, err = f.service.RebaseBranch(session, f.repoID, f.userID, branch, BranchRebaseInput{Rebase: true, Request: "press"})
-	require.NoError(t, err)
+	if len(automatic) > 0 && automatic[0] {
+		f.service.SetRebasePresence(func(ctx context.Context, _ int64, branch string) (RebasePresence, error) {
+			read, cancel := context.WithTimeout(ctx, time.Second)
+			defer cancel()
+			tx, err := f.pool.Begin(read)
+			if err != nil {
+				return RebasePresenceUnknown, err
+			}
+			defer tx.Rollback(context.WithoutCancel(ctx))
+			var observed string
+			err = tx.QueryRow(read, `SELECT id::text FROM workspaces WHERE id=$1 FOR SHARE`, branch).Scan(&observed)
+			if err != nil {
+				return RebasePresenceUnknown, err
+			}
+			require.Equal(t, workspace.ID, observed)
+			return RebasePresenceEmpty, nil
+		})
+	} else {
+		_, err = f.service.RebaseBranch(session, f.repoID, f.userID, branch, BranchRebaseInput{Rebase: true, Request: "press"})
+		require.NoError(t, err)
+	}
 	f.wake()
 	pending := f.item(second.Number.Int64)
 	require.Equal(t, head, mythicalChecksOf(pending).Rebase.Native.Head)
@@ -162,5 +184,9 @@ func testOccupiedRebase(t *testing.T, paths []string, stopOnCapture bool) {
 	require.Equal(t, 1, f.verifies(next))
 	require.Equal(t, 1, executor.calls)
 	require.Nil(t, mythicalChecksOf(next).Capture)
-	require.Equal(t, map[string]string{"person": owner.Username}, rebaseRequester(next))
+	if len(automatic) > 0 && automatic[0] {
+		require.Nil(t, rebaseRequester(next))
+	} else {
+		require.Equal(t, map[string]string{"person": owner.Username}, rebaseRequester(next))
+	}
 }

@@ -1328,7 +1328,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
 		mythicalService.SetMovedOffReturn(machineReturn{registry: options.Machined, pool: pool})
-		mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool})
 	}
 	mythicalService.SetTodoLogStore(blobStore)
 	if config.IsSingleOwner(cfg.Auth) {
@@ -1630,6 +1629,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Bind the reader even before source reconstruction finishes. A missing
 		// reader would retain the legacy permission to rebase an unknown branch.
 		bindRebasePresence(mythicalService, presence)
+		if options.Machined != nil {
+			mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool, presence: presence})
+		}
 	}
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)
 	if err != nil {

@@ -435,7 +435,12 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db
 				strings.HasPrefix(checks.Review.Verdict, mythicalOutage) && checks.Outages <= mythicalOutageBound)
 		// A person-admitted Bring in must re-admit its released coding machine.
 		bringPending := checks.ForeignBring != nil
-		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying" || reviewPending || bringPending) && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
+		// A reviewed TODO can release its machine before main moves. Its
+		// pending clean rebase still needs a verification machine from this
+		// same ordered queue; presence and rewrite authority are checked later.
+		rebasePending := item.State == "integrating" && item.Reason == "rebase_pending" &&
+			item.CandidateHead != "" && checks.Rebase != nil && !checks.Rebase.Rebased
+		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying" || reviewPending || bringPending || rebasePending) && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
 		starting := item.WorkspaceID != "" && !item.PausedAt.Valid && mythicalHoldsLane(item)
 		if held || eligible || starting {
 			holders = append(holders, holder)

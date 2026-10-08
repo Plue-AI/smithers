@@ -77,3 +77,24 @@ func TestRebasePresenceMissingInstallReaderFailsClosed(t *testing.T) {
 	require.Equal(t, services.RebasePresenceUnknown, state)
 	require.False(t, services.RebaseAtBoundary(true, state))
 }
+
+func TestRebaseCensusWaitsForCompleteSnapshot(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	err := awaitRebaseCensus(ctx, func() bool {
+		calls++
+		if calls == 2 {
+			cancel()
+		}
+		return false
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 2, calls)
+	require.NoError(t, awaitRebaseCensus(t.Context(), func() bool { return true }))
+	ctx, cancel = context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, awaitRebaseCensus(ctx, func() bool { t.Fatal("cancelled request consulted census"); return true }), context.Canceled)
+	calls = 0
+	require.NoError(t, awaitRebaseCensus(t.Context(), func() bool { calls++; return calls == 2 }))
+	require.Equal(t, 2, calls)
+}

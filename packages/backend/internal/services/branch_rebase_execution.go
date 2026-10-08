@@ -69,6 +69,12 @@ func (st *mythicalItemStep) lockNativeRebaseState(ctx context.Context, tx pgx.Tx
 	if current.Version != item.Version || current.WorkspaceID != item.WorkspaceID || current.PausedAt.Valid || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != onto {
 		return fmt.Errorf("rebase binding changed: %w", db.ErrMythicalItemMoved)
 	}
+	// The existing host's roster read holds SHARE on the workspace. Read it
+	// while stack/item authority is pinned, before taking the exclusive
+	// workspace fence; taking that fence first deadlocks our own RPC.
+	if !st.s.mayExecuteRequestedRebase(ctx, current, onto) && !st.s.mayRebaseItemAtBoundary(ctx, current) {
+		return errors.New("rebase authority changed")
+	}
 	var status, head string
 	if err := tx.QueryRow(ctx, `SELECT status,head_commit_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, item.WorkspaceID, item.RepositoryID).Scan(&status, &head); err != nil {
 		return err

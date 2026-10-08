@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -436,4 +437,46 @@ func TestForeignBringReentersOrderedAdmission(t *testing.T) {
 	item.PausedAt.Valid = true
 	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
 	require.False(t, lanes.TodoMachineEligible(item), "pause continues to hold re-admission")
+}
+
+// Releasing the reviewed lane cannot strand the next prefix rebase outside
+// the shared admission queue. Eligibility does not authorize the rewrite.
+func TestTodoMachineDemandIncludesReleasedRebase(t *testing.T) {
+	svc, _ := machineQueueService(t)
+	lanes := &workspaceMythicalLanes{workspaces: svc}
+	now := time.Now()
+	item := db.MythicalItem{Source: "todo", State: "integrating", Reason: "rebase_pending", CandidateHead: "head", Checks: mythicalChecks{Rebase: &mythicalRebase{Onto: "main"}}.encode()}
+	item.StackPosition.Int64, item.StackPosition.Valid = 1, true
+	for _, c := range []struct {
+		name   string
+		change func(*db.MythicalItem)
+		want   bool
+	}{
+		{"released pending", func(*db.MythicalItem) {}, true},
+		{"no candidate", func(i *db.MythicalItem) { i.CandidateHead = "" }, false},
+		{"no rebase", func(i *db.MythicalItem) { i.Checks = nil }, false},
+		{"completed rebase", func(i *db.MythicalItem) { i.Checks = mythicalChecks{Rebase: &mythicalRebase{Rebased: true}}.encode() }, false},
+		{"different integration", func(i *db.MythicalItem) { i.Reason = "" }, false},
+		{"not on stack", func(i *db.MythicalItem) { i.StackPosition.Valid = false }, false},
+		{"chat", func(i *db.MythicalItem) { i.Source = "chat" }, false},
+		{"paused", func(i *db.MythicalItem) { i.PausedAt = pgtype.Timestamptz{Time: now, Valid: true} }, false},
+		{"write pending", func(i *db.MythicalItem) { i.PendingOp = []byte(`{}`) }, false},
+		{"backoff", func(i *db.MythicalItem) { i.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true} }, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			candidate := item
+			c.change(&candidate)
+			require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{candidate}, 1, now))
+			require.Equal(t, c.want, lanes.TodoMachineEligible(candidate))
+		})
+	}
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 0, now))
+	require.False(t, lanes.TodoMachineEligible(item), "no capacity is not eligibility")
+	earlier := item
+	earlier.ID = pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	item.StackPosition.Int64 = 2
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{earlier, item}, 1, now))
+	require.True(t, lanes.TodoMachineEligible(earlier))
+	require.False(t, lanes.TodoMachineEligible(item), "rebase keeps the existing stack order and cutoff")
+
 }
