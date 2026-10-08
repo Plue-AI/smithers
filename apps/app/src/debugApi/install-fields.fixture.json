@@ -69,7 +69,7 @@
   {"id":"get_api_status","fields":[]},
   {"id":"get_api_health","fields":[]},
   {"id":"get_api_install_metrics","fields":[]},
-  {"id":"get_api_install_ack_delay","fields":[{"name":"query:branch","label":"branch","required":true,"kind":"text"}]},
+  {"id":"get_api_install_ack_delay","fields":[{"name":"query:branch","label":"branch","required":true,"kind":"text"},{"name":"query:actor_reference","label":"actor_reference","required":false,"kind":"text"}]},
   {"id":"post_api_install_ack_delay","fields":[{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},
   {"id":"get_api_install_scorecard","fields":[{"name":"query:from","label":"from","required":true,"kind":"text"},{"name":"query:to","label":"to","required":true,"kind":"text"}]},
   {"id":"get_api_install","fields":[]},
