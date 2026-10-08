@@ -27,7 +27,7 @@ func TestSessionRootInputsValidated(t *testing.T) {
 		argv []string
 		size *SessionSize
 	}{
-		{"unknown kind", 0, nil, nil}, {"zero columns", SessionPTY, nil, &SessionSize{0, 24}}, {"zero rows", SessionPTY, nil, &SessionSize{80, 0}},
+		{"unknown kind", 0, nil, nil}, {"empty exec", SessionExec, nil, nil}, {"too many arguments", SessionPTY, make([]string, 65536), nil}, {"zero columns", SessionPTY, nil, &SessionSize{0, 24}}, {"zero rows", SessionPTY, nil, &SessionSize{80, 0}},
 		{"exec dimensions", SessionExec, []string{"/bin/sh"}, &SessionSize{80, 24}}, {"sftp argv", SessionSFTP, []string{"/workspace/root-canary"}, nil},
 		{"empty executable", SessionPTY, []string{""}, nil},
 		{"NUL argv", SessionPTY, []string{"/bin/sh\x00"}, nil}, {"invalid UTF8", SessionPTY, []string{"\xff"}, nil}, {"oversize argv", SessionPTY, []string{strings.Repeat("x", 4097)}, nil},
@@ -47,8 +47,37 @@ func TestSessionRootInputsValidated(t *testing.T) {
 		_, err = sessions.AttachSession(t.Context(), id, 0)
 		errorCode(t, err, "malformed")
 		errorCode(t, sessions.RegisterRun(t.Context(), "run", id), "malformed")
+		stream, err := sessions.Stream(t.Context(), id)
+		errorCode(t, err, "malformed")
+		require.Nil(t, stream)
 		requireGuestSilent(t, guest)
 	}
+	// Lifecycle selectors cross the same privileged dispatch boundary as open.
+	// A malformed run must neither kill a live run nor bind another session.
+	for _, run := range []string{"", "run\x00foreign", "\xff", strings.Repeat("r", 4097)} {
+		t.Run(fmt.Sprintf("run/%q", run), func(t *testing.T) {
+			sessions, guest := lspConfinementLink(t)
+			_, err := sessions.KillRun(t.Context(), run)
+			errorCode(t, err, "malformed")
+			errorCode(t, sessions.RegisterRun(t.Context(), run, 1), "malformed")
+			requireGuestSilent(t, guest)
+		})
+	}
+	for _, user := range []SessionUser{{"root", 0}, {"../ben", 20001}, {"ben", 19999}, {"agent", 20001}, {"ben", 0x80000000}} {
+		t.Run(fmt.Sprintf("kill/%s/%d", user.Login, user.UID), func(t *testing.T) {
+			sessions, guest := lspConfinementLink(t)
+			_, err := sessions.KillUser(t.Context(), user)
+			errorCode(t, err, "unauthorized")
+			requireGuestSilent(t, guest)
+		})
+	}
+	t.Run("zero loopback port", func(t *testing.T) {
+		sessions, guest := lspConfinementLink(t)
+		_, err := sessions.TCPConnect(t.Context(), 0)
+		errorCode(t, err, "malformed")
+		requireGuestSilent(t, guest)
+	})
+
 }
 
 func TestSessionAdmissionFailsClosed(t *testing.T) {
