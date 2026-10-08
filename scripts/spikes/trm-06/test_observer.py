@@ -19,7 +19,7 @@ spec.loader.exec_module(fixture)
 
 class ObserverReceipt(unittest.TestCase):
     def test_startup_refusal_fixtures_change_only_owned_cgroup_parent(self):
-        for mode in ("cleanup-poison", "cgroup-writable"):
+        for mode in ("cleanup-poison", "cgroup-writable", "cgroup-live-parent-writable"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
                 parent = Path(temporary) / "sessions"
                 parent.mkdir(mode=0o755)
@@ -40,7 +40,7 @@ class ObserverReceipt(unittest.TestCase):
                     self.assertEqual(parent.stat().st_mode & 0o777, 0o777)
 
     def test_replacement_controls_preserve_original_inode_and_outside(self):
-        for mode in ("cgroup-parent-replaced", "cgroup-child-writable"):
+        for mode in ("cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
                 base = Path(temporary)
                 sessions = base / "sessions"
@@ -63,7 +63,7 @@ class ObserverReceipt(unittest.TestCase):
                 with patch.object(fixture.sys, "argv", ["installed-fixture", mode]), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "open", side_effect=own_open), patch.object(fixture, "fingerprint", return_value={"fixture": True}), contextlib.redirect_stdout(io.StringIO()) as output:
                     fixture.main()
                 self.assertEqual(json.loads(output.getvalue())["cgroup_replaced"], mode)
-                if mode == "cgroup-parent-replaced":
+                if mode in ("cgroup-parent-replaced", "cgroup-live-parent-replaced"):
                     self.assertEqual((base / "trm06-sessions-original").stat().st_ino, inode)
                     self.assertNotEqual(sessions.stat().st_ino, inode)
                     self.assertEqual(sessions.stat().st_mode & 0o777, 0o755)

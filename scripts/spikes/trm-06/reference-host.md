@@ -171,3 +171,18 @@ substituted only in the local tests; no installed root acceptance is inferred.
 These checks do not authorize a writable install tree or a concurrent privileged
 writer after final validation. Installed launcher/cgroup races and host-startup
 matrices, unsupported-kernel execution and all manual evidence remain pending.
+
+Pass-4 live cgroup controls (2026-10-08, unrun on reference host):
+`check-session` now also enrolls live foreground/background Ben processes,
+arms held original cgroup events descriptors, then replaces the sessions parent
+inode or makes it writable. A new authenticated open must return an explicit
+refusal before the member canary runs; revocation must drain every original
+observed group within five seconds. Each group needs its original populated-1
+control and a timestamped raw populated-0 observation; a removed path or summary
+alone cannot pass. All Ben processes must be absent and outside sentinel bytes,
+owner and mode unchanged. Raw preparation/mutation/refusal/drain samples remain
+in the scenario evidence directory. These enter the installed authenticated
+relay, not a direct supervisor socket. Local fixture and receipt-parser tests
+are supplemental; they do not qualify actual cgroup races, Darwin launcher
+startup/replacement controls or native/manual acceptance. The campaign remains
+incomplete and refuses PASS until the remaining controls are qualified.

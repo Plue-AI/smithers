@@ -67,7 +67,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	}()
 	scenarios := []string{"symlink-opt", "symlink-run", "existing-prototype", "race-parent", "poison-imports", "branch-supervisor", "bad-sha", "boot-symlink", "boot-writable", "supervisor-replaced", "positive"}
 	if operation == "check-session" {
-		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable"}
+		scenarios = []string{"positive", "device-regular", "cleanup-poison", "cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced", "cgroup-live-parent-writable"}
 	}
 	if operation == "check-no-landlock" {
 		scenarios = []string{"no-landlock"}
@@ -228,7 +228,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	if environmentFixture {
 		prepare = "poison-imports"
 	}
-	if scenario == "no-landlock" || scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
+	if scenario == "no-landlock" || scenario == "branch-supervisor" || scenario == "bad-sha" || scenario == "device-regular" || scenario == "cleanup-poison" || cgroupRestartFixture(scenario) || cgroupLiveFixture(scenario) || scenario == "boot-symlink" || scenario == "boot-writable" || scenario == "supervisor-replaced" {
 		prepare = "positive"
 	}
 	before, err := observe(prepare)
@@ -268,7 +268,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		candidate.supervisorSHA = "0000000000000000000000000000000000000000000000000000000000000000"
 	}
 	err = installPrototype(ctx, &candidate, id, home, runtimeRoot, identity)
-	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && scenario != "boot-symlink" && scenario != "boot-writable" && scenario != "supervisor-replaced" {
+	if scenario != "no-landlock" && !environmentFixture && scenario != "positive" && scenario != "poison-imports" && scenario != "device-regular" && scenario != "cleanup-poison" && !cgroupRestartFixture(scenario) && !cgroupLiveFixture(scenario) && scenario != "boot-symlink" && scenario != "boot-writable" && scenario != "supervisor-replaced" {
 		if err == nil {
 			return fmt.Errorf("installed destination fixture %s was accepted", scenario)
 		}
@@ -316,6 +316,9 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 	}
 	if scenario == "no-landlock" {
 		return validateNoLandlockBoundary(ctx, control, observe, before, evidence)
+	}
+	if cgroupLiveFixture(scenario) {
+		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {
@@ -381,7 +384,7 @@ func compareOutside(before, after []byte) error {
 	return nil
 }
 func runGuestFixture(ctx context.Context, a *installedAuthority, home, machine, source, mode string) ([]byte, error) {
-	if mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
+	if mode != "landlock-kernel" && mode != "positive" && mode != "race-parent" && mode != "poison-imports" && mode != "symlink-opt" && mode != "symlink-run" && mode != "existing-prototype" && mode != "sample" && mode != "fingerprint" && mode != "restart" && mode != "arm" && mode != "drain" && mode != "device-regular" && mode != "cleanup-poison" && mode != "cgroup-writable" && mode != "cgroup-parent-replaced" && mode != "cgroup-child-writable" && mode != "cgroup-live-parent-replaced" && mode != "cgroup-live-parent-writable" && mode != "boundary-sample" && mode != "boot-symlink" && mode != "boot-writable" && mode != "supervisor-replaced" {
 		return nil, errAuthority
 	}
 	// Set argv in install-controlled source, never concatenate member data or

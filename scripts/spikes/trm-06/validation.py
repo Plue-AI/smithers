@@ -314,7 +314,7 @@ def main():
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
         return
-    if operation == "cgroup-writable":
+    if operation in ("cgroup-writable", "cgroup-live-parent-writable"):
         parent = os.open("/sys/fs/cgroup/smithers/sessions", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fchmod(parent, 0o777)
@@ -322,11 +322,11 @@ def main():
             os.close(parent)
         print(json.dumps({"cgroup_parent_writable": True, "outside": fingerprint()}))
         return
-    if operation in ("cgroup-parent-replaced", "cgroup-child-writable"):
+    if operation in ("cgroup-parent-replaced", "cgroup-child-writable", "cgroup-live-parent-replaced"):
         # Only the installed fixture may replace this fixed disposable subtree.
         # Keep the original inode for independent evidence; never redirect a kill
         # to a member-selected path.
-        if operation == "cgroup-parent-replaced":
+        if operation in ("cgroup-parent-replaced", "cgroup-live-parent-replaced"):
             parent = os.open("/sys/fs/cgroup/smithers", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             try:
                 os.rename("sessions", "trm06-sessions-original", src_dir_fd=parent, dst_dir_fd=parent)
