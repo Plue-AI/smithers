@@ -18,11 +18,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -152,6 +155,41 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	require.Equal(t, 200, status, observed)
 	require.Equal(t, map[string]any{"onto": "main", "onto_revision": onto}, observed["rebase_pending"], "pending target binds the actual main commit, not its display label")
 	require.Equal(t, map[string]any{"onto": onto, "state": "running"}, observed["rebase_execution"])
+	// A persisted request observes only its exact rewrite, even when other
+	// committed completion facts arrive before it. Exercise the public receipt
+	// door against the real durable event store, not a mocked receipt provider.
+	recordCompletion := func(principal, target string, generation int64, beforeAdmission bool) {
+		t.Helper()
+		require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+			event, err := jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo.ID), PrincipalID: principal}, uuid.NewString(), "todo.rebased", "working",
+				json.RawMessage(fmt.Sprintf(`{"onto":%q,"generation":%d}`, target, generation)))
+			if err != nil {
+				return err
+			}
+			if beforeAdmission {
+				_, err = tx.Exec(ctx, `UPDATE product_job_events SET recorded_at='2020-01-01T00:00:00Z' WHERE event_id=$1`, event.EventID)
+			}
+			return err
+		}))
+	}
+	for _, other := range []struct {
+		name, principal, target string
+		generation              int64
+		beforeAdmission         bool
+	}{
+		{"another TODO", "todo:22222222-2222-4222-8222-222222222222", onto, 1, false},
+		{"another target", "todo:" + uuid.UUID(item.ID.Bytes).String(), "another-main", 1, false},
+		{"earlier generation", "todo:" + uuid.UUID(item.ID.Bytes).String(), onto, 0, false},
+		{"later generation", "todo:" + uuid.UUID(item.ID.Bytes).String(), onto, 2, false},
+		{"before admission", "todo:" + uuid.UUID(item.ID.Bytes).String(), onto, 1, true},
+	} {
+		t.Run("receipt ignores "+other.name, func(t *testing.T) {
+			recordCompletion(other.principal, other.target, other.generation, other.beforeAdmission)
+			status, observed := read("rebase-press", "pin-cookie")
+			require.Equal(t, 200, status, observed)
+			require.Equal(t, map[string]any{"onto": onto, "state": "running"}, observed["rebase_execution"])
+		})
+	}
 	status, observed = read("unknown-key", "pin-cookie")
 	require.Equal(t, 404, status, observed)
 	otherHash := sha256.Sum256([]byte("other-owner-cookie"))
@@ -194,6 +232,17 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	status, observed = read("rebase-press", "pin-cookie")
 	require.Equal(t, 200, status, observed)
 	require.Equal(t, map[string]any{"onto": onto, "state": "failed"}, observed["rebase_execution"])
+
+	// Completion survives a changed current target and a fresh HTTP reader,
+	// so a reloaded app can settle the original toast without another launch.
+	recordCompletion("todo:"+uuid.UUID(item.ID.Bytes).String(), onto, 1, false)
+	for range 2 {
+		status, observed = read("rebase-press", "pin-cookie")
+		require.Equal(t, 200, status, observed)
+		require.Equal(t, map[string]any{"onto": onto, "state": "completed"}, observed["rebase_execution"])
+	}
+	status, observed = read("rebase-press", "other-owner-cookie")
+	require.Equal(t, 404, status, observed)
 
 	retained, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "smithers/test", Status: "stopped"})
 	require.NoError(t, err)
