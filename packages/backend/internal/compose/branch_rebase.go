@@ -28,18 +28,9 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 	if r.pool == nil || r.registry == nil || guard == nil || !r.registry.EventConsumerReady() {
 		return machined.RewriteResult{}, fmt.Errorf("rebase event consumer: %w", machined.ErrNotReady)
 	}
-	link, err := r.registry.Current(branch)
-	if (err != nil || link.RequireReady(branch) != nil) && r.ensureReady != nil {
-		if err := r.ensureReady(ctx, branch); err != nil {
-			return machined.RewriteResult{}, err
-		}
-		link, err = r.registry.Current(branch)
-	}
+	link, err := r.readyLink(ctx, branch)
 	if err != nil {
-		return machined.RewriteResult{}, fmt.Errorf("rebase connection: %w", err)
-	}
-	if err := link.RequireReady(branch); err != nil {
-		return machined.RewriteResult{}, fmt.Errorf("rebase readiness: %w", err)
+		return machined.RewriteResult{}, err
 	}
 	if r.presence != nil {
 		// Materializing an asleep conflict wakes the daemon first. Its retained
@@ -114,9 +105,32 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 	}
 	return result, nil
 }
-func (r machineRebase) Capture(ctx context.Context, branch string) (machined.CaptureResult, error) {
+
+// Capture and rewrite use the same admitted daemon. Preparing a Scratch
+// capture must not require a previous rebase to have started its transport.
+func (r machineRebase) readyLink(ctx context.Context, branch string) (*machined.Link, error) {
 	if r.registry == nil {
-		return machined.CaptureResult{}, machined.ErrNotReady
+		return nil, machined.ErrNotReady
+	}
+	link, err := r.registry.Current(branch)
+	if (err != nil || link.RequireReady(branch) != nil) && r.ensureReady != nil {
+		if err := r.ensureReady(ctx, branch); err != nil {
+			return nil, err
+		}
+		link, err = r.registry.Current(branch)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("rebase connection: %w", err)
+	}
+	if err := link.RequireReady(branch); err != nil {
+		return nil, fmt.Errorf("rebase readiness: %w", err)
+	}
+	return link, nil
+}
+
+func (r machineRebase) Capture(ctx context.Context, branch string) (machined.CaptureResult, error) {
+	if _, err := r.readyLink(ctx, branch); err != nil {
+		return machined.CaptureResult{}, err
 	}
 	return r.registry.Capture(ctx, branch)
 }

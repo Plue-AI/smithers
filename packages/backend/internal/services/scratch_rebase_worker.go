@@ -42,7 +42,7 @@ func (s *MythicalService) scratchAuthority(ctx context.Context, q *db.Queries, r
 
 // The stack claim and its ordinary order fence remain the sole rewrite
 // authority. A Scratch request never authorizes a TODO or a write to main.
-func (s *MythicalService) lockScratchRebase(ctx context.Context, tx pgx.Tx, r *mythicalRun, id string, in scratchRebaseIntent) (db.Workspace, error) {
+func (s *MythicalService) lockScratchRebase(ctx context.Context, tx pgx.Tx, r *mythicalRun, id string, in scratchRebaseIntent, captured ...string) (db.Workspace, error) {
 	var live bool
 	if err := tx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, r.row.RepositoryID, r.row.Claim).Scan(&live); err != nil {
 		return db.Workspace{}, err
@@ -102,8 +102,12 @@ func (s *MythicalService) lockScratchRebase(ctx context.Context, tx pgx.Tx, r *m
 	}
 	switch in.Phase {
 	case "requested":
-		if head != in.Before || (status != "running" && status != "stopped" && status != "suspended") {
+		captureMatches := len(captured) == 1 && captured[0] == head
+		if status != "running" && status != "stopped" && status != "suspended" {
 			return row, db.ErrMythicalItemMoved
+		}
+		if head != in.Before && !captureMatches {
+			return row, machined.ErrNotReady
 		}
 	case "prepared":
 		if in.Native == nil && (head != in.Before || (status != "stopped" && status != "suspended")) {
@@ -204,7 +208,9 @@ func (s *MythicalService) advanceScratchRebases(ctx context.Context, r *mythical
 							}
 							continue
 						}
-						return err
+						if !errors.Is(err, machined.ErrNotReady) {
+							return err
+						}
 					}
 				}
 				// Keep the same person-authorized request while a writer remains
@@ -226,6 +232,69 @@ func (s *MythicalService) advanceScratchRebase(ctx context.Context, r *mythicalR
 	row, err := s.queries().GetWorkspace(ctx, in.Workspace)
 	if err != nil {
 		return err
+	}
+	if in.Phase == "requested" && row.HeadCommitID != in.Before {
+		// Drain capture outside SQL locks. The same request includes work written
+		// while its writer was busy; its source and original credential stay pinned.
+		if _, err = s.scratchAuthority(ctx, s.queries(), row.RepositoryID, in); err != nil {
+			return err
+		}
+		if s.branchRebase == nil {
+			return machined.ErrNotReady
+		}
+		var capture machined.CaptureResult
+		switch row.Status {
+		case "running":
+			capture, err = s.branchRebase.Capture(ctx, row.ID)
+		case "stopped", "suspended":
+			// Sleep already acknowledged this private head. Read its immutable
+			// host objects without starting a daemon or waking the machine.
+			if err = r.g.fetch(ctx, r.bridge.URL(), 0, 0, repohost.BranchHeadRef(row.ID)); err != nil {
+				return err
+			}
+			refs, readErr := r.g.lsRemote(ctx, r.bridge.URL())
+			if readErr != nil {
+				return readErr
+			}
+			if refs[repohost.BranchHeadRef(row.ID)] != row.HeadCommitID {
+				return machined.ErrNotReady
+			}
+			commit, readErr := r.g.readCommit(ctx, row.HeadCommitID)
+			if readErr != nil {
+				return readErr
+			}
+			capture.Head, capture.Tree = row.HeadCommitID, commit.Tree
+		default:
+			return machined.ErrNotReady
+		}
+		if err != nil {
+			return err
+		}
+		if !isLowerHexRevision(capture.Head) || !isLowerHexRevision(capture.Tree) {
+			return machined.ErrNotReady
+		}
+		if capture.Head != in.Before {
+			err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+				locked, err := s.lockScratchRebase(ctx, tx, r, id, in, capture.Head)
+				if err != nil {
+					return err
+				}
+				if locked.HeadCommitID != capture.Head || locked.Status != row.Status {
+					return machined.ErrNotReady
+				}
+				var pending MachineCapturePending
+				if len(locked.CapturePending) != 0 && (json.Unmarshal(locked.CapturePending, &pending) != nil || pending.Stale || pending.Conflict || pending.Head != capture.Head || pending.Onto != capture.Head || pending.Tree != capture.Tree) {
+					return machined.ErrNotReady
+				}
+				next := in
+				next.Before = capture.Head
+				return saveScratchIntent(ctx, tx, id, next)
+			})
+			if err != nil {
+				return err
+			}
+			return machined.ErrNotReady // reload the committed binding before rewrite
+		}
 	}
 	if in.Phase == "resolved" {
 		if in.Done == nil || in.Native == nil || !in.Native.Inspected || in.ConflictChange == "" {
@@ -318,14 +387,24 @@ func (s *MythicalService) advanceScratchRebase(ctx context.Context, r *mythicalR
 		if err != nil {
 			return err
 		}
-		result, err := s.branchRebase.Rebase(fresh, row.ID, in.Authority.User, in.Onto, in.Base, func(tx pgx.Tx) error { _, err := s.lockScratchRebase(ctx, tx, r, id, in); return err }, func(rewrite func() error) error {
+		result, err := s.branchRebase.Rebase(fresh, row.ID, in.Authority.User, in.Onto, in.Base, func(tx pgx.Tx) error {
+			locked, err := s.lockScratchRebase(ctx, tx, r, id, in)
+			if err == nil && locked.Status != "running" {
+				return machined.ErrNotReady
+			}
+			return err
+		}, func(rewrite func() error) error {
 			var err error
 			tx, err = s.store.Begin(ctx)
 			if err != nil {
 				return err
 			}
-			if _, err = s.lockScratchRebase(ctx, tx, r, id, in); err != nil {
+			locked, err := s.lockScratchRebase(ctx, tx, r, id, in)
+			if err != nil {
 				return err
+			}
+			if locked.Status != "running" {
+				return machined.ErrNotReady
 			}
 			return rewrite()
 		})
@@ -378,7 +457,7 @@ func (s *MythicalService) advanceScratchRebase(ctx context.Context, r *mythicalR
 		if err != nil {
 			return err
 		}
-		if len(locked.CapturePending) != 0 {
+		if (locked.Status != "stopped" && locked.Status != "suspended") || len(locked.CapturePending) != 0 {
 			return machined.ErrNotReady
 		}
 		before, err := r.g.readCommit(ctx, in.Before)

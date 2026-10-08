@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
@@ -64,6 +65,12 @@ func TestScratchRebaseMovedTargetComposedInstall(t *testing.T) {
 func TestScratchRebaseBusyWriterComposedInstall(t *testing.T) {
 	testScratchRebaseComposed(t, false, false, "busy")
 }
+func TestScratchRebaseBusyWriterCapturedEditComposedInstall(t *testing.T) {
+	testScratchRebaseComposed(t, false, false, "busy", "busy-edit")
+}
+func TestScratchRebaseBusyWriterCapturedSleepComposedInstall(t *testing.T) {
+	testScratchRebaseComposed(t, false, false, "busy", "busy-edit", "busy-sleep")
+}
 func TestScratchRebaseTwiceComposedInstall(t *testing.T) {
 	testScratchRebaseComposed(t, false, false, "twice")
 }
@@ -75,10 +82,12 @@ func TestScratchRebaseMovedAfterNativeRewriteComposedInstall(t *testing.T) {
 // Admission, retained request, following rewrite and publication are real.
 type scratchBusyRebase struct {
 	machineRebase
-	busy atomic.Bool
+	busy  atomic.Bool
+	calls atomic.Int32
 }
 
 func (r *scratchBusyRebase) Rebase(ctx context.Context, branch string, member int64, onto, base string, admit func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
+	r.calls.Add(1)
 	if r.busy.Swap(false) {
 		return machined.RewriteResult{}, &machined.SessionError{Code: "busy", Session: 1}
 	}
@@ -197,8 +206,10 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client), services.WithWorkspaceRuntime(runtime))
 	service.SetOrchestration(nil, launcher, services.NewWorkspaceMythicalLanes(workspaces))
 	service.SetBranchRebaseExecutor(machineRebase{registry: registry, pool: f.pool})
+	var busyExecutor *scratchBusyRebase
 	if slices.Contains(options, "busy") {
 		executor := &scratchBusyRebase{machineRebase: machineRebase{registry: registry, pool: f.pool}}
+		busyExecutor = executor
 		executor.busy.Store(true)
 		service.SetBranchRebaseExecutor(executor)
 	}
@@ -256,6 +267,29 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 		require.Zero(t, outages, "a busy writer retains the request without a stack outage")
 		require.Equal(t, before, git("-C", store, "rev-parse", "refs/heads/"+branch))
 		require.Equal(t, receipt, request("POST", branchPath, "scratch-rebase", map[string]bool{"rebase": true}, 202))
+		if slices.Contains(options, "busy-edit") {
+			current, err := registry.ReadFile(ctx, f.row.ID, "later.txt", "")
+			require.NoError(t, err)
+			link, err := registry.Current(f.row.ID)
+			require.NoError(t, err)
+			actor, err := machined.CommitActor(ctx, f.pool, f.row.ID, link.Machine(), func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
+				return machined.ActorIdentity{Kind: "person", MemberID: f.user.ID, Via: "web"}, nil
+			})
+			require.NoError(t, err)
+			written, err := registry.WriteFiles(ctx, f.row.ID, actor, []machined.FileChange{{Path: "later.txt", BaseDigest: &current.Digest, Content: []byte("edit while writer blocks rebase\n")}})
+			require.NoError(t, err)
+			require.Len(t, written.Applied, 1)
+			var capture machined.CaptureResult
+			require.Eventually(t, func() bool {
+				capture, err = registry.Capture(ctx, f.row.ID)
+				return err == nil
+			}, 5*time.Second, 25*time.Millisecond)
+			require.NotEqual(t, before, capture.Head)
+			if slices.Contains(options, "busy-sleep") {
+				_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, f.row.ID)
+				require.NoError(t, err)
+			}
+		}
 	}
 	if slices.Contains(options, "revoked") || slices.Contains(options, "moved-target") {
 		if slices.Contains(options, "revoked") {
@@ -279,6 +313,9 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 		require.Equal(t, main, git("-C", store, "rev-parse", "refs/heads/main"))
 		require.Empty(t, launcher.requests)
 		require.Empty(t, launcher.signals)
+		if slices.Contains(options, "busy-sleep") {
+			require.Equal(t, int32(1), busyExecutor.calls.Load(), "asleep continuation never invokes native rewrite or wakes the daemon")
+		}
 		return
 	}
 	if slices.Contains(options, "moved-after-native") {
@@ -425,7 +462,11 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 	require.NotContains(t, final, "rebase")
 	head := git("-C", store, "rev-parse", "refs/heads/"+branch)
 	require.Equal(t, onto, git("-C", store, "rev-parse", head+"^"))
-	require.Equal(t, "scratch later edit", git("-C", store, "show", head+":later.txt"))
+	if slices.Contains(options, "busy-edit") {
+		require.Equal(t, "edit while writer blocks rebase", git("-C", store, "show", head+":later.txt"))
+	} else {
+		require.Equal(t, "scratch later edit", git("-C", store, "show", head+":later.txt"))
+	}
 	if slices.Contains(options, "conflict-moved") || slices.Contains(options, "moved-after-native") {
 		require.Equal(t, "source latest bytes", git("-C", store, "show", head+":source.txt"))
 	} else {
