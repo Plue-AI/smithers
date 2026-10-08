@@ -1904,7 +1904,12 @@ func (r bindingProcessRuntime) EnsureMachined(ctx context.Context, id string) er
 	if err != nil {
 		return err
 	}
-	if err := provisionRehearsalJJ(observed.Root); err != nil {
+	// Presence can probe while the normal repository setup still runs.
+	// The probe must not initialize the checkout ahead of that setup.
+	if _, err := os.Stat(filepath.Join(observed.Root, ".jj")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return machined.ErrNotReady
+		}
 		return err
 	}
 	err = r.ensureDaemon(ctx, id, observed.Root)

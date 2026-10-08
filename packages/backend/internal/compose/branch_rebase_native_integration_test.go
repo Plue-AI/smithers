@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -65,10 +66,26 @@ func TestBranchRebaseNativeCrashRecovery(t *testing.T) {
 }
 
 func TestTodoInReviewRebaseSelfLoopComposedInstall(t *testing.T) {
-	testBranchRebaseNative(t, true, "", true)
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{InReview: true})
 }
 
-func testBranchRebaseNative(t *testing.T, people bool, point string, review ...bool) {
+func TestBranchRebaseNowNativeComposedConflictContinuation(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true})
+}
+
+func TestBranchRebaseNowNativeComposedConflictDone(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Conflict: true, ManualDone: true})
+}
+
+type rebaseNativeOptions struct{ Conflict, ManualDone, InReview bool }
+
+func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
+	var option rebaseNativeOptions
+	if len(options) > 0 {
+		option = options[0]
+	}
+	conflict, manualDone := option.Conflict, option.ManualDone
+
 	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY") == "" {
 		t.Skip("requires real rehearsal daemon")
 	}
@@ -106,6 +123,9 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	edited := git("-C", source, "rev-parse", "HEAD")
 	git("-C", source, "reset", "--hard", base)
 	require.NoError(t, os.WriteFile(filepath.Join(source, "main.txt"), []byte("new main bytes\n"), 0600))
+	if conflict {
+		require.NoError(t, os.WriteFile(filepath.Join(source, "a.txt"), []byte("main changed\n"), 0600))
+	}
 	git("-C", source, "add", ".")
 	git("-C", source, "commit", "-m", "Main moved")
 	onto := git("-C", source, "rev-parse", "HEAD")
@@ -136,10 +156,17 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	require.NoError(t, service.PollOnce(ctx))
 	item, err := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
 	require.NoError(t, err)
-	checks, _ := json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "capture": map[string]any{"head": edited, "tree": git("--git-dir", store, "rev-parse", edited+"^{tree}"), "base": base, "onto": edited}, "rebase": map[string]any{"onto": onto, "name": "main"}})
+	checkData := map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "rebase": map[string]any{"onto": onto, "name": "main"}}
+	if !conflict {
+		// A real captured edit waiting on the moved prefix must reach native
+		// rebase before ordinary edit verification can consume it.
+		checkData["capture"] = map[string]any{"head": edited, "tree": git("-C", store, "rev-parse", edited+"^{tree}"), "base": base, "onto": edited}
+	}
+	checks, _ := json.Marshal(checkData)
+
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',attempt=1,flow_digest=$2,request_run_id='pinned-run',workspace_id=$3,candidate_base=$4,candidate_head=$5,candidate_verified=true,next_attempt_at=NOW(),plan='{"checks":[]}',checks=$6 WHERE id=$1`, item.ID, strings.Repeat("b", 64), f.row.ID, base, edited, checks)
 	require.NoError(t, err)
-	inReview := len(review) > 0 && review[0]
+	inReview := option.InReview
 	if inReview {
 		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET pr_number=999,pr_state='open',pr_head=$2 WHERE id=$1`, item.ID, edited)
 		require.NoError(t, err)
@@ -182,10 +209,11 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	change.Dir = guest
 	changeID, err := change.Output()
 	require.NoError(t, err)
-	// A coding workspace keeps a working-copy descendant above its item.
-	// Rebase must include the item's delta and keep its bound identity.
+	// A real coding workspace keeps a working-copy descendant above its item.
+	// Rebase must include the item's delta and keep that bound identity.
 	descendant := exec.CommandContext(ctx, jj, "new", "-r", "@")
 	descendant.Dir = guest
+	// The fixture uses the native CLI; the rewrite uses authenticated RPC.
 	output, err = descendant.CombinedOutput()
 	require.NoError(t, err, string(output))
 	evidence := t.TempDir()
@@ -279,6 +307,8 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	})
 	launcher := new(rebaseRecordedLauncher)
 	service.SetLauncher(launcher)
+	workspaces := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceInstallAuthorization(q), services.WithBranchHeads(client))
+	bindConflictValidator(service, workspaces, registry.InspectConflict)
 	service.SetBranchRebaseExecutor(machineRebase{registry: registry, pool: f.pool})
 	service.SetRebasePresence(func(context.Context, int64, string) (services.RebasePresence, error) {
 		if people {
@@ -296,6 +326,25 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	server.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: f.pool}, Owners: q, Roster: q, Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }}, &routes.WorkspaceHandler{Service: f.p.branches}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, AckDelay: &routes.InstallAckDelayHandler{Queries: q, Registry: registry}, Live: channel})
 	server.Start()
 	t.Cleanup(server.Close)
+	doneRequest := func(change, onto string, status int) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]string{"conflict_change": change, "onto_revision": onto})
+		require.NoError(t, err)
+		req, err := http.NewRequest("POST", origin+"/api/branches/"+f.row.ID, bytes.NewReader(payload))
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+		req.Header.Set("X-CSRF-Token", "csrf")
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", "conflict-done")
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+		require.NoError(t, res.Body.Close())
+		require.Equal(t, status, res.StatusCode, body)
+	}
 	readReceipt := func(state string) {
 		req, err := http.NewRequest("GET", origin+"/api/todos/1?rebase_request=native-press", nil)
 		require.NoError(t, err)
@@ -415,22 +464,91 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 		require.NoError(t, service.PollOnce(ctx))
 		current, err = q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
-		if current.State == "verifying" {
+		if current.State == "verifying" || (conflict && current.Reason == "rebase_conflict_pending") {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	require.Equal(t, "verifying", current.State, "reason=%s checks=%s", current.Reason, current.Checks)
+	if conflict {
+		require.Equal(t, "rebase_conflict_pending", current.Reason)
+		for range 3 {
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+		}
+		require.Len(t, launcher.requests, 1, "one durable repair launch under the existing attempt")
+		require.Equal(t, "coding/rebase-conflict", launcher.requests[0].FlowID)
+		require.Equal(t, strings.Repeat("b", 64), launcher.requests[0].Pin.ExecutionDigest)
+		require.Empty(t, launcher.signals)
+		readReceipt("running")
+		// This boundary test records engine launches; the host/agent journey
+		// separately exercises real projection and durable repair execution.
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{conflictReservation,resolution_run}','"repair-run"') WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		if !manualDone {
+			require.NoError(t, os.WriteFile(filepath.Join(guest, "a.txt"), []byte("first and main changed\n"), 0600))
+			// Resolution can precede the real engine's Done projection. Polling
+			// must hold it rather than signal an alias which does not exist yet.
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+			require.Empty(t, launcher.signals)
+			current, err = q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, "rebase_conflict_pending", current.Reason)
+		}
+		var repair struct {
+			Input struct{ Change, Onto, Name string }
+		}
+		require.NoError(t, json.Unmarshal(launcher.requests[0].Payload, &repair))
+		wait, err := json.Marshal([]services.TodoWait{{ID: "recorded-done", Kind: "conflict", ConflictChange: repair.Input.Change, OntoRevision: repair.Input.Onto, Since: time.Now(), Signal: &services.TodoWaitSignal{Scope: launcher.requests[0].Scope, Target: launcher.requests[0].Target, Run: "repair-run", Flow: "coding/rebase-conflict", Name: repair.Input.Name}}})
+		require.NoError(t, err)
+		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1`, item.ID, wait)
+		require.NoError(t, err)
+		if manualDone {
+			doneRequest("stale-change", repair.Input.Onto, 409)
+			doneRequest(repair.Input.Change, repair.Input.Onto, 409)
+			require.NoError(t, os.WriteFile(filepath.Join(guest, "a.txt"), []byte("first and main changed\n"), 0600))
+			doneRequest(repair.Input.Change, repair.Input.Onto, 202)
+			doneRequest(repair.Input.Change, repair.Input.Onto, 202)
+			require.Len(t, launcher.signals, 1, "Done replays the same bound wait")
+		}
+		for range 5 {
+			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
+			current, err = q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			if current.State == "verifying" {
+				break
+			}
+		}
+		require.Len(t, launcher.signals, 1, "resolution releases the repair launch once")
+		require.Equal(t, "repair-run", launcher.signals[0].RunID)
+		require.Contains(t, launcher.signals[0].Name, "conflict#")
+		require.Equal(t, "pinned-run", current.RequestRunID)
+		require.EqualValues(t, 1, current.Attempt)
+	}
+	require.Equal(t, "verifying", current.State, current.Reason)
 	if people {
 		readReceipt("completed")
 	}
+
 	require.Equal(t, onto, current.CandidateBase)
 	require.NotEqual(t, edited, current.CandidateHead)
 	require.Equal(t, int64(1), current.Generation)
-	require.Len(t, launcher.requests, 1)
-	require.Equal(t, "coding/verify", launcher.requests[0].FlowID)
+	launches := 1
+	if conflict {
+		launches = 2
+	}
+	require.Len(t, launcher.requests, launches)
+	require.Equal(t, "coding/verify", launcher.requests[launches-1].FlowID)
 	require.Equal(t, onto, git("--git-dir", store, "rev-parse", current.CandidateHead+"^"))
-	require.Equal(t, "first", git("--git-dir", store, "show", current.CandidateHead+":a.txt"))
+	if conflict {
+		require.Equal(t, "first and main changed", git("--git-dir", store, "show", current.CandidateHead+":a.txt"))
+	} else {
+		require.Equal(t, "first", git("--git-dir", store, "show", current.CandidateHead+":a.txt"))
+	}
 	require.Equal(t, "later item bytes", git("--git-dir", store, "show", current.CandidateHead+":second.txt"))
 	require.Equal(t, "new main bytes", git("--git-dir", store, "show", current.CandidateHead+":main.txt"))
 	var system, requester string
@@ -567,7 +685,15 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, review ...b
 	}
 }
 
-type rebaseRecordedLauncher struct{ requests []flowdispatch.LaunchRequest }
+type rebaseRecordedLauncher struct {
+	requests []flowdispatch.LaunchRequest
+	signals  []flowdispatch.SignalRequest
+}
+
+func (l *rebaseRecordedLauncher) SignalInTx(_ context.Context, _ pgx.Tx, in flowdispatch.SignalRequest) (jobs.RequestReceipt, error) {
+	l.signals = append(l.signals, in)
+	return jobs.RequestReceipt{}, nil
+}
 
 func (l *rebaseRecordedLauncher) AdmitInTx(_ context.Context, _ pgx.Tx, in flowdispatch.LaunchRequest) (jobs.RequestReceipt, error) {
 	l.requests = append(l.requests, in)

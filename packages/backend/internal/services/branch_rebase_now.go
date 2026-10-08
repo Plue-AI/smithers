@@ -63,10 +63,58 @@ func (s *MythicalService) RebaseBranch(ctx context.Context, repository, actor in
 	if _, err := todoRequestCredential(ctx, actor); err != nil {
 		return TodoControlReceipt{}, err
 	}
-	if !input.Rebase || s.host == nil || s.launcher == nil {
+	if s.host == nil || s.launcher == nil {
 		return TodoControlReceipt{}, &BranchError{503, "rebase_execution_unavailable", "infra", "Rebase execution unavailable"}
 	}
+	if !input.Rebase {
+		return s.answerBranchConflict(ctx, repository, actor, branch, input)
+	}
 	return s.requestBranchRebase(ctx, repository, actor, branch, input)
+}
+
+// Both Branch Done and TODO Done settle the same native-bound durable wait.
+// The public branch payload cannot choose another wait or coding run.
+func (s *MythicalService) answerBranchConflict(ctx context.Context, repository, actor int64, branch string, input BranchRebaseInput) (TodoControlReceipt, error) {
+	number, err := branchTodoNumber(ctx, s.store, repository, branch)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TodoControlReceipt{}, &BranchError{409, "stale_conflict", "conflict", "The conflict target changed"}
+	}
+	if err != nil {
+		return TodoControlReceipt{}, err
+	}
+	item, err := s.queries().GetMythicalItemByNumber(ctx, repository, number)
+	if err != nil {
+		return TodoControlReceipt{}, err
+	}
+	workspace, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
+	if err != nil {
+		return TodoControlReceipt{}, err
+	}
+	if _, parseErr := uuid.Parse(branch); parseErr == nil && workspace.ID != branch {
+		return TodoControlReceipt{}, &BranchError{409, "rebase_target_changed", "conflict", "Branch changed"}
+	}
+	for _, wait := range mythicalChecksOf(item).Waits {
+		if wait.Kind == "conflict" && wait.ConflictChange == input.ConflictChange && wait.OntoRevision == input.OntoRevision {
+			if err := s.answerTodo(ctx, repository, actor, number, TodoAnswerInput{Wait: wait.ID, Answer: "done"}, "branch.rebase"); err != nil {
+				return TodoControlReceipt{}, err
+			}
+			return TodoControlReceipt{State: "accepted", Number: number, Onto: input.OntoRevision}, nil
+		}
+	}
+	return TodoControlReceipt{}, &BranchError{409, "stale_conflict", "conflict", "The conflict target changed"}
+}
+
+func branchTodoNumber(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, repository int64, branch string) (int64, error) {
+	var number int64
+	err := q.QueryRow(ctx, `SELECT i.number FROM mythical_items i
+        WHERE i.repository_id=$1 AND (i.source='todo' OR (i.source='issue' AND jsonb_array_length(i.revisions)>0))
+        AND (i.workspace_id=$2 OR i.checks->>'branch'=$2
+            OR EXISTS (SELECT 1 FROM mythical_lanes l JOIN workspaces w ON w.id::text=l.workspace_id
+              WHERE l.item_id=i.id AND (w.id::text=$2 OR (w.target_bookmark=$2 AND w.target_bookmark <> 'mythical'))))
+        ORDER BY i.created_at DESC LIMIT 1`, repository, branch).Scan(&number)
+	return number, err
 }
 
 func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, actor int64, branch string, input BranchRebaseInput) (TodoControlReceipt, error) {
@@ -91,12 +139,7 @@ func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, a
 		}
 		// Resolve both the durable workspace ID and the published branch name.
 		// A retired review lane cannot select a different item's candidate.
-		var number int64
-		err = tx.QueryRow(ctx, `SELECT i.number FROM mythical_items i
-          WHERE i.repository_id=$1 AND i.source='todo' AND (i.workspace_id=$2 OR i.checks->>'branch'=$2
-            OR EXISTS (SELECT 1 FROM mythical_lanes l JOIN workspaces w ON w.id::text=l.workspace_id
-              WHERE l.item_id=i.id AND (w.id::text=$2 OR (w.target_bookmark=$2 AND w.target_bookmark <> 'mythical'))))
-          ORDER BY i.created_at DESC LIMIT 1`, repository, branch).Scan(&number)
+		number, err := branchTodoNumber(ctx, tx, repository, branch)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return &BranchError{503, "rebase_execution_unavailable", "infra", "Rebase execution unavailable"}
 		}
@@ -212,10 +255,16 @@ func (s *MythicalService) RebaseReceipt(ctx context.Context, repository, number 
 		return nil, err
 	}
 	state := "running"
+	conflictNeedsPerson := false
+	if item.Reason == "rebase_conflict_pending" {
+		for _, wait := range todoOpenWaits(item) {
+			conflictNeedsPerson = conflictNeedsPerson || wait.Kind == "conflict"
+		}
+	}
 	pending := mythicalChecksOf(item).Rebase
 	if completed {
 		state = "completed"
-	} else if pending == nil || pending.Onto != onto || pending.Rebased || item.Reason == "rebase_conflict_pending" || mythicalSettledStates[item.State] || item.CandidateHead != head {
+	} else if pending == nil || pending.Onto != onto || pending.Rebased || conflictNeedsPerson || mythicalSettledStates[item.State] || item.CandidateHead != head {
 		state = "failed"
 	}
 	return map[string]any{"onto": onto, "state": state}, nil

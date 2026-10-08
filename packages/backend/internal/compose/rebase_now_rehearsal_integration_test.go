@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,6 +24,7 @@ func testRebaseNowRehearsal(t *testing.T, explicitOnly bool) {
 	if !r.setupSource() || !r.setupMachine() {
 		return
 	}
+
 	var n int64
 	if !r.step("Reviewed TODO", "POST /api/todos; GET /api/todos/{n}", "In review with a pull request", "T-STK-08", func() error {
 		var err error
@@ -127,7 +129,73 @@ func (r *rehearsal) rebaseNowBranch(n int64) (string, error) {
 	return r.rebaseBranch(n, true)
 }
 
+func TestRebaseConflictRehearsal(t *testing.T) {
+	r := newRehearsal(t, "SMITHERS_REBASE_REHEARSAL", "C-J7-03", "rebase-conflict-")
+	if !r.setupSource() || !r.setupMachine() {
+		return
+	}
+	var n int64
+	var run string
+	var attempt int32
+	if !r.step("Reviewed TODO", "POST /api/todos; GET /api/todos/{n}", "In review with a pull request", "T-STK-08", func() error {
+		if err := r.waitStackActive(); err != nil {
+			return err
+		}
+		var err error
+		n, err = r.file("First TODO", "Add a greeting to JOURNEY.md")
+		if err != nil {
+			return err
+		}
+		if _, err = r.waitTodoWithin(n, j10RunWait, "in_review"); err != nil {
+			return err
+		}
+		return r.pool.QueryRow(r.t.Context(), `SELECT request_run_id,attempt FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&run, &attempt)
+	}) {
+		return
+	}
+	r.step("Agent resolves the rebase in the same attempt", "POST /api/branches/{b} {rebase:true}; coding host; GitHub fake", "one repair in the same pinned attempt, both sides retained, same PR updated", "T-STK-08", func() error {
+		if _, err := r.rebaseBranchWithMain(n, true, "JOURNEY.md", "Greeting from new main\n"); err != nil {
+			return err
+		}
+		var currentRun string
+		var currentAttempt int32
+		if err := r.pool.QueryRow(r.t.Context(), `SELECT request_run_id,attempt FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&currentRun, &currentAttempt); err != nil {
+			return err
+		}
+		if currentRun != run || currentAttempt != attempt {
+			return fmt.Errorf("conflict replaced TODO run/attempt: %s/%d → %s/%d", run, attempt, currentRun, currentAttempt)
+		}
+		card, err := r.todo(n)
+		if err != nil {
+			return err
+		}
+		content, err := r.githubGit("show", card.PR.Head+":JOURNEY.md")
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(content, "Greeting from new main") || !strings.Contains(content, "Hello from Smithers!") {
+			return fmt.Errorf("conflict lost a side: %q", content)
+		}
+		var launches int
+		if err := r.pool.QueryRow(r.t.Context(), `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.launch' AND payload->>'flowId'='coding/rebase-conflict'`).Scan(&launches); err != nil {
+			return err
+		}
+		if launches != 1 {
+			return fmt.Errorf("%d conflict launches, want one", launches)
+		}
+		return nil
+	})
+}
+
 func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
+	path := "REBASE-NOW.md"
+	if !press {
+		path = "PRESENCE-REBASE.md"
+	}
+	return r.rebaseBranchWithMain(n, press, path, "clean main change\n")
+}
+
+func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, targetContent string) (string, error) {
 	before, err := r.todo(n)
 	if err != nil {
 		return "", err
@@ -146,11 +214,7 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 	if err = tab.presence(map[string]any{"branch": before.Branch.ID}); err != nil {
 		return "", err
 	}
-	targetPath := "REBASE-NOW.md"
-	if !press {
-		targetPath = "PRESENCE-REBASE.md"
-	}
-	main, err := r.pushMain(targetPath, "clean main change\n", "Clean rebase target")
+	main, err := r.pushMain(targetPath, targetContent, "Rebase target")
 	if err != nil {
 		return "", err
 	}
@@ -202,7 +266,7 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if card.State == "failed" {
+		if card.State == "failed" || card.State == "blocked" {
 			return "", fmt.Errorf("T%d rebase verification blocked: %+v", n, card)
 		}
 		if card.State == "in_review" && card.PR.Head != before.PR.Head && card.Merge.State == "ready" {

@@ -187,10 +187,16 @@ test("a repository with no Smithers files serves engine verification with its de
   await mkdir(join(root, "flows"))
   const { planning, built } = await startup(root, stateRoot)
   assert.deepEqual(configuredCodingRoutes({ planning }).map((route) => route.name), [
+    "coding/rebase-conflict",
     "coding/verify",
     "flow-load"
   ])
   assert.deepEqual(missingCodingExecutables(built, { planning }), [])
+  const repair = built.executables.find((entry) => entry.descriptor.name === "coding/rebase-conflict")
+  assert.ok(repair, "the composed host can plan the internal repair flow")
+  assert.equal(repair.descriptor.modelInvocable, false)
+  assert.match(Descriptor.executionDigest(repair.descriptor) ?? "", /^[0-9a-f]{64}$/)
+
   for (const flow of ["checks/test", "checks/lint", "checks/build"]) {
     const entry = built.executables.find((candidate) => candidate.descriptor.name === flow)
     assert.ok(entry, `${flow} is registered`)

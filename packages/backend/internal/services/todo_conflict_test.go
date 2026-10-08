@@ -117,3 +117,37 @@ func TestConflictWaitRetainsAttemptAndNativePaths(t *testing.T) {
 	mythicalProjectWaits(&item, mythicalProjection{Phase: "todo"}, update, "run", now)
 	require.Nil(t, mythicalChecksOf(item).Waits[0].SettledAt, "absence is not native conflict resolution")
 }
+
+// E-19 launches repair separately without replacing the finite TODO run.
+func TestConflictContinuationWaitKeepsAttemptAuthority(t *testing.T) {
+	now := time.Unix(100, 0).UTC()
+	item := db.MythicalItem{ID: pgtype.UUID{Bytes: [16]byte{1}, Valid: true}, RepositoryID: 1, Attempt: 3, State: "integrating", WorkspaceID: "branch", RequestRunID: "original-todo", FlowDigest: pgtype.Text{String: strings.Repeat("b", 64), Valid: true}, Integration: []byte(`{"conflict":{"head":"change","onto":"onto","paths":["actual.txt"]}}`)}
+	checks := mythicalChecks{RunLaunched: true, RunAttached: true, FlowSource: strings.Repeat("a", 40), Rebase: &mythicalRebase{Onto: "onto"}, ConflictReservation: &todoConflictReservation{Change: "change", Onto: "onto", Run: "original-todo", Limit: 1, Reserved: 1, Dispatched: true, ResolutionRun: "repair"}}
+	item.Checks = checks.encode()
+	wait := flowruntime.PendingWait{RunID: "repair-child", Token: "park", Name: "conflict", Request: json.RawMessage(`{"kind":"conflict","conflict_change":"change","onto_revision":"onto","paths":["invented"]}`)}
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: jobs.Scope{TenantID: "repository:1", PrincipalID: "user:1"}, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/rebase-conflict", RunID: "repair", Target: flowruntime.Target{TenantID: "repository:1", PrincipalID: "user:1", WorkspaceID: "branch", BindingKind: "mythical-item", BindingID: uuidString(item.ID)}, Run: &flowruntime.Run{RunID: "repair", PendingWaits: []flowruntime.PendingWait{wait, wait}}}}
+	for range 10 {
+		mythicalProjectWaits(&item, mythicalProjection{Phase: "conflict"}, update, "repair", now)
+	}
+	got := mythicalChecksOf(item)
+	require.Len(t, got.Waits, 1)
+	require.Equal(t, []string{"actual.txt"}, got.Waits[0].Paths)
+	require.Equal(t, "repair", got.Waits[0].Signal.Run)
+	require.Equal(t, "original-todo", item.RequestRunID)
+	require.EqualValues(t, 3, item.Attempt)
+	require.Equal(t, 1, got.ConflictReservation.Reserved)
+	for _, foreign := range []string{"original-todo", "unadmitted-repair"} {
+		u := update
+		u.Checkpoint.RunID = foreign
+		_, accepted := todoConflictWait(item, wait, u, now)
+		require.False(t, accepted, foreign)
+	}
+	u := update
+	u.Checkpoint.FlowID = "todo"
+	_, accepted := todoConflictWait(item, wait, u, now)
+	require.False(t, accepted, "repair cannot impersonate the original flow")
+	got.ConflictReservation.Run = "other-attempt"
+	item.Checks = got.encode()
+	_, accepted = todoConflictWait(item, wait, update, now)
+	require.False(t, accepted, "repair cannot cross attempt authority")
+}

@@ -613,7 +613,17 @@ func (r *rehearsal) pushMain(path, content, message string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tree, err := run(listing+"\n100644 blob "+blob+"\t"+path+"\n", "mktree")
+	// Replacing a tracked file must replace its tree entry. mktree accepts
+	// duplicates, but native JJ correctly rejects that malformed Git tree.
+	entries := make([]string, 0)
+	for _, entry := range strings.Split(listing, "\n") {
+		_, name, found := strings.Cut(entry, "\t")
+		if found && name != path {
+			entries = append(entries, entry)
+		}
+	}
+	entries = append(entries, "100644 blob "+blob+"\t"+path)
+	tree, err := run(strings.Join(entries, "\n")+"\n", "mktree")
 	if err != nil {
 		return "", err
 	}

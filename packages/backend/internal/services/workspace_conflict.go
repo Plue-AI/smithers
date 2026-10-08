@@ -17,6 +17,15 @@ type WorkspaceConflictValidator struct {
 }
 
 func (v *WorkspaceConflictValidator) UnresolvedPaths(ctx context.Context, in ConflictValidation) ([]string, error) {
+	return v.unresolvedPaths(ctx, in, false)
+}
+
+// UnresolvedPathsForStack reads only the conflict durably reserved by the
+// stack. It grants no person command or browser credential to the worker.
+func (v *WorkspaceConflictValidator) UnresolvedPathsForStack(ctx context.Context, in ConflictValidation) ([]string, error) {
+	return v.unresolvedPaths(ctx, in, true)
+}
+func (v *WorkspaceConflictValidator) unresolvedPaths(ctx context.Context, in ConflictValidation, stackRead bool) ([]string, error) {
 	unavailable := errors.New("conflict working copy unavailable")
 	s := v.Workspaces
 	if s == nil || s.installQueries == nil || in.Workspace == "" || in.Change == "" || in.Onto == "" || in.Run == "" || in.Digest == "" {
@@ -36,10 +45,24 @@ func (v *WorkspaceConflictValidator) UnresolvedPaths(ctx context.Context, in Con
 	}
 	// Reuse branch access and retained-ref verification from ordinary file reads.
 	actor := middleware.UserFromContext(ctx)
-	if actor == nil {
-		return nil, unavailable
+	var actorID int64
+	if stackRead {
+		reservation := mythicalChecksOf(item).ConflictReservation
+		if item.Reason != "rebase_conflict_pending" || mythicalMergeFenced(item) || reservation == nil || reservation.Change != in.Change || reservation.Onto != in.Onto || reservation.Run != in.Run {
+			return nil, unavailable
+		}
+		stack, err := s.installQueries.GetMythicalStack(ctx, item.RepositoryID)
+		if err != nil || stack.State != "active" || !stack.ActorUserID.Valid {
+			return nil, unavailable
+		}
+		actorID = stack.ActorUserID.Int64
+	} else {
+		if actor == nil {
+			return nil, unavailable
+		}
+		actorID = actor.ID
 	}
-	row, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, in.Workspace, item.RepositoryID, actor.ID)
+	row, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, in.Workspace, item.RepositoryID, actorID)
 	if err != nil {
 		return nil, err
 	}

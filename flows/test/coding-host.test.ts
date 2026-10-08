@@ -38,17 +38,20 @@ test("the repository default and a landing binding select the coding routes", as
   const planning = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
   assert.ok(planning)
   assert.deepEqual(configuredCodingRoutes({ planning, landing }), [
+    { name: "coding/rebase-conflict", capability: "coding-rebase-conflict/v1" },
     { name: "coding/verify", capability: "coding-verify/v1" },
     { name: "coding/wiki", capability: "coding-wiki/v1" },
     { name: "flow-load", capability: "flow-load/v1" }
   ])
   assert.deepEqual(configuredCodingRoutes({ planning }), [
+    { name: "coding/rebase-conflict", capability: "coding-rebase-conflict/v1" },
     { name: "coding/verify", capability: "coding-verify/v1" },
     { name: "coding/wiki", capability: "coding-wiki/v1" },
     { name: "flow-load", capability: "flow-load/v1" }
   ])
   // A project without a wiki registers no wiki route.
   assert.deepEqual(configuredCodingRoutes({ planning: { ...planning, wiki: false } }).map((route) => route.name), [
+    "coding/rebase-conflict",
     "coding/verify",
     "flow-load"
   ])
@@ -57,7 +60,7 @@ test("the repository default and a landing binding select the coding routes", as
   for (const lander of ["fast-forward", "pull-request"] as const) {
     assert.deepEqual(
       configuredCodingRoutes({ planning: { ...planning, wiki: false, landing: lander } }).map((route) => route.name),
-      ["coding/verify", "flow-load"]
+      ["coding/rebase-conflict", "coding/verify", "flow-load"]
     )
   }
 })

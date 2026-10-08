@@ -50,7 +50,7 @@ func todoConflictWait(item db.MythicalItem, wait flowruntime.PendingWait, update
 	}
 	pin, pinned := mythicalPinOf(item)
 	signal := &TodoWaitSignal{Scope: update.Scope, Target: update.Checkpoint.Target, Flow: update.Checkpoint.FlowID, Run: update.Checkpoint.RunID, Name: wait.Name}
-	if !pinned || !checks.RunLaunched || !checks.RunAttached || signal.Run != item.RequestRunID || signal.Flow != pin.Flow || !conflictSignalBound(item, signal) {
+	if !pinned || !checks.RunLaunched || !checks.RunAttached || !conflictRunBound(item, signal, pin.Flow) || !conflictSignalBound(item, signal) {
 		return TodoWait{}, false
 	}
 	sum := sha256.Sum256([]byte(item.RequestRunID + "\x00" + request.Change + "\x00" + request.Onto))
@@ -60,11 +60,14 @@ func todoConflictWait(item db.MythicalItem, wait flowruntime.PendingWait, update
 // A reservation is durable intent, not evidence that a model executed. The
 // eventual guest continuation must use this identity for replay admission.
 type todoConflictReservation struct {
-	Change   string `json:"change"`
-	Onto     string `json:"onto"`
-	Limit    int    `json:"limit"`
-	Reserved int    `json:"reserved"`
-	Run      string `json:"run"`
+	Change        string `json:"change"`
+	Onto          string `json:"onto"`
+	Limit         int    `json:"limit"`
+	Reserved      int    `json:"reserved"`
+	Run           string `json:"run"`
+	Dispatched    bool   `json:"dispatched,omitempty"`
+	ResolutionRun string `json:"resolution_run,omitempty"`
+	Outcome       string `json:"outcome,omitempty"`
 }
 
 func conflictAttemptLimit(raw []byte) (int, error) {
@@ -157,7 +160,7 @@ func (s *MythicalService) validateConflictDone(ctx context.Context, q *db.Querie
 		return &TodoControlError{409, "stale_conflict", "conflict", "The conflict target changed"}
 	}
 	pin, pinned := mythicalPinOf(item)
-	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || s.host == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || wait.Signal.Run != item.RequestRunID || wait.Signal.Flow != pin.Flow || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
+	if !checks.RunLaunched || !checks.RunAttached || s.conflictValidator == nil || s.host == nil || item.WorkspaceID == "" || !pinned || item.RequestRunID == "" || wait.Signal == nil || !conflictRunBound(item, wait.Signal, pin.Flow) || wait.Signal.Name == "" || !conflictSignalBound(item, wait.Signal) {
 		return &TodoControlError{503, "conflict_validation_unavailable", "infra", "Conflict validation unavailable"}
 	}
 	// Older persisted waits may predate reservations. When one is present,
@@ -220,4 +223,17 @@ func conflictSignalBound(item db.MythicalItem, signal *TodoWaitSignal) bool {
 		signal.Target.TenantID == tenant && signal.Target.PrincipalID == signal.Scope.PrincipalID &&
 		signal.Target.WorkspaceID == item.WorkspaceID && signal.Target.BindingKind == mythicalBindingKind &&
 		signal.Target.BindingID == uuidString(item.ID)
+}
+
+// Historical TODO waits retain their binding. New repairs are finite engine
+// launches under the same attempt pin (E-19), never a replacement attempt.
+func conflictRunBound(item db.MythicalItem, signal *TodoWaitSignal, pinnedFlow string) bool {
+	if signal == nil {
+		return false
+	}
+	if signal.Run == item.RequestRunID && signal.Flow == pinnedFlow {
+		return true
+	}
+	reservation := mythicalChecksOf(item).ConflictReservation
+	return reservation != nil && reservation.Run == item.RequestRunID && reservation.ResolutionRun != "" && signal.Run == reservation.ResolutionRun && signal.Flow == "coding/rebase-conflict"
 }

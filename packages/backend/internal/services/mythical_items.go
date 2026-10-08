@@ -869,6 +869,17 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		item.Checks = next.Checks
 	}
 	switch projection.Phase {
+	case "conflict":
+		checks := mythicalChecksOf(item)
+		reservation := checks.ConflictReservation
+		if !pinned || reservation == nil || !reservation.Dispatched || reservation.Run != item.RequestRunID || (reservation.ResolutionRun != "" && reservation.ResolutionRun != runID) || update.Checkpoint.FlowID != "coding/rebase-conflict" {
+			return false
+		}
+		reservation.ResolutionRun = runID
+		if outcome != "" && reservation.Outcome == "" {
+			reservation.Outcome = outcome
+		}
+		next.Checks = checks.encode()
 	case "todo":
 		// The composition's one run: bound once its host accepts it
 		// running the attempt's pinned flow, which is when the TODO is
@@ -978,6 +989,8 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 		output = *update.Checkpoint.Run.FinalOutput
 	}
 	switch phase {
+	case "conflict":
+		return "completed"
 	case "todo":
 		// Success alone is not a proposal: the stack's own candidate and
 		// propose operations move an attempt past running (T-STK-12).
@@ -2019,6 +2032,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
 		return st.continueNativeRebase(ctx, item)
 	}
+	if item.Reason == "rebase_conflict_pending" {
+		return st.continueConflict(ctx, item)
+	}
 	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
@@ -2331,6 +2347,13 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 	projection, _ := json.Marshal(projected)
 	authorization, _ := json.Marshal(binding)
 	requestID := mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation)
+	if phase == "conflict" {
+		reservation := mythicalChecksOf(saved).ConflictReservation
+		if reservation == nil {
+			return db.MythicalItem{}, errors.New("conflict reservation unavailable")
+		}
+		requestID += ":" + reservation.Change + ":" + reservation.Onto
+	}
 	if phase == "review" {
 		// A new isolated review lane distinguishes a retry without allocating
 		// another candidate generation. Replaying admission retains the lane.
@@ -3235,11 +3258,10 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 // item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
-	// Conflict dispatch needs the retained guest change and a continuation of
-	// this attempt's pinned TODO run. Until those providers are composed, keep
-	// the conflict pending; polling must never spend another coding attempt.
+	// Conflict repair uses the existing attempt pin and retained workspace.
+	// Its durable engine launch cannot spend another attempt on a later poll.
 	if item.Reason == "rebase_conflict_pending" {
-		return nil, false, nil
+		return st.continueConflict(ctx, item)
 	}
 	if item.CandidateHead == "" {
 		return nil, false, nil

@@ -20,6 +20,7 @@ import FlowLoad from "../coding/flow-load/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
+import TodoConflict from "../coding/rebase-conflict/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import Learning from "../learning/flow.ts"
 import * as Review from "../review/flow.ts"
@@ -69,6 +70,9 @@ const policySources = [
   "../todo/flow.ts",
   "../learning/flow.ts",
   "../coding/verify/flow.ts",
+  "../coding/rebase-conflict/flow.ts",
+  "../coding/todo-conflict.ts",
+  "../coding/todo-conflict-schema.ts",
   "../coding/vibe-flow.ts",
   "../coding/wiki/flow.ts",
   "../coding/planning-authority.ts",
@@ -168,6 +172,7 @@ export const shippedDefaults: Effect.Effect<Readonly<Record<string, string>>, Er
  * require the packaged implementation.
  */
 const codingRoutes = {
+  "coding/rebase-conflict": { flow: TodoConflict, description: "Resolve a retained rebase conflict within the coding attempt." },
   "coding/verify": { flow: Verify, description: "Re-run a Change's required checks on a rebased candidate." },
   "coding/wiki": { flow: CodingWiki, description: "Refresh the repository wiki after a fold." },
   "flow-load": { flow: FlowLoad, description: "Load every overridable flow at a main commit and answer its versions." }
@@ -527,7 +532,7 @@ export const bindRepositoryRegistry = (
       : undefined
   const derived = (descriptor: Descriptor.FlowDescriptor) => {
     // Retained executors are engine bindings, never model command doors.
-    if (["coding/request", "coding/vibe", "coding/verify", "review/change"].includes(descriptor.name)) {
+    if (["coding/request", "coding/vibe", "coding/verify", "coding/rebase-conflict", "review/change"].includes(descriptor.name)) {
       descriptor = new Descriptor.FlowDescriptor({ ...descriptor, modelInvocable: false })
     }
     const schemas = reservedSchemas(descriptor)

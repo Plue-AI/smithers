@@ -43,7 +43,15 @@ type TodoWaitSignal struct {
 // unanswered. Only AnswerTodo settles a question with an answer; nothing
 // here does, and a steer never reaches this projection.
 func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, update flowdispatch.ProjectionUpdate, runID string, now time.Time) {
-	if (projection.Phase != "todo" && projection.Phase != "request") || runID == "" || next.RequestRunID != runID {
+	if runID == "" {
+		return
+	}
+	if projection.Phase == "conflict" {
+		reservation := mythicalChecksOf(*next).ConflictReservation
+		if reservation == nil || reservation.ResolutionRun != runID {
+			return
+		}
+	} else if (projection.Phase != "todo" && projection.Phase != "request") || next.RequestRunID != runID {
 		return
 	}
 	run := update.Checkpoint.Run
@@ -54,7 +62,7 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 	pending := map[string]bool{}
 	if !update.State.Terminal() {
 		for _, wait := range run.PendingWaits {
-			if question, ok := todoQuestionWait(wait, update, runID, now); ok && !pending[question.ID] {
+			if question, ok := todoQuestionWait(wait, update, runID, now); projection.Phase != "conflict" && ok && !pending[question.ID] {
 				asked = append(asked, question)
 				pending[question.ID] = true
 			}
@@ -239,6 +247,10 @@ type mythicalSignaler interface {
 // credential answers for its member only on its own branch's TODO, and the
 // answer is by that terminal or the agent working in it (todoActor).
 func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput) error {
+	return s.answerTodo(ctx, repositoryID, userID, number, input, "todo.answer")
+}
+
+func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput, command string) error {
 	if number <= 0 {
 		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
 	}
@@ -253,14 +265,14 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if s == nil || s.store == nil || signaler == nil {
 		return &TodoControlError{http.StatusServiceUnavailable, "todo_unavailable", "infra", "Answers are unavailable"}
 	}
-	decision, err := Authorize(ctx, s.queries(), "todo.answer")
+	decision, err := Authorize(ctx, s.queries(), command)
 	if err != nil {
 		return err
 	}
 	if decision.UserID != userID {
 		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Invalid TODO authority"}
 	}
-	ctx = WithInstallAuthorization(ctx, "todo.answer", decision)
+	ctx = WithInstallAuthorization(ctx, command, decision)
 	person, err := s.queries().GetUserByID(ctx, userID)
 	if err != nil {
 		return err

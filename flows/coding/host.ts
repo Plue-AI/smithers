@@ -79,6 +79,7 @@ import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
 import { TodoBoundary, todoPauseLayer } from "./todo-pause.ts"
 import { todoDeliveryLayer, todoReviewLayer, todoLayers } from "./todo.ts"
+import { todoConflictLayer } from "./todo-conflict.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -156,6 +157,7 @@ export interface Options extends NativeOptions {
 export const configuredCodingRoutes = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<{ readonly name: CodingRoute; readonly capability: string }> => [
+  ...(options.planning === undefined ? [] : [{ name: "coding/rebase-conflict" as const, capability: "coding-rebase-conflict/v1" }]),
   // The mythical stack verifies rebased candidates with the same checks.
   ...(options.planning === undefined ? [] : [{ name: "coding/verify" as const, capability: "coding-verify/v1" }]),
   // The stack service refreshes the repository wiki the project declares.
@@ -745,6 +747,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           todoLayers(evaluator),
           todoDeliveryLayer,
           todoReviewLayer,
+          todoConflictLayer,
           todoPauseLayer,
           WaitFor.layer,
           Interpreter.layer(TodoBoundary),
@@ -913,11 +916,6 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
               // Plue's adapter verifies the owning workspace binding. A missing native
               // binary, incorrect repository binding or invalid receipt prevents serve.
               const binding = yield* Context.get(context, NativeCoding).read()
-              if (binding.head.kind !== "resolved") {
-                return yield* Effect.die(
-                  new Error("Resolve native JJ conflicts before starting the configured coding host")
-                )
-              }
               if (!binding.capabilities?.includes("apply-files/v1")) {
                 return yield* Effect.die(
                   new Error(
