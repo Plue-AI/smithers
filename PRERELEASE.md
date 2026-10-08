@@ -92,8 +92,8 @@ Found by the install run on this MacBook.
 | | Defect | Fix |
 |---|---|---|
 | 1 | A fresh install's setup link shows no setup card. A regression from c818f8df41. | c5120a5856 landed 16:35 PDT (lane fr23-setup-card-missing); it passes a Linux browser test. The running install's bundle predates it. Not confirmed on a Mac. |
-| 2 | The app's sign-in path `/api/auth/github/start` answers 404 on an install. `/api/auth/github` works. | Lane fr24-signin-path-stale-cookie, running. |
-| 3 | A `smithers_session` cookie left by an earlier install on the same address blocks the setup link with 401. | Same lane. |
+| 2 | The app's sign-in path `/api/auth/github/start` answers 404 on an install. `/api/auth/github` works. | Fixed on main at 9a218b7f68: app, setup and CLI use `/api/auth/github`. Composed-install redirect and RPC route contract pass on Linux. Mac bundle rerun unverified. |
+| 3 | A `smithers_session` cookie left by an earlier install on the same address blocks the setup link with 401. | Fixed on main at 9a218b7f68: token exchange clears the member cookie; valid setup authority ignores it within existing setup scope. Composed-install reads and writes pass on Linux. Mac bundle rerun unverified. |
 | 4 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | No lane found. |
 
 ### Journey rows
