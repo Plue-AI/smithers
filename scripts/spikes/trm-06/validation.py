@@ -396,6 +396,20 @@ def main():
             os.close(dev)
         print(json.dumps({"device_replaced": True, "outside": fingerprint()}))
         return
+    # Fixed restart selectors reuse the same mutation syscalls. They mutate
+    # before init restarts; live selectors instead mutate enrolled sessions.
+    restart_mutations = {"cgroup-ancestor-replaced": "cgroup-live-ancestor-replaced",
+                         "cgroup-ancestor-writable": "cgroup-live-ancestor-writable",
+                         "cgroup-ancestor-owner": "cgroup-live-ancestor-owner",
+                         "cgroup-parent-owner": "cgroup-live-parent-owner",
+                         "cgroup-child-owner": "cgroup-live-child-owner"}
+    if operation == "cgroup-child-owner":
+        parent = cgroup_parent()
+        try:
+            os.mkdir("s-0000000000000001", 0o755, dir_fd=parent)
+        finally:
+            os.close(parent)
+    operation = restart_mutations.get(operation, operation)
     if operation in ("cgroup-live-ancestor-replaced", "cgroup-live-ancestor-writable", "cgroup-live-ancestor-owner"):
         parent = os.open("/sys/fs/cgroup", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:

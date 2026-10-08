@@ -103,3 +103,16 @@ func TestCloseRetainsExactLingeringProcessOwnership(t *testing.T) {
 		}
 	}
 }
+
+func TestRestartCgroupControlsDoNotRouteToLiveCampaign(t *testing.T) {
+	for _, name := range []string{"cgroup-writable", "cgroup-parent-replaced", "cgroup-child-writable", "cgroup-ancestor-replaced", "cgroup-ancestor-writable", "cgroup-ancestor-owner", "cgroup-parent-owner", "cgroup-child-owner"} {
+		if !cgroupRestartFixture(name) || cgroupLiveFixture(name) {
+			t.Fatalf("restart selector: %s", name)
+		}
+	}
+	for _, name := range []string{"", "../cgroup-child-owner", "cgroup-ancestor-owner-root", "cgroup-child-owner --pid=1"} {
+		if cgroupRestartFixture(name) {
+			t.Fatalf("caller selector: %s", name)
+		}
+	}
+}

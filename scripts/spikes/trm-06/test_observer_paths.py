@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("trm06_observer_paths", Path(__file__).with_name("validation.py"))
@@ -79,6 +80,45 @@ class ObserverPaths(unittest.TestCase):
                     else:
                         self.assertEqual(fixture.sample()["cgroups"], {})
                 self.assertEqual((sentinel.read_bytes(), sentinel.stat().st_uid, sentinel.stat().st_mode), before)
+
+    def test_restart_mutations_preserve_original_inode_and_outside(self):
+        for selector in ("cgroup-ancestor-replaced", "cgroup-ancestor-writable", "cgroup-ancestor-owner", "cgroup-parent-owner", "cgroup-child-owner"):
+            with self.subTest(selector=selector), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                sessions = root / "sys/fs/cgroup/smithers/sessions"
+                sessions.mkdir(parents=True)
+                sessions.chmod(0o755)
+                sessions.parent.chmod(0o755)
+                original = sessions.stat().st_ino
+                outside = root / "outside"
+                outside.write_bytes(b"outside-fixture\0")
+                before = (outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode)
+                real_open, real_fstat = os.open, os.fstat
+                def root_metadata(fd):
+                    info = real_fstat(fd)
+                    return SimpleNamespace(st_uid=0, st_mode=info.st_mode, st_ino=info.st_ino)
+                def rooted_open(path, flags, mode=0o777, *, dir_fd=None):
+                    if dir_fd is None and isinstance(path, str) and path.startswith("/"):
+                        path = root / path.removeprefix("/")
+                    return real_open(path, flags, mode, dir_fd=dir_fd)
+                ownership = []
+                def owner(fd, uid, gid):
+                    ownership.append((os.fstat(fd).st_ino, uid, gid))
+                # Root ownership metadata is substituted; mutation syscalls are real.
+                # UID changes require root
+                # in the installed guest and are recorded, not performed here.
+                with patch.object(fixture.os, "open", side_effect=rooted_open), patch.object(fixture.os, "fstat", side_effect=root_metadata), patch.object(fixture.os, "getuid", return_value=0), patch.object(fixture.os, "geteuid", return_value=0), patch.object(fixture.os, "fchown", side_effect=owner), patch.object(fixture, "fingerprint", return_value={}), patch.object(fixture.sys, "argv", ["observer", selector]), patch("builtins.print"):
+                    fixture.main()
+                self.assertEqual(sessions.stat().st_ino, original)
+                if selector == "cgroup-ancestor-replaced":
+                    self.assertTrue((root / "sys/fs/cgroup/trm06-smithers-original").is_dir())
+                    self.assertFalse((root / "sys/fs/cgroup/trm06-smithers-original/sessions").exists())
+                elif selector == "cgroup-ancestor-writable":
+                    self.assertEqual(sessions.parent.stat().st_mode & 0o777, 0o777)
+                else:
+                    target = sessions.parent if selector == "cgroup-ancestor-owner" else sessions if selector == "cgroup-parent-owner" else sessions / "s-0000000000000001"
+                    self.assertEqual(ownership, [(target.stat().st_ino, 20001, 20001)])
+                self.assertEqual((outside.read_bytes(), outside.stat().st_uid, outside.stat().st_mode), before)
 
 
 if __name__ == "__main__":

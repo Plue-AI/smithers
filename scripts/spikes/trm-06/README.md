@@ -338,3 +338,10 @@ changed executable digest, unknown identity field, null boot, zero boot, zero
 secret, wrong secret type and trailing JSON. All 41 startup mutation selectors
 use the existing installed fixture/init refusal path. Installed execution and
 security acceptance remain pending; local mutation tests grant no authority.
+
+The restart campaign also covers five cgroup mutations previously covered only
+while live: ancestor replacement/mode/owner, parent owner and child owner. These
+fixed selectors reuse the installed mutation code, then require init's explicit
+startup refusal and no new admission. Together with the previous parent and
+child-mode cases, eight cgroup restart refusals are scheduled. Local filesystem
+tests substitute root metadata and ownership; they are not kernel receipts.

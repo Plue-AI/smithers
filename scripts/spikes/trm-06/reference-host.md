@@ -245,3 +245,9 @@ every sample and failure; last-sample JSON files alone are insufficient.
 The eight new boot restart mutations bring the startup matrix to 41 selectors.
 They remain unexecuted installed controls until the approved provider runs them.
 No acceptance or activation follows from local filesystem or gateway tests.
+
+Also run the five added restart selectors `cgroup-ancestor-replaced`,
+`cgroup-ancestor-writable`, `cgroup-ancestor-owner`, `cgroup-parent-owner` and
+`cgroup-child-owner`. They use fresh VMs and the installed init restart/refusal
+path, distinct from enrolled-session live revocation. Eight cgroup restart
+refusals are now scheduled; none has been qualified on this Linux lane.
