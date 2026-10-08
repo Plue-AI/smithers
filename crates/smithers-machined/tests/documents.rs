@@ -2575,6 +2575,50 @@ mod dispatcher {
         executor.shutdown().unwrap();
     }
     #[test]
+    fn disconnected_transport_retires_streams_but_saves_pending_typing() {
+        let (disk, clock, service, mut cx, id, epoch) = setup();
+        let peer = editor(&sync(&mut cx, id), epoch.client_id as u64);
+        let before = peer.transact().state_vector();
+        peer.get_or_insert_text("content")
+            .insert(&mut peer.transact_mut(), 3, " pending 🌍");
+        let update = peer.transact().encode_state_as_update_v1(&before);
+        service
+            .frame(&input(id, 1, "host", SyncMessage::Update(update.clone())))
+            .unwrap();
+        assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc");
+        service.disconnected().unwrap();
+        service.disconnected().unwrap();
+        assert!(service.poll(&mut cx).unwrap().is_empty());
+        assert_eq!(
+            service
+                .frame(&input(id, 2, "host", SyncMessage::Update(update)))
+                .unwrap_err()
+                .code,
+            1
+        );
+        clock.0.store(200, Ordering::Relaxed);
+        service.tick(&mut cx).unwrap();
+        assert_eq!(
+            disk.0.lock().unwrap().files["a.rs"],
+            "abc pending 🌍".as_bytes()
+        );
+        assert!(service.poll(&mut cx).unwrap().is_empty());
+        assert!(!service.take_notices(&mut cx).unwrap().is_empty());
+        let replacement = open(&mut cx);
+        assert_ne!(replacement, id);
+        let output = service.poll(&mut cx).unwrap();
+        assert!(output.iter().all(|f| f.stream == replacement));
+        let recovered = Document::decode_v2(&output[0].payload).unwrap();
+        assert_eq!(recovered.epoch, epoch.epoch);
+        let recovered = editor(&sync(&mut cx, replacement), recovered.client_id as u64);
+        assert_eq!(
+            recovered
+                .get_or_insert_text("content")
+                .get_string(&recovered.transact()),
+            "abc pending 🌍"
+        );
+    }
+    #[test]
     fn rpc_peer_delete_only_receipt_waits_for_disk_and_replay_cannot_reuse_sequence() {
         let disk = Shared(Arc::new(Mutex::new(Model::with("abc"))));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));

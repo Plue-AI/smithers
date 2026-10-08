@@ -197,6 +197,16 @@ impl<D: Disk> State<D> {
     }
 }
 impl<D: Disk> Documents for Service<D> {
+    fn disconnected(&self) -> hooks::Result<()> {
+        let streams: Vec<_> = self.state()?.peers.keys().copied().collect();
+        for stream in streams {
+            self.close(stream)?;
+        }
+        // No awareness removals or saved frames may cross into the successor
+        // transport under the dead host's stream ids. Durable notices remain.
+        self.state()?.output.clear();
+        Ok(())
+    }
     fn ready(&self) -> hooks::Result<()> {
         self.state()?.host.ready().map_err(error)
     }

@@ -42,6 +42,12 @@ type realDocumentInstall struct {
 }
 
 func startRealDocumentInstall(t *testing.T, point string) *realDocumentInstall {
+	return startRealDocumentInstallWithHost(t, point, nil)
+}
+
+// A supervisor may replace the host before the real guest is launched. The
+// ordinary driver continues to use the same in-process install composition.
+func startRealDocumentInstallWithHost(t *testing.T, point string, supervise func(*realDocumentInstall, string)) *realDocumentInstall {
 	t.Helper()
 	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY")
 	if binary == "" {
@@ -108,6 +114,9 @@ func startRealDocumentInstall(t *testing.T, point string) *realDocumentInstall {
 		_, err = install.pool.Exec(t.Context(), `UPDATE workspaces SET source_commit=$2,head_commit_id=$2 WHERE id=$1`, install.branch, seed)
 		require.NoError(t, err)
 		f.restart.HostHead = seed
+		if supervise != nil {
+			supervise(f, cfg.StoragePath)
+		}
 		f.launch(t)
 	})
 	return f

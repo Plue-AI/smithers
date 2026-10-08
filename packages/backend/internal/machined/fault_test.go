@@ -309,6 +309,10 @@ func TestFaultK7NewEpochRecovery(t *testing.T) {
 	runFaultK7ComposedInstall(t, "^TestLiveCodeDocument(NewEpochRecovery|CorruptEpochRecovery)$")
 }
 
+func TestFaultK7HostRecovery(t *testing.T) {
+	runFaultK7ComposedInstall(t, "^TestLiveCodeDocumentK7bHostKill$")
+}
+
 func runFaultK7ComposedInstall(t *testing.T, selector string) {
 	t.Helper()
 	if testing.Short() || os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY") == "" {

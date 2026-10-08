@@ -110,6 +110,10 @@ pub struct DocumentBatch {
     pub failure: Option<BatchFailure>,
 }
 pub trait Documents: Send + Sync {
+    /// Retire transport-owned streams, retaining documents and pending saves.
+    fn disconnected(&self) -> Result<()> {
+        Ok(())
+    }
     /// Continues saving after a host disconnect; called by the lock executor.
     fn tick(&self, _cx: &mut LockCx) -> Result<()> {
         Ok(())

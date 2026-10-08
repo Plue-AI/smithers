@@ -46,7 +46,10 @@ impl Daemon {
         self.roster.store(false, Ordering::Release);
         self.executor
             .lock
-            .run_blocking("event_reconnect", |cx| cx.hooks.events.reconnect())
+            .run_blocking("event_reconnect", |cx| {
+                cx.hooks.documents.disconnected()?;
+                cx.hooks.events.reconnect()
+            })
             .map_err(|_| ProtocolError::Truncated)?
             .map_err(|_| ProtocolError::Truncated)?;
         self.executor
@@ -286,6 +289,7 @@ impl Daemon {
                 // A replaced socket must not detach sessions already attached on
                 // its successor. Recheck under the same lock as attach_session.
                 if current.load(Ordering::Acquire) == generation {
+                    cx.hooks.documents.disconnected()?;
                     let sessions = cx.hooks.sessions.disconnected();
                     cx.hooks.events.disconnected()?;
                     sessions
