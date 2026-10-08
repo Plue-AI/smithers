@@ -137,6 +137,13 @@ func testRebaseManualConflictRehearsal(t *testing.T, limit int) {
 			if err := done(change, 409); err != nil {
 				return err
 			}
+			if os.Getenv("SMITHERS_GH03_BROWSER_HARNESS") != "" {
+				githubLifecycleBrowserPhase(t, r, n, "conflict", map[string]any{"branchId": card.Branch.ID})
+				if err := done(change, 202); err != nil {
+					return err
+				}
+				return countTurns()
+			}
 			if os.Getenv("SMITHERS_REBASE_DONE_BROWSER") == "1" {
 				if err := r.runRebaseBrowser(n, "rebase-done", "journey-rebase-done"); err != nil {
 					return err
@@ -187,6 +194,7 @@ func testRebaseManualConflictRehearsal(t *testing.T, limit int) {
 		if continuedReview == "" || continuedReview == initialReview {
 			return fmt.Errorf("resolved conflict did not receive a new review")
 		}
+		githubLifecycleBrowserPhase(t, r, n, "reviewed", nil)
 		return nil
 	})
 }
