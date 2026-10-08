@@ -189,7 +189,7 @@ func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 			}
 			if !press {
 				var completed time.Time
-				if err := r.pool.QueryRow(r.t.Context(), `SELECT created_at FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&completed); err != nil {
+				if err := r.pool.QueryRow(r.t.Context(), `SELECT recorded_at FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&completed); err != nil {
 					return "", err
 				}
 				if completed.Sub(departed) > time.Minute {

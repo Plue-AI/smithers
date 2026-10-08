@@ -1954,9 +1954,15 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
 		return st.continueNativeRebase(ctx, item)
 	}
-	if mythicalChecksOf(item).Capture != nil {
+	if capture := mythicalChecksOf(item).Capture; capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
+			// Edit consumption waits for a moved prefix to be rebased. Keep
+			// the capture while the authenticated daemon performs that rebase;
+			// routing back to edit consumption here would wait on itself.
+			if rebase := mythicalChecksOf(item).Rebase; !capture.Stale && !capture.Conflict && rebase != nil && !rebase.Rebased && item.CandidateBase != st.prefix(item) {
+				return st.integrate(ctx, item)
+			}
 			return st.consumeCapturedEdits(ctx, item)
 		}
 	}

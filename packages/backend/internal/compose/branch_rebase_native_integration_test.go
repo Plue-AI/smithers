@@ -88,7 +88,7 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	require.NoError(t, service.PollOnce(ctx))
 	item, err := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
 	require.NoError(t, err)
-	checks, _ := json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "rebase": map[string]any{"onto": onto, "name": "main"}})
+	checks, _ := json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "capture": map[string]any{"head": edited, "tree": git("--git-dir", store, "rev-parse", edited+"^{tree}"), "base": base, "onto": edited}, "rebase": map[string]any{"onto": onto, "name": "main"}})
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating',reason='rebase_pending',attempt=1,flow_digest=$2,request_run_id='pinned-run',workspace_id=$3,candidate_base=$4,candidate_head=$5,candidate_verified=true,next_attempt_at=NOW(),plan='{"checks":[]}',checks=$6 WHERE id=$1`, item.ID, strings.Repeat("b", 64), f.row.ID, base, edited, checks)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$1,head_commit_id=$2 WHERE id=$1`, f.row.ID, edited)

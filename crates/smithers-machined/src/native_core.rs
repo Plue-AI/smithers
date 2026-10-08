@@ -115,7 +115,8 @@ impl NativeCore {
                 "wake outcome differs from selected result",
             )));
         }
-        let outcome = if paths.is_empty() {
+        let clean = paths.is_empty();
+        let outcome = if clean {
             crate::reconcile::Outcome::Moved(settlement.result)
         } else {
             crate::reconcile::Outcome::Conflict(paths)
@@ -130,7 +131,28 @@ impl NativeCore {
         self.git
             .clone()
             .acknowledge_and_sync(settlement.head)
-            .map_err(hook)
+            .map_err(hook)?;
+        // A clean wake still owes the host its selected snapshot, even when
+        // that snapshot equals the acknowledged target. Ordinary capture
+        // deduplication cannot discharge the host's reconciliation receipt.
+        if clean {
+            use sha2::{Digest, Sha256};
+            let digest = Sha256::new()
+                .chain_update(b"smithers/wake-capture/v1\0")
+                .chain_update(settlement.event_id)
+                .finalize();
+            let mut capture_id = [0; 16];
+            capture_id.copy_from_slice(&digest[..16]);
+            let tree = self.native.tree(settlement.result).map_err(hook)?;
+            self.events
+                .append_keyed(
+                    capture_id,
+                    &crate::outbox::captured(settlement.result, tree, settlement.head),
+                    settlement.result,
+                )
+                .map_err(hook)?;
+        }
+        Ok(())
     }
     fn settle_wake(&self, old: Oid, head: Oid, result: Oid, conflict: bool) -> hooks::Result<()> {
         let mut settlement =
@@ -1258,6 +1280,41 @@ pub(crate) mod tests {
         fs::write(root.join("local"), b"local version\n").unwrap();
         (dir, core, base, onto)
     }
+    #[test]
+    fn clean_wake_retains_selected_capture_after_reconciliation_once() {
+        let (dir, core, base, onto) = dirty_wake_fixture();
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, onto)]))[0], 2);
+        let owner = rustix::process::geteuid().as_raw();
+        let store =
+            crate::outbox_store::Store::open(&dir.path().join("state/outbox"), owner).unwrap();
+        let events: Vec<_> = store
+            .sequences()
+            .map(|seq| conn::Durable::decode(&store.read(seq, owner).unwrap()).unwrap())
+            .collect();
+        let reconciliation = events.iter().position(|event| event.event[0] == 3).unwrap();
+        let selected = &events[reconciliation + 1];
+        assert_eq!(selected.event[0], 2);
+        let fields = conn::fields("captured", &selected.event[1..]).unwrap();
+        assert_eq!(fields[0].1, core.native.current().unwrap().0);
+        assert_eq!(
+            fields[1].1,
+            core.native.tree(core.native.current().unwrap().0).unwrap()
+        );
+        assert_eq!(fields[2].1, onto);
+        assert_ne!(base, onto);
+        let depth = core.events.depth().unwrap();
+        assert_eq!(wake_result(&call(core.clone(), 5, &[field(1, onto)]))[0], 1);
+        assert_eq!(core.events.depth().unwrap(), depth);
+        assert_eq!(
+            fs::read(dir.path().join("workspace/local")).unwrap(),
+            b"local version\n"
+        );
+        assert_eq!(
+            fs::read(dir.path().join("workspace/host")).unwrap(),
+            b"host version\n"
+        );
+    }
+
     fn recovery_hooks(
         core: Arc<NativeCore>,
         documents: Arc<dyn Documents>,
@@ -1671,8 +1728,8 @@ pub(crate) mod tests {
             }
             assert_eq!(
                 core.events.depth().unwrap(),
-                2,
-                "{phase}: capture plus one reconciliation"
+                3,
+                "{phase}: initial capture, reconciliation and its selected capture"
             );
             let owner = rustix::process::geteuid().as_raw();
             let store =
@@ -1691,7 +1748,7 @@ pub(crate) mod tests {
                 .unwrap()
                 .is_none());
             wake_result(&call_in(&mut restarted, 5, &[field(1, onto)]));
-            assert_eq!(core.events.depth().unwrap(), 2);
+            assert_eq!(core.events.depth().unwrap(), 3);
         }
     }
     struct FlushWrite(std::path::PathBuf);
