@@ -19,7 +19,31 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 )
+
+// Enter the production review HTTP door, rather than qualifying only registry
+// discovery. Run on the reference host with SMITHERS_REVIEW_MICROVM_REHEARSAL=1
+// and SMITHERS_CHECK_BUNDLE pointing at its approved installed bundle. GitHub
+// and model responses are local fixtures; workspace execution and admission
+// use the installed microVM runtime without trusted-process permission.
+func TestMemberReviewThroughComposedInstallMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_REVIEW_MICROVM_REHEARSAL") != "1" {
+		t.Skip("enable explicitly with SMITHERS_REVIEW_MICROVM_REHEARSAL=1")
+	}
+	t.Setenv(pinnedMicroVMRehearsal, "1")
+	r := newRehearsal(t, pinnedMicroVMRehearsal, "C-J10", "j10-review-vm-")
+	require.IsType(t, &microsandbox.Runtime{}, r.workspaceRuntime)
+	require.False(t, r.options.FlowHostConfig.AllowTrustedProcessForTests)
+	require.Nil(t, r.options.ReviewWorkspace, "review must use the installed workspace runtime")
+	require.True(t, r.install("Install through Machine ready"))
+	ben, err := r.member("ben", 201, "maintain")
+	require.NoError(t, err)
+	_, err = r.member("alice", 202, "write")
+	require.NoError(t, err)
+	r.j10BuiltinReviewActive()
+	r.j10MemberReview(ben, "rehearsal-owner/app")
+}
 
 // This canary qualifies discovery and graph planning in a real guest. It does
 // not claim the install's TODO lifecycle or flow.run API acceptance, which
