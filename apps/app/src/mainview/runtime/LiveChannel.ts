@@ -225,7 +225,11 @@ export class LiveChannel {
       const result = LiveDocReply.safeParse(frame)
       if (!result.success) return
       const reply = result.data
-      if (reply.t === "saved") {
+      if (reply.t === "authors") {
+ if (!entry.awaitingSnapshot && !entry.snapshot.error) this.documentEvent(topic, { kind: "authors", actors: reply.data })
+ return
+ }
+ if (reply.t === "saved") {
         if (entry.awaitingSnapshot || entry.snapshot.error) return
         try { this.documentEvent(topic, { kind: "saved", seq: reply.seq, vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
         return

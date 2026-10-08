@@ -1053,6 +1053,23 @@ mod dispatcher {
             }
         };
         let json = r##"{"actor":{"id":"686f7374","kind":"person","via":"app"},"colour":"#123456","line":{"path":"a.rs","line":2}}"##;
+        let browser = r##"{"actor":{"id":"686f7374","kind":"person","via":"app"},"colour":"#123456","line":2,"anchor":{"tname":"content","item":{"client":7,"clock":1},"assoc":0},"head":{"tname":"content","assoc":0}}"##;
+        let accepted_browser = rpc::dispatch(&presence(0, browser), &mut cx).unwrap();
+        let frame = Document::decode_v2(&accepted_browser.payload).unwrap();
+        let update = yrs::sync::AwarenessUpdate::decode_v1(&frame.data).unwrap();
+        assert_eq!(
+            update.clients.values().next().unwrap().json.as_ref(),
+            browser
+        );
+        for invalid in [
+            browser.replace("\"line\":2", "\"line\":0"),
+            browser.replace("\"assoc\":0", "\"sudo\":true"),
+            browser.replace("\"client\":7", "\"client\":-1"),
+            browser.replace("686f7374", "forged"),
+        ] {
+            let refused = rpc::dispatch(&presence(1, &invalid), &mut cx).unwrap();
+            assert_eq!(refused.payload[0], 255);
+        }
         let accepted = rpc::dispatch(&presence(1, json), &mut cx).unwrap();
         assert_eq!(Document::decode_v2(&accepted.payload).unwrap().msg, 4);
         assert_eq!(service.projections(&mut cx).unwrap()[0].editors[0].line, 2);

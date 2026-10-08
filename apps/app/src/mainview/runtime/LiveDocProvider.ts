@@ -1,5 +1,6 @@
 import { z } from "zod"
-import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
+import { actorColour } from "../cards/views/ActorChip"
+import { ActorSchema, type Actor } from "@smthrs/rpc/CardPrimitives"
 import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { LiveDocId, LiveDocAwareness, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
 import * as Y from "yjs"
@@ -11,6 +12,7 @@ import * as decoding from "lib0/decoding"
 
 /** Decoded by the authenticated channel owner, never from awareness or card payloads. */
 export type DocumentEvent =
+  | { kind: "authors"; actors: Record<string, Actor> }
   | { kind: "assigned"; epoch: string; clientId: number }
   | { kind: "sync"; payload: Uint8Array }
   | { kind: "awareness"; payload: Uint8Array }
@@ -41,6 +43,12 @@ const covered = (required: Map<number, number>, actual: Map<number, number>) =>
 /** One Yjs protocol adapter for code and wiki over the existing authenticated channel. */
 export class LiveDocProvider {
   readonly collection = createCollection(localOnlyCollectionOptions({ id: `live-document-${++nextDocument}`, getKey: (row: DocumentStatus) => row.id }))
+  authors: Readonly<Record<string, Actor>> = {}
+  resolveActor(value: unknown): Actor | undefined {
+    if (typeof value === "string" && this.authors[value]) return this.authors[value]
+    if (value && typeof value === "object" && "id" in value && typeof value.id === "string" && this.authors[value.id]) return this.authors[value.id]
+    try { const parsed = ActorSchema.safeParse(typeof value === "string" ? JSON.parse(value) : value); return parsed.success ? parsed.data : undefined } catch { return undefined }
+  }
   doc = new Y.Doc()
   awareness = new Awareness(this.doc)
   readonly textName: "content" | "markdown"
@@ -63,7 +71,8 @@ export class LiveDocProvider {
     const state = this.awareness.getLocalState()
     if (!state?.actor || !state.colour || !state.line) return
     const cursor = state.cursor
-    const wire = { actor: state.actor, colour: state.colour, line: state.line, ...(cursor ? { anchor: Y.relativePositionToJSON(cursor.anchor), head: Y.relativePositionToJSON(cursor.head) } : {}) }
+    const reference = this.doc.getMap("authors").get(String(this.doc.clientID))
+    const wire = { actor: typeof reference === "string" && /^[a-f0-9]{32}$/.test(reference) ? { kind: "person", id: reference, via: "app" } : state.actor, colour: state.colour, line: state.line, ...(cursor ? { anchor: Y.relativePositionToJSON(cursor.anchor), head: Y.relativePositionToJSON(cursor.head) } : {}) }
     const encoder = encoding.createEncoder()
     encoding.writeVarUint(encoder, 1); encoding.writeVarUint(encoder, this.doc.clientID)
     encoding.writeVarUint(encoder, this.awareness.meta.get(this.doc.clientID)?.clock ?? 0)
@@ -130,7 +139,7 @@ export class LiveDocProvider {
   private publish() {
     this.persistRecovery()
     const previous = this.collection.get("document")
-    const signature = JSON.stringify([this.comparison, this.file, this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], [...this.awareness.getStates()]])
+    const signature = JSON.stringify([this.comparison, this.file, this.epoch, this.doc.clientID, [...this.doc.getMap("authors")], this.authors, [...this.awareness.getStates()]])
     const unsaved = this.unsaved
     if (previous?.editable === this.editable && previous.saved === this.saved && previous.signature === signature &&
       previous.unsaved?.count === unsaved?.count && previous.unsaved?.text === unsaved?.text) return
@@ -209,6 +218,7 @@ export class LiveDocProvider {
       this.assigned = true; this.synced = false; this.durable(); this.restart(); return
     }
     if (!this.assigned) return
+    if (event.kind === "authors") { this.authors = event.actors; this.notifyText(); return }
     if (event.kind === "saved") {
       if (!Number.isSafeInteger(event.seq) || event.seq < 0 || event.seq > this.sentSeq) return
       try {
@@ -238,6 +248,7 @@ export class LiveDocProvider {
         for (let i = 0; i < count; i++) {
           const client = decoding.readVarUint(decoder), clock = decoding.readVarUint(decoder)
           const raw = JSON.parse(decoding.readVarString(decoder))
+          if (raw !== null) { const actor = typeof raw.actor?.id === "string" ? this.authors[raw.actor.id] : undefined; if (actor) { raw.actor = actor; raw.colour = actorColour(actor) } }
           const parsed = raw === null ? undefined : LiveDocAwareness.extend({ actor: LiveDocAwareness.shape.actor.or(ActorSchema) }).safeParse(raw)
           if (raw !== null && !parsed?.success) return
           const state = parsed?.success ? parsed.data : null
@@ -303,7 +314,8 @@ export class LiveDocProvider {
   }
   setLine(line: number, colour: string) {
     if (!this.editable || !Number.isSafeInteger(line) || line < 1 || colour.length > 64) return false
-    const actor = this.doc.getMap("authors").get(String(this.doc.clientID))
+    const reference = this.doc.getMap("authors").get(String(this.doc.clientID))
+    const actor = typeof reference === "string" ? this.resolveActor(reference) : reference
     if (!actor) return false
     const current = this.awareness.getLocalState()
     if (current?.line !== line || current.colour !== colour || JSON.stringify(current.actor) !== JSON.stringify(actor)) this.awareness.setLocalState({ ...current, actor, colour, line })

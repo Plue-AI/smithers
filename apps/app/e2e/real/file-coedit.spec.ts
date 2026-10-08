@@ -22,6 +22,23 @@ const ssh = async (operation: string) => {
   return (await execute("ssh", ["-o", "BatchMode=yes", "-p", port, host, operation], { timeout: 30_000 })).stdout
 }
 
+// Qualification daemon stderr is captured by the operator as this guest-user
+// readable file; the test attaches actual merge decisions and session sets.
+const mergeEvidence = async () => {
+  const path = required("SMITHERS_COEDIT_MERGE_LOG")
+  if (!/^\/(?:tmp|var\/lib\/smithers)\/[a-zA-Z0-9_./-]+$/.test(path) || path.split("/").includes("..")) throw new Error("Expected the qualification daemon log inside the guest")
+  const log = await ssh(`cat '${path}'`)
+  const records = log.split("\n").flatMap(line => { try { return [JSON.parse(line)] } catch { return [] } }) as Record<string, unknown>[]
+  const merges = records.filter(row => row.event === "doc-merge" && row.path === "retry.ts")
+  expect(merges.length).toBeGreaterThan(0)
+  for (const merge of merges) {
+    for (const key of ["base", "ours", "theirs"]) expect(merge[key]).toMatch(/^[a-f0-9]{64}$/)
+    expect(typeof merge.overlap).toBe("boolean")
+    expect(records.some(row => row.event === "doc-outside-version" && row.version === merge.version && Array.isArray(row.session_set))).toBe(true)
+  }
+  return { log, merges }
+}
+
 // A prepared canary on the reference Mac; never activates a normal install,
 // replaces /api/live, seeds a browser provider or writes to GitHub. The test
 // composition alone enables LiveCodeDocuments after T-COL-08 qualification.
@@ -45,6 +62,35 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
     const original = await ssh("cat retry.ts")
     expect(original.split("\n").length).toBeGreaterThanOrEqual(80)
     expect(await text(cards[0]!)).toBe(original)
+    let terminalTranscript = ""
+    const frameLog: { socket: string; direction: string; bytes: number; at: number }[] = []
+    const documentSockets = new Set<string>()
+    for (const page of pages) {
+      page.on("websocket", socket => {
+        if (socket.url().includes("/terminal")) socket.on("framereceived", frame => { terminalTranscript += typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8") })
+      })
+      // The shared socket predates the journey body. DevTools observes its
+      // existing frames; page.on("websocket") would miss that connection.
+      const network = await page.context().newCDPSession(page)
+      await network.send("Network.enable")
+      const record = (direction: string, event: {requestId:string;response:{opcode:number;payloadData:string}}) => {
+        const frame = event.response
+        if (frame.opcode === 1) {
+          try { const reply = JSON.parse(frame.payloadData); if (reply.t === "saved" || reply.t === "authors" || (reply.t === "snap" && reply.data?.epoch)) documentSockets.add(event.requestId) } catch { /* Other socket text is not a document receipt. */ }
+        }
+        frameLog.push({socket:event.requestId,direction,bytes:frame.opcode === 1 ? Buffer.byteLength(frame.payloadData) : Buffer.from(frame.payloadData,"base64").length,at:performance.now()})
+      }
+      network.on("Network.webSocketFrameSent", event => { record("sent", event) })
+      network.on("Network.webSocketFrameReceived", event => { record("received", event) })
+    }
+    await runSlash(pages[0]!, `/terminal ${branch}`)
+    const terminalRead = async () => {
+      const field = pages[0]!.locator('.terminal-view .xterm-helper-textarea').last()
+      await journeyReach(field)
+      await pages[0]!.keyboard.type("cat retry.ts")
+      await pages[0]!.keyboard.press("Enter")
+      await expect.poll(() => terminalTranscript).toContain("retry.ts")
+    }
     const samples: { character: string; sent: number; arrived: number; ms: number }[] = []
     const waiting = new Map<string, { receiver: Page; sent: number; done: () => void }>()
     for (const page of pages) {
@@ -103,6 +149,9 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
     expect(samples).toHaveLength(1000)
     const sorted = samples.map(sample => sample.ms).sort((a, b) => a - b)
     expect(sorted[949]!).toBeLessThan(1000)
+    const paced = samples.filter(sample => { const n = sample.character.charCodeAt(0) - 0xe000; return n < 200 || (n >= 500 && n < 700) }).map(sample => sample.ms).sort((a, b) => a - b)
+    expect(paced).toHaveLength(400)
+    expect(paced[379]!).toBeLessThan(1000)
     await expect.poll(async () => (await text(cards[0]!)) === (await text(cards[1]!))).toBe(true)
     const converged = await text(cards[0]!)
     for (let n = 0; n < 1000; n++) expect(converged.split(String.fromCharCode(0xe000 + n)).length - 1).toBe(1)
@@ -123,7 +172,10 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
       await expect(card.locator('.cm-ySelectionCaret').first()).toBeVisible()
     }
     expect(await ssh("cat retry.ts")).toBe(converged)
-    // Own-edits Undo keeps the other member's edit.
+    await terminalRead()
+    // Own-edits Undo keeps the other member's edit. End the benchmark's
+    // capture group before making the separate Undo canary.
+    await new Promise(resolve => setTimeout(resolve, 600))
     await journeyReach(cards[0]!.locator('.cm-content').first())
     await pages[0]!.keyboard.press("ControlOrMeta+End")
     await pages[0]!.keyboard.insertText("BEN_UNDO_CANARY")
@@ -159,6 +211,7 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
     await execute(required("SMITHERS_JOURNEY_SMTHRS"), ["host", "start"], { timeout: 60_000 })
     await expect.poll(() => ssh("cat retry.ts"), { timeout: 60_000 }).toBe(beforeRestart)
     await expect(cards[0]!.locator('.code-saved')).toHaveText("Saved to the machine", { timeout: 30_000 })
+    await terminalRead()
     await ssh("rm retry.ts")
     await expect(cards[0]!).toContainText("Deleted by")
     await journeyActivate(cards[0]!.getByRole("button", { name: "Restore", exact: true }))
@@ -174,6 +227,37 @@ test("C-J3-04: mounted File cards co-edit 1,000 characters, recover and follow g
       await expect(card).toHaveAttribute("data-mode", "read_only")
       await expect(card.locator('[contenteditable="true"]')).toHaveCount(0)
     }
+    // Leaving both app documents unmounts every card and releases every
+    // document subscription. Reopen
+    // after the daemon's 60-second close deadline, rather than just reloading.
+    const retainedCard = await open(pages[1]!)
+    await expect(retainedCard).toHaveAttribute("data-mode", "live")
+    const revealAuthors = async (page: Page, card: Locator) => {
+      await journeyReach(card.locator('.cm-content').first())
+      await page.keyboard.press("ControlOrMeta+Home")
+      for (let line = 1; line < 20; line++) await page.keyboard.press("ArrowDown")
+      await expect(card.locator('.code-author[title*="Ben"]').first()).toBeVisible()
+      await expect(card.locator('.code-author[title*="Alice"]').first()).toBeVisible()
+      return card.locator('.code-author').evaluateAll(nodes => nodes.map(node => ({ title: node.getAttribute("title"), text: node.textContent })))
+    }
+    const authorsBefore = await revealAuthors(pages[1]!, retainedCard)
+    const retainedText = await text(retainedCard), address = pages[1]!.url()
+    await Promise.all(pages.map(page => page.goto("about:blank")))
+    await new Promise(resolve => setTimeout(resolve, 61_000))
+    const reopened = pages[1]!
+    await reopened.goto(address); await awaitBoot(reopened)
+    await pages[0]!.goto(address); await awaitBoot(pages[0]!)
+    const reopenedCard = await open(reopened)
+    await expect(reopenedCard).toHaveAttribute("data-mode", "live")
+    expect(await text(reopenedCard)).toBe(retainedText)
+    expect(await ssh("cat retry.ts")).toBe(retainedText)
+    expect(await revealAuthors(reopened, reopenedCard)).toEqual(authorsBefore)
+    await info.attach("terminal-transcript.txt", { body: terminalTranscript, contentType: "text/plain" })
+    const documentFrames = frameLog.filter(frame => documentSockets.has(frame.socket))
+    expect(documentFrames.length).toBeGreaterThan(1000)
+    await attachJson(info, "doc-code-frame-log", documentFrames)
+    await attachJson(info, "reopened-authors", { authorsBefore, retainedText })
+    await attachJson(info, "daemon-merge-log", await mergeEvidence())
     await info.attach("keystrokes.csv", { body: "character,sent,arrived,ms\n" + samples.map(s => `${s.character.charCodeAt(0)},${s.sent},${s.arrived},${s.ms}`).join("\n"), contentType: "text/csv" })
     await attachJson(info, "file-coedit-texts", { converged, beforeRestart, sha256: createHash("sha256").update(beforeRestart).digest("hex"), samples: 1000, p95: sorted[949] })
   })
@@ -353,3 +437,104 @@ test("C-J3-04: revoked File card cannot read, subscribe or keep editing", scenar
   })
 })
 
+
+// Qualification build only: prove the actual guest daemon was started with
+// delayed watcher delivery. No synthetic event, version or save receipt enters
+// these forty browser/SSH races.
+test("C-J3-04: forty delayed-watcher outside saves retain atomic and in-place versions", scenario("file.coedit.ordering", {
+  capabilities: ["install", "ssh"], coverage: ["action:file", "action:file.compare", "door:slash", "door:button", "path:persistence", "dimension:recovery", "surface:file-card", "host:local", "host:production"]
+}), async ({ browser }, info) => {
+  test.setTimeout(360_000)
+  const pid = required("SMITHERS_COEDIT_DAEMON_PID")
+  if (!/^[1-9][0-9]*$/.test(pid)) throw new Error("A non-root guest daemon pid is required")
+  expect((await ssh(`tr '\\0' '\\n' < /proc/${pid}/environ | sed -n '/^SMITHERS_MACHINED_WATCH_DELAY_MS=/p'`)).trim()).toBe("SMITHERS_MACHINED_WATCH_DELAY_MS=2000")
+  await withReference(browser, info, async f => {
+    const branch = required("SMITHERS_OUTSIDE_BRANCH"), page = f.members.Alice.page
+    await runSlash(page, `/file ${JSON.stringify({branch,path:"retry.ts"})}`)
+    const card = cardFor(page,"retry.ts")
+    await expect(card).toHaveAttribute("data-mode","live")
+    const trials: { mode: string; trial: number; elapsed: number; retained: "document" | "version"; outsideDigest: string; outsideText?: string }[] = []
+    for (const mode of ["atomic", "in-place"] as const) for (let trial = 0; trial < 20; trial++) {
+      await expect(card.locator('.code-saved')).toHaveText("Saved to the machine")
+      const before = await ssh("cat retry.ts")
+      const ours = `ALICE_ORDER_${mode}_${trial}`, theirs = `MAYA_ORDER_${mode}_${trial}`
+      const outside = before.split("\n"); outside[29] = theirs + outside[29]
+      const encoded = Buffer.from(outside.join("\n")).toString("base64")
+      await journeyReach(card.locator('.cm-content').first())
+      await page.keyboard.press("ControlOrMeta+Home")
+      for (let line = 1; line < 30; line++) await page.keyboard.press("ArrowDown")
+      await page.keyboard.press("Home")
+      const started = performance.now()
+      await page.keyboard.insertText(ours)
+      // In-place writes are scheduled at the debounce boundary; both observed
+      // orders are retained in the evidence rather than assuming SSH latency.
+      if (mode === "in-place") await new Promise(resolve => setTimeout(resolve, Math.max(0, 190 - (performance.now() - started))))
+      await ssh(mode === "atomic" ? `printf '%s' '${encoded}' | base64 -d > .coedit-outside; mv .coedit-outside retry.ts` : `printf '%s' '${encoded}' | base64 -d > retry.ts`)
+      const elapsed = performance.now() - started
+      if (mode === "atomic") expect(elapsed).toBeLessThan(200)
+      await expect.poll(() => text(card), {timeout:5000}).toContain(ours)
+      let retained: "document" | "version" = "document", outsideText: string | undefined
+      if (!(await text(card)).includes(theirs)) {
+        await expect(card).toContainText("Changed outside Smithers", {timeout:5000})
+        await journeyActivate(card.getByRole("button",{name:"Compare",exact:true}))
+        await expect(card.locator('.code-file-outside')).toContainText(theirs)
+        retained = "version"
+        outsideText = await card.locator('.code-file-outside').textContent() ?? undefined
+      }
+      await expect(card.locator('.code-saved')).toHaveText("Saved to the machine", {timeout:5000})
+      await expect.poll(async () => (await ssh("cat retry.ts")) === (await text(card)), {timeout:5000}).toBe(true)
+      trials.push({mode,trial,elapsed,retained,outsideText,outsideDigest:createHash("sha256").update(outside.join("\n")).digest("hex")})
+    }
+    expect(trials).toHaveLength(40)
+    await attachJson(info,"outside-save-ordering",trials)
+    const evidence = await mergeEvidence()
+    expect(evidence.merges.length).toBeGreaterThanOrEqual(40)
+    for (const trial of trials) expect(evidence.merges.some(merge => merge.theirs === trial.outsideDigest)).toBe(true)
+    expect(evidence.merges.some(merge => merge.source === "displaced-save")).toBe(true)
+    await attachJson(info,"daemon-ordering-merge-log",evidence)
+  })
+})
+
+// A reviewed command launches the real coding harness through its registered
+// guest session. The browser verifies the broker's participant projection and
+// the actual attributed disk write; argv supplies stimulus, never a receipt.
+test("C-J3-04: coding-process attribution survives its registered participant lifetime", scenario("file.coedit.agent", {
+  capabilities: ["install", "ssh"], coverage: ["action:branch", "action:file", "door:slash", "path:success", "surface:file-card", "host:local", "host:production"]
+}), async ({ browser }, info) => {
+  test.setTimeout(180_000)
+  const command: unknown = JSON.parse(required("SMITHERS_COEDIT_AGENT_ARGV"))
+  if (!Array.isArray(command) || command[0] !== "ssh" || command.length < 3 || !command.every(value => typeof value === "string") || command.some(value => /\b(?:sudo|su|doas)\b|root@/.test(value))) throw new Error("Reviewed non-root registered coding-harness SSH argv required")
+  const argv = command as string[]
+  await withReference(browser, info, async f => {
+    const branch = required("SMITHERS_OUTSIDE_BRANCH"), pages = [f.members.Ben.page, f.members.Alice.page]
+    await runSlash(pages[0]!, "/branch T2")
+    const presence = pages[0]!.getByRole("list", { name: "On this branch", exact: true }).last()
+    for (const page of pages) await runSlash(page, `/file ${JSON.stringify({branch,path:"retry.ts"})}`)
+    const cards = pages.map(page => cardFor(page,"retry.ts"))
+    for (const card of cards) await expect(card).toHaveAttribute("data-mode","live")
+    expect(await text(cards[0]!)).not.toContain("AGENT_LINE_70_CANARY")
+    const running = execute(argv[0]!, argv.slice(1), {timeout:120_000})
+    // Attach a handler immediately so a launch failure cannot become an
+    // unhandled promise while the presence assertion is waiting.
+    const completion = running.then(value => ({value}), error => ({error}))
+    const chip = presence.locator('[data-agent="coding"][data-for="true"]')
+    await expect(chip).toBeVisible({timeout:30_000})
+    await expect(chip).toHaveAttribute("aria-label", /Ben/)
+    await attachJson(info,"active-coding-participant",await presence.innerText())
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i]!, card = cards[i]!
+      await expect.poll(() => text(card), {timeout:120_000}).toContain("AGENT_LINE_70_CANARY")
+      expect((await text(card)).split("\n")[69]).toContain("AGENT_LINE_70_CANARY")
+      await journeyReach(card.locator('.cm-content').first())
+      await page.keyboard.press("ControlOrMeta+Home")
+      for (let line = 1; line < 70; line++) await page.keyboard.press("ArrowDown")
+      await expect(card.locator('.code-author[title*="Coding agent"]').first()).toBeVisible()
+    }
+    const finished = await completion
+    if ("error" in finished) throw finished.error
+    await expect(chip).toHaveCount(0,{timeout:5000})
+    for (const card of cards) await expect(card.locator('.code-author[title*="Coding agent"]').first()).toBeVisible()
+    expect(await ssh("cat retry.ts")).toBe(await text(cards[0]!))
+    await attachJson(info,"coding-harness-transcript",finished.value)
+  })
+})

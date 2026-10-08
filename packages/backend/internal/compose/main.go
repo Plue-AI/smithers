@@ -2164,6 +2164,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 		if options.LiveCodeDocuments {
 			if relay := composeCodeDocumentRelay(workspaceService, options.Machined); relay != nil {
+				relay.Authors = topics.codeDocumentAuthors(pool)
 				// Any roster or grant change ends cached document admissions at once.
 				defer revocationBus.Subscribe(func(revocation.Event) { relay.Invalidate() })()
 				topics.documents = relay

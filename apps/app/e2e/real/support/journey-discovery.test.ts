@@ -74,10 +74,10 @@ test("keyboard continuation is admitted and listed beside fresh activation", () 
 }, 35_000)
 
 for (const host of ["local", "production"] as const) {
-  test(`file-coedit's four production-bound cases are discoverable on ${host}`, () => {
+  test(`file-coedit's six production-bound cases are discoverable on ${host}`, () => {
     const result = list("file-coedit", host)
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain("Total: 4 tests in 1 file")
+    expect(result.stdout).toContain("Total: 6 tests in 1 file")
     expect(result.stdout).toContain("file-coedit.spec.ts")
     expect(result.stderr).not.toContain("No tests found")
   }, 35_000)

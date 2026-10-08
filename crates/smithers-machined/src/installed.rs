@@ -216,6 +216,8 @@ fn saved_actor(actor: Option<&str>) -> Actor {
 }
 
 struct DocumentVersions {
+    #[cfg(all(feature = "testing", debug_assertions))]
+    broker: Arc<SocketpairBroker>,
     git: crate::git::Repository,
     events: Arc<Events>,
     watcher: Arc<OnceLock<Arc<Watcher>>>,
@@ -262,7 +264,20 @@ impl Versions for DocumentVersions {
                 .append(&event, Some(commit))
                 .map_err(|_| crate::doc::Error::Io("outside version append failed".into()))?;
         }
-        Ok(commit.iter().map(|b| format!("{b:02x}")).collect())
+        let version: String = commit.iter().map(|b| format!("{b:02x}")).collect();
+        #[cfg(all(feature = "testing", debug_assertions))]
+        {
+            let sessions = self
+                .broker
+                .registry()
+                .map_err(crate::doc::Error::Provider)?;
+            let sessions: Vec<_> = sessions.iter().filter(|s| !s.closed && !s.exited).map(|s| serde_json::json!({"id":s.id,"principal":s.principal,"kind":s.kind,"run":s.run})).collect();
+            eprintln!(
+                "{}",
+                serde_json::json!({"event":"doc-outside-version","path":path,"version":version,"session_set":sessions})
+            );
+        }
+        Ok(version)
     }
     fn before_write(&mut self, path: &str, actor: Option<&str>) -> crate::doc::Result<()> {
         self.watcher
@@ -345,6 +360,8 @@ pub fn run() -> io::Result<()> {
         workspace.try_clone()?,
         documents_dir,
         DocumentVersions {
+            #[cfg(all(feature = "testing", debug_assertions))]
+            broker: broker.clone(),
             git: git.clone(),
             events: events.clone(),
             watcher: document_watcher.clone(),

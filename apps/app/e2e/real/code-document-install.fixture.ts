@@ -68,6 +68,11 @@ for (let i = 0; i < OVERLAP_BEN.length; i++) {
 }
 await waitFor("pages converge", () => ben.text().toString() === alice.text().toString() && ben.text().length === BEN.length + ALICE.length + 20).catch(diagnose)
 assert.equal(benCard.text(), aliceCard.text(), "mounted editors converge")
+benCard.authors(); aliceCard.authors()
+assert.equal(ben.provider.setLine(1, "var(--lane-0)"), true)
+assert.equal(alice.provider.setLine(1, "var(--lane-1)"), true)
+await waitFor("authenticated remote line flags", () => ben.provider.awareness.getStates().has(alice.provider.doc.clientID) && alice.provider.awareness.getStates().has(ben.provider.doc.clientID))
+benCard.nameFlag("Alice"); aliceCard.nameFlag("Ben")
 const text = ben.text().toString()
 assert.equal(text.split("b").length - 1, 10, text)
 assert.equal(text.split("a").length - 1, 10, text)
@@ -95,6 +100,17 @@ await waitFor("mounted edits acknowledged", () => ben.provider.saved === "saved"
 mountedSamples.sort((a, b) => a - b)
 const mountedP95 = mountedSamples[949]!
 assert.ok(mountedP95 < 1000, `mounted keystroke p95 ${mountedP95} ms`)
+
+// Native mounted Undo keeps Alice's work and receives real relay/save receipts.
+await new Promise(resolve => setTimeout(resolve, 600))
+benCard.insert(benCard.text().length, "BEN_OWN_UNDO")
+await waitFor("peer sees Ben Undo group", () => aliceCard.text().includes("BEN_OWN_UNDO"))
+aliceCard.insert(aliceCard.text().length, "ALICE_UNDO_KEEP")
+await waitFor("Ben sees Alice preserved text", () => benCard.text().includes("ALICE_UNDO_KEEP"))
+benCard.undo()
+await waitFor("own group removed in both mounted cards", () => !benCard.text().includes("BEN_OWN_UNDO") && !aliceCard.text().includes("BEN_OWN_UNDO"))
+assert.ok(benCard.text().includes("ALICE_UNDO_KEEP")); assert.ok(aliceCard.text().includes("ALICE_UNDO_KEEP"))
+await waitFor("Undo acknowledged by daemon", () => ben.provider.saved === "saved" && alice.provider.saved === "saved").catch(diagnose)
 
 // Spec §7.1.1 gap on Ben's subscription alone: an oversized frame ends only
 // that subscription. Ben keeps typing; resubscribing keeps his client id,

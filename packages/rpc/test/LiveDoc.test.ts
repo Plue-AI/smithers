@@ -152,3 +152,13 @@ test("fake host stamps awareness identity and colour while preserving relative s
   for (const line of [0, -1, 1.5]) expect(() => relay.awareness({ line }, principal)).toThrow()
   expect(LiveDocAwareness.safeParse({ ...principal, line: 1, head: { item: { client: -1, clock: 0 } } }).success).toBe(false)
 })
+
+test("document display references reject malformed keys and actors", () => {
+ const actor = {kind:"person",login:"ben",name:"Ben",avatar_url:"https://example.com/ben.svg",color_index:0}
+ const key = "0123456789abcdef0123456789abcdef"
+ const frame = {t:"authors",id:7,data:{[key]:actor,outside:{kind:"outside",color_index:7}}}
+ expect(LiveDocReply.parse(frame)).toEqual(frame)
+ expect(LiveDocReply.safeParse({...frame,data:{forged:actor}}).success).toBe(false)
+ expect(LiveDocReply.safeParse({...frame,data:{[key]:{kind:"person",id:"forged"}}}).success).toBe(false)
+ expect(LiveDocReply.safeParse({...frame,data:{[key]:{...actor,color_index:9}}}).success).toBe(false)
+})

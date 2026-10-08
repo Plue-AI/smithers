@@ -1034,6 +1034,17 @@ impl<D: Disk> Host<D> {
             .get_or_insert_text("content")
             .get_string(&doc.doc.transact());
         let merged = merge::merge(base.unwrap_or(&doc.base), &ours, theirs);
+        #[cfg(all(feature = "testing", debug_assertions))]
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "event": "doc-merge", "path": path, "version": version, "actor": actor,
+                "base": digest(base.unwrap_or(&doc.base).as_bytes()).iter().map(|v| format!("{v:02x}")).collect::<String>(),
+                "ours": digest(ours.as_bytes()).iter().map(|v| format!("{v:02x}")).collect::<String>(),
+                "theirs": digest(bytes).iter().map(|v| format!("{v:02x}")).collect::<String>(),
+                "overlap": merged.overlap, "source": if base.is_some() { "displaced-save" } else { "watcher" },
+            })
+        );
         if merged.text.len() > MAX_TEXT_BYTES {
             return Err(Error::ReadOnly);
         }

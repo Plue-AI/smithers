@@ -5,6 +5,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -59,6 +60,7 @@ type DocumentSource struct {
 	Actor      []byte
 	Sequenced  bool
 	Ready      func() error
+	Authors    func(context.Context) (map[string]json.RawMessage, error)
 }
 
 // errDocumentGap ends one subscription whose stream fell behind its budget.
@@ -76,7 +78,9 @@ type DocRelay struct {
 	Authorize  func(context.Context, DocumentTopic, int64, int64) ([]byte, string)
 	Connection func(context.Context, string) (*machined.Connection, DocumentRPC)
 	// Now is the admission cache clock; nil uses time.Now.
-	Now        func() time.Time
+	Now func() time.Time
+	// Authors projects committed actor references for display, never admission.
+	Authors    func(context.Context, DocumentTopic) (map[string]json.RawMessage, error)
 	topics     codeTopics
 	generation atomic.Uint64
 }
@@ -137,7 +141,11 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		admitted, admittedGeneration = r.now(), generation
 		return connection.RequireReady(doc.Branch)
 	}
-	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Sequenced: true, OpenClient: func(ctx context.Context, requested uint32) (DocumentStream, error) {
+	var authors func(context.Context) (map[string]json.RawMessage, error)
+	if r.Authors != nil {
+		authors = func(ctx context.Context) (map[string]json.RawMessage, error) { return r.Authors(ctx, doc) }
+	}
+	return Source{Key: topic, Document: &DocumentSource{Actor: actor, Ready: ready, Authors: authors, Sequenced: true, OpenClient: func(ctx context.Context, requested uint32) (DocumentStream, error) {
 		if err := ready(); err != nil {
 			return nil, err
 		}

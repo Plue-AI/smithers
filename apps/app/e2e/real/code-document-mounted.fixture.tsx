@@ -38,6 +38,9 @@ export async function mountDocument(provider: LiveDocProvider) {
   return {
     insert(at: number, value: string) { flushSync(() => editor().dispatch({ changes: { from: at, insert: value } })) },
     text: () => editor().state.doc.toString(),
+    undo() { const event = new KeyboardEvent("keydown", {key:"z",code:"KeyZ",ctrlKey:true,bubbles:true,cancelable:true}); flushSync(() => editor().contentDOM.dispatchEvent(event)); assert.ok(event.defaultPrevented, "mounted own-edits Undo keymap handled the native event"); },
+    nameFlag(name: string) { render(); assert.ok([...host.querySelectorAll(".code-name-flag")].some(node => node.textContent?.includes(name)), `authenticated ${name} line flag mounted`); },
+    authors() { render(); assert.ok(host.querySelector('.code-author[title*="Ben"]'), "committed Ben reference renders author colour"); assert.ok(host.querySelector('.code-author[title*="Alice"]'), "committed Alice reference renders author colour"); },
     saved() { render(); assert.equal(host.querySelector(".code-saved")?.textContent, "Saved to the machine") },
     dispose() { flushSync(() => root.unmount()); host.remove(); resource.dispose(); }
   }

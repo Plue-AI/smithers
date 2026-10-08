@@ -289,6 +289,7 @@ impl<D: Disk> Documents for Service<D> {
             .peers
             .get(&f.stream)
             .ok_or_else(|| error(Error::Invalid))?;
+        let document_path = peer.path.clone();
         if input.msg == 2 {
             if input.data.len() > 64 * 1024 {
                 return Err(error(Error::Invalid));
@@ -309,8 +310,13 @@ impl<D: Disk> Documents for Service<D> {
                 let object = value.as_object().ok_or_else(|| error(Error::Invalid))?;
                 if object
                     .keys()
-                    .any(|k| !matches!(k.as_str(), "actor" | "colour" | "line"))
+                    .any(|k| !matches!(k.as_str(), "actor" | "colour" | "line" | "anchor" | "head"))
                     || value["actor"]["id"].as_str() != Some(by)
+                    || ["anchor", "head"].iter().any(|key| {
+                        object
+                            .get(*key)
+                            .is_some_and(|v| !valid_relative_position(v))
+                    })
                 {
                     return Err(error(Error::Forged));
                 }
@@ -319,6 +325,13 @@ impl<D: Disk> Documents for Service<D> {
                     .ok_or_else(|| error(Error::Invalid))?;
                 let line = match object.get("line") {
                     None | Some(serde_json::Value::Null) => None,
+                    Some(line) if line.is_u64() => {
+                        let n = line
+                            .as_u64()
+                            .and_then(|n| u32::try_from(n).ok())
+                            .ok_or_else(|| error(Error::Invalid))?;
+                        Some((document_path.as_str(), n))
+                    }
                     Some(line) => {
                         let path = line["path"].as_str().ok_or_else(|| error(Error::Invalid))?;
                         let n = line["line"]
@@ -626,4 +639,28 @@ impl<D: Disk> Documents for Service<D> {
     fn all_flushed(&self) -> bool {
         self.state().is_ok_and(|s| s.host.all_flushed())
     }
+}
+
+// Relative positions are bounded presentation data. They never choose a path,
+// actor, client assignment or execution identity.
+fn valid_relative_position(value: &serde_json::Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.iter().all(|(key, value)| match key.as_str() {
+        "tname" => value.as_str().is_some(),
+        "assoc" => value.as_i64().is_some_and(|v| i32::try_from(v).is_ok()),
+        "type" | "item" => value.as_object().is_some_and(|id| {
+            id.len() == 2
+                && id
+                    .get("client")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|v| v <= 0xffff_ffff)
+                && id
+                    .get("clock")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|v| v <= 9_007_199_254_740_991)
+        }),
+        _ => false,
+    })
 }

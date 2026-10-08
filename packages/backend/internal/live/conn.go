@@ -421,6 +421,7 @@ func (s *subscription) gap(out *outbox, id uint32) {
 
 func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse func(uint32, string)) {
 	hasEpoch := false
+	var lastAuthors string
 	for {
 		poll, cancel := context.WithTimeout(ctx, time.Second)
 		raw, err := s.document.Receive(poll)
@@ -455,6 +456,28 @@ func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse
 			s.close()
 			refuse(id, Unsupported)
 			return
+		}
+		if s.source.Authors != nil && (d.Msg == wire.DocumentSync || d.Msg == wire.DocumentAwareness) {
+			authors, err := s.source.Authors(ctx)
+			if err != nil {
+				s.close()
+				refuse(id, Unsupported)
+				return
+			}
+			data, err := json.Marshal(authors)
+			if err != nil {
+				s.close()
+				refuse(id, Unsupported)
+				return
+			}
+			if string(data) != lastAuthors {
+				message := encode(frame{T: "authors", ID: id, Data: data})
+				if !out.pushChecked(message, false, websocket.MessageText, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return !s.closed && !s.gapped }) {
+					s.gap(out, id)
+					return
+				}
+				lastAuthors = string(data)
+			}
 		}
 		var b []byte
 		kind := websocket.MessageText

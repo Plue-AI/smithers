@@ -11,6 +11,8 @@ export interface ActorMember extends PersonRef { id: string; color_index: number
 export interface ActorRun { id: string; owner?: string; agent?: AgentKind; avatar_url?: string }
 export interface ActorSession { id: string; agent: AgentKind; name?: string; avatar_url?: string }
 export interface ActorContext {
+  /** Authenticated document display references; never authority. */
+  references?: Readonly<Record<string, Actor>>
   roster?: readonly ActorMember[]
   runs?: readonly ActorRun[]
   sessions?: readonly ActorSession[]

@@ -383,3 +383,15 @@ test("remote text reaches its editor subscription before local persistence finis
   provider.dispose(); peer.destroy(); release()
   await new Promise(done => setTimeout(done, 0))
 })
+
+test("host-projected reference resolves authors and awareness without changing ownership", async () => {
+ const f = fixture()
+ f.event({kind:"assigned",epoch:"a".repeat(32),clientId:7})
+ const actor = {kind:"person",login:"ben",name:"Ben",avatar_url:"https://example.com/ben.svg",color_index:0} as const
+ const key = "0123456789abcdef0123456789abcdef"
+ f.provider.doc.getMap("authors").set("7", key)
+ f.event({kind:"authors",actors:{[key]:actor}})
+ expect(f.provider.resolveActor(key)).toEqual(actor)
+ expect(f.provider.doc.getMap("authors").get("7")).toBe(key)
+ f.provider.dispose()
+})

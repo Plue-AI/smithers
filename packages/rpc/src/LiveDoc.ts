@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { ActorSchema } from "./CardPrimitives.ts"
 import { BranchParticipant } from "./BranchCard.ts"
 
 // Working-together I2: browser wire contract; durability belongs to the document host.
@@ -81,6 +82,7 @@ export const LiveDocGone = z.discriminatedUnion("kind", [
  * @category schemas
  */
 export const LiveDocReply = z.discriminatedUnion("t", [
+ z.strictObject({ t: z.literal("authors"), id: LiveDocId, data: z.record(z.union([z.string().regex(/^[a-f0-9]{32}$/), z.literal("outside")]), ActorSchema) }),
   z.strictObject({
     t: z.literal("snap"),
     id: LiveDocId,

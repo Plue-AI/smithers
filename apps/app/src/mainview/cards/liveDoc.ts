@@ -20,7 +20,7 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
     const to = from + item.length, wire = authors.get(String(item.id.client))
     if (wire !== undefined) {
       try {
-        const actor = toActor((typeof wire === "string" ? JSON.parse(wire) : wire) as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
+        const actor = toActor((typeof wire === "string" ? context.references?.[wire] ?? JSON.parse(wire) : wire) as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
         ranges.push({ from, to, actor })
       } catch { /* Unknown attribution is omitted, never granted authority. */ }
     }
@@ -72,6 +72,7 @@ export function documentEditors(states: ReadonlyMap<number, unknown>, local: num
 export function liveFileModel(model: import("@smthrs/rpc/FileCard").FileCard,
   provider: import("../runtime/LiveDocProvider").LiveDocProvider,
   awareness: ReadonlyMap<number, unknown> = new Map(), context: ActorContext = {}) {
+  context = { ...context, references: provider.authors }
   model = provider.available ? provider.file ?? model : model
   if (!provider.editable || model.content.kind !== "text" || model.gone) {
     return { ...model, content: (model.gone || (provider.available && provider.unsaved)) && model.content.kind === "text" ? { kind: "text" as const, text: provider.doc.getText("content").toString() } : model.content, mode: "read_only" as const, ...(provider.unsaved ? { unsaved: provider.unsaved } : {}) }
@@ -90,6 +91,7 @@ export const LiveFileContext = createContext<{ resolve(branch: string, path: str
 
 /** Own one binding per document identity, including the replacement after an epoch reset. */
 export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}, remoteCarets = false): FileDocumentBinding & { dispose(): void } {
+  context = { ...context, get references() { return provider.authors } }
   let current: { doc: Y.Doc; awareness: Awareness; binding: ReturnType<typeof liveBinding> } | undefined
   return { provider,
     get binding() {

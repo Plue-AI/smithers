@@ -363,9 +363,34 @@ func (b *codeDocumentBrowser) read(t *testing.T) (websocket.MessageType, []byte)
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	kind, raw, err := b.conn.Read(ctx)
-	require.NoError(t, err)
-	return kind, raw
+	for {
+		kind, raw, err := b.conn.Read(ctx)
+		require.NoError(t, err)
+		if kind == websocket.MessageText && strings.Contains(string(raw), `"t":"authors"`) {
+			var projection struct {
+				Data map[string]struct {
+					Kind, Login, Name string
+					Color             int `json:"color_index"`
+				}
+			}
+			require.NoError(t, json.Unmarshal(raw, &projection))
+			require.NotEmpty(t, projection.Data)
+			for reference, actor := range projection.Data {
+				if reference == "outside" {
+					require.Equal(t, "outside", actor.Kind)
+					require.Equal(t, 7, actor.Color)
+					continue
+				}
+				require.Len(t, reference, 32)
+				require.Equal(t, "person", actor.Kind)
+				require.Contains(t, []string{"ben", "alice"}, actor.Login)
+				require.Contains(t, []string{"Ben", "Alice"}, actor.Name)
+				require.GreaterOrEqual(t, actor.Color, 0)
+			}
+			continue
+		}
+		return kind, raw
+	}
 }
 
 // text skips document sync frames and receipts until the next text frame that

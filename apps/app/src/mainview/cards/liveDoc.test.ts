@@ -96,3 +96,13 @@ test.each([false, true])("authenticated awareness gates remote carets and select
   binding.undo.undo(); expect(view.state.doc.toString()).toBe("hello")
   view.destroy(); host.remove(); binding.dispose(); awareness.destroy(); other.destroy(); remote.destroy(); doc.destroy()
 })
+
+test("committed opaque references project authors without rewriting the document", () => {
+ const doc = new Y.Doc(); doc.clientID = 7
+ const reference = "0123456789abcdef0123456789abcdef"
+ doc.getMap("authors").set("7", reference); doc.getText("content").insert(0, "kept")
+ expect(documentAuthors(doc)).toEqual([])
+ expect(documentAuthors(doc, { references: { [reference]: alice } })).toEqual([{from:0,to:4,actor:alice}])
+ expect(doc.getMap("authors").get("7")).toBe(reference)
+ doc.destroy()
+})
