@@ -17,21 +17,7 @@ import (
 // These literal permissions enter the installed HTTP route, not the helper
 // guard. The durable dispatcher is real; no worker runs or guest is invented.
 func TestTodoStopTransitionLiteralCases(t *testing.T) {
-	h := newTodoLiteralInstall(t, func(service *services.MythicalService, pool *pgxpool.Pool) {
-		service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
-			t.Fatal("Stop must use the attempt's pin, never Active")
-			return "", nil
-		})
-		store, err := jobs.NewStore(pool)
-		require.NoError(t, err)
-		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service,
-			Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
-				t.Fatal("HTTP admission must return before resolving a guest")
-				return nil, nil
-			})})
-		require.NoError(t, err)
-		service.SetLauncher(dispatcher)
-	})
+	h := newTodoSignalLiteralInstall(t)
 	ctx := t.Context()
 	cases := []struct {
 		engine, plain, wait, paused string
@@ -84,7 +70,7 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 				if mode.ended {
 					outcome = "validated"
 				}
-				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome=$4,workspace_id='11111111-1111-4111-8111-111111111111',flow_digest='e274ce85c2e7f9fdef2bb4de75700e9847920893d24e6f69d692a573ff11ed3d',paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, outcome, mode.paused)
+				_, err = h.pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='run-1',request_outcome=$4,workspace_id='11111111-1111-4111-8111-111111111111',flow_digest='11d0beb616ada0375414dffa11c9d9f1feb52a4b196f0db64d3d79bf33ed407e',paused_at=CASE WHEN $5 THEN '2026-10-02T12:00:00Z'::timestamptz ELSE NULL END WHERE id=$1`, h.item.ID, c.engine, checks, outcome, mode.paused)
 				require.NoError(t, err)
 				from := c.plain
 				if mode.wait != "" {
@@ -166,4 +152,23 @@ func mustStopChecksWithoutPause(t *testing.T, checks map[string]any) string {
 	raw, err := json.Marshal(checks)
 	require.NoError(t, err)
 	return string(raw)
+}
+
+func newTodoSignalLiteralInstall(t *testing.T) todoLiteralInstall {
+	t.Helper()
+	return newTodoLiteralInstall(t, func(service *services.MythicalService, pool *pgxpool.Pool) {
+		service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
+			t.Fatal("TODO control must use the attempt's pin, never Active")
+			return "", nil
+		})
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service,
+			Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+				t.Fatal("HTTP admission must return before resolving a guest")
+				return nil, nil
+			})})
+		require.NoError(t, err)
+		service.SetLauncher(dispatcher)
+	})
 }

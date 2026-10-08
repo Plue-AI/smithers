@@ -32,7 +32,15 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	}
 }
 
-func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int) {
+func TestTODOGitHubReopenWindowComposedInstall(t *testing.T) {
+	testTODOGitHubCloseReopenComposedInstall(t, 7, time.Second)
+}
+
+func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...time.Duration) {
+	closeAge := time.Duration(days) * 24 * time.Hour
+	if len(extra) > 0 {
+		closeAge += extra[0]
+	}
 	installationID := int64(9300 + days)
 	t.Setenv("REHEARSAL_INSTALLATION_ID", fmt.Sprint(installationID))
 	r := newRehearsal(t, "SMITHERS_GH03_REHEARSAL", "C-J10-08", "gh03-life-", 25)
@@ -238,7 +246,7 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int) {
 		hint("closed")
 		// Keep the original close age independent of row-update time. The
 		// install's webhook-triggered worker still uses its production clock.
-		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{githubClosedAt}',to_jsonb(clock_timestamp() - $2 * interval '1 day')),updated_at=clock_timestamp(),version=version+1 WHERE number=$1`, filed.N, days)
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{githubClosedAt}',to_jsonb(clock_timestamp() - $2 * interval '1 second')),updated_at=clock_timestamp(),version=version+1 WHERE number=$1`, filed.N, int64(closeAge/time.Second))
 		require.NoError(t, err)
 		// Simulate GitHub deleting the closed PR's branch, while its accepted
 		// objects and immutable manifest remain retained in the install.
@@ -246,7 +254,7 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int) {
 		deleted, deleteErr := deleteBranch.CombinedOutput()
 		require.NoError(t, deleteErr, string(deleted))
 		fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"open"}`)
-		if days == 8 {
+		if closeAge > 7*24*time.Hour {
 			hint("reopened")
 			// A stale-window delivery may still be queued by an earlier hint.
 			// Let every committed receipt settle before checking the card.
