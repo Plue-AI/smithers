@@ -4546,7 +4546,7 @@ Two records hold what a step was asked, so a reader can reopen one step:
 
 | Event type                       | Payload                                                                                                                                                                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `control.agent.model-requested`  | `scope`, `frame`, `attempt`, `purpose`, `seat`, `modelId`, `routeId?`, `protocolId?`, `system?`, `systemDigest`, `messages`, `messagesDigest`, `prefixCount`, `prefixDigest?`, `params`, `paramsDigest`, `toolCount`, `truncated?` |
+| `control.agent.model-requested`  | `scope`, `frame`, `attempt`, `purpose`, `seat`, `modelId`, `routeId?`, `protocolId?`, `system?`, `task?`, `systemDigest`, `messages`, `messagesDigest`, `prefixCount`, `prefixDigest?`, `params`, `paramsDigest`, `toolCount`, `truncated?` |
 | `control.agent.decision-settled` | `scope`, `frame`, `classifier`, `digest`, `state`, `stateDigest`, `questions`, `questionsDigest`, `answers`, `answersDigest`, `latencyMs`, `acted`, `decidedBy`, `truncated?`                                                      |
 
 `scope` and `frame` join either record to its turn; position never does.
@@ -4569,6 +4569,9 @@ where "before" is the previous record of the same `scope` and `purpose` in
   `Digest.digest(CanonicalJson.stringify({ role, text }))` per shared message.
 - `system` is written when `systemDigest` differs from the previous record's,
   and is otherwise left out. `systemDigest` is always written.
+- `task` is the step's task (the system part after `The task for this run:`),
+  written with `system` and bounded on its own, so a reader keeps the step's
+  input when the whole system text is too large to journal.
 
 A reader rebuilds one call by walking back through those records until
 `prefixCount` is `0`, taking the first `prefixCount` messages of each rebuilt

@@ -4,6 +4,10 @@
 
 ### Added
 
+- `control.agent.model-requested` journals the step's `task` (its task system
+  part) bounded on its own, so the monitor keeps a step's input when the whole
+  system text is too large to journal (#3514).
+
 - `AgentAction.make` accepts `claimCap`, overriding `Host.claimCap` for one
   step. A module flow can now mark a step whose completion is an answer
   (`claimCap: 0`) so the completion claim brake does not refuse it as an

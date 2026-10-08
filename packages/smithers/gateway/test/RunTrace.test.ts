@@ -1647,6 +1647,13 @@ describe("native step transcripts and metered dispatches", () => {
     expect(monitorFromJournal(run, journal.filter(row => row.sequence !== 3))).toMatchObject({ tokens: 0, cost_usd: 0 })
   })
 
+  test("an agent step's input is its journaled task when its system text was too large", () => {
+    const tasked = journal.map(row => row.sequence === 100
+      ? fact(100, "control.agent.model-requested", 5, { modelId: "gpt-oss-120b", system: { truncated: true, bytes: 70000, digest: "d" }, task: "{\"atom\":\"t6.md\"}", messages: [] })
+      : row)
+    expect(monitorFromJournal(run, tasked).attempts[0]!.steps[0]).toMatchObject({ input: { atom: "t6.md" } })
+  })
+
   test("plan structure and child-flow calls are never steps; long cell text is an excerpt", () => {
     const shaped = [
       node(20, "flows.engine.node-scheduled", { nodeId: "root", kind: "FlowCall", attempt: 1, action: "registry/entry/x/todo" }),

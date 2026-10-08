@@ -742,6 +742,9 @@ export interface RequestTrail {
  * same events from an empty start, so a replayed incarnation regenerates every
  * payload byte for byte and with it every {@link traceIdentity}.
  */
+/** The system part an agent's task travels in (Agent.ts, CellTurn.ts). */
+const taskPrefix = "The task for this run:\n\n"
+
 const tracedRequest = (
   event: AgentEvent.ModelRequested,
   previous: RequestTrail | undefined
@@ -754,6 +757,11 @@ const tracedRequest = (
   const system = event.request.system.map((part) => part.text)
   const tracedSystem = bounded(system)
   const systemMoved = previous?.systemDigest !== tracedSystem.digest
+  // The step's task travels in its own system part (Agent.ts). Journaled on
+  // its own, so a reader keeps the step's input when the whole system text
+  // is too large to journal.
+  const task = event.request.system.find((part) => part.text.startsWith(taskPrefix))?.text.slice(taskPrefix.length)
+  const tracedTask = task === undefined ? undefined : bounded(task)
   // Messages travel as role and prose, the way `steering-drained` writes
   // them. A thinking block's provider attestation is a field named
   // `signature`, which the journal redacts by name, so a block journaled
@@ -813,6 +821,7 @@ const tracedRequest = (
       // the row, so a reader digests what it read and treats a mismatch the
       // way it treats `truncated`: this is not the request that was sent.
       ...(systemMoved ? { system: tracedSystem.field } : {}),
+      ...(systemMoved && tracedTask !== undefined ? { task: tracedTask.field } : {}),
       systemDigest: tracedSystem.digest,
       messages: tracedMessages.field,
       messagesDigest: tracedMessages.digest,
@@ -825,6 +834,7 @@ const tracedRequest = (
       toolCount: event.request.tools.length,
       ...truncatedMarker([
         ...(systemMoved ? [[system, tracedSystem.field] as const] : []),
+        ...(systemMoved && task !== undefined && tracedTask !== undefined ? [[task, tracedTask.field] as const] : []),
         [messages, tracedMessages.field],
         ...messages.map((message, index) => [added[index]?.value, message] as const),
         [params, tracedParameters.field]

@@ -1428,6 +1428,18 @@ describe("the request and the decision behind a step", () => {
     expect(payload.systemDigest).toBe(digestOf(system.map((part) => part.text)))
   })
 
+  it("journals the step's task on its own when the whole system text is too large", () => {
+    const system = [
+      ModelRequest.SystemPart.make({ text: "s".repeat(AgentSession.maxTracedBytes + 1) }),
+      ModelRequest.SystemPart.make({ text: "The task for this run:\n\n{\"atom\":\"t5.md\"}" })
+    ]
+    const payload = AgentSession.trace(requested({ request: request({ system }) }))!.payload as Record<string, unknown>
+    expect(payload.system).toMatchObject({ truncated: true })
+    expect(payload.task).toBe("{\"atom\":\"t5.md\"}")
+    const untasked = AgentSession.trace(requested({ request: request({ system: [ModelRequest.SystemPart.make({ text: "contract" })] }) }))!
+    expect(Object.hasOwn(untasked.payload as object, "task")).toBe(false)
+  })
+
   it("keeps the whole record inside the step-fact payload bound, however many messages one call adds", () => {
     // Three bounded fields and a handful of names stay inside the
     // 262,144-byte step-fact payload, so the durable sink never replaces the

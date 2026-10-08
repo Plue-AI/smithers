@@ -2304,12 +2304,13 @@ interface StepTranscript {
 /** The system part an agent step's task travels in (`Agent.ts`). */
 const TASK_PREFIX = "The task for this run:\n\n"
 
-/** The agent's task from a traced request's system parts, parsed when it is JSON. */
-const taskOf = (system: unknown): unknown => {
-  const parts = Array.isArray(system) ? system : []
+/** The agent's task from a traced request: its own `task` field, or the task
+ * part of its system text when that fit the journal. Parsed when it is JSON. */
+const taskOf = (request: Record<string, unknown>): unknown => {
+  const parts = Array.isArray(request.system) ? request.system : []
   const part = parts.find((text): text is string => typeof text === "string" && text.startsWith(TASK_PREFIX))
-  if (part === undefined) return undefined
-  const task = part.slice(TASK_PREFIX.length)
+  const task = typeof request.task === "string" ? request.task : part?.slice(TASK_PREFIX.length)
+  if (task === undefined) return undefined
   try {
     return JSON.parse(task)
   } catch {
@@ -2381,7 +2382,7 @@ const stepTranscripts = (journal: ReadonlyArray<JournalRecord>): ReadonlyMap<str
       if (stepId === undefined || !hexDigest.test(stepId)) continue
       const transcript = entry(stepId)
       if (step.kind === "control.agent.model-requested" && transcript.input === undefined) {
-        const task = taskOf(payload.system)
+        const task = taskOf(payload)
         if (task !== undefined) transcript.input = task
       } else if (step.kind === "control.agent.model-settled") {
         const usage = asRecord(payload.usage)
