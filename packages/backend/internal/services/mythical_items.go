@@ -2958,6 +2958,17 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	if seed := mythicalChecksOf(item).Seed; seed != nil {
 		base = seed.Head
 	} else {
+		// Accepted laptop bytes remain source for later pinned attempts.
+		for _, wait := range mythicalChecksOf(item).Waits {
+			if wait.Kind == "foreign_push" && wait.Answer == "bring-in" && wait.SettledAt != nil && codingCommitID.MatchString(wait.SHA) {
+				base = wait.SHA
+			}
+		}
+		if !r.g.has(ctx, base) {
+			if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, repohost.KeptCommitRefPrefix+base); err != nil {
+				return mythicalInfraOutage(item, "launch", "the accepted outside push could not reach the lane", st.now), false, nil
+			}
+		}
 		var err error
 		base, err = r.g.initialItem(ctx, base, uuidString(item.ID), item.Attempt+1)
 		if err != nil {
@@ -3474,7 +3485,10 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 			return st.lockForeignBring(ctx, tx, item, *pending)
 		}
 		also = func(tx pgx.Tx, saved db.MythicalItem) error {
-			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": mythicalChecksOf(item).ForeignHead, "head": saved.CandidateHead, "by": pending.Request.By, "pusher": foreignBringPusher(item, pending.Wait), "actor": map[string]string{"kind": "system", "id": "stack"}})
+			if _, err := tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
+				return err
+			}
+			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": mythicalChecksOf(item).ForeignHead, "head": saved.CandidateHead, "by": pending.Request.By, "pusher": foreignBringPusher(item, pending.Wait), "actor": foreignBringPusher(item, pending.Wait)})
 			_, err := st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact)
 			return err
 		}

@@ -302,7 +302,7 @@ func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item 
 		if _, err = tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, pending.Workspace); err != nil {
 			return nil, false, err
 		}
-		fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": pending.SHA, "head": result.Head, "by": pending.Request.By, "pusher": foreignBringPusher(current, pending.Wait), "actor": map[string]string{"kind": "system", "id": "stack"}})
+		fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": pending.SHA, "head": result.Head, "by": pending.Request.By, "pusher": foreignBringPusher(current, pending.Wait), "actor": foreignBringPusher(current, pending.Wait)})
 		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact); err != nil {
 			return nil, false, err
 		}

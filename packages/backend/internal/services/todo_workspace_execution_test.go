@@ -82,7 +82,7 @@ func TestTodoWorkspaceExecutionBinding(t *testing.T) {
 }
 
 func TestTodoWorkspaceExecutionCurrentReview(t *testing.T) {
-	for _, mode := range []string{"current", "stale", "retired", "working", "unbound", "stale_candidate", "settled", "empty_head"} {
+	for _, mode := range []string{"current", "stale", "retired", "working", "unbound", "stale_candidate", "settled", "empty_head", "steered", "old_steer"} {
 		t.Run(mode, func(t *testing.T) {
 			id := pgtype.UUID{Bytes: uuid.New(), Valid: true}
 			review := &mythicalReview{Head: "published", Candidate: "candidate", Lane: "review-box"}
@@ -105,9 +105,18 @@ func TestTodoWorkspaceExecutionCurrentReview(t *testing.T) {
 			case "empty_head":
 				s.item.PRHead, review.Head = "", ""
 			}
-			s.item.Checks = (mythicalChecks{FlowSource: strings.Repeat("a", 40), Review: review}).encode()
+			checks := mythicalChecks{FlowSource: strings.Repeat("a", 40), Review: review}
+			if mode == "steered" || mode == "old_steer" {
+				s.item.State = "running"
+				attempt := s.item.Attempt
+				if mode == "old_steer" {
+					attempt--
+				}
+				checks.Steers = []todoSteer{{AfterProposal: true, Attempt: attempt}}
+			}
+			s.item.Checks = checks.encode()
 			got, err := ResolveTodoWorkspaceExecution(t.Context(), s, 4, "review-box")
-			if mode != "current" {
+			if mode != "current" && mode != "steered" {
 				require.Error(t, err)
 				require.Nil(t, got)
 				return

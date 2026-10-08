@@ -109,6 +109,19 @@ func (r *rehearsal) foreignBringRecovery(n int64, branch, sha, wait string) erro
 	if err := r.bringInReleased(n, branch, sha, wait); err != nil {
 		return err
 	}
+	for deadline := time.Now().Add(j10RunWait); ; time.Sleep(time.Second) {
+		var state string
+		var verified bool
+		if err := r.pool.QueryRow(r.ctx, `SELECT state,candidate_verified FROM mythical_items WHERE number=$1`, n).Scan(&state, &verified); err != nil {
+			return err
+		}
+		if state == "proposed" && verified {
+			break
+		}
+		if state == "blocked" || time.Now().After(deadline) {
+			return fmt.Errorf("Bring in did not finish verification: state=%s verified=%v", state, verified)
+		}
+	}
 	card, err := r.j10Card(n)
 	if err != nil {
 		return err
@@ -123,6 +136,6 @@ func (r *rehearsal) foreignBringRecovery(n int64, branch, sha, wait string) erro
 	if candidate != native {
 		return fmt.Errorf("recovery replaced checkpoint %s with %s", native, candidate)
 	}
-	r.actual += "; PostgreSQL receipt outage recovered the same native checkpoint"
+	r.actual += "; PostgreSQL receipt outage recovered the same native checkpoint and verified publication"
 	return nil
 }

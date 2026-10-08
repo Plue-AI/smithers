@@ -59,6 +59,16 @@ func todoExecutionWorkspace(item db.MythicalItem, workspaceID string) bool {
 	if item.WorkspaceID == workspaceID {
 		return true
 	}
-	review := mythicalChecksOf(item).Review
-	return item.State == "proposed" && review != nil && review.Lane == workspaceID && item.PRHead != "" && review.Head == item.PRHead && review.Candidate == item.CandidateHead && review.Verdict == ""
+	checks := mythicalChecksOf(item)
+	review := checks.Review
+	retainedReview := item.State == "proposed"
+	if item.State == "running" {
+		// An input arriving after publication must not revoke the already-bound
+		// reviewer while the pinned delivery waits for its result. Its exact
+		// head and attempt remain fenced below; no new review is admitted here.
+		for _, steer := range checks.Steers {
+			retainedReview = retainedReview || steer.AfterProposal && steer.Attempt == item.Attempt
+		}
+	}
+	return retainedReview && review != nil && review.Lane == workspaceID && item.PRHead != "" && review.Head == item.PRHead && review.Candidate == item.CandidateHead && review.Verdict == ""
 }

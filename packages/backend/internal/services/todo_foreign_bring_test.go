@@ -230,6 +230,12 @@ func testForeignBringRecovery(t *testing.T, planning bool) {
 		require.Empty(t, todoOpenWaits(next))
 	}
 	require.Equal(t, foreign, next.PRHead)
+	var actor string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data->'actor'->>'login' FROM product_job_events WHERE event_type='todo.foreign_brought-in'`).Scan(&actor))
+	require.Equal(t, "alice", actor)
+	var pendingCapture []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT capture_pending FROM workspaces WHERE id=$1`, workspace.ID).Scan(&pendingCapture))
+	require.Empty(t, pendingCapture)
 	require.Equal(t, 1, executor.calls)
 	var count int
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_brought-in'`).Scan(&count))

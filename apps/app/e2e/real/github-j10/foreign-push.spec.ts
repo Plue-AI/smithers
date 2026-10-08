@@ -112,6 +112,7 @@ test("C-J10-03 foreign pushes hold publication and bind Bring in and Discard to 
     const activity = f.sql(`SELECT data FROM product_job_events WHERE event_type='todo.foreign_brought-in' AND data->>'n'='${n}'`)
     expect(activity).toHaveLength(1)
     expect(activity[0].data.pusher.login).toBe(f.members.Ben.login)
+    expect(activity[0].data.actor.login).toBe(f.members.Ben.login)
 
     const steering = await f.api("Owner", "POST", `/api/todos/${n}`, { steer: "Also log the attempt number." }, "foreign-working-steer")
     expect(steering.status).toBe(202)
@@ -137,6 +138,7 @@ test("C-J10-03 foreign pushes hold publication and bind Bring in and Discard to 
     await page.getByRole("button", { name: "Confirm: discard this outside push", exact: true }).last().click()
     await expect.poll(async () => !!foreign(await cardOf(f, n), a3)).toBe(false)
     const discarded = await waitTodo(f, n, "in_review", card => card.pr.head !== brought.pr.head, 15 * 60_000)
+    expect(await f.github.file(discarded.pr.head, "A1.md")).toBe(await f.github.file(a1, "A1.md"))
     expect(await f.github.contains(a2, discarded.pr.head)).toBe(false)
     expect(await f.github.contains(a3, discarded.pr.head)).toBe(false)
     const events = await f.read("Owner", `/api/todos/${n}/events`)
