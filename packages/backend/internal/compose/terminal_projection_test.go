@@ -70,7 +70,12 @@ func TestTerminalAgentParticipantsThroughComposedLiveSocket(t *testing.T) {
 	q := db.New(f.pool)
 	terminal, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: f.row.ID, RepositoryID: f.row.RepositoryID, UserID: f.user.ID, Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	f.p.terminals = terminalProjection(f.pool, nil, nil)
+	manager := routes.NewTerminalSessionManager(nil)
+	defer manager.Close()
+	require.NoError(t, manager.OpenOwned(ctx, terminal.ID, revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) {
+		return &projectionTerminal{done: make(chan struct{})}, nil
+	}))
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
 	_, slug, err := installRepository(ctx, q)
 	require.NoError(t, err)
 	announce := func(session string, where map[string]any) {
