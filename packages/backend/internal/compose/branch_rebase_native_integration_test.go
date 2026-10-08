@@ -474,22 +474,46 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	current, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, edited, current.CandidateHead)
+	var stopRetryWorker func()
 	if option.FreezeTimeout {
 		arm := filepath.Join(state, "qualification-freeze-timeout.arm")
 		require.NoError(t, os.WriteFile(arm, []byte("73"), 0600))
 		beforeParent := git("-C", guest, "rev-parse", "HEAD^")
 		beforeTree := git("-C", store, "rev-parse", branchRef+"^{tree}")
+		// The same worker loop used by the install owns every attempt after
+		// the authenticated press. The test only observes persisted deadlines;
+		// it cannot advance the stack with PollOnce or a second request.
+		workerCtx, cancelWorker := context.WithCancel(ctx)
+		workerDone := make(chan struct{})
+		go func() {
+			defer close(workerDone)
+			service.Start(workerCtx)
+		}()
+		stopRetryWorker = func() {
+			cancelWorker()
+			select {
+			case <-workerDone:
+			case <-time.After(5 * time.Second):
+				t.Fatal("background retry worker did not stop")
+			}
+		}
+		t.Cleanup(stopRetryWorker)
 		// More timeouts than the outage allowance must remain pending. Only
 		// the persisted scheduler can make a retry due: no new stack request,
 		// manual due-row update or clock advance substitutes for that behavior.
 		var previousDue time.Time
 		for attempt := 0; attempt < 8; attempt++ {
 			require.Eventually(t, func() bool {
-				require.NoError(t, service.PollOnce(ctx))
 				pending, err := q.GetMythicalItem(ctx, item.ID)
 				require.NoError(t, err)
-				return pending.NextAttemptAt.Valid && pending.NextAttemptAt.Time.After(previousDue) && pending.Reason == "rebase_pending"
-			}, 5*time.Second, 100*time.Millisecond, "persisted scheduler did not retry timeout %d", attempt)
+				var receipt struct {
+					Rebase struct {
+						BlockingSession uint32 `json:"blocking_session"`
+					} `json:"rebase"`
+				}
+				require.NoError(t, json.Unmarshal(pending.Checks, &receipt))
+				return receipt.Rebase.BlockingSession == 73 && pending.NextAttemptAt.Valid && pending.NextAttemptAt.Time.After(previousDue) && pending.Reason == "rebase_pending"
+			}, 10*time.Second, 100*time.Millisecond, "persisted scheduler did not retry timeout %d", attempt)
 			pending, err := q.GetMythicalItem(ctx, item.ID)
 			require.NoError(t, err)
 			require.Equal(t, "rebase_pending", pending.Reason)
@@ -527,7 +551,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			previousDue = pending.NextAttemptAt.Time
 		}
 		require.NoError(t, os.Remove(arm))
-		// No second POST: the original authorized request resumes in PollOnce.
+		// No second POST or direct poll: the worker retries the original request.
 	}
 	if point != "" {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
@@ -582,12 +606,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.NoError(t, err)
 	}
 	advancedMain := false
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+	for deadline := time.Now().Add(45 * time.Second); time.Now().Before(deadline); {
 		if !option.FreezeTimeout {
 			_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 			require.NoError(t, err)
+			require.NoError(t, service.PollOnce(ctx))
 		}
-		require.NoError(t, service.PollOnce(ctx))
 		current, err = q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
 		if option.AdvanceMain && !advancedMain {
@@ -612,6 +636,13 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
+	}
+	if stopRetryWorker != nil {
+		// Join before inspecting the launch recorder, which is intentionally
+		// single-worker. Reading it concurrently would introduce a test race.
+		stopRetryWorker()
+		current, err = q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
 	}
 	if conflict {
 		require.Equal(t, "rebase_conflict_pending", current.Reason)
