@@ -314,7 +314,18 @@ func TestInstallCandidateAuthorizationPostgres(t *testing.T) {
 		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET owner_id=$2,request_run_id='member-run',generation=8,state='delivering',request_outcome='validated',candidate_head='',candidate_verified=false WHERE id=$1`, itemID, f.other.ID)
 		require.NoError(t, err)
 		memberScopes := "write:repository," + middleware.RepositoryRestrictionScope(f.repoID) + "," + middleware.LandingWorkspaceScope(workspace.ID) + "," + middleware.AgentSessionRestrictionScope("member-run")
-		memberRun := f.token(f.other, "member-candidate", memberScopes, true)
+		_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, workspace.ID, f.other.ID)
+		require.NoError(t, err)
+		runtime := &candidatePublisherRuntime{}
+		workspaces := services.NewWorkspaceService(f.q, services.WithWorkspaceInstallAuthorization(f.q), services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime), services.WithWorkspaceGitBaseURL("http://127.0.0.1:47199"))
+		environment, err := workspaces.PrepareBoxHost(f.ctx, "member-candidate-host", workspace.ID, f.repoID, f.other.ID)
+		require.NoError(t, err)
+		memberRun := environment["SMITHERS_JJHUB_TOKEN"]
+		require.NotEmpty(t, memberRun)
+		sum := sha256.Sum256([]byte(memberRun))
+		stored, err := f.q.GetAuthInfoByTokenHash(f.ctx, hex.EncodeToString(sum[:]))
+		require.NoError(t, err)
+		require.Equal(t, f.other.ID, stored.ID)
 		memberInput := input
 		memberInput.Source, memberInput.RequestRunID = memberSource, "member-run"
 		before := reads.Load()
