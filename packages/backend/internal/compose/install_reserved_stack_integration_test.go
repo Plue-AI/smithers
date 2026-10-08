@@ -659,6 +659,38 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		item, err = f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
 		require.NoError(t, err)
 		require.Equal(t, beforeVersion, item.Version)
+
+		// The engine can rewrite this admitted source before its verification
+		// launch completes. The helper still polls the original immutable work.
+		runtime.head, runtime.tree = strings.Repeat("1", 40), strings.Repeat("2", 40)
+		beforeReads, beforeCalls := objects.reads, runtime.calls
+		call(t, token, "candidate", string(body), 202)
+		afterRewrite, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
+		require.NoError(t, err)
+		require.Equal(t, item.Version, afterRewrite.Version)
+		require.Equal(t, beforeReads, objects.reads)
+		require.Equal(t, beforeCalls, runtime.calls)
+		// A matching invocation ID does not authorize substituted source,
+		// ancestry or plan, even while the original request is pending.
+		for _, field := range []string{"head", "tree", "parent", "plan"} {
+			substitute := changed
+			request := services.ReservedStackInput{RequestID: "33333333-3333-4333-8333-333333333333", Source: &substitute}
+			switch field {
+			case "head":
+				substitute.CommitID = runtime.head
+			case "tree":
+				substitute.TreeID = runtime.tree
+			case "parent":
+				substitute.ParentCommitIDs = []string{runtime.head}
+			case "plan":
+				request.Plan = json.RawMessage(`{"changes":[{"atoms":[],"checks":[]}]}`)
+			}
+			mutated, err := json.Marshal(request)
+			require.NoError(t, err)
+			call(t, token, "candidate", string(mutated), 409)
+		}
+		require.Equal(t, beforeReads, objects.reads)
+		require.Equal(t, beforeCalls, runtime.calls)
 	})
 	t.Run("run replacement refuses before capture", func(t *testing.T) {
 		_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, itemID)

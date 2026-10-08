@@ -438,6 +438,13 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	require.Nil(t, mythicalChecksOf(verifying).Capture)
 	require.Equal(t, steers, mythicalChecksOf(verifying).Steers)
 	require.Equal(t, 1, f.verifies(verifying))
+	require.Nil(t, mythicalChecksOf(verifying).ProposalInput)
+	var recorded []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT authorization_context FROM product_job_requests WHERE id=$1`, reservedStackReceiptID(verifying, "stack.candidate", capture.RequestID)).Scan(&recorded))
+	var receipt reservedStackReceipt
+	require.NoError(t, json.Unmarshal(recorded, &receipt))
+	require.Equal(t, capture, receipt.Input, "verification retains the exact admitted source before the helper polls again")
+	require.Equal(t, ReservedStackResult{Generation: generation + 1, Base: f.main, Head: head}, receipt.Result)
 
 	result, status := call("stack.candidate", capture)
 	require.Equal(t, 200, status)
@@ -544,17 +551,17 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	_, status = call("stack.propose", ReservedStackInput{RequestID: proposal.RequestID, Generation: generation})
 	require.Equal(t, 409, status, "a stale generation refuses")
 
-	// The composition can finish after observing acceptance. A live attempt
-	// retains its coding branch for re-entry; an ended run releases it before
-	// review, and the retired credential authorizes neither operation.
+	// Completion retains the person's open coding branch through review.
+	// Its exact completed receipt stays readable under the current binding;
+	// replay cannot make another publication.
 	ended := f.item(item.Number.Int64)
 	ended.RequestOutcome = "completed"
 	_, err = q.SaveMythicalItem(ctx, ended)
 	require.NoError(t, err)
 	f.wake()
-	require.Equal(t, 1, guest.stops)
+	require.Zero(t, guest.stops)
 	_, status = call("stack.propose", proposal)
-	require.Equal(t, 403, status)
+	require.Equal(t, 200, status)
 	require.Len(t, f.writes(), writes, "no second push or pull request")
 }
 

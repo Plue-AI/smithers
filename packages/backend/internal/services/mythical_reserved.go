@@ -137,6 +137,19 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if mythicalMergeFenced(item) || item.PausedAt.Valid {
 		return empty, 202, nil
 	}
+	if pending := mythicalChecksOf(item).ProposalInput; command == "stack.candidate" && input.Source != nil && pending != nil {
+		previous, _ := json.Marshal(pending)
+		current, _ := json.Marshal(input)
+		if pending.RequestID == input.RequestID && !bytes.Equal(previous, current) {
+			return empty, 0, pkgerrors.Conflict("stack operation request changed")
+		}
+		if bytes.Equal(previous, current) && mythicalChecksOf(item).ProposalRun == item.RequestRunID && mythicalChecksOf(item).ProposalHead == input.Source.CommitID && item.State == "integrating" {
+			// Its exact admitted snapshot is already owned by the engine. A
+			// native rewrite may move the live tree before verification records
+			// this invocation's result; polling must not submit those bytes again.
+			return empty, 202, tx.Commit(live)
+		}
+	}
 	stack, err := q.GetMythicalStack(live, repository)
 	if err != nil {
 		return empty, 0, err
@@ -255,8 +268,9 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		if pending != nil && pending.Head == input.Source.CommitID || len(item.PendingOp) > 0 || checking {
 			if pending != nil && pending.Head == input.Source.CommitID && pending.Tree == tree {
 				checks := mythicalChecksOf(item)
-				if checks.ProposalRun != item.RequestRunID || checks.ProposalHead != pending.Head {
+				if checks.ProposalRun != item.RequestRunID || checks.ProposalHead != pending.Head || checks.ProposalInput == nil {
 					checks.ProposalRun, checks.ProposalHead = item.RequestRunID, pending.Head
+					checks.ProposalInput = &input
 					if !checking && len(item.PendingOp) == 0 {
 						item.CandidateBase, item.CandidateVerified = prefix, false
 						item.State, item.Reason = "integrating", ""
@@ -297,6 +311,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		checks.Capture, checks.Land, checks.Review = &captured, nil, nil
 		// This run now waits on stack.propose for its acceptance.
 		checks.ProposalRun, checks.ProposalHead = item.RequestRunID, captured.Head
+		checks.ProposalInput = &input
 		item.Checks = checks.encode()
 		encoded, err := json.Marshal(captured)
 		if err != nil {

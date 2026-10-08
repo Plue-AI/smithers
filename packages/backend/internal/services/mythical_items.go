@@ -3896,6 +3896,21 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 			return err
 		}
 	}
+	// The source admitted by stack.candidate may now have a different tree
+	// after this fenced rebase. Complete its exact invocation atomically with
+	// verification admission, before the helper polls the old source again.
+	if pending := rebase.ProposalInput; pending != nil && pending.Source != nil && rebase.ProposalRun == item.RequestRunID && rebase.ProposalHead == pending.Source.CommitID {
+		previous := also
+		also = func(tx pgx.Tx, saved db.MythicalItem) error {
+			if previous != nil {
+				if err := previous(tx, saved); err != nil {
+					return err
+				}
+			}
+			return s.recordReservedStack(ctx, tx, saved, "stack.candidate", *pending, ReservedStackResult{Generation: saved.Generation, Base: saved.CandidateBase, Head: saved.CandidateHead})
+		}
+		rebase.ProposalInput = nil
+	}
 	next.Checks = rebase.encode()
 	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
 	saved, err := st.commitWithGuard(ctx, next, "verify", "coding/verify", payload, before, also)
@@ -6237,6 +6252,9 @@ type mythicalChecks struct {
 	// ProposalHead binds the run's sealed submission, so retained steering
 	// history cannot block its verification or authorize a newer capture.
 	ProposalHead string `json:"proposal_head,omitempty"`
+	// The exact admitted native request survives a prefix rewrite until its
+	// verification launch records the completed reserved-operation receipt.
+	ProposalInput *ReservedStackInput `json:"proposal_input,omitempty"`
 	// FlowSource is the main commit the attempt's todo pin was chosen from;
 	// flow_digest holds the pin's execution digest (mythicalPinOf).
 	FlowSource string `json:"flowSource,omitempty"`
