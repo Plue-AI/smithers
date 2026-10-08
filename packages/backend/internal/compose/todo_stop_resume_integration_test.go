@@ -6,28 +6,35 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// The receiver is a test-only guest protocol contract. Runtime parks themselves
-// are covered by flows/test/todo-pause.test.ts on the production SQLite engine.
+// Only guest protocol observations are controlled. Commands cross the production
+// resolver, PostgreSQL binding lease and authenticated runtime bridge.
 type pauseReceiver struct {
 	*reviewFixtureReceiver
 	signals chan flowruntime.Signal
@@ -45,6 +52,86 @@ func (r *pauseReceiver) Signal(ctx context.Context, input flowruntime.Signal) (f
 	}
 	return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
 }
+
+// pauseHostTransport replaces the unavailable Linux guest transport, never the
+// resolver or binding store. It reports the exact authenticated launch identity.
+type pauseHostTransport struct {
+	starts   atomic.Int32
+	mu       sync.Mutex
+	launch   flowhost.HostLaunch
+	endpoint string
+	receiver *pauseReceiver
+}
+
+func (*pauseHostTransport) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+func (h *pauseHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.launch.Credential == "" {
+		return flowhost.Connection{}, flowhost.ErrHostNotRunning
+	}
+	return flowhost.Connection{Endpoint: h.endpoint}, nil
+}
+func (h *pauseHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.launch = launch
+	h.starts.Add(1)
+	return flowhost.Connection{Endpoint: h.endpoint}, nil
+}
+func (h *pauseHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	launch := h.launch
+	h.mu.Unlock()
+	if launch.Credential == "" || r.Header.Get("Authorization") != "Bearer "+launch.Credential {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/health" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"runtimeBridge": flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: launch.Binding.RuntimeArtifactDigest, SourceRevision: launch.Binding.SourceRevision, OwnerGeneration: launch.Binding.OwnerGeneration}})
+		return
+	}
+	var command struct {
+		Operation            string `json:"operation"`
+		ApplicationRequestID string `json:"applicationRequestId"`
+		RunID                string `json:"runId"`
+		OwnerGeneration      int64  `json:"ownerGeneration"`
+		Signal               struct {
+			Name    string          `json:"name"`
+			Payload json.RawMessage `json:"payload"`
+		} `json:"signal"`
+	}
+	if r.URL.Path == "/runtime/v1/observe" {
+		var input struct {
+			RunID string `json:"runId"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			http.Error(w, "invalid observation", 400)
+			return
+		}
+		observed, err := h.receiver.Observe(r.Context(), input.RunID, "", 1)
+		if err != nil {
+			http.Error(w, "guest unavailable", 503)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": map[string]any{"run": observed.Run, "events": observed.Events, "nextCursor": observed.NextCursor, "hasMore": observed.HasMore, "terminal": observed.Terminal}})
+		return
+	}
+	if r.URL.Path != "/runtime/v1/command" || json.NewDecoder(r.Body).Decode(&command) != nil || command.Operation != "signal" || command.OwnerGeneration != launch.Binding.OwnerGeneration {
+		http.Error(w, "unsupported guest command", 400)
+		return
+	}
+	result, err := h.receiver.Signal(r.Context(), flowruntime.Signal{ApplicationRequestID: command.ApplicationRequestID, RunID: command.RunID, Name: command.Signal.Name, Payload: command.Signal.Payload})
+	if err != nil {
+		http.Error(w, "guest unavailable", 503)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": map[string]any{"operation": result.Operation, "applicationRequestId": result.ApplicationRequestID, "receipt": result.Receipt}})
+}
+
 func TestTodoStopResumeComposedInstall(t *testing.T) {
 	testTodoStopResumeComposedInstall(t, "running", "working")
 }
@@ -97,7 +184,24 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	receiver := &pauseReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{}, signals: make(chan flowruntime.Signal, 10)}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil })})
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,vm_id,status) VALUES('11111111-1111-4111-8111-111111111111',$1,$2,'pause-machine','running')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+	codec, err := webhook.NewSecretCodec("pause-host-test-key")
+	require.NoError(t, err)
+	bindings, err := flowhost.NewStore(pool, codec)
+	require.NoError(t, err)
+	transport := &pauseHostTransport{receiver: receiver}
+	guestServer := httptest.NewServer(transport)
+	t.Cleanup(guestServer.Close)
+	transport.endpoint = guestServer.URL
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	require.NoError(t, err)
+	// The original run already owns a verified host. Reads and control signals
+	// inspect that binding; they cannot start a replacement guest.
+	initialTarget := flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID), WorkspaceID: "11111111-1111-4111-8111-111111111111", BindingKind: "mythical-item", BindingID: uuid.UUID(item.ID.Bytes).String()}
+	_, err = resolver.ResolveFlowRuntime(ctx, initialTarget)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service, Resolver: installFlowResolver{resolver}})
 	require.NoError(t, err)
 	service.SetLauncher(dispatcher)
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
@@ -113,7 +217,13 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(t.Context()))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
+	topics := &liveTopics{queries: q, todos: service, jobs: store}
+	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(t.Context(), nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver}
+	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Live: liveHandler})
 	server.Start()
 	t.Cleanup(server.Close)
 	call := func(method, body, key string) (int, map[string]any) {
@@ -132,6 +242,45 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&value))
 		return res.StatusCode, value
 	}
+
+	// Hold one real subscription across all control transitions. Durable TODO
+	// facts must advance the source cursor, rather than polling a seeded card.
+	socket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=" + raw}, "Origin": {origin}}})
+	require.NoError(t, err)
+	t.Cleanup(func() { socket.CloseNow() })
+	require.NoError(t, socket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:1"}`)))
+	var lastCursor int64 = -1
+	observeCard := func(predicate func(map[string]any) bool) {
+		t.Helper()
+		readCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		for {
+			_, raw, err := socket.Read(readCtx)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			require.NotEqual(t, "err", frame.T, string(raw))
+			require.NotEqual(t, "gap", frame.T, string(raw))
+			if frame.T != "snap" && frame.T != "delta" {
+				continue
+			}
+			var card map[string]any
+			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			if frame.T == "delta" {
+				var fact struct{ Data struct{ Card map[string]any } }
+				require.NoError(t, json.Unmarshal(frame.Data, &fact))
+				card = fact.Data.Card
+			}
+			if card == nil || !predicate(card) {
+				continue
+			}
+			require.NotNil(t, frame.Cursor)
+			require.Greater(t, *frame.Cursor, lastCursor, "a new lifecycle fact needs a new durable source cursor")
+			lastCursor = *frame.Cursor
+			return
+		}
+	}
+	observeCard(func(card map[string]any) bool { return card["state"] == productState })
 
 	// Every refusal precedes runtime intent and leaves the item unchanged.
 	original, err := q.GetMythicalItem(ctx, item.ID)
@@ -204,6 +353,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	require.Equal(t, 200, status, card)
 	require.Equal(t, productState, card["state"])
 	require.Equal(t, "requested", card["stop"])
+	observeCard(func(card map[string]any) bool { return card["stop"] == "requested" })
 	status, replay := call("POST", `{"op":"stop"}`, "stop-1")
 	require.Equal(t, 202, status, replay)
 	require.Equal(t, receipt, replay)
@@ -223,7 +373,9 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 		require.JSONEq(t, "1", string(signal.Payload))
 		require.Equal(t, "run-1", signal.RunID)
 	case <-time.After(5 * time.Second):
-		t.Fatal("Stop not dispatched")
+		var failure string
+		_ = pool.QueryRow(ctx, `SELECT last_error FROM product_job_dispatches ORDER BY updated_at DESC LIMIT 1`).Scan(&failure)
+		t.Fatalf("Stop not dispatched: %s", failure)
 	}
 	projectWaits := func(waits []flowruntime.PendingWait, statuses ...string) {
 		runStatus := "running"
@@ -273,6 +425,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	_, card = call("GET", "", "")
 	require.Equal(t, "paused", card["state"])
 	require.Equal(t, "person", card["pause"].(map[string]any)["reason"])
+	observeCard(func(card map[string]any) bool { return card["state"] == "paused" })
 	if engineState == "proposed" {
 		require.EqualValues(t, 41, card["pr"].(map[string]any)["number"])
 		require.Equal(t, strings.Repeat("c", 40), card["pr"].(map[string]any)["head"])
@@ -345,6 +498,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	_, card = call("GET", "", "")
 	require.Equal(t, "needs_you", card["state"])
 	require.NotContains(t, card, "pause")
+	observeCard(func(card map[string]any) bool { return card["state"] == "needs_you" && card["pause"] == nil })
 	require.Equal(t, map[string]any{"flow_name": "todo", "source_commit": source, "digest": digest}, card["flow_version"])
 	require.Zero(t, activeReads.Load(), "Stop and Resume must not resolve the newer Active version")
 	saved, err := q.GetMythicalItem(ctx, item.ID)
@@ -423,5 +577,6 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	_, card = call("GET", "", "")
 	require.NotContains(t, card, "pause")
 	require.Equal(t, map[string]any{"op": "stop", "message": "Finished before Stop"}, card["control_failure"])
+	require.EqualValues(t, 1, transport.starts.Load(), "control retries must reuse the original fenced host")
 
 }
