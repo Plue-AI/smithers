@@ -86,7 +86,7 @@ func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparatio
 				return ack, err
 			}
 			err := withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
-				objects := machined.GitCaptureObjects{Resolve: func(context.Context, string) (string, error) { return path, nil }}
+				objects := machined.GitCaptureObjects{InitialBase: projection.InitialCaptureBase(), Resolve: func(context.Context, string) (string, error) { return path, nil }}
 				if len(event.Payload) > 0 && event.Payload[0] == 3 {
 					writer := &machined.ReconcileIngest{Objects: objects, Apply: projection.Reconcile}
 					var err error

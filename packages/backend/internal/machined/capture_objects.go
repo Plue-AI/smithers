@@ -13,7 +13,10 @@ import (
 // bounded, hook-free Git data operations. Resolve must hold the repository's
 // maintenance exclusion for the operation, as with GitBurstObjects.
 type GitCaptureObjects struct {
-	Resolve func(context.Context, string) (string, error)
+	// InitialBase is a host-authorized bootstrap head read under the stack,
+	// item and workspace fences. Guest input never supplies this authority.
+	InitialBase string
+	Resolve     func(context.Context, string) (string, error)
 }
 
 func (s GitCaptureObjects) VerifyCapture(ctx context.Context, branch string, capture wire.Captured) ([]string, error) {
@@ -76,7 +79,11 @@ func (s GitCaptureObjects) PublishCapture(ctx context.Context, branch string, ca
 	if readErr == nil && strings.TrimSpace(string(current)) == capture.Head {
 		return true, nil // repair a projection interrupted after publication
 	}
-	if _, err = burstGit(ctx, repo, 64, "update-ref", ref, capture.Head, capture.Base); err == nil {
+	expected := capture.Base
+	if readErr != nil && objectID(s.InitialBase) && capture.Base == s.InitialBase {
+		expected = strings.Repeat("0", 40)
+	}
+	if _, err = burstGit(ctx, repo, 64, "update-ref", ref, capture.Head, expected); err == nil {
 		return true, nil
 	}
 	current, readErr = burstGit(ctx, repo, 64, "rev-parse", "--verify", ref)

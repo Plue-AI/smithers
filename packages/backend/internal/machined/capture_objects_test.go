@@ -76,6 +76,20 @@ func TestGitCaptureObjects(t *testing.T) {
 	_, err = store.Head(t.Context(), "foreign", "")
 	require.ErrorIs(t, err, ErrUnauthorized)
 	ref := "refs/smithers/branches/" + branch + "/head"
+	bootstrap := GitCaptureObjects{Resolve: resolve, InitialBase: strings.Repeat("f", 40)}
+	_, err = bootstrap.PublishCapture(t.Context(), branch, capture)
+	require.Error(t, err, "an unrelated admitted head cannot bootstrap this capture")
+	bootstrap.InitialBase = capture.Base
+	appliedBootstrap, err := bootstrap.PublishCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.True(t, appliedBootstrap)
+	require.Equal(t, capture.Head, git("rev-parse", ref))
+	// Bootstrap authority never replaces a head that already exists.
+	git("update-ref", ref, capture.Tree)
+	appliedBootstrap, err = bootstrap.PublishCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.False(t, appliedBootstrap)
+	require.Equal(t, capture.Tree, git("rev-parse", ref))
 	git("update-ref", ref, base)
 	observed, err := store.Head(t.Context(), branch, "")
 	require.NoError(t, err)

@@ -95,6 +95,24 @@ func (p *MachineCaptureProjection) ValidatePublication() error {
 	return nil
 }
 
+// InitialCaptureBase permits the first daemon snapshot to create only its
+// own branch ref, from the head already admitted by host publication. The
+// projection retains all ordered locks throughout the ref's zero-head CAS.
+func (p *MachineCaptureProjection) InitialCaptureBase() string {
+	if p == nil || p.tx == nil {
+		return ""
+	}
+	if codingCommitID.MatchString(p.workspace.HeadCommitID) {
+		return p.workspace.HeadCommitID
+	}
+	for _, item := range p.items {
+		if item.WorkspaceID == p.workspace.ID && codingCommitID.MatchString(item.CandidateHead) && !mythicalMergeFenced(item) {
+			return item.CandidateHead
+		}
+	}
+	return ""
+}
+
 // Apply runs after object verification/publication but in the same transaction
 // as the receipt. It preserves candidate/run/pin history and only withdraws
 // verification; a later equal capture never re-enables an invalidated candidate.

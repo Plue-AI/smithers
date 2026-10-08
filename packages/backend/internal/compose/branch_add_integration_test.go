@@ -55,6 +55,8 @@ func TestBranchCaptureComposedInstall(t *testing.T) {
 		t.Run(mode, func(t *testing.T) { runBranchAddComposed(t, mode) })
 	}
 }
+func TestBranchFirstCaptureComposedInstall(t *testing.T) { runBranchAddComposed(t, "s2-bootstrap") }
+
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	configureNativeInstallFixture(t)
@@ -121,6 +123,9 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.NoError(t, err)
 	git("-C", store, "update-ref", "refs/heads/scratch/ben/try", head)
 	git("-C", store, "update-ref", repohost.BranchHeadRef(workspace.ID), head)
+	if remove == "s2-bootstrap" {
+		git("-C", store, "update-ref", "-d", repohost.BranchHeadRef(workspace.ID))
+	}
 	require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state,landed_main) VALUES($1,$2,'active',$3)`, repo.ID, owner.ID, base)
 	require.NoError(t, err)
@@ -384,7 +389,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 				require.Equal(t, response.Body.String(), replay.Body.String())
 			}
 		}
-		if remove == "s2-add" || remove == "s2-confirm" {
+		if remove == "s2-add" || remove == "s2-confirm" || remove == "s2-bootstrap" {
 			var ws, seed string
 			require.NoError(t, pool.QueryRow(ctx, `SELECT workspace_id,checks->'seed'->>'captured' FROM mythical_items`).Scan(&ws, &seed))
 			require.Equal(t, workspace.ID, ws)
