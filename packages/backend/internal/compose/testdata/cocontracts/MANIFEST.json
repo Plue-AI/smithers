@@ -19,7 +19,7 @@
     "doc-unsupported-detail.bin": "88771414720c2ca72c8f6ebd3e7971bf14f61023fc37be9fab989dac399753ff",
     "doc-renamed.bin": "4d7cb8b7e4c58e5b9d1c40c62913b0fe6d74083e2d04b22ae594597b48964586"
   },
-  "protocol": 10,
+  "protocol": 11,
   "frames": [
     {
       "name": "hello_challenge",
@@ -27,7 +27,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "978ec2503bd6e998d3e9d0bda045a5564ab7fbc8a6d5612d3a46b69bb0749ad3"
+      "sha256": "d19717b93200593e0dea7fb2fde56a987f3f9faa5f62015eb346493609f669d0"
     },
     {
       "name": "hello_host_proof",
@@ -35,7 +35,7 @@
       "expected": "ok",
       "local": false,
       "vector": "a",
-      "sha256": "8a49786710b9d3543a84ad141e8028e86928c7b8709f24c1eda7c10527bdd2c0"
+      "sha256": "3db4346cac24d205e992d26e399caed65a8b88ae2a9b9b3d97913b91197d419a"
     },
     {
       "name": "hello_host_proof_bad_mac",
@@ -44,7 +44,7 @@
       "local": false,
       "vector": "a",
       "handshake": "auth_failed",
-      "sha256": "fb75b395a4d2110883c48c4be475d34736709d2c2c4878dc0da63a79677ac4c4"
+      "sha256": "70ec4f4a2e96dcf556a05e823688442ff3085e50909dd78a68c425f62baf992d"
     },
     {
       "name": "hello_challenge_older",
@@ -53,7 +53,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "9e133ee99ec443847b98758ca9ded8c19d78bb356b2490e5d73e48639bbd2128"
+      "sha256": "978ec2503bd6e998d3e9d0bda045a5564ab7fbc8a6d5612d3a46b69bb0749ad3"
     },
     {
       "name": "hello_host_proof_older",
@@ -62,7 +62,7 @@
       "local": false,
       "vector": "a",
       "handshake": "version_mismatch",
-      "sha256": "32a65c1e1d7f32d91042ab91c8223abaa694f5092c08619a464a5f8b681b827f"
+      "sha256": "7cd27d6b9bb368c41890c0cffd2ae7eb2c7ea78d23cdc45e5475ee3f0a419b01"
     },
     {
       "name": "hello_challenge_newer",
@@ -70,7 +70,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "d19717b93200593e0dea7fb2fde56a987f3f9faa5f62015eb346493609f669d0"
+      "sha256": "d496a7e6a0a8b712af850febd6177ff1a0b5ee64f64ab1f609dc39bb266a1197"
     },
     {
       "name": "hello_host_proof_newer",
@@ -78,7 +78,7 @@
       "expected": "version_mismatch",
       "local": false,
       "vector": "a",
-      "sha256": "22094c450133af76972d16fa0847c109943407c143f7e2d6725cd4867175506c"
+      "sha256": "86d93ebf6fd7088c799759ab8588e20b8abf2ebbfb360a5e2c7a5442e7f9b3d4"
     },
     {
       "name": "hello_challenge_b",
@@ -86,7 +86,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "fa9841c72a96c4ff209414c7513a95374f2962f582cfb1bc04e3f100cb182593"
+      "sha256": "c4cdda25afc6f16369071043462ae31bed98a858fea8afe08f4fad75fa8707e2"
     },
     {
       "name": "hello_host_proof_b",
@@ -94,7 +94,7 @@
       "expected": "ok",
       "local": false,
       "vector": "b",
-      "sha256": "2175cd3bcfb0b0bcef2e984768241d32714344d91320a12e13f3e6b6e9ab92ff"
+      "sha256": "d9c3ae6b6e6da6abb6fefc2e94a3789bd35ef12019fbe0ab994190e4f0da73be"
     },
     {
       "name": "hello_challenge_c",
@@ -102,7 +102,7 @@
       "expected": "ok",
       "local": false,
       "vector": "c",
-      "sha256": "8edd4ba4459f759ab4ceef6edf95085661b40928afe70f95e1df37f24ac8ede7"
+      "sha256": "01b0b0c87b639a17d63d66614e89e5562d3c827846afb1a27b26f8313963f4a8"
     },
     {
       "name": "hello_host_proof_c",
@@ -110,7 +110,7 @@
       "expected": "ok",
       "local": false,
       "vector": "c",
-      "sha256": "957576aee6a228f4af0a6cc9b92418d8bd96b5a01389e1aad97f69332a402488"
+      "sha256": "cd3701d2e31f65e19c575a5e8fee0a9da232324de346d249a701846b6907bdbe"
     },
     {
       "name": "hello_machine",
@@ -523,21 +523,21 @@
       "direction": "daemon-to-host",
       "expected": "unknown_field",
       "local": false,
-      "sha256": "4b5037ea163b02767a5bdc64f9520786318e1ffedaf297c6338497496c6cfc5b"
+      "sha256": "ca5ede67379871d1f0940629d68304557dada7b96bfd9ee422db35f1e96cad84"
     },
     {
       "name": "res_status",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "922d313625c1da4e280dfa659584a6f4086b737008950e66ecd10d12513678d5"
+      "sha256": "39c74c5da511c7bdae77eff526c5b5a45ccca1397bac6680260445b2454140f0"
     },
     {
       "name": "res_status_no_acked_head",
       "direction": "daemon-to-host",
       "expected": "ok",
       "local": false,
-      "sha256": "e02ddad689a327cf9e73c3becc4304c746412d543e827b43a1f780e9f601f445"
+      "sha256": "5dd05ff82bf30289f053bf12a14c4cd1a5f00bbdb33e7d232e7bc415fb5b2ff8"
     },
     {
       "name": "res_read_file",
@@ -1968,25 +1968,25 @@
       "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "boot_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
       "nonce": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "protocol": 10,
-      "mac_input": "736d6974686572732d6d616368696e656420686f7374000aa0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
-      "mac": "0da66448a6f0bc8c61c2e4fb9428333b88c2ae7397cf90adfc51a0ffe1f812aa"
+      "protocol": 11,
+      "mac_input": "736d6974686572732d6d616368696e656420686f7374000ba0a1a2a3a4a5a6a7a8a9aaabacadaeaf202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "mac": "cf2aaa96ca18e143cbd49fb326658efd3e1541bcd076020b5a25599c2a1fc698"
     },
     "b": {
       "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "nonce": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "protocol": 10,
-      "mac_input": "736d6974686572732d6d616368696e656420686f7374000ab0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
-      "mac": "b6cdb2b343fb2d7c7df68b32a29af64c977ff5120dcc408cf3d24def165f2e78"
+      "protocol": 11,
+      "mac_input": "736d6974686572732d6d616368696e656420686f7374000bb0b1b2b3b4b5b6b7b8b9babbbcbdbebf606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+      "mac": "9ddee3a8c05557937c92a6aad6913b8f5e40028eac41c6d7ea666fce20e9d66f"
     },
     "c": {
       "secret": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
       "boot_id": "b0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
       "nonce": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
-      "protocol": 10,
-      "mac_input": "736d6974686572732d6d616368696e656420686f7374000ab0b1b2b3b4b5b6b7b8b9babbbcbdbebf808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
-      "mac": "0c8911aa7acd97941735c048a42087d5dcd4a49fa995dd918fe24f9cd925f63c"
+      "protocol": 11,
+      "mac_input": "736d6974686572732d6d616368696e656420686f7374000bb0b1b2b3b4b5b6b7b8b9babbbcbdbebf808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+      "mac": "7b154d31b2a37c29c3bf00adcd23d6f97c017b600debeee8e79f43632e857cc2"
     }
   },
   "refusal_sequences": {
