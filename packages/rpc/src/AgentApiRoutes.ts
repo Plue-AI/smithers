@@ -319,12 +319,12 @@ export const JEV_PATH = "/api/jev"
 export const HEALTH_PATH = "/api/health"
 
 /**
- * A Codex or Claude Code session, as raw JSONL for the conversation (mvp.md M-38):
+ * A Codex or Claude Code session on the local preview's own machine, as raw JSONL (mvp.md M-38):
  * `?agent=codex|claude-code&session=<id or prefix>&offset=<next>` answers
  * `{ agent, session_id, owner, offset, next, text, eof }`, the file's complete lines from `offset`, at most 4 MiB.
- * The app decodes them with `@smthrs/harness/ExternalTranscript`; every host serves the same bytes. The install's
- * backend serves the install owner's browser session only; the local preview serves only on loopback, behind the
- * local-session capability, from the OS user's own CODEX_HOME or CLAUDE_CONFIG_DIR.
+ * The app decodes them with `@smthrs/harness/ExternalTranscript`. Only the local preview serves this, on loopback,
+ * behind the local-session capability, from the OS user's own CODEX_HOME or CLAUDE_CONFIG_DIR. An install serves
+ * no raw transcript: a member's session reaches the branch conversation as imported read-only entries.
  *
  * @since 1.0.0
  * @category constants
@@ -382,6 +382,5 @@ export const SHARED_BACKEND_CLIENT_ROUTES = [
   { method: "POST", path: "/api/billing/portal", capability: "billing.portal" },
   { method: "GET", path: PUBLIC_REPOS_PATH },
   { method: "POST", path: COMMANDS_SELECT_PATH, capability: "commands.select" },
-  { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" },
-  { method: "GET", path: EXTERNAL_SESSIONS_PATH }
+  { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" }
 ] as const
