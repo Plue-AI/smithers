@@ -149,21 +149,21 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 	const source = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	var service *services.MythicalService
 	h := newTodoLiteralInstall(t, func(s *services.MythicalService, _ *pgxpool.Pool) { service = s })
-	triggers := []string{"run_attached", "question", "approval", "start_failed"}
+	triggers := []string{"run_attached", "question", "approval", "start_failed", "run_uncertain", "missing_tool"}
 	sources := []struct {
 		from, engine string
-		destinations [4]string
+		destinations [6]string
 	}{
-		{"draft", "", [4]string{}},
-		{"queued", "queued", [4]string{}},
-		{"starting", "running", [4]string{"working", "", "", "failed"}},
-		{"working", "running", [4]string{"working", "needs_you", "needs_you", ""}},
-		{"needs_you", "running", [4]string{"needs_you", "needs_you", "needs_you", ""}},
-		{"paused", "running", [4]string{"paused", "", "", ""}},
-		{"failed", "blocked", [4]string{}},
-		{"in_review", "proposed", [4]string{"in_review", "", "", ""}},
-		{"merged", "landed", [4]string{}},
-		{"dropped", "cancelled", [4]string{}},
+		{"draft", "", [6]string{}},
+		{"queued", "queued", [6]string{}},
+		{"starting", "running", [6]string{"working", "", "", "failed", "failed", "failed"}},
+		{"working", "running", [6]string{"working", "needs_you", "needs_you", "", "failed", "failed"}},
+		{"needs_you", "running", [6]string{"needs_you", "needs_you", "needs_you", "", "needs_you", "needs_you"}},
+		{"paused", "running", [6]string{"paused", "", "", "", "paused", "paused"}},
+		{"failed", "blocked", [6]string{"", "", "", "", "failed", "failed"}},
+		{"in_review", "proposed", [6]string{"in_review", "", "", "", "in_review", "failed"}},
+		{"merged", "landed", [6]string{"", "", "", "", "merged", "merged"}},
+		{"dropped", "cancelled", [6]string{"", "", "", "", "dropped", "dropped"}},
 	}
 	ctx := t.Context()
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", h.item.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", h.owner)}
@@ -214,6 +214,15 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 					request, _ := json.Marshal(map[string]string{"kind": kind, "prompt": "Proceed?"})
 					update.Checkpoint.Run.PendingWaits = []flowruntime.PendingWait{{RunID: "step-3", Token: "human-token", Name: "choice", Reason: "approval", Request: request}}
 				}
+				if trigger == "run_uncertain" {
+					update.State = jobs.StateUncertain
+					update.Checkpoint.Run.Status = "uncertain"
+				}
+				if trigger == "missing_tool" {
+					update.State = jobs.StateFailed
+					update.Checkpoint.Run.Status = "failed"
+					update.Checkpoint.FailureMissingTool = &flowdispatch.CertifiedMissingTool{Name: "git", File: "machine.json", OperationID: "pair-missing-tool"}
+				}
 				if trigger == "start_failed" {
 					update.State = jobs.StateUncertain
 					update.Checkpoint.Run = nil
@@ -261,7 +270,7 @@ func TestTodoRuntimeGuardPairAccountingComposedInstall(t *testing.T) {
 			})
 		}
 	}
-	require.Equal(t, 10, allowed)
-	require.Equal(t, 30, refused)
-	t.Logf("literal runtime pairs: %d allowed, %d refused; 10 sources × 4 triggers = %d", allowed, refused, allowed+refused)
+	require.Equal(t, 26, allowed)
+	require.Equal(t, 34, refused)
+	t.Logf("literal runtime pairs: %d allowed, %d refused; 10 sources × 6 triggers = %d", allowed, refused, allowed+refused)
 }

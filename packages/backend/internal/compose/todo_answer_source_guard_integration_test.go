@@ -64,8 +64,9 @@ func TestTodoAnswerWithoutWaitSourceLiteralCases(t *testing.T) {
 	}
 }
 
-// Branch and approval actions have their own doors. An Answer naming one of
-// them must not fall through to an independently open, answerable question.
+// A branch action or an unbound approval must not fall through to an
+// independently open, answerable question. Bound approvals use Answer with
+// a boolean, qualified by TestTodoApprovalProducerAnswerComposedInstall.
 func TestTodoAnswerWrongWaitKindSourceLiteralCases(t *testing.T) {
 	h := newTodoSignalLiteralInstall(t)
 	sources := []struct {
@@ -111,8 +112,13 @@ func TestTodoAnswerWrongWaitKindSourceLiteralCases(t *testing.T) {
 				require.Equal(t, expected, initial["state"])
 				for _, answer := range []string{"Continue", "done", "bring-in", "discard-foreign"} {
 					status, reply := h.call(t, "POST", fmt.Sprintf(`{"wait":"other","answer":%q}`, answer), source.name+kind+answer, "answer")
-					require.Equal(t, 404, status, reply)
-					require.Equal(t, "wait_not_found", reply["code"])
+					if kind == "approval" {
+						require.Equal(t, 409, status, reply)
+						require.Equal(t, "conflict", reply["code"])
+					} else {
+						require.Equal(t, 404, status, reply)
+						require.Equal(t, "wait_not_found", reply["code"])
+					}
 					after, err := h.q.GetMythicalItem(t.Context(), h.item.ID)
 					require.NoError(t, err)
 					require.Equal(t, before, after, "neither the named wait nor the independent question settles")
