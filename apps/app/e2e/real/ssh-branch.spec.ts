@@ -1,5 +1,9 @@
 import { execFile, spawn } from "node:child_process"
 import { promisify } from "node:util"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { createServer } from "node:net"
 import { authenticatedTest as test, launchAuthenticatedProfile } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { awaitBoot, command, expect, realApi } from "./support/test"
@@ -14,11 +18,11 @@ const connection = (): string[] => {
   return ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", port, host]
 }
 
-// C-J3-06 steps 1, 2 and the SSH write/presence part of step 5. The reference
+// C-J3-06 steps 1–4 and the SSH write/presence part of step 5. The reference
 // operator provisions Maya's GitHub key and browser profile, T2 and src/retry.ts.
-// SFTP, forwarding, capacity, revocation and recorded VS Code remain separate
+// Capacity, revocation and recorded VS Code remain separate
 // reference receipts; this scenario never seeds rows or mocks app transport.
-test("C-J3-06: GitHub-key SSH identity, half-close and attributed file presence", scenario("branch.ssh", {
+test("C-J3-06: GitHub-key SSH, SFTP, forwarding and attributed file presence", scenario("branch.ssh", {
   capabilities: ["install", "ssh", "multiplayer"],
   coverage: ["action:branch", "path:success", "door:slash", "evidence:ssh-presence", "host:local"]
 }), async ({ page, playwright, baseURL }, info) => {
@@ -56,6 +60,63 @@ test("C-J3-06: GitHub-key SSH identity, half-close and attributed file presence"
     expect(await countedExit).toBe(0)
     expect(counted.trim()).toBe("1048576")
     transcript.push({ command: "wc -c < one MiB", stdout: counted, stderr: countError })
+
+    // A real SFTP round trip through the same public gateway. Unique names
+    // isolate simultaneous reference runs; only this run's file is removed.
+    const scratch = await mkdtemp(join(tmpdir(), "smithers-ssh-"))
+    const remoteName = `notes-${scratch.split("/").at(-1)}.txt`
+    try {
+      const source = join(scratch, "source.txt")
+      const received = join(scratch, "received.txt")
+      const bytes = Buffer.from("Maya SFTP round trip\n\u0000\u00ff\n", "utf8")
+      await writeFile(source, bytes)
+      const batch = join(scratch, "batch.txt")
+      await writeFile(batch, `put "${source}" "${remoteName}"\nget "${remoteName}" "${received}"\nrm "${remoteName}"\n`)
+      const result = await execute("sftp", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-P", args[5], "-b", batch, args[6]], { timeout: 30_000 })
+      expect(await readFile(received)).toEqual(bytes)
+      transcript.push({ command: "sftp put/get/rm", ...result })
+    } finally {
+      try {
+        await execute("ssh", [...args, `rm -f -- ${remoteName}`], { timeout: 30_000 })
+      } finally {
+        await rm(scratch, { recursive: true, force: true })
+      }
+    }
+
+    // Pick a local loopback port without touching another lane's listeners.
+    const reservation = createServer()
+    await new Promise<void>((resolve, reject) => {
+      reservation.once("error", reject)
+      reservation.listen(0, "127.0.0.1", resolve)
+    })
+    const address = reservation.address()
+    if (!address || typeof address === "string") throw new Error("Missing forwarding port")
+    const localPort = address.port
+    await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()))
+    const guestPort = 30000 + Math.floor(Math.random() * 20000)
+    const forwarded = spawn("ssh", [...args.slice(0, -1), "-o", "ExitOnForwardFailure=yes", "-L", `127.0.0.1:${localPort}:localhost:${guestPort}`, args[6],
+      `python3 -u -m http.server ${guestPort} --bind 127.0.0.1 & server=$!; trap 'kill "$server"; wait "$server"' EXIT; read -r done`],
+      { stdio: ["pipe", "pipe", "pipe"], timeout: 45_000 })
+    let forwardOut = ""
+    let forwardError = ""
+    forwarded.stdout.on("data", bytes => { forwardOut += bytes.toString() })
+    forwarded.stderr.on("data", bytes => { forwardError += bytes.toString() })
+    const forwardEnded = new Promise<number | null>((resolve, reject) => {
+      forwarded.once("error", reject)
+      forwarded.once("close", resolve)
+    })
+    try {
+      await expect.poll(async () => {
+        try {
+          const response = await fetch(`http://127.0.0.1:${localPort}/`, { signal: AbortSignal.timeout(1000) })
+          return response.ok && (await response.text()).includes("Directory listing for")
+        } catch { return false }
+      }, { timeout: 15_000 }).toBe(true)
+    } finally {
+      forwarded.stdin.end("done\n")
+      expect(await forwardEnded).toBe(0)
+      transcript.push({ command: "ssh -L loopback directory listing", stdout: forwardOut, stderr: forwardError })
+    }
 
     await page.goto("/")
     await awaitBoot(page)
