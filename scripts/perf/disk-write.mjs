@@ -80,7 +80,7 @@ export async function run(env = process.env, { persist = true } = {}) {
   const result = { timestamp, check: 'C-PERF-04', status: 'failed', samples: [], clock: 'second Mac Node performance.now(): SSH submission to browser binding (upper bound)' }
   let browser, directory, ssh, masterStarted = false
   try {
-    requireMachineQualification()
+    result.machineQualification = await requireMachineQualification({ ...env, SMITHERS_PERF_COMMIT: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     const config = configuration(env)
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })

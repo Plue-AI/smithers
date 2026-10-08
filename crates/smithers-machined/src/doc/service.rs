@@ -197,6 +197,9 @@ impl<D: Disk> State<D> {
     }
 }
 impl<D: Disk> Documents for Service<D> {
+    fn text(&self, stream: u32) -> hooks::Result<String> {
+        self.state()?.host.text(stream).map_err(error)
+    }
     fn disconnected(&self) -> hooks::Result<()> {
         let streams: Vec<_> = self.state()?.peers.keys().copied().collect();
         for stream in streams {

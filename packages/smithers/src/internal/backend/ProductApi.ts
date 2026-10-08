@@ -2365,6 +2365,11 @@ export type GetApiInstallMetricsResponse = {
   clock: string
   metrics: Array<Record<string, unknown>>
   live_connections?: number
+  machine_qualification: {
+    version: 1
+    status: "unavailable"
+    missing: Array<string>
+  }
   host?: Record<string, unknown>
 }
 
@@ -2381,15 +2386,22 @@ export type GetApiInstallAckDelayResponse = {
   state: "idle" | "armed" | "expired" | "cancelled" | "withheld" | "acknowledged" | "failed"
   withheld_ms: number
   expires_at: string
+  actor?: {
+    kind: "person" | "agent"
+    member_id: number
+    via: "web" | "cli" | "ssh" | "terminal" | "agent"
+    run?: string
+    agent_kind?: string
+  }
 }
 
 export interface GetApiInstallAckDelayInput {
-  readonly query: { readonly branch: string }
+  readonly query: { readonly branch: string; readonly actor_reference?: string }
 }
 
 /** GET /api/install/ack-delay: Read a capture acknowledgement delay receipt */
 export const getApiInstallAckDelay = (transport: Transport, input: GetApiInstallAckDelayInput): Promise<GetApiInstallAckDelayResponse> =>
-  transport.request("GET", `/api/install/ack-delay${search({ branch: input.query.branch })}`) as Promise<GetApiInstallAckDelayResponse>
+  transport.request("GET", `/api/install/ack-delay${search({ branch: input.query.branch, actor_reference: input.query.actor_reference })}`) as Promise<GetApiInstallAckDelayResponse>
 
 export type PostApiInstallAckDelayBody = {
   branch: string
@@ -2407,6 +2419,13 @@ export type PostApiInstallAckDelayResponse = {
   state: "idle" | "armed" | "expired" | "cancelled" | "withheld" | "acknowledged" | "failed"
   withheld_ms: number
   expires_at: string
+  actor?: {
+    kind: "person" | "agent"
+    member_id: number
+    via: "web" | "cli" | "ssh" | "terminal" | "agent"
+    run?: string
+    agent_kind?: string
+  }
 }
 
 export interface PostApiInstallAckDelayInput {

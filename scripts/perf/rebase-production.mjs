@@ -32,7 +32,22 @@ export async function observations(path, branch, onto, boot) {
   if (!/^[a-f0-9]{32}$/.test(boot ?? '')) throw new Error('authenticated guest boot required')
   const text = await readFile(path, 'utf8')
   const lines = text.split('\n'); lines.pop()
-  return lines.filter(Boolean).map(line => JSON.parse(line)).filter(row => row.boot === boot && row.onto === onto).map(row => ({ ...row, branch }))
+  const rows = lines.filter(Boolean).map(line => JSON.parse(line)).filter(row => row.boot === boot && row.onto === onto).map(row => ({ ...row, branch }))
+  for (const row of rows.filter(row => row.phase === 'thawed')) {
+    const markers = rows.filter(marker => marker.phase === 'marker' && marker.id === row.id)
+    if (markers.length > 1) throw new Error('duplicate guest held marker')
+    if (markers.length) {
+      const observed = markers[0]
+      const marker = observed.marker
+      if (observed.start !== row.start || observed.clock !== row.clock || marker?.typedDuringHold !== true ||
+          !/^[a-f0-9]{32}$/.test(marker.actor_reference ?? '') || !Number.isFinite(marker.received) || !Number.isFinite(marker.lastReceived) ||
+          marker.received < row.start || marker.lastReceived < marker.received || marker.lastReceived > row.end ||
+          !Number.isFinite(marker.applied) || marker.applied < row.end) throw new Error('guest marker does not bind the hold interval')
+      row.markerObservation = observed
+      row.marker = { ...marker }
+    }
+  }
+  return rows
 }
 
 export { verifyHeldObservation, verifyCaptureDelay, verifyDrain } from './lib/rebase-receipts.mjs'
@@ -43,7 +58,7 @@ export async function run(env = process.env, { persist = false } = {}) {
   const result = { status: 'failed', samples: [] }
   let browser, config
   try {
-    requireMachineQualification()
+    result.machineQualification = await requireMachineQualification({ ...env, SMITHERS_PERF_COMMIT: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     config = configuration(env)
     result.origin = config.origin
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
@@ -156,11 +171,15 @@ export async function run(env = process.env, { persist = false } = {}) {
         hold = await wait(async () => {
           const completed = (await records()).filter(row => row.phase === 'thawed')
           if (completed.length > 1) throw new Error('duplicate guest rebase receipt')
-          return completed[0]
+          return completed[0]?.marker ? completed[0] : undefined
         })
         verifyHeldObservation(held, { branch: config.branch, onto }, hold)
         hold.heldObservation = held
-        if (hold.failed !== false || hold.marker?.text !== typed || hold.marker?.member !== String(result.member.id) || hold.marker?.typedDuringHold !== true) throw new Error('guest held marker evidence missing')
+        if (hold.failed !== false || hold.marker?.text !== typed || hold.marker?.typedDuringHold !== true) throw new Error('guest held marker evidence missing')
+        const attribution = await ownerRequest(`/api/install/ack-delay?branch=${config.branch}&actor_reference=${hold.marker.actor_reference}`, 'GET', 200)
+        if (attribution.boot !== observedBoot || attribution.branch !== config.branch || attribution.actor?.kind !== 'person' || attribution.actor?.via !== 'web' || String(attribution.actor?.member_id) !== String(result.member.id)) throw new Error('guest marker member attribution mismatched')
+        hold.marker.member = String(attribution.actor.member_id)
+        hold.marker.attributionReceipt = { branch: attribution.branch, boot: attribution.boot, actor: attribution.actor }
         await page.waitForFunction(marker => document.querySelector('.cm-content')?.textContent.includes(marker), typed)
         const entries = (await memberRead(`/api/branches/${config.branch}/activity`)).filter(entry => !baseline.has(entry.id) && entry.kind === 'rebase')
         if (entries.length !== 1 || entries[0].onto_revision !== onto || entries[0].receipt_id !== hold.id) throw new Error('T-STK-08 activity receipt unavailable or mismatched')

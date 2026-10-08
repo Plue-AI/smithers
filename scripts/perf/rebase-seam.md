@@ -50,8 +50,6 @@ broker does not qualify cgroup writer freezing or a reference-host timing.
 
 Still required before C-PERF-06 can qualify:
 
-- Stage-3 document evidence `marker: {text, member, typedDuringHold: true}` from
-  the guest document observer, with the authenticated numeric member ID.
 - Export and qualification on the installed reference microVM, including real
   broker freezing, fresh/retained lifecycle and the root inventories/receipts.
 - The second Mac and scratch GitHub run, with 100 samples in each ACK cohort.
@@ -74,7 +72,7 @@ clone `.smithers-perf-main`, whose main branch and configured GitHub remote are
 checked before pushes. No Mac executes scratch repository commands.
 
 These observations are diagnostic evidence, not a passing C-PERF-06 receipt.
-Marker attribution and real lifecycle/root qualification remain required. No machine qualification flag is added and the
+Reference microVM lifecycle/root qualification remains required. No machine qualification flag is added and the
 browser C-PERF-06 fixme remains until its real guest path is proved.
 
 The artifact verdict and live adapter now share `lib/rebase-receipts.mjs`.
@@ -86,3 +84,31 @@ Removing or changing these records fails the budget while preserving raw samples
 The composed native-daemon HTTP test also runs this verifier on actual guest and
 owner ACK records and rejects changed branch, window, boot, sequence and thaw
 facts. It supplies no document marker or reference-host qualification.
+
+The guest now observes authenticated document ingress before enqueueing behind
+an active rebase. Accepted, contiguous updates from one opaque actor reference
+produce a `marker` record after application, containing the fixture text,
+first/last ingress times and application time on that hold's guest clock.
+Rejected, replayed, mixed-author and non-fixture updates produce no marker.
+Only `NORMAL_REBASEnnn` and `DELAY_REBASEnnn` fixture text is logged.
+The adapter folds this record into its matching thaw and resolves its actor
+reference through owner-authenticated `GET /api/install/ack-delay` with
+`actor_reference`. That lookup uses the immutable branch/machine-scoped host
+identity, including its person/member/via attribution; it grants no execution
+authority. The independent artifact verdict checks the raw marker's interval
+and the authenticated attribution response, rather than trusting a boolean.
+
+`TestPerfGuestHeldMarkerComposedInstall` exercises the real browser live input,
+installed daemon, native rewrite, saved disk bytes and owner HTTP lookup on
+Linux. Its explicitly armed fault-build pause only makes ingress ordering
+observable; it is not a performance sample or real broker freeze qualification.
+Production live documents remain disabled pending owner review.
+
+Machine workloads now consume `machine_qualification` from the existing
+owner-only metrics response before starting browsers, SSH or mutations. The
+consumer binds passing reference-host receipts to the commit, install version,
+public origin, microVM/non-root policy, bundle digest and reviewed root
+inventory. Missing, skipped, duplicated, foreign or fixture evidence refuses.
+The install currently publishes `unavailable`: authenticated reference-host
+receipt publication and smithers-3f's inventory approval are still outstanding.
+No environment flag, runtime probe or injected test provider can qualify it.

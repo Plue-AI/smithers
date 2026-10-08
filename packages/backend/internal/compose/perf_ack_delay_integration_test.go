@@ -40,12 +40,16 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 	f.origin = "http://" + httpServer.Listener.Addr().String()
 	cfg.Server.AllowedOrigins = []string{f.origin}
 	cfg.Server.PublicURL = f.origin
-	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{AckDelay: &routes.InstallAckDelayHandler{Queries: db.New(f.pool), Registry: registry}})
+	router := githubAppSetupComposeRouter(cfg, f.pool, nil, routerExtras{AckDelay: &routes.InstallAckDelayHandler{Pool: f.pool, Queries: db.New(f.pool), Registry: registry}})
 	httpServer.Config.Handler = router
 	httpServer.Start()
 	t.Cleanup(httpServer.Close)
-	call := func(method, body, cookie string) (int, machined.AckDelayReceipt) {
-		req := httptest.NewRequest(method, f.origin+"/api/install/ack-delay?branch="+f.row.ID, strings.NewReader(body))
+	call := func(method, body, cookie string, query ...string) (int, machined.AckDelayReceipt) {
+		suffix := ""
+		if len(query) > 0 {
+			suffix = query[0]
+		}
+		req := httptest.NewRequest(method, f.origin+"/api/install/ack-delay?branch="+f.row.ID+suffix, strings.NewReader(body))
 		req.RemoteAddr = "127.0.0.1:51000"
 		req.Header.Set("Origin", f.origin)
 		req.Header.Set("Content-Type", "application/json")
@@ -86,6 +90,10 @@ func TestPerfAckDelayComposedInstall(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(stop)
+	code, _ = call("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`, f.cookie, "&actor_reference="+strings.Repeat("1", 32))
+	require.Equal(t, 400, code, "invalid diagnostic parameters must refuse before arming")
+	_, idle := call("GET", "", f.cookie)
+	require.Equal(t, "idle", idle.State, "rejected lookup cannot mutate the ACK window")
 	code, armed := call("POST", `{"branch":"`+f.row.ID+`","delay_ms":10000}`, f.cookie)
 	require.Equal(t, 200, code)
 	require.Equal(t, "armed", armed.State)

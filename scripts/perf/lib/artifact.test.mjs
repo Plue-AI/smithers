@@ -8,7 +8,7 @@ import { publicOrigin, validateHost, readHost } from './host.mjs'
 import { run as keystroke } from '../keystroke.mjs'
 import { run as diskWrite } from '../disk-write.mjs'
 import { run as warmWake } from '../warm-wake.mjs'
-import { requireMachineQualification } from './qualification.mjs'
+import { requireMachineQualification, validateMachineQualification } from './qualification.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
 const options = { providers: {}, origin: 'http://mini.lan:8080', token: 'test-secret', commit: 'a'.repeat(40), installVersion: 'fixture', browser: 'not-run', timestamp: '2026-10-04T00-00-00-000Z', read: async () => host }
@@ -219,10 +219,12 @@ function retainedHold(hold, onto) {
 }
 const rebaseSamples = () => Array.from({ length: 200 }, (_, i) => {
   const main = (i + 1).toString(16).padStart(40, '0'), marker = `marker-${i}`
-  return { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:' + 'b'.repeat(32), failed: false,
-    pending: { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' },
-    receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice', typedDuringHold: true } },
+  const value = { marker, main, acknowledgementsWithheld: i >= 100, holdMs: 100, clock: 'guest monotonic:' + 'b'.repeat(32), failed: false,
+    pending: { state: 'pending', present: true, onto: main, rebased: false, member: '1' },
+    receipt: { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: '1', actor_reference: 'e'.repeat(32), typedDuringHold: true, attributionReceipt: { branch: '11111111-1111-4111-8111-111111111111', boot: 'b'.repeat(32), actor: {kind:'person',via:'web',member_id:1} } } },
     hold: retainedHold({ capture: { event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id: main, state: 'acknowledged', event: main.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id: main, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, main), outboxDrained: i >= 100 }
+  value.hold.markerObservation = { ...value.hold.heldObservation, phase: 'marker', marker: { text: marker, actor_reference: 'e'.repeat(32), typedDuringHold:true, received:20, lastReceived:30, applied:2100 } }
+  return value
 })
 const rebaseProvider = value => ({ available() {}, fields: { writeHold: 'holdMs' }, measure: async () => ({ ...passing(), samples: value }) })
 test('unified rebase verdict requires both acknowledgement cohorts independently', async () => {
@@ -300,6 +302,18 @@ test('unified wake verdict verifies host intervals and unique requests independe
  test('unified rebase verdict refuses fabricated durations and lost or replayed evidence', async () => {
   for (const corrupt of [
     s => { s.holdMs = 0 },
+    s => { delete s.hold.markerObservation },
+    s => { s.hold.markerObservation.id = 'foreign' },
+    s => { s.hold.markerObservation.marker.received = 9 },
+    s => { s.hold.markerObservation.marker.lastReceived = 111 },
+    s => { s.hold.markerObservation.marker.applied = 109 },
+    s => { s.hold.markerObservation.marker.actor_reference = 'f'.repeat(32) },
+    s => { delete s.receipt.marker.attributionReceipt },
+    s => { s.receipt.marker.attributionReceipt.actor.member_id = 2 },
+    s => { s.receipt.marker.attributionReceipt.actor.kind = 'agent' },
+    s => { s.receipt.marker.attributionReceipt.actor.via = 'ssh' },
+    s => { s.receipt.marker.attributionReceipt.boot = 'f'.repeat(32) },
+    s => { s.receipt.marker.attributionReceipt.branch = 'foreign' },
     s => { delete s.hold.heldObservation },
     s => { s.hold.heldObservation.start++ },
     s => { s.hold.heldObservation.onto = 'c'.repeat(40) },
@@ -386,7 +400,7 @@ test('direct machine workloads refuse on macOS before reading fixtures or making
   try {
     Object.defineProperty(process, 'platform', { ...descriptor, value: 'darwin' })
     globalThis.fetch = () => { requests++; throw new Error('unexpected network request') }
-    assert.throws(() => requireMachineQualification(), /authenticated lifecycle qualification unavailable/)
+    await assert.rejects(requireMachineQualification({}), /authenticated lifecycle qualification unavailable/)
     for (const workload of [keystroke, diskWrite, warmWake]) {
       const result = await workload({ SMITHERS_PERF_MACHINE_QUALIFIED: 'true' }, { persist: false })
       assert.equal(result.result.status, 'failed')
@@ -403,4 +417,51 @@ test('direct machine workloads refuse on macOS before reading fixtures or making
     Object.defineProperty(process, 'platform', descriptor)
     globalThis.fetch = originalFetch
   }
+})
+
+const binding = { origin: 'http://mini.lan:8080', commit: 'a'.repeat(40), installVersion: '1.0.0' }
+function qualified() {
+  const value = { version: 1, status: 'qualified', commit: binding.commit, install_version: binding.installVersion, origin: binding.origin,
+    runtime: 'microvm', non_root: true, bundle_digest: 'b'.repeat(64), inventory_digest: 'c'.repeat(64), reviewed_by: 'smithers-3f' }
+  value.receipts = Object.entries({ TestGuestHelperInstallPinsInterpreterAndEnv: ['fresh','retained'], TestRootSetupNeverFollowsMemberSymlinks: ['fresh','retained'], TestRootPreflightParsesOnlyEnvelope: ['exec','file','terminal','relay'], TestRootLayerInputsValidatedBeforeUse: ['layer'], TestSSHRootInputsValidatedBeforeUse: ['ssh','retained'], TestTerminalRootInputsValidatedBeforeUse: ['terminal'], TestBranchMachineRootInputsValidated: ['fresh','retained'], TestMemberImageRootInputs: ['member-image'], TestLiveDocumentBrokerInputs: ['document','retained'] }).map(([name, paths]) => ({ name, paths, status: 'passed', commit: binding.commit,
+    bundle_digest: value.bundle_digest, inventory_digest: value.inventory_digest, provenance: 'authenticated-reference-host', receipt_digest: 'd'.repeat(64) }))
+  return value
+}
+test('qualification binds every lifecycle/root receipt to the installed commit, bundle and reviewed inventory', () => {
+  const value = qualified()
+  assert.equal(validateMachineQualification(value, binding), value)
+  for (const mutate of [v => { delete v.version }, v => { v.status = 'unavailable' }, v => { v.commit = 'f'.repeat(40) },
+    v => { v.install_version = 'old' }, v => { v.origin = 'http://foreign.lan' }, v => { v.runtime = 'process' }, v => { v.non_root = false },
+    v => { v.bundle_digest = 'x' }, v => { v.inventory_digest = 'x' }, v => { v.reviewed_by = 'owner-boolean' },
+    v => { v.receipts.pop() }, v => { v.receipts[1] = v.receipts[0] }]) {
+    const changed = structuredClone(value); mutate(changed)
+    assert.throws(() => validateMachineQualification(changed, binding))
+  }
+  for (let i = 0; i < value.receipts.length; i++) {
+    for (const mutate of [r => { r.status = 'skipped' }, r => { r.commit = 'f'.repeat(40) }, r => { r.bundle_digest = 'e'.repeat(64) },
+      r => { r.inventory_digest = 'e'.repeat(64) }, r => { r.provenance = 'fixture' }, r => { delete r.receipt_digest }, r => { r.paths.pop() }]) {
+      const changed = structuredClone(value); mutate(changed.receipts[i])
+      assert.throws(() => validateMachineQualification(changed, binding), /lifecycle qualification/)
+    }
+  }
+})
+test('qualification uses only an authenticated no-redirect install read; flags and foreign responses refuse', async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'darwin' })
+    const env = { SMITHERS_PERF_ORIGIN: binding.origin, SMITHERS_PERF_OWNER_COOKIE: 'session=owner', SMITHERS_PERF_COMMIT: binding.commit, SMITHERS_PERF_INSTALL_VERSION: binding.installVersion }
+    let requests = 0
+    const request = async (url, options) => {
+      requests++; assert.equal(url, binding.origin + '/api/install/metrics'); assert.equal(options.redirect, 'error')
+      assert.deepEqual(options.headers, { Cookie: 'session=owner' }); return { status: 200, json: async () => ({ machine_qualification: qualified() }) }
+    }
+    await requireMachineQualification(env, request)
+    assert.equal(requests, 1)
+    for (const status of [401, 403, 404, 503]) await assert.rejects(requireMachineQualification(env, async () => ({ status })), /returned/)
+    for (const machine_qualification of [undefined, { version: 1, status: 'unavailable' }, { qualified: true }]) {
+      await assert.rejects(requireMachineQualification({ ...env, SMITHERS_PERF_MACHINE_QUALIFIED: 'true' }, async () => ({ status: 200, json: async () => ({ machine_qualification }) })), /unavailable/)
+    }
+    await assert.rejects(requireMachineQualification({ SMITHERS_PERF_MACHINE_QUALIFIED: 'true' }, request), /unavailable/)
+    assert.equal(requests, 1)
+  } finally { Object.defineProperty(process, 'platform', descriptor) }
 })

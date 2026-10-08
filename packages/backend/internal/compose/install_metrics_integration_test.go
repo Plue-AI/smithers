@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +104,32 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 12, DiskFreeBytes: 200 << 30, MacOSVersion: "15.7", Hypervisor: true}}
 	args[len(args)-1] = reflect.ValueOf([]any{routerExtras{GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: q, Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}}})
 	router := fn.CallSlice(args)[0].Interface().(http.Handler)
+	t.Run("authenticated lifecycle qualification consumer refuses unqualified install", func(t *testing.T) {
+		server := httptest.NewServer(router)
+		defer server.Close()
+		module, err := filepath.Abs("../../../../scripts/perf/lib/qualification.mjs")
+		require.NoError(t, err)
+		source := `import {requireMachineQualification} from ` + strconv.Quote("file://"+module) + `;
+        Object.defineProperty(process,"platform",{value:"darwin"});
+        const env={SMITHERS_PERF_ORIGIN:"http://mini.lan:8080",SMITHERS_PERF_OWNER_COOKIE:"session="+process.argv[2],SMITHERS_PERF_COMMIT:"a".repeat(40),SMITHERS_PERF_INSTALL_VERSION:"1.0.0",SMITHERS_PERF_MACHINE_QUALIFIED:"true"};
+        let reads=0;
+        const request=async(url,options)=>{
+          if(url!=="http://mini.lan:8080/api/install/metrics"||options.redirect!=="error")throw new Error("foreign read");
+          reads++;return fetch(process.argv[1]+"/api/install/metrics",options);
+        };
+        for(const cookie of [env.SMITHERS_PERF_OWNER_COOKIE,"", "session="+process.argv[3]]){
+          let refused=false;
+          try{await requireMachineQualification({...env,SMITHERS_PERF_OWNER_COOKIE:cookie},request)}catch(error){
+            if(!/authenticated lifecycle qualification unavailable/.test(error.message))throw error;
+            refused=true;
+          }
+          if(!refused)throw new Error("unqualified install admitted machine workload");
+        }
+        if(reads!==2)throw new Error("missing identity refusal did not precede request");
+        console.log("2 authenticated reads, 3 refusals, 0 mutations");`
+		output, err := exec.CommandContext(t.Context(), "node", "--input-type=module", "-e", source, server.URL, cookies[0], cookies[1]).CombinedOutput()
+		require.NoError(t, err, "%s", output)
+	})
 	for _, tc := range []struct {
 		name, cookie, token string
 		status              int
@@ -132,6 +159,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 				}
 				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
 				require.Equal(t, "process cumulative collectors", snapshot.Clock)
+				require.Contains(t, w.Body.String(), `"machine_qualification":{"missing":["T-INS-02","T-MCH-11","T-SEC-01","T-MCH-10"],"status":"unavailable","version":1}`)
 				require.Contains(t, w.Body.String(), `"sample_sum":0.125`)
 				require.Contains(t, w.Body.String(), `"name":"smithers_landing_queue_depth"`)
 				require.Contains(t, w.Body.String(), `"value":3`)

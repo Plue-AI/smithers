@@ -38,5 +38,13 @@ func (h *InstallMetricsHandler) Read(w http.ResponseWriter, r *http.Request) {
 		"metrics":          families,
 		"live_connections": live.Connections(),
 		"host":             host,
+		// Runtime startup probing is not fresh/retained R1-R4 evidence. No
+		// setting, injected runtime or benchmark may turn this into approval.
+		// Authenticated reference-host provenance and the root inventory review
+		// must exist before an install can publish qualified receipts.
+		"machine_qualification": map[string]any{
+			"version": 1, "status": "unavailable",
+			"missing": []string{"T-INS-02", "T-MCH-11", "T-SEC-01", "T-MCH-10"},
+		},
 	})
 }

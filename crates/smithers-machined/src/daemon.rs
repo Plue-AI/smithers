@@ -196,6 +196,10 @@ impl Daemon {
             } else {
                 "host_rpc"
             };
+            // Take the admission time on the authenticated reader, before the
+            // mutation queue waits for a rewrite. Application alone cannot
+            // prove the edit was received while writes were held.
+            let held_document = if frame.kind == 4 { self.hooks.events.held_document() } else { None };
             let receipt = self
                 .executor
                 .lock
@@ -221,7 +225,16 @@ impl Daemon {
                                 payload: conn::tagged(255, &not_ready().fields()),
                             }));
                         }
-                        return rpc::dispatch_input(&frame, cx);
+                        let before = held_document.as_ref().and_then(|_| cx.hooks.documents.text(frame.stream).ok());
+                        let response = rpc::dispatch_input(&frame, cx)?;
+                        if let (Some(hold), Some(before), Some(reply)) = (held_document, before, response.as_ref()) {
+                            if reply.payload.first() != Some(&255) {
+                                if let (Ok(input), Ok(after)) = (crate::document_payload::Document::decode_v2(&frame.payload), cx.hooks.documents.text(frame.stream)) {
+                                    if input.msg == 1 { cx.hooks.events.applied_held_document(hold, frame.stream, &input.actor, &before, &after); }
+                                }
+                            }
+                        }
+                        return Ok(response);
                     }
                     let (id, method, args) = frame.request()?;
                     if cx.rewrite_pending || crate::wiring::ready(&cx.hooks).is_err() {

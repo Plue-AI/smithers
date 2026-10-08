@@ -11,6 +11,7 @@ pub(crate) struct Observer {
     active: Option<Value>,
     draining: Vec<Value>,
     failed: bool,
+    markers: std::collections::BTreeMap<(String, u32, String), (String, f64, usize)>,
 }
 // Kernel monotonic time survives a daemon restart within the same guest boot.
 fn monotonic_ms() -> f64 {
@@ -29,6 +30,7 @@ impl Observer {
             active: None,
             draining: vec![],
             failed: false,
+            markers: Default::default(),
         }
     }
     fn emit(&mut self, row: &Value) {
@@ -54,11 +56,102 @@ impl Observer {
             self.failed = true;
             return;
         }
+        self.markers.clear();
         let row = json!({"phase":"held", "id":format!("{}:{}:{request:08x}", self.boot, hex(&onto)), "boot":self.boot,
             "onto":hex(&onto), "clock":format!("guest monotonic:{}", self.boot),
             "start":monotonic_ms()});
         self.emit(&row);
         self.active = Some(row);
+    }
+    pub fn document_received(&mut self) -> Option<Value> {
+        if self.failed {
+            return None;
+        }
+        let mut row = self.active.clone()?;
+        row["received"] = json!(monotonic_ms());
+        row["phase"] = json!("document_received");
+        self.emit(&row);
+        Some(row)
+    }
+    pub fn document_applied(
+        &mut self,
+        mut hold: Value,
+        stream: u32,
+        actor: &[u8],
+        before: &str,
+        after: &str,
+    ) {
+        // Actor references are immutable host-resolved UUIDs, never member names.
+        // Keep only the committed benchmark fixture alphabet and at most one
+        // marker per stream/member/hold; ordinary document text is not logged.
+        if actor.len() != 16 || after.len() <= before.len() {
+            return;
+        }
+        let prefix = before
+            .bytes()
+            .zip(after.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let (Some(before_tail), Some(after_tail)) = (before.get(prefix..), after.get(prefix..))
+        else {
+            return;
+        };
+        let suffix = before_tail
+            .bytes()
+            .rev()
+            .zip(after_tail.bytes().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        if prefix + suffix != before.len() {
+            return;
+        }
+        let Some(inserted) = after.get(prefix..after.len() - suffix) else {
+            return;
+        };
+        if inserted.is_empty()
+            || inserted.len() > 16
+            || !inserted
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return;
+        }
+        let Some(id) = hold["id"].as_str() else {
+            return;
+        };
+        let Some(received) = hold["received"].as_f64() else {
+            return;
+        };
+        let member = hex(actor);
+        let key = (id.to_owned(), stream, member.clone());
+        if !self.markers.contains_key(&key) && self.markers.len() >= 1024 {
+            self.failed = true;
+            return;
+        }
+        let (text, first, position) = self
+            .markers
+            .entry(key)
+            .or_insert_with(|| (String::new(), received, prefix));
+        if prefix != *position + text.len() {
+            text.clear();
+            return;
+        }
+        text.push_str(inserted);
+        if after.get(*position..*position + text.len()) != Some(text.as_str()) {
+            text.clear();
+            return;
+        }
+        let fixture = ["NORMAL_REBASE", "DELAY_REBASE"].iter().any(|prefix| {
+            text.strip_prefix(prefix)
+                .is_some_and(|n| n.len() == 3 && n.bytes().all(|b| b.is_ascii_digit()))
+        });
+        if fixture {
+            hold["phase"] = json!("marker");
+            hold["marker"] = json!({"text":text, "actor_reference":member, "typedDuringHold":true, "received":first, "lastReceived":received, "applied":monotonic_ms()});
+            self.emit(&hold);
+        } else if text.len() > 16 {
+            text.clear();
+        }
     }
     pub fn captured(&mut self, sequence: u64, event: [u8; 16]) {
         if let Some(row) = &mut self.active {
@@ -152,6 +245,85 @@ mod tests {
             assert_eq!(entries[2]["capture"], entries[1]["capture"]);
             assert_eq!(entries[2]["capture"]["sequence"], 31);
             assert_eq!(entries[1]["acknowledgedBeforeThaw"], !pending);
+        }
+    }
+    #[test]
+    fn held_marker_requires_contiguous_accepted_insertions_of_one_actor() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("observations");
+        let mut observer = Observer::new([1; 16], File::create(&path).unwrap());
+        assert!(observer.document_received().is_none());
+        observer.started([2; 20], 9);
+        let tickets: Vec<_> = (0..16)
+            .map(|_| observer.document_received().unwrap())
+            .collect();
+        observer.finished(false, None, 0);
+        assert!(
+            observer.document_received().is_none(),
+            "typing after thaw cannot qualify"
+        );
+        let mut text = String::new();
+        for (ticket, c) in tickets.into_iter().zip("NORMAL_REBASE000".chars()) {
+            let after = format!("{text}{c}");
+            observer.document_applied(ticket, 7, &[3; 16], &text, &after);
+            text = after;
+        }
+        let entries = rows(&path);
+        let entries: Vec<_> = entries
+            .into_iter()
+            .filter(|row| row["phase"] != "document_received")
+            .collect();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[2]["phase"], "marker");
+        assert_eq!(entries[2]["id"], entries[0]["id"]);
+        assert_eq!(entries[2]["marker"]["text"], "NORMAL_REBASE000");
+        assert_eq!(entries[2]["marker"]["actor_reference"], "03".repeat(16));
+        assert_eq!(entries[2]["marker"]["typedDuringHold"], true);
+        assert!(
+            entries[2]["marker"]["lastReceived"].as_f64().unwrap()
+                <= entries[1]["end"].as_f64().unwrap()
+        );
+        assert!(
+            entries[2]["marker"]["applied"].as_f64().unwrap()
+                >= entries[1]["end"].as_f64().unwrap()
+        );
+    }
+    #[test]
+    fn rejected_split_or_unrelated_text_never_makes_a_held_marker() {
+        for mode in 0..5 {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("observations");
+            let mut observer = Observer::new([1; 16], File::create(&path).unwrap());
+            observer.started([2; 20], 3);
+            let ticket = observer.document_received().unwrap();
+            observer.finished(false, None, 0);
+            match mode {
+                0 => observer.document_applied(ticket, 7, b"person", "", "NORMAL_REBASE000"),
+                1 => observer.document_applied(
+                    ticket,
+                    7,
+                    &[3; 16],
+                    "NORMAL_REBASE000",
+                    "NORMAL_REBASE000",
+                ),
+                2 => observer.document_applied(ticket, 7, &[3; 16], "removed", "NORMAL_REBASE000"),
+                3 => {
+                    observer.document_applied(ticket.clone(), 7, &[3; 16], "", "NORMAL_");
+                    observer.document_applied(ticket, 7, &[4; 16], "NORMAL_", "NORMAL_REBASE000");
+                }
+                _ => {
+                    observer.document_applied(ticket.clone(), 7, &[3; 16], "", "NORMAL_");
+                    observer.document_applied(ticket, 7, &[3; 16], "NORMAL_", "REBASE000NORMAL_");
+                }
+            }
+            assert_eq!(
+                rows(&path)
+                    .iter()
+                    .filter(|row| row["phase"] != "document_received")
+                    .count(),
+                2,
+                "mode {mode}"
+            );
         }
     }
     #[test]

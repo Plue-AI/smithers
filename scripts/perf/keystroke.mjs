@@ -59,7 +59,7 @@ export async function run(env = process.env, { persist = true } = {}) {
   const result = { timestamp, check: 'C-PERF-03', status: 'failed', samples: [], clock: 'second Mac: performance.timeOrigin + performance.now()' }
   let browser
   try {
-    requireMachineQualification()
+    result.machineQualification = await requireMachineQualification({ ...env, SMITHERS_PERF_COMMIT: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     const config = configuration(env)
     result.origin = config.origin
     result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })

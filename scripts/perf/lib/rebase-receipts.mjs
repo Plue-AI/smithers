@@ -20,3 +20,21 @@ export function verifyDrain(drained, hold) {
   return drained
 }
 
+
+/** Member identity comes from the owner-authenticated historical lookup;
+ * ingress and retention come from the guest, using that same opaque reference.
+ */
+export function verifyHeldMarker(hold, marker, member) {
+  const observed = hold?.markerObservation
+  const raw = observed?.marker
+  const attribution = marker?.attributionReceipt
+  if (!observed || observed.phase !== 'marker' || observed.id !== hold.id || observed.branch !== hold.branch || observed.onto !== hold.onto ||
+      observed.clock !== hold.clock || observed.start !== hold.start || raw?.text !== marker?.text || raw?.actor_reference !== marker?.actor_reference || raw?.typedDuringHold !== true ||
+      !/^[a-f0-9]{32}$/.test(raw?.actor_reference ?? '') || !Number.isFinite(raw?.received) || !Number.isFinite(raw?.lastReceived) || !Number.isFinite(raw?.applied) ||
+      raw.received < hold.start || raw.lastReceived < raw.received || raw.lastReceived > hold.end || raw.applied < hold.end ||
+      !attribution || attribution.branch !== hold.branch || hold.clock !== `guest monotonic:${attribution.boot}` ||
+      !Number.isSafeInteger(attribution.actor?.member_id) || attribution.actor.member_id < 1 || attribution.actor?.kind !== 'person' || attribution.actor?.via !== 'web' || String(attribution.actor?.member_id) !== member || marker?.member !== member) {
+    throw new Error('guest held marker or authenticated member attribution mismatched')
+  }
+  return marker
+}

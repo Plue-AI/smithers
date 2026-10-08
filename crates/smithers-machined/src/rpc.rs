@@ -36,6 +36,8 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
                 let (onto, actor, base) = conn::rebase_args(args)?;
                 hooks.core.validate_rebase(onto, base).and_then(|()| {
                     hooks.events.rebase_started(onto, id);
+                    #[cfg(all(feature = "killpoints", debug_assertions))]
+                    crate::events::pause_rebase_observation();
                     let result = crate::freeze::freeze_then(cx, &actor, |cx| {
                         let head = hooks.core.rebase(cx, onto, base)?;
                         let mut fields = vec![conn::field(1, head)];

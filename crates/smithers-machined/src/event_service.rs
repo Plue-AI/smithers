@@ -142,6 +142,14 @@ where
         }
     }
 
+    fn held_document(&self) -> Option<serde_json::Value> {
+        self.state.lock().ok()?.observer.as_mut()?.document_received()
+    }
+    fn applied_held_document(&self, hold: serde_json::Value, stream: u32, actor: &[u8], before: &str, after: &str) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(observer) = &mut state.observer { observer.document_applied(hold, stream, actor, before, after); }
+        }
+    }
     fn rebase_started(&self, onto: Oid, request: u32) {
         if let Ok(mut state) = self.state.lock() {
             if let Some(observer) = &mut state.observer { observer.started(onto, request); }

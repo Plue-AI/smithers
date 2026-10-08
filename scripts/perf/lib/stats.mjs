@@ -1,4 +1,4 @@
-import { verifyHeldObservation, verifyCaptureDelay, verifyDrain } from './rebase-receipts.mjs'
+import { verifyHeldObservation, verifyCaptureDelay, verifyDrain, verifyHeldMarker } from './rebase-receipts.mjs'
 
 /** Installed-product samples use one named clock; library counter gates cannot serve. */
 export function summarize(samples, fields, minimum) {
@@ -31,6 +31,7 @@ export function verifyRebase(sample, { requireDrain = true } = {}) {
   if (receipt.activity?.length !== 1 || receipt.activity[0].kind !== 'rebase' || receipt.activity[0].onto !== main) throw new Error('requires one attributed rebase activity')
   if (typeof receipt.headChanged !== 'boolean' || receipt.approvalsCleared !== receipt.headChanged) throw new Error('rebase approval clearing differs from head change')
   if (typeof marker !== 'string' || !marker || receipt.marker?.text !== marker || receipt.marker.member !== pending.member || receipt.marker.typedDuringHold !== true) throw new Error('held edit missing or attributed to another member')
+  verifyHeldMarker(hold, receipt.marker, pending.member)
   if (acknowledgementsWithheld && (hold.acknowledgedBeforeThaw !== false || hold.localSnapshotQueued !== true || requireDrain && (!Number.isFinite(hold.withheldMs) || hold.withheldMs < 10000 || sample.outboxDrained !== true))) throw new Error('delayed rebase capture or outbox drain evidence missing')
   if (acknowledgementsWithheld && requireDrain) {
     verifyCaptureDelay(hold.acknowledgementReceipt, hold, hold.armedWindow)

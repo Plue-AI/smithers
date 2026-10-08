@@ -233,8 +233,9 @@ performs no cleanup request. Host receipts bind branch, boot,
 event and sequence and are checked independently by the unified verdict.
 Guest hold/capture/thaw, marker attribution and outbox drain are separate
 required observations. [The T-STK-08 seam](rebase-seam.md) lists their exact
-bindings. Those guest producers and authenticated lifecycle/root qualification
-remain unavailable: invoking the driver still reports incomplete (exit 2),
+bindings. Guest producers are implemented; authenticated reference-host
+lifecycle/root qualification is still unavailable, so the runner reports
+incomplete (exit 2),
 with no passing performance receipt. The composed PostgreSQL/router/wire test
 proves the actual delay and the script's authenticated client, not guest timing.
 
@@ -267,9 +268,10 @@ errors remain alongside the original failure in unified artifacts.
 The unified runner now binds the existing C-PERF-03, 04 and 05 workloads,
 using their raw result objects without creating nested artifact directories.
 C-PERF-05 compares `hostMs` with its budget; client timing stays a cross-check.
-All three bindings refuse before measurement until authenticated lifecycle
-qualification is exposed by the install. Environment flags cannot waive that
-precondition. A configured driver is not an activated machine budget.
+All machine bindings read the owner-only metrics qualification contract before
+measurement. They require authenticated reference-host receipts for the current
+commit/bundle and reviewed root inventory. The install reports unavailable
+until those receipts are published; environment flags cannot waive it. A configured driver is not an activated machine budget.
 Standalone CLI behavior and artifact copies are preserved.
 
 The C-PERF-06 artifact retains pending state, the rebase receipt, held marker
@@ -348,3 +350,8 @@ run still needs authenticated lifecycle qualification and an export of the
 install's structured host log. A client stopwatch or wake histogram cannot
 substitute for that log.
 Run offline validation with `node --test scripts/perf/warm-wake.test.mjs`.
+
+The held-marker producer, interval verifier and immutable host member lookup
+are described in [rebase-seam.md](rebase-seam.md). Their Linux composed proof
+retains actual native guest observations without enabling production live
+documents or claiming a reference-host performance receipt.

@@ -76,12 +76,12 @@ function rebaseBoundary(overrides = {}) {
   async acknowledgementWindow(ms) { assert.ok(ms === 0 || ms === 10000); withheld = ms === 10000 },
   async pushScratchMain(i, delayed) { withheld = delayed; main = (i + (withheld ? 100 : 0)).toString(16).padStart(40, '0'); pending = false; return main },
   async retryGitHubSync() { pending = true },
-  async waitRebasePending(onto) { assert.equal(pending, true); assert.equal(onto, main); return { state: 'pending', present: true, onto: main, rebased: false, member: 'Alice' } },
+  async waitRebasePending(onto) { assert.equal(pending, true); assert.equal(onto, main); return { state: 'pending', present: true, onto: main, rebased: false, member: '1' } },
   async pressRebaseNow() { assert.equal(pending, true); pending = false },
   async waitWriteHold() { assert.equal(pending, false) },
   async typeMarker(value) { marker = value },
-  async waitRebased(onto) { assert.equal(onto, main); return { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: 'Alice', typedDuringHold: true } } },
-  async guestHold(id) { return retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 }, id) },
+  async waitRebased(onto) { assert.equal(onto, main); return { id: main, onto: main, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto: main }], marker: { text: marker, member: '1', actor_reference: 'e'.repeat(32), typedDuringHold: true, attributionReceipt: { branch: '11111111-1111-4111-8111-111111111111', boot: 'b'.repeat(32), actor: {kind:'person',via:'web',member_id:1} } } } },
+  async guestHold(id) { const hold = retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: withheld ? 10000 : 0 }, id); hold.markerObservation = { ...hold.heldObservation, phase:'marker', marker:{text:marker,actor_reference:'e'.repeat(32),typedDuringHold:true,received:20,lastReceived:30,applied:2100} }; return hold },
   async waitOutboxDrained(id) { assert.equal(id, main); assert.equal(withheld, true) },
   ...overrides
  }
@@ -97,7 +97,7 @@ test('rebase driver retains 100 normal and 100 delayed holds with all held edits
 test('rebase cannot drop a lost edit, automatic rebase, missing guest receipt or acknowledgement-dependent thaw', async () => {
  for (const overrides of [
   { waitRebasePending: async onto => ({ onto, state: 'pending', present: true, rebased: true }) },
-  { waitRebased: async onto => ({ id: onto, onto, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto }], marker: { text: 'lost', member: 'Alice' } }) },
+  { waitRebased: async onto => ({ id: onto, onto, headChanged: true, approvalsCleared: true, activity: [{ kind: 'rebase', onto }], marker: { text: 'lost', member: '1' } }) },
   { guestHold: async id => retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010 }, id) },
   { guestHold: async id => ({ id, clock: 'host monotonic', start: 10, end: 110 }) },
   { guestHold: async id => ({ id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 110, acknowledgedBeforeThaw: true, localSnapshotQueued: true, withheldMs: 10000 }) }
@@ -182,9 +182,10 @@ test('rebase threshold and cleanup failures retain all completed raw observation
   assert.equal(error.samples.length, 200)
   return true
  })
- await assert.rejects(rebaseHold(rebaseBoundary({
-  guestHold: async id => retainedHold({ capture: { event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1 }, acknowledgementReceipt: { id, state: 'acknowledged', event: id.slice(-32), boot: 'b'.repeat(32), sequence: 1, withheld_ms: 10000 }, id, clock: 'guest monotonic:' + 'b'.repeat(32), start: 10, end: 2010, acknowledgedBeforeThaw: false, localSnapshotQueued: true, withheldMs: 10000 }, id)
- })), error => {
+ const slow = rebaseBoundary()
+ const guestHold = slow.guestHold
+ slow.guestHold = async id => { const hold = await guestHold(id); hold.end = 2010; return hold }
+ await assert.rejects(rebaseHold(slow), error => {
   assert.match(error.message, /each acknowledgement cohort/)
   assert.equal(error.samples.length, 200)
   assert.equal(error.samples[199].holdMs, 2000)

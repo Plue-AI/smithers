@@ -110,6 +110,8 @@ pub struct DocumentBatch {
     pub failure: Option<BatchFailure>,
 }
 pub trait Documents: Send + Sync {
+    /// Diagnostic reads use the same document authority as accepted updates.
+    fn text(&self, _stream: u32) -> Result<String> { Err(Error::unsupported()) }
     /// Retire transport-owned streams, retaining documents and pending saves.
     fn disconnected(&self) -> Result<()> {
         Ok(())
@@ -249,6 +251,8 @@ pub trait EventSink: Send + Sync {
     /// Diagnostic observations use the production mutation/outbox boundaries.
     fn rebase_started(&self, _onto: Oid, _request: u32) {}
     fn rebase_finished(&self, _failed: bool) {}
+    fn held_document(&self) -> Option<serde_json::Value> { None }
+    fn applied_held_document(&self, _hold: serde_json::Value, _stream: u32, _actor: &[u8], _before: &str, _after: &str) {}
     /// Fault builds observe completed socket writes, never queued frames.
     #[cfg(all(feature = "killpoints", debug_assertions))]
     fn sent(&self, _frame: &Frame) {}

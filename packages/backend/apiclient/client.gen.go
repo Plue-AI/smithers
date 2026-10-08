@@ -2201,28 +2201,47 @@ type GetAPIStatusResponseComponentsCanary struct {
 
 // GetAPIInstallMetricsResponse is generated from docs/api/openapi.yaml.
 type GetAPIInstallMetricsResponse struct {
-	CollectedAt     time.Time                    `json:"collected_at"`
-	Clock           string                       `json:"clock"`
-	Metrics         []map[string]json.RawMessage `json:"metrics"`
-	LiveConnections *int64                       `json:"live_connections,omitempty"`
-	Host            map[string]json.RawMessage   `json:"host,omitempty"`
+	CollectedAt          time.Time                                        `json:"collected_at"`
+	Clock                string                                           `json:"clock"`
+	Metrics              []map[string]json.RawMessage                     `json:"metrics"`
+	LiveConnections      *int64                                           `json:"live_connections,omitempty"`
+	MachineQualification GetAPIInstallMetricsResponseMachineQualification `json:"machine_qualification"`
+	Host                 map[string]json.RawMessage                       `json:"host,omitempty"`
+}
+
+// GetAPIInstallMetricsResponseMachineQualification is generated from docs/api/openapi.yaml.
+type GetAPIInstallMetricsResponseMachineQualification struct {
+	Version int64    `json:"version"`
+	Status  string   `json:"status"`
+	Missing []string `json:"missing"`
 }
 
 // GetAPIInstallAckDelayParams is the query of GET /api/install/ack-delay.
 type GetAPIInstallAckDelayParams struct {
-	Branch string
+	Branch         string
+	ActorReference *string
 }
 
 // GetAPIInstallAckDelayResponse is generated from docs/api/openapi.yaml.
 type GetAPIInstallAckDelayResponse struct {
-	ID         *string   `json:"id,omitempty"`
-	Branch     string    `json:"branch"`
-	Boot       *string   `json:"boot,omitempty"`
-	Event      *string   `json:"event,omitempty"`
-	Sequence   *int64    `json:"sequence,omitempty"`
-	State      string    `json:"state"`
-	WithheldMs float64   `json:"withheld_ms"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	ID         *string                             `json:"id,omitempty"`
+	Branch     string                              `json:"branch"`
+	Boot       *string                             `json:"boot,omitempty"`
+	Event      *string                             `json:"event,omitempty"`
+	Sequence   *int64                              `json:"sequence,omitempty"`
+	State      string                              `json:"state"`
+	WithheldMs float64                             `json:"withheld_ms"`
+	ExpiresAt  time.Time                           `json:"expires_at"`
+	Actor      *GetAPIInstallAckDelayResponseActor `json:"actor,omitempty"`
+}
+
+// GetAPIInstallAckDelayResponseActor is generated from docs/api/openapi.yaml.
+type GetAPIInstallAckDelayResponseActor struct {
+	Kind      string  `json:"kind"`
+	MemberID  int64   `json:"member_id"`
+	Via       string  `json:"via"`
+	Run       *string `json:"run,omitempty"`
+	AgentKind *string `json:"agent_kind,omitempty"`
 }
 
 // PostAPIInstallAckDelayBody is generated from docs/api/openapi.yaml.
@@ -2235,14 +2254,24 @@ type PostAPIInstallAckDelayBody struct {
 
 // PostAPIInstallAckDelayResponse is generated from docs/api/openapi.yaml.
 type PostAPIInstallAckDelayResponse struct {
-	ID         *string   `json:"id,omitempty"`
-	Branch     string    `json:"branch"`
-	Boot       *string   `json:"boot,omitempty"`
-	Event      *string   `json:"event,omitempty"`
-	Sequence   *int64    `json:"sequence,omitempty"`
-	State      string    `json:"state"`
-	WithheldMs float64   `json:"withheld_ms"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	ID         *string                              `json:"id,omitempty"`
+	Branch     string                               `json:"branch"`
+	Boot       *string                              `json:"boot,omitempty"`
+	Event      *string                              `json:"event,omitempty"`
+	Sequence   *int64                               `json:"sequence,omitempty"`
+	State      string                               `json:"state"`
+	WithheldMs float64                              `json:"withheld_ms"`
+	ExpiresAt  time.Time                            `json:"expires_at"`
+	Actor      *PostAPIInstallAckDelayResponseActor `json:"actor,omitempty"`
+}
+
+// PostAPIInstallAckDelayResponseActor is generated from docs/api/openapi.yaml.
+type PostAPIInstallAckDelayResponseActor struct {
+	Kind      string  `json:"kind"`
+	MemberID  int64   `json:"member_id"`
+	Via       string  `json:"via"`
+	Run       *string `json:"run,omitempty"`
+	AgentKind *string `json:"agent_kind,omitempty"`
 }
 
 // GetAPIInstallScorecardParams is the query of GET /api/install/scorecard.
@@ -3674,6 +3703,9 @@ func (c *Client) GetAPIInstallMetrics(ctx context.Context) (GetAPIInstallMetrics
 func (c *Client) GetAPIInstallAckDelay(ctx context.Context, params GetAPIInstallAckDelayParams) (GetAPIInstallAckDelayResponse, error) {
 	query := url.Values{}
 	query.Set("branch", params.Branch)
+	if params.ActorReference != nil {
+		query.Set("actor_reference", *params.ActorReference)
+	}
 	var out GetAPIInstallAckDelayResponse
 	err := c.do(ctx, "GET", "/api/install/ack-delay", query, nil, &out)
 	return out, err

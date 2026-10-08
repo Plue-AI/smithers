@@ -1,10 +1,12 @@
 package routes
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -14,6 +16,7 @@ import (
 // InstallAckDelayHandler uses the owner-person-session admission of install
 // settings, then binds the diagnostic to a branch in this install's repository.
 type InstallAckDelayHandler struct {
+	Pool     *pgxpool.Pool
 	Queries  *db.Queries
 	Registry *machined.Registry
 }
@@ -21,6 +24,16 @@ type InstallAckDelayHandler struct {
 func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	branch := r.URL.Query().Get("branch")
+	reference := r.URL.Query().Get("actor_reference")
+	var actorBytes []byte
+	if reference != "" {
+		var err error
+		actorBytes, err = hex.DecodeString(reference)
+		if r.Method != http.MethodGet || err != nil || len(actorBytes) != 16 || hex.EncodeToString(actorBytes) != reference {
+			pkgerrors.WriteError(w, pkgerrors.BadRequest("actor reference invalid"))
+			return
+		}
+	}
 	delay := 0
 	id, boot := "", ""
 	if r.Method == http.MethodPost {
@@ -74,5 +87,27 @@ func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		pkgerrors.WriteError(w, pkgerrors.Conflict("ready machine connection required"))
 		return
 	}
-	pkgerrors.WriteJSON(w, http.StatusOK, receipt)
+	var actor *machined.ActorIdentity
+	if reference != "" {
+		if h.Pool == nil {
+			pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "actor reference lookup unavailable"))
+			return
+		}
+		tx, err := h.Pool.Begin(r.Context())
+		if err != nil {
+			pkgerrors.WriteError(w, pkgerrors.Internal("actor lookup failed"))
+			return
+		}
+		defer tx.Rollback(r.Context())
+		identity, err := machined.ResolveActorInTx(r.Context(), tx, branch, row.VmID, actorBytes)
+		if err != nil {
+			pkgerrors.WriteError(w, pkgerrors.NotFound("actor reference not found"))
+			return
+		}
+		actor = &identity
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, struct {
+		machined.AckDelayReceipt
+		Actor *machined.ActorIdentity `json:"actor,omitempty"`
+	}{receipt, actor})
 }

@@ -18,10 +18,10 @@ import { configuration as wakeConfiguration, run as wakeRun, verifyWake, summari
 // exposes authenticated qualification, refuse before invoking machine workloads.
 function machineProvider(configuration, workload, fields) {
   return {
-    available(env, { origin }) {
+    async available(env, { origin, commit }) {
       const config = configuration(env)
       if (config.origin !== origin) throw new Error('configured measurement origin differs from run')
-      requireMachineQualification()
+      await requireMachineQualification({ ...env, SMITHERS_PERF_COMMIT: commit })
     },
     async measure(env) { return (await workload(env, { persist: false })).result },
     fields
@@ -106,7 +106,7 @@ export async function run({ env = process.env, providers = productionProviders, 
       entry.samples = result.samples ?? []
       // Retain the driver's cross-checks, including on failure. Only public
       // evidence fields are copied; environment and credentials stay private.
-      for (const field of ['host', 'browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds', 'cleanupError', 'pendingTerminal']) {
+      for (const field of ['host', 'browser', 'clock', 'models', 'member', 'members', 'sshMember', 'sshFingerprint', 'backgroundTabs', 'preflightSummary', 'questionOrder', 'metricsCrossCheck', 'wakesBefore', 'wakesAfter', 'activity', 'sleepSeconds', 'cleanupError', 'pendingTerminal', 'machineQualification']) {
         if (result[field] !== undefined) entry[field] = result[field]
       }
       if (result.status !== 'passed') throw new Error(result.error ?? 'measurement failed')

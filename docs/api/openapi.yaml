@@ -4417,7 +4417,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [collected_at, clock, metrics]
+                required: [collected_at, clock, metrics, machine_qualification]
                 properties:
                   collected_at:
                     type: string
@@ -4432,6 +4432,16 @@ paths:
                   live_connections:
                     type: integer
                     minimum: 0
+                  machine_qualification:
+                    type: object
+                    required: [version, status, missing]
+                    description: Fails closed until authenticated reference-host lifecycle/root receipts and reviewed inventory are available. Runtime probing and operator flags cannot qualify execution.
+                    properties:
+                      version: {type: integer, enum: [1]}
+                      status: {type: string, enum: [unavailable]}
+                      missing:
+                        type: array
+                        items: {type: string}
                   host:
                     type: object
                     nullable: true
@@ -4456,6 +4466,10 @@ paths:
           in: query
           required: true
           schema: {type: string, format: uuid}
+        - name: actor_reference
+          in: query
+          schema: {type: string, pattern: '^[a-f0-9]{32}$'}
+          description: Resolve an immutable historical actor reference within this ready branch machine; never grants launch authority.
       responses:
         '200':
           description: Current one-shot delay receipt
@@ -4473,6 +4487,15 @@ paths:
                   state: {type: string, enum: [idle, armed, expired, cancelled, withheld, acknowledged, failed]}
                   withheld_ms: {type: number, minimum: 0}
                   expires_at: {type: string, format: date-time}
+                  actor:
+                    type: object
+                    required: [kind, member_id, via]
+                    properties:
+                      kind: {type: string, enum: [person, agent]}
+                      member_id: {type: integer, minimum: 1}
+                      via: {type: string, enum: [web, cli, ssh, terminal, agent]}
+                      run: {type: string}
+                      agent_kind: {type: string}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}

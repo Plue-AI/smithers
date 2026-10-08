@@ -2280,7 +2280,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{AckDelay: &routes.InstallAckDelayHandler{Queries: queries, Registry: options.Machined}, Background: homeBackground, FlowRuns: installFlowRuns(queries, flow), InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler, WikiSelection: wikiSelectionHandler,
+		routerExtras{AckDelay: &routes.InstallAckDelayHandler{Pool: pool, Queries: queries, Registry: options.Machined}, Background: homeBackground, FlowRuns: installFlowRuns(queries, flow), InstallQuiesce: installQuiesce, InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler, WikiSelection: wikiSelectionHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, FastGateway: fastGateway, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},

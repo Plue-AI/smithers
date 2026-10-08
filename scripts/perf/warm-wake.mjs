@@ -78,7 +78,7 @@ export async function run(env = process.env, { persist = true } = {}) {
   let socket
   let terminal, closeTerminal
   try {
-    requireMachineQualification()
+    result.machineQualification = await requireMachineQualification({ ...env, SMITHERS_PERF_COMMIT: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() })
     const c = configuration(env)
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     result.installVersion = env.SMITHERS_PERF_INSTALL_VERSION

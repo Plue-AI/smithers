@@ -914,3 +914,10 @@ mod qualification_capture_tests {
         assert!(!QUALIFICATION_CAPTURE_ACTIVE.get());
     }
 }
+
+// Supplemental Linux proof pauses the production executor after hold admission.
+// The protected state arm is only compiled into unprivileged fault builds.
+#[cfg(all(feature = "killpoints", debug_assertions))]
+pub(crate) fn pause_rebase_observation() {
+    pause_fault("rebase-held", std::path::Path::new("/var/lib/smithers-machined"));
+}
