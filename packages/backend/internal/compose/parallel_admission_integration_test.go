@@ -130,7 +130,9 @@ func TestParallelAdmissionInstallBoundary(t *testing.T) {
 // C-J7-01: a Before request made with no free capacity must win the next
 // slot, even though its TODO number is newer than every queued successor.
 // This runs the install HTTP dispatcher, engine and real runtime admission
-// scheduler; only free-disk measurements and guest boot responses are injected.
+// scheduler. Missing idle providers and an unavailable safety census must retain
+// both occupied slots; restoring disk capacity then admits the inserted TODO.
+// Only host measurements, safety availability and guest responses are injected.
 func TestTodoBeforeAdmittedWhenCapacityFrees(t *testing.T) {
 	testParallelAdmissionInstallBoundary(t, true, false, false)
 }
@@ -605,6 +607,49 @@ esac
 			require.False(t, runtime.AdmissionHeld(releasedHolder), "stop must be observed before capacity is reused")
 			expectedParallel, expectedHeld = 2, 2
 		} else {
+			// J7's assisted process runtime cannot qualify safe-idle release.
+			// Exercise that dependency failure on the production scheduler too:
+			// incomplete composition and an unreadable safety authority must not
+			// manufacture capacity or let the older successor leapfrog T6.
+			idle := microsandbox.AdmissionIdleProviders{
+				FreeDisk: readDisk,
+				Safety: func(context.Context) ([]microsandbox.AdmissionSafety, error) {
+					return nil, errors.New("presence authority unavailable")
+				},
+				Prepare: func(context.Context, string) error {
+					t.Error("unknown safety must not capture a branch")
+					return errors.New("unexpected capture")
+				},
+				Stop: func(context.Context, string) error {
+					t.Error("unknown safety must not stop a machine")
+					return errors.New("unexpected stop")
+				},
+			}
+			now := time.Now()
+			for _, missing := range []string{"disk", "safety", "capture", "stop"} {
+				partial := idle
+				switch missing {
+				case "disk":
+					partial.FreeDisk = nil
+				case "safety":
+					partial.Safety = nil
+				case "capture":
+					partial.Prepare = nil
+				case "stop":
+					partial.Stop = nil
+				}
+				require.ErrorContains(t, runtime.SetAdmissionIdleProviders(partial), "admission idle providers unavailable", missing)
+				require.ErrorContains(t, runtime.ReconcileAdmissionIdle(ctx, now, now.Add(-time.Minute), partial), "admission idle providers unavailable", missing)
+			}
+			require.ErrorContains(t, runtime.ReconcileAdmissionIdle(ctx, now, now.Add(-time.Minute), idle), "presence authority unavailable")
+			settle("idle release unavailable", map[int]string{1: "working", 2: "working", 3: "queued", 4: "queued", 5: "queued", 6: "queued"}, map[int]int{6: 1, 3: 2, 4: 3, 5: 4})
+			held("idle release unavailable", 2)
+			for _, n := range []int64{3, 4, 5, 6} {
+				queued, err := q.GetMythicalItemByNumber(ctx, repo.ID, n)
+				require.NoError(t, err)
+				require.Empty(t, queued.WorkspaceID, "no machine without released capacity")
+				require.Empty(t, queued.RequestRunID, "no run without released capacity")
+			}
 			freeDisk.Store(136 << 30)
 		}
 		var last map[int]parallelCard
