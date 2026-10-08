@@ -47,12 +47,14 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     required("SMITHERS_FORK_VERIFIED_RETRY_BYTES")
     const expected = process.env.SMITHERS_FORK_VERIFIED_RETRY_BYTES!
     const bytes = source(`git show ${verified.candidate_head}:src/retry.ts`)
+    await info.attach("verified-retry-source", { body: bytes, contentType: "text/plain" })
     expect(bytes).toBe(expected)
     expect(source("cat src/fork-uncommitted.ts")).toBe("export const uncapturedForkCanary = true;\n")
     const before = continuity()
     expect(before.boot).toMatch(/^[0-9a-f-]{36}$/)
     maximumTickGap(before.ticks)
     const original = await f.read("Ben", "/api/todos/2")
+    await attachJson(info, "fork-source-before", { verified, before, original, stack })
     await openTodo(page, 2)
     const forkResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/branches" && r.request().method() === "POST")
     await journeyActivate(todoCard(page, 2).getByRole("button", { name: "Fork", exact: true }))
@@ -82,7 +84,8 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     expect(file.content).toEqual({ kind: "text", text: expected })
     const uncaptured = await realApi(page, page.context().request, "GET", `${path}/files/src/fork-uncommitted.ts`)
     expect(uncaptured.status()).toBe(404)
-    await info.attach("verified-retry-source", { body: bytes, contentType: "text/plain" })
+    await attachJson(info, "fork-source-after", { scratch, before, after, current, file,
+      dispatch: { method: forked.request().method(), path: "/api/branches", payload: forked.request().postDataJSON(), status: forked.status() } })
     const githubBranches = await f.github("Ben", "GET", "/branches?per_page=100") as Array<{ name: string }>
     expect(githubBranches.some(row => row.name.startsWith("scratch/"))).toBe(false)
     await runSlash(page, `/branch ${branch}`)
@@ -111,6 +114,7 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     const approvals = () => f.sql(`SELECT id,state,kind,command,subject,revision,member_id,decided_by FROM approvals WHERE id='${ask.confirmation}'`)
     expect(approvals()).toMatchObject([{ id: ask.confirmation, state: "pending", kind: "one_click", command: "branch.add-to-stack", member_id: member.id, decided_by: null }])
     expect((await f.read("Ben", "/api/todos")).map((item: any) => item.n)).toEqual([1, 2, 3])
+    await attachJson(info, "fork-add-pending", { ask, approvals: approvals(), scratch, githubBranches })
     const card = page.locator(`[data-message-id="confirmation:${ask.confirmation}"]`)
     await expect(card).toBeVisible()
     await expect(f.members.Alice.page.locator(`[data-message-id="confirmation:${ask.confirmation}"]`)).toHaveCount(0)
@@ -172,11 +176,16 @@ test("C-J7-02 S1: real Fork, private Confirm, Drop and retained source bytes", s
     }
     const beforeDrop = await tree()
     expect(beforeDrop["src/retry.ts"]).toMatchObject({ content: { kind: "text", text: expected + edit } })
+    // Persist the evidence before Drop: a refusal or timeout must retain the
+    // successful Fork/Add observations and the bytes it was meant to preserve.
+    await attachJson(info, "fork-add-before-drop", { beforeDrop, seed, itemBranch, approvals: approvals(), events, afterAdd })
     expect(original.pr.number).toBeGreaterThan(0)
     await runSlash(page, "/todo.drop T2")
     const dropResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/todos/2" && r.request().method() === "POST")
     await journeyActivate(page.getByRole("button", { name: "Drop", exact: true }).last())
     const dropping = await dropResponse
+    await attachJson(info, "fork-drop-response", { status: dropping.status(), body: await dropping.text(),
+      payload: dropping.request().postDataJSON() })
     expect(dropping.status()).toBe(202)
     expect(dropping.request().postDataJSON()).toMatchObject({ op: "drop" })
     await expect.poll(async () => (await f.read("Ben", "/api/todos/2")).state, { timeout: 120_000 }).toBe("dropped")
