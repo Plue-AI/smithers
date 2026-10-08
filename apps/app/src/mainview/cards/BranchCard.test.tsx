@@ -322,7 +322,7 @@ test("registered live terminal links dispatch Watch and disappear with unavailab
     http: async () => Response.json([{ name: "b1" }]) })
   const submitted: unknown[] = []
   const controller = { design: createDesignWorld({ enabled: false }), live, terminalCards: provider.source,
-    commands: { submit: async (input: unknown) => { submitted.push(input); return { status: "executed" } } } } as unknown as AppController
+    submitCommand: async (input: unknown) => { submitted.push(input); return { status: "executed" } } } as unknown as AppController
   const card = { id: "branch:b1", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "b1" } } as const
   const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
   const owner = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }

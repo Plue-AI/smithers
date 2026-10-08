@@ -118,7 +118,7 @@ const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; 
   if (branch === undefined) return null
   const item = branch.item === undefined ? undefined : todoOf(world, branch.item)
   const submit = (name: string, payload: Record<string, unknown>) =>
-    controller.commands.submit({ name, payload, actor: "user", originCardId: card.id })
+    controller.submitCommand({ name, payload, actor: "user", originCardId: card.id })
   /* Every press names its branch; a flow decodes the keys it declares and ignores the rest. */
   const dispatch: CardCommandDispatch = (tag, input) => submit(tag, { branch: branch.id, ...(input ?? {}) })
   /* MOCK: a burst's Diff opens the branch's diff (its item's ref) until `snapshot_before`/`snapshot_after` land. */
@@ -178,7 +178,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.addBranchToStack) providers.add("branch.add-to-stack")
   if (typeof controller.answerTodo === "function" && questionWait !== undefined) providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
-  const dispatch: CardCommandDispatch = (tag, input) => controller.commands.submit({
+  const dispatch: CardCommandDispatch = (tag, input) => controller.submitCommand({
     name: tag, payload: { branch: model?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
   const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers, questionWait, movedWait?.id) : [])

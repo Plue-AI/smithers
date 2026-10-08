@@ -1,6 +1,7 @@
 import { fillComposer } from "./composer"
 import { expect, test } from "./browserTest"
 import { owner, say } from "./spec/j1-fixtures"
+import { installCloudFixture } from "./cloudFixture"
 
 test("T-APP-10: /branch opens one Branch card and keeps Chat usable", async ({ page }) => {
   await owner(page)
@@ -55,3 +56,58 @@ test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palet
   await page.keyboard.press("Meta+k")
   await expect(page.getByTestId("palette")).toBeVisible()
 })
+
+// HTTP/socket contract proof; native conflict execution remains a composed-install check.
+for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_unavailable"] as const) {
+  test(`T-APP-10: scratch Resolve/Done keeps the bound conflict after ${refusal}`, async ({ page }) => {
+    await installCloudFixture(page, { capabilities: ["identity", "install"] })
+    const writes: unknown[] = []
+    const reads: string[] = []
+    const branch = "scratch/ben/retry"
+    await page.route("**/api/branches/scratch%2Fben%2Fretry", route => {
+      if (route.request().method() === "GET") return route.fulfill({ json: { name: branch, machine: { id: "b-conflict" } } })
+      writes.push(route.request().postDataJSON())
+      expect(route.request().headers()["idempotency-key"]).toBeTruthy()
+      return route.fulfill({ status: refusal === "rebase_execution_unavailable" ? 503 : 409,
+        json: { code: refusal, class: refusal === "rebase_execution_unavailable" ? "infra" : "conflict", message: "Rebase unavailable" } })
+    })
+    await page.route("**/api/branches/scratch%2Fben%2Fretry/files/src/retry.ts*", route => {
+      reads.push(route.request().url())
+      return route.fulfill({ json: { path: "src/retry.ts", branch, language: "typescript", digest: "sha256:conflict",
+        content: { kind: "text", text: "export const retry = 2;\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] } })
+    })
+    await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+      if (typeof raw !== "string") return
+      const frame = JSON.parse(raw)
+      if (frame.t !== "sub") return
+      const data = frame.topic === "branch:b-conflict" ? {
+        id: "b-conflict", name: branch, head: "1111111111111111111111111111111111111111", machine: { state: "awake" },
+        scratch: { forked_from: { kind: "main" } }, presence: [], terminals: [],
+        rebase: { state: "conflict", onto: "main", paths: ["src/retry.ts"], conflict_change: "conflict-retained", onto_revision: "2222222222222222222222222222222222222222" },
+        ssh_line: "ssh -p 2222 retry@localhost"
+      } : []
+      socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
+    }))
+    await page.goto("/")
+    await say(page, `/branch ${branch}`)
+    const card = page.getByTestId("card-branch:b-conflict")
+    await expect(card).toContainText("Rebase conflict onto main")
+    await card.getByRole("button", { name: "Resolve", exact: true }).press("Enter")
+    await expect(page.getByTestId("card-file-branch-scratch/ben/retry-src/retry.ts")).toContainText("export const retry = 2;")
+    expect(reads).toHaveLength(1)
+    expect(new URL(reads[0]!).pathname).toBe("/api/branches/scratch%2Fben%2Fretry/files/src/retry.ts")
+    expect(new URL(reads[0]!).searchParams.get("at")).toBeNull()
+    expect(writes).toEqual([])
+    await card.getByRole("button", { name: "Done", exact: true }).press("Enter")
+    await expect.poll(() => writes).toEqual([{ conflict_change: "conflict-retained", onto_revision: "2222222222222222222222222222222222222222" }])
+    await expect(page.getByText("Rebase this branch now didn't run", { exact: true }).last()).toBeVisible()
+    await expect(card.getByRole("button", { name: "Done", exact: true })).toBeVisible()
+    await expect(card).toContainText("Rebase conflict onto main")
+    await expect(card).toContainText("Scratch")
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    await page.reload()
+    await expect(page.getByTestId("card-branch:b-conflict")).toContainText("Rebase conflict onto main")
+    expect(writes).toHaveLength(1)
+    await expect(page.locator('.smithers-card[data-kind="todo"]')).toHaveCount(0)
+  })
+}
