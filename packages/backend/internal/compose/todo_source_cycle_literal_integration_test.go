@@ -205,6 +205,11 @@ func (f *todoSourceCycle) refs(t *testing.T) {
 
 func (f *todoSourceCycle) ingest(t *testing.T, item db.MythicalItem, request json.RawMessage, paused ...bool) {
 	t.Helper()
+	f.ingestState(t, item, request, jobs.StateWaiting, paused...)
+}
+
+func (f *todoSourceCycle) ingestState(t *testing.T, item db.MythicalItem, request json.RawMessage, state jobs.State, paused ...bool) {
+	t.Helper()
 	id := fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])
 	scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", f.repository), PrincipalID: fmt.Sprintf("user:%d", f.user.ID)}
 	projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": id, "attempt": 1, "generation": item.Generation, "phase": "todo", "flowDigest": item.FlowDigest.String, "flowSource": strings.Repeat("a", 40)})
@@ -216,7 +221,7 @@ func (f *todoSourceCycle) ingest(t *testing.T, item db.MythicalItem, request jso
 	if len(paused) > 0 && paused[0] {
 		run.PendingWaits = append(run.PendingWaits, flowruntime.PendingWait{RunID: "child", Token: "pause-token", Name: "resume#1", Reason: "approval", Request: json.RawMessage(`{"kind":"pause"}`)})
 	}
-	require.NoError(t, f.stack.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Scope: scope, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", ExecutionDigest: item.FlowDigest.String, RunID: "run-1", Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: "mythical-item", BindingID: id}, Run: run}}))
+	require.NoError(t, f.stack.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{State: state, Scope: scope, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: projection, FlowID: "todo", ExecutionDigest: item.FlowDigest.String, RunID: "run-1", Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: "mythical-item", BindingID: id}, Run: run}}))
 }
 
 // C-STK-08 sequences 2, 6, 7 and 8: real runtime ingestion and installed
@@ -437,16 +442,28 @@ func TestTodoGitHubSourceTransitionLiteralCases(t *testing.T) {
 // C-STK-08 sequences 1, 4 and 9: independent waits originate from runtime and
 // a real GitHub refs cycle. Answer and Discard enter their installed routes.
 func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
-	for _, mode := range []string{"question", "failed", "paused"} {
-		failed := mode == "failed"
+	for _, mode := range []string{"question", "failed", "paused", "failed-during-branch-wait"} {
+		failed := mode == "failed" || mode == "failed-during-branch-wait"
 		paused := mode == "paused"
 		t.Run(mode, func(t *testing.T) {
 			f := newTodoSourceCycle(t)
 			engine, initial := "running", "working"
-			if failed {
+			if mode == "failed" {
 				engine, initial = "blocked", "failed"
 			}
 			item := f.item(t, 1, engine, map[string]any{"run_launched": true, "run_attached": true, "attempts": []map[string]any{{"attempt": 1, "run_id": "run-1"}}}, false)
+			fact := func(kind, from, to string) {
+				t.Helper()
+				var n int
+				require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type=$1`, kind).Scan(&n))
+				require.Equal(t, 1, n, "one committed fact for %s", kind)
+				var raw []byte
+				require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data FROM product_job_events WHERE event_type=$1`, kind).Scan(&raw))
+				var event map[string]any
+				require.NoError(t, json.Unmarshal(raw, &event))
+				require.Equal(t, from, event["from"], kind)
+				require.Equal(t, to, event["to"], kind)
+			}
 			stop := f.start(t)
 			defer stop()
 			question := ""
@@ -455,6 +472,7 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 				status, card := f.call(t, 1, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				question = card["waits"].([]any)[0].(map[string]any)["id"].(string)
+				fact("todo.run_updated", "working", "needs_you")
 			}
 			head, err := f.upstream.PushAs("acme/app", "smithers/literal-1", 208, "alice", "Alice's outside change", map[string]string{"outside.txt": "Alice's retained bytes\n"})
 			require.NoError(t, err)
@@ -471,6 +489,23 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 			foreign := waits[0].(map[string]any)
 			require.Equal(t, "foreign_push", foreign["kind"])
 			foreignID := foreign["id"].(string)
+			pushFrom := initial
+			if question != "" {
+				pushFrom = "needs_you"
+			}
+			fact("todo.foreign_push", pushFrom, "needs_you")
+			if mode == "failed-during-branch-wait" {
+				f.ingestState(t, item, nil, jobs.StateUncertain)
+				fact("todo.run_updated", "needs_you", "needs_you")
+				row, err := f.q.GetMythicalItem(t.Context(), item.ID)
+				require.NoError(t, err)
+				require.Equal(t, "blocked", row.State)
+				status, card = f.call(t, 1, "GET", "", "")
+				require.Equal(t, 200, status, card)
+				require.Equal(t, "needs_you", card["state"])
+				require.Len(t, card["waits"], 1)
+				initial = "failed"
+			}
 			// The source commit is retained before its Needs you fact becomes visible.
 			var kept bytes.Buffer
 			require.NoError(t, f.host.git(t.Context(), nil, &kept, "rev-parse", "refs/smithers/kept/"+head))
@@ -483,6 +518,7 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 				require.Equal(t, 200, status, card)
 				require.Equal(t, "needs_you", card["state"])
 				require.Len(t, card["waits"], 1)
+				fact("todo.answered", "needs_you", "needs_you")
 				require.Equal(t, "foreign_push", card["waits"].([]any)[0].(map[string]any)["kind"])
 				row, err := f.q.GetMythicalItem(t.Context(), item.ID)
 				require.NoError(t, err)
@@ -519,6 +555,7 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 			status, card = f.call(t, 1, "GET", "", "")
 			require.Equal(t, 200, status, card)
 			require.Equal(t, initial, card["state"])
+			fact("todo.foreign_discard-foreign", "needs_you", initial)
 			require.Empty(t, card["waits"])
 			if failed {
 				f.chooseActor(t, "acme", "admin")
@@ -528,6 +565,7 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 				status, card = f.call(t, 1, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, "queued", card["state"])
+				fact("todo.retried", "failed", "queued")
 			}
 			// Discard changes the publication lease; it does not erase Alice's data.
 			kept.Reset()

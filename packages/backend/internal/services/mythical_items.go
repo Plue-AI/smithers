@@ -712,10 +712,23 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				return nil
 			}
 			// An unknown outside effect stops this attempt until a person retries.
-			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && (todoState(item) == "starting" || todoState(item) == "working") {
+			// Wait and pause overlays must not hide the executing phase: a
+			// branch wait stays open, but settling it must expose Failed.
+			executing := false
+			switch item.State {
+			case "running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying":
+				executing = true
+			case "queued":
+				checks := mythicalChecksOf(item)
+				executing = checks.RunLaunched && !checks.RunAttached
+			}
+			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && executing {
 				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
 			}
-			if !pinMismatch && update.Checkpoint.FailureMissingTool != nil && update.State == jobs.StateFailed && (projection.Phase == "todo" || projection.Phase == "request") {
+			// Late failure evidence belongs to the attempt, but cannot undo
+			// GitHub merge or person Drop settlement.
+			if !pinMismatch && update.Checkpoint.FailureMissingTool != nil && update.State == jobs.StateFailed && (projection.Phase == "todo" || projection.Phase == "request") &&
+				item.State != "landed" && item.State != "cancelled" && item.State != "rejected" && item.State != "declined" {
 				next = *mythicalStop(next, mythicalFault{Class: "user", Tag: "missing_machine_tool", Kind: mythicalFailStopped}, "missing_machine_tool")
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
