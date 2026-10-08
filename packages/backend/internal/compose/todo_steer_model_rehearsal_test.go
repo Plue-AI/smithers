@@ -160,6 +160,51 @@ func TestTodoReviewSteerModelReentry(t *testing.T) {
 	}
 }
 
+// A 202 receipt must wake the retained In review run. Assert the next coding
+// model request itself, before waiting for another capture, PR push or review.
+func TestTodoRetainedReviewHTTPNextTurn(t *testing.T) {
+	t.Setenv("TRACE_MESSAGES", "1")
+	r := newRehearsal(t, "SMITHERS_TODO_STEER_MODEL", "T-STK-05", "retained-steer-")
+	require.True(t, r.install("install"))
+	n, err := r.file("Retry delivery", "[FILE retry.ts] Add retries to webhook delivery in retry.ts")
+	require.NoError(t, err)
+	_, err = r.waitTodoWithin(n, 5*time.Minute, "in_review")
+	require.NoError(t, err)
+	before, err := r.j3Lane(n)
+	require.NoError(t, err)
+	prior, err := r.modelTurns()
+	require.NoError(t, err)
+	const text = "Also log each retry attempt"
+	for range 2 {
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", n), `{"steer":"Also log each retry attempt"}`, "retained-review-steer")
+		require.NoError(t, err)
+		require.Equal(t, 202, code, string(data))
+	}
+	var first map[string]any
+	require.Eventually(t, func() bool {
+		turns, err := r.modelTurns()
+		if err != nil || len(turns) <= len(prior) {
+			return false
+		}
+		index := slices.IndexFunc(turns[len(prior):], func(turn map[string]any) bool {
+			step, _ := turn["step"].(string)
+			return turn["kind"] == "chat" && strings.HasPrefix(step, "coding/")
+		})
+		if index < 0 {
+			return false
+		}
+		first = turns[len(prior)+index]
+		return true
+	}, 3*time.Minute, 50*time.Millisecond, "accepted review steer must dispatch another model turn")
+	require.Contains(t, turnText(first), text, "spec §10.7.3: at most one model turn of latency")
+	after, err := r.j3Lane(n)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "review steer retains run, attempt and working copy")
+	var inputs int
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items, jsonb_array_elements(checks->'steers') input WHERE number=$1 AND input->>'text'=$2`, n, text).Scan(&inputs))
+	require.Equal(t, 1, inputs, "duplicate HTTP admission stores one durable input")
+}
+
 // Protocol fixtures pin the shipped composition, whose identity changes with
 // its source bytes. They must exercise the current pause/review contract.
 func rehearsalBuiltinTodoDigest(t *testing.T) string {
