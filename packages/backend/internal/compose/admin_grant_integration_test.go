@@ -9,13 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,8 +112,8 @@ func TestAdminGrantProductHTTPPostgres(t *testing.T) {
 	require.Equal(t, 403, status, string(raw))
 }
 
-// A real Bun app controller uses the mounted product HTTP router and real PG.
-// The fixture only delays a response; authentication and grant execution stay real.
+// MVP Appendix B cuts admin.grant* from the app (75ad46c7e1, #3435).
+// Even a configured grant service must remain unreachable on a self-hosted install.
 func TestAdminGrantAppHTTPPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
@@ -138,7 +133,9 @@ func TestAdminGrantAppHTTPPostgres(t *testing.T) {
 	for i := range args[:len(args)-1] {
 		args[i] = reflect.Zero(fn.Type().In(i))
 	}
-	args[0] = reflect.ValueOf(testConfigAllFlagsOn())
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeSelfHosted
+	args[0] = reflect.ValueOf(cfg)
 	args[1] = reflect.ValueOf(q)
 	args[2] = reflect.ValueOf(pool)
 	for i := range args {
@@ -148,69 +145,24 @@ func TestAdminGrantAppHTTPPostgres(t *testing.T) {
 	}
 	args[len(args)-1] = reflect.ValueOf([]any{routerExtras{AdminGrant: &routes.AdminGrantHandler{Service: services.NewAdminGrantService(pool, credits.Ledger{DB: pool})}}})
 	router := fn.CallSlice(args)[0].Interface().(http.Handler)
-	release, committed := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	var posted atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/__grant_state" {
-			var n int
-			e := pool.QueryRow(r.Context(), `SELECT count(*) FROM credit_grants WHERE starts_with(source_key,'admin:grant-')`).Scan(&n)
-			if e != nil {
-				http.Error(w, e.Error(), 500)
-				return
-			}
-			json.NewEncoder(w).Encode(map[string]int{"posted": int(posted.Load()), "grants": n})
-			return
-		}
-		if r.URL.Path == "/__grant_release" {
-			once.Do(func() { close(release) })
-			select {
-			case <-committed:
-				w.WriteHeader(204)
-			case <-r.Context().Done():
-			}
-			return
-		}
-		if r.URL.Path == "/api/admin/grant" && posted.Add(1) == 1 {
-			select {
-			case <-release:
-			case <-r.Context().Done():
-				return
-			}
-			rec := httptest.NewRecorder()
-			router.ServeHTTP(rec, r)
-			if rec.Code != 200 {
-				w.WriteHeader(rec.Code)
-				w.Write(rec.Body.Bytes())
-				close(committed)
-				return
-			}
-			close(committed)
-			// This page never receives the committed receipt; reload must reuse its key.
-			<-r.Context().Done()
-			return
-		}
-		router.ServeHTTP(w, r)
-	}))
+	server := httptest.NewServer(router)
 	defer server.Close()
-	defer once.Do(func() { close(release) })
-	bun, e := exec.LookPath("bun")
-	require.NoError(t, e, "Bun is required for this actual app consumer, not an optional skip")
-	root, e := filepath.Abs("../../../..")
+	request, e := http.NewRequest(http.MethodPost, server.URL+"/api/admin/grant", strings.NewReader(`{"login":"app-grant-recipient","amount_usd":25,"idempotency_key":"cut-grant"}`))
 	require.NoError(t, e)
-	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	command := exec.CommandContext(commandCtx, bun, "apps/app/scripts/admin-grant-backend-consumer.ts")
-	command.Dir = root
-	command.Env = append(os.Environ(), "SMITHERS_ADMIN_GRANT_TEST_ORIGIN="+server.URL, "SMITHERS_ADMIN_GRANT_TEST_TOKEN="+rawToken)
-	output, e := command.CombinedOutput()
-	require.NoError(t, e, string(output))
-	t.Log(string(output))
-	require.Equal(t, int32(2), posted.Load(), "One original and one same-key reload request")
+	request.Header.Set("Authorization", "Bearer "+rawToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, e := server.Client().Do(request)
+	require.NoError(t, e)
+	defer response.Body.Close()
+	raw, e := io.ReadAll(response.Body)
+	require.NoError(t, e)
+	require.Equal(t, http.StatusNotFound, response.StatusCode, string(raw))
 	balance, e := (credits.Ledger{DB: pool}).OwnerBalance(ctx, "user", recipient.ID)
 	require.NoError(t, e)
-	require.Equal(t, int64(25_000_000_000), balance)
-	var n int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE event_type='admin.credit.grant'`).Scan(&n))
-	require.Equal(t, 1, n)
+	require.Zero(t, balance)
+	var grants, audits int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM credit_grants`).Scan(&grants))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE event_type='admin.credit.grant'`).Scan(&audits))
+	require.Zero(t, grants)
+	require.Zero(t, audits)
 }
