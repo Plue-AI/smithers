@@ -143,3 +143,34 @@ func TestScratchMachineProjectionRollbackAndRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 2, stable)
 }
+
+func TestMachineGrantPublicationRollbackAndLostReply(t *testing.T) {
+	o, _ := newTodoAdmission(t)
+	ctx, q := t.Context(), db.New(o.pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: owner, Name: "grant", TargetBookmark: "scratch/owner/grant", Status: "suspended"})
+	require.NoError(t, err)
+	grant := microsandbox.AdmissionRequest{PublicationID: "11111111-1111-4111-8111-111111111111", Holder: "workspace:" + row.ID, Actor: "Alice", Class: "person", State: "granted"}
+	scope := jobs.Scope{TenantID: fmt.Sprint(o.repoID), PrincipalID: "branch:" + row.ID + ":machine"}
+	store, err := jobs.NewStore(o.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `ALTER TABLE product_job_requests ADD CONSTRAINT grant_refused CHECK(operation <> 'branch.machine.granted') NOT VALID`)
+	require.NoError(t, err)
+	require.Error(t, o.service.PublishMachineGrant(ctx, grant))
+	head, err := store.Head(ctx, scope)
+	require.NoError(t, err)
+	require.Zero(t, head)
+	_, err = o.pool.Exec(ctx, `ALTER TABLE product_job_requests DROP CONSTRAINT grant_refused`)
+	require.NoError(t, err)
+	require.NoError(t, o.service.PublishMachineGrant(ctx, grant))
+	// A committed source fact survives a lost acknowledgment and a new writer.
+	recovered := NewMythicalService(o.pool, nil)
+	require.NoError(t, recovered.PublishMachineGrant(ctx, grant))
+	page, err := store.Replay(ctx, scope, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, page.Events, 1)
+	require.EqualValues(t, 1, page.Head)
+	require.JSONEq(t, fmt.Sprintf(`{"branch":{"id":%q,"machine":{"state":"waking"}},"admission":{"holder":%q,"actor":"Alice","class":"person"}}`, row.ID, grant.Holder), string(page.Events[0].Data))
+	require.Error(t, recovered.PublishMachineGrant(ctx, microsandbox.AdmissionRequest{Holder: grant.Holder}))
+}

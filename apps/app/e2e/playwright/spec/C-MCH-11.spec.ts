@@ -26,3 +26,10 @@ test("C-MCH-11: released TODO controls and Learning use production machine admis
   expect(output).toContain("--- PASS: TestReleasedTodoSteerAnswerAdmissionComposedInstall")
   expect(output).toContain("--- PASS: TestLearningMergeDispatchComposedInstall")
 })
+
+
+test("C-MCH-11: grant publication rollback fences a second free slot", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestSuccessfulTerminalPublicationBarrierInstallBoundary$")
+  expect(output).toContain("--- PASS: TestSuccessfulTerminalPublicationBarrierInstallBoundary")
+})

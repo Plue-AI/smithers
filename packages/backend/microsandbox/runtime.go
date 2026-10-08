@@ -200,6 +200,9 @@ type Runtime struct {
 	admissionSequence         uint64
 	admissionChanged          chan struct{}
 	admissionCancel           context.CancelFunc
+	admissionGrantMu          sync.Mutex
+	admissionPublisher        func(context.Context, AdmissionRequest) error
+	admissionUnpublished      *AdmissionRequest
 	admissionIdleMu           sync.Mutex
 	admissionIdle             *AdmissionIdleProviders
 	admissionStarted          time.Time

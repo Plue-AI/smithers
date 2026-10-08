@@ -1365,6 +1365,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
 	if config.IsSingleOwner(cfg.Auth) {
+		composeAdmissionPublication(options.Workspace, mythicalService)
+	}
+	if config.IsSingleOwner(cfg.Auth) {
 		// The install's own GitHub App publishes TODO pull requests; Plue's
 		// composition publishes none.
 		mythicalService.EnableTodoPublication(gitHubAppCredentials, repoConnectionService, gitHubBudgetTracker)

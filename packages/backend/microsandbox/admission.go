@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // AdmissionRequest is actor demand, not a second VM or durable queue.
@@ -15,6 +17,7 @@ import (
 type AdmissionRequest struct {
 	// RetainOnly is a reconstruction hint: completed/paused demand may retain
 	// an existing VM but must never queue a new wake. Live queue rows omit it.
+	PublicationID                       string
 	RetainOnly                          bool
 	Holder, Actor, Reason, Class, State string
 	Position                            int
@@ -257,10 +260,53 @@ func (r *Runtime) AdmissionSnapshot() []AdmissionRequest {
 	return rows
 }
 
-// GrantNext grants at most one holder, allowing the install to commit source
-// cursors before requesting the next grant. Call on demand events and a 1 s tick.
-// No provider means no side effect; the production adapter remains dark.
+// SetAdmissionPublisher binds the install source journal before serving demand.
+// Publication failure retains the reservation and fences subsequent grants.
+func (r *Runtime) SetAdmissionPublisher(publish func(context.Context, AdmissionRequest) error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.admissionPublisher = publish
+}
+
+func (r *Runtime) publishAdmission(ctx context.Context) error {
+	r.mu.Lock()
+	pending, publish := r.admissionUnpublished, r.admissionPublisher
+	r.mu.Unlock()
+	if pending == nil {
+		return nil
+	}
+	if publish == nil {
+		return ErrAdmissionNotReady
+	}
+	if err := publish(ctx, *pending); err != nil {
+		return errors.Join(ErrAdmissionNotReady, err)
+	}
+	r.mu.Lock()
+	r.admissionUnpublished = nil
+	r.notifyAdmissionLocked()
+	r.mu.Unlock()
+	return nil
+}
+
+// GrantNext grants one holder and publishes its reservation before permitting
+// another grant. Call on demand events and the one-second tick.
 func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (AdmissionRequest, error) {
+	r.admissionGrantMu.Lock()
+	defer r.admissionGrantMu.Unlock()
+	if err := r.publishAdmission(ctx); err != nil {
+		return AdmissionRequest{}, err
+	}
+	grant, err := r.grantNext(ctx, p)
+	if err != nil || grant.Holder == "" {
+		return grant, err
+	}
+	if err := r.publishAdmission(ctx); err != nil {
+		return AdmissionRequest{}, err
+	}
+	return grant, nil
+}
+
+func (r *Runtime) grantNext(ctx context.Context, p AdmissionProviders) (AdmissionRequest, error) {
 	if p.Ready == nil || p.FreeDisk == nil {
 		return AdmissionRequest{}, errors.New("admission providers unavailable")
 	}
@@ -360,7 +406,12 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	}
 	r.rankAdmissionLocked()
 	r.notifyAdmissionLocked()
-	return *h.rows[candidate.Actor], nil
+	grant := *h.rows[candidate.Actor]
+	if r.admissionPublisher != nil {
+		grant.PublicationID = uuid.NewString()
+		r.admissionUnpublished = &grant
+	}
+	return grant, nil
 }
 
 // CancelAdmission never frees a granted slot. The returned bool asks the owner
@@ -817,7 +868,7 @@ func (r *Runtime) admissionGranted(holder, actor string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.admission[holder]
-	return !r.admissionFrozen && h != nil && h.held && h.releasing.IsZero() && !h.idlePreparing && h.rows[actor] != nil && h.rows[actor].State == "granted"
+	return (r.admissionUnpublished == nil || r.admissionUnpublished.Holder != holder) && !r.admissionFrozen && h != nil && h.held && h.releasing.IsZero() && !h.idlePreparing && h.rows[actor] != nil && h.rows[actor].State == "granted"
 }
 
 // CancelFailedAdmission cancels the actor after a failed wake. A bound VM keeps

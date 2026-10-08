@@ -223,6 +223,7 @@ func testTodoStopResumeComposedInstall(t *testing.T, engineState, productState s
 	var disk atomic.Int64
 	if scheduled {
 		guest, launcher = composeReleasedTodoHost(t, pool, owner, repo.ID, item.ID, source, transport, &disk)
+		composeAdmissionPublication(guest.queue, service)
 	}
 	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: services.NewMythicalFlowHostTargetResolver(service), Launcher: launcher, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
 	require.NoError(t, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
 	"time"
 )
@@ -248,4 +249,85 @@ func TestTodoProjectionRetainsGrantedDemandDuringAutomaticRelease(t *testing.T) 
 			require.Equal(t, "waiting", wake.State)
 		})
 	}
+}
+
+func TestAdmissionPublicationSerializesConcurrentFreeSlots(t *testing.T) {
+	r, p := admissionFixture()
+	r.config.MaxRunningVMs = 3
+	r.SetCapacityReader(func(context.Context) (int, error) { return 3, nil })
+	for _, holder := range []string{"Alice", "Ben", "T5"} {
+		class := "person"
+		if holder == "T5" {
+			class = "todo"
+		}
+		_, err := r.Request(class, holder, holder, "terminal")
+		require.NoError(t, err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var publications []string
+	r.SetAdmissionPublisher(func(_ context.Context, g AdmissionRequest) error {
+		require.NotEmpty(t, g.PublicationID)
+		if g.Holder == "Alice" {
+			close(entered)
+			<-release
+		}
+		mu.Lock()
+		publications = append(publications, g.Holder)
+		mu.Unlock()
+		return nil
+	})
+	done := make(chan error, 3)
+	for range 3 {
+		go func() { _, err := r.GrantNext(t.Context(), p); done <- err }()
+	}
+	<-entered
+	require.Equal(t, 1, r.InUse())
+	require.False(t, r.admissionGranted("Alice", "Alice"))
+	require.False(t, r.AdmissionHeld("Ben"))
+	close(release)
+	for range 3 {
+		require.NoError(t, <-done)
+	}
+	require.Equal(t, []string{"Alice", "Ben", "T5"}, publications)
+	require.Equal(t, 3, r.InUse())
+}
+
+func TestAdmissionPublicationRetryRetainsReservation(t *testing.T) {
+	r, p := admissionFixture()
+	r.config.MaxRunningVMs = 2
+	r.SetCapacityReader(func(context.Context) (int, error) { return 2, nil })
+	for _, holder := range []string{"Alice", "Ben"} {
+		_, err := r.Request("person", holder, holder, "terminal")
+		require.NoError(t, err)
+	}
+	refused := true
+	var identity string
+	r.SetAdmissionPublisher(func(_ context.Context, g AdmissionRequest) error {
+		if g.Holder == "Alice" {
+			if identity == "" {
+				identity = g.PublicationID
+			}
+			require.Equal(t, identity, g.PublicationID)
+			if refused {
+				return errors.New("source rollback")
+			}
+		}
+		return nil
+	})
+	for range 2 {
+		grant, err := r.GrantNext(t.Context(), p)
+		require.ErrorIs(t, err, ErrAdmissionNotReady)
+		require.Empty(t, grant.Holder)
+		require.Equal(t, 1, r.InUse())
+		require.False(t, r.admissionGranted("Alice", "Alice"))
+		require.False(t, r.AdmissionHeld("Ben"))
+	}
+	refused = false
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "Ben", grant.Holder)
+	require.True(t, r.admissionGranted("Alice", "Alice"))
+	require.True(t, r.admissionGranted("Ben", "Ben"))
+	require.Equal(t, 2, r.InUse())
 }

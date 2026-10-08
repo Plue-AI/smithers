@@ -72,3 +72,11 @@ func composeInstallAdmission(ctx context.Context, service *services.InstallQuies
 	}
 	return nil
 }
+
+func composeAdmissionPublication(runtime any, stack *services.MythicalService) {
+	if queue, ok := runtime.(interface {
+		SetAdmissionPublisher(func(context.Context, microsandbox.AdmissionRequest) error)
+	}); ok {
+		queue.SetAdmissionPublisher(stack.PublishMachineGrant)
+	}
+}

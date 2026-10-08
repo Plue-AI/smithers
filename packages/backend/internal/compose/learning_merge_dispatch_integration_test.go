@@ -179,6 +179,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	// enters only through the served merge/check doors above.
 	_, err = queue.WaitAdmission(ctx, microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}, "person", "occupied", "owner", "terminal")
 	require.NoError(t, err)
+	composeAdmissionPublication(queue, service)
 
 	source := &learningSourceContract{}
 	guest := &learningRuntimeContract{queue: queue, source: source}

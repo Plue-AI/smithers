@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -196,6 +198,13 @@ func (s *MythicalService) publishScratchMachineProjection(ctx context.Context) e
 			return err
 		}
 		machine := map[string]any{"state": branchMachineState(row)}
+		if ownership, ok := s.lanes.(interface {
+			MachineHeld(context.Context, string) (bool, error)
+		}); ok && row.Status != "running" {
+			if held, err := ownership.MachineHeld(ctx, id); err == nil && held {
+				machine["state"] = "waking"
+			}
+		}
 		if position := places[machineQueueHolder(id)]; position > 0 {
 			machine = map[string]any{"state": "waiting", "position": position}
 		}
@@ -215,6 +224,55 @@ func (s *MythicalService) publishScratchMachineProjection(ctx context.Context) e
 		if _, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "branch.machine", "observed", data); err != nil {
 			return err
 		}
+	}
+	return tx.Commit(ctx)
+}
+
+// PublishMachineGrant commits the reservation observation before another holder
+// may be granted. It writes the existing source journal, not a durable queue.
+func (s *MythicalService) PublishMachineGrant(ctx context.Context, grant microsandbox.AdmissionRequest) error {
+	if grant.PublicationID == "" {
+		return errors.New("machine grant identity unavailable")
+	}
+	id := strings.TrimPrefix(grant.Holder, "workspace:")
+	row, err := s.queries().GetWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if _, err = tx.Exec(ctx, "SET LOCAL lock_timeout = '100ms'"); err != nil {
+		return err
+	}
+	// Use the same lock as the scratch observer, so its pre-grant snapshot
+	// cannot commit after this reservation fact.
+	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('scratch-machine-projection',0))"); err != nil {
+		return err
+	}
+	var published bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_events WHERE operation_id=$1 AND event_type='branch.machine.granted' AND tenant_id=$2 AND principal_id=$3)`, grant.PublicationID, strconv.FormatInt(row.RepositoryID, 10), "branch:"+id+":machine").Scan(&published); err != nil {
+		return err
+	}
+	if published {
+		return tx.Commit(ctx)
+	}
+	state := "waking"
+	if row.Status == "running" {
+		state = "awake"
+	}
+	data, err := json.Marshal(map[string]any{
+		"branch":    map[string]any{"id": id, "machine": map[string]any{"state": state}},
+		"admission": map[string]any{"holder": grant.Holder, "class": grant.Class, "actor": grant.Actor},
+	})
+	if err != nil {
+		return err
+	}
+	scope := jobs.Scope{TenantID: strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "branch:" + id + ":machine"}
+	if _, err = jobs.RecordFactInTx(ctx, tx, scope, grant.PublicationID, "branch.machine.granted", "granted", data); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }

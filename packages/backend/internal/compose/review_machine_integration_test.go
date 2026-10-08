@@ -84,6 +84,7 @@ esac
 	personProviders := microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: func(context.Context) (int64, error) { return 140 << 30, nil }}
 	_, err = queue.WaitAdmission(ctx, personProviders, "person", "held", "owner", "terminal")
 	require.NoError(t, err)
+	composeAdmissionPublication(queue, service)
 	runtime := &reviewRuntimeContract{queue: queue, head: strings.Repeat("a", 40), loseLaunch: true, loseApproval: true, failDelete: true}
 	source := &reviewSourceContract{}
 	machine := &reviewMachine{pool: pool, jobs: store, workspace: runtime, source: source}

@@ -438,12 +438,15 @@ func (r *terminalFIFOGuests) ExecuteCommand(ctx context.Context, id string, comm
 }
 
 func TestSuccessfulTerminalFIFOInstallBoundary(t *testing.T) {
-	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1)
+	testSuccessfulTerminalFIFOInstallBoundary(t, 3, 1, 1, false)
 }
 func TestSuccessfulFiftyTerminalInstallBoundary(t *testing.T) {
-	testSuccessfulTerminalFIFOInstallBoundary(t, 10, 5)
+	testSuccessfulTerminalFIFOInstallBoundary(t, 10, 5, 1, false)
 }
-func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch int) {
+func TestSuccessfulTerminalPublicationBarrierInstallBoundary(t *testing.T) {
+	testSuccessfulTerminalFIFOInstallBoundary(t, 2, 1, 2, true)
+}
+func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBranch, slots int, rejectPublication bool) {
 	f := presenceInstall(t)
 	ctx := t.Context()
 	q := db.New(f.pool)
@@ -457,7 +460,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	binary := filepath.Join(root, "msb")
 	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0700))
 	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}
-	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &profile, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+	queue, err := microsandbox.New(ctx, microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &profile, MaxRunningVMs: slots, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, queue.Close()) })
 	var freeDisk atomic.Int64
@@ -503,6 +506,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 	stack := services.NewMythicalService(f.pool, nil)
 	stack.SetInstallParallel(capacity)
 	stack.SetOrchestration(nil, nil, services.NewWorkspaceMythicalLanes(service))
+	composeAdmissionPublication(queue, stack)
 	store, err := jobs.NewStore(f.pool)
 	require.NoError(t, err)
 	topics := &liveTopics{queries: q, todos: stack, jobs: store, presence: f.p, capacity: capacity}
@@ -631,15 +635,34 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		}
 		sockets = append(sockets, conn)
 	}
-	freeDisk.Store(72 << 30)
+	if rejectPublication {
+		_, err := f.pool.Exec(ctx, `ALTER TABLE product_job_requests ADD CONSTRAINT grant_receipt_refusal CHECK(operation <> 'branch.machine.granted') NOT VALID`)
+		require.NoError(t, err)
+	}
+	freeDisk.Store(int64(40+32*slots) << 30)
+	if rejectPublication {
+		require.Eventually(t, func() bool { return queue.InUse() == 1 }, 5*time.Second, 10*time.Millisecond)
+		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
+			require.Equal(t, 1, queue.InUse(), "a second free slot cannot pass a rolled-back grant publication")
+			require.Empty(t, runtime.started, "unpublished reservation cannot boot")
+			var count int
+			require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.machine.granted'`).Scan(&count))
+			require.Zero(t, count, "rollback cannot advance the durable source")
+			time.Sleep(20 * time.Millisecond)
+		}
+		_, err = f.pool.Exec(ctx, `ALTER TABLE product_job_requests DROP CONSTRAINT grant_receipt_refusal`)
+		require.NoError(t, err)
+	}
 	for i, branch := range branches {
 		select {
 		case started := <-runtime.started:
-			require.Equal(t, branch.ID, started)
+			if slots == 1 {
+				require.Equal(t, branch.ID, started)
+			}
 		case <-time.After(5 * time.Second):
 			t.Fatal("FIFO branch did not boot")
 		}
-		require.Equal(t, 1, queue.InUse())
+		require.LessOrEqual(t, queue.InUse(), slots)
 		for {
 			frame := readPresenceFrame(t, sockets[i])
 			require.NotEqual(t, "err", frame.T)
@@ -669,7 +692,7 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		}, 5*time.Second, 10*time.Millisecond, "terminal guest accepted the real member credential")
 		// Inject a delayed stop observation, keeping the granted slot throughout.
 		for until := time.Now().Add(1100 * time.Millisecond); time.Now().Before(until); {
-			require.Equal(t, 1, queue.InUse())
+			require.LessOrEqual(t, queue.InUse(), slots)
 			running := 0
 			for _, guest := range runtime.guests {
 				guest.mu.Lock()
@@ -678,8 +701,10 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 				}
 				guest.mu.Unlock()
 			}
-			require.Equal(t, 1, running, "the observed guest inventory never exceeds the slot limit")
-			require.Empty(t, runtime.started)
+			require.LessOrEqual(t, running, slots, "the observed guest inventory never exceeds the slot limit")
+			if slots == 1 {
+				require.Empty(t, runtime.started)
+			}
 			time.Sleep(20 * time.Millisecond)
 		}
 		guest := runtime.guests[branch.ID]
@@ -689,6 +714,9 @@ func testSuccessfulTerminalFIFOInstallBoundary(t *testing.T, branchCount, perBra
 		queue.ConfirmAdmissionStop("workspace:"+branch.ID, false)
 	}
 	require.NoError(t, service.WaitForProvisioning(ctx))
+	var grantCount int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.machine.granted'`).Scan(&grantCount))
+	require.Equal(t, branchCount, grantCount, "each successful grant has one durable receipt")
 	require.Zero(t, queue.InUse())
 	require.Len(t, queue.AdmissionSnapshot(), branchCount)
 	for _, row := range queue.AdmissionSnapshot() {
