@@ -1,5 +1,6 @@
 import { expect, test } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
+import { identityRoute } from "../identity"
 import { say } from "./j1-fixtures"
 import imported from "../../../src/mainview/state/testdata/external-journal-conversations.json"
 
@@ -11,6 +12,9 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     test.setTimeout(180_000)
     await page.setViewportSize({ width, height: 900 })
     await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
+    // An install reads the signed-in member from its own browser session; without it the app stays signed out
+    // and never asks for the conversation.
+    await page.route("**/api/auth/session", identityRoute())
     let entries: unknown[] = imported
     let available = true
     const reload = async () => {
