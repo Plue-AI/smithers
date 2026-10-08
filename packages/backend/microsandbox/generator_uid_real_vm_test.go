@@ -2,6 +2,7 @@ package microsandbox
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,13 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
+
+const generatorIdentityProbe = `import os
+print('uid=%d gid=%d groups=%s' % (os.getuid(),os.getgid(),os.getgroups()),flush=True)
+assert (os.getuid(),os.getgid(),os.getgroups()) == (19999,19999,[20000]), 'generator identity differs from C-PRC-02'
+for name in ('scripts/renumber-migration.mjs','scripts/engineering-gate-environment.mjs','packages/backend/db/product/migration_registry_test.go','packages/backend/db/product/migrations/0001_things.sql','packages/backend/db/ownership.csv','packages/backend/db/product/sqlc.yaml'):
+ with open(name,'rb') as f: assert f.read(),name
+print('repository-inputs-read-after-identity')`
 
 // generator-uid-before-repository-use qualifies only on the approved mini
 // bundle. Missing runtime/approval is a skip locally and a failure in mandatory
@@ -28,13 +36,8 @@ func TestRealMicroVMGeneratorUIDBeforeRepositoryUse(t *testing.T) {
 
 	// Observe identity in an isolated interpreter before opening any repository
 	// helper, test, SQL, CSV or generator configuration. Literal expectations are
-	// independent of the runtime's identity constants.
-	probe := `import os
-print('uid=%d gid=%d groups=%s' % (os.getuid(),os.getgid(),os.getgroups()),flush=True)
-assert (os.getuid(),os.getgid(),os.getgroups()) == (19999,19999,[]), 'generator identity differs from C-PRC-02'
-for name in ('scripts/renumber-migration.mjs','scripts/engineering-gate-environment.mjs','packages/backend/db/product/migration_registry_test.go','packages/backend/db/product/migrations/0001_things.sql','packages/backend/db/ownership.csv','packages/backend/db/product/sqlc.yaml'):
- with open(name,'rb') as f: assert f.read(),name
-print('repository-inputs-read-after-identity')`
+	// independent of the runtime's identity constants. The team group is required
+	// for shared branch access (M-17); no other supplementary group is allowed.
 
 	files := map[string]string{
 		"go.mod": "module fixture\n\ngo 1.26.8\n",
@@ -75,11 +78,11 @@ func registeredMigrations()([]fs.DirEntry,error){return migrations.ReadDir("migr
 		require.NoError(t, readErr)
 		require.Equal(t, body, string(observed), name)
 	}
-	result, err := r.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-c", probe}})
+	result, err := r.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/usr/bin/python3", "-I", "-S", "-c", generatorIdentityProbe}})
 	require.NoError(t, err)
 	t.Logf("independent identity observation: %s", result.Stdout)
 	require.Zero(t, result.ExitCode, result.Stderr)
-	require.Equal(t, "uid=19999 gid=19999 groups=[]\nrepository-inputs-read-after-identity\n", result.Stdout)
+	require.Equal(t, "uid=19999 gid=19999 groups=[20000]\nrepository-inputs-read-after-identity\n", result.Stdout)
 
 	// Production Go and pinned sqlc execute in the guest, with an isolated home
 	// and no live publication/database credentials. Only fixture origin/main is
@@ -110,4 +113,40 @@ printf 'generator-fixture-passed\n'
 	require.NoError(t, err)
 	require.Zero(t, result.ExitCode, result.Stdout+result.Stderr)
 	require.Contains(t, result.Stdout, "generator-fixture-passed\n")
+}
+
+// Supplemental probe coverage; the installed-bundle test above remains the
+// acceptance boundary. Refused identities must not open repository inputs.
+func TestGeneratorIdentityProbeBeforeRepositoryUse(t *testing.T) {
+	for _, identity := range []struct {
+		name     string
+		uid, gid int
+		groups   string
+		accepted bool
+	}{
+		{"team", 19999, 19999, "[20000]", true},
+		{"empty", 19999, 19999, "[]", false},
+		{"extra", 19999, 19999, "[20000,0]", false},
+		{"root-uid", 0, 19999, "[20000]", false},
+		{"root-gid", 19999, 0, "[20000]", false},
+	} {
+		t.Run(identity.name, func(t *testing.T) {
+			boundaryPython(t, fmt.Sprintf(`
+import builtins, io
+os.getuid=lambda: %d
+os.getgid=lambda: %d
+os.getgroups=lambda: %s
+opened=[]
+def observed_open(name,mode):
+ opened.append(name)
+ return io.BytesIO(b'fixture')
+builtins.open=observed_open
+accepted=True
+try: exec(%q)
+except AssertionError: accepted=False
+assert accepted == %s
+assert len(opened) == %d, opened
+`, identity.uid, identity.gid, identity.groups, generatorIdentityProbe, map[bool]string{true: "True", false: "False"}[identity.accepted], map[bool]int{true: 6, false: 0}[identity.accepted]))
+		})
+	}
 }

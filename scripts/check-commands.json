@@ -689,7 +689,7 @@
     },
     "C-PRC-01": {
       "status": "pending-owner",
-      "reason": "Absent: scripts/check-process-gates.test.mjs",
+      "reason": "Automation present (scripts/commit.test.mjs, scripts/ci/drift-job.test.mjs and packages/smithers/build/build-cli/test/TargetIndexExecution.test.ts); ubuntu-latest root setup, clean per-SHA drift, required-status verification and owner mapping approval remain outstanding",
       "ticket": "T-PRC-01"
     },
     "C-PRC-02": {
