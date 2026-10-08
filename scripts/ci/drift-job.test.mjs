@@ -660,7 +660,7 @@ test('trusted drift and disposable setup campaign are main-pinned before branch 
   assert.deepEqual(campaign.permissions, { contents: 'read' })
   assert.equal(campaign.jobs.setup.if, "${{ github.ref == 'refs/heads/main' }}")
   assert.equal(campaign.jobs.setup['runs-on'], 'ubuntu-latest')
-  assert.equal(campaign.jobs.setup.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup-campaign@c4ece3f812c7720ac622c11582d5ef2c085d6a2c')
+  assert.equal(campaign.jobs.setup.steps[0].uses, 'smithersai/smithers/.github/actions/trusted-ci-setup-campaign@0951e371484842b75b2fb3eaba07e314a253fa45')
   assert.equal(campaign.jobs.setup.steps.length, 2, 'campaign runs before checkout or dependency actions')
   assert.equal(campaign.jobs.setup.steps[1].uses, 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02')
   assert.equal(campaign.jobs.setup.steps[1].if, '${{ always() }}')

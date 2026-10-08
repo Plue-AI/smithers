@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Main-pinned setup campaign
-        uses: smithersai/smithers/.github/actions/trusted-ci-setup-campaign@c4ece3f812c7720ac622c11582d5ef2c085d6a2c
+        uses: smithersai/smithers/.github/actions/trusted-ci-setup-campaign@0951e371484842b75b2fb3eaba07e314a253fa45
       - name: Setup receipts
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
