@@ -566,6 +566,17 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT state,pending_op FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &pending))
 						if kind == "merge" {
 							require.Equal(t, "proposed", itemState)
+							var settlements int
+							require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.github_operation_settled' AND payload->>'n'=$1 AND payload->'operation'->>'kind'='merge'`, fmt.Sprint(number)).Scan(&settlements))
+							require.Equal(t, 0, settlements, "refused recovery must not fabricate a successful merge fact")
+							remote := filepath.Join(r.gitRoot, "rehearsal-owner/app.git")
+							main, err := exec.Command("/usr/bin/git", "--git-dir", remote, "rev-parse", "refs/heads/main").Output()
+							require.NoError(t, err)
+							require.Equal(t, r.mainCommit, strings.TrimSpace(string(main)), "refused recovery cannot move the person's main")
+							r.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) {
+								require.Equal(t, "open", p.State)
+								require.False(t, p.Merged, "a refused merge remains unmerged upstream")
+							})
 							if point == "potentially-sent" && variant != "stale-head" {
 								require.JSONEq(t, string(raw), string(pending), "unknown send remains fenced without authority or approval")
 							} else {
