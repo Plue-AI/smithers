@@ -750,11 +750,63 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	} {
 		request(t, retainedHTTPCase{Command: denied.command, Method: "GET", Path: denied.path, Body: map[string]any{}}, runCredential, "active/foreign-or-person-subject", 403, "permission")
 	}
+	// Keep asynchronous engine cursor/route progress outside the observation
+	// interval. Refused requests have no reason to acquire this TODO's write
+	// lock; all row comparisons still cover its exact committed contents.
+	observation, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer observation.Rollback(ctx)
+	_, err = observation.Exec(ctx, `SELECT id FROM mythical_items WHERE repository_id=$1 AND number=$2 FOR UPDATE`, repo.ID, approvedNumber)
+	require.NoError(t, err)
+	// A real run binding grants none of another workspace's hidden system
+	// operations. These exact subjects are independent of descriptor policy.
+	runSystemRefusalCells := 0
+	for _, c := range fixture.Commands {
+		if !c.System {
+			continue
+		}
+		c.Decision = c.Command
+		t.Run(c.Command+"/issued-run/foreign-workspace", func(t *testing.T) {
+			request(t, c, runCredential, "active/full/foreign-workspace", 403, "permission")
+		})
+		runSystemRefusalCells++
+	}
+	require.Equal(t, 7, runSystemRefusalCells)
+	// Credential death is qualified through every retained HTTP door and both
+	// dispatch doors using the engine-issued credential, independently of the
+	// hand-built system-token admission fixtures. A dead own-run token must
+	// never disclose a saved result or reach command policy, even with forged
+	// person attribution and an otherwise exact workspace/run binding.
+	runDeathCells := 0
+	for _, state := range []string{"expired", "revoked"} {
+		if state == "expired" {
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(digest[:]))
+		} else {
+			_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hex.EncodeToString(digest[:]))
+		}
+		require.NoError(t, err)
+		for _, c := range fixture.Commands {
+			if c.Method == "" || c.Command == "telemetry.report" || c.Door == "pending:T-CAT-01" {
+				continue
+			}
+			t.Run(c.Command+"/issued-run/"+state, func(t *testing.T) {
+				request(t, c, runCredential, state+"/engine-issued-run", 401, "unauthenticated")
+			})
+			runDeathCells++
+		}
+		for _, c := range dispatchCases {
+			t.Run(c.Command+"/issued-run/"+state+c.Path, func(t *testing.T) {
+				request(t, c, runCredential, state+"/engine-issued-run/body-command-mismatch", 401, "unauthenticated")
+			})
+			runDeathCells++
+		}
+	}
+	require.Equal(t, 2*(httpCommands+len(dispatchCases)), runDeathCells)
 	require.Equal(t, 137, httpCommands)
-	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases), len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts), "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))

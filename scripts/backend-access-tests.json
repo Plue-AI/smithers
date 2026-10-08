@@ -452,7 +452,9 @@
     "file": "parallel_admission_integration_test.go",
     "tests": [
       "TestParallelAdmissionInstallBoundary",
-      "TestTodoBeforeAdmittedWhenCapacityFrees"
+      "TestTodoBeforeAdmittedWhenCapacityFrees",
+      "TestTodoBeforeAdmittedWhenHolderStops",
+      "TestTenBranchTerminalAdmissionInstallBoundary"
     ]
   },
   {
@@ -529,6 +531,13 @@
     "file": "todo_admission_fault_install_integration_test.go",
     "tests": [
       "TestTodoAdmissionInstallRollbackAndRace"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "todo_admission_source_literal_integration_test.go",
+    "tests": [
+      "TestTodoAdmissionSourceTransitionLiteralCases"
     ]
   },
   {
