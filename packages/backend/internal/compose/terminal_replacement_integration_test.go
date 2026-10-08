@@ -32,7 +32,7 @@ import (
 type replacementRuntime struct {
 	workspaceapi.WorkspaceRuntime
 	mu      sync.Mutex
-	token   string
+	tokens  map[string]string
 	repoID  int64
 	asleep  bool
 	starts  int
@@ -110,25 +110,29 @@ func (r *replacementRuntime) WaitAdmission(ctx context.Context, p microsandbox.A
 func (r *replacementRuntime) PutSessionToken(_ context.Context, _, session string, token []byte, expected string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if (r.token == "" && expected != "") || (r.token != "" && workspaceapi.SessionCredentialIdentity([]byte(r.token)) != expected) {
+	current := r.tokens[session]
+	if (current == "" && expected != "") || (current != "" && workspaceapi.SessionCredentialIdentity([]byte(current)) != expected) {
 		return "", fmt.Errorf("identity mismatch")
 	}
-	r.token = string(token)
+	if r.tokens == nil {
+		r.tokens = make(map[string]string)
+	}
+	r.tokens[session] = string(token)
 	return workspaceapi.SessionTokenRoot + "/" + session + "/token", nil
 }
-func (r *replacementRuntime) DeleteSessionToken(_ context.Context, _, _ string, expected string) error {
+func (r *replacementRuntime) DeleteSessionToken(_ context.Context, _, session string, expected string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.token != "" && workspaceapi.SessionCredentialIdentity([]byte(r.token)) != expected {
+	if current := r.tokens[session]; current != "" && workspaceapi.SessionCredentialIdentity([]byte(current)) != expected {
 		return fmt.Errorf("identity mismatch")
 	}
-	r.token = ""
+	delete(r.tokens, session)
 	return nil
 }
-func (r *replacementRuntime) current() string {
+func (r *replacementRuntime) current(session string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.token
+	return r.tokens[session]
 }
 func (*replacementRuntime) OpenWorkspaceTerminal(context.Context, string, workspaceapi.Command) (workspaceapi.Terminal, error) {
 	reader, writer := io.Pipe()
@@ -188,7 +192,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		svc.EnableMachineAdmission(func(context.Context) (int64, error) { return 1 << 40, nil })
 	}
 	var origin string
-	open := func(service *services.WorkspaceService, refused bool) *websocket.Conn {
+	open := func(service *services.WorkspaceService, refused bool, session string) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
 		origin = "http://" + server.Listener.Addr().String()
 		cfg := testConfigAllFlagsOn()
@@ -211,7 +215,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		t.Cleanup(func() { _ = conn.CloseNow() })
 		return conn
 	}
-	a := open(svc, false)
+	a := open(svc, false, session)
 	if wake {
 		runtime.mu.Lock()
 		require.Equal(t, 1, runtime.starts)
@@ -236,19 +240,29 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		require.NoError(t, pool.QueryRow(ctx, effects).Scan(&after))
 		require.Equal(t, before, after, "scope refusals must create no TODO, approval or background request")
 	}
-	first := runtime.current()
+	var independentSession, independentToken string
+	var independent *websocket.Conn
+	if len(scopeChecks) > 1 && scopeChecks[1] {
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions(workspace_id,repository_id,user_id,status,kind) VALUES($1,$2,$3,'running','terminal') RETURNING id`, branch, repo.ID, owner.ID).Scan(&independentSession))
+		independent = open(svc, false, independentSession)
+		independentToken = runtime.current(independentSession)
+		require.NotEmpty(t, independentToken)
+		require.NotEqual(t, runtime.current(session), independentToken)
+		checkScope(independentToken, false)
+	}
+	first := runtime.current(session)
 	require.NotEmpty(t, first)
 	checkScope(first, false)
 	// Another host service has no ownership of this retained session file.
 	// Its create-only attempt must fail, revoke its candidate, and leave A usable.
 	replica := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
-	require.Nil(t, open(replica, true))
-	require.True(t, first == runtime.current(), "a replica must not replace a foreign lifecycle")
+	require.Nil(t, open(replica, true, session))
+	require.True(t, first == runtime.current(session), "a replica must not replace a foreign lifecycle")
 	var live int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&live))
 	require.Equal(t, 1, live, "failed replacement must revoke its candidate without revoking A")
-	b := open(svc, false)
-	second := runtime.current()
+	b := open(svc, false, session)
+	second := runtime.current(session)
 	require.NotEmpty(t, second, "replacement must survive old credential cleanup")
 	require.True(t, first != second, "replacement rotates the delegated credential")
 	firstHash := sha256.Sum256([]byte(first))
@@ -264,9 +278,9 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&count); err != nil {
 			return false
 		}
-		return count == 1 && runtime.current() == second
+		return count == 1 && runtime.current(session) == second
 	}, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool { return runtime.current() != second }, 200*time.Millisecond, 10*time.Millisecond,
+	require.Never(t, func() bool { return runtime.current(session) != second }, 200*time.Millisecond, 10*time.Millisecond,
 		"late detach must preserve the replacement file")
 	// Close is an owner control on the retained socket, rather than a browser
 	// disconnect: it ends the PTY and releases the delegated sign-in.
@@ -278,9 +292,32 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	_, _, closeErr := b.Read(ctx)
 	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(closeErr))
 	_ = b.CloseNow()
-	require.Eventually(t, func() bool { return runtime.current() == "" }, 5*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return runtime.current(session) == "" }, 5*time.Second, 10*time.Millisecond)
 	var remaining int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&remaining))
 	require.Zero(t, remaining)
 	checkScope(second, true)
+	if independent != nil {
+		require.Equal(t, independentToken, runtime.current(independentSession), "closing one session must leave the other file unchanged")
+		checkScope(independentToken, false)
+		// Rotate the surviving session through its own authenticated socket.
+		rotated := open(svc, false, independentSession)
+		newToken := runtime.current(independentSession)
+		require.NotEmpty(t, newToken)
+		require.NotEqual(t, independentToken, newToken)
+		checkScope(independentToken, true)
+		checkScope(newToken, false)
+		_ = independent.CloseNow()
+		require.Never(t, func() bool { return runtime.current(independentSession) != newToken }, 200*time.Millisecond, 10*time.Millisecond)
+		_, replay, err := rotated.Read(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"type":"replay-complete"}`, string(replay))
+		require.NoError(t, rotated.Write(ctx, websocket.MessageText, []byte(`{"type":"close","owner":0}`)))
+		_, _, err = rotated.Read(ctx)
+		require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
+		require.Eventually(t, func() bool { return runtime.current(independentSession) == "" }, 5*time.Second, 10*time.Millisecond)
+		checkScope(newToken, true)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name IN ($1,$2)`, "terminal-session-"+session, "terminal-session-"+independentSession).Scan(&remaining))
+		require.Zero(t, remaining)
+	}
 }

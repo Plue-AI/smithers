@@ -18,6 +18,12 @@ func TestTerminalTokenScopeComposedInstall(t *testing.T) {
 	terminalReplacementInstall(t, false, true)
 }
 
+// Simultaneous sessions use the same member and branch. Both credentials come
+// from authenticated terminal lifecycle routes; no direct token mint is used.
+func TestTerminalIndependentSessionsComposedInstall(t *testing.T) {
+	terminalReplacementInstall(t, false, true, true)
+}
+
 func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, token string, closed bool) {
 	t.Helper()
 	invoke := catalogCLIInvoker(t, ctx, origin, token)

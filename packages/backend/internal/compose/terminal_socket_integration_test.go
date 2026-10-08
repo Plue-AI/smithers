@@ -93,7 +93,7 @@ func (r *terminalMemberRuntime) PutSessionToken(ctx context.Context, branch, id 
 func (r *terminalMemberRuntime) StopService(context.Context, string, string) error { return nil }
 
 func (r *terminalMemberRuntime) OpenTerminal(_ context.Context, branch, id, digest string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
-	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current())) || command.Environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id) || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
+	if branch != r.branch.ID || digest != workspaceapi.SessionCredentialIdentity([]byte(r.current(id))) || command.Environment["SMITHERS_TOKEN_FILE"] != fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", r.member.UID, id) || command.Environment["SMITHERS_URL"] != "http://127.0.0.1:4000" || strings.Join(command.Args, " ") != "/bin/bash -l" {
 		return nil, fmt.Errorf("unbound session credential")
 	}
 	r.opened = true
@@ -258,7 +258,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
 			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM access_tokens`).Scan(&minted))
 			require.Zero(t, minted)
 			require.False(t, runtime.opened)
-			require.Empty(t, runtime.current())
+			require.Empty(t, runtime.tokens)
 			require.False(t, manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID))
 		})
 	}
@@ -282,7 +282,7 @@ func testOwnerTerminalComposed(t *testing.T, unavailableOnly bool) {
 	require.True(t, runtime.prepared)
 	require.True(t, runtime.opened)
 	require.Equal(t, 1, hostPreparations)
-	require.NotEmpty(t, runtime.current())
+	require.NotEmpty(t, runtime.current(opened.ID))
 	require.True(t, manager.OwnsSubject(f.user.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	require.False(t, manager.OwnsSubject(alice.ID, f.row.RepositoryID, f.row.ID, opened.ID))
 	var count int
