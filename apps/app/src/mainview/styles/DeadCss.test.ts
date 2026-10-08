@@ -20,7 +20,9 @@ const stylesDir = fileURLToPath(new URL(".", import.meta.url))
 const repoRoot = fileURLToPath(new URL("../../../../..", import.meta.url))
 
 /** xyflow renders these itself, so no source of ours names them. */
-const VENDOR_PREFIXES = ["react-flow"]
+// Classes a library renders at runtime, never named by our components: React Flow, and y-codemirror's
+// remote selections (cm-ySelection*), which cards.css keeps readable on the selection background.
+const VENDOR_PREFIXES = ["react-flow", "cm-y"]
 
 /** Every production source under `cwd` matching `glob`, concatenated. A class
  * named only by a test is still a class no user can see. */
