@@ -390,8 +390,13 @@ path = "lib.rs"
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
-		fileFixture := !realMicroVM && (enable == "SMITHERS_J3_REHEARSAL" || enable == "SMITHERS_J10_REHEARSAL" ||
-			enable == "SMITHERS_TODO_STEER_MODEL" || enable == reviewSteerEnable)
+		// Every trusted-process rehearsal uses the fixture file provider: its
+		// temporary checkout has no guest broker, so the installed entry cannot
+		// authorize an agent edit there. 9f99b7caf3 removed the previous writer
+		// and enabled this one for J3, J10 and the steer tests only; every other
+		// TODO journey then stopped at read_only_cap. Reference microVMs keep the
+		// installed entry and the authenticated provider.
+		fileFixture := !realMicroVM
 		built := buildRehearsalCodingHost(t, node, r.root, fileFixture)
 		registry = &built
 	}
