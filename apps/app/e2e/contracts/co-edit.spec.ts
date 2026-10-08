@@ -63,7 +63,10 @@ test("TS fake relay replays literal golden frames through the sole channel and m
     socket.receive(relay.next())
     expect(provider.saved).toBe("saved")
     socket.receive(relay.next())
-    expect(socket.frames.at(-1)).toEqual(Uint8Array.from([1, 0, 0, 0, 7, 0, 3, 1, 42, 1]))
+    // A gap closes this stream; restart through admission with the same author.
+    expect(socket.frames.at(-1)).toBe('{"t":"sub","id":7,"topic":"doc:code:T12:retry.ts","client_id":42}')
+    expect(provider.editable).toBe(true)
+    expect(provider.unsaved).toBeUndefined()
     const before = socket.frames.length
     // A different subscription's saved or update cannot affect this document.
     socket.receive('{"t":"saved","id":99,"sv":"ASoB","seq":1}')
@@ -176,12 +179,25 @@ test("two File cards opened through file converge on literal 1000-edit packets, 
     resumed.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00112233445566778899aabbccddeeff","client_id":42}}')
     resumed.receive(new LiveDocRelay([fixture.complete]).next())
     resumed.receive('{"t":"gap","id":1}')
+    expect(resumed.frames.at(-1)).toBe('{"t":"sub","id":1,"topic":"doc:code:T12:retry.ts","client_id":42}')
     expect(a.editor.state.doc.toString()).toBe(fixture.outsideExpected)
     expect(a.provider.saved).toBe("saving")
     // Saved metadata alone has not settled either member's pending updates.
     await new Promise(resolve => setTimeout(resolve, 1100))
     expect(a.provider.saved).toBe("saving")
     resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 1000 }))
+    // A receipt from the closed stream cannot acknowledge pending typing.
+    expect(a.provider.saved).toBe("saving")
+    expect(a.provider.editable).toBe(true)
+    resumed.receive('{"t":"snap","id":1,"cursor":1,"data":{"epoch":"00112233445566778899aabbccddeeff","client_id":42}}')
+    resumed.receive(new LiveDocRelay([fixture.complete]).next())
+    expect(a.provider.editable).toBe(true)
+    expect(a.provider.unsaved).toBeUndefined()
+    expect(a.editor.state.doc.toString()).toBe(fixture.outsideExpected)
+    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 1000 }))
+    expect(a.provider.saved).toBe("saving")
+    // This fresh stream resends Alice's 500 edits, not Bob's 500 edits.
+    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 500 }))
     expect(a.provider.saved).toBe("saved")
     expect(a.sockets.length).toBe(2)
     resumed.receive('{"t":"err","id":1,"code":"forbidden"}')
