@@ -75,6 +75,7 @@ type managedService struct {
 // Runtime owns persistent workspace directories and every child process it
 // starts. Product authorization and durable receipts stay outside this type.
 type Runtime struct {
+	workspaceapi.CleanupGate
 	root          string
 	environment   map[string]string
 	semaphore     chan struct{}
@@ -326,6 +327,11 @@ func (r *Runtime) InspectWorkspace(ctx context.Context, id string) (workspaceapi
 }
 
 func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return workspaceapi.Workspace{}, fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return workspaceapi.Workspace{}, err
 	}
@@ -339,6 +345,9 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		return workspaceapi.Workspace{}, errors.New("workspace stop is in progress")
 	}
 	if ws.State != string(workspaceapi.WorkspaceRunning) {
+		if err := ensureWorkspaceDirectories(ws.directory); err != nil {
+			return workspaceapi.Workspace{}, err
+		}
 		previous := ws.State
 		ws.State = string(workspaceapi.WorkspaceRunning)
 		if err := writeMetadata(ws); err != nil {
@@ -350,6 +359,11 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 }
 
 func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -416,6 +430,11 @@ func (r *Runtime) WorkspaceIDs() []string {
 }
 
 func (r *Runtime) DeleteWorkspace(ctx context.Context, id string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if err := r.StopWorkspace(ctx, id); err != nil && !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
 		return err
 	}

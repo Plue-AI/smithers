@@ -14,7 +14,7 @@ import (
 // Candidates are hints only. WithFinalCapture must re-read settlement, lane
 // binding, retained objects and terminal/service inventory, and fence admission
 // and all writers until remove returns. No authority means no disk deletion.
-// Acquire the supplied runtime lock after writer exclusion and hold it through
+// Acquire the supplied lifecycle lock before closing runtime writer admission; hold both through
 // archive decision and removal. Scratch and TODO settlements share this authority.
 type WorkspaceDiskReclaimAuthority interface {
 	Candidates(context.Context) ([]string, error)
@@ -95,7 +95,7 @@ func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id str
 		if err != nil {
 			return err
 		}
-		if len(current.CapturePending) != 0 || current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
+		if !cleanupCapturePendingMatches(current, capture) || current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
 			return nil
 		}
 		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID || current.TargetBookmark != row.TargetBookmark {

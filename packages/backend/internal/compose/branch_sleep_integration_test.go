@@ -124,6 +124,14 @@ func TestReclaimedBranchRestoresFinalCaptureInstallHTTP(t *testing.T) {
 	branchSleepInstall(t, "reclaimed")
 }
 
+func TestFinalCaptureCleanupServiceFinalWritesInstallHTTP(t *testing.T) {
+	branchSleepInstall(t, "cleanup_service")
+}
+
+func TestFinalCaptureCleanupComposedInstallHTTP(t *testing.T) {
+	branchSleepInstall(t, "cleanup")
+}
+
 func TestBranchSleepCapturedReadsNeverWake(t *testing.T) {
 	branchSleepInstall(t, "reads")
 }
@@ -231,6 +239,11 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	runtime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	if strings.HasPrefix(scenario, "cleanup") {
+		_, err := runtime.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: id})
+		require.NoError(t, err)
+		require.NoError(t, runtime.WriteFile(ctx, id, "retained.txt", []byte("final bytes\n"), 0600))
+	}
 	counted := &sleepCountRuntime{WorkspaceRuntime: runtime, WorkspaceManagedHosts: runtime, WorkspaceSourceRevisionResolver: runtime}
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	// Test-only runtime qualification; this is not a C-MCH-03 mini receipt.
@@ -267,7 +280,12 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	if scenario == "wire" {
 		registry = new(machined.Registry)
 	}
-	server.Config.Handler = startSplitProcess(t, Options{Machined: registry, FlowHostProductAPIURL: origin, Repository: client, Workspace: counted, BranchCapture: captureProvider, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &flowRegistry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
+	var installRuntime workspace.WorkspaceRuntime = counted
+	var cleanupInterval time.Duration
+	if strings.HasPrefix(scenario, "cleanup") {
+		installRuntime, cleanupInterval = runtime, 20*time.Millisecond
+	}
+	server.Config.Handler = startSplitProcess(t, Options{Machined: registry, FlowHostProductAPIURL: origin, Repository: client, Workspace: installRuntime, CleanupInterval: cleanupInterval, BranchCapture: captureProvider, BranchMachines: &providers, ChatHost: unusedChatHost{}, FlowHostRegistry: &flowRegistry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 
 	server.Start()
 	defer server.Close()
@@ -287,6 +305,25 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.NoError(t, err)
 		require.Equal(t, status, res.StatusCode, string(raw))
 		return raw
+	}
+	if strings.HasPrefix(scenario, "cleanup") {
+		cleanupInstallProof(t, pool, runtime, id, item, head, base, hostGit, readPath, &capture, scenario == "cleanup_service", func() {
+			req, err := http.NewRequest("POST", server.URL+"/api/branches/"+id, strings.NewReader(`{"op":"sleep"}`))
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Idempotency-Key", "cleanup-final-sleep")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "cleanup-csrf"})
+			req.Header.Set("X-CSRF-Token", "cleanup-csrf")
+			req.Header.Set("Origin", origin)
+			res, err := server.Client().Do(req)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(res.Body)
+			res.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, 202, res.StatusCode, string(raw))
+		})
+		return
 	}
 	headToken, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: machineOwner, Name: "sleep-head", TokenHash: strings.Repeat("a", 64), TokenLastEight: "aaaaaaaa", SystemIssued: true, Scopes: "write:repository"})
 	require.NoError(t, err)

@@ -19,7 +19,11 @@ type CleanupWorkspace struct {
 // head alone or retained Git objects alone do not authorize removal.
 type DiskReclaimCapture struct {
 	WorkspaceID, CandidateHead, RetainedHead, CaptureID                string
+	CapturedTree                                                       string
 	Settled, Quiet, BindingVerified, CaptureComplete, InventoryCurrent bool
+	// Revalidate runs after the authoritative workspace/item locks are held,
+	// immediately before removal. Production binds retained graph/ref checks.
+	Revalidate func(context.Context) error
 }
 
 // CleanupFence belongs to the capture lifecycle and broker. It excludes all

@@ -115,6 +115,25 @@ func (s *WorkspaceService) captureAndSleep(ctx context.Context, row db.Workspace
 }
 
 func (s *WorkspaceService) captureAndSleepLocked(ctx context.Context, row db.Workspace, sessionless bool) error {
+	if fence, ok := s.runtime.(interface {
+		WithCaptureWritersExcluded(context.Context, string, func(context.Context) error) error
+	}); ok {
+		return fence.WithCaptureWritersExcluded(ctx, row.ID, func(ctx context.Context) error {
+			return s.captureAndSleepExcluded(context.WithValue(ctx, branchWriterExclusionKey{}, true), row, sessionless)
+		})
+	}
+	return s.captureAndSleepExcluded(ctx, row, sessionless)
+}
+
+type branchWriterExclusionKey struct{}
+type branchFinalCaptureKey struct{}
+type branchFinalCapture struct {
+	Head string `json:"head"`
+	Tree string `json:"tree"`
+	VMID string `json:"vm_id"`
+}
+
+func (s *WorkspaceService) captureAndSleepExcluded(ctx context.Context, row db.Workspace, sessionless bool) error {
 	unavailable := func(err error) error {
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch sleep requires verified capture, runtime binding and state publication").WithCause(err)
 	}
@@ -218,6 +237,9 @@ func (s *WorkspaceService) captureAndSleepLocked(ctx context.Context, row db.Wor
 	if observed.ID != row.ID || observed.State != workspaceapi.WorkspaceStopped {
 		return fail(fmt.Errorf("branch stop is unconfirmed"))
 	}
+	if excluded, _ := ctx.Value(branchWriterExclusionKey{}).(bool); excluded {
+		finish = context.WithValue(finish, branchFinalCaptureKey{}, branchFinalCapture{capture.Head, capture.Tree, row.VmID})
+	}
 	if err = s.transitionBranchMachine(finish, row, "releasing", "suspended", ""); err != nil {
 		return unavailable(err)
 	}
@@ -255,6 +277,15 @@ func (s *WorkspaceService) transitionBranchMachine(ctx context.Context, row db.W
 	if failure != "" {
 		payload, _ := json.Marshal(map[string]string{"branch": row.ID, "message": failure})
 		if _, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(row.RepositoryID), PrincipalID: "branch:" + row.ID}, uuid.NewString(), "branch.sleep", "failed", payload); err != nil {
+			return err
+		}
+	}
+	if capture, ok := ctx.Value(branchFinalCaptureKey{}).(branchFinalCapture); ok && to == "suspended" {
+		payload, err := json.Marshal(capture)
+		if err != nil {
+			return err
+		}
+		if _, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(row.RepositoryID), PrincipalID: "branch:" + row.ID}, uuid.NewString(), "branch.final_capture", "completed", payload); err != nil {
 			return err
 		}
 	}

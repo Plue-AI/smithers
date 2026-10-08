@@ -31,6 +31,11 @@ func (r *Runtime) SessionCredentialsForMember(ctx context.Context, id string, me
 	return &MemberCredentials{r, member}, nil
 }
 func (c *MemberCredentials) PutSessionToken(ctx context.Context, id, session string, token []byte, expected string) (string, error) {
+	ctx, releaseFence, fenceErr := c.runtime.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return "", fenceErr
+	}
+	defer releaseFence()
 	if err := workspaceapi.ValidateSessionCredential(session, token); err != nil {
 		return "", err
 	}
@@ -53,6 +58,11 @@ func (c *MemberCredentials) PutSessionToken(ctx context.Context, id, session str
 	return fmt.Sprintf("/run/smithers/%d/token/sessions/%s/token", c.member.UID, session), nil
 }
 func (c *MemberCredentials) DeleteSessionToken(ctx context.Context, id, session, expected string) error {
+	ctx, releaseFence, fenceErr := c.runtime.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if err := workspaceapi.ValidateSessionCredential(session, nil); err != nil {
 		return err
 	}
@@ -167,6 +177,11 @@ func (c *MemberCredentials) withAdmission(ctx context.Context, id, session, dige
 		return err
 	}
 	r := c.runtime
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if !r.SecretEnvironmentAvailable() {
 		return ErrUnavailable
 	}

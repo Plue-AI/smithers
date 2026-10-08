@@ -79,6 +79,11 @@ func AllocateMemberLogin(githubLogin string, used map[string]bool) (string, erro
 // lock. Bundle provenance is checked before roster access or any guest effect;
 // session admission separately requires the authenticated machined connection.
 func (r *Runtime) EnsureMember(ctx context.Context, workspaceID string, member MemberIdentity) (SessionIdentity, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return SessionIdentity{}, fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return SessionIdentity{}, err
 	}

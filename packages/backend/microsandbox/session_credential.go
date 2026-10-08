@@ -15,6 +15,11 @@ var _ workspaceapi.SessionCredentialWriter = (*Runtime)(nil)
 // root-owned directory. The token travels on the helper's stdin, never in
 // argv or the environment.
 func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID string, token []byte, expectedIdentity string) (string, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return "", fenceErr
+	}
+	defer releaseFence()
 	if err := workspaceapi.ValidateSessionCredential(sessionID, token); err != nil {
 		return "", err
 	}
@@ -37,6 +42,11 @@ func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID st
 // DeleteSessionToken removes a terminal session's credential from the guest.
 // A stopped or deleted machine keeps none: /run is not retained.
 func (r *Runtime) DeleteSessionToken(ctx context.Context, workspaceID, sessionID, expectedIdentity string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if err := workspaceapi.ValidateSessionCredential(sessionID, nil); err != nil {
 		return err
 	}

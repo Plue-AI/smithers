@@ -979,6 +979,37 @@ def mutation_freeze(writers, frozen):
         time.sleep(0.01)
 
 
+def final_capture_fence():
+    # Root consumes only a fixed operation and one release byte. Repository
+    # work stays in the unprivileged daemon, outside this aggregate cgroup.
+    if os.geteuid() != ROOT_UID:
+        fail(125, "final capture fence requires broker")
+    with writer_coordinator(exclusive=True) as store:
+        try:
+            os.stat("pending", dir_fd=store, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            fail(125, "workspace mutation recovery required")
+        writers = safe_directory(CGROUP_ROOT, trusted=True, create=False)
+        try:
+            mutation_freeze(writers, True)
+            # Unknown live sessions are never terminated by capture. The host
+            # must stop known services and confirm them before this operation.
+            events = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=writers)
+            with os.fdopen(events, "r") as handle:
+                if "populated 0" not in handle.read(4096).splitlines():
+                    fail(125, "active writer blocks final capture")
+            os.sync()
+            sys.stdout.write("FENCED\n")
+            sys.stdout.flush()
+            if not select.select([0], [], [], 120)[0] or os.read(0, 1) != b"R":
+                fail(125, "final capture fence disconnected")
+        finally:
+            mutation_freeze(writers, False)
+            os.close(writers)
+
+
 def mutation_pending(store, entry, gid):
     """Only fixed metadata is inspected by root; journal bytes stay private."""
     try:
@@ -3068,6 +3099,9 @@ def main(args):
         # Fixed installed limit; no request operands or stdin are consumed.
         # This never admits a new mutation or opens the compare-write gate.
         sys.exit(coordinate_mutation(None, None, 64 << 20, recover_only=True))
+    if command == "final-capture-fence" and len(args) == 1:
+        final_capture_fence()
+        return
     if command == "kill-all":
         # The mutation worker intentionally lives outside the frozen writer
         # tree. Cancellation must collect it too, without thawing or clearing

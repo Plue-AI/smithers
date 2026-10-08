@@ -109,6 +109,11 @@ func (r *Runtime) acquire(ctx context.Context) error {
 }
 
 func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.CommandResult{}, fenceErr
+	}
+	defer releaseFence()
 	if err := r.acquire(ctx); err != nil {
 		return workspaceapi.CommandResult{}, errors.Join(err, workspaceapi.ErrCommandCancelled)
 	}
@@ -172,6 +177,11 @@ func serviceFingerprint(spec workspaceapi.ServiceSpec) string {
 }
 
 func (r *Runtime) StartService(ctx context.Context, workspaceID string, spec workspaceapi.ServiceSpec) (workspaceapi.Service, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.Service{}, fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return workspaceapi.Service{}, err
 	}
@@ -377,6 +387,11 @@ func (r *Runtime) StopService(ctx context.Context, workspaceID, name string) err
 }
 
 func (r *Runtime) ManageService(ctx context.Context, workspaceID, name, action string) (workspaceapi.ServiceObservation, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.ServiceObservation{}, fenceErr
+	}
+	defer releaseFence()
 	name = strings.TrimSpace(name)
 	action = strings.ToLower(strings.TrimSpace(action))
 	if action != "start" && action != "stop" && action != "restart" {
@@ -470,6 +485,11 @@ func (t *terminal) Close() error {
 }
 
 func (r *Runtime) OpenWorkspaceTerminal(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.Terminal, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return nil, fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

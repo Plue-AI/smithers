@@ -260,6 +260,11 @@ func (r *Runtime) acquire(ctx context.Context) error {
 var ErrCommandRunaway = errors.New("command exceeded the runaway time guard")
 
 func (r *Runtime) ExecuteCommand(ctx context.Context, workspaceID string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.CommandResult{}, fenceErr
+	}
+	defer releaseFence()
 	if err := r.acquire(ctx); err != nil {
 		return workspaceapi.CommandResult{}, errors.Join(err, workspaceapi.ErrCommandCancelled)
 	}
@@ -344,6 +349,11 @@ func guestReadyPort(address string) (uint16, string, error) {
 }
 
 func (r *Runtime) StartService(ctx context.Context, workspaceID string, spec workspaceapi.ServiceSpec) (workspaceapi.Service, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.Service{}, fenceErr
+	}
+	defer releaseFence()
 	ws, err := r.runningWorkspace(workspaceID)
 	if err != nil {
 		return workspaceapi.Service{}, err
@@ -543,6 +553,11 @@ func (r *Runtime) StopService(ctx context.Context, workspaceID, name string) err
 
 // ManageService preserves start/stop/restart semantics for the common service.
 func (r *Runtime) ManageService(ctx context.Context, workspaceID, name, action string) (workspaceapi.ServiceObservation, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return workspaceapi.ServiceObservation{}, fenceErr
+	}
+	defer releaseFence()
 	name = strings.TrimSpace(name)
 	action = strings.ToLower(strings.TrimSpace(action))
 	if action != "start" && action != "stop" && action != "restart" {

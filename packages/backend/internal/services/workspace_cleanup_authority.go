@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -94,9 +95,23 @@ func cleanupSettlement(item db.MythicalItem) time.Time {
 
 func cleanupCaptureMatches(row db.Workspace, capture WorkspaceDiskReclaimCapture, settled, now time.Time) bool {
 	return !settled.IsZero() && !settled.After(now) && now.Sub(settled) >= 24*time.Hour &&
-		!row.DeletedAt.Valid && !row.DiskReclaimedAt.Valid && len(row.CapturePending) == 0 && (row.Status == "suspended" || row.Status == "stopped") &&
+		!row.DeletedAt.Valid && !row.DiskReclaimedAt.Valid && cleanupCapturePendingMatches(row, capture) && (row.Status == "suspended" || row.Status == "stopped") &&
 		capture.Settled && capture.Quiet && capture.BindingVerified && capture.CaptureComplete && capture.InventoryCurrent && capture.WorkspaceID == row.ID && capture.CaptureID != "" &&
 		capture.CandidateHead != "" && capture.CandidateHead == row.HeadCommitID && capture.RetainedHead == capture.CandidateHead
+}
+
+// An applied final snapshot may withdraw candidate verification without
+// creating stale work. Its exact retained head/tree can settle that workspace
+// projection; stale bases, conflicts and outstanding waits still pin the disk.
+func cleanupCapturePendingMatches(row db.Workspace, capture WorkspaceDiskReclaimCapture) bool {
+	if len(row.CapturePending) == 0 {
+		return true
+	}
+	var pending MachineCapturePending
+	if json.Unmarshal(row.CapturePending, &pending) != nil {
+		return false
+	}
+	return capture.CaptureComplete && capture.CandidateHead != "" && capture.CapturedTree != "" && !pending.Stale && !pending.Conflict && pending.ReconcileWaitID == "" && pending.ReconciledOnto == "" && pending.Head == capture.CandidateHead && pending.Tree == capture.CapturedTree && pending.Onto == capture.RetainedHead
 }
 
 // lockFacts locks the stack item before the workspace, matching settlement and
@@ -174,9 +189,30 @@ func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, ex
 		return nil
 	}
 	binding := workspaceapi.CleanupWorkspace{ID: expected.ID, VMID: expected.VmID, Branch: expected.TargetBookmark, Head: expected.HeadCommitID, RepositoryID: expected.RepositoryID, OwnerID: expected.UserID, SettledAt: settled, Now: now, PendingHead: preliminary.CleanupPendingHead, PendingCaptureID: preliminary.CleanupPendingCaptureID}
+	// All product writer and wake doors take lifecycle before runtime admission.
+	// Keep that order while final capture publishes its stopped projection.
+	unlock := lockRuntime()
+	defer unlock()
+	// A wake or reopen may have won while lifecycle admission was waiting.
+	// Refresh settlement before asking the provider to stop any service.
+	fresh, err := a.transactions.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	current, settled, err := a.lockFacts(ctx, fresh, expected)
+	_ = fresh.Rollback(context.WithoutCancel(ctx))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	now = a.now()
+	if settled.IsZero() || settled.After(now) || now.Sub(settled) < 24*time.Hour || current.DiskReclaimedAt.Valid {
+		return nil
+	}
+	binding.Head, binding.SettledAt, binding.Now, binding.PendingHead, binding.PendingCaptureID = current.HeadCommitID, settled, now, current.CleanupPendingHead, current.CleanupPendingCaptureID
 	return a.fence.WithFinalCapture(ctx, binding, func(capture WorkspaceDiskReclaimCapture) error {
-		unlock := lockRuntime()
-		defer unlock()
 		tx, err := a.transactions.Begin(ctx)
 		if err != nil {
 			return err
@@ -194,7 +230,7 @@ func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, ex
 		}
 		// Commit the archive decision BEFORE removal. A crash leaves a durable
 		// pending head; the next normal cleaner tick revalidates all four facts.
-		_, err = tx.Exec(ctx, `UPDATE workspaces SET branch_archived_at=COALESCE(branch_archived_at,$2),cleanup_pending_head=$3,updated_at=$4,cleanup_pending_capture_id=$5 WHERE id=$1`, row.ID, settled, capture.CandidateHead, a.now(), capture.CaptureID)
+		_, err = tx.Exec(ctx, `UPDATE workspaces SET branch_archived_at=COALESCE(branch_archived_at,$2),cleanup_pending_head=$3,updated_at=$4,cleanup_pending_capture_id=$5,capture_pending=NULL WHERE id=$1`, row.ID, settled, capture.CandidateHead, a.now(), capture.CaptureID)
 		if err != nil {
 			return err
 		}
@@ -217,6 +253,11 @@ func (a *transactionalWorkspaceCleanup) WithFinalCapture(ctx context.Context, ex
 		// only during actual removal; no committed decision overrides new facts.
 		if !cleanupCaptureMatches(current, capture, settled, a.now()) || current.CleanupPendingHead != capture.CandidateHead || current.CleanupPendingCaptureID != capture.CaptureID {
 			return nil
+		}
+		if capture.Revalidate != nil {
+			if err := capture.Revalidate(ctx); err != nil {
+				return err
+			}
 		}
 		if err := remove(capture); err != nil {
 			return err

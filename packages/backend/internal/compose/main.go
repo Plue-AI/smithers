@@ -186,6 +186,10 @@ type Options struct {
 	// Machined is the shared host link registry, owned by the install runtime.
 	Machined      *machined.Registry
 	BranchCapture services.BranchCapture
+	// CleanupClock and CleanupInterval qualify retention through the composed
+	// install's existing cleaner. Zero values use wall time and five minutes.
+	CleanupClock    func() time.Time
+	CleanupInterval time.Duration
 	// LiveCodeDocuments admits two people typing in one code file (T-COL-08).
 	// Composition relays each subscription to the branch daemon, which holds
 	// the document (ADR 0003), and owns member admission and the authenticated
@@ -1070,7 +1074,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceCommandJobs(commandJobs, webhookSecretCodec),
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
-		services.WithTransactionalWorkspaceCleanup(nil),
+		services.WithTransactionalWorkspaceCleanup(options.CleanupClock),
 		services.WithWorkspaceBillingPolicy(billingPolicy),
 		services.WithWorkspaceAuditService(auditService),
 		services.WithWorkspaceSandboxClient(sandboxClient),
@@ -1112,6 +1116,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	} else if options.Machined != nil {
 		services.WithBranchCapture(options.Machined)(workspaceService)
 	}
+	defer workspaceService.BindWorkspaceCleanupCapture(machineCleanupCapture(pool, repoHostClient))()
 	if options.LiveCodeDocuments && (!config.IsSingleOwner(cfg.Auth) || branchMachines == nil || options.Machined == nil) {
 		return errors.New("live code documents require a single-owner install with branch machines")
 	}
@@ -1254,7 +1259,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	webhookDeliveryCleaner := cleanup.NewWebhookDeliveryCleaner(queries, time.Hour, 30, 1000)
 	workflowLogCleaner := cleanup.NewWorkflowLogCleaner(queries)
 
-	workspaceCleaner := cleanup.NewWorkspaceCleaner(workspaceService, 5*time.Minute)
+	workspaceCleaner := cleanup.NewWorkspaceCleaner(workspaceService, options.CleanupInterval)
 	repoSyncService := services.NewRepoSyncService("", repoConnectionService)
 	// Smithers main follows GitHub main for `mirror: "pull"` repositories.
 	gitHubMainPullService := services.NewGitHubMainPullService(queries, repoHostClient, repoConnectionService, repoConnectionService)

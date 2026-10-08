@@ -13,6 +13,11 @@ import (
 // CompareWriteFiles uses only the admitted daemon. The unqualified S1 guest
 // candidate remains inaccessible; absence of a daemon never selects it.
 func (r *Runtime) CompareWriteFiles(ctx context.Context, id string, changes []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return nil, fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

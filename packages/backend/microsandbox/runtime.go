@@ -166,6 +166,7 @@ type workspace struct {
 
 // Runtime owns every microVM it creates and the metadata that names them.
 type Runtime struct {
+	workspaceapi.CleanupGate
 	machinedItem           func(context.Context, string) (machined.ItemBinding, error)
 	machinedAgentAdmission func(context.Context, string, string, func(context.Context) error) error
 	machinedHead           func(context.Context, string) (string, error)
@@ -901,6 +902,11 @@ func (r *Runtime) runningWorkspace(id string) (*workspace, error) {
 
 // StartWorkspace boots a stopped workspace VM on its own disk.
 func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspaceapi.Workspace, resultErr error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return workspaceapi.Workspace{}, fenceErr
+	}
+	defer releaseFence()
 	started := time.Now()
 	attempted := false
 	kind := "warm"
@@ -1109,6 +1115,11 @@ func (r *Runtime) ReclaimWorkspaceDisk(ctx context.Context, id string) error {
 // StopWorkspace ends every command and service, then stops the VM. Its disk,
 // and so the workspace's files, are kept.
 func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	r.mu.Lock()
 	ws, err := r.workspaceLocked(id)
 	if err != nil {
@@ -1180,6 +1191,11 @@ func (r *Runtime) detachProcessesLocked(ws *workspace) []*guestCommand {
 
 // DeleteWorkspace removes the VM and its disk. It is idempotent.
 func (r *Runtime) DeleteWorkspace(ctx context.Context, id string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, id)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	r.mu.Lock()
 	ws, err := r.workspaceLocked(id)
 	if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {

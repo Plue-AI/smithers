@@ -344,9 +344,36 @@ type cleanupInterleavingTransactions struct {
 	beforeRemoval func()
 }
 
+func TestCleanupPendingSnapshotRequiresVerifiedExactGraph(t *testing.T) {
+	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, pending, tree string
+		complete, want      bool
+	}{
+		{"applied final writes", `{"head":"head","tree":"tree","base":"previous","onto":"head","stale":false}`, "tree", true, true},
+		{"stale base", `{"head":"head","tree":"tree","onto":"head","stale":true}`, "tree", true, false},
+		{"conflict", `{"head":"head","tree":"tree","onto":"head","conflict":true}`, "tree", true, false},
+		{"wait", `{"head":"head","tree":"tree","onto":"head","reconcile_wait_id":"wait"}`, "tree", true, false},
+		{"different head", `{"head":"other","tree":"tree","onto":"head"}`, "tree", true, false},
+		{"different tree", `{"head":"head","tree":"other","onto":"head"}`, "tree", true, false},
+		{"different onto", `{"head":"head","tree":"tree","onto":"other"}`, "tree", true, false},
+		{"unverified tree", `{"head":"head","tree":"tree","onto":"head"}`, "", true, false},
+		{"incomplete", `{"head":"head","tree":"tree","onto":"head"}`, "tree", false, false},
+		{"malformed", `{`, "tree", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := db.Workspace{ID: "machine", Status: "stopped", HeadCommitID: "head", CapturePending: []byte(tc.pending)}
+			capture := WorkspaceDiskReclaimCapture{WorkspaceID: "machine", CandidateHead: "head", RetainedHead: "head", CapturedTree: tc.tree, CaptureID: "receipt", Settled: true, Quiet: true, BindingVerified: true, CaptureComplete: tc.complete, InventoryCurrent: true}
+			require.Equal(t, tc.want, cleanupCaptureMatches(row, capture, now.Add(-24*time.Hour), now))
+		})
+	}
+}
+
 func (p *cleanupInterleavingTransactions) Begin(ctx context.Context) (pgx.Tx, error) {
 	p.begins++
-	if p.begins == 3 {
+	// Initial retention read, refreshed read under lifecycle admission, archive
+	// decision, then removal. Interleave only after the archive commit.
+	if p.begins == 4 {
 		p.beforeRemoval()
 	}
 	return p.RepositoryJobTransactions.Begin(ctx)

@@ -107,6 +107,11 @@ func (r *Runtime) ReadFile(ctx context.Context, workspaceID, path string) ([]byt
 }
 
 func (r *Runtime) WriteFile(ctx context.Context, workspaceID, path string, content []byte, mode fs.FileMode) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if mode == 0 {
 		mode = 0o600
 	}
@@ -154,6 +159,11 @@ func (r *Runtime) ListFiles(ctx context.Context, workspaceID, path string) ([]wo
 }
 
 func (r *Runtime) RemoveFile(ctx context.Context, workspaceID, path string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	_, err := r.fileOperation(ctx, workspaceID, guestRoot, nil, "remove", path)
 	return err
 }

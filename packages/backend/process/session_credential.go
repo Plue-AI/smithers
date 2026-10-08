@@ -25,6 +25,11 @@ func sessionTokenDirectory(ws *workspace, sessionID string) string {
 // PutSessionToken writes the session's credential file, mode 0600 in a 0700
 // directory, replacing an earlier one atomically, and answers its path.
 func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID string, token []byte, expectedIdentity string) (string, error) {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return "", fenceErr
+	}
+	defer releaseFence()
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -83,6 +88,11 @@ func (r *Runtime) PutSessionToken(ctx context.Context, workspaceID, sessionID st
 // DeleteSessionToken removes the session's credential directory. A
 // workspace that is gone has no credential left to remove.
 func (r *Runtime) DeleteSessionToken(ctx context.Context, workspaceID, sessionID, expectedIdentity string) error {
+	ctx, releaseFence, fenceErr := r.CleanupGate.Enter(ctx, workspaceID)
+	if fenceErr != nil {
+		return fenceErr
+	}
+	defer releaseFence()
 	if err := workspaceapi.ValidateSessionCredential(sessionID, nil); err != nil {
 		return err
 	}
