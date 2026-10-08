@@ -2046,6 +2046,11 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 // advance decides one item's next step, or nil when it waits. saved reports
 // that the step already saved the item (with a launch, in one transaction).
 func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	if todoRetryPending(item) {
+		// Retry admits a successor before the ended attempt's native/capture
+		// continuation can spend the newly reset allowance on old work.
+		return st.start(ctx, item)
+	}
 	if next, saved, err := st.enforceTodoWatchdog(ctx, item); next != nil || err != nil {
 		return next, saved, err
 	}
@@ -2568,18 +2573,37 @@ var errMythicalLaneTaken = errors.New("another claimant bound this lane first")
 // retireLane deletes a workspace the stack bound as a lane and records it;
 // a workspace the stack never bound is never deleted.
 func (s *MythicalService) retireLane(ctx context.Context, r *mythicalRun, workspaceID string) error {
+	stopped, err := s.stopLane(ctx, r, workspaceID, nil)
+	if err != nil || !stopped {
+		return err
+	}
+	return s.queries().RetireMythicalLane(ctx, workspaceID)
+}
+
+// A successor may read the confirmed final snapshot while the retained lane
+// binding still authorizes that data read. Its caller records retirement only
+// after admitting the successor, so a failed launch can recover the same data.
+func (s *MythicalService) stopLane(ctx context.Context, r *mythicalRun, workspaceID string, snapshot func() error) (bool, error) {
 	q := s.queries()
 	bound, err := q.GetMythicalLane(ctx, workspaceID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (bound.RetiredAt.Valid || bound.RepositoryID != r.row.RepositoryID)) {
-		return nil
+		if snapshot != nil {
+			return false, errors.New("the stopped TODO capture has no live execution binding")
+		}
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := s.lanes.Delete(ctx, r.row.RepositoryID, r.row.ActorUserID.Int64, workspaceID); err != nil {
-		return err
+		return false, err
 	}
-	return q.RetireMythicalLane(ctx, workspaceID)
+	if snapshot != nil {
+		if err := snapshot(); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // mythicalLaneGrace keeps a just-provisioned lane out of the sweep while the
@@ -3028,15 +3052,66 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 		return refused, false, nil
 	}
 	adopted := mythicalChecksOf(item).Seed != nil && item.WorkspaceID != ""
+	retryHead := ""
+	var snapshot func() error
+	if todoRetryPending(item) && item.WorkspaceID != "" && !adopted {
+		if reader, ok := s.lanes.(interface {
+			CapturedHead(context.Context, string, int64, int64) (string, error)
+		}); ok {
+			snapshot = func() error {
+				var err error
+				retryHead, err = reader.CapturedHead(ctx, item.WorkspaceID, item.RepositoryID, r.row.ActorUserID.Int64)
+				if err != nil {
+					return err
+				}
+				if !codingCommitID.MatchString(retryHead) {
+					return errors.New("the stopped TODO capture is invalid")
+				}
+				return nil
+			}
+		}
+	}
 	if item.WorkspaceID != "" && !adopted {
-		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+		if _, err := s.stopLane(ctx, r, item.WorkspaceID, snapshot); err != nil {
 			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
 		}
 	}
 	base := st.prefix(item)
+	retryPrefix := ""
+	if retryHead != "" {
+		// Retirement above confirmed stop and final capture. Carry those
+		// immutable bytes into the new attempt, rather than an older Bring-in
+		// revision or an empty checkout of main.
+		head := retryHead
+		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, "refs/smithers/branches/"+item.WorkspaceID+"/head"); err != nil {
+			return mythicalInfraOutage(item, "launch", "the stopped TODO capture could not reach the lane", st.now), false, nil
+		}
+		retryPrefix = item.CandidateBase
+		if pending := mythicalChecksOf(item).Rebase; pending != nil && pending.Native != nil && pending.Native.Inspected && len(pending.Native.Paths) == 0 {
+			commit, err := r.g.readCommit(ctx, pending.Native.Head)
+			if err != nil || len(commit.Parents) != 1 || commit.Parents[0] != pending.Onto {
+				return todoAdmissionUnavailable(item, "the stopped native rebase binding changed", st.now), false, nil
+			}
+			contains, err := r.g.isAncestor(ctx, pending.Native.Head, head)
+			if err != nil {
+				return nil, false, err
+			}
+			if !contains {
+				return todoAdmissionUnavailable(item, "the stopped capture lost its native rebase", st.now), false, nil
+			}
+			retryPrefix = pending.Onto
+		}
+		if !codingCommitID.MatchString(retryPrefix) {
+			retryPrefix = mythicalAttemptPrefix(item)
+		}
+		if !codingCommitID.MatchString(retryPrefix) {
+			return todoAdmissionUnavailable(item, "the stopped capture has no bound delta base", st.now), false, nil
+		}
+		base = head
+	}
 	if seed := mythicalChecksOf(item).Seed; seed != nil {
 		base = seed.Head
-	} else {
+	} else if retryPrefix == "" {
 		// Accepted laptop bytes remain source for later pinned attempts.
 		for _, wait := range mythicalChecksOf(item).Waits {
 			if wait.Kind == "foreign_push" && wait.Answer == "bring-in" && wait.SettledAt != nil && codingCommitID.MatchString(wait.SHA) {
@@ -3074,6 +3149,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	checks.InitialPrefix = ""
 	if checks.Seed == nil {
 		checks.InitialPrefix = st.prefix(item)
+		if retryPrefix != "" {
+			checks.InitialPrefix = retryPrefix
+		}
 	}
 	checks.Placement = &placement
 	if !recovering {
@@ -3115,6 +3193,13 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 		return mythicalInfraOutage(item, "launch", "the TODO could not be launched: "+err.Error(), st.now), false, nil
 	}
 	st.held[saved.Lane.Int32] = saved.ID
+	if item.WorkspaceID != "" && !adopted {
+		if err := s.queries().RetireMythicalLane(ctx, item.WorkspaceID); err != nil {
+			// The admitted item references its new lane; the normal sweep can
+			// finish retiring this stopped predecessor after a database outage.
+			s.logger.Warn("mythical.lane_retirement_failed", "workspace_id", item.WorkspaceID, "error", err)
+		}
+	}
 	return &saved, true, nil
 }
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,8 +12,128 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
+
+type retryCapturedLanes struct {
+	*fakeMythicalLanes
+	head    string
+	err     error
+	queries *db.Queries
+}
+
+func (l retryCapturedLanes) CapturedHead(ctx context.Context, id string, _, _ int64) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.deleted) == 0 || l.deleted[len(l.deleted)-1] != id {
+		return "", errors.New("capture read before confirmed retirement")
+	}
+	if l.queries != nil {
+		lane, err := l.queries.GetMythicalLane(ctx, id)
+		if err != nil || lane.RetiredAt.Valid {
+			return "", errors.New("capture read after its binding retired")
+		}
+	}
+	return l.head, l.err
+}
+
+func TestTodoRetryCarriesTheStoppedCapture(t *testing.T) {
+	for _, scenario := range []string{"clean", "native", "native wrong parent", "unavailable", "invalid", "missing ref", "missing base"} {
+		t.Run(scenario, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			item := o.fileTodo(session, "Retry captured work")
+			o.wake()
+			o.projectTodo(o.launcher.byFlow("todo")[0], jobs.StateWaiting, "old-root", todoPinOne, "")
+			item = o.byID(uuidString(item.ID))
+			prefix := o.landedMain()
+			head := o.commit("Captured member work", "MEMBER.md", "Keep these captured bytes\n")
+			if scenario != "missing ref" {
+				o.git(o.work, "push", "-q", o.hostDir, "HEAD:refs/smithers/branches/"+item.WorkspaceID+"/head")
+			}
+			reader := retryCapturedLanes{fakeMythicalLanes: o.lanes, head: head, queries: o.service.queries()}
+			if scenario == "unavailable" {
+				reader.err = errors.New("capture unavailable")
+			}
+			if scenario == "invalid" {
+				reader.head = "not-a-commit"
+			}
+			o.service.lanes = reader
+			checks := mythicalChecksOf(item)
+			checks.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound", Kind: mythicalFailStopped}
+			if scenario == "native" || scenario == "native wrong parent" {
+				checks.Rebase = &mythicalRebase{Onto: prefix, Native: &machined.RewriteResult{Head: head, Inspected: true}}
+				item.CandidateBase = strings.Repeat("a", 40)
+				if scenario == "native wrong parent" {
+					checks.Rebase.Onto = strings.Repeat("f", 40)
+				}
+			} else {
+				item.CandidateBase = prefix
+			}
+			if scenario == "missing base" {
+				item.CandidateBase, item.BaseCommit, checks.InitialPrefix = "", "invalid", ""
+			}
+			item.State, item.Checks = "blocked", checks.encode()
+			_, err := o.service.queries().SaveMythicalItem(context.Background(), item)
+			require.NoError(t, err)
+			_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "retry-capture"})
+			require.NoError(t, err)
+			o.wake()
+			o.wake()
+			next := o.byID(uuidString(item.ID))
+			if scenario != "clean" && scenario != "native" {
+				require.EqualValues(t, 1, next.Attempt, "unknown source never admits a successor")
+				require.Len(t, o.launcher.byFlow("todo"), 1)
+				if scenario != "missing ref" {
+					return
+				}
+				bound, err := o.service.queries().GetMythicalLane(context.Background(), item.WorkspaceID)
+				require.NoError(t, err)
+				require.False(t, bound.RetiredAt.Valid, "retain source authority until successor admission")
+				o.git(o.work, "push", "-q", o.hostDir, "HEAD:refs/smithers/branches/"+item.WorkspaceID+"/head")
+				o.wake()
+				o.wake()
+				next = o.byID(uuidString(item.ID))
+			}
+			require.EqualValues(t, 2, next.Attempt)
+			require.Equal(t, head, next.BaseCommit, "Retry uses the final captured bytes")
+			require.Equal(t, prefix, mythicalChecksOf(next).InitialPrefix, "retain the captured delta's actual base")
+			require.Equal(t, todoPinOne, next.FlowDigest.String)
+			bound, err := o.service.queries().GetMythicalLane(context.Background(), item.WorkspaceID)
+			require.NoError(t, err)
+			require.True(t, bound.RetiredAt.Valid, "retire only after successor admission")
+		})
+	}
+}
+
+func TestTodoRetryAdmitsBeforeOldNativeContinuation(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "Retry the stopped native continuation")
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	o.projectTodo(launches[0], jobs.StateWaiting, "stopped-root", todoPinOne, "")
+	item = o.byID(uuidString(item.ID))
+	checks := mythicalChecksOf(item)
+	checks.Launches = 12
+	checks.Fault = &mythicalFault{Class: "policy", Tag: "launch_bound", Kind: mythicalFailStopped}
+	checks.Rebase = &mythicalRebase{Onto: strings.Repeat("a", 40), Native: &machined.RewriteResult{Head: strings.Repeat("c", 40), Inspected: true}}
+	item.State, item.Checks = "blocked", checks.encode()
+	_, err := o.service.queries().SaveMythicalItem(context.Background(), item)
+	require.NoError(t, err)
+	receipt, err := o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "retry-native-stop"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.Attempt)
+	o.wake()
+	o.wake()
+	next := o.byID(uuidString(item.ID))
+	require.EqualValues(t, 2, next.Attempt, "Retry starts a successor, not old native verification")
+	require.Len(t, o.launcher.byFlow("todo"), 2)
+	require.Nil(t, mythicalChecksOf(next).Rebase, "old native continuation is not revived")
+	require.Equal(t, todoPinOne, next.FlowDigest.String)
+}
 
 // J4.2d, C-J4-02: Retry on a failed TODO starts the next attempt of the same
 // pin with the steer as its first input. The attempt number keeps counting,

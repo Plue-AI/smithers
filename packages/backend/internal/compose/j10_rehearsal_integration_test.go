@@ -1130,6 +1130,59 @@ func TestJ10Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
+	// This long journey can exhaust the attempt's retained launch allowance.
+	// Only a person may reset it (§10.7.1); following main must not silently
+	// reset counters or turn the policy stop into an automatic retry.
+	var personRetryAttempt int32
+	r.step("5 Retry T2 if its run limit stopped it", "GET /api/todos/{T2}; POST /api/todos/{T2} {op: retry} as owner when stopped", "only launch_bound permits one person Retry; same PR and pinned flow; otherwise no Retry", "T-STK-03, T-STK-08", func() error {
+		for deadline := time.Now().Add(8 * time.Minute); ; time.Sleep(time.Second) {
+			card, err := r.j10Card(t2)
+			if err != nil {
+				return err
+			}
+			if card.State == "failed" {
+				var before struct {
+					Attempt    int32
+					FlowDigest string
+					Tag        string
+				}
+				if err := r.pool.QueryRow(r.ctx, `SELECT attempt, flow_digest, checks->'fault'->>'tag' FROM mythical_items WHERE number=$1`, t2).Scan(&before.Attempt, &before.FlowDigest, &before.Tag); err != nil {
+					return err
+				}
+				if before.Tag != "launch_bound" {
+					return fmt.Errorf("T%d failed with %q, not the retained run limit", t2, before.Tag)
+				}
+				code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", t2), `{"op":"retry"}`, r.keyPrefix+"follow-main-person-retry")
+				if err != nil || code != 202 {
+					return fmt.Errorf("person Retry HTTP %d %s: %v", code, data, err)
+				}
+				var receipt struct {
+					Attempt int32 `json:"attempt"`
+				}
+				if err := json.Unmarshal(data, &receipt); err != nil {
+					return err
+				}
+				var afterAttempt int32
+				var afterPin string
+				if err := r.pool.QueryRow(r.ctx, `SELECT attempt, flow_digest FROM mythical_items WHERE number=$1`, t2).Scan(&afterAttempt, &afterPin); err != nil {
+					return err
+				}
+				if receipt.Attempt != before.Attempt+1 || (afterAttempt != before.Attempt && afterAttempt != receipt.Attempt) || afterPin != before.FlowDigest || card.PR.Number != pr2 {
+					return fmt.Errorf("Retry changed identity/pin: attempt %d → %d, pin %q → %q, PR %d", before.Attempt, afterAttempt, before.FlowDigest, afterPin, card.PR.Number)
+				}
+				r.actual = fmt.Sprintf("owner retried launch_bound: upcoming attempt %d, same pinned flow and PR #%d", receipt.Attempt, pr2)
+				personRetryAttempt = receipt.Attempt
+				return nil
+			}
+			if card.State == "in_review" && card.Merge.State == "ready" {
+				r.actual = "T2 ready without Retry"
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T%d neither ready nor stopped at its run limit: %s", t2, card.State)
+			}
+		}
+	})
 	r.step("5 T2 follows T1's merge", "GitHub fake T2 PR; GET /api/todos/{T2}", "the same PR rebases onto the new main, is ready, no longer names T1; merge ready", "T-GH-03, T-STK-08", func() error {
 		for deadline := time.Now().Add(8 * time.Minute); ; time.Sleep(time.Second) {
 			card, err := r.j10Card(t2)
@@ -1147,6 +1200,22 @@ func TestJ10Rehearsal(t *testing.T) {
 			parent, _ := r.githubGit("rev-parse", pull.Head.SHA+"^")
 			r.actual = fmt.Sprintf("T%d %s merge=%s; PR #%d draft=%t head %s parent %s main %s", t2, card.State, card.Merge.State, pr2, pull.Draft, short7(pull.Head.SHA), short7(parent), short7(main))
 			if card.State == "in_review" && card.Merge.State == "ready" && !pull.Draft && parent == main && card.PR.Head == pull.Head.SHA {
+				if card.PR.Number != pr2 {
+					return fmt.Errorf("T2 changed PR: %d → %d", pr2, card.PR.Number)
+				}
+				if personRetryAttempt > 0 {
+					var attempt int32
+					if err := r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, t2).Scan(&attempt); err != nil {
+						return err
+					}
+					if attempt != personRetryAttempt {
+						return fmt.Errorf("Retry promised attempt %d but proposal belongs to attempt %d", personRetryAttempt, attempt)
+					}
+					alice, err := r.githubGit("show", pull.Head.SHA+":alice.md")
+					if err != nil || strings.TrimSpace(alice) != "log each retry" {
+						return fmt.Errorf("Retry lost brought-in Alice bytes: %q: %v", alice, err)
+					}
+				}
 				if strings.Contains(pull.Body, fmt.Sprintf("[T%d]", t1)) {
 					return fmt.Errorf("T2's body still names the merged T%d: %q", t1, pull.Body)
 				}
