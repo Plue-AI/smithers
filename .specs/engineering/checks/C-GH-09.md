@@ -1,10 +1,10 @@
 # C-GH-09 One pending GitHub operation per item survives restart
 
 Proves: mvp.md §6.1 "Restart", §9 "Durability" · spec.md §3 (`pending_op`), §12.4.1, §12.4.1b, §12.5.2, §19.2 · Layer: fault · Stage: S1 · Tickets: T-GH-09, T-GH-01
-Automation: `packages/backend/internal/services/github_outbound_fault_test.go` · Runs in: CI with real PostgreSQL and githubfake
+Automation: `packages/backend/internal/compose/github_outbound_kill_test.go` · Runs in: reference host with the packaged native writer, real PostgreSQL and githubfake
 
 ## Setup
-Use production install composition, literal expected item rows, a canonical App identity and a bare remote. Prepare one item for each kind: push, open PR, body, merge, close PR.
+Use production install composition, literal expected item rows, a canonical App identity and a bare remote. Prepare one item for each kind: push, open PR, body, merge, close PR. Enter proposal through the composed `stack.propose` dispatcher and Drop through `todo.drop`; merge uses the composed merge route. Historical Linux receipts created/checked real candidate bytes and adapted guest observations, qualifying HTTP dispatch plus worker recovery only. The current packaged writer requires the reference machine; those older receipts do not qualify the reference port. `internal/services/github_outbound_fault_test.go` retains lower-layer controls only.
 
 ## Steps
 1. For every kind, stop the production service and database pool before send, after potentially-sent commit, after remote success and before local settlement.

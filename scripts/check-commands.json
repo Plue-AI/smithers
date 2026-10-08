@@ -252,7 +252,7 @@
     },
     "C-GH-09": {
       "status": "pending-owner",
-      "reason": "Automation present: packages/backend/internal/services/github_outbound_fault_test.go; authenticated executable mapping and owner approval pending",
+      "reason": "Automation present: packages/backend/internal/compose/github_outbound_kill_test.go (reference production dispatcher/worker; historical Linux controls supplemental); reference-host/native-dispatch evidence, authenticated executable mapping and owner approval pending",
       "ticket": "T-GH-09"
     },
     "C-GH-13": {
