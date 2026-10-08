@@ -11,8 +11,10 @@ import (
 
 // These host receipts enter the production admitted RPC adapter and observe
 // the guest transport directly. Broker/kernel checks are in session_dispatch.rs;
-// actual uid/groups, rc canaries and cgroup cleanup wait for the reference VM.
+// real users/cgroups use the installed production harness below; no authority
+// configuration means that subtest skips rather than claiming native evidence.
 func TestSessionRootInputsValidated(t *testing.T) {
+	t.Run("installed production broker", TestSessionRootInputsValidatedNative)
 	for _, user := range []SessionUser{{"root", 0}, {"ben", 0}, {"machined", 20001}, {"ben", 19999}, {"agent", 20001}, {"../ben", 20001}, {"ben/../../s1", 20001}, {"BEN", 20001}, {strings.Repeat("b", 33), 20001}, {"ben", 0x80000000}} {
 		t.Run(fmt.Sprintf("%s/%d", user.Login, user.UID), func(t *testing.T) {
 			sessions, guest := lspConfinementLink(t)
@@ -81,6 +83,7 @@ func TestSessionRootInputsValidated(t *testing.T) {
 }
 
 func TestSessionAdmissionFailsClosed(t *testing.T) {
+	t.Run("installed production broker", TestSessionAdmissionFailsClosedNative)
 	for _, mode := range []string{"nil sessions", "no provider", "no authenticated connection", "no registry", "no boot", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "short actor", "long actor", "member with run", "invalid via", "cancelled", "unregistered agent"} {
 		t.Run(mode, func(t *testing.T) {
 			sessions, guest := lspConfinementLink(t)

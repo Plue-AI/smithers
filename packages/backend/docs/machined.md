@@ -262,3 +262,48 @@ environment on authenticated ready links. New processes consume the latest
 literal projection after dropping identity. Existing process environments are
 unchanged. Link replacement, source refusal or membership revocation prevents
 new admission; credential cleanup remains bound to its exact bearer digest.
+
+### Installed session acceptance (T-TRM-07)
+
+`internal/machined/session_native_integration_test.go` connects the production
+Go client to the authenticated installed daemon and root broker. It does not
+launch a branch-built binary as root. Reserve a disposable, exclusively owned
+Linux guest with the shipped broker, real `ben` (20001), `alice` (20002),
+`agent` (19999), team group 20000, cgroup v2, session admission/environment and
+credentials installed. Complete the install's real wake reconciliation and
+roster installation first. Python 3, procps and coreutils must be in its image.
+The guest must have no other Ben sessions: the drainage case kills that user's
+sessions. This is a guest broker harness, not a composed-router or SSH-gateway
+acceptance receipt.
+
+On the host, create a private (0600) JSON authority file with `Endpoint`
+(the forwarded production relay TCP address), `Branch`, `Machine`, `BootID`
+(32 hex characters), `Secret` (64 hex characters), `Credential` and `Principal`
+(a host-committed actor reference, 32 hex characters). Copy boot authority from
+the install's host runtime, never from the branch. Do not record these secrets
+in acceptance artifacts. The harness refuses unknown configuration fields and
+requires the daemon's actual ready Status before admitting sessions.
+
+```sh
+export LANE=fr14-trm07
+source ~/lanes/env.sh
+export SMITHERS_SESSION_ACCEPTANCE_CONFIG=/private/session-acceptance.json
+GOMAXPROCS=8 go test -p 4 ./packages/backend/internal/machined \
+  -run 'TestSession(Production|RootInputsValidatedNative|AdmissionFailsClosedNative)' -count=1 -v -timeout 15m
+```
+
+Cases observe literal uid, supplementary groups, umask, cwd and kernel cgroup;
+exit 7 and TERM; 1 MiB half-close; a lingering child surviving close and user
+kill completing within five seconds; independent empty-cgroup/process checks;
+ten-second disconnect and byte-equal bidirectional replay; stalled 1 GiB
+output with a 32 MiB broker RSS growth bound and every output byte checked;
+hostile branch executable/import/environment payloads; mismatched identity RPCs;
+PTY resize and INT delivery; and real member/registered-agent local socket admission. The RSS bound is a
+harness acceptance ceiling, not a published benchmark claim.
+
+Without authority configuration the native tests explicitly skip. Skips are
+not C-COL-04 or C-J3-06 receipts. Retained/restart provenance, missing installed
+provider matrices, unregistered-agent socket admission, full malformed broker
+envelopes, full signal/resize refusal matrices and reference-host revocation through the
+composed gateway remain required. C-J3-06 additionally needs the second Mac,
+GitHub key/account exercise and owner-recorded VS Code session.
