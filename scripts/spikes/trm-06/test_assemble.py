@@ -158,6 +158,58 @@ class BundleAssembly(unittest.TestCase):
             self.assertEqual((outside.stat().st_ino, outside.stat().st_mode, outside.stat().st_uid), (original.st_ino, original.st_mode, original.st_uid))
             self.assertFalse(list(Path(temporary).glob("trm06-archive-*")))
 
+    def test_archive_publication_holds_complete_destination_ancestry(self):
+        repo = Path(__file__).resolve().parents[3]
+        for timing in ("before-link", "during-link"):
+            for target in ("parent", "ancestor", "staging", "archive"):
+                with self.subTest(timing=timing, target=target), tempfile.TemporaryDirectory() as temporary:
+                    base = self.overlay(temporary)
+                    container = Path(temporary) / "container"
+                    parent = container / "distribution"
+                    parent.mkdir(parents=True)
+                    destination = parent / "overlay.tar.gz"
+                    outside = Path(temporary) / "outside"
+                    outside.mkdir()
+                    sentinel = outside / "overlay.tar.gz"
+                    sentinel.write_bytes(b"outside-fixture")
+                    before = sentinel.stat()
+                    original_digest = assemble.hashlib.file_digest
+                    original_link = assemble.os.link
+                    mutated = False
+                    def mutate():
+                        nonlocal mutated
+                        staging = next(parent.glob("trm06-archive-*"))
+                        path = {"parent": parent, "ancestor": container,
+                                "staging": staging, "archive": staging / "overlay.tar.gz"}[target]
+                        saved = path.with_name(path.name + "-held")
+                        path.rename(saved)
+                        if target == "archive":
+                            path.write_bytes(b"unverified-archive")
+                        else:
+                            path.mkdir()
+                            # Preserve all descendants, including archive inode.
+                            for child in list(saved.iterdir()): child.rename(path / child.name)
+                        mutated = True
+                    def hashed(contents, *args, **kwargs):
+                        result = original_digest(contents, *args, **kwargs)
+                        name = getattr(contents, "name", None)
+                        # The final archive hash happens after tar verification,
+                        # in both the previous and descriptor-held implementations.
+                        if timing == "before-link" and not mutated and (isinstance(name, int) or str(name).endswith("overlay.tar.gz")):
+                            schedule.replace()
+                        return result
+                    def link(*args, **kwargs):
+                        if timing == "during-link" and not mutated: schedule.replace()
+                        return original_link(*args, **kwargs)
+                    with RaceSchedule(mutate) as schedule, patch.object(assemble.hashlib, "file_digest", side_effect=hashed), patch.object(assemble.os, "link", side_effect=link):
+                        with self.assertRaises((ValueError, OSError)):
+                            assemble.archive_overlay(repo, base, destination)
+                        self.assertFalse(destination.exists())
+                    self.assertEqual(sentinel.read_bytes(), b"outside-fixture")
+                    observed = sentinel.stat()
+                    self.assertEqual((observed.st_ino, observed.st_uid, observed.st_mode),
+                                     (before.st_ino, before.st_uid, before.st_mode))
+
     def test_revision_pin_requires_full_sha_and_main_ancestry(self):
         for requested in ("branch", "a" * 39, "z" * 40):
             with self.subTest(requested=requested), patch.object(subprocess, "check_output", return_value="b" * 40 + "\n"), patch.object(subprocess, "run") as git:

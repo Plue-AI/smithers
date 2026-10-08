@@ -88,7 +88,7 @@ def destination_chain(root):
         raise
 
 
-def same_destination(root, parts, parent, artifact, ancestry):
+def same_destination(root, parts, parent, artifact, ancestry, *, links=1):
     """Revalidate every held ancestor, including preserved-subtree moves."""
     current_chain = destination_chain(root)
     try:
@@ -102,7 +102,7 @@ def same_destination(root, parts, parent, artifact, ancestry):
             if (held.st_dev, held.st_ino) != (observed.st_dev, observed.st_ino):
                 raise ValueError("overlay destination ancestor replaced")
         observed = os.stat(parts[-1], dir_fd=current_chain[-1], follow_symlinks=False)
-        if not stat.S_ISREG(observed.st_mode) or observed.st_nlink != 1 or (observed.st_dev, observed.st_ino) != (artifact.st_dev, artifact.st_ino):
+        if not stat.S_ISREG(observed.st_mode) or observed.st_nlink != links or (observed.st_dev, observed.st_ino) != (artifact.st_dev, artifact.st_ino):
             raise ValueError("overlay destination artifact replaced")
     finally:
         for fd in current_chain:
@@ -364,13 +364,27 @@ def archive_overlay(repo, root, destination):
     validate_supervisor(root / "libexec/trm06-supervisor")
     if regular(root / "share/trm06/smithers-3f.pub").st_size != 32:
         raise ValueError("invalid reviewer key")
-    with tempfile.TemporaryDirectory(prefix="trm06-archive-", dir=destination.parent) as temporary:
-        archive = Path(temporary) / "overlay.tar.gz"
+    ancestry = destination_chain(destination.parent)
+    parent = ancestry[-1]
+    temporary = None
+    staging = None
+    checked_archive = None
+    staging_info = None
+    try:
+        temporary = Path(tempfile.mkdtemp(prefix="trm06-archive-", dir=destination.parent))
+        staging = os.open(temporary.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        staging_info = os.fstat(staging)
+        archive = temporary / "overlay.tar.gz"
         subprocess.run([sys.executable, "-I", "-S", str(repo / "apps/app/scripts/deterministic-tar.py"),
                         str(root), str(archive), "directory"], check=True)
         expected = set(entries) | {"manifest.json"}
         seen = set()
-        with tarfile.open(archive, "r:gz") as source:
+        fd = os.open("overlay.tar.gz", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=staging)
+        checked_archive = os.fdopen(fd, "rb")
+        artifact = os.fstat(checked_archive.fileno())
+        if not stat.S_ISREG(artifact.st_mode) or artifact.st_nlink != 1:
+            raise ValueError("invalid archive publication artifact")
+        with tarfile.open(fileobj=checked_archive, mode="r:gz") as source:
             for member in source:
                 if member.name not in expected or member.name in seen:
                     raise ValueError("archive contains unexpected artifact")
@@ -394,10 +408,46 @@ def archive_overlay(repo, root, destination):
         validate_base(root, manifest["revision"], overlay=True)
         # Exclusive publication refuses an output replacement; no existing
         # archive or symlink target is overwritten.
-        archive_sha = digest(archive)
-        os.link(archive, destination)
+        # Hold the checked archive inode and both publication directories.
+        # A preserved subtree move must refuse just like artifact assembly.
+        checked_archive.seek(0)
+        archive_sha = hashlib.file_digest(checked_archive, "sha256").hexdigest()
+        same_destination(destination.parent, [temporary.name, "overlay.tar.gz"], staging,
+                         artifact, ancestry + [staging])
+        os.link("overlay.tar.gz", destination.name, src_dir_fd=staging,
+                dst_dir_fd=parent, follow_symlinks=False)
+        published = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
+        try:
+            # Recheck after link too: never return a receipt for a moved
+            # parent or a replaced source between checking and linking.
+            same_destination(destination.parent, [destination.name], parent,
+                             artifact, ancestry, links=2)
+        except BaseException:
+            observed = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
+            if (observed.st_dev, observed.st_ino) == (published.st_dev, published.st_ino):
+                os.unlink(destination.name, dir_fd=parent)
+            raise
         return {"revision": manifest["revision"], "sha256": archive_sha,
                 "activation": "refused-until-reviewed"}
+    finally:
+        if checked_archive is not None:
+            checked_archive.close()
+        # Descriptor-relative cleanup cannot follow a raced staging pathname.
+        if staging is not None:
+            try:
+                os.unlink("overlay.tar.gz", dir_fd=staging)
+            except FileNotFoundError:
+                pass
+            os.close(staging)
+        if temporary is not None and staging_info is not None:
+            try:
+                observed = os.stat(temporary.name, dir_fd=parent, follow_symlinks=False)
+                if stat.S_ISDIR(observed.st_mode) and (observed.st_dev, observed.st_ino) == (staging_info.st_dev, staging_info.st_ino):
+                    os.rmdir(temporary.name, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        for descriptor in ancestry:
+            os.close(descriptor)
 
 
 if __name__ == "__main__":
