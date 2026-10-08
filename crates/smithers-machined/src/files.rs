@@ -393,6 +393,7 @@ impl Files {
         Ok((bytes, metadata.mode() & 0o7777))
     }
     pub fn write(&self, cx: &mut LockCx, args: WriteArgs) -> hooks::Result<Vec<u8>> {
+        cx.hooks.watcher.clone().prepare_write(cx)?;
         if matches!(
             args.actor,
             hooks::Actor::Run(_) | hooks::Actor::Principal(_)
@@ -425,6 +426,7 @@ impl Files {
         changes: Vec<hooks::FileWrite>,
         actor: hooks::Actor,
     ) -> hooks::Result<Vec<u8>> {
+        cx.hooks.watcher.clone().prepare_write(cx)?;
         if matches!(actor, hooks::Actor::Run(_) | hooks::Actor::Principal(_)) {
             self.next.validate_coding_write()?;
         }

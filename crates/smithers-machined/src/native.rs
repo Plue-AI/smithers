@@ -183,6 +183,14 @@ impl Repository {
         Ok((oid(commit.id().as_bytes())?, oid(tree.as_bytes())?))
     }
     pub fn snapshot(&self) -> io::Result<(Oid, Oid)> {
+        self.import_colocated_head()?;
+        flows_jj::ops::snapshot_with_tracking(&self.root, &crate::ignore::SnapshotFiles)
+            .map_err(invalid)?;
+        self.current()
+    }
+    /// Observe Git checkout movement without snapshotting unrelated dirty files.
+    /// Metadata admission checks must not generate new jj operations themselves.
+    pub fn import_colocated_head(&self) -> io::Result<()> {
         // Colocated Git commands update HEAD and files without advancing jj's
         // operation. Import that movement before snapshotting the working copy,
         // otherwise checkout would look like an edit of the item's change.
@@ -227,9 +235,7 @@ impl Repository {
                     .map_err(invalid)?;
             }
         }
-        flows_jj::ops::snapshot_with_tracking(&self.root, &crate::ignore::SnapshotFiles)
-            .map_err(invalid)?;
-        self.current()
+        Ok(())
     }
     /// Resolve the host-bound item by change identity, including rewritten
     /// revisions. Tree equality and bookmark names confer no write authority.

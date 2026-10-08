@@ -33,7 +33,7 @@ func TestMachinedMutationQueuedHTTPWrites(t *testing.T) { testMachinedNativeMuta
 
 // Real daemon capture/event dispatch following authenticated composed HTTP saves.
 // Unlike the scripted capture peer, this executes the native snapshot/outbox.
-func TestMachinedCapturePendingWorkNative(t *testing.T) { testMachinedNativeMutation(t, "pending") }
+func TestMachinedCapturePendingWork(t *testing.T) { testMachinedNativeMutation(t, "pending") }
 
 func TestMachinedMutationDelayedCaptureAck(t *testing.T) { testMachinedNativeMutation(t, "ack") }
 
@@ -342,6 +342,26 @@ func testMachinedNativeMutation(t *testing.T, mode string) {
 			require.Equal(t, want, generation(), "drained/repeated capture is not another edit")
 			require.Equal(t, []byte(text), git("-C", store, "show", captured.Head+":pending.txt"))
 		}
+
+		// Non-review work records its latest capture without scheduling edited.
+		// The accepted generation is immutable across both states.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+		beforeWorking := generation()
+		digest := sha256.Sum256([]byte("second native pending bytes"))
+		body, err := json.Marshal(map[string]string{"content": "working tree bytes", "base_digest": hex.EncodeToString(digest[:])})
+		require.NoError(t, err)
+		res := request("PUT", "pending.txt", string(body))
+		require.NoError(t, res.err)
+		require.Equal(t, 200, res.status, "%s", res.body)
+		working, err := registry.Capture(ctx, branch)
+		require.NoError(t, err)
+		var latest struct{ Capture struct{ Head, Tree string } }
+		require.NoError(t, json.Unmarshal(read(), &latest))
+		require.Equal(t, working.Head, latest.Capture.Head)
+		require.Equal(t, working.Tree, latest.Capture.Tree)
+		require.Equal(t, beforeWorking, generation(), "working capture cannot enqueue edited")
+		require.Equal(t, []byte("working tree bytes"), git("-C", store, "show", working.Head+":pending.txt"))
 		return
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(state, "qualification-frozen.arm"), nil, 0600))

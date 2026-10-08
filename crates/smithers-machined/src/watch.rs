@@ -638,6 +638,25 @@ impl<
             w.changes.settle_metadata(p)
         })
     }
+    fn prepare_write(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            let pending = self.job(cx, |w, p, now| {
+                w.drain(p, now)?;
+                Ok(w.changes.metadata_pending())
+            })?;
+            if !pending {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(hook_error(io::Error::other("moved-off check required")));
+            }
+            // Tick the real watcher on the same FIFO job. Outside jj moves
+            // still restart the 200 ms debounce; poisoned/resync guards and
+            // the normal before_write comparator remain authoritative.
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
     /// Called by the document disk adapter on the existing FIFO mutation lock.
     /// Settle outside bytes before a document changes the working-copy path.
     fn before_write(&self, path: &str, actor: &crate::hooks::Actor) -> crate::hooks::Result<()> {

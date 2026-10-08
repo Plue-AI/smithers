@@ -35,7 +35,7 @@ func TestMachineCaptureTransactionBinding(t *testing.T) { testMachineCaptureProj
 // The production authenticated dispatcher, native object store and PostgreSQL
 // project captures into the same durable pending-work record the stack consumes.
 // The remote wire peer is scripted; real-VM qualification remains separate.
-func TestMachinedCapturePendingWork(t *testing.T) { testMachineCaptureProjection(t, true) }
+func TestMachinedCapturePendingWorkReplay(t *testing.T) { testMachineCaptureProjection(t, true) }
 
 func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
 	isolated, _ := postgresfixture.NewProductDatabase(t)

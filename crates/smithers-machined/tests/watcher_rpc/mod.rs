@@ -1107,14 +1107,76 @@ fn completed_daemon_rewrite_settles_metadata_before_queued_save() {
     // its observation before thawing and releasing the FIFO lock.
     fs::create_dir_all(root.join(".jj/repo/op_heads/heads")).unwrap();
     fs::write(root.join(".jj/repo/op_heads/heads/op1"), b"operation").unwrap();
-    executor.lock.run_blocking("settle rewrite", |cx| {
-        let watcher = cx.hooks.watcher.clone();
-        watcher.settle_rewrite(cx)
-    }).unwrap().unwrap();
-    let response = request(&executor, write_request("queued", None, b"after rewrite", b"maya"));
+    executor
+        .lock
+        .run_blocking("settle rewrite", |cx| {
+            let watcher = cx.hooks.watcher.clone();
+            watcher.settle_rewrite(cx)
+        })
+        .unwrap()
+        .unwrap();
+    let response = request(
+        &executor,
+        write_request("queued", None, b"after rewrite", b"maya"),
+    );
     assert_eq!(Frame::decode(&response).unwrap().payload[11], 3);
     assert_eq!(fs::read(root.join("queued")).unwrap(), b"after rewrite");
     close(&executor);
     assert_eq!(burst_commits(&shared).len(), 1);
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn fifo_write_preparation_waits_for_metadata_without_bypassing_debounce() {
+    let (shared, executor) = setup();
+    let root = shared.f.lock().unwrap().root.clone();
+    fs::create_dir_all(root.join(".jj/repo/op_heads/heads")).unwrap();
+    fs::write(root.join(".jj/repo/op_heads/heads/op1"), b"operation").unwrap();
+    let began = std::time::Instant::now();
+    executor
+        .lock
+        .run_blocking("prepare_write", |cx| {
+            let watcher = cx.hooks.watcher.clone();
+            watcher.prepare_write(cx)
+        })
+        .unwrap()
+        .unwrap();
+    assert!(began.elapsed() >= std::time::Duration::from_millis(200));
+    assert!(began.elapsed() < std::time::Duration::from_secs(1));
+    // A new movement still refuses the original before_write guard. Waiting
+    // is not blanket admission and never writes, rolls back or retries bytes.
+    fs::write(root.join(".jj/repo/op_heads/heads/op2"), b"next").unwrap();
+    let response = request(&executor, write_request("a", None, b"abc", b"maya"));
+    assert_eq!(Frame::decode(&response).unwrap().payload[11], 255);
+    assert!(!root.join("a").exists());
+    executor.shutdown().unwrap();
+}
+
+#[test]
+fn fifo_write_preparation_refuses_metadata_that_never_settles() {
+    let (shared, executor) = setup();
+    let root = shared.f.lock().unwrap().root.clone();
+    fs::create_dir_all(root.join(".jj/repo/op_heads/heads")).unwrap();
+    let path = root.join(".jj/repo/op_heads/heads/op1");
+    fs::write(&path, b"operation").unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done = stop.clone();
+    let writer = std::thread::spawn(move || {
+        while !done.load(std::sync::atomic::Ordering::SeqCst) {
+            fs::write(&path, b"moving").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    });
+    let result = executor
+        .lock
+        .run_blocking("prepare_write", |cx| {
+            let watcher = cx.hooks.watcher.clone();
+            watcher.prepare_write(cx)
+        })
+        .unwrap();
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    writer.join().unwrap();
+    assert!(result.is_err());
+    assert!(!root.join("a").exists());
     executor.shutdown().unwrap();
 }

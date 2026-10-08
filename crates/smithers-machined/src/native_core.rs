@@ -187,7 +187,7 @@ impl NativeCore {
         if item.number == 0 {
             return Ok(());
         }
-        self.native.snapshot().map_err(hook)?;
+        self.native.import_colocated_head().map_err(hook)?;
         let mut prior = self.moved.lock().unwrap_or_else(|e| e.into_inner());
         let next = crate::moved_off::detect_position(
             &format!("T{}", item.number),
@@ -273,8 +273,9 @@ impl Core for NativeCore {
             });
         }
         // Import colocated Git moves before checking the item's change. This
-        // snapshot is native and runs as machined inside the existing lock.
-        self.native.snapshot().map_err(hook)?;
+        // import is native and runs as machined inside the existing lock.
+        // Dirty bytes are captured by the watcher/capture path, not admission.
+        self.native.import_colocated_head().map_err(hook)?;
         if !self.native.descends_from_item(&item.change).map_err(hook)? {
             return Err(hooks::Error {
                 code: 10,
@@ -852,6 +853,28 @@ pub(crate) mod tests {
             b"pending scratch bytes"
         );
     }
+    #[test]
+    fn dirty_bytes_do_not_create_metadata_operations_during_write_admission() {
+        let (dir, mut core) = fixture();
+        fs::write(dir.path().join("workspace/base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        let item = crate::native::tests::child(&core.native, base, "bound item");
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        let before = core.native.current().unwrap();
+        fs::write(dir.path().join("workspace/base"), b"not yet captured\n").unwrap();
+        core.observe_moved_off(&Actor::Outside).unwrap();
+        assert!(core.validate_coding_write().is_ok());
+        assert_eq!(core.native.current().unwrap(), before);
+        assert_eq!(
+            fs::read(dir.path().join("workspace/base")).unwrap(),
+            b"not yet captured\n"
+        );
+        // The ordinary capture still records exactly these dirty bytes.
+        assert_ne!(core.native.snapshot().unwrap().0, before.0);
+    }
+
     #[test]
     fn coding_write_guard_requires_binding_and_refuses_off_item_after_snapshot() {
         let (dir, mut core) = fixture();

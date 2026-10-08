@@ -50,6 +50,11 @@ pub trait Watcher: Send + Sync {
     fn ready(&self) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Keep a file RPC in FIFO while external metadata reaches its debounce.
+    /// No working-copy mutation is retried or admitted through the barrier.
+    fn prepare_write(&self, _cx: &mut LockCx) -> Result<()> {
+        Ok(())
+    }
     fn before_write(&self, _path: &str, _actor: &Actor) -> Result<()> {
         Err(Error::unsupported())
     }

@@ -615,6 +615,9 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
     pub fn needs_resync(&self) -> bool {
         self.resync_required
     }
+    pub(crate) fn metadata_pending(&self) -> bool {
+        self.metadata_at.is_some()
+    }
     pub fn writes_blocked(&self) -> bool {
         self.blocked || self.resync_required || self.poisoned
     }
