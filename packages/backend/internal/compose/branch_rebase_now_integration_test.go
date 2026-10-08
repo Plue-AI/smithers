@@ -215,6 +215,34 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	require.Equal(t, "stack", system)
 	require.Equal(t, "pin-owner", requester)
 	require.False(t, host.touched.Load(), "the press returned without waiting for Git")
+	// Reload observes terminal execution failures from committed source facts,
+	// rather than mistaking an accepted launch for successful execution. Each
+	// refusal leaves the private admission receipt intact and schedules no work.
+	for _, failure := range []struct{ name, update string }{
+		{"conflict needs resolution", `reason='rebase_conflict_pending'`},
+		{"item dropped", `state='cancelled'`},
+		{"pending rewrite removed", `checks=checks-'rebase'`},
+		{"rewrite has no completion fact", `checks=jsonb_set(checks,'{rebase,rebased}','true')`},
+		{"candidate changed", `candidate_head='cccccccccccccccccccccccccccccccccccccccc'`},
+	} {
+		t.Run("receipt reports "+failure.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE mythical_items SET `+failure.update+` WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+			for range 2 {
+				status, observed := read("rebase-press", "pin-cookie")
+				require.Equal(t, 200, status, observed)
+				require.Equal(t, map[string]any{"onto": onto, "state": "failed"}, observed["rebase_execution"])
+			}
+			var requests int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.rebase-requested'`).Scan(&requests))
+			require.Equal(t, 1, requests, "observation never submits another rewrite")
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,reason=$3,checks=$4,candidate_head=$5 WHERE id=$1`, item.ID, current.State, current.Reason, current.Checks, current.CandidateHead)
+			require.NoError(t, err)
+			status, observed := read("rebase-press", "pin-cookie")
+			require.Equal(t, 200, status, observed)
+			require.Equal(t, map[string]any{"onto": onto, "state": "running"}, observed["rebase_execution"])
+		})
+	}
 	// A new press cannot supersede a merge/publication fence.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op='{"kind":"push"}' WHERE id=$1`, item.ID)
 	require.NoError(t, err)
