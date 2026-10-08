@@ -10,6 +10,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
+type flowCatalogWorkerKey struct{}
+
 type todoHomeFactKey struct{}
 type todoFactItemsKey struct{}
 
@@ -60,8 +62,12 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	if err != nil {
 		return jobs.Event{}, err
 	}
-	if err := s.recordFlowFact(ctx, tx, item.RepositoryID); err != nil {
-		return jobs.Event{}, err
+	// Candidate inspection fetches Git objects. Queue it durably rather than
+	// holding the person's write transaction across repository transport.
+	if ctx.Value(flowCatalogWorkerKey{}) != true {
+		if _, err := db.New(tx).RequestMythicalStack(ctx, item.RepositoryID); err != nil {
+			return jobs.Event{}, err
+		}
 	}
 	return event, nil
 }

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -230,12 +231,22 @@ func TestFlowLoadProposalFactsReplayAndDeduplicate(t *testing.T) {
 	require.NoError(t, err)
 	record := func() {
 		t.Helper()
+		flowHead, err := store.Head(ctx, FlowLiveScope(h.repoID))
+		require.NoError(t, err)
 		tx, err := h.pool.Begin(ctx)
 		require.NoError(t, err)
 		defer tx.Rollback(ctx)
 		_, err = h.service.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.run_updated", todoState(item), json.RawMessage(`{}`))
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit(ctx))
+		admittedHead, err := store.Head(ctx, FlowLiveScope(h.repoID))
+		require.NoError(t, err)
+		require.Equal(t, flowHead, admittedHead, "TODO admission queues catalog inspection without fetching Git")
+		// The composed Drop test covers worker recovery; here flush its same
+		// projector to inspect each historical catalog version independently.
+		require.NoError(t, pgx.BeginFunc(ctx, h.pool, func(tx pgx.Tx) error {
+			return h.service.recordFlowFact(ctx, tx, h.repoID)
+		}))
 	}
 	record()
 	todoPage, err := store.Replay(ctx, todoOperationScope(item), todoBefore, 100)

@@ -358,6 +358,9 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 		s.logger.Warn("mythical.claim_expired", "repository_id", row.RepositoryID, "claim", row.Claim)
 		return
 	}
+	// Facts emitted by this pass are covered by its catalog refresh; they
+	// must not enqueue another pass just to refresh the same generation.
+	parent = context.WithValue(parent, flowCatalogWorkerKey{}, true)
 	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	var outcome mythicalOutcome
@@ -369,6 +372,15 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 			}
 		}()
 		outcome = s.run(ctx, row)
+		// TODO facts request this same durable worker in their transaction.
+		// Refresh after advancing items, before acknowledging the generation.
+		// A failed refresh remains visible and retries with the stack pass.
+		if err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+			return s.recordFlowFact(ctx, tx, row.RepositoryID)
+		}); err != nil {
+			outcome.failed = true
+			outcome.err = fmt.Sprintf("refresh flow catalog: %v", err)
+		}
 	}()
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer finishCancel()
