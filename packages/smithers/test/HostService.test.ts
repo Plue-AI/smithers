@@ -207,7 +207,7 @@ describe("restored launchd service", () => {
       WorkingDirectory: f.options.stateDir,
       EnvironmentVariables: { HOME: f.root, PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` },
       RunAtLoad: true,
-      KeepAlive: true,
+      KeepAlive: { PathState: { [join(f.options.stateDir, "start-refusal.json")]: false } },
       ThrottleInterval: 5,
       ExitTimeOut: 30,
       ProcessType: "Standard",

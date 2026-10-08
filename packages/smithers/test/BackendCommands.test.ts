@@ -1095,6 +1095,20 @@ describe("retired repository registration report", () => {
 
 // T-MCH-01, spec §20.2: the CLI reads the same host model as Settings.
 describe("local host service commands", () => {
+  it.each(["start", "status"] as const)("prints the saved capacity refusal through host %s", async (command) => {
+    const f = await homeFixture((_req, res) => res.end("{}"))
+    const stateDir = join(f.home, "state")
+    await mkdir(stateDir)
+    const message = "cannot start a fresh install: disk: 71.99 GiB free on the state volume; 72 GiB required"
+    await writeFile(join(stateDir, "start-refusal.json"), JSON.stringify({ code: "host_capacity_zero", message }))
+    vi.spyOn(HostService, command).mockImplementation(async () => { throw HostService.startRefusal(stateDir)! })
+    try {
+      const result = await f.run(["host", command])
+      expect(result.code).toBe(1)
+      expect(result.output + result.error).toContain(`host_capacity_zero: ${message}`)
+      expect(result.output + result.error).not.toContain("/setup?")
+    } finally { await f.close() }
+  })
   it("reports local health without calling the configured remote backend", async () => {
     const seen: string[] = []
     const health = { state: "ready", bundle: "/bundle", version: "1.0", launchd: "running", readiness: "ready", doctor: "ready" }
