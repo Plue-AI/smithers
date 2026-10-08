@@ -1105,123 +1105,134 @@ pub(crate) mod tests {
         // Exercise the installed broker client, not a Disabled/Flushed broker.
         // The peer supplies literal broken-authority packets; no privileged
         // effects or cgroup emulation are needed to prove these refusals.
-        for failure in [
-            "disconnect",
-            "truncated",
-            "correlation",
-            "operation",
-            "oversized",
-        ] {
-            let (dir, mut core) = fixture();
-            let root = dir.path().join("workspace");
-            fs::write(root.join("base"), b"base\n").unwrap();
-            let base = core.native.snapshot().unwrap().0;
-            let item = crate::native::tests::child(&core.native, base, "item");
-            let change = crate::native::tests::change(&core.native, item);
-            Arc::get_mut(&mut core).unwrap().item =
-                Some(crate::boot::ItemBinding { number: 2, change });
-            core.git.clone().acknowledge_and_sync(item).unwrap();
-            crate::native::tests::child(&core.native, base, "off item");
-            core.observe_moved_off(&Actor::Outside).unwrap();
-            fs::write(root.join("notes.txt"), b"keep after move\n").unwrap();
-            let before = core.native.snapshot().unwrap().0;
-            let (server, client) = socketpair(
-                AddressFamily::UNIX,
-                SocketType::SEQPACKET,
-                SocketFlags::CLOEXEC,
-                None,
-            )
-            .unwrap();
-            let peer = std::thread::spawn(move || {
-                rustix::net::sockopt::set_socket_timeout(
-                    &server,
-                    rustix::net::sockopt::Timeout::Recv,
-                    Some(std::time::Duration::from_secs(2)),
+        for stage in ["readiness", "freeze"] {
+            for failure in [
+                "disconnect",
+                "truncated",
+                "correlation",
+                "operation",
+                "oversized",
+            ] {
+                let (dir, mut core) = fixture();
+                let root = dir.path().join("workspace");
+                fs::write(root.join("base"), b"base\n").unwrap();
+                let base = core.native.snapshot().unwrap().0;
+                let item = crate::native::tests::child(&core.native, base, "item");
+                let change = crate::native::tests::change(&core.native, item);
+                Arc::get_mut(&mut core).unwrap().item =
+                    Some(crate::boot::ItemBinding { number: 2, change });
+                core.git.clone().acknowledge_and_sync(item).unwrap();
+                crate::native::tests::child(&core.native, base, "off item");
+                core.observe_moved_off(&Actor::Outside).unwrap();
+                fs::write(root.join("notes.txt"), b"keep after move\n").unwrap();
+                let before = core.native.snapshot().unwrap().0;
+                let (server, client) = socketpair(
+                    AddressFamily::UNIX,
+                    SocketType::SEQPACKET,
+                    SocketFlags::CLOEXEC,
+                    None,
                 )
                 .unwrap();
-                let mut packet = [0; 64];
-                // Composition checks the shared session and broker providers.
-                for id in [1u32, 2] {
-                    let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
-                    assert_eq!(&packet[..n], &[id.to_be_bytes().as_slice(), &[23]].concat());
-                    send(&server, &packet[..n], SendFlags::NOSIGNAL).unwrap();
-                }
-                let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
-                assert_eq!(&packet[..n], &[0, 0, 0, 3, 23]);
-                let reply = match failure {
-                    "disconnect" => return,
-                    "truncated" => vec![0, 0, 0, 3],
-                    "correlation" => vec![0, 0, 0, 4, 23],
-                    "operation" => vec![0, 0, 0, 3, 2],
-                    "oversized" => {
-                        let mut reply = vec![0; 65561];
-                        reply[..5].copy_from_slice(&[0, 0, 0, 3, 23]);
-                        reply
+                let peer = std::thread::spawn(move || {
+                    rustix::net::sockopt::set_socket_timeout(
+                        &server,
+                        rustix::net::sockopt::Timeout::Recv,
+                        Some(std::time::Duration::from_secs(2)),
+                    )
+                    .unwrap();
+                    let mut packet = [0; 64];
+                    // Composition checks the shared session and broker providers.
+                    for id in 1u32..=if stage == "freeze" { 4 } else { 2 } {
+                        let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
+                        assert_eq!(&packet[..n], &[id.to_be_bytes().as_slice(), &[23]].concat());
+                        send(&server, &packet[..n], SendFlags::NOSIGNAL).unwrap();
                     }
-                    _ => unreachable!(),
-                };
-                send(&server, &reply, SendFlags::NOSIGNAL).unwrap();
-            });
-            let broker = Arc::new(crate::broker::control::SocketpairBroker::new(client).unwrap());
-            let hooks = crate::wiring::compose(Hooks {
-                core: core.clone(),
-                events: core.events.clone(),
-                watcher: Arc::new(Flushed),
-                documents: Arc::new(Flushed),
-                sessions: broker.clone(),
-                broker,
-                ..Default::default()
-            })
-            .unwrap();
-            let mut cx = LockCx::new(hooks);
-            // Repeat after transport failure: a poisoned connection must not
-            // regain authority or silently fall back to repository execution.
-            let files = crate::files::Files::fixture(std::fs::File::open(&root).unwrap(), core.clone());
-            for _ in 0..2 {
-                let response = call_in(
-                    &mut cx,
-                    12,
-                    &[field(1, conn::actor_bytes(&Actor::Principal(vec![7; 16])))],
-                );
-                let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
-                assert_eq!(value[0], 255, "{failure}");
-                assert_eq!(
-                    conn::fields("error", &value[1..]).unwrap()[0].1,
-                    [12],
-                    "{failure}"
-                );
-                assert_eq!(core.native.current().unwrap().0, before, "{failure}");
-                assert_eq!(core.git.acknowledged().unwrap(), Some(item), "{failure}");
-                assert!(core.moved.lock().unwrap().is_some(), "{failure}");
-                let admitted = cx.epoch.load(std::sync::atomic::Ordering::SeqCst);
-                let response = crate::local::batch_response(
-                    &mut cx,
-                    &files,
-                    74,
-                    vec![crate::hooks::FileWrite {
-                        path: "notes.txt".into(),
-                        base: crate::hooks::Base::Digest(crate::doc::state::digest(
-                            b"keep after move\n",
-                        )),
-                        content: Some(b"must never land".to_vec()),
-                    }],
-                    Actor::Principal(vec![7; 16]),
-                    admitted,
-                );
-                let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
-                assert_eq!(value[0], 255, "{failure}");
-                assert_eq!(
-                    conn::fields("error", &value[1..]).unwrap()[0].1,
-                    [10],
-                    "{failure}"
-                );
-                assert_eq!(
-                    fs::read(root.join("notes.txt")).unwrap(),
-                    b"keep after move\n",
-                    "{failure}"
-                );
+                    let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
+                    let id = if stage == "freeze" { 5u32 } else { 3 };
+                    let operation = if stage == "freeze" { 1 } else { 23 };
+                    let mut expected = id.to_be_bytes().to_vec();
+                    expected.push(operation);
+                    if stage == "freeze" {
+                        // Production Return bounds the freeze to exactly 1000 ms.
+                        expected.extend([0, 0, 0, 5, 1, 0, 0, 3, 232]);
+                    }
+                    assert_eq!(&packet[..n], expected);
+                    let reply = match failure {
+                        "disconnect" => return,
+                        "truncated" => id.to_be_bytes().to_vec(),
+                        "correlation" => [(id + 1).to_be_bytes().as_slice(), &[operation]].concat(),
+                        "operation" => [id.to_be_bytes().as_slice(), &[2]].concat(),
+                        "oversized" => {
+                            let mut reply = vec![0; 65561];
+                            reply[..4].copy_from_slice(&id.to_be_bytes());
+                            reply[4] = operation;
+                            reply
+                        }
+                        _ => unreachable!(),
+                    };
+                    send(&server, &reply, SendFlags::NOSIGNAL).unwrap();
+                });
+                let broker = Arc::new(crate::broker::control::SocketpairBroker::new(client).unwrap());
+                let hooks = crate::wiring::compose(Hooks {
+                    core: core.clone(),
+                    events: core.events.clone(),
+                    watcher: Arc::new(Flushed),
+                    documents: Arc::new(Flushed),
+                    sessions: broker.clone(),
+                    broker,
+                    ..Default::default()
+                })
+                .unwrap();
+                let mut cx = LockCx::new(hooks);
+                // Repeat after transport failure: a poisoned connection must not
+                // regain authority or silently fall back to repository execution.
+                let files = crate::files::Files::fixture(std::fs::File::open(&root).unwrap(), core.clone());
+                for _ in 0..2 {
+                    let response = call_in(
+                        &mut cx,
+                        12,
+                        &[field(1, conn::actor_bytes(&Actor::Principal(vec![7; 16])))],
+                    );
+                    let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+                    assert_eq!(value[0], 255, "{failure}");
+                    assert_eq!(
+                        conn::fields("error", &value[1..]).unwrap()[0].1,
+                        [12],
+                        "{failure}"
+                    );
+                    assert_eq!(core.native.current().unwrap().0, before, "{failure}");
+                    assert_eq!(core.git.acknowledged().unwrap(), Some(item), "{failure}");
+                    assert!(core.moved.lock().unwrap().is_some(), "{failure}");
+                    let admitted = cx.epoch.load(std::sync::atomic::Ordering::SeqCst);
+                    let response = crate::local::batch_response(
+                        &mut cx,
+                        &files,
+                        74,
+                        vec![crate::hooks::FileWrite {
+                            path: "notes.txt".into(),
+                            base: crate::hooks::Base::Digest(crate::doc::state::digest(
+                                b"keep after move\n",
+                            )),
+                            content: Some(b"must never land".to_vec()),
+                        }],
+                        Actor::Principal(vec![7; 16]),
+                        admitted,
+                    );
+                    let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+                    assert_eq!(value[0], 255, "{failure}");
+                    assert_eq!(
+                        conn::fields("error", &value[1..]).unwrap()[0].1,
+                        [10],
+                        "{failure}"
+                    );
+                    assert_eq!(
+                        fs::read(root.join("notes.txt")).unwrap(),
+                        b"keep after move\n",
+                        "{failure}"
+                    );
+                }
+                peer.join().unwrap();
             }
-            peer.join().unwrap();
         }
     }
     // Run only from the install/main-built test bundle in an isolated guest.
