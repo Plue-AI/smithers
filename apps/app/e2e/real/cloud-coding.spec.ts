@@ -16,7 +16,7 @@ configuredGatewayTest("a UI coding request validates a change and Vibe lands its
  expect(workspaceId).toBeDefined()
  await bootProductionRepository(page,repo)
  await command(page,`/box.view ${workspaceId}`)
- await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
+ await expect(page.getByTestId(`card-branch:${workspaceId}`)).toBeVisible()
  await closeComposer(page)
  await command(page,`/repo.select ${repo}#workspace:${workspaceId}`)
  await closeComposer(page)

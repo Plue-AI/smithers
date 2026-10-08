@@ -69,7 +69,7 @@ authenticatedTest("a product workspace suspends, resumes, and deletes", scenario
       expect(id).not.toBe("")
       const path = `${collectionPath}/${encodeURIComponent(id)}`
       await expectFlowOutcome(page, "box.open", openArgs, "executed")
-      const card = page.getByTestId(`card-workspace-${id}`)
+      const card = page.getByTestId(`card-branch:${id}`)
       await expect(card).toBeVisible({ timeout: 60_000 })
       await expect(card).toContainText(repo.fullName)
 

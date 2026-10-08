@@ -306,7 +306,7 @@ test("The coding agent at work", async ({ browser }) => {
     // agent#10: so it asks. A notification offers Answer, and the branch input reads Answer the coding agent.
     await proofStep("agent-question-notice", ["setup: steer"], async () => {
       await reach(1, ["needs_you"], 15 * 60_000)
-      const notice = ben.locator("[data-sonner-toast]").filter({ hasText: TITLE }).last()
+      const notice = ben.locator("[data-notice]").filter({ hasText: TITLE }).last()
       await expect(notice.getByRole("button", { name: "Answer", exact: true })).toBeVisible({ timeout: 30_000 })
       await openBranch()
       await expect(activity("question").last()).toBeVisible({ timeout: 30_000 })

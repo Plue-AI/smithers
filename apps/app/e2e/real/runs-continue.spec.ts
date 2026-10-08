@@ -61,7 +61,7 @@ workflowTest("Continue answers a real guard park through its own request and ref
   await bootProductionRepository(page, repo)
   await enableProductionVerbose(page)
   await command(page, `/box.view ${workspaceId}`)
-  await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
+  await expect(page.getByTestId(`card-branch:${workspaceId}`)).toBeVisible()
   await closeComposer(page)
   await writeSeededFlow(page, request, repo, workspaceId, fixtureInputText(`guard-${Date.now().toString(36)}`))
   await restartWorkspaceHost(page, request, repo, workspaceId)

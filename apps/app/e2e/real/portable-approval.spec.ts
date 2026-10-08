@@ -37,7 +37,7 @@ const decide = async (page: Page, request: APIRequestContext, decision: "approve
       await awaitBoot(page, "navigate", started)
       await finishFirstVisit(page)
       await runSlash(page, `/box.view ${workspaceId}`)
-      await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible()
+      await expect(page.getByTestId(`card-branch:${workspaceId}`)).toBeVisible()
       const accepted = page.waitForResponse(response => response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/api/workflow/rpc" && response.request().postDataJSON()?.procedure === "Run")
       void accepted.catch(() => undefined)

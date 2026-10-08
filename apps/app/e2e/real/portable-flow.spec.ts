@@ -45,7 +45,7 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
 
       // The app has loaded the new box (viewing it does not select it).
       await runSlash(page, `/box.view ${workspaceId}`)
-      await expect(page.getByTestId(`card-workspace-${workspaceId}`)).toBeVisible({ timeout: 60_000 })
+      await expect(page.getByTestId(`card-branch:${workspaceId}`)).toBeVisible({ timeout: 60_000 })
       // Provisioning must make the catalog readable before any plan or run.
       const listed = page.waitForResponse((response) => {
         if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/api/workflow/rpc") return false

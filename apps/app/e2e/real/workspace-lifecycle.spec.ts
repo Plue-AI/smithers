@@ -59,7 +59,7 @@ configuredGatewayTest(
     await command(page, `/box.view ${workspaceId}`)
     await expectFlowOutcome(page, "box.view", workspaceId, "executed")
     await closeComposer(page)
-    const card = page.getByTestId(`card-workspace-${workspaceId}`)
+    const card = page.getByTestId(`card-branch:${workspaceId}`)
     await expect(card).toBeVisible({ timeout: 60_000 })
     await expect(card).toContainText(workflowRepo.repo)
     await expect(card).toContainText(String(row.name))
@@ -132,7 +132,7 @@ workflowTest(
     await command(page, `/box.view ${workspaceId}`)
     await expectFlowOutcome(page, "box.view", workspaceId, "executed")
     await closeComposer(page)
-    const card = page.getByTestId(`card-workspace-${workspaceId}`)
+    const card = page.getByTestId(`card-branch:${workspaceId}`)
     await expect(card).toBeVisible({ timeout: 60_000 })
 
     const transition = async (verb: "suspend" | "resume", expected: RegExp): Promise<WorkspaceWire> => {
@@ -196,7 +196,7 @@ workflowTest(
     const id = workflowRepo.workspaceId
     await bootProductionRepository(page, workflowRepo.repo)
     await command(page, `/box.view ${id}`)
-    await expect(page.getByTestId(`card-workspace-${id}`)).toBeVisible()
+    await expect(page.getByTestId(`card-branch:${id}`)).toBeVisible()
     await closeComposer(page)
     await command(page, `/repo.select ${workflowRepo.repo}#workspace:${id}`)
     await closeComposer(page)

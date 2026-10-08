@@ -87,7 +87,7 @@ const openOwnedTerminal = async (page: Page, repo: string, workspaceId: string) 
   expect(receipt.workspace_id).toBe(workspaceId)
   expect(receipt.id).toMatch(/^[0-9a-f-]{36}$/)
   await closeComposer(page)
-  const terminal = page.getByTestId(`card-workspace-${workspaceId}`).getByTestId(`terminal-${receipt.id}`)
+  const terminal = page.getByTestId(`card-branch:${workspaceId}`).getByTestId(`terminal-${receipt.id}`)
   await expect(terminal).toBeVisible({ timeout: 90000 })
   // The released terminal adapter retains its first stream when the session changes.
   // Reload mounts the measured session and exercises its persisted binding.

@@ -13,7 +13,7 @@ import { test as referenceTest } from "./support"
 import { withReference, required, runSlash, expect, todoCard } from "./todo/reference"
 import { journeyActivate, journeyEnter, journeyReach, journeyTerminalInput } from "./support/keyboard-journey-input"
 
-referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard doors", scenario("journey.keyboard-continuation", {
+referenceTest("C-UI-01 prepared install branch, stack, flow and run keyboard doors", scenario("journey.keyboard-continuation", {
   capabilities: [], coverage: ["host:local", "host:production", "path:success", "door:slash", "door:button", "dimension:keyboard", "surface:todo", "surface:wiki"]
 }), async ({ browser }, info) => {
   referenceTest.setTimeout(3_600_000)
@@ -132,8 +132,8 @@ referenceTest("C-UI-01 prepared install branch, stack, flow and monitor keyboard
     await journeyReach(replay)
     await page.keyboard.press("Home")
     await page.keyboard.press("End")
-    await runSlash(page, "/monitor")
-    await expect(page.locator('.smithers-card[data-kind="monitor"]').last()).toBeVisible()
+    await runSlash(page, "/run")
+    await expect(page.locator('.smithers-card[data-kind="run"]').last()).toBeVisible()
     // J11 model assignment is an owner act and targets the actual review role.
     const ownerPage = f.members.Will.page
     const cheaper = required("SMITHERS_AGENT_MODEL_B")
