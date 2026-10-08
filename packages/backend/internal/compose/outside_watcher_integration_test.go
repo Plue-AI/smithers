@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
@@ -67,10 +68,60 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	require.NoError(t, err)
 	output, err := exec.Command(jj, "git", "init", root).CombinedOutput()
 	require.NoError(t, err, string(output))
-	require.NoError(t, startRehearsalMachined(t, ctx, registry, f.row.ID, root, t.TempDir(), binary, &machined.ItemBinding{}))
+	// Byte paths cannot travel through the public UTF-8 watcher codec.
+	// Exercise a preexisting name and a later modification through inotify.
+	rawPath := "invalid-" + string([]byte{0xff}) + ".ts"
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawPath), []byte("raw before\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte("node_modules/\n"), 0600))
+	snapshot := exec.Command(jj, "status")
+	snapshot.Dir = root
+	output, err = snapshot.CombinedOutput()
+	require.NoError(t, err, string(output))
+	// A composed capture publishes with CAS against the head previously sent
+	// to the guest. Give this real store that same initial branch head.
+	headCommand := exec.Command(jj, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	headCommand.Dir = root
+	initialHead, err := headCommand.Output()
+	require.NoError(t, err)
+	seedHead := strings.TrimSpace(string(initialHead))
+	seedRef := "refs/smithers/fixture/seed"
+	bundle := filepath.Join(t.TempDir(), "seed.bundle")
+	for _, argv := range [][]string{
+		{"-C", root, "update-ref", seedRef, seedHead},
+		{"-C", root, "bundle", "create", bundle, seedRef},
+		{"-C", store, "fetch", "--no-tags", bundle, seedRef + ":refs/smithers/branches/" + f.row.ID + "/head"},
+	} {
+		output, err = exec.Command("/usr/bin/git", argv...).CombinedOutput()
+		require.NoError(t, err, string(output))
+	}
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET source_commit=$2,head_commit_id=$2 WHERE id=$1`, f.row.ID, seedHead)
+	require.NoError(t, err)
+	evidence := t.TempDir()
+	t.Cleanup(func() {
+		if t.Failed() {
+			log, _ := os.ReadFile(filepath.Join(evidence, "machined-"+f.row.ID+".log"))
+			t.Logf("installed daemon: %s", log)
+		}
+	})
+	require.NoError(t, startRehearsalMachined(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}))
+	// Initialization observes the ordinary tracked ignore file. Let that
+	// setup burst settle before subscribing and measuring the outside edits.
+	require.Eventually(t, func() bool {
+		var n int
+		err := f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files WHERE path='.gitignore'`).Scan(&n)
+		return err == nil && n == 1
+	}, 20*time.Second, 100*time.Millisecond)
+	var baselineBursts int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&baselineBursts))
 	socket := f.dial(t)
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
 	readPresenceFrame(t, socket)
+	filesSocket := f.dial(t)
+	sendPresenceFrame(t, filesSocket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:files"}`, f.row.ID))
+	readPresenceFrame(t, filesSocket)
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "node_modules", "outside-check"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "node_modules", "outside-check", "ignored.ts"), []byte("ignored\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, rawPath), []byte("raw after\n"), 0600))
 	for i := 0; i < 12; i++ {
 		require.NoError(t, os.WriteFile(filepath.Join(root, fmt.Sprintf("outside-%02d.ts", i)), []byte(fmt.Sprintf("outside %02d\n", i)), 0600))
 	}
@@ -96,7 +147,7 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	require.Len(t, entries[0].Files, 12)
 	var count int
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&count))
-	require.Equal(t, 1, count)
+	require.Equal(t, baselineBursts+1, count)
 	// A later actor-independent burst changes/deletes the same paths. The
 	// first selection must keep its own end state rather than the new disk.
 	require.NoError(t, os.WriteFile(filepath.Join(root, "outside-00.ts"), []byte("later\n"), 0600))
@@ -105,11 +156,51 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	require.Eventually(t, func() bool {
 		var n int
 		err := f.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&n)
-		return err == nil && n == 2
+		return err == nil && n == baselineBursts+2
 	}, 20*time.Second, 100*time.Millisecond)
 	var laterEntry string
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->>'id' FROM product_job_events WHERE event_type='branch.burst' ORDER BY sequence DESC LIMIT 1`).Scan(&laterEntry))
 	require.NotEqual(t, entries[0].ID, laterEntry)
+	// Capture crosses the production RPC/outbox/bundle/transaction boundary.
+	// Read the independent text oracle directly from the retained tree.
+	// This does not qualify native capture of non-UTF-8 names (C-COL-05).
+	var capture machined.CaptureResult
+	require.Eventually(t, func() bool {
+		capture, err = registry.Capture(ctx, f.row.ID)
+		// Another capture can observe a watcher event while this RPC drains;
+		// the production client refuses that idle receipt and requires retry.
+		if errors.Is(err, machined.ErrNotReady) {
+			return false
+		}
+		require.NoError(t, err)
+		return true
+	}, 15*time.Second, 100*time.Millisecond)
+	capturedText, err := exec.Command("/usr/bin/git", "-C", store, "show", capture.Head+":outside-00.ts").CombinedOutput()
+	require.NoError(t, err, string(capturedText))
+	require.Equal(t, []byte("later\n"), capturedText)
+	capturedNames, err := exec.Command("/usr/bin/git", "-C", store, "ls-tree", "-r", "-z", "--name-only", capture.Head).CombinedOutput()
+	require.NoError(t, err, string(capturedNames))
+	require.NotContains(t, string(capturedNames), "node_modules/")
+	var hiddenRows int
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT count(*) FROM burst_files WHERE path NOT LIKE 'outside-%' AND path<>'.gitignore'`).Scan(&hiddenRows))
+	require.Zero(t, hiddenRows, "ignored and non-UTF-8 paths cannot become public edits")
+	// Every file hint delivered before the ordered durable activity belongs to
+	// a public path. Capture has drained all previous watcher work at this point.
+	sendPresenceFrame(t, filesSocket, fmt.Sprintf(`{"t":"sub","id":3,"topic":"branch:%s:files"}`, f.row.ID))
+	hints := 0
+	for {
+		frame := readPresenceFrame(t, filesSocket)
+		require.NotContains(t, string(frame.Data), "node_modules")
+		require.NotContains(t, string(frame.Data), "invalid-")
+		if frame.ID == 3 {
+			require.Equal(t, "snap", frame.T)
+			break
+		}
+		if frame.ID == 2 && (frame.T == "delta" || frame.T == "snap") && strings.Contains(string(frame.Data), "outside-") {
+			hints++
+		}
+	}
+	require.Positive(t, hints, "the open File-card subscription must receive real write hints")
 	require.NoError(t, registry.Close()) // retained objects require no live machine
 	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
@@ -164,7 +255,7 @@ func TestOutsideWatcherComposedInstallLive(t *testing.T) {
 	refs, err := exec.Command("/usr/bin/git", "-C", store, "for-each-ref", "--format=%(objectname)", "refs/smithers/branches/"+f.row.ID+"/bursts/").CombinedOutput()
 	require.NoError(t, err, string(refs))
 	require.Contains(t, string(refs), entries[0].Versions+"\n")
-	require.Len(t, strings.Fields(string(refs)), 2)
+	require.Len(t, strings.Fields(string(refs)), baselineBursts+2)
 	for i, file := range entries[0].Files {
 		require.Equal(t, fmt.Sprintf("outside-%02d.ts", i), file.Path)
 		bytes := []byte(fmt.Sprintf("outside %02d\n", i))
