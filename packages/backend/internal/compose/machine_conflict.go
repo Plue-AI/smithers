@@ -47,6 +47,12 @@ func machineRetainedConflict(ctx context.Context, pool *pgxpool.Pool, branch str
 	}
 	result := checks.Rebase.Native
 	retained := checks.Reservation
+	if result == nil && checks.RunLaunched && checks.RunAttached && retained.Run == item.RequestRunID && checks.Rebase.Onto == retained.Onto && integration.Conflict.Head == retained.Change && integration.Conflict.Onto == retained.Onto {
+		// A host-only conflict has not rewritten the sleeping native working
+		// copy. Wake that original capture normally; the fenced stack rebase
+		// must produce its own native receipt before conflict admission.
+		return nil, nil
+	}
 	if !checks.RunLaunched || !checks.RunAttached || result == nil || len(result.Paths) == 0 || !result.Inspected || result.ReceiptID == "" || result.Head != retained.Change || retained.Run != item.RequestRunID || checks.Rebase.Onto != retained.Onto || integration.Conflict.Head != retained.Change || integration.Conflict.Onto != retained.Onto {
 		return nil, machined.ErrNotReady
 	}

@@ -152,7 +152,11 @@ func (r *rehearsal) rebaseNowBranch(n int64) (string, error) {
 	return r.rebaseBranch(n, true)
 }
 
-func TestRebaseConflictRehearsal(t *testing.T) {
+func TestRebaseConflictRehearsal(t *testing.T) { testRebaseConflictRehearsal(t, false) }
+
+func TestRebaseAsleepConflictRehearsal(t *testing.T) { testRebaseConflictRehearsal(t, true) }
+
+func testRebaseConflictRehearsal(t *testing.T, asleep bool) {
 	r := newRehearsal(t, "SMITHERS_REBASE_REHEARSAL", "C-J7-03", "rebase-conflict-")
 	if !r.setupSource() || !r.setupMachine() {
 		return
@@ -176,8 +180,22 @@ func TestRebaseConflictRehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	if asleep {
+		if !r.step("Sleep the retained branch", "POST /api/branches/{b} {op:sleep}", "captured branch asleep before main changes", "T-STK-08", func() error {
+			card, err := r.todo(n)
+			if err != nil {
+				return err
+			}
+			if card.Branch == nil {
+				return fmt.Errorf("TODO has no retained branch")
+			}
+			return r.sleepRebaseBranch(card.Branch.ID)
+		}) {
+			return
+		}
+	}
 	r.step("Agent resolves the rebase in the same attempt", "POST /api/branches/{b} {rebase:true}; coding host; GitHub fake", "one repair in the same pinned attempt, both sides retained, same PR updated", "T-STK-08", func() error {
-		if _, err := r.rebaseBranchWithMain(n, true, "JOURNEY.md", "Greeting from new main\n"); err != nil {
+		if _, err := r.rebaseBranchWithMain(n, !asleep, "JOURNEY.md", "Greeting from new main\n"); err != nil {
 			return err
 		}
 		var currentRun string

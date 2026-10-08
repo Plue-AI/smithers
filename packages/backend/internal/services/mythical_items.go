@@ -1782,6 +1782,10 @@ func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 		// this existing worker due so a pending main move does not wait for
 		// the stale-stack sweep after its first unknown/occupied snapshot.
 		return now.Add(3 * time.Second)
+	case item.State == "integrating" && item.Reason == "rebase_conflict_pending" && mythicalChecksOf(item).ConflictReservation != nil && !mythicalChecksOf(item).ConflictReservation.Dispatched:
+		// Materializing an asleep conflict changes its receipt, not its
+		// state. Keep admission due until the same reserved repair launches.
+		return now.Add(3 * time.Second)
 	case mythicalRunInFlight(item), !moved:
 		return time.Time{}
 	}
@@ -1826,10 +1830,16 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 			}
 		}
 	}
-	// A live TODO is parked for review, not finished. Retain the coding
-	// workspace and journal so a review steer re-enters that exact run.
-	if item.State == "proposed" && item.FlowDigest.Valid && item.RequestOutcome == "" {
-		return item
+	// Delivery completion does not retire the person's open branch. Retain
+	// its coding workspace and journal through review, including Sleep.
+	if !mythicalSettledStates[item.State] && item.FlowDigest.Valid {
+		if s.store == nil {
+			return item
+		}
+		branch, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
+		if err != nil || branch.ID == item.WorkspaceID {
+			return item
+		}
 	}
 	// Keep interrupted work for its person. Finished review lanes use the
 	// qualified retirement path until #3572 composes safe-idle release; retaining
@@ -2629,6 +2639,12 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 			if item.WorkspaceID == lane.WorkspaceID || review != nil && review.Lane == lane.WorkspaceID && review.Verdict == "" {
 				continue
 			}
+			if item.Source == "todo" && item.FlowDigest.Valid && !mythicalSettledStates[item.State] {
+				branch, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
+				if err != nil || branch.ID == lane.WorkspaceID {
+					continue // an isolated verification does not orphan the open branch
+				}
+			}
 		}
 		if err := s.retireLane(ctx, r, lane.WorkspaceID); err != nil && ctx.Err() == nil {
 			s.logger.Warn("mythical.lane_release_failed", "workspace_id", lane.WorkspaceID, "error", err)
@@ -3418,10 +3434,14 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	var asleepBranch *db.Workspace
+	var retainedAsleep struct {
+		Kind, Head, Onto, Base, Before, Workspace string
+	}
+	_ = json.Unmarshal(item.Integration, &retainedAsleep)
 	nativeWorkspace := item.WorkspaceID
 	review := mythicalChecksOf(item).Review
 	reviewBound := review != nil && review.Lane != "" && review.Lane == nativeWorkspace
-	if (reviewBound || nativeWorkspace == "") && (s.branchRebase != nil || s.installAuthorization) {
+	if s.branchRebase != nil || s.installAuthorization {
 		branch, err := st.q.GetMythicalTodoBranchWorkspace(ctx, item)
 		if err != nil {
 			return nil, false, err
@@ -3433,7 +3453,22 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			if len(branch.CapturePending) > 0 || !codingCommitID.MatchString(branch.HeadCommitID) {
 				return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
 			}
-			if branch.HeadCommitID != item.CandidateHead {
+			retained := retainedAsleep.Kind == "asleep-rebased" && retainedAsleep.Head == branch.HeadCommitID && retainedAsleep.Workspace == branch.ID && retainedAsleep.Before == item.CandidateHead && retainedAsleep.Base == item.CandidateBase
+			if retained {
+				if !r.g.has(ctx, retainedAsleep.Head) {
+					if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, repohost.BranchHeadRef(branch.ID)); err != nil {
+						return nil, false, err
+					}
+				}
+				commit, err := r.g.readCommit(ctx, retainedAsleep.Head)
+				if err != nil || commit.Parent() != retainedAsleep.Onto {
+					return nil, false, machined.ErrNotReady
+				}
+				if retainedAsleep.Onto == onto {
+					return st.verifyCandidate(ctx, item, next, onto, retainedAsleep.Head, nil)
+				}
+			}
+			if !retained && branch.HeadCommitID != item.CandidateHead {
 				if !r.g.has(ctx, branch.HeadCommitID) {
 					if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, "refs/smithers/branches/"+branch.ID+"/head"); err != nil {
 						return nil, false, err
@@ -3456,6 +3491,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			asleepBranch = &branch
 			nativeWorkspace = ""
 		case "running":
+			if !reviewBound && nativeWorkspace == branch.ID {
+				break
+			}
 			// A person reopened the retained branch. Retire the stale isolated
 			// review and restore that branch binding before native admission.
 			if reviewBound {
@@ -3484,6 +3522,33 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 			return nil, false, err
 		}
 		defer asleepTx.Rollback(context.WithoutCancel(ctx))
+		// Stack/item authority precedes the lifecycle row lock, just as it
+		// does for native rewrites. The receipt and captured head commit together.
+		var live bool
+		if err := asleepTx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, r.row.Claim).Scan(&live); err != nil {
+			return nil, false, err
+		}
+		if !live {
+			return nil, false, db.ErrMythicalLeaseLost
+		}
+		q := db.New(asleepTx)
+		order, err := q.LockMythicalStackOrder(ctx, item.RepositoryID)
+		if err != nil {
+			return nil, false, err
+		}
+		fresh, err := q.GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return nil, false, err
+		}
+		currentMain, err := s.MainHead(ctx, r.owner, r.repo, "main")
+		if err != nil {
+			return nil, false, err
+		}
+		fence := *st
+		fence.items = order
+		if currentMain != r.mainTip || fresh.Version != item.Version || fresh.WorkspaceID != item.WorkspaceID || fresh.PausedAt.Valid || mythicalMergeFenced(fresh) || len(fresh.PendingOp) != 0 || fence.prefix(fresh) != onto {
+			return nil, false, db.ErrMythicalItemMoved
+		}
 		var status, head string
 		var capture []byte
 		if err := asleepTx.QueryRow(ctx, `SELECT status,head_commit_id,capture_pending FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR UPDATE`, asleepBranch.ID, item.RepositoryID).Scan(&status, &head, &capture); err != nil {
@@ -3498,7 +3563,66 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	rebased, err := r.g.rebaseCandidate(ctx, onto, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64,
 		Base: item.CandidateBase, Head: item.CandidateHead}, mythicalChainLimit)
 	if asleepTx != nil {
-		if releaseErr := asleepTx.Rollback(context.WithoutCancel(ctx)); releaseErr != nil {
+		if err == nil {
+			// The sleeping machine's retained head is its next Wake source.
+			// Publish only this admitted branch's exact captured-head CAS while
+			// its lifecycle row remains locked; repository code never runs here.
+			if _, keepErr := s.retainFor(ctx, r, asleepBranch.ID, rebased); keepErr != nil {
+				return nil, false, keepErr
+			}
+			ref := repohost.BranchHeadRef(asleepBranch.ID)
+			r.bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: asleepBranch.HeadCommitID, New: rebased}}, repohost.ReceivePackMetadata{RepositoryID: item.RepositoryID, WorkspaceID: asleepBranch.ID, PusherLogin: "smithers"})
+			if _, pushErr := r.g.git(ctx, "push", "--porcelain", "--no-verify", "--force-with-lease="+ref+":"+asleepBranch.HeadCommitID, r.bridge.URL(), rebased+":"+ref); pushErr != nil {
+				refs, readErr := r.g.lsRemote(ctx, r.bridge.URL())
+				if readErr != nil || refs[ref] == "" || refs[ref] == asleepBranch.HeadCommitID {
+					return nil, false, fmt.Errorf("retain asleep rebase: %s", sanitizeMirrorError(pushErr, r.bridge.URL()))
+				}
+				if refs[ref] != rebased {
+					// A previous claim may have published this exact data-only
+					// result before its SQL commit. Replant's commit timestamp can
+					// differ on retry; identity, parent, message and tree must not.
+					if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, ref); err != nil {
+						return nil, false, err
+					}
+					published, err := r.g.readCommit(ctx, refs[ref])
+					if err != nil {
+						return nil, false, err
+					}
+					planned, err := r.g.readCommit(ctx, rebased)
+					if err != nil {
+						return nil, false, err
+					}
+					if !sameAsleepRebaseResult(planned, published) {
+						return nil, false, db.ErrMythicalItemMoved
+					}
+					rebased = published.ID
+				}
+			}
+			commit, readErr := r.g.readCommit(ctx, rebased)
+			if readErr != nil {
+				return nil, false, readErr
+			}
+			if _, saveErr := asleepTx.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2,head_change_id=$3,updated_at=NOW() WHERE id=$1`, asleepBranch.ID, rebased, commit.ChangeID); saveErr != nil {
+				return nil, false, saveErr
+			}
+			receipt := item
+			receipt.Integration, _ = json.Marshal(map[string]string{"kind": "asleep-rebased", "head": rebased, "onto": onto, "base": item.CandidateBase, "before": item.CandidateHead, "workspace": asleepBranch.ID})
+			receipt.Reason = "rebase_pending"
+			receipt.NextAttemptAt.Time, receipt.NextAttemptAt.Valid = st.now.Add(3*time.Second), true
+			checks := mythicalChecksOf(receipt)
+			if checks.Rebase == nil || checks.Rebase.Onto != onto {
+				checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
+			}
+			receipt.Checks = checks.encode()
+			saved, saveErr := db.New(asleepTx).SaveMythicalItem(ctx, receipt)
+			if saveErr != nil {
+				return nil, false, saveErr
+			}
+			if releaseErr := asleepTx.Commit(ctx); releaseErr != nil {
+				return nil, false, releaseErr
+			}
+			return &saved, true, nil
+		} else if releaseErr := asleepTx.Rollback(context.WithoutCancel(ctx)); releaseErr != nil {
 			return nil, false, releaseErr
 		}
 	}
@@ -3563,6 +3687,16 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 		return hold, false, nil
 	}
 	workspaceID := item.WorkspaceID
+	if captured == nil && workspaceID != "" && (s.branchRebase != nil || s.installAuthorization) {
+		branch, err := st.q.GetWorkspace(ctx, workspaceID)
+		if err != nil {
+			return nil, false, err
+		}
+		if branch.Status == "stopped" || branch.Status == "suspended" {
+			// Engine checks use an isolated lane, preserving the sleeping branch.
+			workspaceID = ""
+		}
+	}
 	if !st.slot(item) {
 		if captured != nil {
 			// Keep the capture pending without inventing a rebase dependency.
@@ -5084,7 +5218,14 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		return refused, false, nil
 	}
 	checks.Placement = &placement
-	retainCoding := item.FlowDigest.Valid && item.RequestOutcome == ""
+	retainCoding := item.FlowDigest.Valid
+	if retainCoding {
+		branch, err := st.q.GetMythicalTodoBranchWorkspace(ctx, item)
+		if err != nil {
+			return nil, false, err
+		}
+		retainCoding = branch.ID == item.WorkspaceID
+	}
 	if next.WorkspaceID != "" && !retainCoding {
 		if err := s.retireLane(ctx, r, next.WorkspaceID); err != nil {
 			return mythicalInfraOutage(item, "launch", "the coding lane could not be retired before the review: "+err.Error(), st.now), false, nil

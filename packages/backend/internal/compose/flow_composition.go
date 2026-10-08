@@ -193,6 +193,8 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
+	settlementPending := errors.New("native TODO settlement is pending")
+	var settleTodo func(context.Context, int64, db.MythicalItem) error
 	if owner, ok := boxes.(interface {
 		SetFlowHostCapturePreparation(func(context.Context, string) error)
 	}); ok {
@@ -206,7 +208,47 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 				flowruntime.Identity{RuntimeArtifactDigest: host.RuntimeArtifactDigest, SourceRevision: host.SourceRevision}, jobs.ActiveReceiptFilter{ExcludeCancelled: true, WorkspaceID: host.WorkspaceID})
 		})
 		owner.SetFlowHostCapturePreparation(func(ctx context.Context, id string) error {
-			return bindings.PrepareWorkspaceCapture(ctx, id, stopper, captureRuns)
+			if err := bindings.PrepareWorkspaceCapture(ctx, id, stopper, captureRuns); err == nil {
+				return nil
+			} else {
+				q := db.New(pool)
+				lane, readErr := q.GetMythicalLane(ctx, id)
+				if readErr != nil || lane.RetiredAt.Valid || settleTodo == nil {
+					return err
+				}
+				item, readErr := q.GetMythicalItem(ctx, lane.ItemID)
+				if readErr != nil || (item.State != "proposed" && item.State != "proposing" && item.State != "integrating" && item.State != "in_review") || item.Reason != "" || len(item.PendingOp) != 0 || item.RequestRunID == "" || !item.FlowDigest.Valid {
+					return err
+				}
+				branch, branchErr := q.GetMythicalTodoBranchWorkspace(ctx, item)
+				if branchErr != nil || branch.ID != id {
+					return err
+				}
+				// Verification and review may occupy the current lane. Settlement
+				// still addresses the original root on its canonical coding branch.
+				item.WorkspaceID = id
+				// CompleteRun accepts only a parked, completed module under this
+				// exact attempt pin. It never cancels active work to permit Sleep.
+				deadline, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				for {
+					if settleErr := settleTodo(deadline, item.RepositoryID, item); settleErr == nil {
+						if err := bindings.PrepareWorkspaceCapture(deadline, id, stopper, captureRuns); err == nil {
+							return nil
+						}
+					} else if !errors.Is(settleErr, settlementPending) {
+						var transient flowruntime.Failure
+						if !errors.As(settleErr, &transient) || !transient.FlowRuntimeRetryable() {
+							return settleErr
+						}
+					}
+					select {
+					case <-deadline.Done():
+						return deadline.Err()
+					case <-time.After(100 * time.Millisecond):
+					}
+				}
+			}
 		})
 	}
 	// Each run stays readable after its machine stops: lifecycle pages retain
@@ -220,7 +262,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
 	archive.host = dispatcher
-	mythical.SetTodoRunSettlement(func(ctx context.Context, repository int64, item db.MythicalItem) error {
+	settleTodo = func(ctx context.Context, repository int64, item db.MythicalItem) error {
 		itemID := uuid.UUID(item.ID.Bytes).String()
 		monitors := &runMonitors{pool: pool, reader: dispatcher}
 		checkpoints, err := monitors.checkpoints(ctx, repository, item.WorkspaceID+":"+item.RequestRunID)
@@ -238,8 +280,9 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		if err := dispatcher.CompleteRun(ctx, cp.Target, cp.RunID, "todo-complete:"+itemID+":"+cp.RunID); err != nil {
 			return err
 		}
-		return errors.New("native TODO settlement is pending")
-	})
+		return settlementPending
+	}
+	mythical.SetTodoRunSettlement(settleTodo)
 	var review *reviewMachine
 	reviewWorkspace := options.ReviewWorkspace
 	if reviewWorkspace == nil {

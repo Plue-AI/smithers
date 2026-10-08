@@ -24,6 +24,12 @@ func (s *MythicalService) SetBranchRebaseExecutor(executor BranchRebaseExecutor)
 	s.branchRebase = executor
 }
 
+func sameAsleepRebaseResult(planned, published mythicalCommit) bool {
+	return planned.ChangeID != "" && planned.ChangeID == published.ChangeID &&
+		len(planned.Parents) == 1 && len(published.Parents) == 1 && planned.Parent() == published.Parent() &&
+		planned.Tree == published.Tree && planned.Message == published.Message && planned.Author == published.Author
+}
+
 func (st *mythicalItemStep) lockNativeRebase(ctx context.Context, tx pgx.Tx, item db.MythicalItem, onto string) error {
 	return st.lockNativeRebaseState(ctx, tx, item, onto, true)
 }
@@ -102,6 +108,10 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 	if st.s.branchRebase == nil {
 		return nil, false, nil
 	}
+	checks := mythicalChecksOf(item)
+	var retained struct{ Conflict struct{ Head, Onto string } }
+	_ = json.Unmarshal(item.Integration, &retained)
+	materializing := checks.Rebase != nil && checks.Rebase.Native == nil && checks.ConflictReservation != nil && !checks.ConflictReservation.Dispatched && checks.ConflictReservation.Onto == onto && retained.Conflict.Head == checks.ConflictReservation.Change && retained.Conflict.Onto == onto
 	member := st.r.row.ActorUserID.Int64
 	if request := mythicalChecksOf(item).Rebase; request != nil && request.Request != nil && st.s.mayExecuteRequestedRebase(ctx, item, onto) {
 		member = request.Request.User
@@ -124,6 +134,14 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 		return rewrite()
 	})
 	if err != nil {
+		if materializing && errors.Is(err, machined.ErrNotReady) {
+			// Wake and host startup acknowledge before readiness. Keep this
+			// existing reservation due without spending an outage or attempt.
+			next := item
+			next.NextAttemptAt.Valid = true
+			next.NextAttemptAt.Time = st.now.Add(3 * time.Second)
+			return &next, false, nil
+		}
 		// A fresh fence refused this snapshot before the rewrite. Read the
 		// new branch/presence boundary rather than charging an outage delay.
 		if errors.Is(err, db.ErrMythicalItemMoved) {
@@ -150,12 +168,22 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 		return nil, false, machined.ErrNotReady
 	}
 	next := item
-	checks := mythicalChecksOf(next)
 	if checks.Rebase == nil {
 		checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
 	}
 	checks.Rebase.BlockingSession = 0
 	checks.Rebase.Native = &result
+	if materializing {
+		// The asleep data-only merge reserved this budget before a coding
+		// machine existed. Materialization binds that same reservation to the
+		// daemon's native conflict; it never reserves or launches repair twice.
+		checks.ConflictReservation.Change = result.Head
+		next.Integration, _ = json.Marshal(map[string]any{"conflict": map[string]any{"head": result.Head, "onto": onto, "paths": result.Paths, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
+		next.Reason = "rebase_conflict_pending"
+		if len(result.Paths) == 0 {
+			next.Reason = ""
+		}
+	}
 	next.Checks = checks.encode()
 	if tx == nil {
 		return nil, false, machined.ErrNotReady
@@ -169,6 +197,83 @@ func (st *mythicalItemStep) executeNativeRebase(ctx context.Context, item db.Myt
 	}
 
 	return &saved, true, nil
+}
+
+// A conflicted asleep merge is retained as data first. Only conflict
+// materialization needs the original coding machine; clean asleep rebases
+// continue through host verification without waking that branch.
+func (st *mythicalItemStep) materializeRetainedConflict(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	checks := mythicalChecksOf(item)
+	reservation, pending := checks.ConflictReservation, checks.Rebase
+	_, pinned := mythicalPinOf(item)
+	if st.s.branchRebase == nil || st.s.conflictValidator == nil || st.s.launcher == nil || !pinned || !checks.RunLaunched || !checks.RunAttached || reservation == nil || pending == nil || pending.Native != nil || reservation.Dispatched || reservation.Run != item.RequestRunID || reservation.Onto != pending.Onto || st.prefix(item) != pending.Onto {
+		return nil, false, nil
+	}
+	branch, err := st.q.GetMythicalTodoBranchWorkspace(ctx, item)
+	if err != nil {
+		return nil, false, err
+	}
+	if branch.Status != "running" && branch.Status != "stopped" && branch.Status != "suspended" {
+		return nil, false, nil
+	}
+	lane, err := st.q.GetMythicalLane(ctx, branch.ID)
+	if err != nil || lane.ItemID != item.ID || lane.RepositoryID != item.RepositoryID {
+		return nil, false, machined.ErrNotReady
+	}
+	if item.WorkspaceID == branch.ID && !lane.RetiredAt.Valid {
+		return st.executeNativeRebase(ctx, item, pending.Onto)
+	}
+	// Rebind and revive the retained lane before the existing executor's
+	// admitted wake. No new TODO, attempt, workspace or agent is created.
+	next := item
+	next.WorkspaceID = branch.ID
+	err = pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
+		var live bool
+		if err := tx.QueryRow(ctx, `SELECT state='active' AND running AND claim=$2 AND lease_expires_at>clock_timestamp() FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID, st.r.row.Claim).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return db.ErrMythicalLeaseLost
+		}
+		q := db.New(tx)
+		order, err := q.LockMythicalStackOrder(ctx, item.RepositoryID)
+		if err != nil {
+			return err
+		}
+		current, err := q.GetMythicalItem(ctx, item.ID)
+		if err != nil {
+			return err
+		}
+		step := *st
+		step.items = order
+		main, err := st.s.MainHead(ctx, st.r.owner, st.r.repo, "main")
+		if err != nil {
+			return err
+		}
+		if current.Version != item.Version || current.PausedAt.Valid || mythicalMergeFenced(current) || len(current.PendingOp) != 0 || step.prefix(current) != pending.Onto || main != st.r.mainTip {
+			return db.ErrMythicalItemMoved
+		}
+		if !st.s.mayExecuteRequestedRebase(ctx, next, pending.Onto) && !st.s.mayRebaseItemAtBoundary(ctx, next) {
+			return db.ErrMythicalItemMoved
+		}
+		var status, head string
+		var capture []byte
+		if err := tx.QueryRow(ctx, `SELECT status,head_commit_id,capture_pending FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, branch.ID, item.RepositoryID).Scan(&status, &head, &capture); err != nil {
+			return err
+		}
+		if status != branch.Status || head != branch.HeadCommitID || len(capture) != 0 {
+			return db.ErrMythicalItemMoved
+		}
+		next, err = q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return err
+		}
+		return q.RestoreMythicalItemLane(ctx, next)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return &next, true, nil
 }
 
 func (st *mythicalItemStep) continueNativeRebase(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {

@@ -21,6 +21,9 @@ import (
 func (st *mythicalItemStep) continueConflict(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	checks := mythicalChecksOf(item)
 	reservation := checks.ConflictReservation
+	if checks.Rebase != nil && checks.Rebase.Native == nil && reservation != nil && !reservation.Dispatched {
+		return st.materializeRetainedConflict(ctx, item)
+	}
 	_, pinned := mythicalPinOf(item)
 	if reservation == nil || !pinned || !checks.RunLaunched || !checks.RunAttached || reservation.Run != item.RequestRunID || item.WorkspaceID == "" || st.s.branchRebase == nil || st.s.conflictValidator == nil || checks.Rebase == nil || checks.Rebase.Onto != reservation.Onto || st.prefix(item) != reservation.Onto {
 		return nil, false, nil

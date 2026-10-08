@@ -47,6 +47,9 @@ type rehearsalRestart struct {
 	Attach func(context.Context, string) error
 	// HostHead comes from the production machineBranchHead provider.
 	HostHead string
+	// Transfer uses the install's production object transport before wake.
+	// Standalone native fixtures already share their exact repository.
+	Transfer bool
 	Conflict *machined.RetainedConflict
 	Exited   chan error
 }
@@ -205,7 +208,7 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	}
 	// The daemon and host already share this exact repository. No object transfer
 	// fixture or synthetic readiness receipt substitutes for native reconciliation.
-	if restart != nil && restart.Conflict != nil {
+	if restart != nil && (restart.Conflict != nil || restart.Transfer) {
 		return registry.AdmitReady(ctx, branch, hex.EncodeToString(headBytes), nil, restart.Conflict)
 	}
 	reply, err := link.Request(ctx, branch, wire.WakeReconcile, wire.Field(1, headBytes))

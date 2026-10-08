@@ -30,12 +30,18 @@ type wakeBoundaryRuntime struct {
 	inspections int
 }
 
+type nativeWakeBoundaryRuntime struct{ *wakeBoundaryRuntime }
+
+func (*nativeWakeBoundaryRuntime) EnsureMachined(context.Context, string) error {
+	return errors.New("daemon unavailable")
+}
+
 func (r *wakeBoundaryRuntime) InspectWorkspace(context.Context, string) (workspaceapi.Workspace, error) {
 	r.inspections++
 	return workspaceapi.Workspace{}, errors.New("guest unavailable")
 }
 func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
-	for _, mode := range []string{"active", "review", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "review_working", "review_paused", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
+	for _, mode := range []string{"active", "review", "starting", "starting_unbound", "starting_legacy", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "review_working", "review_paused", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
 		t.Run(mode, func(t *testing.T) {
 			id := uuid.New()
 			row := db.Workspace{ID: "retained", RepositoryID: 3, UserID: 9, Status: "suspended"}
@@ -72,6 +78,11 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 				row.DeletedAt.Valid = true
 			case "pending":
 				row.Status = "pending"
+			case "starting", "starting_unbound", "starting_legacy":
+				row.Status, row.VmID = "starting", row.ID
+				if mode == "starting_unbound" {
+					row.VmID = ""
+				}
 			case "paused":
 				q.item.PausedAt.Valid = true
 			case "landed", "dropped", "cancelled":
@@ -86,9 +97,13 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 				q.laneErr = errors.New("offline")
 			}
 			runtime := &wakeBoundaryRuntime{}
-			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
+			var provider workspaceapi.WorkspaceRuntime = runtime
+			if mode == "starting" || mode == "starting_unbound" {
+				provider = &nativeWakeBoundaryRuntime{runtime}
+			}
+			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(provider))
 			require.Error(t, service.WakeTodoWorkspace(context.Background(), id.String(), row.ID, 3, 9))
-			if mode == "active" || mode == "review" {
+			if mode == "active" || mode == "review" || mode == "starting" {
 				require.Equal(t, 1, runtime.inspections)
 			} else {
 				require.Zero(t, runtime.inspections)

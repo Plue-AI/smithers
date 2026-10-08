@@ -267,6 +267,9 @@ func TestMythicalAppendedCandidatesRebaseAndRewritesDoNot(t *testing.T) {
 	again, err := f.git.rebaseCandidate(ctx, folded.ID, candidate, 100)
 	require.NoError(t, err)
 	assert.Equal(t, rebased, again, "rebasing is deterministic")
+	rebasedCommit, err := f.git.readCommit(ctx, rebased)
+	require.NoError(t, err)
+	require.Equal(t, mythicalChangeIDFor("lane", "a"), rebasedCommit.ChangeID, "sleeping native machines must resume the same logical item")
 
 	// A conflicting append refuses adoption instead of guessing.
 	conflicting := f.laneCommit(oldTip, "✨ feat: touch b", map[string]string{"b.txt": "b3\n"}, mythicalChangeIDFor("lane", "b"))

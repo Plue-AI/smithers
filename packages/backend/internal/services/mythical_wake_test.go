@@ -168,6 +168,8 @@ func TestMythicalNextDue(t *testing.T) {
 	later := pgtype.Timestamptz{Time: now.Add(30 * time.Second), Valid: true}
 	past := pgtype.Timestamptz{Time: now.Add(-time.Second), Valid: true}
 	reviewing, _ := json.Marshal(mythicalChecks{Review: &mythicalReview{Head: "head"}})
+	reserved := mythicalChecks{ConflictReservation: &todoConflictReservation{Change: "conflict", Onto: "main"}}.encode()
+	dispatched := mythicalChecks{ConflictReservation: &todoConflictReservation{Change: "conflict", Onto: "main", Dispatched: true}}.encode()
 	for _, tc := range []struct {
 		name          string
 		before, after db.MythicalItem
@@ -181,6 +183,8 @@ func TestMythicalNextDue(t *testing.T) {
 		{"a delivery in flight wakes the stack itself", db.MythicalItem{State: "running", RequestOutcome: "validated"}, db.MythicalItem{State: "delivering", RequestOutcome: "validated"}, time.Time{}},
 		{"a review in flight wakes the stack itself", db.MythicalItem{State: "proposing"}, db.MythicalItem{State: "proposed", PRHead: "head", Checks: reviewing}, time.Time{}},
 		{"an unmoved item waits for an event", db.MythicalItem{State: "proposed"}, db.MythicalItem{State: "proposed", Reason: "waiting for a free lane", NextAttemptAt: past}, time.Time{}},
+		{"materialized conflict still owes its reserved launch", db.MythicalItem{State: "integrating"}, db.MythicalItem{State: "integrating", Reason: "rebase_conflict_pending", Checks: reserved}, now.Add(3 * time.Second)},
+		{"dispatched repair wakes the stack itself", db.MythicalItem{State: "integrating"}, db.MythicalItem{State: "integrating", Reason: "rebase_conflict_pending", Checks: dispatched}, time.Time{}},
 		{"a merged native run waits for completion and archive", db.MythicalItem{State: "landed"}, db.MythicalItem{State: "landed", WorkspaceID: "retained", RequestRunID: "native-root", FlowDigest: pgtype.Text{String: "pinned", Valid: true}}, now.Add(3 * time.Second)},
 		{"a settled item takes no step", db.MythicalItem{State: "proposed"}, db.MythicalItem{State: "landed"}, time.Time{}},
 		{"a blocked item waits for a person", db.MythicalItem{State: "running"}, db.MythicalItem{State: "blocked", NextAttemptAt: later}, time.Time{}},

@@ -55,7 +55,11 @@ func (s *WorkspaceService) WakeTodoWorkspace(ctx context.Context, itemID, worksp
 		case "landed", "cancelled", "rejected", "declined", "skipped", "dropped":
 			return mythicalFlowFailure{code: "runtime_run_terminal"}
 		}
-		if current.Status != "running" && current.Status != "suspended" && current.Status != "stopped" {
+		_, nativeAdmission := s.runtime.(interface {
+			EnsureMachined(context.Context, string) error
+		})
+		recoveringBoot := current.Status == "starting" && current.VmID != "" && nativeAdmission
+		if current.Status != "running" && current.Status != "suspended" && current.Status != "stopped" && !recoveringBoot {
 			return mythicalLaneNotRunning(current, nil)
 		}
 		_, err = s.ensureRuntimeWorkspaceRunningLocked(ctx, current, userID)

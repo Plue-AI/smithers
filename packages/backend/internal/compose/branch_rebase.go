@@ -7,6 +7,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 )
 
@@ -35,6 +38,29 @@ func (r machineRebase) Rebase(ctx context.Context, branch string, member int64, 
 	}
 	if err := link.RequireReady(branch); err != nil {
 		return machined.RewriteResult{}, fmt.Errorf("rebase readiness: %w", err)
+	}
+	if r.presence != nil {
+		// Materializing an asleep conflict wakes the daemon first. Its retained
+		// coding host must also resume its authenticated roster; host absence
+		// on an awake machine remains unknown, never permission to rewrite.
+		if r.presence.hosts == nil || r.presence.dispatcher == nil {
+			return machined.RewriteResult{}, machined.ErrNotReady
+		}
+		var target flowruntime.Target
+		target.WorkspaceID = branch
+		// The private durable binding, including its original principal, is
+		// authority for host restart. The browser reader accepts live hosts
+		// only and must not acquire a new wake side effect.
+		if err := r.pool.QueryRow(ctx, `SELECT tenant_id,principal_id,binding_kind,binding_id FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND state<>'retired' AND binding_kind=$3`, branch, flowhost.CatalogCoding, flowdispatch.StackBindingKind).Scan(&target.TenantID, &target.PrincipalID, &target.BindingKind, &target.BindingID); err != nil {
+			return machined.RewriteResult{}, err
+		}
+		ready, err := r.presence.dispatcher.StartHost(ctx, target)
+		if err != nil {
+			return machined.RewriteResult{}, err
+		}
+		if !ready {
+			return machined.RewriteResult{}, machined.ErrNotReady
+		}
 	}
 	actor, err := machined.CommitActor(ctx, r.pool, branch, link.Machine(), func(context.Context, pgx.Tx) (machined.ActorIdentity, error) {
 		return machined.ActorIdentity{Kind: "person", MemberID: member, Via: "web"}, nil

@@ -1,7 +1,12 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,14 +23,24 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	if !r.install("Install through Machine ready") {
 		return
 	}
+	source, err := os.ReadFile(filepath.Join(r.root, "flows/todo/flow.ts"))
+	require.NoError(t, err)
+	activateMonitorOverride(t, r, string(source))
 	first, err := r.file("First change", "[PR] [FILE FIRST.md] Add the first change.")
 	require.NoError(t, err)
 	_, err = r.waitTodoWithin(first, 8*time.Minute, "in_review")
 	require.NoError(t, err)
+	firstCard, err := r.todo(first)
+	require.NoError(t, err)
+	require.NotNil(t, firstCard.Branch)
+	require.NotNil(t, firstCard.Run)
+	require.NoError(t, r.sleepRebaseBranch(firstCard.Branch.ID))
+	require.NoError(t, r.waitSQL(j10RunWait, `SELECT count(*) FROM workspaces WHERE id=$1 AND status IN ('stopped','suspended')`, firstCard.Branch.ID))
 	second, err := r.file("Next change", "[PR] [FILE NEXT.md] Add the next change.")
 	require.NoError(t, err)
-	_, err = r.waitTodoWithin(second, 8*time.Minute, "in_review")
+	secondCard, err := r.waitTodoWithin(second, 8*time.Minute, "in_review")
 	require.NoError(t, err)
+	require.NotNil(t, secondCard.Run)
 	before, err := r.candidate(second)
 	require.NoError(t, err)
 	card, err := r.j10Card(second)
@@ -40,22 +55,39 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 		}
 		require.True(t, time.Now().Before(deadline), "second TODO has no settled review")
 	}
-	// Review releases the coding lane after its durable native capture. The
-	// retained branch remains the item's authority while its machine sleeps.
-	var workspace string
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT l.workspace_id FROM mythical_lanes l JOIN mythical_items i ON i.id=l.item_id WHERE i.number=$1 AND l.name NOT LIKE '% review g%' ORDER BY l.created_at DESC LIMIT 1`, second).Scan(&workspace))
+	// The public TODO names the retained branch, even when verification uses
+	// a separate engine workspace.
+	require.NotNil(t, secondCard.Branch)
+	workspace := secondCard.Branch.ID
 	require.NotEmpty(t, workspace)
-	firstCard, err := r.todo(first)
+	// Sleep is a person action; completing a review need not stop the coding
+	// machine. Enter its existing background control before moving main.
+	require.NoError(t, r.sleepRebaseBranch(workspace))
+	require.NoError(t, r.waitSQL(j10RunWait, `SELECT count(*) FROM workspaces w JOIN mythical_items i ON i.number=$2 WHERE w.id=$1 AND w.status IN ('stopped','suspended') AND i.checks->'review'->>'verdict' IN ('approve','request-changes') AND COALESCE(i.checks->'review'->>'runId','')<>''`, workspace, second))
+	var asleepIdentity, reviewRun string
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT jsonb_build_array(vm_id,resumed_at)::text FROM workspaces WHERE id=$1`, workspace).Scan(&asleepIdentity))
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'review'->>'runId' FROM mythical_items WHERE number=$1`, second).Scan(&reviewRun))
+	firstCard, err = r.todo(first)
 	require.NoError(t, err)
 	movedAt := time.Now()
 	_, err = r.fakeControl("/_fake/merge", map[string]any{"repo": "rehearsal-owner/app", "number": firstCard.PR.Number})
-	require.NoError(t, err)
-	_, err = r.waitTodoWithin(first, time.Minute, "merged")
 	require.NoError(t, err)
 	main, err := r.githubMain()
 	require.NoError(t, err)
 	// 60 s bounds following main, independently of the checks and PR write.
 	deadline := movedAt.Add(time.Minute)
+	// Restart after the host's data-only rewrite commits, before verification
+	// admission. Its receipt must recover without another rewrite or wake.
+	for {
+		var retained int
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items i JOIN workspaces w ON w.id=$2 WHERE i.number=$1 AND i.integration->>'kind'='asleep-rebased' AND i.integration->>'onto'=$3 AND i.integration->>'head'=w.head_commit_id AND i.candidate_base<>$3`, second, workspace, main).Scan(&retained))
+		if retained == 1 {
+			r.restartBackend()
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "the asleep rebase did not retain its pre-verification receipt")
+		time.Sleep(25 * time.Millisecond)
+	}
 	observedAt := time.Time{}
 	for {
 		after, err := r.candidate(second)
@@ -97,6 +129,8 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 		require.True(t, time.Now().Before(deadline), "T%d stayed %s %q on %s after main moved to %s", second, after.State, after.Reason, after.Base, main)
 		time.Sleep(time.Second)
 	}
+	_, err = r.waitTodoWithin(first, time.Minute, "merged")
+	require.NoError(t, err)
 	deadline = time.Now().Add(8 * time.Minute)
 	for {
 		card, err = r.j10Card(second)
@@ -134,5 +168,75 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 		require.True(t, time.Now().Before(deadline), "T%d did not publish its rebased PR: %+v", second, card)
 		time.Sleep(time.Second)
 	}
+	updated, err := r.todo(second)
+	require.NoError(t, err)
+	require.NotNil(t, updated.Branch)
+	require.Equal(t, workspace, updated.Branch.ID, "engine verification must preserve the person's retained branch")
+	branchJSON, err := r.expect("GET", "/api/branches/"+url.PathEscape(workspace), "", 200)
+	require.NoError(t, err)
+	var branch struct {
+		Head string `json:"head"`
+	}
+	require.NoError(t, json.Unmarshal(branchJSON, &branch))
+	afterCandidate, err := r.candidate(second)
+	require.NoError(t, err)
+	require.Equal(t, afterCandidate.Head, branch.Head, "the sleeping Branch card serves the rebased head")
 	require.Zero(t, r.appMergeWrites(firstCard.PR.Number))
+	var status, afterIdentity, afterReview string
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT status,jsonb_build_array(vm_id,resumed_at)::text FROM workspaces WHERE id=$1`, workspace).Scan(&status, &afterIdentity))
+	require.Contains(t, []string{"stopped", "suspended"}, status, "following main must not wake the retained coding branch")
+	require.Equal(t, asleepIdentity, afterIdentity, "the coding machine's wake identity and timestamp must remain unchanged")
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT checks->'review'->>'runId' FROM mythical_items WHERE number=$1`, second).Scan(&afterReview))
+	require.Equal(t, reviewRun, afterReview, "a clean asleep rebase reruns checks and retains the original review")
+	require.NoError(t, r.controlRebaseBranch(workspace, "wake"))
+	for _, path := range []string{"FIRST.md", "NEXT.md"} {
+		fileJSON, err := r.expect("GET", "/api/branches/"+url.PathEscape(workspace)+"/files/"+path, "", 200)
+		require.NoError(t, err)
+		var file struct{ Content struct{ Kind, Text string } }
+		require.NoError(t, json.Unmarshal(fileJSON, &file))
+		want, err := r.githubGit("show", card.PR.Head+":"+path)
+		require.NoError(t, err)
+		require.Equal(t, "text", file.Content.Kind)
+		require.Equal(t, want, strings.TrimSpace(file.Content.Text), "Wake restores the rebased working copy")
+	}
+}
+
+func (r *rehearsal) sleepRebaseBranch(branch string) error {
+	return r.controlRebaseBranch(branch, "sleep")
+}
+
+func (r *rehearsal) controlRebaseBranch(branch, op string) error {
+	code, data, err := r.keyed("POST", "/api/branches/"+url.PathEscape(branch), fmt.Sprintf(`{"op":%q}`, op), r.keyPrefix+op+"-"+branch)
+	if err != nil || code != 202 {
+		return fmt.Errorf("%s admission: %d %s %v", op, code, data, err)
+	}
+	var accepted struct {
+		OperationID string `json:"operationId"`
+	}
+	if err := json.Unmarshal(data, &accepted); err != nil {
+		return err
+	}
+	if accepted.OperationID == "" {
+		return fmt.Errorf("%s has no operation receipt", op)
+	}
+	path := "/api/repos/rehearsal-owner/app/workspaces/" + branch + "/command-runs/" + accepted.OperationID
+	for deadline := time.Now().Add(time.Minute); ; time.Sleep(100 * time.Millisecond) {
+		data, err := r.expect("GET", path, "", 200)
+		if err != nil {
+			return err
+		}
+		var receipt struct {
+			State string `json:"state"`
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(data, &receipt); err != nil {
+			return err
+		}
+		if receipt.State == "completed" {
+			return nil
+		}
+		if receipt.State == "failed" || receipt.State == "uncertain" || receipt.State == "cancelled" || time.Now().After(deadline) {
+			return fmt.Errorf("%s %s: %s", op, receipt.State, receipt.Error)
+		}
+	}
 }

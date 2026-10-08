@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -24,9 +25,13 @@ type rebaseExecutionFixture struct {
 	failCapture      bool
 	stopOnCapture    bool
 	wrongCaptureHead bool
+	failRebase       error
 }
 
 func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, member int64, onto, base string, _ func(pgx.Tx) error, guard func(func() error) error) (machined.RewriteResult, error) {
+	if r.failRebase != nil {
+		return machined.RewriteResult{}, r.failRebase
+	}
 	err := guard(func() error {
 		// The authenticated presence reader holds KEY SHARE independently of
 		// native admission. It must finish while the worker fences the rewrite.
@@ -48,6 +53,65 @@ func (r *rebaseExecutionFixture) Rebase(ctx context.Context, branch string, memb
 		return nil
 	})
 	return r.result, err
+}
+
+func TestRetainedConflictHostStartupKeepsItsReservationDue(t *testing.T) {
+	now := time.Date(2026, 10, 8, 15, 0, 0, 0, time.UTC)
+	checks := mythicalChecks{Rebase: &mythicalRebase{Onto: "main"}, ConflictReservation: &todoConflictReservation{Change: "conflict", Onto: "main", Run: "original", Limit: 1, Reserved: 1}}
+	item := db.MythicalItem{State: "integrating", Reason: "rebase_conflict_pending", RequestRunID: "original", Checks: checks.encode(), Integration: json.RawMessage(`{"conflict":{"Head":"conflict","Onto":"main"}}`)}
+	step := mythicalItemStep{now: now, s: &MythicalService{branchRebase: &rebaseExecutionFixture{failRebase: machined.ErrNotReady}}, r: &mythicalRun{}}
+	next, saved, err := step.executeNativeRebase(t.Context(), item, "main")
+	require.NoError(t, err)
+	require.False(t, saved)
+	require.Equal(t, now.Add(3*time.Second), next.NextAttemptAt.Time)
+	require.Equal(t, item.Reason, next.Reason)
+	require.Equal(t, checks.ConflictReservation, mythicalChecksOf(*next).ConflictReservation)
+	require.Zero(t, mythicalChecksOf(*next).Outages)
+}
+
+func TestOpenTodoCaptureRefreshKeepsItsBranch(t *testing.T) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Retained", f.main, "NEXT.md", "next\n")
+	q := db.New(f.pool)
+	workspace, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: MythicalBookmark, Kind: "vm", Status: "suspended"})
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "TODO 1 attempt 1 g1"})
+	require.NoError(t, err)
+	lanes := &fakeMythicalLanes{}
+	f.service.lanes = lanes
+	item.WorkspaceID, item.RequestOutcome = workspace.ID, "completed"
+	item.FlowDigest = pgtype.Text{String: "pinned", Valid: true}
+	for _, state := range []string{"integrating", "verifying", "proposing", "proposed"} {
+		t.Run(state, func(t *testing.T) {
+			item.State = state
+			retained := f.service.releaseLane(t.Context(), &mythicalRun{row: db.MythicalStack{RepositoryID: f.repoID, ActorUserID: pgtype.Int8{Int64: f.userID, Valid: true}}}, item)
+			require.Equal(t, workspace.ID, retained.WorkspaceID)
+			require.Empty(t, lanes.deleted)
+			bound, err := q.GetMythicalLane(t.Context(), workspace.ID)
+			require.NoError(t, err)
+			require.False(t, bound.RetiredAt.Valid)
+		})
+	}
+}
+
+func TestAsleepRebasePublicationRecoveryRequiresTheSameResult(t *testing.T) {
+	planned := mythicalCommit{ID: "new", ChangeID: "item", Parents: []string{"main"}, Tree: "tree", Message: "message", Author: "author", Committer: "Smithers at now"}
+	published := planned
+	published.ID, published.Committer = "previous", "Smithers before restart"
+	require.True(t, sameAsleepRebaseResult(planned, published))
+	for _, change := range []func(*mythicalCommit){
+		func(c *mythicalCommit) { c.ChangeID = "" },
+		func(c *mythicalCommit) { c.ChangeID = "different item" },
+		func(c *mythicalCommit) { c.Parents = []string{"different main"} },
+		func(c *mythicalCommit) { c.Parents = []string{"main", "other"} },
+		func(c *mythicalCommit) { c.Tree = "edited" },
+		func(c *mythicalCommit) { c.Message = "different message" },
+		func(c *mythicalCommit) { c.Author = "different author" },
+	} {
+		moved := published
+		change(&moved)
+		require.False(t, sameAsleepRebaseResult(planned, moved))
+	}
 }
 func (r *rebaseExecutionFixture) Capture(ctx context.Context, branch string) (machined.CaptureResult, error) {
 	r.captures++

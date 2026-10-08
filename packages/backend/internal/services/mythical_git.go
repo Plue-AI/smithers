@@ -540,6 +540,11 @@ func (g mythicalGit) candidateShape(ctx context.Context, candidate mythicalCandi
 func (g mythicalGit) replant(ctx context.Context, parent string, commits []mythicalCommit, kind string, rebase bool) ([]mythicalStackCommit, error) {
 	var out []mythicalStackCommit
 	for _, commit := range commits {
+		change := mythicalChangeIDFor(kind, commit.ID, parent)
+		if kind == "rebase" && mythicalChangeID.MatchString(commit.ChangeID) {
+			// A rebase changes the commit revision, not its logical identity.
+			change = commit.ChangeID
+		}
 		tree := commit.Tree
 		if rebase && commit.Parent() != parent {
 			merged, err := g.merge3(ctx, commit.Parent(), parent, commit.ID)
@@ -550,7 +555,7 @@ func (g mythicalGit) replant(ctx context.Context, parent string, commits []mythi
 					// It is data only; no working copy or bookmark is rewritten.
 					conflict.Head, err = g.writeCommit(ctx, mythicalCommit{Tree: conflict.Tree,
 						Parents: []string{parent}, Author: commit.Author, Committer: mythicalCommitter(commit.Committer),
-						ChangeID: mythicalChangeIDFor(kind, commit.ID, parent), Message: commit.Message})
+						ChangeID: change, Message: commit.Message})
 					if err != nil {
 						return nil, err
 					}
@@ -565,7 +570,7 @@ func (g mythicalGit) replant(ctx context.Context, parent string, commits []mythi
 			message += "\n"
 		}
 		written := mythicalCommit{Tree: tree, Author: commit.Author,
-			Committer: mythicalCommitter(commit.Committer), ChangeID: mythicalChangeIDFor(kind, commit.ID, parent), Message: message}
+			Committer: mythicalCommitter(commit.Committer), ChangeID: change, Message: message}
 		if parent != "" {
 			written.Parents = []string{parent}
 		}

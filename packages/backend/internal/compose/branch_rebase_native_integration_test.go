@@ -162,6 +162,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	branchRef := repohost.BranchHeadRef(f.row.ID)
 	git("-C", store, "update-ref", branchRef, edited)
 	git("-C", store, "update-ref", repohost.WorkspaceSourceRef(f.row.ID, edited), edited)
+	git("-C", store, "update-ref", repohost.WorkspaceSourceRef(f.row.ID, boundHead), boundHead)
 	require.NoError(t, native.ImportGitRefs(repoPath))
 	engine, err := repohostserver.NewWithFFI(cfg, native)
 	require.NoError(t, err)
@@ -203,7 +204,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.NoError(t, err)
 	}
 
-	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$1,head_commit_id=$2 WHERE id=$1`, f.row.ID, edited)
+	_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$1,head_commit_id=$2,source_commit=$3 WHERE id=$1`, f.row.ID, edited, boundHead)
 	require.NoError(t, err)
 	// The ordinary wake exporter must not accept an upstream target.
 	_, err = machineObjectExporter(ctx, f.pool, client)(ctx, f.row.ID, onto, 0x80000000)

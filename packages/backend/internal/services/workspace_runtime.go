@@ -367,7 +367,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	if row.Status == "failed" {
 		return row, pkgerrors.Conflict("workspace provisioning failed; create a fresh workspace")
 	}
-	create := row.Status == "pending" || row.Status == "starting"
+	create := row.Status == "pending" || row.Status == "starting" && row.VmID == ""
 	if create {
 		createCtx, contextErr := s.workspaceStartContext(ctx, row, requesterID, workspaceLifecycleOperation(row, "create"))
 		if contextErr != nil {

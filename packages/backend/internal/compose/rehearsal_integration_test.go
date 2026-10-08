@@ -2143,7 +2143,7 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 	if err != nil {
 		return err
 	}
-	return startRehearsalMachinedWith(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item, &rehearsalRestart{State: state.(string), HostHead: head, Conflict: conflict}, func(stop func()) { r.daemonStops.Store(id, stop) })
+	return startRehearsalMachinedWith(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item, &rehearsalRestart{State: state.(string), HostHead: head, Transfer: true, Conflict: conflict}, func(stop func()) { r.daemonStops.Store(id, stop) })
 }
 
 // Stop the retained machine's native transport with its actual processes.

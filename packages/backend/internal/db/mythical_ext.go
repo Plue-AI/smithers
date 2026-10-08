@@ -665,9 +665,18 @@ func (q *Queries) GetMythicalTodoBranchWorkspace(ctx context.Context, item Mythi
 	if review.Review != nil && review.Review.Lane == id {
 		id = ""
 	}
+	if id != "" {
+		lane, err := q.GetMythicalLane(ctx, id)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Workspace{}, err
+		}
+		if err == nil && strings.Contains(lane.Name, " verify ") {
+			id = ""
+		}
+	}
 	if id == "" {
 		if err := q.db.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
- WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'
+ WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%' AND name NOT LIKE '% verify %'
  ORDER BY created_at DESC LIMIT 1`, item.ID, item.RepositoryID).Scan(&id); err != nil {
 			return Workspace{}, err
 		}
@@ -722,6 +731,12 @@ func (q *Queries) ListRetirableMythicalLanes(ctx context.Context, repositoryID i
 		FROM mythical_lanes l JOIN mythical_items i ON i.id = l.item_id
 		WHERE l.repository_id = $1 AND l.retired_at IS NULL AND i.workspace_id <> l.workspace_id
 		  AND l.created_at < NOW() - make_interval(secs => $2)
+		  AND NOT (i.source='todo' AND i.flow_digest IS NOT NULL
+		    AND i.state NOT IN ('skipped','declined','cancelled','landed','rejected','blocked')
+		    AND l.workspace_id=(SELECT b.workspace_id FROM mythical_lanes b
+		      WHERE b.item_id=i.id AND b.repository_id=i.repository_id
+		        AND b.name NOT LIKE '% review g%' AND b.name NOT LIKE '% verify %'
+		      ORDER BY b.created_at DESC LIMIT 1))
 		ORDER BY l.created_at LIMIT $3`, repositoryID, grace.Seconds(), limit)
 	if err != nil {
 		return nil, err

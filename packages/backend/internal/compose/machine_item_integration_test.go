@@ -107,6 +107,17 @@ func TestMachineRetainedConflictRequiresCommittedAttemptBinding(t *testing.T) {
 		native["receipt_id"] = "committed"
 		native["Paths"] = []string{"conflict"}
 	}
+	checks["rebase"] = map[string]any{"onto": onto}
+	save()
+	got, err = machineRetainedConflict(ctx, pool, branch)
+	require.NoError(t, err)
+	require.Nil(t, got, "a host marker grants no native conflict wake admission")
+	reservation["Run"] = "other-run"
+	save()
+	_, err = machineRetainedConflict(ctx, pool, branch)
+	require.ErrorIs(t, err, machined.ErrNotReady, "host materialization must retain the existing attempt")
+	reservation["Run"] = "run"
+	checks["rebase"] = map[string]any{"onto": onto, "native": native}
 	save()
 	_, err = pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=NOW() WHERE workspace_id=$1`, branch)
 	require.NoError(t, err)
