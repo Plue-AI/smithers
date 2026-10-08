@@ -360,7 +360,7 @@ path = "lib.rs"
 	var upstreams map[string]string
 	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
 		// No TODO runs in the held-build file journey. The app agent below
-		// still uses its real model host and registered files.read dispatch.
+		// still uses its real model host and registered /file dispatch.
 	} else if realMicroVM {
 		registry = pinnedMicroVMRegistry(t)
 	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
@@ -1838,7 +1838,7 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 	// The confined native helper also invokes jj. Host-home tools are outside
 	// its runtime reads, so provision the exact fixture executable inside .jj,
 	// alongside the protected test-only binding; never grant the host home.
-	jj, err := exec.LookPath("jj")
+	jj, err := rehearsalJJBinary(os.Getenv("PATH"))
 	if err != nil {
 		return err
 	}
@@ -1905,6 +1905,30 @@ func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context
 		daemonHeartbeat(r.t, guest)
 	}
 	return nil
+}
+
+// rehearsalJJBinary is the first jj executable on path that is not a script.
+// A wrapper (a version manager's shim, a guard) copied into the workspace
+// would find itself first on the host's PATH and exec itself forever.
+func rehearsalJJBinary(path string) (string, error) {
+	for _, dir := range filepath.SplitList(path) {
+		candidate := filepath.Join(dir, "jj")
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		file, err := os.Open(candidate)
+		if err != nil {
+			continue
+		}
+		head := make([]byte, 2)
+		_, err = io.ReadFull(file, head)
+		_ = file.Close()
+		if err == nil && string(head) != "#!" {
+			return candidate, nil
+		}
+	}
+	return "", errors.New("no jj executable on PATH")
 }
 
 func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
