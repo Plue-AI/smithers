@@ -13,7 +13,9 @@ import (
 
 // RestoreAuthority verifies the installing user, stopped-install lease and
 // retained-disk isolation before any move. RestoreDatabase initializes only the
-// supplied staging root using bundled PostgreSQL and forces machines asleep.
+// supplied staging root using bundled PostgreSQL. Machines are asleep in the
+// loaded database because a backup is quiescent: its freeze reports ready only
+// after every awake machine was captured and stopped.
 // StartRestored uses the recovery lifecycle while the marker remains durable;
 // it returns only after readiness, with all restored machines asleep. The
 // optional bundle path points into STATE, never to the source backup.

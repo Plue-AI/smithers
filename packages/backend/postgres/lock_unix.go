@@ -19,3 +19,23 @@ func acquireLock(path string) (*os.File, error) {
 	}
 	return file, nil
 }
+
+// lockHeld reports whether a backend holds the ownership lock at path. It
+// never creates the file: a state directory no backend has owned has none.
+func lockHeld(path string) (bool, error) {
+	file, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return true, nil
+		}
+		return false, err
+	}
+	return false, syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+}

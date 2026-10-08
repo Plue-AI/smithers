@@ -24,8 +24,7 @@ func TestMaintenanceAuthorityOwnerProtocol(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("installing user required")
 	}
-	state := t.TempDir()
-	require.NoError(t, os.Chmod(state, 0700))
+	state := maintenanceSocketState(t)
 	require.NoError(t, WriteVersion(state, Version{Version: "1.2.3", Schema: "1", Postgres: "18"}))
 	since := time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)
 	closeSocket, err := services.StartInstallSetupHandoff(t.Context(), state, func(context.Context, io.Writer) error { return nil }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
