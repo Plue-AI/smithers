@@ -27,7 +27,21 @@ import (
 // checkout binary, helper, script or interpreter is planted or executed as root.
 // This campaign never substitutes a process kill for msb force-stop.
 func TestMachinedK6VMStop(t *testing.T) {
-	if os.Getenv("SMITHERS_MACHINED_K6_REFERENCE") != "1" {
+	testMachinedGuestFaults(t, true)
+}
+
+// Uses the same installed watcher/member cgroups/object store as K6. Guest
+// init, rather than the driver, replaces the daemon and cleans up sessions.
+func TestMachinedDaemonSessionFaultRecovery(t *testing.T) {
+	testMachinedGuestFaults(t, false)
+}
+
+func testMachinedGuestFaults(t *testing.T, vmStop bool) {
+	flag := "SMITHERS_MACHINED_K6_REFERENCE"
+	if !vmStop {
+		flag = "SMITHERS_MACHINED_SESSION_FAULT_REFERENCE"
+	}
+	if os.Getenv(flag) != "1" {
 		t.Skip("reference Mac and approved killpoints qualification bundle required")
 	}
 	require.Equal(t, "darwin", runtime.GOOS)
@@ -87,10 +101,16 @@ func TestMachinedK6VMStop(t *testing.T) {
 		require.NoError(t, err, "%s", data)
 		return data
 	}
-	for _, point := range []string{"K1", "K5b"} {
+	points := []string{"K1", "K5b"}
+	campaign := "k6"
+	if !vmStop {
+		points = []string{"K1", "K2", "K3", "K3b", "K5a", "K5b", "K5c"}
+		campaign = "session"
+	}
+	for _, point := range points {
 		for run := 1; run <= 10; run++ {
 			t.Run(fmt.Sprintf("%s/%02d", point, run), func(t *testing.T) {
-				prefix := fmt.Sprintf("k6-%s-%02d", point, run)
+				prefix := fmt.Sprintf("%s-%s-%02d", campaign, point, run)
 				before, err := registry.Capture(t.Context(), branch)
 				require.NoError(t, err)
 				session, err := r.openBranchTerminal(r.keyed, branch)
@@ -105,7 +125,7 @@ func TestMachinedK6VMStop(t *testing.T) {
 					out, err := control(fmt.Sprintf("import os\np=%q\ntry: os.unlink(%q)\nexcept FileNotFoundError: pass\nf=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)\nos.fsync(f)\nos.close(f)", arm, hit))
 					require.NoError(t, err, "%s", out)
 				}
-				if point == "K1" {
+				if !strings.HasPrefix(point, "K5") {
 					armFault()
 				}
 				// Each acknowledgement is printed only after write+fsync+close. The
@@ -129,7 +149,7 @@ func TestMachinedK6VMStop(t *testing.T) {
 				require.Len(t, writes, 20)
 				evidence(prefix+"-writer.json", writes)
 				var captureDone chan error
-				if point == "K5b" {
+				if strings.HasPrefix(point, "K5") {
 					require.Eventually(t, func() bool {
 						var count int
 						return r.pool.QueryRow(t.Context(), `SELECT count(*) FROM burst_files WHERE path LIKE $1`, prefix+"-%").Scan(&count) == nil && count == 20
@@ -147,8 +167,15 @@ func TestMachinedK6VMStop(t *testing.T) {
 				var queued map[string]string
 				require.NoError(t, json.Unmarshal(outbox, &queued))
 				evidence(prefix+"-outbox-at-stop.json", queued)
-				out, err := msbCall("stop", "-t", "0", "-q", machine)
-				require.NoError(t, err, "%s", out)
+				killedLink, err := registry.Current(branch)
+				require.NoError(t, err)
+				if vmStop {
+					out, err := msbCall("stop", "-t", "0", "-q", machine)
+					require.NoError(t, err, "%s", out)
+				} else {
+					out, err := control(fmt.Sprintf("import os\np=%q\nf=os.open(p,os.O_CREAT|os.O_EXCL|os.O_WRONLY,0o600)\nos.fsync(f)\nos.close(f)", "/var/lib/smithers-machined/qualification-"+point+".exit"))
+					require.NoError(t, err, "%s", out)
+				}
 				if captureDone != nil {
 					select {
 					case err := <-captureDone:
@@ -160,9 +187,34 @@ func TestMachinedK6VMStop(t *testing.T) {
 				// A published head must name a real host object even before reconciliation.
 				atStop := strings.TrimSpace(string(hostGit("rev-parse", "refs/smithers/branches/"+branch+"/head")))
 				hostGit("cat-file", "-e", atStop+"^{commit}")
-				_, err = vm.StartWorkspace(t.Context(), branch)
-				require.NoError(t, err)
-				require.NoError(t, vm.EnsureMachined(t.Context(), branch))
+				if vmStop {
+					_, err = vm.StartWorkspace(t.Context(), branch)
+					require.NoError(t, err)
+					require.NoError(t, vm.EnsureMachined(t.Context(), branch))
+				} else {
+					require.Eventually(t, func() bool {
+						link, err := registry.Current(branch)
+						return err == nil && link != killedLink && link.RequireReady(branch) == nil
+					}, 10*time.Second, 25*time.Millisecond, "guest init and host reconnect must recover without manual wake")
+					select {
+					case <-terminal.closed:
+					case <-time.After(5 * time.Second):
+						t.Fatal("old member terminal survived daemon replacement")
+					}
+					// Opening a new terminal proves admission after automatic
+					// cleanup/reconciliation, rather than only a status bit.
+					next, err := r.openBranchTerminal(r.keyed, branch)
+					require.NoError(t, err)
+					probe, err := r.openTerminal(next)
+					require.NoError(t, err)
+					status, output, err := probe.capture("id -u", "RECOVERED", 10*time.Second)
+					probe.close()
+					require.NoError(t, err)
+					require.Equal(t, "0", status)
+					require.NotEqual(t, "0", strings.TrimSpace(string(output)))
+					require.NotEqual(t, "19998", strings.TrimSpace(string(output)))
+					evidence(prefix+"-recovered-member.json", map[string]any{"uid": strings.TrimSpace(string(output))})
+				}
 				// Capture waits for ready and an empty outbox outside the mutation lock.
 				after, err := registry.Capture(t.Context(), branch)
 				require.NoError(t, err)

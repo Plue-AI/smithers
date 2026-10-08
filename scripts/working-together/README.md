@@ -107,3 +107,21 @@ the armed hook still must exit with code 73 and recover every written file.
 Its empty broker census cannot qualify member-session attribution, guest init
 supervision, K4/K4b host faults or K6 VM kills. The summary stays `incomplete`;
 successful daemon and host modes must never be combined into a full-check pass.
+
+
+On the reference Mac, `node scripts/working-together/faults.mjs --session-only`
+runs K1–K3b and K5a–c against the composed approved microVM install, ten times
+each. `--vm-only` runs K6 at K1 and K5b, ten times each. The host fixture must
+also name an absolute `checkBundle` containing the approved debug daemon with
+killpoints; the normal install bundle intentionally cannot reach these holds.
+The driver refuses these modes on Linux, missing bundles and skipped tests.
+
+Both modes reuse the production member terminal, broker cgroups, watcher,
+outbox, host store, PostgreSQL and capture path. Acknowledgements follow
+write/fsync/close. The daemon mode consumes a one-shot exit request only after
+the writer has finished at the held boundary, then requires a new ready host
+connection and a working member terminal without manually starting the daemon
+or waking the VM. K6 still uses the actual msb force-stop/wake path. Each run
+retains the writer hashes, outbox, heads, rows and host object checks. A green
+selected campaign remains incomplete evidence for C-DUR-04 until real watcher
+K4/K4b host crash/outage and the remaining campaigns qualify together.

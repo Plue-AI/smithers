@@ -72,7 +72,7 @@ test('missing host fixture records a failure before starting either boundary sui
   const { run } = await import('./faults.mjs')
   const root = await mkdtemp(join(tmpdir(), 'wiki-fault-refusal-'))
   try {
-    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly', 'watcherOnly']) {
+    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly', 'watcherOnly', 'sessionOnly', 'vmOnly']) {
       assert.equal(await run({ root, [mode]: true }), 1)
       const parent = join(root, '.artifacts/checks/C-DUR-04')
       const directories = await readdir(parent)
@@ -80,8 +80,8 @@ test('missing host fixture records a failure before starting either boundary sui
       const summary = JSON.parse(await readFile(join(parent, directory, 'summary.json'), 'utf8'))
       assert.equal(summary.status, 'failed')
       assert.equal(summary.reason, 'host fixture unavailable')
-      assert.deepEqual(summary.tests, mode === 'watcherOnly' ? watcherTests : mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
-      assert.deepEqual(summary.points.map(item => item.point), mode === 'watcherOnly' ? watcherPoints : mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
+      assert.deepEqual(summary.tests, mode === 'sessionOnly' ? ['TestMachinedDaemonSessionFaultRecovery'] : mode === 'vmOnly' ? ['TestMachinedK6VMStop'] : mode === 'watcherOnly' ? watcherTests : mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
+      assert.deepEqual(summary.points.map(item => item.point), mode === 'sessionOnly' ? watcherPoints : mode === 'vmOnly' ? ['K6'] : mode === 'watcherOnly' ? watcherPoints : mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
       assert.ok(summary.points.every(item => item.status === 'blocked'))
       assert.deepEqual((await readdir(join(parent, directory))).sort(), ['env.json', 'summary.json'])
     }
@@ -170,4 +170,21 @@ test('watcher preflight refuses an uninstrumented binary before running the camp
   await assert.rejects(watcherEnvironment({...config,machinedFaultBinary:join(directory,'link')},directory,'commit',{}),/invalid rehearsal/)
   await assert.rejects(watcherEnvironment({...config,machinedFaultBinary:'relative'},directory,'commit',{}),/absolute/)
  } finally { await rm(directory,{recursive:true,force:true}) }
+})
+
+
+test('approved guest campaigns require all populated-session and VM lifecycles', async () => {
+  const { sessionLifecycles, vmLifecycles, sessionVerdict, vmVerdict } = await import('./faults.mjs')
+  for (const [names, verdict] of [[sessionLifecycles, sessionVerdict], [vmLifecycles, vmVerdict]]) {
+    const logs = receipt(names, 1)
+    assert.equal(verdict(0, logs), 'boundary-passed')
+    assert.equal(verdict(1, logs), 'failed')
+    for (const name of names) {
+      assert.equal(verdict(0, logs.replace(event('pass', name), '')), 'failed')
+      assert.equal(verdict(0, logs.replace(event('pass', name), event('skip', name))), 'failed')
+      assert.equal(verdict(0, logs + '\n' + event('pass', name)), 'failed')
+    }
+  }
+  assert.equal(sessionLifecycles.length, 71)
+  assert.equal(vmLifecycles.length, 21)
 })

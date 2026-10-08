@@ -662,6 +662,12 @@ fn pause_fault(point: &str, state: &std::path::Path) {
     // marker: restarting the retained VM cannot pause a second time.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while hit.exists() && std::time::Instant::now() < deadline {
+        // The trusted qualification driver finishes its acknowledged writer
+        // before requesting death at this exact boundary. Consume the request
+        // so guest init can restart on the retained disk without killing again.
+        if std::fs::remove_file(state.join(format!("qualification-{point}.exit"))).is_ok() {
+            std::process::exit(73);
+        }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
@@ -687,6 +693,47 @@ fn vm_fault_pause_is_one_shot_and_releases() {
     });
     pause_fault("K1", state.path());
     assert!(!hit.exists());
+}
+
+#[cfg(all(test, feature = "killpoints", debug_assertions))]
+#[test]
+fn session_fault_exit_child() {
+    if let Some(state) = std::env::var_os("SMITHERS_QUALIFICATION_EXIT_CHILD") {
+        pause_fault("K1", std::path::Path::new(&state));
+        panic!("armed fault returned without exiting");
+    }
+}
+
+#[cfg(all(test, feature = "killpoints", debug_assertions))]
+#[test]
+fn session_fault_exits_only_after_writer_release_and_is_one_shot() {
+    let state = tempfile::tempdir().unwrap();
+    let arm = state.path().join("qualification-K1.arm");
+    let hit = state.path().join("qualification-K1.hit");
+    let exit = state.path().join("qualification-K1.exit");
+    std::fs::write(&arm, []).unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "events::session_fault_exit_child", "--nocapture"])
+        .env("SMITHERS_QUALIFICATION_EXIT_CHILD", state.path())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !hit.exists() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("child did not reach qualification boundary");
+        }
+        assert!(child.try_wait().unwrap().is_none());
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(std::fs::read(&hit).unwrap(), b"K1");
+    assert!(!arm.exists());
+    assert!(child.try_wait().unwrap().is_none());
+    std::fs::write(&exit, []).unwrap();
+    assert_eq!(child.wait().unwrap().code(), Some(73));
+    assert!(!exit.exists());
+    pause_fault("K1", state.path()); // consumed arm cannot kill a replacement
 }
 
 /// Encodes the internal close record through the sole ADR 0004 codec. The

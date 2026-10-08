@@ -95,6 +95,16 @@ func TestOutsideWatcherInterruptedWriterRecovery(t *testing.T) {
 	outsideWatcherDaemonFault(t, binary, "K3", true)
 }
 
+// Exercises the reference campaign's release-to-exit hook through the real
+// Linux daemon, host ingestion and sleeping HTTP diff before Mac execution.
+func TestOutsideWatcherQualificationExitRecovery(t *testing.T) {
+	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY")
+	if binary == "" {
+		t.Skip("requires real killpoint-enabled rehearsal daemon")
+	}
+	outsideWatcherDaemonFault(t, binary, "K1", false, true)
+}
+
 func outsideWatcherDaemonFault(t *testing.T, binary, point string, interruptWriter ...bool) {
 	f := presenceInstall(t, true)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
@@ -159,11 +169,18 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string, interruptWrit
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, name), data, 0600))
 	}
 	writeEvidence("env.json", map[string]any{"commit": os.Getenv("SMITHERS_REHEARSAL_COMMIT"), "point": point, "run": t.Name(), "scope": "outside-daemon-recovery", "broker": "empty-census", "guest_init": false, "vm": false, "head_before": seed})
+	qualificationExit := len(interruptWriter) > 1 && interruptWriter[1]
 	restart := &rehearsalRestart{State: t.TempDir(), Run: t.TempDir(), KillAt: point, Exited: make(chan error, 1)}
 	if strings.HasPrefix(point, "K5") {
 		restart.KillAt = "armed:" + point
 	}
+	if qualificationExit {
+		restart.KillAt = ""
+	}
 	require.NoError(t, startRehearsalMachinedWith(t, ctx, registry, f.row.ID, root, evidence, binary, &machined.ItemBinding{}, restart))
+	if qualificationExit {
+		require.NoError(t, os.WriteFile(filepath.Join(restart.State, "qualification-"+point+".arm"), nil, 0600))
+	}
 	// Independent acknowledged-write oracle: log only after fsync and close.
 	writer, err := os.Create(filepath.Join(evidence, "writer.jsonl"))
 	require.NoError(t, err)
@@ -250,6 +267,18 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string, interruptWrit
 	require.NoError(t, writer.Close())
 	if os.Getenv("SMITHERS_FAULT_ARCHIVE_CHILD") == "1" {
 		t.Fatal("failure-archive probe")
+	}
+	if qualificationExit {
+		require.Eventually(t, func() bool {
+			bytes, err := os.ReadFile(filepath.Join(restart.State, "qualification-"+point+".hit"))
+			return err == nil && string(bytes) == point
+		}, 20*time.Second, 25*time.Millisecond)
+		select {
+		case err := <-restart.Exited:
+			t.Fatalf("qualification exited before release: %v", err)
+		default:
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(restart.State, "qualification-"+point+".exit"), nil, 0600))
 	}
 	if strings.HasPrefix(point, "K5") {
 		require.Eventually(t, func() bool {

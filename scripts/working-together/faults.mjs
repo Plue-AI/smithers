@@ -72,6 +72,16 @@ export const watcherPoints = ['K1', 'K2', 'K3', 'K3b', 'K5a', 'K5b', 'K5c']
 export const watcherTests = ['TestOutsideWatcherDaemonFaultRecovery']
 export const watcherLifecycles = watcherTests.flatMap(name => [name, ...watcherPoints.flatMap(point => [`${name}/${point}`, ...Array.from({ length: 10 }, (_, i) => `${name}/${point}/${i + 1}`)])])
 export const watcherVerdict = (code, logs) => boundaryVerdict(code, logs, watcherLifecycles, 1)
+export const sessionTests = ['TestMachinedDaemonSessionFaultRecovery']
+export const vmTests = ['TestMachinedK6VMStop']
+const guestLifecycles = (tests, selected) => tests.flatMap(name => [name, ...selected.flatMap(point =>
+  Array.from({ length: 10 }, (_, i) => `${name}/${point}/${String(i + 1).padStart(2, '0')}`))])
+export const sessionLifecycles = guestLifecycles(sessionTests, watcherPoints)
+export const vmLifecycles = guestLifecycles(vmTests, ['K1', 'K5b'])
+// Go creates intermediate K1/K5b parent subtests for slash-separated names.
+// Count every required leaf; missing/skip/fail still refuses qualification.
+export const sessionVerdict = (code, logs) => boundaryVerdict(code, logs, sessionLifecycles, 1)
+export const vmVerdict = (code, logs) => boundaryVerdict(code, logs, vmLifecycles, 1)
 export const wikiVerdict = (code, logs) => boundaryVerdict(code, logs, wikiTests)
 const probe = (command, args) => {
   try { return execFileSync(command, args, { encoding: 'utf8', timeout: 5000 }).trim() } catch { return null }
@@ -105,11 +115,11 @@ export async function watcherEnvironment(config, directory, commit, ambient = pr
   await writeFile(executable, bytes, { flag: 'wx', mode: 0o500 })
   return { env: { ...boundaryEnvironment(config, ambient), SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY: executable, SMITHERS_REHEARSAL_FAULT_EVIDENCE: directory, SMITHERS_REHEARSAL_COMMIT: commit }, binaryDigest: createHash('sha256').update(bytes).digest('hex') }
 }
-export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false, codeOnly = false, hostOnly = false, watcherOnly = false } = {}) {
-  if ([wikiOnly, codeOnly, hostOnly, watcherOnly].filter(Boolean).length > 1) throw new Error('select one boundary suite')
-  const boundaryOnly = wikiOnly || codeOnly || hostOnly || watcherOnly
-  const tests = watcherOnly ? watcherTests : hostOnly ? hostTests : wikiOnly ? wikiTests : codeTests
-  const selectedPoints = watcherOnly ? watcherPoints : hostOnly ? ['K4', 'K4b'] : wikiOnly ? ['K8'] : codeOnly ? points.filter(point => point.startsWith('K7')) : points
+export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false, codeOnly = false, hostOnly = false, watcherOnly = false, sessionOnly = false, vmOnly = false } = {}) {
+  if ([wikiOnly, codeOnly, hostOnly, watcherOnly, sessionOnly, vmOnly].filter(Boolean).length > 1) throw new Error('select one boundary suite')
+  const boundaryOnly = wikiOnly || codeOnly || hostOnly || watcherOnly || sessionOnly || vmOnly
+  const tests = sessionOnly ? sessionTests : vmOnly ? vmTests : watcherOnly ? watcherTests : hostOnly ? hostTests : wikiOnly ? wikiTests : codeTests
+  const selectedPoints = sessionOnly ? watcherPoints : vmOnly ? ['K6'] : watcherOnly ? watcherPoints : hostOnly ? ['K4', 'K4b'] : wikiOnly ? ['K8'] : codeOnly ? points.filter(point => point.startsWith('K7')) : points
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   let directory = resolve(root)
   for (const part of ['.artifacts', 'checks', 'C-DUR-04']) {
@@ -121,7 +131,7 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
   directory = join(directory, timestamp)
   await mkdir(directory)
   const env = metadata()
-  if (boundaryOnly) env.scope = watcherOnly ? 'real Linux watcher/native capture/outbox/bundle/host store/PostgreSQL/sleeping HTTP diff, ten repetitions per daemon kill point; empty broker census, no guest init supervision, host kill or VM qualification' : hostOnly ? 'K4 process-exit and K4b 30-second connection outage host dispatcher/PostgreSQL/Git boundary, ten runs each; fixture wire peer, no guest watcher or VM qualification' : wikiOnly ? 'K8 composed wiki host/native PostgreSQL boundary, ten repetitions; no full kill-matrix qualification' : 'composed HTTP/live/native PostgreSQL code recovery boundary with scripted daemon peer, ten repetitions; no real guest kill-matrix qualification'
+  if (boundaryOnly) env.scope = sessionOnly ? 'real approved guest watcher/member sessions/guest init/host/PostgreSQL/native capture; ten runs per daemon kill point; K4/K4b and K6 remain separate' : vmOnly ? 'real approved guest watcher/member sessions/VM force-stop/wake/host/PostgreSQL/native capture; K6 at K1 and K5b, ten runs each; remaining integrated points are separate' : watcherOnly ? 'real Linux watcher/native capture/outbox/bundle/host store/PostgreSQL/sleeping HTTP diff, ten repetitions per daemon kill point; empty broker census, no guest init supervision, host kill or VM qualification' : hostOnly ? 'K4 process-exit and K4b 30-second connection outage host dispatcher/PostgreSQL/Git boundary, ten runs each; fixture wire peer, no guest watcher or VM qualification' : wikiOnly ? 'K8 composed wiki host/native PostgreSQL boundary, ten repetitions; no full kill-matrix qualification' : 'composed HTTP/live/native PostgreSQL code recovery boundary with scripted daemon peer, ten repetitions; no real guest kill-matrix qualification'
   await writeFile(join(directory, 'env.json'), JSON.stringify(env, null, 2) + '\n', { flag: 'wx' })
   let executionEnv = process.env
   if (boundaryOnly) {
@@ -129,6 +139,11 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
       const config = JSON.parse(await readFile(join(root, '.artifacts/working-together-host.json'), 'utf8'))
       executionEnv = hostOnly ? { ...process.env, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_REQUIRE_DATABASE_TESTS: '1' } : boundaryEnvironment(config)
       if (hostOnly && (typeof config.databaseUrl !== 'string' || !config.databaseUrl)) throw new Error('invalid fixture')
+      if (sessionOnly || vmOnly) {
+        if (platform() !== 'darwin' || typeof config.checkBundle !== 'string' || !config.checkBundle.startsWith('/')) throw new Error('reference Mac and absolute approved check bundle required')
+        executionEnv = { ...executionEnv, SMITHERS_CHECK_BUNDLE: config.checkBundle,
+          [sessionOnly ? 'SMITHERS_MACHINED_SESSION_FAULT_REFERENCE' : 'SMITHERS_MACHINED_K6_REFERENCE']: '1' }
+      }
       if (watcherOnly) {
         const watcher = await watcherEnvironment(config, directory, env.commit)
         executionEnv = watcher.env
@@ -142,7 +157,7 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
     }
   }
   const command = boundaryOnly ? 'go' : 'cargo'
-  const args = boundaryOnly ? ['test', '-p', '4', '-timeout=20m', hostOnly ? './packages/backend/internal/machined' : './packages/backend/internal/compose', '-run', `^(${tests.join('|')})$`, hostOnly || watcherOnly ? '-count=1' : '-count=10', '-json', '-failfast'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
+  const args = boundaryOnly ? ['test', '-p', '4', sessionOnly || vmOnly ? '-timeout=60m' : '-timeout=20m', hostOnly ? './packages/backend/internal/machined' : './packages/backend/internal/compose', '-run', `^(${tests.join('|')})$`, hostOnly || watcherOnly || sessionOnly || vmOnly ? '-count=1' : '-count=10', '-json', '-failfast'] : ['test', '--locked', '-p', 'smithers-machined', '--features', 'testing,killpoints', ...suites.flatMap(suite => ['--test', suite]), '--', '--test-threads=1']
   let logs = ''
   const code = await new Promise(resolve => {
     const child = spawn(command, args, { cwd: root, env: executionEnv, stdio: ['ignore', 'pipe', 'pipe'] })
@@ -150,13 +165,13 @@ export async function run({ root = process.cwd(), componentsOnly = false, wikiOn
     child.on('error', error => { logs += error.message; resolve(1) })
     child.on('close', code => resolve(code))
   })
-  await writeFile(join(directory, boundaryOnly ? watcherOnly ? 'watcher.log' : hostOnly ? 'host.log' : wikiOnly ? 'wiki.log' : 'code.log' : 'components.log'), logs, { flag: 'wx' })
-  const componentStatus = watcherOnly ? watcherVerdict(code, logs) : hostOnly ? hostVerdict(code, logs) : boundaryOnly ? boundaryVerdict(code, logs, tests) : verdict(code, logs)
+  await writeFile(join(directory, boundaryOnly ? sessionOnly ? 'sessions.log' : vmOnly ? 'vm.log' : watcherOnly ? 'watcher.log' : hostOnly ? 'host.log' : wikiOnly ? 'wiki.log' : 'code.log' : 'components.log'), logs, { flag: 'wx' })
+  const componentStatus = sessionOnly ? sessionVerdict(code, logs) : vmOnly ? vmVerdict(code, logs) : watcherOnly ? watcherVerdict(code, logs) : hostOnly ? hostVerdict(code, logs) : boundaryOnly ? boundaryVerdict(code, logs, tests) : verdict(code, logs)
   const result = { ...env, timestamp, status: componentStatus === 'failed' ? 'failed' : 'incomplete', componentStatus,
     command: [command, ...args], tests: boundaryOnly ? tests : undefined, points: selectedPoints.map(point => ({ point, status: 'blocked',
-      reason: watcherOnly ? 'ten real daemon recovery runs; populated member session, guest supervision, host kill/outage and VM kills remain unqualified' : hostOnly ? 'ten authenticated host boundary runs; real guest watcher/outbox, VM, capture convergence and full per-run artifacts remain unqualified' : boundaryOnly ? 'ten host/native boundary repetitions; full-check client-text/row artifacts and the remaining matrix are not qualified' : 'complete real watcher/host/PostgreSQL/VM writer/receipt/head matrix remains unqualified; K4/K4b host evidence is available separately via --host-only' })) }
+      reason: sessionOnly || vmOnly ? 'this approved guest campaign passed only its selected points; full K1-K6 qualification still requires integrated host crash/outage and every campaign receipt' : watcherOnly ? 'ten real daemon recovery runs; populated member session, guest supervision, host kill/outage and VM kills remain unqualified' : hostOnly ? 'ten authenticated host boundary runs; real guest watcher/outbox, VM, capture convergence and full per-run artifacts remain unqualified' : boundaryOnly ? 'ten host/native boundary repetitions; full-check client-text/row artifacts and the remaining matrix are not qualified' : 'complete real watcher/host/PostgreSQL/VM writer/receipt/head matrix remains unqualified; K4/K4b host evidence is available separately via --host-only' })) }
   await writeFile(join(directory, 'summary.json'), JSON.stringify(result, null, 2) + '\n', { flag: 'wx' })
   console.log(`${result.status}: ${directory}`)
   return componentStatus === 'failed' ? 1 : componentsOnly || boundaryOnly ? 0 : 2
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only'), wikiOnly: process.argv.includes('--wiki-only'), codeOnly: process.argv.includes('--code-only'), hostOnly: process.argv.includes('--host-only'), watcherOnly: process.argv.includes('--watcher-only') })
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) process.exitCode = await run({ componentsOnly: process.argv.includes('--components-only'), wikiOnly: process.argv.includes('--wiki-only'), codeOnly: process.argv.includes('--code-only'), hostOnly: process.argv.includes('--host-only'), watcherOnly: process.argv.includes('--watcher-only'), sessionOnly: process.argv.includes('--session-only'), vmOnly: process.argv.includes('--vm-only') })
