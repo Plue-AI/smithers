@@ -4,7 +4,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use jj_lib::object_id::ObjectId;
+use jj_lib::{object_id::ObjectId, repo::Repo};
+use pollster::FutureExt as _;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use smithers_ffi::jj_core::{create_settings, load_repo_at_head, UserConfig};
@@ -411,6 +412,28 @@ fn preflight(repo: &Path, git_dir: &Path, seeds: &BTreeMap<String, String>) -> R
     Ok(())
 }
 
+// Import graph references without the CLI's policy of creating a new child
+// when temporary recovery tags make the current working copy immutable.
+// Source import must leave the exact editor head and unsnapshotted bytes intact.
+fn import_refs(repo: &Path) -> Result<()> {
+    let settings = create_settings(&UserConfig::default());
+    let (_, loaded) = load_repo_at_head(repo, &settings)
+        .map_err(|error| Failure::new("source_import_unavailable", error.to_string()))?;
+    let mut tx = loaded.start_transaction();
+    let options = jj_lib::git::GitImportOptions {
+        abandon_unreachable_commits: false,
+        record_synthetic_predecessors: false,
+        remote_auto_track_bookmarks: Default::default(),
+    };
+    jj_lib::git::import_refs(tx.repo_mut(), &options).block_on()
+        .map_err(|error| Failure::new("source_import_unavailable", error.to_string()))?;
+    if tx.repo().has_changes() {
+        tx.commit("import immutable retained source references").block_on()
+            .map_err(|error| Failure::new("source_import_unavailable", error.to_string()))?;
+    }
+    Ok(())
+}
+
 fn run_with_binding(repo: &Path, input: &Value, config: &Binding) -> Result<Value> {
     let request = field(input, "requestId")?;
     let commits = input
@@ -663,29 +686,11 @@ fn run_with_binding(repo: &Path, input: &Value, config: &Binding) -> Result<Valu
             )?;
         }
     }
-    jj(
-        repo,
-        &[
-            "--config",
-            "git.abandon-unreachable-commits=false",
-            "git",
-            "import",
-        ],
-        false,
-    )?;
+    import_refs(repo)?;
     for (reference, sha) in &seeds {
         git(&git_dir, &["update-ref", "-d", reference, sha], None, false)?;
     }
-    jj(
-        repo,
-        &[
-            "--config",
-            "git.abandon-unreachable-commits=false",
-            "git",
-            "import",
-        ],
-        false,
-    )?;
+    import_refs(repo)?;
     let at = field(&super::workspace_local::operation(repo)?, "id")?.to_owned();
     let head = revision(repo, &super::workspace_engine::commit(repo, "@")?, &at)?;
     if [
@@ -941,5 +946,17 @@ mod tests {
         )
         .unwrap()
         .is_none());
+        // A verifier opens the very source it imports. A recovery tag on that
+        // current head must not make import manufacture an empty child.
+        command("jj", &["-R", owned_path, "edit", &head]);
+        let selected = super::super::workspace_engine::commit(&owned, "@").unwrap();
+        let selected_id = selected["commit_id"].as_str().unwrap();
+        assert_eq!(selected_id, head);
+        fs::write(owned.join("code.txt"), "unsaved verifier bytes\n").unwrap();
+        command("git", &["--git-dir", &owned_git, "update-ref", &seed, &head]);
+        let same_head = run_with_binding(&owned, &request, &config).unwrap();
+        assert_eq!(same_head["head"]["commitId"], head);
+        assert_eq!(same_head["head"]["changeId"], selected["change_id"]);
+        assert_eq!(fs::read_to_string(owned.join("code.txt")).unwrap(), "unsaved verifier bytes\n");
     }
 }
