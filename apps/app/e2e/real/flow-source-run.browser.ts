@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { registerKeyboardJourney, journeyActivate, journeyEnter } from "./support/keyboard-journey-input"
 import { awaitBoot } from "./support"
 import { runSlash as command } from "./issues/local"
-import { waitForTerminalRun, acceptedRunId } from "./flow-execution/production"
+import { gatewayCall, waitForTerminalRun, acceptedRunId } from "./flow-execution/production"
 const origin = process.env.SMITHERS_FLOW_SOURCE_RUN_ORIGIN!
 if (!origin) throw new Error("Run TestFlowSourceRunBrowserComposedInstall")
 const browser = await chromium.launch({ headless: true })
@@ -28,6 +28,21 @@ try {
    await expect(flow.getByRole("button", { name: "Plan", exact: true })).toBeVisible()
    await journeyActivate(flow.getByRole("button", { name: "Source", exact: true }))
    await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue(/Change flows\/todo\/flow.ts: Edit the source/, { timeout: 30_000 })
+   // J5's Edit and Make TODO doors use the real catalog and durable Draft.
+   // No TODO admission is needed to verify the proposed diff survives reload.
+   await command(page, "/flow todo")
+   await journeyActivate(flow.getByRole("button", { name: "Edit", exact: true }))
+   await expect(page.getByLabel("Request", { exact: true }).last()).toBeVisible()
+   const diff = "diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n+notify"
+   await command(page, `/flow.edit ${JSON.stringify({ name: "todo", request: "Record notification", diff })}`)
+   await expect(flow.locator(".flow-proposal pre")).toHaveText(diff, { timeout: 30_000 })
+   await journeyActivate(flow.getByRole("button", { name: "Make TODO", exact: true }))
+   const draft = page.getByRole("textbox", { name: "Prompt", exact: true }).last()
+   const expectedPrompt = "Change flows/todo/flow.ts: Record notification; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +notify"
+   await expect(draft).toHaveValue(expectedPrompt)
+   await page.reload()
+   await awaitBoot(page)
+   await expect(draft).toHaveValue(expectedPrompt)
    // No source TODO is committed by this regression. Scratch creation and
    // its machine's code are reached through the person's ordinary slash door.
    const forked = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/branches")
@@ -57,7 +72,12 @@ try {
    const accepted = acceptedRunId(page, "rehearsal-owner/app", tracker)
    await journeyActivate(page.getByRole("button", { name: "Submit", exact: true }).last())
    const run = await accepted
-   const row = await waitForTerminalRun(page, context.request, "rehearsal-owner/app", run, 120_000, branch.machine.id)
+   const row = await waitForTerminalRun(page, context.request, "rehearsal-owner/app", run, 120_000, branch.machine.id).catch(async error => {
+    const observations = []
+    for (const tag of ["run-summary", "run-events", "approvals"]) observations.push({ tag, answer: await gatewayCall(page, context.request, "rehearsal-owner/app", "Projection.Snapshot", { selector: { _tag: tag, runId: run } }, branch.machine.id) })
+    await writeFile(join(process.env.SMITHERS_FLOW_SOURCE_RUN_EVIDENCE!, `run-${theme}-failure.json`), JSON.stringify(observations, null, 2))
+    throw error
+   })
    expect(row.status).toBe("completed")
    expect(row.finalOutput).toBe("notified")
    await expect(page.getByTestId("composer-input")).toBeEnabled()

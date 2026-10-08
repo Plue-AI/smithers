@@ -28,7 +28,7 @@ test("C-J11-02 Source, Plan and draft Run use the scratch machine", scenario("jo
   const flow = page.locator(".flow-view").last()
   await journeyActivate(flow.getByRole("button", { name: "Source", exact: true }))
   const draft = page.locator('.smithers-card[data-kind="draft"]').last()
-  await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue(/Change flows\/todo\/flow.ts: Edit the source/)
+  await expect(draft.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue(/Change flows\/todo\/flow.ts: Edit the source/)
   await journeyActivate(draft.getByRole("button", { name: "Commit", exact: true }))
   const file = page.locator('.smithers-card[data-kind="file"]').last()
   await expect(file).toContainText("flows/todo/flow.ts", { timeout: 660_000 })
@@ -43,7 +43,7 @@ test("C-J11-02 Source, Plan and draft Run use the scratch machine", scenario("jo
   // The prepared hello flow declares a required name and a custom view.
   const helloTracker = { runs: new Set<string>(), ambiguities: [] as string[] }
   await runSlash(page, "/hello")
-  await journeyEnter(page.getByLabel("name", { exact: true }).last(), "Ada")
+  await journeyEnter(page.locator('.flow-form [data-field="name"] input').last(), "Ada")
   const helloRequest = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/workflow/rpc" && request.postDataJSON()?.procedure === "Run")
   const helloAccepted = acceptedRunId(page, f.repo, helloTracker)
   await journeyActivate(page.getByRole("button", { name: /Submit|Run flow/, exact: true }).last())
@@ -98,8 +98,8 @@ test("C-J11-02 Source, Plan and draft Run use the scratch machine", scenario("jo
   await expect(page.locator('.smithers-card[data-kind="run"]').last()).not.toContainText("Hello, Ada")
   await runSlash(owner, "/todo.new")
   const next = owner.locator('.smithers-card[data-kind="draft"]').last()
-  await journeyEnter(next.getByLabel("Title", { exact: true }), "Active pin after scratch Run")
-  await journeyEnter(next.getByLabel("Prompt", { exact: true }), "Add a note to NOTES.md using the active factory flow.")
+  await journeyEnter(next.getByRole("textbox", { name: "Title", exact: true }), "Active pin after scratch Run")
+  await journeyEnter(next.getByRole("textbox", { name: "Prompt", exact: true }), "Add a note to NOTES.md using the active factory flow.")
   const filed = owner.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/todos")
   await journeyActivate(next.getByRole("button", { name: "Commit", exact: true }))
   const x = (await (await filed).json()).n

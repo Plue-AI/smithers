@@ -3,7 +3,7 @@ import { test } from "./support"
 import { scenario } from "./coverage/types"
 import { withReference, required, runSlash, expect, attachJson, openTodo, todoCard, realApi } from "./todo/reference"
 import { counterIdentity, maximumTickGap } from "./support/fork-continuity"
-import { journeyActivate } from "./support/keyboard-journey-input"
+import { journeyActivate, journeyTerminalInput } from "./support/keyboard-journey-input"
 
 // C-J7-02, including the production T-STK-05 Drop/capture boundary.
 // Provision T1 In review, T2 Working after a steer,
@@ -98,7 +98,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     await journeyActivate(page.locator('[data-flow="terminal"]').last())
     const terminal = page.locator('.xterm-helper-textarea').last()
     await expect(terminal).toBeAttached()
-    await terminal.focus()
+    await journeyTerminalInput(page.locator(".terminal-view").last())
     const edit = "export const forkBackoff = 2;\n"
     await page.keyboard.type("printf 'export const forkBackoff = 2;\\n' >> src/retry.ts && jj commit -m 'try exponential backoff' && printf '\\nFORK_EDIT_%s\\n' COMMITTED")
     await page.keyboard.press("Enter")
@@ -152,7 +152,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     expect(seed.checks.seed.diff).toContain("+export const forkBackoff = 2;")
     expect(seed.checks.seed.diff).toContain("+export const forkAwakeCapture = true;")
     await expect(terminal).toBeAttached()
-    await terminal.focus()
+    await journeyTerminalInput(page.locator(".terminal-view").last())
     await page.keyboard.type("printf '\\nFORK_TERMINAL_%s\\n' RETAINED")
     await page.keyboard.press("Enter")
     await expect(page.locator(".xterm-rows").last().getByText("FORK_TERMINAL_RETAINED", { exact: true })).toBeVisible()

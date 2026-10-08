@@ -626,7 +626,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
     {
       ...platform,
       shellTerminal: "agent",
-      reenterModules: options.planning === undefined ? undefined : ["todo"],
+      // Retained TODO attempts wait for stack signals after delivery. A
+      // scratch Run owns no stack item and finishes with its module result.
+      reenterModules: options.planning === undefined || options.draftVersion ? undefined : ["todo"],
       agentLimits: options.planning?.limits,
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),

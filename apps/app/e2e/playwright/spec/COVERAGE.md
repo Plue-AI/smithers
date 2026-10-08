@@ -105,7 +105,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | passing install session + `/todo T1` REST/live seam: confirmed Drop, 202 stays working, late PR link, terminal reload; production-dispatcher crash receipt separate | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | composed-install PostgreSQL browser, synced PR approvals and reload; native campaign | T-GH-04 |
-| C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | full-journey fixme retained; supplemental Home focus and notification disclosure/resize pass; composed J4 keyboard Move has API/PostgreSQL ordering and one-event proof; reference Chromium/WebKit journeys remain pending | T-REL-02 |
+| C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | full-journey fixme retained; supplemental Home focus and notification disclosure/resize pass; composed J4 keyboard Move has API/PostgreSQL ordering and one-event proof; both-theme composed Source/Edit/Draft reload/Plan/File/Run passes through the production seam; reference Chromium/WebKit journeys remain pending | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | App copy journey and all 19 View modules / 275 fixtures pass: 2,200 inline/maximized, light/dark, 1440/390px renders; zero copy violations | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
 

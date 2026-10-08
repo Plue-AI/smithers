@@ -1,3 +1,4 @@
+import { registerKeyboardJourney, journeyTerminalInput } from "./support/keyboard-journey-input"
 import { test, expect } from "@playwright/test"
 import { scenario } from "./coverage/types"
 import { command } from "./support/test"
@@ -14,16 +15,24 @@ const required = (key: string) => {
 test("C-J6-01 packaged guest CLI, discovered skill and delegated scope", scenario("journey.terminal-signin", { capabilities: ["install"], coverage: ["host:production", "host:local", "action:terminal", "door:slash", "path:success", "path:permission", "evidence:terminal-signin"] }), async ({ browser }, info) => {
   const context = await browser.newContext({ storageState: required("SMITHERS_TERMINAL_BEN_STATE") })
   const page = await context.newPage()
+  const origin = new URL(required("SMITHERS_TERMINAL_ORIGIN")).origin
+  const keys = process.env.SMITHERS_JOURNEY_KEYBOARD === "1" ? registerKeyboardJourney(page, origin) : undefined
   let output = ""
   page.on("websocket", socket => {
     if (!socket.url().includes("/terminal")) return
     socket.on("framereceived", frame => { output += typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8") })
   })
   try {
+    await keys?.ready()
     await page.goto(required("SMITHERS_TERMINAL_ORIGIN"))
+    if (keys) {
+      const theme = required("SMITHERS_JOURNEY_THEME")
+      expect(theme).toMatch(/^(light|dark)$/)
+      if (await page.locator("html").getAttribute("data-theme") !== theme) await command(page, "/theme")
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+    }
     await command(page, `/terminal ${required("SMITHERS_TERMINAL_BRANCH")}`)
-    const field = page.locator(".terminal-view").last().locator(".xterm-helper-textarea")
-    await field.focus()
+    await journeyTerminalInput(page.locator(".terminal-view").last())
     // Never print bearer bytes. Ownership, mode, path, CLI result and discovery
     // are inspected inside the real permanently unprivileged guest session.
     const script = [
@@ -53,5 +62,11 @@ test("C-J6-01 packaged guest CLI, discovered skill and delegated scope", scenari
     expect(output).toMatch(/"class":\s*"permission"/)
     expect(output).toMatch(/"code":\s*"permission"/)
     await info.attach("redacted-guest-signin", { body: output, contentType: "text/plain" })
-  } finally { await context.close() }
+    await keys?.observe()
+    keys?.finish()
+  } finally {
+    try {
+      if (keys) await info.attach("terminal-keyboard", { body: JSON.stringify(keys.snapshot()), contentType: "application/json" })
+    } finally { await context.close() }
+  }
 })

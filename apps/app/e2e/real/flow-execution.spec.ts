@@ -32,7 +32,7 @@ const runSignedOutCommand = async (page: Page, text: string, refusal: string): P
   const input = page.getByTestId("composer-input")
   // When the slash menu is still resolving, the first Enter accepts its exact
   // command row. The second Enter invokes the populated command.
-  if (await input.isVisible().catch(() => false)) await input.press("Enter")
+  if (await input.isVisible().catch(() => false)) await journeyActivate(input)
   await expect(transcript(page).getByText(refusal, { exact: true }).last()).toBeVisible()
 }
 
@@ -166,7 +166,7 @@ configuredGatewayTest(
     const run = row.getByRole("button", { name: "Run", exact: true })
     await journeyReach(run)
     await expect(run).toBeFocused()
-    await run.press("Enter")
+    await journeyActivate(run)
 
     const form = page.locator(`form[data-flow-name="flow.run"]`).last()
     await expect(form).toBeVisible()
@@ -265,7 +265,7 @@ workflowTest(
     await expect(catalog).toBeVisible({ timeout: 180_000 })
     const row = catalog.locator(".workflow-list-row").filter({ hasText: marker })
     await expect(row).toHaveCount(1)
-    await row.getByRole("button", { name: "Run", exact: true }).press("Enter")
+    await journeyActivate(row.getByRole("button", { name: "Run", exact: true }))
     const form = page.locator('form[data-flow-name="flow.run"]').last()
     const message = form.locator('[data-field="message"] input, [data-field="message"] textarea').first()
     const inputMarker = fixtureInputText(`s15-input-${Date.now().toString(36)}`)
@@ -273,7 +273,7 @@ workflowTest(
     await journeyEnter(message, inputMarker)
     const [executeRunId] = await Promise.all([
       acceptedRunId(page, repo, workflowRepo),
-      message.press("Enter")
+      journeyActivate(message)
     ])
     expect(executeRunId).not.toBe(createRunId)
     const executedCard = page.locator(`.smithers-card[data-kind="run-trace"][data-run-id="${executeRunId}"]`)

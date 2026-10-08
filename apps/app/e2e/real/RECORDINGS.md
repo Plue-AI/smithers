@@ -282,3 +282,35 @@ and capture. The notification disclosure hands focus to the first revealed
 control once and leaves later keyboard focus intact during projection updates.
 The composed control-only J4 Move proof is supplemental; its fixture flow and
 scripted app answer cannot qualify the reference journey or C-UI-01.
+
+The Flow-edit recording now reaches Edit and Make TODO through the shared
+physical-input doors. Its Draft assertions read the accessible Prompt textbox.
+The composed Source/Plan/Run browser proof also follows Edit, a literal proposed
+diff, Make TODO and Draft reload in both themes, without admitting a TODO.
+This remains Linux supplemental evidence; it supplies no Mac release receipt.
+
+J7's fork/adopt recording reaches the terminal emulator through Tab, including
+the retained terminal after adoption. The guest CLI sign-in slice installs both
+keyboard guards before navigation when keyboard mode is enabled, requires an
+explicit theme, checks final focus and retains input/focus logs on failure.
+Live guest logins and reference execution remain required.
+
+J4 action timing retains native browser resource timings alongside Playwright
+request/response observation times. Browser dispatch, network queue, first-byte
+transport and observer delay are separate fields. Missing native timing stays
+absent. The one-second acknowledgment budget and all completion assertions stay
+unchanged; shared-host observations do not qualify Mac performance.
+
+The 2026-10-08 Linux paired rehearsal at candidate `68398da5f8` failed the
+unchanged acknowledgment budget in both themes. Dark: 1,453 ms observed,
+1,400.86 ms native pre-dispatch, 35.20 ms first-byte transport, 16.60 ms observer
+delay. Light: 2,120 ms observed, 2,054.38 ms native pre-dispatch, 53.24 ms
+transport, 12.17 ms observer delay. Both received HTTP 202 and kept Chat usable.
+The failures precede HTTP transport and are not dark-only. The request path in
+`TodoSeam.ts` serializes source/request card writes and waits for their durable
+persistence before sending. These observations identify that client interval,
+but do not isolate its queue, persistence or scheduling as the sole cause.
+Do not bypass persistence or widen the budget. Reference-host profiling is still
+needed. Local logs: `/tmp/fr14-rel02-r2-dark-j4.log` and
+`/tmp/fr14-rel02-r2-light-j4.log`; native timing JSON is in each run's
+C-J4-02 composed evidence directory. Neither failed run is a release receipt.
