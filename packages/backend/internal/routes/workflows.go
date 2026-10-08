@@ -36,7 +36,8 @@ type WorkflowRouteService interface {
 
 // WorkflowHandler handles workflow execution HTTP routes.
 type WorkflowHandler struct {
-	Service WorkflowRouteService
+	InstallQueries *db.Queries
+	Service        WorkflowRouteService
 }
 
 // workflowDefinitionResponse is the JSON response for a workflow definition.
@@ -476,8 +477,9 @@ type workflowRunResultResponse struct {
 
 // DispatchWorkflow handles POST /api/repos/:owner/:repo/workflows/:id/dispatches
 type dispatchWorkflowRequest struct {
-	Ref    string                 `json:"ref"`
-	Inputs map[string]interface{} `json:"inputs,omitempty"`
+	Command string                 `json:"command,omitempty"`
+	Ref     string                 `json:"ref"`
+	Inputs  map[string]interface{} `json:"inputs,omitempty"`
 }
 
 func (h *WorkflowHandler) DispatchWorkflow(w http.ResponseWriter, r *http.Request) {
@@ -506,7 +508,7 @@ func (h *WorkflowHandler) DispatchWorkflow(w http.ResponseWriter, r *http.Reques
 	}
 
 	var req dispatchWorkflowRequest
-	if !decodeJSONBody(w, r, &req) {
+	if !h.decodeDispatch(w, r, &req) {
 		return
 	}
 
@@ -527,6 +529,10 @@ func (h *WorkflowHandler) DispatchWorkflow(w http.ResponseWriter, r *http.Reques
 	mergedInputs, err := services.ValidateDispatchInputs(def.Config, req.Inputs)
 	if err != nil {
 		writeRouteError(w, r, err)
+		return
+	}
+
+	if !h.authorizeDispatch(w, r, def, ref, mergedInputs) {
 		return
 	}
 

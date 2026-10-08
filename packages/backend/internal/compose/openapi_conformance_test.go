@@ -125,6 +125,7 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
+	flowRuns  *services.InstallFlowRuns
 	user      *routes.UserHandler
 	mythical  *routes.MythicalHandler
 	pool      *pgxpool.Pool
@@ -198,6 +199,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			EgressPolicy:    &routes.RepositoryEgressPolicyHandler{},
 			GitHubAppSetup:  &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: deps.live.Origins},
 			Members:         deps.members,
+			FlowRuns:        deps.flowRuns,
 			Live:            deps.live,
 			LanguageServers: &routes.BranchLSPHandler{},
 		},

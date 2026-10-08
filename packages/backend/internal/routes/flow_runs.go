@@ -5,13 +5,26 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 func (h *FlowsHandler) Run(w http.ResponseWriter, r *http.Request) {
-	repo, user, ok := authorizeInstallRepository(w, r, h.Queries, "flow.run")
-	if !ok {
-		return
+	var repo, user int64
+	if services.InstallExecutionCredential(r.Context()) {
+		var err error
+		repo, err = services.InstallRepositoryID(r.Context(), h.Queries)
+		if err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		user = middleware.UserFromContext(r.Context()).ID
+	} else {
+		var ok bool
+		repo, user, ok = authorizeInstallRepository(w, r, h.Queries, "flow.run")
+		if !ok {
+			return
+		}
 	}
 	var input services.InstallFlowRunInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))

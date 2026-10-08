@@ -9815,6 +9815,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/workflows/{id}/dispatches:
     post:
+      description: On an install, validates the workflow and inputs before one flow.run authorization. The optional body command must be flow.run; unknown or mismatched commands refuse before dispatch.
       summary: POST /api/repos/{owner}/{repo}/workflows/{id}/dispatches
       operationId: post_api_repos_owner_repo_workflows_id_dispatches
       tags:
@@ -9839,6 +9840,17 @@ paths:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                command: {type: string, enum: [flow.run]}
+                ref: {type: string}
+                inputs: {type: object, additionalProperties: true}
       responses:
         '200':
           description: Successful response
@@ -9862,6 +9874,7 @@ paths:
           $ref: '#/components/responses/InternalError'
   /api/repos/{owner}/{repo}/workflows/{name}/dispatch:
     post:
+      description: On an install, validates the workflow and inputs before one flow.run authorization. The optional body command must be flow.run; unknown or mismatched commands refuse before dispatch.
       summary: POST /api/repos/{owner}/{repo}/workflows/{name}/dispatch
       operationId: post_api_repos_owner_repo_workflows_name_dispatch
       tags:
@@ -9886,6 +9899,17 @@ paths:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                command: {type: string, enum: [flow.run]}
+                ref: {type: string}
+                inputs: {type: object, additionalProperties: true}
       responses:
         '200':
           description: Successful response

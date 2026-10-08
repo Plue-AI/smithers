@@ -30,7 +30,7 @@ paths:
     post:
       x-composition: install
       summary: Request a flow run on a branch machine
-      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes.
+      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes. A run credential admits only its current running TODO machine, with an active sponsor and a stored attempt and pin; cross-branch, replaced and dead authority refuses before admission or worker delivery.
       operationId: post_api_flows
       tags:
         - Flows
@@ -44,7 +44,7 @@ paths:
             schema: {$ref: '#/components/schemas/FlowRunRequest'}
       responses:
         '202':
-          description: Requested; execution has not necessarily started
+          description: Accepted; execution has not necessarily started
           content:
             application/json:
               schema: {$ref: '#/components/schemas/FlowRunReceipt'}
@@ -86,7 +86,7 @@ paths:
     post:
       x-composition: install
       summary: Request a flow run on a branch machine
-      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes.
+      description: Persists a request for the shared Flow worker. Repository code runs only on the selected machine. Repeated Idempotency-Key values return the same receipt; changed input conflicts. TODO and review use their dedicated admission routes. A run credential admits only its current running TODO machine, with an active sponsor and a stored attempt and pin; cross-branch, replaced and dead authority refuses before admission or worker delivery.
       operationId: post_api_flows_name_run
       tags:
         - Flows
@@ -101,7 +101,7 @@ paths:
             schema: {$ref: '#/components/schemas/NamedFlowRunRequest'}
       responses:
         '202':
-          description: Requested; execution has not necessarily started
+          description: Accepted; execution has not necessarily started
           content:
             application/json:
               schema: {$ref: '#/components/schemas/FlowRunReceipt'}

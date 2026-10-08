@@ -557,6 +557,9 @@ func buildRouter(
 	// The full path prefix /api/repos/... is used so CORS and routing are consistent with other API paths.
 	// WorkflowRouteService satisfies WorkflowRunRouteService at compile time -- no runtime type assertion needed.
 	if workflowHandler != nil {
+		if config.IsSingleOwner(cfg.Auth) {
+			workflowHandler.InstallQueries = queries
+		}
 		// Reuse the one shared SSE broker (created alongside the agent-session
 		// handler) so workflow-run log streams do not consume a pool slot each.
 		var wrrBroker *sse.Broker

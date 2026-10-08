@@ -28,6 +28,7 @@ import (
 )
 
 type flowComposition struct {
+	pool       *pgxpool.Pool
 	review     *reviewMachine
 	jobs       *jobs.Store
 	dispatcher *flowdispatch.Service
@@ -194,7 +195,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	// the live host's own answers for it (T-FLW-07).
 	archive := &runArchive{pool: pool}
 	projectors = append(projectors, archive)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
@@ -212,7 +213,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// repository source retention it needs exists (services.ReviewSource).
 		// An absent source refuses in Prepare before machine allocation.
 	}
-	return &flowComposition{review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
+	return &flowComposition{pool: pool, review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
 }
 
 // relayPlanStore keeps the browser relay's plans in PostgreSQL, so a plan
@@ -264,6 +265,18 @@ func (flow *flowComposition) recover(ctx context.Context) error {
 	return nil
 }
 
+// A run caller uses its parent's already-running coding host. It cannot wake
+// a machine, start a replacement host or mint a child/person credential.
+// Other producers retain their ordinary host lifecycle.
+type installFlowResolver struct{ *flowhost.Resolver }
+
+func (resolver installFlowResolver) ResolveFlowRuntime(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+	if target.BindingKind == services.InstallRunFlowBinding {
+		return resolver.ResolveExistingFlowRuntime(ctx, target)
+	}
+	return resolver.Resolver.ResolveFlowRuntime(ctx, target)
+}
+
 func flowTargetResolver(agents, repositoryJobs flowhost.TargetResolver, browserTargets ...flowhost.TargetResolver) flowhost.TargetResolver {
 	return flowhost.TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
 		switch target.BindingKind {
@@ -276,7 +289,7 @@ func flowTargetResolver(agents, repositoryJobs flowhost.TargetResolver, browserT
 				return browserTargets[1].ResolveFlowHostTarget(ctx, target)
 			}
 			return flowhost.Authority{}, errors.New("repository setup Flow target unavailable")
-		case "browser-flow", flowdispatch.DraftBindingKind:
+		case "browser-flow", services.InstallRunFlowBinding, flowdispatch.DraftBindingKind:
 			if len(browserTargets) >= 1 {
 				return browserTargets[0].ResolveFlowHostTarget(ctx, target)
 			}
@@ -367,5 +380,5 @@ func installFlowRuns(queries *db.Queries, flow *flowComposition) *services.Insta
 	if flow == nil {
 		return nil
 	}
-	return &services.InstallFlowRuns{Queries: queries, Dispatcher: flow.dispatcher, Jobs: flow.jobs}
+	return &services.InstallFlowRuns{Pool: flow.pool, Queries: queries, Dispatcher: flow.dispatcher, Jobs: flow.jobs}
 }

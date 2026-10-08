@@ -316,8 +316,7 @@ func (h *WorkflowHandler) DispatchWorkflowByIdentifier(w http.ResponseWriter, r 
 	}
 
 	var req dispatchWorkflowRequest
-	if decErr := decodeJSONBodyError(w, r, &req); decErr != nil {
-		pkgerrors.WriteError(w, pkgerrors.BadRequest("invalid request body"))
+	if !h.decodeDispatch(w, r, &req) {
 		return
 	}
 
@@ -335,6 +334,10 @@ func (h *WorkflowHandler) DispatchWorkflowByIdentifier(w http.ResponseWriter, r 
 	mergedInputs, err := services.ValidateDispatchInputs(def.Config, req.Inputs)
 	if err != nil {
 		writeRouteError(w, r, err)
+		return
+	}
+
+	if !h.authorizeDispatch(w, r, def, ref, mergedInputs) {
 		return
 	}
 

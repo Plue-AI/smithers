@@ -28,6 +28,9 @@ type browserFlowTarget struct {
 }
 
 func (resolver browserFlowTarget) ResolveFlowHostTarget(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
+	if target.BindingKind == services.InstallRunFlowBinding {
+		return services.ResolveInstallRunFlowTarget(ctx, resolver.install, target)
+	}
 	if (target.BindingKind != "browser-flow" && target.BindingKind != flowdispatch.DraftBindingKind) || target.WorkspaceID == "" {
 		return flowhost.Authority{}, errors.New("browser Flow target is invalid")
 	}

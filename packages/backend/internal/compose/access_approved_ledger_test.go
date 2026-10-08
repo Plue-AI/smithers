@@ -25,8 +25,8 @@ import (
 // The reviewed SG oracle is literal and independent of catalog descriptors.
 // Every resolved cell crosses a composed install HTTP door with stored credentials.
 // Co-edit uses the existing controlled guest transport to isolate authorization;
-// guest security qualification remains separate. Parent-scoped child flow launch
-// stays pending until its execution consumer is composed.
+// guest security qualification remains separate. Child flow launch crosses
+// the real durable dispatcher with its stored parent authority.
 func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	var fixture struct {
 		Cells []struct{ Group, Command, Credential, Expected string }
@@ -134,7 +134,7 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
 	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, mythical: &routes.MythicalHandler{Service: todos}, members: &routes.MembersHandler{Service: members}, secret: secrets})
 	var ledger []map[string]any
-	resolved, retired, pending := 0, 0, 0
+	resolved, retired := 0, 0
 	for index, cell := range fixture.Cells {
 		t.Run(fmt.Sprintf("%s/%s/%s", cell.Group, cell.Command, cell.Credential), func(t *testing.T) {
 			entry := map[string]any{"group": cell.Group, "command": cell.Command, "credential": cell.Credential, "expected": cell.Expected, "layer": "PostgreSQL authorizer", "execution": "pending"}
@@ -165,36 +165,12 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 				return
 			}
 			if cell.Command == "flow.run" && cell.Credential == "RO" && cell.Expected == "allow" {
-				item, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
-				require.NoError(t, err)
-				subject := services.InstallSubject{RepositoryID: repo.ID, WorkspaceID: workspaces[0].ID,
-					TodoNumber: 1, Attempt: 1, RunID: "ledger-run-0", Generation: item.Generation,
-					Resource: "flows/check/flow.ts", PayloadDigest: strings.Repeat("a", 64)}
-				_, err = services.Authorize(middleware.ContextWithAuthInfo(ctx, info), q, "flow.run", subject)
-				require.NoError(t, err)
-				entry["subject"], entry["observed_status"], entry["authorization"] = subject, 200, "passed"
-				// Probe the real door too: until the launch binds a child to
-				// this parent, the existing dispatcher must refuse without a run.
-				req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/repos/maya/demo/invoke", strings.NewReader(`{"flow":"check","input":{}}`))
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Origin", cfg.Server.PublicURL)
-				req.Header.Set("Authorization", "Bearer "+tokens[cell.Credential])
-				var commands []string
-				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { commands = append(commands, command) }))
-				out := httptest.NewRecorder()
-				router.ServeHTTP(out, req)
-				require.Equal(t, 403, out.Code, out.Body.String())
-				require.Contains(t, out.Body.String(), `"code":"permission"`)
-				require.Equal(t, []string{"flow.run"}, commands)
-				var runs int
-				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workflow_runs WHERE repository_id=$1`, repo.ID).Scan(&runs))
-				require.Zero(t, runs, "missing child confinement must admit no run")
-				entry["actual_status"], entry["actual_code"], entry["actual_class"] = 403, "permission", "permission"
-				entry["layer"] = "composed install HTTP; missing parent-scoped consumer"
-				entry["pending_ticket"] = "T-FLW-01"
-				entry["pending_dependency"] = "services/workflow_invoke_flow.go: InvokedFlowLaunch lacks parent-run/workspace and child-credential binding"
-				pending++
-				t.Skip("T-FLW-01: parent-scoped child flow execution contract is not composed")
+				proof := testInstallOwnRunFlowDispatchPostgres(t)
+				entry["credential_hash"], entry["subject"] = proof["credential_hash"], proof
+				entry["layer"], entry["execution"] = "composed install HTTP and durable Flow worker; controlled runtime transport", "passed"
+				entry["actual_status"], entry["receipt"] = 202, "TestInstallOwnRunFlowDispatchPostgres"
+				resolved++
+				return
 			}
 			status, code, class := 200, "", ""
 			if cell.Group == "SG-07" && cell.Command == "todo.read" {
@@ -338,16 +314,18 @@ func TestApprovedAccessDecisionLedgerPostgres(t *testing.T) {
 			}
 		})
 	}
+	require.Equal(t, 52, resolved)
+	require.Equal(t, 6, retired)
 	var todosCount, confirmationCount int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&todosCount))
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmationCount))
 	require.Equal(t, 2, todosCount, "confirmation admission must not add to the two execution fixtures")
 	require.Equal(t, 3, confirmationCount, "only the three eligible delegated create cells store private confirmations")
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"acceptance_complete": false, "authorization_resolved": resolved, "retired_resolved": retired, "pending": pending, "cells": ledger}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"acceptance_complete": resolved == 52 && retired == 6 && !t.Failed(), "authorization_resolved": resolved, "retired_resolved": retired, "pending": 0, "cells": ledger}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "ledger.json"), append(data, '\n'), 0600))
 	}
-	t.Logf("approved decision ledger: %d resolved authorization cells, %d retired routes, %d pending; live command execution remains separate", resolved, retired, pending)
+	t.Logf("approved decision ledger: %d resolved authorization cells, %d retired routes, %d pending; live command execution remains separate", resolved, retired, 0)
 }

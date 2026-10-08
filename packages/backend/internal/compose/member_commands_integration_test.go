@@ -27,7 +27,7 @@ import (
 // and J4 paths call; Alice is refused merge and member management by role;
 // off-roster and suspended people are refused. Member tokens reach only
 // scoped reads and questions; person-only commands stay refused, and
-// a route outside the member table stays the owner's.
+// unmapped routes refuse every credential.
 func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -120,14 +120,15 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
 		{"GET", "/api/members"}, {"POST", "/api/todos/1/merge"}, {"POST", "/api/members"}, {"PATCH", "/api/members/alice"}, {"DELETE", "/api/members/alice"},
-		// Outside the member table: the owner's alone.
+		// Setup is owner-only; turn erasure has its own member-level command.
 		{"POST", "/api/install/setup/models"}, {"POST", "/api/agent/turn/erase"},
 	}
 	for _, route := range routes {
 		router.MethodFunc(route.method, route.path, served)
 	}
 	router.Put("/api/repos/maya/demo/mythical/lanes", served)
-	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "POST /api/agent/turn/erase": true}
+	router.Post("/api/unmapped/command", served)
+	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true}
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
 	call := func(method, path, cookie, bearer string, supplied ...string) (int, map[string]any) {
 		var body *strings.Reader
@@ -158,11 +159,10 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
-			// Mapped routes reject the revoked session; the unmapped owner-only
-			// route still refuses at its installation boundary.
-			case who == "suspended" && key != "POST /api/agent/turn/erase":
+			// Every mapped route rejects a dead member before command policy.
+			case who == "suspended":
 				want = http.StatusUnauthorized
-			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay" || key == "POST /api/agent/turn/erase"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
@@ -274,7 +274,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	for _, scopes := range []string{"write:repository,read:user", "write:repository,read:user,credential:sync", "write:repository,read:user,via:codex"} {
 		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2,system_issued=true WHERE user_id=$1`, owner.ID, scopes)
 		require.NoError(t, err)
-		status, denied := call("POST", "/api/agent/turn/erase", "", ownerToken)
+		status, denied := call("POST", "/api/unmapped/command", "", ownerToken)
 		require.Equal(t, 403, status, denied)
 		require.Equal(t, "permission", denied["class"])
 		require.Equal(t, "permission", denied["code"])

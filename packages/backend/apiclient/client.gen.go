@@ -2395,6 +2395,20 @@ type PostAPIReposOwnerRepoInvokeResponse struct {
 	Status               string `json:"status"`
 }
 
+// PostAPIReposOwnerRepoWorkflowsIDDispatchesBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoWorkflowsIDDispatchesBody struct {
+	Command *string                    `json:"command,omitempty"`
+	Ref     *string                    `json:"ref,omitempty"`
+	Inputs  map[string]json.RawMessage `json:"inputs,omitempty"`
+}
+
+// PostAPIReposOwnerRepoWorkflowsNameDispatchBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoWorkflowsNameDispatchBody struct {
+	Command *string                    `json:"command,omitempty"`
+	Ref     *string                    `json:"ref,omitempty"`
+	Inputs  map[string]json.RawMessage `json:"inputs,omitempty"`
+}
+
 // PostAPIReposOwnerRepoWorkspacesIDStackOperationBody is generated from docs/api/openapi.yaml.
 type PostAPIReposOwnerRepoWorkspacesIDStackOperationBody struct {
 	RequestID  string                                                     `json:"requestId"`
@@ -5659,16 +5673,16 @@ func (c *Client) PostAPIReposOwnerRepoUnarchive(ctx context.Context, owner strin
 }
 
 // PostAPIReposOwnerRepoWorkflowsIDDispatches calls POST /api/repos/{owner}/{repo}/workflows/{id}/dispatches.
-func (c *Client) PostAPIReposOwnerRepoWorkflowsIDDispatches(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
+func (c *Client) PostAPIReposOwnerRepoWorkflowsIDDispatches(ctx context.Context, owner string, repo string, id string, body PostAPIReposOwnerRepoWorkflowsIDDispatchesBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workflows/"+url.PathEscape(id)+"/dispatches", nil, nil, &out)
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workflows/"+url.PathEscape(id)+"/dispatches", nil, body, &out)
 	return out, err
 }
 
 // PostAPIReposOwnerRepoWorkflowsNameDispatch calls POST /api/repos/{owner}/{repo}/workflows/{name}/dispatch.
-func (c *Client) PostAPIReposOwnerRepoWorkflowsNameDispatch(ctx context.Context, owner string, repo string, name string) (AnyJSON, error) {
+func (c *Client) PostAPIReposOwnerRepoWorkflowsNameDispatch(ctx context.Context, owner string, repo string, name string, body PostAPIReposOwnerRepoWorkflowsNameDispatchBody) (AnyJSON, error) {
 	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workflows/"+url.PathEscape(name)+"/dispatch", nil, nil, &out)
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workflows/"+url.PathEscape(name)+"/dispatch", nil, body, &out)
 	return out, err
 }
 

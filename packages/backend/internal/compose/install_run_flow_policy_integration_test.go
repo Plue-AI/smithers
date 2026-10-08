@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// The parent-scoped child launch is T-FLW-01's missing consumer contract.
-// This qualifies its authorizer input, not a working install flow launch.
+// Literal parent-subject variants complement the composed HTTP and worker
+// proof in TestInstallOwnRunFlowDispatchPostgres.
 func TestInstallOwnRunFlowPolicyPostgres(t *testing.T) {
 	f := newLandingGateFixtureWithFactory(t, nil, "", true)
 	ws, err := f.q.CreateWorkspace(f.ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.owner.ID, Name: "flow-parent", Kind: "container", Status: "running", TargetBookmark: "smithers/parent"})

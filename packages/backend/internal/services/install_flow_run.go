@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -18,6 +19,7 @@ import (
 // InstallFlowRuns admits the same coding-host launches as the browser relay.
 // HTTP only persists an intent; the shared Flow worker contacts the machine.
 type InstallFlowRuns struct {
+	Pool       *pgxpool.Pool
 	Queries    *db.Queries
 	Dispatcher *flowdispatch.Service
 	Jobs       *jobs.Store
@@ -37,6 +39,9 @@ func flowRunError(status int, code, class, message string) error {
 
 func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int64, input InstallFlowRunInput, key string) (jobs.RequestReceipt, error) {
 	empty := jobs.RequestReceipt{}
+	if InstallExecutionCredential(ctx) {
+		return s.requestOwnRun(ctx, repositoryID, userID, input, key)
+	}
 	if len(input.Name) > 128 || !installFlowName.MatchString(input.Name) || len(key) > 255 || strings.TrimSpace(key) == "" || key != strings.TrimSpace(key) {
 		return empty, flowRunError(400, "invalid_flow_run", "user", "Name and Idempotency-Key are required")
 	}
@@ -55,6 +60,17 @@ func (s *InstallFlowRuns) Request(ctx context.Context, repositoryID, userID int6
 	}
 	if s == nil || s.Queries == nil || s.Dispatcher == nil || s.Jobs == nil {
 		return empty, flowRunError(503, "flows_unavailable", "infra", "Flows unavailable")
+	}
+	decision, err := Authorize(ctx, s.Queries, "flow.run")
+	if err != nil {
+		return empty, err
+	}
+	boundRepository, err := InstallRepositoryID(ctx, s.Queries)
+	if err != nil {
+		return empty, err
+	}
+	if decision.UserID != userID || boundRepository != repositoryID {
+		return empty, confirmationPermission()
 	}
 	machine, err := s.Queries.GetFlowWorkspaceForUserRepo(ctx, db.GetFlowWorkspaceForUserRepoParams{ID: input.WorkspaceID, RepositoryID: repositoryID, UserID: userID})
 	if err != nil || machine.RebuildRequiredAt.Valid {

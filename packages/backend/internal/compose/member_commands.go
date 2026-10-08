@@ -40,6 +40,18 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				writeConfirmationDispatchError(w, err)
 				return
 			}
+			if command == "flow.run" && strings.Contains(r.URL.Path, "/workflows/") && (strings.HasSuffix(r.URL.Path, "/dispatch") || strings.HasSuffix(r.URL.Path, "/dispatches")) {
+				// WorkflowHandler resolves the definition and validates its body
+				// before binding the concrete dispatch command and payload.
+				next.ServeHTTP(w, r)
+				return
+			}
+			if command == "flow.run" && (r.URL.Path == "/api/flows" || strings.HasPrefix(r.URL.Path, "/api/flows/")) {
+				// The flow handler validates the body; run admission resolves and
+				// locks the stored parent before its one bound command decision.
+				next.ServeHTTP(w, r)
+				return
+			}
 			if command == "flow.relay" || command == "box.resume" && r.URL.Path == "/api/workflow/provision" {
 				// The relay decodes its procedure and validated payload, resolves
 				// the stored workspace, then binds one concrete catalog command.

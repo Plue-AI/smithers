@@ -5270,25 +5270,39 @@ export interface PostApiReposOwnerRepoUnarchiveInput {
 export const postApiReposOwnerRepoUnarchive = (transport: Transport, input: PostApiReposOwnerRepoUnarchiveInput): Promise<PostApiReposOwnerRepoUnarchiveResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/unarchive`) as Promise<PostApiReposOwnerRepoUnarchiveResponse>
 
+export type PostApiReposOwnerRepoWorkflowsIdDispatchesBody = {
+  command?: "flow.run"
+  ref?: string
+  inputs?: Record<string, unknown>
+}
+
 export type PostApiReposOwnerRepoWorkflowsIdDispatchesResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoWorkflowsIdDispatchesInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string }
+  readonly body: PostApiReposOwnerRepoWorkflowsIdDispatchesBody
 }
 
 /** POST /api/repos/{owner}/{repo}/workflows/{id}/dispatches */
 export const postApiReposOwnerRepoWorkflowsIdDispatches = (transport: Transport, input: PostApiReposOwnerRepoWorkflowsIdDispatchesInput): Promise<PostApiReposOwnerRepoWorkflowsIdDispatchesResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workflows/${segment(input.path.id)}/dispatches`) as Promise<PostApiReposOwnerRepoWorkflowsIdDispatchesResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workflows/${segment(input.path.id)}/dispatches`, input.body) as Promise<PostApiReposOwnerRepoWorkflowsIdDispatchesResponse>
+
+export type PostApiReposOwnerRepoWorkflowsNameDispatchBody = {
+  command?: "flow.run"
+  ref?: string
+  inputs?: Record<string, unknown>
+}
 
 export type PostApiReposOwnerRepoWorkflowsNameDispatchResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoWorkflowsNameDispatchInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly name: string }
+  readonly body: PostApiReposOwnerRepoWorkflowsNameDispatchBody
 }
 
 /** POST /api/repos/{owner}/{repo}/workflows/{name}/dispatch */
 export const postApiReposOwnerRepoWorkflowsNameDispatch = (transport: Transport, input: PostApiReposOwnerRepoWorkflowsNameDispatchInput): Promise<PostApiReposOwnerRepoWorkflowsNameDispatchResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workflows/${segment(input.path.name)}/dispatch`) as Promise<PostApiReposOwnerRepoWorkflowsNameDispatchResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workflows/${segment(input.path.name)}/dispatch`, input.body) as Promise<PostApiReposOwnerRepoWorkflowsNameDispatchResponse>
 
 export type PostApiReposOwnerRepoWorkflowsRunsIdCancelResponse = AnyJSON
 
