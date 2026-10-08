@@ -68,6 +68,12 @@ type IssueView struct {
 func (s *Server) OpenIssue(repo, login, title, body string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.openIssue(repo, login, title, body)
+}
+
+// openIssue is OpenIssue under the lock; the person control (/_fake/issues)
+// opens the same issue, with GitHub's numeric id.
+func (s *Server) openIssue(repo, login, title, body string) int64 {
 	if login == "" {
 		login = s.config.OwnerLogin
 	}

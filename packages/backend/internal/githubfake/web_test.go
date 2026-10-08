@@ -184,6 +184,10 @@ func TestBrowserPages(t *testing.T) {
 	if issue, ok := fake.Issue("local-owner/demo", number["number"]); !ok || number["number"] != 1 || issue.Title != "Retry webhooks" || issue.Author != "alice" {
 		t.Fatal(number, issue)
 	}
+	// It carries GitHub's numeric id, as OpenIssue's does: the install refuses an issue without one.
+	if id := fake.opened[issueKey("local-owner/demo", 1)].ID; id <= 0 {
+		t.Fatalf("issue opened through the control has id %d", id)
+	}
 	if bad, err := http.Post(fake.URL+"/_fake/issues", "application/json", strings.NewReader(`{"repo":"local-owner/demo"}`)); err != nil || bad.StatusCode != 400 {
 		t.Fatal(err, bad.StatusCode)
 	}

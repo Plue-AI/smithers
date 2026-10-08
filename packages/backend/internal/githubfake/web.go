@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // publicHookURL mirrors GitHub's manifest check that a hook is reachable over
@@ -200,12 +199,7 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 			http.Error(w, "repo and title are required", 400)
 			return true
 		}
-		if body.Login == "" {
-			body.Login = s.config.OwnerLogin
-		}
-		number := s.nextNumber(body.Repo)
-		now := time.Now().UTC()
-		s.opened[issueKey(body.Repo, number)] = &issue{Number: number, Title: body.Title, Body: body.Body, Author: body.Login, State: "open", CreatedAt: now, UpdatedAt: now}
+		number := s.openIssue(body.Repo, body.Login, body.Title, body.Body)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]int64{"number": number})
 		return true
