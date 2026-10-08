@@ -126,7 +126,8 @@ function MessageScrollerProviderImpl({
   const previousReadKeyRef = useRef(readKey);
   const previousUserMessageRef = useRef(readAnchor?.userMessageId);
   const previousRequestIdRef = useRef(readAnchor?.requestId);
-  const activeReadRef = useRef<{ id: string; arrival: boolean } | null>(null);
+  /** `moved`: the reader scrolled since this read was pinned, so its top is no longer a destination. */
+  const activeReadRef = useRef<{ id: string; arrival: boolean; moved?: true } | null>(null);
   const userReadPendingRef = useRef(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [viewportElement, setViewportElement] = useState<HTMLDivElement | null>(null);
@@ -459,6 +460,16 @@ function MessageScrollerProviderImpl({
     const read = activeReadRef.current ?? { id: request.messageId, arrival: false };
     activeReadRef.current = read;
     if (actor === "user") setFollowing(true);
+    // A reader who scrolled inside this read owns the position. At the live
+    // edge its growth is followed; its top (a tall card's, an arrival's, an
+    // in-card heading's) is never pinned again until a new read asks for it.
+    if (read.moved) {
+      if (followingRef.current) viewport.scrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      measure(viewport);
+      remember(viewport);
+      refreshVisibilityFallback();
+      return;
+    }
     const el = itemsRef.current.get(read.id);
     if (!el) return;
     if (read.arrival && followingRef.current) actor = "arrival";
@@ -678,6 +689,7 @@ function MessageScrollerProviderImpl({
       if (viewport.scrollTop === previousTop) return;
       userReadPendingRef.current = false;
       previousRequestIdRef.current = readAnchorRef.current.requestId;
+      if (activeReadRef.current) activeReadRef.current = { ...activeReadRef.current, moved: true };
     }
     // A real reader scroll releases the turn anchor; growth no longer holds.
     turnAnchorRef.current = null;

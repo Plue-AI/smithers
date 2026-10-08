@@ -1493,3 +1493,81 @@ test("an in-card heading remains the read destination across layout and repeated
   await act(async () => root!.render(view(3, "missing")));
   expect(getViewport().scrollTop).toBe(10);
 });
+
+// Found by the macOS WebKit run of apps/app docs.spec.ts (T-APP-20, T-APP-24): Settings is taller than the
+// viewport, and a control at its end was snapped out from under a press because the read re-pinned the card's top.
+describe("a reader who scrolls inside the latest read owns the position", () => {
+  const view = (id: string, readAnchor: { targetId?: string; actor?: "arrival" | "output"; version?: number } = {}) => (
+    <MessageScrollerProvider scrollAnchor="bottom" readAnchor={{ messageId: id, ...readAnchor }}>
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="home">Home</MessageScrollerItem>
+        <MessageScrollerItem messageId={id}><div id="https" data-message-id="heading">HTTPS</div></MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport>
+    </MessageScrollerProvider>
+  );
+  const resize = async () => {
+    const content = container!.querySelector('[data-slot="message-scroller-content"]')!;
+    await act(async () => resizeCallbacks.get(content)!([], {} as ResizeObserver));
+  };
+  const tall = () => {
+    geometryByMessageId.set("home", { top: 20, height: 580 });
+    geometryByMessageId.set("settings", { top: 616, height: 1210 });
+    geometryByMessageId.set("heading", { top: 900, height: 30 });
+  };
+
+  test.each([
+    ["a tall card", {}, 606],
+    ["a tall arrival", { actor: "arrival" as const }, 606],
+    ["an in-card heading", { targetId: "https" }, 890]
+  ])("the end of %s stays in view through later commits and layout", async (_name, readAnchor, pinned) => {
+    tall();
+    await render(view("settings", readAnchor), { scrollHeight: 1826, clientHeight: 624, scrollTop: 0 });
+    expect(getViewport().scrollTop).toBe(pinned);
+    // Before the reader moves, layout keeps the read where it was pinned.
+    await resize();
+    expect(getViewport().scrollTop).toBe(pinned);
+    // The reader scrolls to the end of the card: the transcript's bottom.
+    metrics().scrollTop = 1202;
+    await scroll();
+    await act(async () => root!.render(view("settings", readAnchor)));
+    expect(getViewport().scrollTop).toBe(1202);
+    await resize();
+    expect(getViewport().scrollTop).toBe(1202);
+    // At the live edge the card's growth is followed, not rewound to its top.
+    geometryByMessageId.set("settings", { top: 616, height: 1410 });
+    metrics().scrollHeight = 2026;
+    await resize();
+    expect(getViewport().scrollTop).toBe(1402);
+  });
+
+  test("a reader part-way down a tall card is left alone, and the next card is read from its top", async () => {
+    tall();
+    await render(view("settings"), { scrollHeight: 1826, clientHeight: 624, scrollTop: 0 });
+    metrics().scrollTop = 900;
+    await scroll();
+    geometryByMessageId.set("settings", { top: 616, height: 1410 });
+    metrics().scrollHeight = 2026;
+    await resize();
+    expect(getViewport().scrollTop).toBe(900);
+    // Back at the end, then a new tall card arrives: reading starts at its top again.
+    metrics().scrollTop = 1402;
+    await scroll();
+    geometryByMessageId.set("docs", { top: 2036, height: 900 });
+    metrics().scrollHeight = 2946;
+    await act(async () => root!.render(view("docs")));
+    expect(getViewport().scrollTop).toBe(2026);
+    await resize();
+    expect(getViewport().scrollTop).toBe(2026);
+  });
+
+  test("the same card asked for again is read from its heading again", async () => {
+    tall();
+    await render(view("settings", { targetId: "https", version: 1 }), { scrollHeight: 1826, clientHeight: 624, scrollTop: 0 });
+    metrics().scrollTop = 1202;
+    await scroll();
+    await resize();
+    expect(getViewport().scrollTop).toBe(1202);
+    await act(async () => root!.render(view("settings", { targetId: "https", version: 2 })));
+    expect(getViewport().scrollTop).toBe(890);
+  });
+});
