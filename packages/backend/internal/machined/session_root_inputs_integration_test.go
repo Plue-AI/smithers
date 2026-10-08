@@ -52,13 +52,19 @@ func TestSessionRootInputsValidated(t *testing.T) {
 }
 
 func TestSessionAdmissionFailsClosed(t *testing.T) {
-	for _, mode := range []string{"no provider", "no authenticated connection", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "short actor", "long actor", "member with run", "invalid via", "cancelled", "unregistered agent"} {
+	for _, mode := range []string{"nil sessions", "no provider", "no authenticated connection", "no registry", "no boot", "unreconciled", "wrong branch", "closed boot", "missing actor", "zero actor", "short actor", "long actor", "member with run", "invalid via", "cancelled", "unregistered agent"} {
 		t.Run(mode, func(t *testing.T) {
 			sessions, guest := lspConfinementLink(t)
 			sessions = sessions.WithPresenceVia("terminal")
 			user := SessionUser{"ben", 20001}
 			ctx := context.Background()
 			switch mode {
+			case "nil sessions":
+				sessions = nil
+			case "no registry":
+				sessions.connection = &Connection{boot: sessions.connection.boot}
+			case "no boot":
+				sessions.connection = &Connection{registry: sessions.connection.registry}
 			case "no provider":
 				sessions.rpc = nil
 			case "no authenticated connection":
@@ -96,6 +102,23 @@ func TestSessionAdmissionFailsClosed(t *testing.T) {
 			if mode != "unregistered agent" && mode != "member with run" {
 				_, err = sessions.TCPConnect(ctx, 8080)
 				require.Error(t, err)
+			}
+			// A connection losing admission must fence every session door, not
+			// only new launches. Valid selectors ensure refusal is admission,
+			// rather than malformed input hiding an unavailable provider.
+			switch mode {
+			case "nil sessions", "no provider", "no authenticated connection", "no registry", "no boot", "unreconciled", "wrong branch", "closed boot", "cancelled":
+				for name, call := range map[string]func() error{
+					"close":        func() error { return sessions.CloseSession(ctx, 1) },
+					"kill session": func() error { _, err := sessions.KillSession(ctx, 1); return err },
+					"kill member":  func() error { _, err := sessions.KillUser(ctx, SessionUser{"ben", 20001}); return err },
+					"kill run":     func() error { _, err := sessions.KillRun(ctx, "registered-run"); return err },
+					"register run": func() error { return sessions.RegisterRun(ctx, "registered-run", 1) },
+					"attach":       func() error { _, err := sessions.AttachSession(ctx, 1, 0); return err },
+					"stream":       func() error { _, err := sessions.Stream(ctx, 1); return err },
+				} {
+					t.Run(name, func(t *testing.T) { require.Error(t, call()) })
+				}
 			}
 			if mode != "closed boot" {
 				requireGuestSilent(t, guest)
