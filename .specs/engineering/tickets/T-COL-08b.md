@@ -2,7 +2,7 @@
 
 Stage S3 · Size M · Depends on T-COL-03r, T-COL-02, T-COL-03f · Unblocks T-APP-14a, T-COL-08, T-COL-08a · Issue: [#3630](https://github.com/smithersai/smithers/issues/3630)
 Spec: spec.md §7.1, §7.4.1–7.4.6, §7.6, §8.4.1, §8.4.3–8.4.4, §9.1.2 (`open_doc`, `close_doc`, `rebase`), §9.2.1–9.2.6, §9.3.4, §9.4.1–9.4.2, §18 · Delta: delta.md §4 (`smithers-machined` S3, live channel S3) · Product: mvp.md J3.5, §6.8 Live co-editing, §9 Live updates, M-02
-Ready: 2026-10-03 smithers-8a sha256:d7e8a228d414
+Ready: 2026-10-07 smithers-8a sha256:65502937f4f7
 
 ## Goal
 
@@ -19,7 +19,7 @@ In:
 - `packages/rpc/src/LiveDoc.ts` (smithers-38): per-module TS contract; the `409 stale` refusal and `unsupported` reply are tagged schemas. `packages/rpc/src/testing/LiveDocRelay.ts`: fake relay that replays the golden browser frames for T-APP-14a. Pin `yjs` 13.6.32 in `packages/rpc/package.json` and record it in `MANIFEST.json`.
 - Subscribe and authorize topics; resolve the authenticated actor, envelope frames on the reserved daemon document stream, reject cross-branch routing, and revoke subscriptions within 5 s.
 - Enforce the 2 MiB budget and restart sync step 1 on overflow. Relay saved and epoch unchanged.
-- ADR 0003 selected the relay topology (smithers-8a, 2026-10-07): documents live in the daemon and the host relays frames unparsed. The conditional `codedoc.go` host mirror was deleted in `b9553a4fca`; code topics run no host Yrs core, and the daemon rejects foreign actor client ids (§7.4.4).
+- ADR 0003's topology section applies T-COL-11's rule (smithers-8a, 2026-10-07, 20642d9867): documents live in the daemon and the host relays frames unparsed. It is not yet accepted: smithers-3f and smithers-38 review first, and Will answers the contrary host-mirror choice in design/working-together.md (via a6). The conditional `codedoc.go` host mirror was deleted in `b9553a4fca`; code topics run no host Yrs core, and the daemon rejects foreign actor client ids (§7.4.4).
 - Build against the specified contracts of T-COL-03r, T-COL-02 and T-COL-03f while they are unavailable. Lands dark until T-COL-03r and T-COL-02: without the wire codec or authenticated live-channel handler, document subscriptions and frames are refused, never routed through another transport. T-COL-03f is test support only; no production fake fallback.
 - Lands dark until T-COL-11: without an accepted ADR 0003 topology decision, refuse code-document subscriptions with `unsupported`; do not select a topology by default. Lands dark until T-COL-03 and T-COL-08a: without an authenticated branch connection and supported daemon document handler, refuse code-document subscriptions and updates with `unsupported`, send no snapshot or `saved`, and never open host working-copy files or launch a process. The branch connection is injected; this ticket does not call the real registry.
 - Lands dark until T-COL-09: reserve and decode wiki topics but refuse them with `unsupported` until its authorized wiki adapter is mounted. `TestDocRelayDarkLanding` exercises each missing provider through the composed route. These activation preconditions are not code/schema dependencies.
