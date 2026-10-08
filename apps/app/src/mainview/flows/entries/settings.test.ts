@@ -127,7 +127,9 @@ describe("T-APP-03 settings command doors", () => {
   test.each([["settings.capacity", "1", "capacity"], ["settings.parallel", "1", "parallel"]] as const)("%s writes the live install, not the seed, once the card shows it", async (_name, args, field) => {
     const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
-      await h.controller.commands.run("settings"); await tick()
+      await tick()
+      expect(h.requests).toEqual([])
+      expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo[field]
       expect((await h.controller.commands.run("settings", JSON.stringify({ operation: field, [field]: Number(args) }))).status).toBe("executed"); await tick()
@@ -184,7 +186,9 @@ describe("T-APP-03 settings command doors", () => {
   test("settings.address writes the live install, not the seed, once the card shows it", async () => {
     const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
-      await h.controller.commands.run("settings"); await tick()
+      await tick()
+      expect(h.requests).toEqual([])
+      expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo.setup.addresses
       const address = { listen: "network", bind: "0.0.0.0:4000", origins: ["https://maya-mini.tail1234.ts.net"] }
@@ -197,12 +201,16 @@ describe("T-APP-03 settings command doors", () => {
     const local: AppBootstrap = { apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
     const missing = await harness(local, () => new Response("Not found", { status: 404 }))
     try {
-      await missing.controller.commands.run("settings"); await tick()
+      await tick()
+      expect(missing.requests).toEqual([])
+      expect((await missing.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect([...missing.store.collections.toasts.values()].filter(toast => toast.status === "failed")).toEqual([])
     } finally { await missing.controller.dispose() }
     const offline = await harness(local, () => { throw new Error("offline") })
     try {
-      await offline.controller.commands.run("settings"); await tick()
+      await tick()
+      expect(offline.requests).toEqual([])
+      expect((await offline.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect([...offline.store.collections.toasts.values()].map(toast => [toast.title, toast.status, toast.detail])).toEqual([["Settings", "failed", "Could not reach this install"]])
     } finally { await offline.controller.dispose() }
   })
