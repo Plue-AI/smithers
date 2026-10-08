@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -154,6 +155,11 @@ func (d *scriptedDaemon) deliver(n byte, profile, record string) (machined.AckOu
 			fields, err := wire.Fields("ack", frame.Payload[1:])
 			if err != nil {
 				return 0, err
+			}
+			if len(fields[1]) == 8 && binary.BigEndian.Uint64(fields[1]) < d.seq && len(fields[2]) == 1 {
+				// A replay may have committed just as its first acknowledgment arrived.
+				// That older acknowledgment cannot settle the next outbox event.
+				continue
 			}
 			if !bytes.Equal(fields[1], wire.U64(d.seq)) || len(fields[2]) != 1 {
 				return 0, errors.New("the host acknowledged another event")
@@ -335,4 +341,52 @@ func TestExternalTranscriptBrowserPostgres(t *testing.T) {
 	// timeline asks the fast model to title the stretches it folds (#3732),
 	// with no tools, and on an install without a model each settles untitled.
 	t.Logf("the members' browsers asked the fast model for %d timeline titles while reading", resolved.Load())
+}
+
+func TestScriptedDaemonReplaysOriginalEventAndIgnoresItsLateDuplicateAck(t *testing.T) {
+	daemonPeer, hostPeer := net.Pipe()
+	defer daemonPeer.Close()
+	defer hostPeer.Close()
+	require.NoError(t, hostPeer.SetDeadline(time.Now().Add(5*time.Second)))
+	daemon := newScriptedDaemon(daemonPeer)
+	done := make(chan error, 1)
+	go func() {
+		first, err := wire.Read(hostPeer)
+		if err != nil {
+			done <- err
+			return
+		}
+		replay, err := wire.Read(hostPeer)
+		if err != nil {
+			done <- err
+			return
+		}
+		if first.Kind != replay.Kind || !bytes.Equal(first.Payload, replay.Payload) {
+			done <- errors.New("replay changed the original event")
+			return
+		}
+		ack := func(seq uint64) error {
+			return wire.Write(hostPeer, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, wire.Field(1, wire.U64(seq)), wire.Field(2, []byte{byte(machined.AckApplied)}))})
+		}
+		if err = ack(1); err != nil {
+			done <- err
+			return
+		}
+		if err = ack(1); err != nil {
+			done <- err
+			return
+		}
+		if _, err = wire.Read(hostPeer); err != nil {
+			done <- err
+			return
+		}
+		done <- ack(2)
+	}()
+	for i := 0; i < 2; i++ {
+		outcome, err := daemon.deliver(1, "codex-rollout/0.160", "{}")
+		require.NoError(t, err)
+		require.Equal(t, machined.AckApplied, outcome)
+	}
+	require.NoError(t, <-done)
+	require.Equal(t, uint64(6), daemon.offsets[1])
 }
