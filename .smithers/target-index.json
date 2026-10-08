@@ -28274,6 +28274,358 @@
     }
   },
   {
+    "label": "//apps/app:journeyBranchPresence",
+    "package": "apps/app",
+    "name": "journeyBranchPresence",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyDuplicateLaunch",
+    "package": "apps/app",
+    "name": "journeyDuplicateLaunch",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyFileCoedit",
+    "package": "apps/app",
+    "name": "journeyFileCoedit",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyFileGone",
+    "package": "apps/app",
+    "name": "journeyFileGone",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyFileIntelligence",
+    "package": "apps/app",
+    "name": "journeyFileIntelligence",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyFlowActivation",
+    "package": "apps/app",
+    "name": "journeyFlowActivation",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyFlowSourceRun",
+    "package": "apps/app",
+    "name": "journeyFlowSourceRun",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyForkAddToStack",
+    "package": "apps/app",
+    "name": "journeyForkAddToStack",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyFreshRepository",
     "package": "apps/app",
     "name": "journeyFreshRepository",
@@ -28409,6 +28761,138 @@
     "label": "//apps/app:journeyGitHubPRShape",
     "package": "apps/app",
     "name": "journeyGitHubPRShape",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyGitHubSyncHealth",
+    "package": "apps/app",
+    "name": "journeyGitHubSyncHealth",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyHome",
+    "package": "apps/app",
+    "name": "journeyHome",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyInstallOrigins",
+    "package": "apps/app",
+    "name": "journeyInstallOrigins",
     "rule": "NodeTest",
     "kinds": [
       "test"
@@ -28626,6 +29110,50 @@
     }
   },
   {
+    "label": "//apps/app:journeySshBranch",
+    "package": "apps/app",
+    "name": "journeySshBranch",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyTodoEvidence",
     "package": "apps/app",
     "name": "journeyTodoEvidence",
@@ -28738,6 +29266,50 @@
     }
   },
   {
+    "label": "//apps/app:journeyTodoMergeOrder",
+    "package": "apps/app",
+    "name": "journeyTodoMergeOrder",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyTodoNeedsYou",
     "package": "apps/app",
     "name": "journeyTodoNeedsYou",
@@ -28765,6 +29337,50 @@
       {
         "kind": "file",
         "path": "apps/app/playwright.real.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyTodoPlacement",
+    "package": "apps/app",
+    "name": "journeyTodoPlacement",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
       }
     ],
     "outputs": [],
@@ -28813,6 +29429,50 @@
     "label": "//apps/app:journeyWikiCoedit",
     "package": "apps/app",
     "name": "journeyWikiCoedit",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-real-e2e.ts"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.real.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:journeyWikiDecisionFollow",
+    "package": "apps/app",
+    "name": "journeyWikiDecisionFollow",
     "rule": "NodeTest",
     "kinds": [
       "test"

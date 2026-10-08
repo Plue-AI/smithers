@@ -123,7 +123,7 @@ const check = Smithers.Typecheck({
 const unitTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   // Isolate files that mutate process globals until #3696 removes that pollution.
-  runner: Smithers.testSuite(["src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"], { isolate: true }),
+  runner: Smithers.testSuite(["src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "e2e/real/chat-tools/shared-traffic.test.ts", "scripts"], { isolate: true }),
   // 6,740 tests across 520 files took 813s on a clean 2026-09-29 checkout;
   // the shared 600s default killed CI while Bun was still running tests.
   timeout: "20m",
@@ -328,8 +328,8 @@ const journeyWikiCoedit = Smithers.NodeTest({
   deps: [], exclusive: true, cwd
 })
 
-/** Each GitHub journey selects one spec; wildcard runs omit reference qualification. */
-const githubJourney = (spec: string) => Smithers.NodeTest({
+/** Each reference-host journey selects one spec; wildcard runs omit qualification. */
+const referenceJourney = (spec: string) => Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), [spec]),
   timeout: "60m",
@@ -339,9 +339,26 @@ const githubJourney = (spec: string) => Smithers.NodeTest({
     Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
   deps: [], exclusive: true, cwd
 })
-const journeyGitHubMerge = githubJourney("github-j10/merge-on-github.spec.ts")
-const journeyGitHubMergeContinuation = githubJourney("github-j10/merge-on-github-continuation.spec.ts")
-const journeyGitHubPRShape = githubJourney("github-j10/pr-shape.spec.ts")
+const journeyGitHubMerge = referenceJourney("github-j10/merge-on-github.spec.ts")
+const journeyGitHubMergeContinuation = referenceJourney("github-j10/merge-on-github-continuation.spec.ts")
+const journeyGitHubPRShape = referenceJourney("github-j10/pr-shape.spec.ts")
+/** Reference-host journeys excluded by journeys.ts from ordinary real-E2E. */
+const journeyFlowSourceRun = referenceJourney("flow-source-run.spec.ts")
+const journeyWikiDecisionFollow = referenceJourney("wiki-decision-follow.spec.ts")
+const journeyBranchPresence = referenceJourney("branch-presence.spec.ts")
+const journeyDuplicateLaunch = referenceJourney("duplicate-launch.spec.ts")
+const journeyFileCoedit = referenceJourney("file-coedit.spec.ts")
+const journeyHome = referenceJourney("home.spec.ts")
+const journeyTodoMergeOrder = referenceJourney("todo-merge-order.spec.ts")
+const journeyTodoPlacement = referenceJourney("todo-placement.spec.ts")
+const journeyFlowActivation = referenceJourney("flow-activation.spec.ts")
+const journeyFileGone = referenceJourney("file-gone.spec.ts")
+const journeyGitHubSyncHealth = referenceJourney("github-j10/sync-health.spec.ts")
+const journeyForkAddToStack = referenceJourney("fork-add-to-stack.spec.ts")
+const journeySshBranch = referenceJourney("ssh-branch.spec.ts")
+const journeyInstallOrigins = referenceJourney("install-origins.spec.ts")
+const journeyFileIntelligence = referenceJourney("file-intelligence.spec.ts")
+
 
 /** Dark reference-host journeys; wildcard selections omit these gates. */
 const journeyTodoFromIssue = Smithers.NodeTest({
@@ -575,5 +592,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, journeyFlowSourceRun, journeyWikiDecisionFollow, journeyBranchPresence, journeyDuplicateLaunch, journeyFileCoedit, journeyHome, journeyTodoMergeOrder, journeyTodoPlacement, journeyFlowActivation, journeyFileGone, journeyGitHubSyncHealth, journeyForkAddToStack, journeySshBranch, journeyInstallOrigins, journeyFileIntelligence, proofRecord, proofPage, webSources, ...securityReview }
 })

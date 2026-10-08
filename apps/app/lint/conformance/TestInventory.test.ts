@@ -194,7 +194,7 @@ interface ExclusiveRunner {
 const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
   Package.viewStories, Package.journeyJ1Activation, Package.journeyJ1Release, Package.journeyKeyboard, Package.journeyFreshRepository, Package.journeyWikiGeneratedRefresh, Package.journeyWikiCoedit, Package.journeySetup, Package.journeyWikiObsidian, Package.journeyTodoFromIssue,
   Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge, Package.journeyAskRepository,
-  Package.journeyTodoStackActions, Package.journeyGitHubMerge, Package.journeyGitHubMergeContinuation, Package.journeyGitHubPRShape
+  Package.journeyTodoStackActions, Package.journeyGitHubMerge, Package.journeyGitHubMergeContinuation, Package.journeyGitHubPRShape, Package.journeyFlowSourceRun, Package.journeyWikiDecisionFollow, Package.journeyBranchPresence, Package.journeyDuplicateLaunch, Package.journeyFileCoedit, Package.journeyHome, Package.journeyTodoMergeOrder, Package.journeyTodoPlacement, Package.journeyFlowActivation, Package.journeyFileGone, Package.journeyGitHubSyncHealth, Package.journeyForkAddToStack, Package.journeySshBranch, Package.journeyInstallOrigins, Package.journeyFileIntelligence
 ].map(target => metadata(target).attrs)))`)
 
 // Read only the actual Bun.spawn argv. The J2 wrapper interpolates its one
@@ -249,7 +249,7 @@ const exclusiveOwns = (path: string, target: ExclusiveRunner, source: string): b
     target.runner.args.length === 0 && path === "e2e/playwright/view-stories.spec.ts" &&
     runsStep(spawnArgv(source, undefined), ["pnpm", "exec", "playwright", "test", "--config", "playwright.config.ts", path])
   if (entry === "scripts/run-real-e2e.ts") return target.runner.args.length === 1 &&
-    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts", "fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts", "github-j10/merge-on-github.spec.ts", "github-j10/merge-on-github-continuation.spec.ts", "github-j10/pr-shape.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
+    ["j1-activation.spec.ts", "setup.spec.ts", "wiki-obsidian.spec.ts", "j1.spec.ts", "keyboard-journeys.spec.ts", "fresh-repository.spec.ts", "wiki-generated-refresh.spec.ts", "wiki-coedit.spec.ts", "github-j10/merge-on-github.spec.ts", "github-j10/merge-on-github-continuation.spec.ts", "github-j10/pr-shape.spec.ts", "flow-source-run.spec.ts", "wiki-decision-follow.spec.ts", "branch-presence.spec.ts", "duplicate-launch.spec.ts", "file-coedit.spec.ts", "home.spec.ts", "todo-merge-order.spec.ts", "todo-placement.spec.ts", "flow-activation.spec.ts", "file-gone.spec.ts", "github-j10/sync-health.spec.ts", "fork-add-to-stack.spec.ts", "ssh-branch.spec.ts", "install-origins.spec.ts", "file-intelligence.spec.ts"].includes(target.runner.args[0]!) && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
     path === `e2e/real/${target.runner.args[0]}` && invokesRealPlaywright(source) &&
     runnerEvidence(source).forwarding
   if (entry === "scripts/run-journey-j2.ts") return target.runner.args.length === 1 &&
@@ -286,7 +286,7 @@ test("exclusive browser ownership requires the exported target and executable se
     "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
     "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts", "e2e/real/ask-repository.spec.ts",
     "e2e/real/todo-stack-actions.spec.ts", "e2e/real/github-j10/merge-on-github.spec.ts",
-    "e2e/real/github-j10/merge-on-github-continuation.spec.ts", "e2e/real/github-j10/pr-shape.spec.ts"]
+    "e2e/real/github-j10/merge-on-github-continuation.spec.ts", "e2e/real/github-j10/pr-shape.spec.ts", "e2e/real/flow-source-run.spec.ts", "e2e/real/wiki-decision-follow.spec.ts", "e2e/real/branch-presence.spec.ts", "e2e/real/duplicate-launch.spec.ts", "e2e/real/file-coedit.spec.ts", "e2e/real/home.spec.ts", "e2e/real/todo-merge-order.spec.ts", "e2e/real/todo-placement.spec.ts", "e2e/real/flow-activation.spec.ts", "e2e/real/file-gone.spec.ts", "e2e/real/github-j10/sync-health.spec.ts", "e2e/real/fork-add-to-stack.spec.ts", "e2e/real/ssh-branch.spec.ts", "e2e/real/install-origins.spec.ts", "e2e/real/file-intelligence.spec.ts"]
   expect(exclusiveRunners).toHaveLength(paths.length)
   for (const target of exclusiveRunners) {
     const source = read(target.runner.entry.path)
@@ -330,6 +330,7 @@ test("every app test belongs to an executable runner", () => {
   expect(owners("e2e/real/coverage/gate.test.ts")).toEqual(["unit"])
   // So is the real tier's model provider: a Bun test of the process Playwright launches.
   expect(owners("e2e/real/support/model-provider.test.ts")).toEqual(["unit"])
+  expect(owners("e2e/real/chat-tools/shared-traffic.test.ts")).toEqual(["unit"])
   expect(owners("e2e/real/auth-permissions/profile.test.ts")).toEqual(["unit"])
   expect(owners("e2e/real/Unassigned.test.ts")).toEqual([])
   expect(owners("e2e/site/Unassigned.test.ts")).toEqual([])
