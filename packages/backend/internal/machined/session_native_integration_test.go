@@ -216,11 +216,18 @@ func TestSessionProductionDispatchAcceptance(t *testing.T) {
 
 func TestSessionRootInputsValidatedNative(t *testing.T) {
 	h := nativeSessions(t)
-	t.Run("production RPC matrix", func(t *testing.T) {
-		copy := *h
-		copy.t = t
-		testSessionNativeRPCMatrix(t, &copy)
-	})
+	for _, phase := range []string{"production RPC matrix", "retained RPC matrix after reconnect"} {
+		t.Run(phase, func(t *testing.T) {
+			if phase == "retained RPC matrix after reconnect" {
+				require.NoError(t, h.link.Close())
+				h.connect()
+				h.sessions = NewSessions(h.link.Connection, h.config.Branch, h.registry.Sessions(h.config.Branch)).WithActor(h.sessions.actor, "").WithPresenceVia("ssh")
+			}
+			copy := *h
+			copy.t = t
+			testSessionNativeRPCMatrix(t, &copy)
+		})
+	}
 	for _, user := range []SessionUser{{"root", 0}, {"ben", 19999}, {"alice", 20001}, {"../ben", 20001}, {"ben", 20002}} {
 		t.Run(fmt.Sprintf("rpc/%s/%d", user.Login, user.UID), func(t *testing.T) {
 			hcopy := *h
