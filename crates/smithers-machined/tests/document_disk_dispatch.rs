@@ -1425,3 +1425,35 @@ fn corrupted_deletion_metadata_refuses_recovery_without_touching_recreated_file(
         .to_string_lossy()
         .starts_with(".smithers-doc-")));
 }
+
+#[test]
+#[ignore = "requires Linux uid19998 and confined real filesystem"]
+fn new_files_use_public_default_mode_and_existing_permissions_survive() {
+    let f = Fixture::new();
+    fs::write(f.root.join("workspace/script"), b"before").unwrap();
+    fs::set_permissions(
+        f.root.join("workspace/script"),
+        fs::Permissions::from_mode(0o751),
+    )
+    .unwrap();
+    let (_service, mut cx) = f.service();
+    let reply = batch(
+        &mut cx,
+        &[
+            ("new", None, b""),
+            ("a.rs", Some(b"abc"), b"changed"),
+            ("script", Some(b"before"), b"after"),
+        ],
+    );
+    assert_eq!(conn::fields("result17", &reply[1..]).unwrap().len(), 1);
+    for (path, mode) in [("new", 0o644), ("a.rs", 0o640), ("script", 0o751)] {
+        assert_eq!(
+            fs::metadata(f.root.join("workspace").join(path))
+                .unwrap()
+                .mode()
+                & 0o7777,
+            mode,
+            "{path}"
+        );
+    }
+}
