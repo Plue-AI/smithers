@@ -85,3 +85,18 @@ These are host boundary proofs with a fixture wire peer. They do not exercise
 an installed guest watcher, its durable outbox, a VM kill, working-copy recovery,
 capture convergence or the complete per-run C-DUR-04 artifact inventory. The
 summary remains `incomplete`; the Mac/approved-image campaign is still required.
+
+`node scripts/working-together/faults.mjs --watcher-only` runs the composed Linux
+watcher recovery campaign: K1, K2, K3, K3b and K5a–c, ten runs each. Build the
+`rehearsal_daemon` example with `--features killpoints`, then add its absolute
+path as `machinedFaultBinary` to `.artifacts/working-together-host.json`, alongside
+`databaseUrl` and `libraryPath`. Linux user namespaces, bubblewrap and jj are
+required. The campaign uses real inotify, native snapshot and versions objects,
+the daemon's outbox and bundle transport, PostgreSQL, the host store and the
+composed sleeping-branch HTTP diff door. Each run retains acknowledged writer
+hashes, rows, captured heads, daemon logs and outbox records in the campaign's
+evidence directory. Missing, skipped, failed or duplicated run receipts fail.
+
+Its empty broker census cannot qualify member-session attribution, guest init
+supervision, K4/K4b host faults or K6 VM kills. The summary stays `incomplete`;
+successful daemon and host modes must never be combined into a full-check pass.

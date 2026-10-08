@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { verdict, wikiVerdict, boundaryVerdict, boundaryEnvironment, codeTests, hostTests, hostLifecycles, hostVerdict, suites, points, componentKillTests } from './faults.mjs'
+import { verdict, wikiVerdict, boundaryVerdict, boundaryEnvironment, codeTests, hostTests, hostLifecycles, hostVerdict, suites, points, componentKillTests, watcherTests, watcherPoints, watcherLifecycles, watcherVerdict, watcherEnvironment } from './faults.mjs'
 test('every named component must execute assertions; no empty or failed cargo receipt qualifies', () => {
   const logs = suites.map(suite => `Running tests/${suite}.rs (target)\n${(componentKillTests[suite] || []).map(name => `test ${name} ... ok\n`).join('')}test result: ok. 2 passed; 0 failed`).join('\n')
   assert.equal(verdict(0, logs), 'component-passed')
@@ -72,7 +72,7 @@ test('missing host fixture records a failure before starting either boundary sui
   const { run } = await import('./faults.mjs')
   const root = await mkdtemp(join(tmpdir(), 'wiki-fault-refusal-'))
   try {
-    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly']) {
+    for (const mode of ['wikiOnly', 'codeOnly', 'hostOnly', 'watcherOnly']) {
       assert.equal(await run({ root, [mode]: true }), 1)
       const parent = join(root, '.artifacts/checks/C-DUR-04')
       const directories = await readdir(parent)
@@ -80,8 +80,8 @@ test('missing host fixture records a failure before starting either boundary sui
       const summary = JSON.parse(await readFile(join(parent, directory, 'summary.json'), 'utf8'))
       assert.equal(summary.status, 'failed')
       assert.equal(summary.reason, 'host fixture unavailable')
-      assert.deepEqual(summary.tests, mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
-      assert.deepEqual(summary.points.map(item => item.point), mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
+      assert.deepEqual(summary.tests, mode === 'watcherOnly' ? watcherTests : mode === 'hostOnly' ? hostTests : mode === 'wikiOnly' ? ['TestWikiHostCommittedReceiptsAndRestart'] : codeTests)
+      assert.deepEqual(summary.points.map(item => item.point), mode === 'watcherOnly' ? watcherPoints : mode === 'hostOnly' ? ['K4', 'K4b'] : mode === 'wikiOnly' ? ['K8'] : ['K7a', 'K7b', 'K7c', 'K7d', 'K7e'])
       assert.ok(summary.points.every(item => item.status === 'blocked'))
       assert.deepEqual((await readdir(join(parent, directory))).sort(), ['env.json', 'summary.json'])
     }
@@ -121,4 +121,45 @@ test('host fault receipt requires both campaigns and all twenty run lifecycles',
     assert.equal(hostVerdict(0, logs.replace(line('pass', name), line('fail', name))), 'failed')
     assert.equal(hostVerdict(0, logs + '\n' + line('pass', name)), 'failed')
   }
+})
+
+
+test('watcher campaign requires every real kill point and all seventy completed runs', () => {
+ const logs = [event('start'), ...watcherTests.flatMap(name => [event('run', name),
+  ...watcherPoints.flatMap(point => [event('run', `${name}/${point}`),
+   ...Array.from({length:10}, (_,i) => [event('run', `${name}/${point}/${i+1}`), event('pass', `${name}/${point}/${i+1}`)]).flat(),
+   event('pass', `${name}/${point}`)]), event('pass', name)]), event('pass')].join('\n')
+ assert.equal(watcherVerdict(0, logs), 'boundary-passed')
+ assert.equal(watcherVerdict(1, logs), 'failed')
+ for (const name of watcherLifecycles) {
+  assert.equal(watcherVerdict(0, logs.replace(event('pass',name),'')), 'failed')
+  assert.equal(watcherVerdict(0, logs.replace(event('pass',name),event('skip',name))), 'failed')
+  assert.equal(watcherVerdict(0, logs+'\n'+event('pass',name)), 'failed')
+ }
+ assert.equal(watcherVerdict(0, logs.replaceAll(pkg,'another/package')), 'failed')
+})
+
+
+test('watcher preflight refuses an uninstrumented binary before running the campaign', async () => {
+ const {mkdtemp,writeFile,chmod,rm,symlink} = await import('node:fs/promises')
+ const {tmpdir} = await import('node:os')
+ const {join} = await import('node:path')
+ const directory = await mkdtemp(join(tmpdir(),'watcher-preflight-'))
+ try {
+  const binary = join(directory,'daemon')
+  const config = {databaseUrl:'postgres://test',libraryPath:'/native.so',machinedFaultBinary:binary}
+  await writeFile(binary,Buffer.from([0x7f,0x45,0x4c,0x46]),{mode:0o700})
+  await assert.rejects(watcherEnvironment(config,directory,'commit',{}),/features killpoints/)
+  await writeFile(binary,Buffer.concat([Buffer.from([0x7f,0x45,0x4c,0x46]),Buffer.from('SMITHERS_MACHINED_KILL_AT')]))
+  const result = await watcherEnvironment(config,directory,'commit',{LANE:'fr14-col04'})
+  assert.match(result.binaryDigest,/^[0-9a-f]{64}$/)
+  assert.equal(result.env.SMITHERS_REHEARSAL_COMMIT,'commit')
+  assert.equal(result.env.SMITHERS_REHEARSAL_FAULT_EVIDENCE,directory)
+  assert.equal(result.env.SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY,binary)
+  await chmod(binary,0o600)
+  await assert.rejects(watcherEnvironment(config,directory,'commit',{}),/invalid rehearsal/)
+  await symlink(binary,join(directory,'link'))
+  await assert.rejects(watcherEnvironment({...config,machinedFaultBinary:join(directory,'link')},directory,'commit',{}),/invalid rehearsal/)
+  await assert.rejects(watcherEnvironment({...config,machinedFaultBinary:'relative'},directory,'commit',{}),/absolute/)
+ } finally { await rm(directory,{recursive:true,force:true}) }
 })
