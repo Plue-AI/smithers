@@ -133,7 +133,33 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 		code, data := call("rebase-press")
 		require.Equal(t, 202, code, data)
 		require.Equal(t, "accepted", data["state"])
+		require.Equal(t, onto, data["onto"])
 	}
+	read := func(key, cookie string) (int, map[string]any) {
+		req, err := http.NewRequest("GET", origin+"/api/todos/1?rebase_request="+key, nil)
+		require.NoError(t, err)
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+		}
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+		return res.StatusCode, body
+	}
+	status, observed := read("rebase-press", "pin-cookie")
+	require.Equal(t, 200, status, observed)
+	require.Equal(t, map[string]any{"onto": onto, "state": "running"}, observed["rebase_execution"])
+	status, observed = read("unknown-key", "pin-cookie")
+	require.Equal(t, 404, status, observed)
+	otherHash := sha256.Sum256([]byte("other-owner-cookie"))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES($1,$2,'pin-owner',NOW()+interval '1 hour')`, hex.EncodeToString(otherHash[:]), owner.ID)
+	require.NoError(t, err)
+	status, observed = read("rebase-press", "other-owner-cookie")
+	require.Equal(t, 404, status, observed, "even the same member's other credential cannot read a private request")
+	status, observed = read("rebase-press", "")
+	require.Equal(t, 401, status, observed)
 	current, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, head, current.CandidateHead, "the request returns before execution")
@@ -164,6 +190,10 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	code, data = call("new-press")
 	require.Equal(t, 409, code, data)
 	require.Equal(t, "rebase_target_changed", data["code"])
+	status, observed = read("rebase-press", "pin-cookie")
+	require.Equal(t, 200, status, observed)
+	require.Equal(t, map[string]any{"onto": onto, "state": "failed"}, observed["rebase_execution"])
+
 	retained, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "smithers/test", Status: "stopped"})
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: retained.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "TODO 1 coding"})

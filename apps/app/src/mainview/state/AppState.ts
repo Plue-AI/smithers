@@ -923,7 +923,8 @@ export const SessionSchema = z.object({
   uiInstructionsSeen: z.array(z.string()).optional(),
   branchNavigation: BranchNavigationSchema.optional(),
   branchControlRequests: z.array(z.object({ key: z.string(), owner: z.string(), origin: z.string(), branch: z.string(),
-    operation: z.enum(["sleep", "wake"]), state: z.enum(["requested", "accepted", "completed", "failed"]),
+    operation: z.enum(["sleep", "wake", "rebase"]),
+    number: z.number().int().positive().optional(), onto: z.string().optional(), input: z.object({ conflict_change: z.string().optional(), onto_revision: z.string().optional() }).optional(), state: z.enum(["requested", "accepted", "completed", "failed"]),
     workspace: z.string().optional(), operationId: z.string().optional(), repo: z.string().optional(), settled: z.boolean().optional(), error: z.string().optional()
   })).optional(),
   terminalRequests: z.array(z.object({

@@ -166,7 +166,7 @@ func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, a
 				return err
 			}
 		}
-		receipt = TodoControlReceipt{State: "accepted", Number: number}
+		receipt = TodoControlReceipt{State: "accepted", Number: number, Onto: pending.Onto}
 		if err = s.recordTodoControl(ctx, tx, item, control, credential, "todo.rebase-requested", receipt, map[string]any{
 			"item": uuidString(item.ID), "n": number, "onto": pending.Onto, "head": item.CandidateHead,
 			"generation": item.Generation, "actor": map[string]string{"kind": "system", "id": "stack"}, "by": todoActorRef(ctx, person),
@@ -177,4 +177,46 @@ func (s *MythicalService) requestBranchRebase(ctx context.Context, repository, a
 		return err
 	})
 	return receipt, err
+}
+
+// RebaseReceipt observes the admitted rewrite, including after a newer rebase
+// replaces the current pending state. Private keys remain credential-bound.
+func (s *MythicalService) RebaseReceipt(ctx context.Context, repository, number int64, key string) (map[string]any, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil {
+		return nil, &TodoControlError{401, "unauthenticated", "permission", "Sign in"}
+	}
+	credential, err := todoRequestCredential(ctx, info.User.ID)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" || len(key) > 256 {
+		return nil, &TodoControlError{400, "invalid_rebase", "user", "Invalid rebase request"}
+	}
+	item, err := s.queries().GetMythicalItemByNumber(ctx, repository, number)
+	if err != nil {
+		return nil, err
+	}
+	var onto, head string
+	var completed bool
+	err = s.store.QueryRow(ctx, `SELECT r.payload->>'onto',r.payload->>'head',EXISTS (
+ SELECT 1 FROM product_job_events e WHERE e.tenant_id=r.tenant_id AND e.principal_id=r.principal_id
+ AND e.event_type='todo.rebased' AND e.data->>'onto'=r.payload->>'onto'
+ AND (e.data->>'generation')::bigint=(r.payload->>'generation')::bigint+1 AND e.recorded_at>=r.created_at)
+ FROM product_job_requests r WHERE r.operation='todo.rebase-requested' AND r.payload->>'item'=$1
+ AND r.authorization_context->>'credential'=$2 AND r.authorization_context->>'request'=$3`, uuidString(item.ID), credential, key).Scan(&onto, &head, &completed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, &TodoControlError{404, "rebase_not_found", "user", "Rebase receipt unavailable"}
+	}
+	if err != nil {
+		return nil, err
+	}
+	state := "running"
+	pending := mythicalChecksOf(item).Rebase
+	if completed {
+		state = "completed"
+	} else if pending == nil || pending.Onto != onto || pending.Rebased || item.Reason == "rebase_conflict_pending" || mythicalSettledStates[item.State] || item.CandidateHead != head {
+		state = "failed"
+	}
+	return map[string]any{"onto": onto, "state": state}, nil
 }

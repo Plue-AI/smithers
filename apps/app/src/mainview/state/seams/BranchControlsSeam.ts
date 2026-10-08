@@ -39,7 +39,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
     const current = () => !disposed && !ctx.isDisposed?.() && !abort.signal.aborted
       && active.get(initial.key)?.abort === abort && identity()?.state === "signed-in"
       && identity()?.login === initial.owner && (identity()?.ownerRevision ?? identity()?.revision) === epoch
-    const title = initial.operation === "sleep" ? "Sleep" : "Wake"
+    const title = initial.operation === "sleep" ? "Sleep" : initial.operation === "wake" ? "Wake" : "Rebase"
     const work = async (): Promise<void | string> => {
       let request = initial
       try {
@@ -55,29 +55,42 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
           if (!available(request.operation)) throw new BranchControlFailure("Branch unavailable")
           const response = await ctx.http(`${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}`, {
             method: "POST", credentials: "same-origin", signal: abort.signal,
-            headers: { "Content-Type": "application/json", "Idempotency-Key": request.key }, body: JSON.stringify({ op: request.operation })
+            headers: { "Content-Type": "application/json", "Idempotency-Key": request.key }, body: JSON.stringify(request.operation === "rebase" ? request.input?.conflict_change === undefined ? { rebase: true } : request.input : { op: request.operation })
           })
-          const body = await response.json() as { operationId?: unknown; requestId?: unknown; state?: unknown; message?: string }
+          const body = await response.json() as { operationId?: unknown; requestId?: unknown; state?: unknown; n?: number; onto?: string; message?: string }
           if (!current()) return
           if (!response.ok) throw new BranchControlFailure(refusalSentence(refusalOf({ body, status: response.status, message: body.message ?? "Branch unavailable" })))
-          if (response.status !== 202 || body.state !== "accepted" || typeof body.operationId !== "string" || !body.operationId
-            || typeof body.requestId !== "string" || !body.requestId.endsWith(`:${request.key}`)) throw new BranchControlFailure("Branch admission was not confirmed")
-          const workspace = body.requestId.slice(0, -request.key.length - 1)
-          if (!workspace) throw new BranchControlFailure("Branch admission was not confirmed")
-          request = { ...request, state: "accepted", operationId: body.operationId, workspace }
+          if (request.operation === "rebase") {
+            if (response.status !== 202 || body.state !== "accepted" || !Number.isSafeInteger(body.n) || body.n! < 1 || typeof body.onto !== "string" || !body.onto) throw new BranchControlFailure("Rebase admission was not confirmed")
+            request = { ...request, state: "accepted", number: body.n, onto: body.onto }
+          } else {
+            if (response.status !== 202 || body.state !== "accepted" || typeof body.operationId !== "string" || !body.operationId
+              || typeof body.requestId !== "string" || !body.requestId.endsWith(`:${request.key}`)) throw new BranchControlFailure("Branch admission was not confirmed")
+            const workspace = body.requestId.slice(0, -request.key.length - 1)
+            if (!workspace) throw new BranchControlFailure("Branch admission was not confirmed")
+            request = { ...request, state: "accepted", operationId: body.operationId, workspace }
+          }
           await save(request)
         }
         const repo = request.repo ?? repository()
-        if (!repo || !request.workspace || !request.operationId) throw new BranchControlFailure("Branch receipt unavailable")
+        if (request.operation !== "rebase" && (!repo || !request.workspace || !request.operationId)) throw new BranchControlFailure("Branch receipt unavailable")
         while (current()) {
-          const response = await ctx.http(`${ctx.baseUrl}/api/repos/${repo.split("/").map(encodeURIComponent).join("/")}/workspaces/${encodeURIComponent(request.workspace)}/command-runs/${encodeURIComponent(request.operationId)}`, { credentials: "same-origin", signal: abort.signal })
-          const body = await response.json() as { operationId?: unknown; state?: unknown; error?: string }
+          const response = await ctx.http(request.operation === "rebase" ? `${ctx.baseUrl}/api/todos/${request.number}?rebase_request=${encodeURIComponent(request.key)}` : `${ctx.baseUrl}/api/repos/${repo!.split("/").map(encodeURIComponent).join("/")}/workspaces/${encodeURIComponent(request.workspace!)}/command-runs/${encodeURIComponent(request.operationId!)}`, { credentials: "same-origin", signal: abort.signal })
+          const body = await response.json() as { operationId?: unknown; state?: unknown; n?: number; rebase_execution?: { onto: string; state: string }; error?: string }
           if (!current()) return
           if (!response.ok) throw new BranchControlFailure(refusalSentence(refusalOf({ body, status: response.status, message: body.error ?? "Branch receipt unavailable" })))
-          if (body.operationId !== request.operationId) throw new BranchControlFailure("Branch receipt changed")
-          if (body.state === "completed") { await save({ ...request, state: "completed" }); return }
-          if (["failed", "cancelled", "uncertain"].includes(String(body.state))) { request = { ...request, settled: body.state !== "uncertain" }; throw new BranchControlFailure(body.error ?? "Branch request failed") }
-          if (!["accepted", "dispatching", "running", "waiting"].includes(String(body.state))) throw new BranchControlFailure("Branch receipt unavailable")
+          if (request.operation === "rebase") {
+            if (body.n !== request.number || !body.rebase_execution) throw new BranchControlFailure("Rebase receipt unavailable")
+            if (body.rebase_execution.onto !== request.onto) { request = { ...request, settled: true }; throw new BranchControlFailure("Rebase target changed") }
+            if (body.rebase_execution.state === "completed") { await save({ ...request, state: "completed" }); return }
+            if (body.rebase_execution.state === "failed") { request = { ...request, settled: true }; throw new BranchControlFailure("Rebase failed") }
+            if (body.rebase_execution.state !== "running") throw new BranchControlFailure("Rebase receipt unavailable")
+          } else {
+            if (body.operationId !== request.operationId) throw new BranchControlFailure("Branch receipt changed")
+            if (body.state === "completed") { await save({ ...request, state: "completed" }); return }
+            if (["failed", "cancelled", "uncertain"].includes(String(body.state))) { request = { ...request, settled: body.state !== "uncertain" }; throw new BranchControlFailure(body.error ?? "Branch request failed") }
+            if (!["accepted", "dispatching", "running", "waiting"].includes(String(body.state))) throw new BranchControlFailure("Branch receipt unavailable")
+          }
           await new Promise<void>(resolve => {
             const timer = setTimeout(done, 1000)
             function done() { clearTimeout(timer); abort.signal.removeEventListener("abort", done); resolve() }
@@ -107,24 +120,6 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(resume)
   queueMicrotask(resume)
-  const rebase = async (branch: string, input: { conflict_change?: string; onto_revision?: string }): Promise<CommandResult> => {
-    try {
-      if (/^T[1-9][0-9]*$/.test(branch)) {
-        const response = await ctx.http(`${ctx.baseUrl}/api/todos/${branch.slice(1)}`, { credentials: "same-origin" })
-        const body = await response.json() as { branch?: { name?: unknown }; message?: string }
-        if (!response.ok || typeof body.branch?.name !== "string") return body.message ?? "Branch unavailable"
-        branch = body.branch.name
-      }
-      if (!available("rebase")) return "Branch unavailable"
-      const response = await ctx.http(`${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}`, {
-        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() },
-        body: JSON.stringify(input.conflict_change === undefined ? { rebase: true } : { conflict_change: input.conflict_change, onto_revision: input.onto_revision })
-      })
-      const body = await response.json() as { message?: string }
-      if (!response.ok) return { refusal: refusalOf({ body, status: response.status, message: body.message ?? "Branch unavailable" }) }
-      return response.status === 202 ? { value: "Requested" } : undefined
-    } catch { return "Branch unavailable" }
-  }
   return { available, dispose: () => {
     disposed = true; subscription.unsubscribe()
     for (const { abort } of active.values()) abort.abort()
@@ -133,14 +128,13 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
     if (!available(operation)) return Promise.resolve("Branch unavailable")
     if ((input.conflict_change === undefined) !== (input.onto_revision === undefined)) return Promise.resolve("Branch unavailable")
     if (!branch.trim() || /[\u0000\\]/.test(branch)) return Promise.resolve("Choose a branch")
-    if (operation === "rebase") return rebase(branch, input)
     const result = tail.then(async (): Promise<CommandResult> => {
       if (!available(operation)) return "Branch unavailable"
       const owner = identity()?.login
       if (!owner || identity()?.state !== "signed-in") return "Sign in"
-      const previous = [...rows()].reverse().find(request => request.owner === owner && request.origin === ctx.baseUrl && request.branch === branch && request.operation === operation)
+      const previous = [...rows()].reverse().find(request => request.owner === owner && request.origin === ctx.baseUrl && request.branch === branch && request.operation === operation && request.input?.conflict_change === input.conflict_change && request.input?.onto_revision === input.onto_revision)
       if (previous && !["failed", "completed"].includes(previous.state)) return { value: "Requested" }
-      const request: Request = previous?.state === "failed" && !previous.settled ? { ...previous, state: previous.operationId ? "accepted" : "requested", error: undefined } : { key: randomUuid(), owner, origin: ctx.baseUrl, branch, operation, state: "requested", ...(repository() ? { repo: repository()! } : {}) }
+      const request: Request = previous?.state === "failed" && !previous.settled ? { ...previous, state: (previous.operationId || previous.number) ? "accepted" : "requested", error: undefined } : { key: randomUuid(), owner, origin: ctx.baseUrl, branch, operation, state: "requested", ...(operation === "rebase" ? { input } : {}), ...(repository() ? { repo: repository()! } : {}) }
       await save(request, ctx.actor()); send(request)
       return { value: "Requested" }
     })

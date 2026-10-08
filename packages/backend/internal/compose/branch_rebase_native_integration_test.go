@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
@@ -168,6 +169,18 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	server.Config.Handler = todoMergeComposeRouter(cfgHTTP, q, f.pool, &routes.MythicalHandler{Service: service})
 	server.Start()
 	t.Cleanup(server.Close)
+	readReceipt := func(state string) {
+		req, err := http.NewRequest("GET", origin+"/api/todos/1?rebase_request=native-press", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{Name: "session", Value: f.cookie})
+		res, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+		require.Equal(t, 200, res.StatusCode, body)
+		require.Equal(t, map[string]any{"onto": onto, "state": state}, body["rebase_execution"])
+	}
 	for range 2 {
 		req, err := http.NewRequest("POST", origin+"/api/branches/"+f.row.ID, strings.NewReader(`{"rebase":true}`))
 		require.NoError(t, err)
@@ -183,12 +196,14 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 		require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
 		require.NoError(t, res.Body.Close())
 		require.Equal(t, 202, res.StatusCode, body)
+		require.Equal(t, onto, body["onto"])
 	}
+	readReceipt("running")
 	// The HTTP door returns with the old head; only the stack worker rewrites.
 	current, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, edited, current.CandidateHead)
-	for range 5 {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 		require.NoError(t, err)
 		require.NoError(t, service.PollOnce(ctx))
@@ -197,8 +212,10 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 		if current.State == "verifying" {
 			break
 		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	require.Equal(t, "verifying", current.State, current.Reason)
+	require.Equal(t, "verifying", current.State, "reason=%s checks=%s", current.Reason, current.Checks)
+	readReceipt("completed")
 	require.Equal(t, onto, current.CandidateBase)
 	require.NotEqual(t, edited, current.CandidateHead)
 	require.Equal(t, int64(1), current.Generation)
@@ -211,6 +228,11 @@ func TestBranchRebaseNowNativeComposedExecution(t *testing.T) {
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT data->'actor'->>'id',data->'by'->>'person' FROM product_job_events WHERE event_type='todo.rebased'`).Scan(&system, &requester))
 	require.Equal(t, "stack", system)
 	require.Equal(t, "presence-owner", requester)
+	// Recovery still observes this exact completed rewrite after the pending
+	// destination changes. A newer request cannot settle an older toast.
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{rebase}', '{"onto":"later-main","name":"main"}') WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	readReceipt("completed")
 }
 
 type rebaseRecordedLauncher struct{ requests []flowdispatch.LaunchRequest }

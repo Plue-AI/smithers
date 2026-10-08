@@ -100,7 +100,7 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
     expect(writes).toEqual([])
     await card.getByRole("button", { name: "Done", exact: true }).press("Enter")
     await expect.poll(() => writes).toEqual([{ conflict_change: "conflict-retained", onto_revision: "2222222222222222222222222222222222222222" }])
-    await expect(page.getByText("Rebase this branch now didn't run", { exact: true }).last()).toBeVisible()
+    await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: "Rebase" })).toBeVisible()
     await expect(card.getByRole("button", { name: "Done", exact: true })).toBeVisible()
     await expect(card).toContainText("Rebase conflict onto main")
     await expect(card).toContainText("Scratch")
@@ -111,3 +111,54 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
     await expect(page.locator('.smithers-card[data-kind="todo"]')).toHaveCount(0)
   })
 }
+
+// Mounted card → typed action → production dispatcher → durable seam. HTTP
+// contracts are controlled here; the native composed test proves the receipts.
+for (const outcome of ["completed", "failed"] as const) test(`T-APP-10: Rebase background request survives reload and settles on ${outcome}`, async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  let release!: () => void, state = "running", admitted = false
+  const writes: string[] = [], receiptKeys: string[] = []
+  await page.route("**/api/branches/smithers%2Fretry", async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { name: "smithers/retry", machine: { id: "b-rebase" } } })
+    writes.push(route.request().headers()["idempotency-key"]!)
+    expect(route.request().postDataJSON()).toEqual({ rebase: true })
+    if (!admitted) await new Promise<void>(resolve => { release = resolve })
+    await route.fulfill({ status: 202, json: { state: "accepted", n: 2, onto: "new-main" } })
+  })
+  await page.route("**/api/todos/2?rebase_request=*", route => {
+    receiptKeys.push(new URL(route.request().url()).searchParams.get("rebase_request")!)
+    return route.fulfill({ json: { n: 2, rebase_execution: { onto: "new-main", state } } })
+  })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    const data = frame.topic === "branch:b-rebase" ? {
+      id: "b-rebase", name: "smithers/retry", machine: { state: "awake" },
+      item: { n: 2, title: "Retry", state: "in_review", place: 1 },
+      presence: [], terminals: [], rebase: { state: "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
+    } : []
+    socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
+  }))
+  await page.goto("/")
+  await say(page, "/branch smithers/retry")
+  const card = page.getByTestId("card-branch:b-rebase")
+  await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
+  const running = page.locator('.notice[data-tone="live"]').filter({ hasText: "Rebase" })
+  await expect(running).toBeVisible()
+  await say(page, "/branch.rebase smithers/retry")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(writes).toHaveLength(1)
+  expect(receiptKeys).toEqual([])
+  admitted = true; release()
+  await expect.poll(() => receiptKeys.length).toBeGreaterThan(0)
+  await expect(running).toBeVisible()
+  await page.reload()
+  await expect(running).toBeVisible()
+  expect(writes).toHaveLength(1)
+  expect(receiptKeys.every(key => key === writes[0])).toBe(true)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  state = outcome
+  await expect(page.locator(`.notice[data-tone="${outcome === "completed" ? "done" : "failed"}"]`).filter({ hasText: "Rebase" })).toBeVisible()
+  await expect(running).toHaveCount(0)
+})

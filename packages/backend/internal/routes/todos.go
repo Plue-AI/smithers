@@ -178,6 +178,21 @@ func (h *TodoHandler) Get(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, err)
 		return
 	}
+	if key := r.URL.Query().Get("rebase_request"); key != "" {
+		reader, ok := h.Service.(interface {
+			RebaseReceipt(context.Context, int64, int64, string) (map[string]any, error)
+		})
+		if !ok {
+			todoRouteError(w, &services.TodoControlError{Status: 503, Code: "rebase_unavailable", Class: "infra", Message: "Rebase receipt unavailable"})
+			return
+		}
+		receipt, err := reader.RebaseReceipt(r.Context(), repo, n, key)
+		if err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		view["rebase_execution"] = receipt
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(view)

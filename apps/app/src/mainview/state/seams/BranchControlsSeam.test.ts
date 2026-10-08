@@ -137,3 +137,100 @@ test("an unresolved rebase never serializes an unrelated machine control behind 
     expect(operations).toEqual([{ rebase: true }, { op: "sleep" }])
   } finally { h.seam.dispose() }
 })
+
+const rebaseAdmission = () => Response.json({ state: "accepted", n: 2, onto: "new-main" }, { status: 202 })
+const rebaseReceipt = (state: string) => Response.json({ n: 2, rebase_execution: { state, onto: "new-main" } })
+
+test("Rebase acknowledges unresolved launch, deduplicates, and waits for its execution receipt", async () => {
+  let release!: (response: Response) => void, state = "running"
+  const writes: Array<{ key: string; body: unknown }> = [], reads: string[] = []
+  const h = await boot(async (url, init) => {
+    if (init?.method === "POST") {
+      writes.push({ key: new Headers(init.headers).get("Idempotency-Key")!, body: JSON.parse(String(init.body)) })
+      return new Promise(resolve => { release = resolve })
+    }
+    reads.push(url); return rebaseReceipt(state)
+  })
+  try {
+    expect(await Promise.all([h.seam.request("rebase", "smithers/retry"), h.seam.request("rebase", "smithers/retry")])).toEqual([{ value: "Requested" }, { value: "Requested" }])
+    expect(writes).toHaveLength(1); expect(writes[0]!.body).toEqual({ rebase: true })
+    expect(h.row()?.state).toBe("requested"); expect(h.done).toEqual([])
+    release(rebaseAdmission())
+    await until(() => reads.length === 1)
+    expect(reads[0]).toBe(`http://mini.lan:4000/api/todos/2?rebase_request=${writes[0]!.key}`)
+    expect(h.row()?.state).toBe("accepted"); expect(h.done).toEqual([])
+    state = "completed"
+    await until(() => h.row()?.state === "completed" && h.done.length === 1)
+    expect(h.errors).toEqual([])
+  } finally { h.seam.dispose() }
+})
+
+for (const accepted of [false, true]) test(`Rebase reload ${accepted ? "observes an admitted request" : "replays the persisted launch key"}`, async () => {
+  const first = await boot(async (_url, init) => init?.method === "POST" && accepted ? rebaseAdmission() : new Promise<Response>(() => {}))
+  await first.seam.request("rebase", "smithers/retry")
+  if (accepted) await until(() => first.row()?.state === "accepted")
+  const key = first.row()!.key
+  first.seam.dispose()
+  const writes: string[] = []
+  const second = await boot(async (_url, init) => {
+    if (init?.method === "POST") { writes.push(new Headers(init.headers).get("Idempotency-Key")!); return rebaseAdmission() }
+    return rebaseReceipt("completed")
+  }, first.storage)
+  try {
+    await until(() => second.row()?.state === "completed" && second.done.length === 1)
+    expect(writes).toEqual(accepted ? [] : [key])
+  } finally { second.seam.dispose() }
+})
+
+for (const launchFailure of [false, true]) test(`Rebase ${launchFailure ? "launch" : "execution"} failure remains visible and retryable`, async () => {
+  let writes = 0
+  const h = await boot(async (_url, init) => {
+    if (init?.method === "POST") { writes++; return launchFailure ? Response.json({ code: "rebase_unavailable", class: "infra", message: "Rebase unavailable" }, { status: 503 }) : rebaseAdmission() }
+    return rebaseReceipt("failed")
+  })
+  try {
+    await h.seam.request("rebase", "smithers/retry")
+    await until(() => h.row()?.state === "failed" && h.done.length === 1)
+    expect(h.errors).toHaveLength(1)
+    await h.seam.request("rebase", "smithers/retry")
+    await until(() => writes === 2 && h.done.length === 2)
+  } finally { h.seam.dispose() }
+})
+
+test("scratch Done retains both conflict bindings in its persisted background request", async () => {
+  let body: unknown
+  const h = await boot(async (_url, init) => { body = JSON.parse(String(init?.body)); return new Promise<Response>(() => {}) })
+  try {
+    expect(await h.seam.request("rebase", "scratch/ben/retry", { conflict_change: "conflict-1", onto_revision: "target-1" })).toEqual({ value: "Requested" })
+    expect(body).toEqual({ conflict_change: "conflict-1", onto_revision: "target-1" })
+    expect(h.row()?.input).toEqual({ conflict_change: "conflict-1", onto_revision: "target-1" })
+  } finally { h.seam.dispose() }
+})
+
+
+test("Rebase addressed to a TODO acknowledges before the branch lookup resolves", async () => {
+  const reads: string[] = []
+  const h = await boot(async url => { reads.push(url); return new Promise<Response>(() => {}) })
+  try {
+    expect(await h.seam.request("rebase", "T2")).toEqual({ value: "Requested" })
+    expect(h.row()?.state).toBe("requested")
+    expect(reads).toEqual(["http://mini.lan:4000/api/todos/2"])
+    expect(h.done).toEqual([])
+  } finally { h.seam.dispose() }
+})
+
+test("Rebase retries a lost receipt read without launching another rewrite", async () => {
+  let writes = 0, reads = 0
+  const h = await boot(async (_url, init) => {
+    if (init?.method === "POST") { writes++; return rebaseAdmission() }
+    return ++reads === 1 ? Response.json({ message: "offline" }, { status: 503 }) : rebaseReceipt("completed")
+  })
+  try {
+    await h.seam.request("rebase", "smithers/retry")
+    await until(() => h.row()?.state === "failed" && h.done.length === 1)
+    const key = h.row()!.key
+    await h.seam.request("rebase", "smithers/retry")
+    await until(() => h.row()?.state === "completed" && h.done.length === 2)
+    expect(writes).toBe(1); expect(reads).toBe(2); expect(h.row()?.key).toBe(key)
+  } finally { h.seam.dispose() }
+})
