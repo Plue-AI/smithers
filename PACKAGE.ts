@@ -3,6 +3,7 @@ import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targ
 import { Smithers } from "@smthrs/targets"
 import * as Input from "@smthrs/targets/Input"
 import { Package as flowsJjPackage } from "./crates/flows-jj/PACKAGE.ts"
+import { Package as machinedPackage } from "./crates/smithers-machined/PACKAGE.ts"
 import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
 import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
@@ -384,6 +385,20 @@ const backendSQLC = Smithers.Shell.Build({
   data: [Smithers.file("//go.mod")],
   sandbox: { network: true },
   timeout: "15m"
+})
+
+// C-COL-06: qualify the shared corpus and daemon refusals in both languages.
+const machinedWire = Smithers.Shell.Test({
+  shell: "go test -count=1 -p 4 -v ./packages/backend/internal/compose -run '^(TestMachinedWire.*|TestWireContentLimit|TestMachinedSkeletonDisabled)$' && cargo test --locked -p smithers-machined --test golden --test fake_host --test local",
+  data: [backendPackage.buildInputs, flowsJjPackage.nativeSources,
+    machinedPackage.buildInputs,
+    Smithers.file("//crates/flows-jj/Cargo.toml"),
+    Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock"),
+    Smithers.file("//rust-toolchain.toml"), Smithers.file("//go.mod"), Smithers.file("//go.sum")],
+  env: { GOMAXPROCS: "8", GOFLAGS: "-buildvcs=false -mod=readonly", CARGO_BUILD_JOBS: "2" },
+  sandbox: "none",
+  exclusive: true,
+  timeout: "30m"
 })
 
 // `go test` streams megabytes of logs, so its failures rarely reach the
@@ -1297,6 +1312,7 @@ export const Package = Smithers.Package({
     backendGoModules,
     backendSQLC,
     backendGo,
+    machinedWire,
     backendAccessTests,
     backendGoAccess,
     nativeFfiLib,
