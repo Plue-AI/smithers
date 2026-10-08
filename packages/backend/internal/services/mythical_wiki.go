@@ -300,20 +300,23 @@ func (s *MythicalService) launchWiki(ctx context.Context, r *mythicalRun, row db
 	}
 	// The wiki refresh reads and writes pages only: it runs on the
 	// platform's default machine, never a TODO's placement.
+	var ref string
 	workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, fmt.Sprintf("mythical wiki g%d", saved.Generation), MythicalPlacement{},
 		func(workspaceID string) error {
 			bound, err := q.BindMythicalWikiWorkspace(ctx, r.row.RepositoryID, saved.Generation, workspaceID)
 			if err == nil && !bound {
 				err = errors.New("the wiki refresh moved on before its workspace was bound")
 			}
+			if err == nil {
+				ref, err = s.retainFor(ctx, r, workspaceID, r.row.TipCommit)
+			}
+			if err == nil {
+				err = s.recordMachineSource(ctx, r, workspaceID, r.row.TipCommit)
+			}
 			return err
 		})
 	if err != nil {
 		return fail("no wiki workspace: "+err.Error(), err)
-	}
-	ref, err := s.retainFor(ctx, r, workspaceID, r.row.TipCommit)
-	if err != nil {
-		return fail("the stack tip could not reach the wiki workspace: "+err.Error(), err)
 	}
 	current, err := q.GetMythicalWiki(ctx, r.row.RepositoryID)
 	if err != nil {

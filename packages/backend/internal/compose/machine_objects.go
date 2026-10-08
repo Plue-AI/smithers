@@ -125,7 +125,10 @@ func machineObjects(pool *pgxpool.Pool, host *repohost.Client) machined.HostObje
 			defer done()
 			_ = tx.Rollback(cleanup)
 		}()
-		err = withMachineRepositoryTx(ctx, tx, branch, host, visit)
+		// Object transfer does not mutate workspace identity. SHARE fences deletion
+		// and reassignment while remaining compatible with the launcher's held
+		// admission transaction. UPDATE would make native wake wait on itself.
+		err = withMachineRepositoryReadTx(ctx, tx, branch, host, visit)
 		if err != nil {
 			return err
 		}

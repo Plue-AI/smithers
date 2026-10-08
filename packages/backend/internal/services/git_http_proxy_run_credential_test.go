@@ -193,3 +193,42 @@ func TestGitHTTPProxyService_InstallMainWithoutRepositoryLookupFailsClosed(t *te
 	require.NoError(t, NewGitHTTPProxyService(nil, nil, &mockGitHTTPRepoHostClient{}).
 		rejectProtectedBookmarkPush(context.Background(), "alice", "demo", middleware.CredentialPerson, commands))
 }
+
+// Native Candidate publication retains objects under the coding host's own
+// workspace before it submits them. This authority never moves a branch head.
+func TestGitHTTPProxyService_CodingRunPublishesOnlyItsImmutableSources(t *testing.T) {
+	workspace := "0f8fad5b-d9cb-469f-a165-70867728950e"
+	commit := strings.Repeat("0", 39) + "1"
+	source := repohost.WorkspaceSourceRef(workspace, commit)
+	scopes := boxHostLandingTokenScopes(314, workspace)
+	for _, tc := range []struct {
+		name    string
+		refs    []string
+		system  bool
+		allowed bool
+	}{
+		{"own source", []string{source}, true, true},
+		{"another workspace", []string{repohost.WorkspaceSourceRef("7c9e6679-7425-40de-944b-e07fc1f90ae7", commit)}, true, false},
+		{"own head", []string{repohost.BranchHeadRef(workspace)}, true, false},
+		{"bookmark", []string{"refs/heads/feature"}, true, false},
+		{"main", []string{"refs/heads/main"}, true, false},
+		{"mythical", []string{repohost.MythicalBookmarkRef}, true, false},
+		{"mixed source and bookmark", []string{source, "refs/heads/feature"}, true, false},
+		{"wrong named commit", []string{repohost.WorkspaceSourceRef(workspace, strings.Repeat("2", 40))}, true, false},
+		{"member cannot borrow run binding", []string{source}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, host := receivePackProxy(scopes, tc.system, true, "main")
+			err := pushThroughProxy(svc, tc.refs...)
+			if tc.allowed {
+				require.NoError(t, err)
+				require.Equal(t, 1, host.receivePackCall)
+				require.Equal(t, workspace, host.lastReceiveMeta.WorkspaceID)
+				require.Equal(t, middleware.CredentialAgentRun, host.lastReceiveMeta.PusherCredential)
+			} else {
+				require.Error(t, err)
+				require.Zero(t, host.receivePackCall)
+			}
+		})
+	}
+}

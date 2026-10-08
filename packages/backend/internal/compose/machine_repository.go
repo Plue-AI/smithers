@@ -19,7 +19,7 @@ import (
 // deletion/reassignment, repository ownership and engine maintenance remain
 // fenced for the visit. No guest path names a host directory.
 func withMachineRepositoryTx(ctx context.Context, tx pgx.Tx, branch string, host *repohost.Client, visit func(string) error) error {
-	return withMachineRepositoryAuthorityTx(ctx, tx, branch, host, visit, "FOR UPDATE")
+	return withMachineRepositoryAuthorityTx(ctx, tx, branch, host, visit, "FOR NO KEY UPDATE")
 }
 
 // Read-only admission holds SHARE authority already; upgrading it while another

@@ -138,20 +138,23 @@ func (s *MythicalService) launchFlowLoad(ctx context.Context, r *mythicalRun, ro
 	}
 	// A load reads and imports flows only: it runs on the platform's default
 	// machine, never a TODO's placement.
+	var ref string
 	workspaceID, err := s.lanes.Create(ctx, repository, owner, r.row.ActorUserID.Int64, fmt.Sprintf("flow-load g%d", saved.Generation), MythicalPlacement{},
 		func(workspaceID string) error {
 			bound, err := q.BindFlowLoadWorkspace(ctx, r.row.RepositoryID, saved.Generation, workspaceID)
 			if err == nil && !bound {
 				err = errors.New("the flow-load moved on before its workspace was bound")
 			}
+			if err == nil {
+				ref, err = s.retainMainFor(ctx, r, workspaceID, main)
+			}
+			if err == nil {
+				err = s.recordMachineSource(ctx, r, workspaceID, main)
+			}
 			return err
 		})
 	if err != nil {
 		return fail("no flow-load workspace: "+err.Error(), err)
-	}
-	ref, err := s.retainMainFor(ctx, r, workspaceID, main)
-	if err != nil {
-		return fail("main could not reach the flow-load workspace: "+err.Error(), err)
 	}
 	current, err := q.GetFlowLoad(ctx, r.row.RepositoryID)
 	if err != nil {

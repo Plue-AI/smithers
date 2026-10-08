@@ -84,14 +84,6 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		// for recovery after a stale-base ACK releases the guest's outbox pin.
 		capture = event.Payload
 	}
-	// Fence replacement through commit, including a newer boot arriving while
-	// objects are verified. Network acknowledgement runs after releasing the lock.
-	r := connection.registry
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if branch != connection.boot.branch || !connection.current() {
-		return ack, ErrUnauthorized
-	}
 	tx, err := i.Pool.Begin(ctx)
 	if err != nil {
 		return ack, err
@@ -110,6 +102,16 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		if writer == nil {
 			return ack, ErrNotReady
 		}
+	}
+	// Acquire database authority before the registry fence. A stack worker may
+	// hold these rows while opening this daemon; holding the registry mutex
+	// while waiting for those rows would deadlock both. Fence replacement
+	// through persistent effects and commit after preparation completes.
+	r := connection.registry
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if branch != connection.boot.branch || !connection.current() {
+		return ack, ErrUnauthorized
 	}
 	eventID := fmt.Sprintf("%x-%x-%x-%x-%x", id[:4], id[4:6], id[6:8], id[8:10], id[10:])
 	// The unique insert serializes concurrent replay across connections/processes.

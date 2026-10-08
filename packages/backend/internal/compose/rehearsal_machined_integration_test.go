@@ -193,7 +193,7 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	// fixture or synthetic readiness receipt substitutes for native reconciliation.
 	reply, err := link.Request(ctx, branch, wire.WakeReconcile, wire.Field(1, headBytes))
 	if err != nil {
-		return err
+		return fmt.Errorf("wake reconcile request: %w", err)
 	}
 	fields, err := wire.Fields("response", reply.Payload[1:])
 	if err != nil || len(fields[2]) == 0 || fields[2][0] == 255 {
@@ -202,13 +202,13 @@ func startRehearsalMachinedWith(t *testing.T, ctx context.Context, registry *mac
 	// Roster is part of the handshake; the ordinary registry RPC correctly
 	// refuses until this exact wake and roster have been acknowledged.
 	if _, err = link.Request(ctx, branch, wire.SetRoster, wire.Field(1, wire.U16(0))); err != nil {
-		return err
+		return fmt.Errorf("set startup roster: %w", err)
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		reply, err = link.Request(ctx, branch, wire.Status)
 		if err != nil {
-			return err
+			return fmt.Errorf("startup status: %w", err)
 		}
 		fields, err = wire.Fields("response", reply.Payload[1:])
 		if err != nil || len(fields[2]) == 0 || fields[2][0] != byte(wire.Status) {

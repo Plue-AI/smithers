@@ -94,6 +94,22 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 	require.NoError(t, headErr)
 	require.Equal(t, base, gotHead)
 	require.NoError(t, wakeAuthority.Rollback(t.Context()))
+	// First native wake holds the same KEY SHARE authority as branch admission.
+	// Reading its head must not upgrade that lock and strand activation on a
+	// second connection while the callback waits for native reconciliation.
+	activationAuthority, err := b.pool.Begin(t.Context())
+	require.NoError(t, err)
+	defer activationAuthority.Rollback(context.WithoutCancel(t.Context()))
+	_, err = activationAuthority.Exec(t.Context(), `SELECT id FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch)
+	require.NoError(t, err)
+	activationCtx, activationStop := context.WithTimeout(t.Context(), 5*time.Second)
+	gotHead, err = newMachineHost(pool, client).head(machined.WithSessionAdmissionTransaction(activationCtx, branch, activationAuthority), branch)
+	require.NoError(t, err)
+	require.Equal(t, base, gotHead)
+	_, err = pool.Exec(activationCtx, `UPDATE workspaces SET status='running' WHERE id=$1`, branch)
+	activationStop()
+	require.NoError(t, err, "head lookup must not block the admitted running transition")
+	require.NoError(t, activationAuthority.Rollback(t.Context()))
 	registry := new(machined.Registry)
 	stop, err := bindMachineEvents(t.Context(), registry, pool, client, nil, nil)
 	require.NoError(t, err)
@@ -159,9 +175,17 @@ func TestMachineCaptureTransactionBinding(t *testing.T) {
 	_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_events DROP CONSTRAINT reject_capture`)
 	require.NoError(t, err)
 	_, peer = presenceTestLink(t, registry, branch)
+	// Wake's durable capture must drain before its admission callback releases
+	// the branch identity lock, while retaining serialization against mutations.
+	captureAuthority, err := b.pool.Begin(t.Context())
+	require.NoError(t, err)
+	defer captureAuthority.Rollback(context.WithoutCancel(t.Context()))
+	_, err = captureAuthority.Exec(t.Context(), `SELECT id FROM workspaces WHERE id=$1 FOR KEY SHARE`, branch)
+	require.NoError(t, err)
 	e.Seq = 8
 	send(peer, e)
 	ack(peer, 8, machined.AckApplied)
+	require.NoError(t, captureAuthority.Rollback(t.Context()))
 	count("machine_event_receipts", 1)
 	pending(nil)
 	head(first.Head)

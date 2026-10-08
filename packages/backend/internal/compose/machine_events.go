@@ -103,7 +103,11 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 		}
 		return ack, err
 	}, func(ctx context.Context, link *machined.Link, branch string, event machined.Event) error {
-		return burst.Hint(ctx, link.Connection, branch, event)
+		err := burst.Hint(ctx, link.Connection, branch, event)
+		if err != nil {
+			slog.Warn("machine hint refused", "workspace_id", branch, "error", err)
+		}
+		return err
 	})
 }
 
@@ -122,7 +126,11 @@ func machineBranchHead(pool *pgxpool.Pool, host *repohost.Client) func(context.C
 		var head string
 		visit := withMachineRepositoryTx
 		if admitted {
-			visit = withMachineRepositoryReadTx
+			// Preserve admission's KEY SHARE workspace lock. Upgrading to SHARE
+			// makes the later running-state UPDATE wait on its own admission.
+			visit = func(ctx context.Context, tx pgx.Tx, branch string, host *repohost.Client, read func(string) error) error {
+				return withMachineRepositoryAuthorityTx(ctx, tx, branch, host, read, "FOR KEY SHARE")
+			}
 		}
 		err := visit(ctx, tx, branch, host, func(path string) error {
 			row, err := db.New(tx).GetWorkspace(ctx, branch)

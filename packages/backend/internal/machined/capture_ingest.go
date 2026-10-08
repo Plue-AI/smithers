@@ -39,7 +39,7 @@ func (s *CaptureIngest) Write(ctx context.Context, tx pgx.Tx, branch string, eve
 	// still authoritative if a rewrite happens outside this transaction.
 	var repository int64
 	var status string
-	if err = tx.QueryRow(ctx, `SELECT repository_id,status FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&repository, &status); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT repository_id,status FROM workspaces WHERE id=$1 FOR NO KEY UPDATE`, branch).Scan(&repository, &status); err != nil {
 		return ack, err
 	}
 	missing, err := s.Objects.VerifyCapture(ctx, branch, capture)

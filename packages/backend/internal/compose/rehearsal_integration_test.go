@@ -386,7 +386,7 @@ path = "lib.rs"
 				startFault = new(atomic.Bool)
 				startFault.Store(true)
 			}
-			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
+			workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, daemonStops: new(sync.Map), pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -432,7 +432,9 @@ path = "lib.rs"
 		options.ReviewWorkspace = newRehearsalReviewRuntime(t, admittedRuntime, node, rehearsalJJExport(r.root, library), registry.Coding.Executable, r.evidence, buildRehearsalMachined(t, r.root), processDaemons)
 	}
 	if !realMicroVM {
-		options.BranchCapture = rehearsalPublishedCapture{r}
+		if processDaemons != nil {
+			options.BranchCapture = processDaemons
+		}
 		options.Machined = processDaemons
 	}
 	if realMicroVM {
@@ -1852,6 +1854,7 @@ type bindingProcessRuntime struct {
 	evidence          string
 	t                 *testing.T
 	daemons           *machined.Registry
+	daemonStops       *sync.Map
 	pool              *pgxpool.Pool
 	daemonBinary      string
 	repository        *repohost.Client
@@ -1879,27 +1882,68 @@ func (r bindingProcessRuntime) CompareWriteFiles(ctx context.Context, workspaceI
 	}}).CompareWriteFiles(ctx, workspaceID, changes)
 }
 
+// EnsureMachined makes branch admission use the production publisher retirement
+// and daemon reconciliation before the workspace is advertised as running.
+func (r bindingProcessRuntime) EnsureMachined(ctx context.Context, id string) error {
+	observed, err := r.InspectWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := provisionRehearsalJJ(observed.Root); err != nil {
+		return err
+	}
+	err = r.ensureDaemon(ctx, id, observed.Root)
+	if err != nil {
+		r.t.Logf("daemon admission workspace=%s: %v", id, err)
+	}
+	return err
+}
+
+// Resolve the catalog only after native wake has settled the working copy.
+// Admission can change its snapshot; a source captured before wake is stale.
+func (r bindingProcessRuntime) ResolveWorkspaceSourceRevision(ctx context.Context, id string) (string, error) {
+	if err := r.EnsureMachined(ctx, id); err != nil {
+		return "", err
+	}
+	return r.Runtime.ResolveWorkspaceSourceRevision(ctx, id)
+}
+
 func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string) error {
 	// Gateway registration and a person's request can reach the same retained
 	// checkout concurrently. A second MintBoot must not fence the first boot
 	// while its real object transfer and reconciliation are still in progress.
 	r.daemonMu.Lock()
 	defer r.daemonMu.Unlock()
+
 	link, err := r.daemons.Current(id)
 	if err == nil && link.RequireReady(id) == nil {
 		return nil
 	}
 	item, err := machineItemBinding(ctx, r.pool, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("item binding: %w", err)
 	}
 	// The transport belongs to the retained machine, not one launch.
 	// Resolve its host-authorized head before native wake; cleanup retires it.
 	head, err := machineBranchHead(r.pool, r.repository)(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("host head: %w", err)
 	}
-	return startRehearsalMachinedWith(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item, &rehearsalRestart{HostHead: head})
+	return startRehearsalMachinedWith(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item, &rehearsalRestart{HostHead: head}, func(stop func()) { r.daemonStops.Store(id, stop) })
+}
+
+// Stop the retained machine's native transport with its actual processes.
+func (r bindingProcessRuntime) StopWorkspace(ctx context.Context, id string) error {
+	err := r.rehearsalAdmissionRuntime.StopWorkspace(ctx, id)
+	if err == nil || errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+		if stop, ok := r.daemonStops.LoadAndDelete(id); ok {
+			stop.(func())()
+		}
+		if link, err := r.daemons.Current(id); err == nil {
+			_ = link.Close()
+		}
+	}
+	return err
 }
 
 func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {
@@ -2022,20 +2066,40 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
 		environment["PATH"] = filepath.Join(observed.Root, ".jj", "rehearsal-tools") + ":" + os.Getenv("PATH")
 		command.Environment = environment
-		if r.hostCredentials != nil && environment["SMITHERS_JJHUB_TOKEN"] != "" {
-			r.hostCredentials.Store(workspaceID, environment["SMITHERS_JJHUB_TOKEN"])
+		if token := environment["SMITHERS_JJHUB_TOKEN"]; token != "" {
+			if r.hostCredentials != nil {
+				r.hostCredentials.Store(workspaceID, token)
+			}
+			// The native source helper uses the coding host's own delegated
+			// repository credential. Daemon admission retired the legacy head
+			// publisher; its Git cache cannot provide this host's authority.
+			data, err := os.ReadFile(file)
+			if err != nil {
+				return command, err
+			}
+			var binding workspaceapi.WorkspaceCodingBinding
+			if err = json.Unmarshal(data, &binding); err != nil {
+				return command, err
+			}
+			socket := filepath.Join(observed.Home, ".cache", "smithers", "git-credential", "socket")
+			if err = os.MkdirAll(filepath.Dir(socket), 0700); err != nil {
+				return command, err
+			}
+			cache := exec.CommandContext(ctx, "git", "credential-cache", "--timeout=600", "--socket", socket, "store")
+			cache.Stdin = strings.NewReader("url=" + binding.GitURL + "\nusername=smithers\npassword=" + token + "\n\n")
+			if err = cache.Run(); err != nil {
+				return command, fmt.Errorf("coding credential cache: %w", err)
+			}
+			r.t.Cleanup(func() { _ = exec.Command("git", "credential-cache", "--socket", socket, "exit").Run() })
 		}
 		return command, nil
 	})
 	// Host registration now uses the production daemon-backed filesystem.
 	// Reconcile its boot before waiting for gateway readiness, or registration
 	// and daemon startup wait on each other. A stopped boot must reconcile again.
-	if err := r.ensureDaemon(ctx, workspaceID, observed.Root); err != nil && !errors.Is(err, machined.ErrNotReady) {
+	if err := r.ensureDaemon(ctx, workspaceID, observed.Root); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
 	}
-	// An unplanned TODO has no logical native change yet. It may plan or run
-	// a non-writing override, but daemon writes still refuse until the stack
-	// service reserves its change; CompareWriteFiles retries that real boot.
 	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
 	if err == nil && r.failNextTodoStart != nil && r.failNextTodoStart.Load() {
 		var todo bool
@@ -2264,46 +2328,3 @@ func (r *rehearsal) restartBackend() {
 // reads the coding host's snapshotted head, then Git delivers that immutable object into the
 // fixture's real repository store and publishes the branch ref. Never main.
 // This is not a guest capture or isolation qualification receipt.
-type rehearsalPublishedCapture struct{ r *rehearsal }
-
-func (c rehearsalPublishedCapture) Capture(ctx context.Context, id string) (result machined.CaptureResult, captureErr error) {
-	defer func() { fmt.Fprintf(c.r.logs, "rehearsal capture %s head=%s error=%v\n", id, result.Head, captureErr) }()
-	observed, err := c.r.processRuntime.InspectWorkspace(ctx, id)
-	if err != nil {
-		return result, err
-	}
-	request, err := json.Marshal(map[string]any{"operation": "read", "repositoryPath": observed.Root})
-	if err != nil {
-		return result, err
-	}
-	command := exec.CommandContext(ctx, os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"), "--local")
-	command.Stdin = bytes.NewReader(request)
-	output, err := command.Output()
-	if err != nil {
-		return result, fmt.Errorf("rehearsal native capture: %w", err)
-	}
-	var receipt struct {
-		Head struct {
-			CommitID string `json:"commitId"`
-			TreeID   string `json:"treeId"`
-		} `json:"head"`
-	}
-	if err := json.Unmarshal(output, &receipt); err != nil {
-		return result, err
-	}
-	head, tree := receipt.Head.CommitID, receipt.Head.TreeID
-	if len(head) != 40 || len(tree) != 40 {
-		return result, errors.New("rehearsal capture has no immutable native head")
-	}
-	hostGit := filepath.Join(c.r.repositoryRoot, "rehearsal-owner", "app", ".jj", "repo", "store", "git")
-	if output, err := exec.CommandContext(ctx, "/usr/bin/git", "-c", "core.hooksPath=/dev/null", "-C", observed.Root, "push", hostGit, head+":"+repohost.BranchHeadRef(id)).CombinedOutput(); err != nil {
-		return result, fmt.Errorf("rehearsal capture delivery: %w: %s", err, output)
-	}
-	if _, err := c.r.repoClient.GetChange(ctx, "rehearsal-owner", "app", head); err != nil {
-		return result, err
-	}
-	if _, err := c.r.pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1 AND status='releasing'`, id, head); err != nil {
-		return result, err
-	}
-	return machined.CaptureResult{Head: head, Tree: tree}, nil
-}

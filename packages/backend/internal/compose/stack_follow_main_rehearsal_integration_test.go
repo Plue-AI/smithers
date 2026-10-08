@@ -31,10 +31,10 @@ func TestStackFollowsMainRehearsal(t *testing.T) {
 	card, err := r.j10Card(second)
 	require.NoError(t, err)
 	pr, oldHead := card.PR.Number, card.PR.Head
-	// The live TODO composition keeps its coding branch while waiting for
-	// the proposal. Presence and rebasing remain bound to that real branch.
+	// Review releases the coding lane after its durable native capture. The
+	// retained branch remains the item's authority while its machine sleeps.
 	var workspace string
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT workspace_id FROM mythical_items WHERE number=$1`, second).Scan(&workspace))
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT l.workspace_id FROM mythical_lanes l JOIN mythical_items i ON i.id=l.item_id WHERE i.number=$1 AND l.name NOT LIKE '% review g%' ORDER BY l.created_at DESC LIMIT 1`, second).Scan(&workspace))
 	require.NotEmpty(t, workspace)
 	firstCard, err := r.todo(first)
 	require.NoError(t, err)

@@ -2370,6 +2370,13 @@ func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name
 	return "", errors.New("the lane " + name + " was retired too many times")
 }
 
+// recordMachineSource binds the host-retained immutable checkout before a
+// system reader's lane can start. No guest observation selects this head.
+func (s *MythicalService) recordMachineSource(ctx context.Context, r *mythicalRun, workspaceID, head string) error {
+	_, err := s.store.Exec(ctx, `UPDATE workspaces SET source_commit=$1 WHERE id=$2 AND repository_id=$3 AND status='starting'`, head, workspaceID, r.row.RepositoryID)
+	return err
+}
+
 // Pin both checkout and native authority before Create can start provisioning.
 // The launch admission later retains the same binding with the attempt receipt.
 func (s *MythicalService) pinMachineItemSource(ctx context.Context, r *mythicalRun, item db.MythicalItem, workspaceID, head string) error {

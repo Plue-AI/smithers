@@ -176,7 +176,20 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 	// RFD-004: refs/smithers/ is the control plane's namespace. A workspace
 	// credential may write only its own head ref; a user credential only its
 	// own refs/smithers/users/<id>/ (#1964); nothing else may write there.
-	if msg := repohost.ReservedRefViolation(commands, credential.workspaceID, user.ID); msg != "" {
+	workspaceID := credential.workspaceID
+	if workspaceID == "" && credential.kind == middleware.CredentialAgentRun && credential.landingWorkspaceID != "" {
+		// The native coding host publishes immutable sources before Candidate.
+		// Its run credential may create/replay only its own named source refs;
+		// it cannot publish a branch head or any other history with this door.
+		for _, command := range commands {
+			owner, _, source := repohost.WorkspaceSourceFromRef(command.RefName)
+			if !source || owner != credential.landingWorkspaceID {
+				return errors.Forbidden("a coding run may publish only its own immutable workspace sources")
+			}
+		}
+		workspaceID = credential.landingWorkspaceID
+	}
+	if msg := repohost.ReservedRefViolation(commands, workspaceID, user.ID); msg != "" {
 		return errors.Forbidden(msg)
 	}
 
@@ -192,7 +205,7 @@ func (s *GitHTTPProxyService) ProxyReceivePack(
 		PusherLogin:      user.Username,
 		PusherCredential: credential.kind,
 		AllowedPaths:     credential.allowedPaths,
-		WorkspaceID:      credential.workspaceID,
+		WorkspaceID:      workspaceID,
 		VerifyLocked:     RepositoryStillAt(s.queries, repository.ID, owner, repo),
 	}
 	if err := s.repoHost.ProxyReceivePack(ctx, owner, repo, stdin, stdout, meta); err != nil {
@@ -291,11 +304,12 @@ func (s *GitHTTPProxyService) rejectProtectedBookmarkPush(ctx context.Context, o
 // gitHTTPCredential is what a git request's token authenticates: its user
 // (nil when anonymous), grants and bindings, and who holds it.
 type gitHTTPCredential struct {
-	user         *db.User
-	scopes       middleware.ScopeSet
-	allowedPaths []string
-	workspaceID  string
-	kind         middleware.CredentialKind
+	user               *db.User
+	scopes             middleware.ScopeSet
+	allowedPaths       []string
+	workspaceID        string
+	landingWorkspaceID string
+	kind               middleware.CredentialKind
 }
 
 // refViewer is the user whose own refs/smithers/users/<id>/ refs the
@@ -366,11 +380,12 @@ func (s *GitHTTPProxyService) authenticateTokenWithPaths(
 	}
 
 	return gitHTTPCredential{
-		user:         &user,
-		scopes:       middleware.ParseTokenScopes(authRow.TokenScopes),
-		allowedPaths: middleware.ParseTokenPathRestrictions(authRow.TokenScopes),
-		workspaceID:  middleware.ParseTokenWorkspaceRestriction(authRow.TokenScopes),
-		kind:         middleware.TokenCredentialKind(authRow.TokenSystemIssued, authRow.TokenScopes, user.UserType),
+		user:               &user,
+		scopes:             middleware.ParseTokenScopes(authRow.TokenScopes),
+		allowedPaths:       middleware.ParseTokenPathRestrictions(authRow.TokenScopes),
+		workspaceID:        middleware.ParseTokenWorkspaceRestriction(authRow.TokenScopes),
+		landingWorkspaceID: middleware.ParseTokenLandingWorkspace(authRow.TokenScopes),
+		kind:               middleware.TokenCredentialKind(authRow.TokenSystemIssued, authRow.TokenScopes, user.UserType),
 	}, nil
 }
 

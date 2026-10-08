@@ -67,7 +67,7 @@ func PrepareMachineCaptureTx(ctx context.Context, tx pgx.Tx, branch string) (*Ma
 		return nil, err
 	}
 	var repository int64
-	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, branch).Scan(&repository); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE`, branch).Scan(&repository); err != nil {
 		return nil, err
 	}
 	if repository != before.RepositoryID {

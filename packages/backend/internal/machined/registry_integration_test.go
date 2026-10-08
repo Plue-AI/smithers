@@ -273,3 +273,62 @@ func TestMachineEventPreparationRefusals(t *testing.T) {
 		})
 	}
 }
+
+// Preparation can wait for rows owned by a worker which needs this registry.
+// Replacement must stay available, and a replacement during that wait must
+// prevent the old boot from writing any receipt or projection.
+func TestCapturePreparationDoesNotHoldRegistry(t *testing.T) {
+	pool, branch, _ := machineReceiptDatabase(t)
+	registry := new(Registry)
+	boot, err := registry.MintBoot(branch, "prepare")
+	require.NoError(t, err)
+	link, _ := connectTest(t, registry, branch, boot)
+	entered, release := make(chan struct{}), make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	ingestor := &Ingestor{Pool: pool, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event Event) (EventWriter, error) {
+		close(entered)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+			t.Error("stale boot projected capture")
+			return Acknowledgement{}, nil
+		}, nil
+	}}
+	done := make(chan error, 1)
+	go func() {
+		_, err := ingestor.Commit(t.Context(), link.Connection, branch, capturedEvent(1, boot.ID))
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("preparation did not begin")
+	}
+	replaced := make(chan error, 1)
+	go func() { _, err := registry.MintBoot(branch, "replacement"); replaced <- err }()
+	select {
+	case err := <-replaced:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("preparation blocked daemon replacement")
+	}
+	close(release)
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrUnauthorized)
+	case <-time.After(5 * time.Second):
+		t.Fatal("capture did not settle")
+	}
+	var receipts int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
+	require.Zero(t, receipts)
+}
