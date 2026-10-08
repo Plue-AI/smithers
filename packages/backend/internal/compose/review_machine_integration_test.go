@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -29,6 +31,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -84,7 +87,16 @@ esac
 	runtime := &reviewRuntimeContract{queue: queue, head: strings.Repeat("a", 40), loseLaunch: true, loseApproval: true, failDelete: true}
 	source := &reviewSourceContract{}
 	machine := &reviewMachine{pool: pool, jobs: store, workspace: runtime, source: source}
-	resolver := &reviewResolverContract{machine: machine, runtime: runtime}
+	codec, err := webhook.NewSecretCodec("review-admission-host-key")
+	require.NoError(t, err)
+	bindings, err := flowhost.NewStore(pool, codec)
+	require.NoError(t, err)
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}}
+	guestServer := httptest.NewServer(transport)
+	t.Cleanup(guestServer.Close)
+	transport.endpoint = guestServer.URL
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: machine, Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("d", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	require.NoError(t, err)
 	machine.resolver, machine.existing = resolver, resolver
 	background, err := services.NewReviewBackground(pool, service, machine, reviewConversationDelivery{store: chatStore, resolve: conversationBranchResolver(services.NewWorkspaceService(db.New(pool)))})
 	require.NoError(t, err)
@@ -276,6 +288,7 @@ esac
 	require.JSONEq(t, `{"repo":".","from":"9999999999999999999999999999999999999999","to":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verify":true,"narrate":false}`, string(runtime.launch.Payload))
 	require.Equal(t, reviewWorkspaceID(admission.OperationID), runtime.id)
 	runtime.mu.Unlock()
+	require.EqualValues(t, 1, transport.starts.Load(), "lost guest acknowledgments reuse the authenticated host binding")
 	require.GreaterOrEqual(t, source.restores, 2)
 	require.Equal(t, admission.Head, source.selected.Head)
 	var count int
@@ -319,17 +332,66 @@ func (s *reviewSourceContract) Retire(context.Context, string, services.ReviewAd
 	return nil
 }
 
-type reviewResolverContract struct {
-	machine *reviewMachine
-	runtime *reviewRuntimeContract
-}
+// Only the guest's HTTP transport is controlled. The production resolver owns
+// host binding, credentials, catalog selection and authenticated bridge calls.
+type reviewHostTransport struct{ *todoControlHostTransport }
 
-func (r *reviewResolverContract) ResolveFlowRuntime(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
-	_, err := r.machine.ResolveFlowHostTarget(ctx, target)
-	return r.runtime, err
-}
-func (r *reviewResolverContract) ResolveExistingFlowRuntime(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
-	return r.ResolveFlowRuntime(ctx, target)
+func (h *reviewHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/runtime/v1/command" {
+		h.todoControlHostTransport.ServeHTTP(w, r)
+		return
+	}
+	h.mu.Lock()
+	launch := h.launch
+	h.mu.Unlock()
+	if launch.Credential == "" || r.Header.Get("Authorization") != "Bearer "+launch.Credential {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "invalid command", 400)
+		return
+	}
+	var header struct {
+		Operation       string
+		OwnerGeneration int64
+	}
+	if json.Unmarshal(raw, &header) != nil || header.OwnerGeneration != launch.Binding.OwnerGeneration {
+		http.Error(w, "invalid generation", 409)
+		return
+	}
+	var value any
+	switch header.Operation {
+	case "launch":
+		var request flowruntime.Launch
+		if json.Unmarshal(raw, &request) != nil {
+			http.Error(w, "invalid launch", 400)
+			return
+		}
+		var result flowruntime.LaunchResult
+		result, err = h.receiver.Launch(r.Context(), request)
+		value = map[string]any{"operation": "launch", "applicationRequestId": result.ApplicationRequestID, "ownerGeneration": result.OwnerGeneration, "runtimeArtifactDigest": result.RuntimeArtifactDigest, "sourceRevision": result.SourceRevision, "executionDigest": result.ExecutionDigest, "planId": result.PlanID, "planDigest": result.PlanDigest, "approval": result.Approval, "receipt": result.Receipt}
+	case "approve":
+		var request flowruntime.Decision
+		if json.Unmarshal(raw, &request) != nil {
+			http.Error(w, "invalid approval", 400)
+			return
+		}
+		var result flowruntime.MutationResult
+		result, err = h.receiver.Approve(r.Context(), request)
+		value = map[string]any{"operation": result.Operation, "applicationRequestId": result.ApplicationRequestID, "receipt": result.Receipt}
+	default:
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+		h.todoControlHostTransport.ServeHTTP(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "guest unavailable", 503)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": value})
 }
 
 type reviewRuntimeContract struct {

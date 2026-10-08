@@ -182,7 +182,10 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 						}
 						return liveSnapshotKey(projected)
 					}
-				} else if !errors.Is(err, pgx.ErrNoRows) {
+				} else if errors.Is(err, pgx.ErrNoRows) {
+					source = liveScratchMachineSource(source, t.jobs, jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: source.Key + ":machine"})
+					source.RefreshEvery = 250 * time.Millisecond
+				} else {
 					return live.Source{}, live.Unsupported
 				}
 			}
@@ -658,4 +661,41 @@ func liveReplayError(err error) error {
 		return pkgerrors.UnknownCursor("TODO cursor is outside retained source facts")
 	}
 	return err
+}
+
+// Bind machine snapshots to the same committed observation that supplies replay.
+// Roster and terminal refreshes retain their existing non-journal providers.
+func liveScratchMachineSource(source live.Source, store *jobs.Store, scope jobs.Scope) live.Source {
+	build := source.Build
+	source.Build = func(ctx context.Context) (json.RawMessage, error) {
+		raw, err := build(ctx)
+		if err != nil {
+			return nil, err
+		}
+		head, err := store.Head(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		if head == 0 {
+			return raw, nil
+		}
+		page, err := store.Replay(ctx, scope, head-1, 1)
+		if err != nil {
+			return nil, err
+		}
+		if len(page.Events) != 1 {
+			return nil, fmt.Errorf("machine source observation missing")
+		}
+		var fact struct{ Branch map[string]json.RawMessage }
+		var model map[string]json.RawMessage
+		if err = json.Unmarshal(page.Events[0].Data, &fact); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(raw, &model); err != nil {
+			return nil, err
+		}
+		model["machine"] = fact.Branch["machine"]
+		return json.Marshal(model)
+	}
+	return liveCardRefresh(liveJobSource(source, store, scope), "branch")
 }

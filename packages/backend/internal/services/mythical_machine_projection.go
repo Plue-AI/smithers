@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 var errMachineProjectionBusy = errors.New("machine projection source busy")
@@ -31,6 +33,9 @@ func (s *MythicalService) StartMachineQueueProjection(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if err := s.publishScratchMachineProjection(ctx); err != nil {
+				s.logger.Warn("mythical.scratch_machine_projection_failed", "error", err)
+			}
 			key, _ := json.Marshal(positions.TodoMachinePositions())
 			if string(key) == previous {
 				continue
@@ -132,6 +137,82 @@ func (s *MythicalService) publishMachineQueueProjection(ctx context.Context) (re
 			ctx = context.WithValue(ctx, todoHomeFactKey{}, projection)
 		}
 		if _, err := view.recordTodoFact(ctx, tx, item, uuid.NewString(), "todo.machine.queue", card["state"].(string), json.RawMessage(`{}`)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// Scratch machines have no TODO stream. Publish their machine observations into
+// the existing source journal, independently of subscribers and TODO changes.
+// These are projection facts, never admission authority or a persisted queue.
+func (s *MythicalService) publishScratchMachineProjection(ctx context.Context) error {
+	positions, ok := s.lanes.(interface{ TodoMachinePositions() map[string]int })
+	if !ok {
+		return nil
+	}
+	tx, err := s.store.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(context.WithoutCancel(ctx))
+	if _, err = tx.Exec(ctx, "SET LOCAL lock_timeout = '100ms'"); err != nil {
+		return err
+	}
+	// Serialize readers before taking the runtime snapshot, including after a
+	// projector restart. A second worker cannot append an older observation.
+	var locked bool
+	if err = tx.QueryRow(ctx, "SELECT pg_try_advisory_xact_lock(hashtextextended('scratch-machine-projection',0))").Scan(&locked); err != nil {
+		return err
+	}
+	if !locked {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `SELECT w.id::text FROM workspaces w
+ WHERE w.deleted_at IS NULL AND w.target_bookmark LIKE 'scratch/%'
+ AND NOT EXISTS(SELECT 1 FROM mythical_lanes l WHERE l.workspace_id=w.id::text)
+ ORDER BY w.id`)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	places := positions.TodoMachinePositions()
+	for _, id := range ids {
+		row, err := db.New(tx).GetWorkspace(ctx, id)
+		if err != nil {
+			return err
+		}
+		machine := map[string]any{"state": branchMachineState(row)}
+		if position := places[machineQueueHolder(id)]; position > 0 {
+			machine = map[string]any{"state": "waiting", "position": position}
+		}
+		data, err := json.Marshal(map[string]any{"branch": map[string]any{"id": id, "machine": machine}})
+		if err != nil {
+			return err
+		}
+		scope := jobs.Scope{TenantID: strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "branch:" + id + ":machine"}
+		var same bool
+		err = tx.QueryRow(ctx, `SELECT data=$3::jsonb FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 ORDER BY sequence DESC LIMIT 1`, scope.TenantID, scope.PrincipalID, data).Scan(&same)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if same {
+			continue
+		}
+		if _, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "branch.machine", "observed", data); err != nil {
 			return err
 		}
 	}

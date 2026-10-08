@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client"
 import { HomeCardSchema } from "@smthrs/rpc/HomeCard"
 import { projectHome } from "../../src/mainview/runtime/HomeProjection"
 import { LiveChannel } from "../../src/mainview/runtime/LiveChannel"
-import { branchModel } from "../../src/mainview/state/seams/BranchSeam"
+import { branchModel, projectBranch } from "../../src/mainview/state/seams/BranchSeam"
 import { BranchView } from "../../src/mainview/cards/views/BranchView"
 import { HomeView } from "../../src/mainview/cards/views/HomeView"
 
@@ -12,6 +12,7 @@ import { HomeView } from "../../src/mainview/cards/views/HomeView"
 const branch = new URLSearchParams(location.search).get("branch")!
 const live = new LiveChannel()
 live.registerProjection("home", projectHome)
+live.registerProjection(`branch:${branch}`, projectBranch)
 const useTopic = (topic: string) => useSyncExternalStore(
   useCallback((notify: () => void) => live.subscribe(topic, notify), [topic]),
   useCallback(() => live.getSnapshot(topic), [topic])

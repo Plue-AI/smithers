@@ -996,30 +996,56 @@ esac
 	readBranchPlace(0, "waking")
 	// The already-mounted branch subscriber must observe the actual grant,
 	// rather than relying on a fresh GET or an intercepted browser frame.
-	// Scratch branches use the existing snapshot stream; its cursor advances
-	// in process. Durable TODO replay is checked independently above.
+	// Scratch machine transitions have committed cursors and replay even
+	// after replacing the source resolver and hub (no in-process counter).
 	lastBranchCursor := int64(*branchWaiting.Cursor)
+	var machineGrant live.Frame
 	for {
 		frame := readFrame(branchConn)
-		require.Equal(t, "snap", frame.T)
+		if frame.T == "snap" {
+			continue
+		}
+		require.Equal(t, "delta", frame.T)
 		require.Greater(t, int64(*frame.Cursor), lastBranchCursor)
 		lastBranchCursor = int64(*frame.Cursor)
-		branchCard.Machine.State = ""
-		branchCard.Machine.Position = 0
-		require.NoError(t, json.Unmarshal(frame.Data, &branchCard))
-		if branchCard.Machine.State == "waking" {
-			require.Zero(t, branchCard.Machine.Position)
+		var event jobs.Event
+		require.NoError(t, json.Unmarshal(frame.Data, &event))
+		require.Equal(t, "branch.machine", event.Type)
+		var fact struct {
+			Branch struct {
+				Machine struct {
+					State    string
+					Position int
+				}
+			}
+		}
+		require.NoError(t, json.Unmarshal(event.Data, &fact))
+		var committed []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence=$3`, fmt.Sprint(repo.ID), "branch:"+scratchBranch.ID+":machine", *frame.Cursor).Scan(&committed))
+		require.JSONEq(t, string(committed), string(event.Data))
+		if fact.Branch.Machine.State == "waking" {
+			require.Zero(t, fact.Branch.Machine.Position)
+			machineGrant = frame
 			break
 		}
-		if branchCard.Machine.State == "asleep" {
-			// Admission has granted the slot; the durable wake transaction
-			// may not yet have changed the retained machine's state.
-			require.Zero(t, branchCard.Machine.Position)
-		} else {
-			require.Equal(t, "waiting", branchCard.Machine.State)
-			require.Equal(t, 1, branchCard.Machine.Position)
+	}
+	restartedTopics := *topics
+	restartedLive := &routes.LiveHandler{Hub: live.NewHub(liveContext, nil), Queries: q, Origins: liveHandler.Origins, Topics: restartedTopics.resolver}
+	restartedServer := httptest.NewServer(parallelInstallRouter(cfg, q, pool, terminals, routerExtras{Live: restartedLive}))
+	defer restartedServer.Close()
+	replayBranch, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(restartedServer.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, Host: "127.0.0.1:4000", HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"smithers_session=" + benCookie}}})
+	require.NoError(t, err)
+	defer replayBranch.CloseNow()
+	require.NoError(t, replayBranch.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s","cursor":%d}`, scratchBranch.ID, *branchWaiting.Cursor))))
+	for {
+		replay := readFrame(replayBranch)
+		require.Equal(t, "delta", replay.T)
+		if *replay.Cursor == *machineGrant.Cursor {
+			require.JSONEq(t, string(machineGrant.Data), string(replay.Data))
+			break
 		}
 	}
+
 	if browser != nil {
 		for browserOutput.Scan() {
 			t.Log(browserOutput.Text())
@@ -1027,12 +1053,26 @@ esac
 		require.NoError(t, browserOutput.Err())
 		require.NoError(t, browser.Wait(), browserErrors.String())
 	}
+	// A second projector (as during worker recovery) must reuse the journal's
+	// last committed observation, not append an invented transition.
+	scratchScope := jobs.Scope{TenantID: fmt.Sprint(repo.ID), PrincipalID: "branch:" + scratchBranch.ID + ":machine"}
+	stableHead, err := store.Head(ctx, scratchScope)
+	require.NoError(t, err)
+	recovered := services.NewMythicalService(pool, host, services.WithMythicalInstallAuthorization(true))
+	recovered.SetInstallParallel(capacity)
+	recovered.SetOrchestration(nil, dispatcher, services.NewWorkspaceMythicalLanes(workspaces))
+	recoveryCtx, stopRecovery := context.WithCancel(liveContext)
+	defer stopRecovery()
+	go recovered.StartMachineQueueProjection(recoveryCtx)
 	until := time.Now().Add(3 * time.Second)
 	for time.Now().Before(until) {
 		held("step 5 granted", 4)
 		readBranchPlace(0, "waking")
 		time.Sleep(200 * time.Millisecond)
 	}
+	afterRecovery, err := store.Head(ctx, scratchScope)
+	require.NoError(t, err)
+	require.Equal(t, stableHead, afterRecovery, "unchanged scratch observations survive projector recovery without extra facts")
 }
 
 // parallelInstallRouter is buildRouter, the install's production router,
@@ -1261,7 +1301,7 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 				require.NoError(t, json.Unmarshal(raw, &frame))
 				require.NotEqual(t, "err", frame.T, string(raw))
 				require.NotEqual(t, "gap", frame.T, string(raw))
-				if frame.T != "snap" {
+				if frame.T != "snap" && frame.T != "delta" {
 					continue
 				}
 				require.NotNil(t, frame.Cursor)
@@ -1271,7 +1311,15 @@ func exerciseTenBranchTerminals(t *testing.T, branches []db.Workspace, runtime *
 						Position int    `json:"position"`
 					} `json:"machine"`
 				}
-				require.NoError(t, json.Unmarshal(frame.Data, &card))
+				data := frame.Data
+				if frame.T == "delta" {
+					var event jobs.Event
+					require.NoError(t, json.Unmarshal(data, &event))
+					var fact struct{ Branch json.RawMessage }
+					require.NoError(t, json.Unmarshal(event.Data, &fact))
+					data = fact.Branch
+				}
+				require.NoError(t, json.Unmarshal(data, &card))
 				state, position := "waiting", i-granted+1
 				if i < granted {
 					state, position = "waking", 0

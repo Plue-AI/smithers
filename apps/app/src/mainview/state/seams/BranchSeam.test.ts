@@ -175,3 +175,15 @@ test("conflict source facts preserve Done binding and settle on resolution", () 
   const resolved = projectBranch(held, { Type: "todo.rebased", Data: { card: { ...card, state: "working", waits: [], rebase_pending: undefined } } })
   expect(branchModel(resolved, [], [], "b1")?.rebase).toBeUndefined()
 })
+
+
+test("scratch machine replay preserves branch context and refuses foreign or malformed facts", () => {
+  const scratch = { ...branch, scratch: { forked_from: { kind: "main" } } }
+  const fact = (id: string, machine: unknown) => ({ Type: "branch.machine", Data: { branch: { id, machine } } })
+  const waiting = projectBranch(scratch, fact("b1", { state: "waiting", position: 2 }))
+  expect(waiting).toEqual({ ...scratch, machine: { state: "waiting", position: 2 } })
+  expect(projectBranch(waiting, fact("b1", { state: "waking" }))).toEqual({ ...scratch, machine: { state: "waking" } })
+  expect(projectBranch(waiting, fact("b1", { state: "waiting", position: 2 }))).toEqual(waiting)
+  expect(() => projectBranch(waiting, fact("b2", { state: "awake" }))).toThrow("Branch source binding changed")
+  expect(() => projectBranch(waiting, fact("b1", { state: "waiting", position: 0 }))).toThrow()
+})

@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -32,6 +35,7 @@ import (
 // Native runtime classification is checked independently in microsandbox.
 // It is not lifecycle/security qualification or a C-PERF receipt.
 type perfWakeRuntime struct {
+	queue *microsandbox.Runtime
 	workspaceapi.WorkspaceRuntime
 	mu               sync.Mutex
 	row              db.Workspace
@@ -59,6 +63,10 @@ func (r *perfWakeRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{Terminal: true, Execution: true, PersistentFiles: true, FileOperations: true}
 }
 func (r *perfWakeRuntime) WaitAdmission(ctx context.Context, providers microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	if r.queue != nil {
+		r.once.Do(func() { close(r.entered) })
+		return r.queue.WaitAdmission(ctx, providers, class, holder, actor, reason)
+	}
 	// Capacity is controlled because this VM has no guest runtime. The actual
 	// installed readiness callback still verifies durable member/session and
 	// branch authority; this is never a qualification receipt.
@@ -72,6 +80,19 @@ func (r *perfWakeRuntime) WaitAdmission(ctx context.Context, providers microsand
 		return ctx, ctx.Err()
 	}
 	return ctx, nil
+}
+func (*perfWakeRuntime) GuestIdentity() (string, int) { return "agent", 1000 }
+func (r *perfWakeRuntime) Request(class, holder, actor, reason string) (microsandbox.AdmissionRequest, error) {
+	return r.queue.Request(class, holder, actor, reason)
+}
+func (r *perfWakeRuntime) CancelAdmission(holder, actor string, now time.Time) bool {
+	return r.queue != nil && r.queue.CancelAdmission(holder, actor, now)
+}
+func (r *perfWakeRuntime) AdmissionSnapshot() []microsandbox.AdmissionRequest {
+	if r.queue == nil {
+		return nil
+	}
+	return r.queue.AdmissionSnapshot()
 }
 func (r *perfWakeRuntime) MachinedRegistry() *machined.Registry { return &r.registry }
 func (r *perfWakeRuntime) Isolation() workspaceapi.IsolationLevel {
@@ -128,6 +149,16 @@ func (r *perfWakeRuntime) ExecuteCommand(_ context.Context, _ string, cmd worksp
 }
 
 func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
+	testPerfWarmWakeObservationComposedInstall(t, false)
+}
+
+// Successful terminal boots pass through the actual runtime scheduler and
+// installed branch authority. Only disk and guest observations are injected.
+func TestSuccessfulTerminalAdmissionComposedInstall(t *testing.T) {
+	testPerfWarmWakeObservationComposedInstall(t, true)
+}
+
+func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 	for _, mode := range []string{"warm", "missing head", "failed boot"} {
 		t.Run(mode, func(t *testing.T) {
 			f := presenceInstall(t)
@@ -137,6 +168,16 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			branch, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.row.RepositoryID, UserID: owner, Name: "wake", TargetBookmark: "scratch/presence-owner/wake", Status: "suspended", Kind: "vm"})
 			require.NoError(t, err)
 			runtime := &perfWakeRuntime{row: branch, state: workspaceapi.WorkspaceStopped, mode: mode, entered: make(chan struct{}), release: make(chan struct{})}
+			if scheduled {
+				root := t.TempDir()
+				binary := filepath.Join(root, "msb")
+				require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0700))
+				queue, err := microsandbox.New(t.Context(), microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, queue.Close()) })
+				queue.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+				runtime.queue = queue
+			}
 			reader, writer := io.Pipe()
 			terminal := &echoOwnerTerminal{reader: reader, writer: writer}
 			runtime.owner = &terminalMemberRuntime{replacementRuntime: &replacementRuntime{repoID: f.row.RepositoryID}, terminal: terminal, branch: branch, member: microsandbox.MemberIdentity{Login: "ben", UID: 20001, Active: true}}
@@ -152,8 +193,17 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			auth := services.NewAuthService(q, authConfig, nil, nil)
 			auth.Members = &services.Members{Pool: f.pool}
 			auth.TerminalSubject = manager.OwnsSubject
-			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(*rehearsalBranchMachines(f.pool)), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
-			service.EnableMachineAdmission(func(context.Context) (int64, error) { return 140 << 30, nil })
+			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+			service.EnableMachineAdmission(func(context.Context) (int64, error) {
+				if scheduled {
+					select {
+					case <-runtime.release:
+					default:
+						return 40 << 30, nil
+					}
+				}
+				return 140 << 30, nil
+			})
 			service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
 			provider := &installOwnerTerminals{queries: q, branches: service, registry: &runtime.registry}
 			provider.Bind(manager)
@@ -248,6 +298,17 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 			var legacySessions int
 			require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_sessions WHERE id=$1`, accepted.ID).Scan(&legacySessions))
 			require.Zero(t, legacySessions, "owner terminals must not create legacy session rows")
+			if scheduled {
+				require.Eventually(t, func() bool {
+					rows := runtime.queue.AdmissionSnapshot()
+					return len(rows) == 1 && rows[0].State == "waiting" && rows[0].Class == "person" && rows[0].Position == 1
+				}, 5*time.Second, 10*time.Millisecond)
+				require.Zero(t, runtime.queue.InUse())
+				waiting := readMachine("waiting")
+				var waitingCard struct{ Machine struct{ Position int } }
+				require.NoError(t, json.Unmarshal(waiting.Data, &waitingCard))
+				require.Equal(t, 1, waitingCard.Machine.Position)
+			}
 			heldFor := time.Since(heldAt)
 			finish()
 			var awake liveFrame
@@ -283,6 +344,14 @@ func TestPerfWarmWakeObservationComposedInstall(t *testing.T) {
 				stored, err := q.GetWorkspace(t.Context(), branch.ID)
 				require.NoError(t, err)
 				require.Equal(t, "running", stored.Status)
+				if scheduled {
+					require.Equal(t, 1, runtime.queue.InUse())
+					rows := runtime.queue.AdmissionSnapshot()
+					require.Len(t, rows, 1)
+					require.Equal(t, "granted", rows[0].State)
+					require.Equal(t, "workspace:"+branch.ID, rows[0].Holder)
+					require.Zero(t, rows[0].Position)
+				}
 			} else {
 				require.Equal(t, true, record["failed"])
 				require.Empty(t, record["workingHead"])
