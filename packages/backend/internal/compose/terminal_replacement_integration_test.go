@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -171,6 +172,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	require.NoError(t, err)
 	installOwner := owner
 	removal := len(scopeChecks) > 3 && scopeChecks[3]
+	suspension := removal && len(scopeChecks) > 4 && scopeChecks[4]
 	if removal {
 		installOwner, err = q.CreateUser(ctx, db.CreateUserParams{Username: "terminal-admin", LowerUsername: "terminal-admin"})
 		require.NoError(t, err)
@@ -223,6 +225,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 	wiki := services.NewWikiService(q, nil, services.WithWikiContent(content), services.WithWikiInstallAuthorization(q))
 	_, err = wiki.CreateWikiPage(ctx, &owner, "ben", "demo", services.CreateWikiPageInput{Title: "Terminal scope", Slug: "terminal-scope", Body: "Read through the packaged skill"})
 	require.NoError(t, err)
+	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
 	var origin string
 	open := func(service *services.WorkspaceService, refused bool, session string) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
@@ -234,7 +237,7 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
 		deps := conformanceServices{pool: pool, wiki: wiki, terminal: handler, user: &routes.UserHandler{ProfileService: services.NewUserService(q)}}
 		if removal {
-			deps.members = &routes.MembersHandler{Service: &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}}
+			deps.members = &routes.MembersHandler{Service: members}
 		}
 		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, deps)
 		server.Start()
@@ -296,18 +299,67 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 		invoke := packagedTerminalCLIInvoker(t, ctx, origin, first)
 		code, receipt := invoke("wiki", "show", "--owner", "ben", "--repo", "demo")
 		require.Zero(t, code, receipt)
-		request, err := http.NewRequestWithContext(ctx, "DELETE", origin+"/api/members/ben", nil)
-		require.NoError(t, err)
-		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "terminal-admin-cookie"})
-		request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
-		request.Header.Set("X-CSRF-Token", "csrf")
-		request.Header.Set("Origin", origin)
-		response, err := http.DefaultClient.Do(request)
-		require.NoError(t, err)
-		body, err := io.ReadAll(response.Body)
-		_ = response.Body.Close()
-		require.NoError(t, err)
-		require.Equal(t, http.StatusNoContent, response.StatusCode, string(body))
+		started := time.Now()
+		var restore func()
+		if suspension {
+			// Production permission polling receives independently pinned GitHub
+			// responses. No credential helper or authorizer double suspends Ben.
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET github_id=102 WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID)
+			require.NoError(t, err)
+			var restored atomic.Bool
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/repos/ben/demo/installation":
+					fmt.Fprint(w, `{"id":91}`)
+				case "/app/installations/91/access_tokens":
+					w.WriteHeader(http.StatusCreated)
+					fmt.Fprint(w, `{"token":"fixture-installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
+				case "/repos/ben/demo":
+					fmt.Fprintf(w, `{"id":%d,"full_name":"ben/demo"}`, repo.ID)
+				case "/installation/repositories":
+					fmt.Fprintf(w, `{"total_count":1,"repositories":[{"id":%d}]}`, repo.ID)
+				case "/user/102":
+					fmt.Fprint(w, `{"id":102,"login":"ben"}`)
+				case "/repos/ben/demo/collaborators/ben/permission":
+					if restored.Load() {
+						fmt.Fprint(w, `{"permission":"write","role_name":"write","user":{"id":102,"login":"ben"}}`)
+					} else {
+						fmt.Fprint(w, `{"permission":"read","role_name":"read","user":{"id":102,"login":"ben"}}`)
+					}
+				case "/users/terminal-admin/keys", "/users/ben/keys":
+					fmt.Fprint(w, `[]`)
+				default:
+					t.Errorf("unexpected permission-provider request %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			t.Cleanup(provider.Close)
+			t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
+			require.NoError(t, members.Recheck(ctx))
+			var suspended bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID).Scan(&suspended))
+			require.True(t, suspended)
+			restore = func() {
+				restored.Store(true)
+				require.NoError(t, members.Recheck(ctx))
+				require.NoError(t, pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, owner.ID).Scan(&suspended))
+				require.False(t, suspended)
+			}
+		} else {
+			request, err := http.NewRequestWithContext(ctx, "DELETE", origin+"/api/members/ben", nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "terminal-admin-cookie"})
+			request.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf"})
+			request.Header.Set("X-CSRF-Token", "csrf")
+			request.Header.Set("Origin", origin)
+			response, err := http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			_ = response.Body.Close()
+			require.NoError(t, err)
+			require.Equal(t, http.StatusNoContent, response.StatusCode, string(body))
+		}
 		// Reuse the same compiled CLI/token file, without minting or switching
 		// identity. Guest cleanup may lag; persisted authority is already dead.
 		for _, argv := range [][]string{{"todo", "new", "--text", "Removed member", "--idempotencyKey", "removed-terminal"}, {"wiki", "show", "--owner", "ben", "--repo", "demo"}} {
@@ -317,9 +369,17 @@ func terminalReplacementInstall(t *testing.T, wake bool, scopeChecks ...bool) {
 			require.Equal(t, "permission", receipt["class"], receipt)
 		}
 		require.Eventually(t, func() bool { return runtime.current(session) == "" }, 5*time.Second, 10*time.Millisecond)
+		require.Less(t, time.Since(started), 5*time.Second, "credential/file revocation must finish within five seconds")
 		var remaining int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE user_id=$1`, owner.ID).Scan(&remaining))
 		require.Zero(t, remaining)
+		if restore != nil {
+			restore()
+			code, receipt := invoke("wiki", "show", "--owner", "ben", "--repo", "demo")
+			require.Equal(t, 1, code, receipt)
+			require.Equal(t, "unauthenticated", receipt["code"], "restoration must not resurrect revoked credentials")
+			require.Empty(t, runtime.current(session))
+		}
 		for _, table := range []string{"mythical_items", "approvals", "product_job_requests"} {
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&remaining))
 			require.Zero(t, remaining, table)
