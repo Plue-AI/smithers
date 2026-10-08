@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -30,6 +33,7 @@ type writeReplyRuntime struct {
 	repo   int64
 	clone  string
 	writer workspaceapi.WorkspaceCompareWriter
+	reader func(context.Context, string, string) ([]byte, error)
 }
 
 func (r *writeReplyRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
@@ -41,8 +45,17 @@ func (r *writeReplyRuntime) ListFiles(_ context.Context, _, path string) ([]work
 	}
 	return []workspaceapi.FileEntry{{Name: ".git", IsDir: true}, {Name: ".jj", IsDir: true}}, nil
 }
-func (r *writeReplyRuntime) ReadFile(_ context.Context, id, _ string) ([]byte, error) {
+func (r *writeReplyRuntime) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
+	if path != ".git/smithers-workspace-initialization.json" {
+		panic("ordinary read reached helper fallback")
+	}
 	return json.Marshal(map[string]any{"version": 1, "workspace_id": id, "repository_id": r.repo, "clone_url": r.clone, "source_bookmark": "smithers/digest", "source_revision": strings.Repeat("a", 40), "initialized_at": time.Now().UTC()})
+}
+func (r *writeReplyRuntime) ReadWorkingCopyFile(ctx context.Context, id, path string) ([]byte, error) {
+	if r.reader == nil {
+		return nil, workspaceapi.ErrReadFileUnavailable
+	}
+	return r.reader(ctx, id, path)
 }
 func (r *writeReplyRuntime) ExecuteCommand(_ context.Context, _ string, c workspaceapi.Command) (workspaceapi.CommandResult, error) {
 	if len(c.Args) >= 4 && c.Args[0] == "git" && c.Args[1] == "remote" {
@@ -103,6 +116,82 @@ func TestWorkspaceWriteReplyInstall(t *testing.T) {
 	server.Config.Handler = startSplitProcess(t, Options{FlowHostProductAPIURL: origin, Workspace: provider, ChatHost: unusedChatHost{}})
 	server.Start()
 	defer server.Close()
+
+	t.Run("authenticated daemon reads", func(t *testing.T) {
+		registry := new(machined.Registry)
+		link, peer := presenceTestLink(t, registry, id)
+		require.NoError(t, link.Reconciled())
+		provider.reader = func(ctx context.Context, branch, path string) ([]byte, error) {
+			file, err := registry.ReadFile(ctx, branch, path, "")
+			if err != nil {
+				var refusal *machined.SessionError
+				if errors.As(err, &refusal) && refusal.Code == "not_found" {
+					return nil, fs.ErrNotExist
+				}
+				return nil, workspaceapi.ErrReadFileUnavailable
+			}
+			return file.Content, nil
+		}
+		defer func() { provider.reader = nil }()
+		done := make(chan error, 1)
+		go func() {
+			for n := 0; n < 2; n++ {
+				request, err := wire.Read(peer)
+				if err != nil {
+					done <- err
+					return
+				}
+				correlation, method, args, err := request.Request()
+				if err != nil {
+					done <- err
+					return
+				}
+				if method != byte(wire.ReadFile) {
+					done <- fmt.Errorf("unexpected method %d", method)
+					return
+				}
+				fields, err := wire.Fields("args2", args)
+				if err != nil {
+					done <- err
+					return
+				}
+				if string(fields[1][2:]) != "README.md" {
+					done <- fmt.Errorf("wrong path")
+					return
+				}
+				digest, _ := hex.DecodeString("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+				result := wire.Union(byte(wire.ReadFile), wire.Field(1, wire.Bytes([]byte("hello"))), wire.Field(2, digest), wire.Field(3, wire.U32(420)))
+				if n == 1 {
+					result = wire.Union(255, wire.Field(1, []byte{5}))
+				}
+				err = wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(correlation)), wire.Field(2, result))})
+				if err != nil {
+					done <- err
+					return
+				}
+			}
+			done <- nil
+		}()
+		for _, status := range []int{200, 404, 503} {
+			if status == 503 {
+				require.NoError(t, link.Close())
+			}
+			req, err := http.NewRequest("GET", server.URL+"/api/repos/digestowner/demo/workspaces/"+id+"/files/content?path=README.md", nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			response, err := server.Client().Do(req)
+			require.NoError(t, err)
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, status, response.StatusCode, string(body))
+			if status == 200 {
+				require.Contains(t, string(body), `"content":"hello"`)
+				require.Contains(t, string(body), `"digest":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"`)
+			}
+		}
+		require.NoError(t, <-done)
+	})
 
 	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("new")))
 	for _, item := range []struct {

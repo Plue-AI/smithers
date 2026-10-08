@@ -117,6 +117,21 @@ func (r *Runtime) WriteFile(ctx context.Context, workspaceID, path string, conte
 	return err
 }
 
+const repositoryReceiptPath = ".git/smithers-workspace-initialization.json"
+
+// These preparation-only methods do not expose a caller-selected path. The
+// receipt must exist before the working copy can admit its daemon.
+func (r *Runtime) ReadRepositoryReceipt(ctx context.Context, id string) ([]byte, error) {
+	return r.fileOperation(ctx, id, guestRoot, nil, "read", repositoryReceiptPath, "65536")
+}
+func (r *Runtime) WriteRepositoryReceipt(ctx context.Context, id string, content []byte) error {
+	if len(content) > 65536 {
+		return fmt.Errorf("%w: repository receipt exceeds limit", ErrUnavailable)
+	}
+	_, err := r.fileOperation(ctx, id, guestRoot, content, "write", repositoryReceiptPath, "600")
+	return err
+}
+
 func (r *Runtime) ListFiles(ctx context.Context, workspaceID, path string) ([]workspaceapi.FileEntry, error) {
 	output, err := r.fileOperation(ctx, workspaceID, guestRoot, nil, "list", path)
 	if err != nil {

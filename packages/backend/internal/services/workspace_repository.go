@@ -475,7 +475,15 @@ func (s *WorkspaceService) writeRuntimeRepositoryReceipt(ctx context.Context, ro
 	if err != nil {
 		return err
 	}
-	if err := s.runtime.WriteFile(operationCtx, row.ID, workspaceRepositoryReceiptPath, contents, 0o600); err != nil {
+	write := func() error {
+		return s.runtime.WriteFile(operationCtx, row.ID, workspaceRepositoryReceiptPath, contents, 0o600)
+	}
+	if preparer, ok := s.runtime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	}); ok {
+		write = func() error { return preparer.WriteRepositoryReceipt(operationCtx, row.ID, contents) }
+	}
+	if err := write(); err != nil {
 		return runtimeOperationError("commit workspace repository receipt", err)
 	}
 	return nil
@@ -501,6 +509,13 @@ func (s *WorkspaceService) readRuntimeRepositoryFile(ctx context.Context, row db
 	operationCtx, err := s.runtimeRepositoryContext(ctx, row, requesterID, step)
 	if err != nil {
 		return nil, err
+	}
+	if filePath == workspaceRepositoryReceiptPath {
+		if preparer, ok := s.runtime.(interface {
+			ReadRepositoryReceipt(context.Context, string) ([]byte, error)
+		}); ok {
+			return preparer.ReadRepositoryReceipt(operationCtx, row.ID)
+		}
 	}
 	return s.runtime.ReadFile(operationCtx, row.ID, filePath)
 }

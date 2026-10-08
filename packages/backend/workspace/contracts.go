@@ -521,6 +521,10 @@ type WorkspaceCompareWriter interface {
 	CompareWriteFiles(ctx context.Context, workspaceID string, changes []FileMutation) (*FileWriteResult, error)
 }
 
+// ErrReadFileUnavailable refuses reads when the runtime cannot provide its
+// admitted working-copy file service.
+var ErrReadFileUnavailable = errors.New("workspace file read unavailable")
+
 // ErrCompareWriteUnavailable refuses unsupported mutations before dispatch.
 var ErrCompareWriteUnavailable = errors.New("workspace compare-and-write unavailable")
 

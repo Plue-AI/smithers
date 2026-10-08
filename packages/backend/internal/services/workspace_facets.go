@@ -224,7 +224,13 @@ func (s *WorkspaceService) readWorkspaceFile(ctx context.Context, workspaceID st
 		if targetErr != nil {
 			return WorkspaceFileContent{}, targetErr
 		}
-		content, readErr := s.runtime.ReadFile(runtimeCtx, row.ID, relativePath)
+		read := s.runtime.ReadFile
+		if daemon, ok := s.runtime.(interface {
+			ReadWorkingCopyFile(context.Context, string, string) ([]byte, error)
+		}); ok {
+			read = daemon.ReadWorkingCopyFile
+		}
+		content, readErr := read(runtimeCtx, row.ID, relativePath)
 		if readErr != nil {
 			return WorkspaceFileContent{}, mapRuntimeFileError(readErr, "file")
 		}

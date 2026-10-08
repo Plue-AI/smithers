@@ -11,7 +11,13 @@ import (
 // Account/root/tmpfs observations and the broker launch are simulated. Actual
 // descriptor walks, file modes, locks, digest checks and replacements execute
 // as this non-root test user; this is not a real-VM acceptance receipt.
-func TestMachinedInstalledBootSupplemental(t *testing.T) {
+func TestMachinedRootPlantInputs(t *testing.T) {
+	// Drive production startup before the supplemental filesystem inventory.
+	// No approved bundle means no CLI or root-side effect may be reached.
+	r := &Runtime{workspaces: map[string]*workspace{"a": newWorkspace(metadata{ID: "a", Machine: "vm", State: "running"}, "")}}
+	require.ErrorIs(t, r.EnsureMachined(t.Context(), "a"), ErrUnavailable)
+	require.Nil(t, r.workspaces["a"].daemonBoot)
+
 	require.NotZero(t, os.Geteuid())
 	python, err := exec.LookPath("python3")
 	require.NoError(t, err)

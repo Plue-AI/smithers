@@ -1105,6 +1105,9 @@ func mapRuntimeFileError(err error, kind string) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, workspaceapi.ErrReadFileUnavailable) {
+		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace file read unavailable")
+	}
 	if errors.Is(err, workspaceapi.ErrCompareWriteUnavailable) {
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
 	}

@@ -2,6 +2,7 @@ package machined
 
 import (
 	"encoding/binary"
+	"strings"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -11,12 +12,21 @@ import (
 // Exercises the authenticated production host dispatcher, not a mock SessionRPC.
 // This is host-boundary evidence; actual privilege drop and root-owned sentinel
 // observations remain required on the approved image for C-COL-04 activation.
-func TestWatcherSessionRootInputs(t *testing.T) {
+func TestMachinedRootBrokerInputs(t *testing.T) {
 	r, link, peer := rpcFixture(t)
 	sessions := NewSessions(link.Connection, "a", r.Sessions("a")).WithActor([]byte("actor-reference1"), "")
 	for _, user := range []SessionUser{{"root", 0}, {"alice", 0}, {"../../root", 20001}, {"agent", 20001}, {"machined", 19998}} {
 		_, err := sessions.OpenSession(t.Context(), user, SessionExec, []string{"/workspace/evil"}, nil)
 		require.Error(t, err)
+	}
+
+	// Each malformed envelope must refuse before the first privileged RPC.
+	for _, argv := range [][]string{nil, {strings.Repeat("x", 4097)}, {"nul\x00argument"}, {string([]byte{0xff})}, make([]string, 65536)} {
+		session, err := sessions.OpenSession(t.Context(), SessionUser{"alice", 20001}, SessionExec, argv, nil)
+		require.Zero(t, session)
+		var refusal *SessionError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, "malformed", refusal.Code)
 	}
 	require.Error(t, sessions.RegisterRun(t.Context(), "forged-run", 17))
 	require.Error(t, sessions.RegisterRun(t.Context(), "forged-run", 0xffffffff))
