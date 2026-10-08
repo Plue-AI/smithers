@@ -230,6 +230,41 @@ func TestSessionRootInputsValidatedNative(t *testing.T) {
 			require.Equal(t, "unauthorized", refusal.Code)
 		})
 	}
+	// Keep a real process alive across each hostile request. Refusal must not
+	// resize, close, kill or rebind this independently admitted session.
+	t.Run("semantic input refusals preserve a live session", func(t *testing.T) {
+		hcopy := *h
+		hcopy.t = t
+		h := &hcopy
+		e, out, stderr := h.exec(nativeBen, "/bin/cat")
+		user := wire.Field(1, wire.Struct(wire.Field(1, wire.String("ben")), wire.Field(2, wire.U32(20001))))
+		principal := wire.Field(5, h.sessions.actor)
+		for _, cell := range []struct {
+			name   string
+			method wire.Method
+			fields [][]byte
+		}{
+			{"zero columns", wire.OpenSession, [][]byte{user, wire.Field(2, []byte{1}), principal, wire.Field(4, wire.Struct(wire.Field(1, wire.U16(0)), wire.Field(2, wire.U16(24))))}},
+			{"zero rows", wire.OpenSession, [][]byte{user, wire.Field(2, []byte{1}), principal, wire.Field(4, wire.Struct(wire.Field(1, wire.U16(80)), wire.Field(2, wire.U16(0))))}},
+			{"empty executable", wire.OpenSession, [][]byte{user, wire.Field(2, []byte{2}), principal, wire.Field(3, append(wire.U16(1), wire.String("")...))}},
+			{"sftp branch executable", wire.OpenSession, [][]byte{user, wire.Field(2, []byte{3}), principal, wire.Field(3, append(wire.U16(1), wire.String("/workspace/payload")...))}},
+			{"close root selector", wire.CloseSession, [][]byte{wire.Field(1, wire.U32(0))}},
+			{"attach root selector", wire.AttachSession, [][]byte{wire.Field(1, wire.U32(0)), wire.Field(2, wire.U64(0))}},
+			{"register member as run", wire.RegisterRun, [][]byte{wire.Field(1, wire.String("forged-run")), wire.Field(2, wire.U32(e.ID()))}},
+		} {
+			t.Run(cell.name, func(t *testing.T) {
+				_, err := h.link.call(h.ctx, h.config.Branch, cell.method, cell.fields...)
+				var refusal *SessionError
+				require.ErrorAs(t, err, &refusal, "must receive a guest refusal, not a host encoder error")
+			})
+		}
+		_, err := e.Write([]byte("survived-root-input-refusals\n"))
+		require.NoError(t, err)
+		require.NoError(t, e.CloseWrite())
+		require.NoError(t, e.Wait())
+		require.Equal(t, "survived-root-input-refusals\n", string(<-out))
+		require.Empty(t, <-stderr)
+	})
 	t.Run("branch executable and hostile import environment", func(t *testing.T) {
 		hcopy := *h
 		hcopy.t = t

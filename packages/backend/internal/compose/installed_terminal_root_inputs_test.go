@@ -27,10 +27,12 @@ for name in os.listdir("/proc/self/fd"):
         fds[name] = os.readlink("/proc/self/fd/" + name)
     except FileNotFoundError:
         pass
-row = {"uid": os.getuid(), "euid": os.geteuid(), "gid": os.getgid(), "groups": os.getgroups(), "fds": fds, "phase": sys.argv[1]}
+row = {"uid": os.getuid(), "euid": os.geteuid(), "gid": os.getgid(), "resuid": list(os.getresuid()), "resgid": list(os.getresgid()), "groups": os.getgroups(), "fds": fds, "phase": sys.argv[1]}
 with open(home / ".trm-startup.jsonl", "a") as out:
     out.write(json.dumps(row) + "\n")
 assert row["uid"] == row["euid"] == row["gid"] == 20001, row
+assert row["resuid"] == [20001, 20001, 20001], row
+assert row["resgid"] == [20001, 20001, 20001], row
 assert row["groups"] == [20000], row
 assert str(home) == "/home/ben"
 assert os.getcwd() == "/workspace"
@@ -115,7 +117,7 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 		t.Fatal("sleep retained the old terminal socket")
 	}
 	retained := installedMemberTerminal(t, h, branch, ben)
-	installedShell(t, retained, `test "$(cat "$HOME/.trm-retained")" = retained-home && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 4 && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-b-path")" && test ! -e "$(cat "$HOME/.trm-b-path")" && python3 /workspace/trm-startup.py retained && rm "$HOME/.bash_profile" && if test -e "$HOME/.trm-profile-saved"; then mv "$HOME/.trm-profile-saved" "$HOME/.bash_profile"; fi`)
+	installedShell(t, retained, `test "$(cat "$HOME/.trm-retained")" = retained-home && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 4 && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-b-path")" && test ! -e "$(cat "$HOME/.trm-b-path")" && python3 /workspace/trm-startup.py retained`)
 	// Restart the composed install with a live terminal, rather than closing
 	// its socket first and hiding a missing shutdown/revocation hook.
 	installedShell(t, retained, `printf '%s\n' "$SMITHERS_TOKEN_FILE" > "$HOME/.trm-c-path"`)
@@ -126,7 +128,7 @@ func testInstalledTerminalRootInputs(t *testing.T, h *rootLayerHarness, branch s
 		t.Fatal("install recomposition retained the old terminal socket")
 	}
 	restarted := installedMemberTerminal(t, h, branch, ben)
-	installedShell(t, restarted, `test "$(id -u)" = 20001 && test "$(cat "$HOME/.trm-retained")" = retained-home && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-c-path")" && test ! -e "$(cat "$HOME/.trm-c-path")" && test -r "$SMITHERS_TOKEN_FILE"`)
+	installedShell(t, restarted, `test "$(id -u)" = 20001 && test "$(cat "$HOME/.trm-retained")" = retained-home && test "$SMITHERS_TOKEN_FILE" != "$(cat "$HOME/.trm-c-path")" && test ! -e "$(cat "$HOME/.trm-c-path")" && test -r "$SMITHERS_TOKEN_FILE" && test "$(wc -l < "$HOME/.trm-startup.jsonl")" = 6 && python3 /workspace/trm-startup.py restarted && rm "$HOME/.bash_profile" && if test -e "$HOME/.trm-profile-saved"; then mv "$HOME/.trm-profile-saved" "$HOME/.bash_profile"; fi`)
 }
 
 // Linux validates the exact guest workloads and the canary's failure receipt.
