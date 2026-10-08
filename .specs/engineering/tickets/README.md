@@ -1,6 +1,6 @@
 # Tickets
 
-**Doneish first (Will, 2026-10-08; AGENTS.md).** A ticket is *doneish* when it is believed complete on `main` with the J1–J11 journeys passing, or is listed in `PRERELEASE.md` as off, missing or unverified. Doneish is the working target for every prerelease. The definition of **done** below is unchanged and gates the real release only.
+**Doneish first (Will, 2026-10-08; AGENTS.md).** A ticket is *doneish* when it is believed complete on a `main` commit where a real install on an ordinary Mac takes a TODO to a merged pull request and the J1–J11 journeys pass, or is listed in `PRERELEASE.md` as off, broken, missing or unverified. A fixture suite is not the real install. Doneish is the working target for every prerelease. The definition of **done** below is unchanged and gates the real release only.
 
 Every ticket ships a vertical slice: code, tests, the docs the change touches, and the checks it names. A ticket is **done** when four things hold:
 - its phase’s checks pass on their stated layers with machine-written receipts at the landed commit (C-PRC-03);
