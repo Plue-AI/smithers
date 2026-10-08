@@ -1,13 +1,14 @@
 # Prerelease status
 
 ```
-Updated      2026-10-08 13:22 PDT
-main         bb646e6977 when written, 45 commits past the last journey run
+Updated      2026-10-08 13:23 PDT
+main         82c5d13004 when written, 46 commits past the last journey run
 Journeys     7 of 11 have no failed row. Red: J4, J5, J7, J10.
              Ran on d0b0c7b2f0 (J1 to J9) and df9c9e0476 (J10, J11). Not run on main.
 Doneish      No. No commit has all 11 passing. Closest: df9c9e0476, 9 of 11.
 Dry run      NOT GREEN. Run 37837413419 is in progress.
-Ships        49 npm packages under `next`. No Homebrew install.
+Ships        49 npm packages under `next`. No Homebrew install:
+             `smthrs host start` then needs `--bundle <dir>`.
 Needs Will   Now: nothing.
              When the dry run is green: the commands under Publish.
              For Done, later: approve T-DOC-02 and T-DOC-03.
@@ -82,7 +83,7 @@ Every red row on the latest board.
 
 J10's cause, from the lane: after T1 merges, T2 reaches its 12-run limit. The owner's Retry is accepted, then T2 stops with "the previous lane could not be retired".
 
-Lane reruns on newer commits failed two rows the board shows green:
+Lane reruns on 772f5423dd, 34 commits past the board, failed two rows the board shows green:
 
 - J4 row 17: after T1 merges, T2's PR still contains T1's file. Lane: fr18-j10-follow-merge (#3532).
 - J7 row 15: a dropped TODO keeps its machine after 60 s. Lane: not checked.
@@ -175,7 +176,7 @@ Checked 13:15 PDT with `npm view` and `gh api`, against the workflow on main.
 - The `npm-publish` environment has no required reviewers. The tag push publishes without a second approval.
 - The Homebrew bottle and tap formula will not publish. That job requires passing `C-REL-02`, `C-J1-01` and `C-J1-04` check runs on the tagged commit. All three are recorded Mac mini runs, and the Mac mini schedule is stopped. `RELEASE_QUALIFICATION_APP_ID` is not set, the `homebrew-publish` environment does not exist on GitHub, and no `HOMEBREW_TAP_TOKEN` repository secret is set.
 - Expect the Release run to end red at the Homebrew job after npm publishes, unless the release-path agent changes that job first.
-- Whether `npm install -g smthrs@next` alone starts an install on a Mac: not checked.
+- `npm install -g smthrs@next` alone does not start an install. `smthrs host start` reads the server bundle from the Homebrew install or from `--bundle <dir>`; with neither it refuses with "No server bundle" (`packages/smithers/src/internal/backend/HostService.ts:163`). The Release run keeps the bundle as its `server-bundle-darwin-arm64` artifact. Starting an install from that artifact: not run.
 
 ### Commands
 
