@@ -1,40 +1,59 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { withGitHubInstall } from "./github-install-fixture"
 
-// UI projection of .specs/engineering/checks/C-J7-02.md.
-// Requires the forthcoming seeded DesignWorld. Seed T2 working with verified retry.ts and an unrelated uncaptured edit. Fork form creates retry-v2; terminal commit captures the backoff edit; agent Add to stack waits for confirmation. GitHub absence, head equality and uninterrupted run need reference-host receipts.
-// These UI assertions do not replace backend, timing or reference-host receipts.
-// Written before implementation: mvp.md J7.2–J7.3, §6.7, Appendix A, M-22; lands with T-MCH-08, T-STK-05
-test("C-J7-02: scratch work joins the stack before its source is dropped", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J7.2–J7.3, §6.7, Appendix A, M-22; lands with T-MCH-08, T-STK-05")
-  await owner(page)
-  await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
-  await page.goto('/smithers-mvp-canary/node')
-  await say(page, '/branch T2')
-  await page.getByRole('button', { name: 'Fork', exact: true }).last().press('Enter')
-  await page.getByLabel('Name', { exact: true }).last().fill('retry-v2')
-  await page.getByRole('button', { name: 'Fork', exact: true }).last().press('Enter')
-  await expect(page.getByText('scratch/ben/retry-v2', { exact: true }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Terminal', exact: true }).last().press('Enter')
-  const terminal = page.getByRole('region', { name: /Ben.*output/ }).last()
-  await terminal.locator('.xterm-helper-textarea').focus()
-  await page.keyboard.type("printf 'export const backoff = 2\n' >> src/retry.ts")
-  await page.keyboard.press('Enter')
-  await page.keyboard.type('jj commit -m "try exponential backoff"')
-  await page.keyboard.press('Enter')
-  await say(page, 'Add scratch/ben/retry-v2 to the stack')
-  await expect(page.getByRole('button', { name: /Add to stack/ }).last()).toBeVisible()
-  await say(page, '/stack')
-  await expect(page.getByText('T4', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: /Add to stack/ }).last().press('Enter')
-  await say(page, '/todo.drop T2')
-  await page.getByRole('button', { name: 'Drop', exact: true }).last().press('Enter')
-  await expect(page.getByText('Dropped', { exact: true }).last()).toBeVisible()
-  await say(page, '/stack')
-  await expect(page.getByRole('region', { name: /Stack/ }).last()).toContainText(/T1[\s\S]*T4[\s\S]*T3/)
-  await say(page, '/branch T4')
-  await page.getByRole('tab', { name: /Files/ }).last().press('Enter')
-  await page.getByText('src/retry.ts', { exact: true }).last().click()
-  await expect(page.getByText('export const backoff = 2', { exact: true }).last()).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Replace T2', exact: true })).toHaveCount(0)
+// Production install, PostgreSQL, packaged coding host and GitHub fake.
+// This mounted-card proof supplements the reference-host terminal/SSH journey
+// in e2e/real/fork-add-to-stack.spec.ts; it does not qualify guest isolation.
+test.use({ trace: "on", video: "on" })
+
+test("C-J7-02: mounted live Drop preserves an adopted fork across reload", async ({ page }) => {
+  test.setTimeout(600_000)
+  await withGitHubInstall(page, "TestForkAddLiveDropComposedInstall", "SMITHERS_TODO_DROP_REHEARSAL", async fixture => {
+    const forked = await fixture.phase("forked") as Awaited<ReturnType<typeof fixture.phase>> & { scratchName: string }
+    await fixture.open(forked)
+    await say(page, `/todo T${forked.number}`)
+    const source = () => page.getByRole("article", { name: `TODO T${forked.number}`, exact: true }).last()
+    await expect(source().locator("header .state")).toContainText("Working")
+    await say(page, `/branch ${forked.scratchName}`)
+    const branch = page.locator('[data-kind="branch"]').last()
+    await expect(branch).toContainText(forked.scratchName)
+    await expect(branch.getByRole("button", { name: "Add to stack", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Replace T2", exact: true })).toHaveCount(0)
+    await fixture.acknowledge("forked")
+
+    const adopted = await fixture.phase("adopted") as typeof forked & { childNumber: number }
+    await say(page, "/stack")
+    const stack = () => page.getByRole("list", { name: "Stack", exact: true }).last()
+    await expect(stack()).toContainText(/Prefix[\s\S]*Source[\s\S]*Keep the source fork[\s\S]*Later/)
+    await say(page, `/todo.drop T${adopted.number}`)
+    const confirm = page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).last()
+    await expect(confirm).toBeVisible()
+    // Asking for Drop leaves the source and stack intact until the press.
+    const before = await page.request.get(`${adopted.origin}/api/todos/${adopted.number}`)
+    expect(before.status()).toBe(200)
+    expect((await before.json()).state).toBe("working")
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    const request = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === `/api/todos/${adopted.number}`)
+    await confirm.press("Enter")
+    const response = await request
+    expect(response.status()).toBe(202)
+    expect(response.request().postDataJSON()).toEqual({ op: "drop" })
+    await fixture.acknowledge("adopted")
+
+    const dropped = await fixture.phase("dropped") as typeof adopted & { branchName: string }
+    await fixture.open(dropped)
+    await say(page, `/todo T${dropped.number}`)
+    await expect(source().locator("header .state")).toContainText("Dropped")
+    await say(page, "/stack")
+    await expect(stack()).toContainText(/Prefix[\s\S]*Keep the source fork[\s\S]*Later/)
+    await expect(stack()).not.toContainText("Source")
+    await say(page, `/todo T${dropped.childNumber}`)
+    await expect(page.getByRole("article", { name: `TODO T${dropped.childNumber}`, exact: true }).last().locator("header .state")).toContainText("Working")
+    const file = await page.request.get(`${dropped.origin}/api/branches/${encodeURIComponent(dropped.branchName)}/files/fork-edit.md`)
+    expect(file.status()).toBe(200)
+    expect((await file.json()).content).toEqual({ kind: "text", text: "fixed fork edit\n" })
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    await fixture.acknowledge("dropped")
+  }, "", 480_000)
 })

@@ -78,6 +78,7 @@ func testForkAddLiveDrop(t *testing.T, enable string) {
 	require.NoError(t, err)
 	require.Equal(t, "working", current.State)
 	require.Equal(t, original.Run, current.Run)
+	githubLifecycleBrowserPhase(t, r, second, "forked", map[string]any{"scratchName": scratch.Name})
 	path := "/api/branches/" + url.PathEscape(scratch.Name)
 	source, err := r.expect("GET", path+"/files/source.md", "", 200)
 	require.NoError(t, err)
@@ -102,10 +103,15 @@ func testForkAddLiveDrop(t *testing.T, enable string) {
 	require.Equal(t, prefix, seed.Base)
 	require.Contains(t, seed.Diff, "source.md")
 	require.Contains(t, seed.Diff, "+fixed fork edit")
-	for range 2 {
-		code, body, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", second), `{"op":"drop"}`, "fold-drop-once")
-		require.NoError(t, err)
-		require.Equal(t, 202, code, string(body))
+	githubLifecycleBrowserPhase(t, r, second, "adopted", map[string]any{"childNumber": child})
+	// The mounted-card check presses the person's Drop confirmation. Other
+	// invocations exercise duplicate admission through the same HTTP boundary.
+	if os.Getenv("SMITHERS_GH03_BROWSER_HARNESS") == "" {
+		for range 2 {
+			code, body, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", second), `{"op":"drop"}`, "fold-drop-once")
+			require.NoError(t, err)
+			require.Equal(t, 202, code, string(body))
+		}
 	}
 	_, err = r.waitTodoWithin(second, 3*time.Minute, "dropped")
 	require.NoError(t, err)
@@ -156,4 +162,5 @@ func testForkAddLiveDrop(t *testing.T, enable string) {
 	var status string
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT status FROM workspaces WHERE id=$1`, original.Branch.ID).Scan(&status))
 	require.Equal(t, "suspended", status)
+	githubLifecycleBrowserPhase(t, r, second, "dropped", map[string]any{"childNumber": child, "branchName": added.Branch.Name})
 }

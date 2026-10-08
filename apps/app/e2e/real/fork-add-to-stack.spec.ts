@@ -244,7 +244,7 @@ test("C-J7-02: real Fork, private Confirm, Drop and retained source bytes", scen
     expect(original.pr.number).toBeGreaterThan(0)
     await runSlash(page, "/todo.drop T2")
     const dropResponse = page.waitForResponse(r => new URL(r.url()).pathname === "/api/todos/2" && r.request().method() === "POST")
-    await journeyActivate(page.getByRole("button", { name: "Drop", exact: true }).last())
+    await journeyActivate(page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).last())
     const dropping = await dropResponse
     await attachJson(info, "fork-drop-response", { status: dropping.status(), body: await dropping.text(),
       payload: dropping.request().postDataJSON() })

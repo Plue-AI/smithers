@@ -125,7 +125,7 @@ test("C-J7-02 fork, confirm Add to stack, and Drop preserve the fork", scenario(
     await page.keyboard.press("Enter")
     await expect.poll(() => output, { timeout: 30_000 }).toMatch(/\r?\nJ7_SESSION_ADOPTED\r?\n/)
     await runSlash(page, "/todo.drop T2")
-    await page.getByRole("button", { name: "Drop", exact: true }).last().press("Enter")
+    await page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).last().press("Enter")
     await expect.poll(async () => (await f.read("Ben", "/api/todos/2")).state, { timeout: 180_000 }).toBe("dropped")
     expect((await f.github.pull(second.pr.number)).state).toBe("closed")
     const comments = await fake(`/issues/${second.pr.number}/comments`)
