@@ -128,6 +128,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	// poll and admission path before supplying the recorded guest lifecycle.
 	// A trusted Active pin is insufficient authority to execute on the host.
 	refusalCtx, stopRefusal := context.WithCancel(ctx)
+	t.Cleanup(stopRefusal)
 	refusalDone := make(chan error, 1)
 	go func() {
 		refusalDone <- store.RunWorker(refusalCtx, jobs.WorkerConfig{WorkerID: "merged-learning-refusal", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, Operations: []string{services.LearningAdmissionOperation}}, service.HandleLearningAdmission)
@@ -135,8 +136,9 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	var admissionID, principal string
 	require.Eventually(t, func() bool {
 		var state, reason, pinned string
-		err := pool.QueryRow(ctx, `SELECT r.id,r.principal_id,r.state,coalesce(d.external_receipt->>'reason',''),coalesce(d.external_receipt->'pin'->>'executionDigest','') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation='learning.admission'`).Scan(&admissionID, &principal, &state, &reason, &pinned)
-		return err == nil && state == "waiting" && reason == "learning_execution_unavailable" && pinned == digest
+		var parked bool
+		err := pool.QueryRow(ctx, `SELECT d.status='ready' AND d.next_attempt_at > clock_timestamp() + interval '30 seconds',r.id,r.principal_id,r.state,coalesce(d.external_receipt->>'reason',''),coalesce(d.external_receipt->'pin'->>'executionDigest','') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation='learning.admission'`).Scan(&parked, &admissionID, &principal, &state, &reason, &pinned)
+		return err == nil && parked && state == "waiting" && reason == "learning_execution_unavailable" && pinned == digest
 	}, 5*time.Second, 10*time.Millisecond)
 	stopRefusal()
 	require.NoError(t, <-refusalDone)
