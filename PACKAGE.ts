@@ -567,7 +567,7 @@ const trustedDriftCi = Smithers.GithubCiGen({
   knownRed: ".github/ci-known-red.json",
   mode: "check",
   requiredJobs: ["drift"],
-  jobs: [{ ...driftJob, trustedSetupRevision: "154104ce1cef7868322f9954da8e2e97dfc93545" }]
+  jobs: [{ ...driftJob, trustedSetupRevision: "c4ece3f812c7720ac622c11582d5ef2c085d6a2c" }]
 })
 
 const driftCi = Smithers.GithubCiGen({

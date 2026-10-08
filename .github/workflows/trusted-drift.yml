@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: "Trusted Ubuntu setup"
-        uses: "smithersai/smithers/.github/actions/trusted-ci-setup@154104ce1cef7868322f9954da8e2e97dfc93545"
+        uses: "smithersai/smithers/.github/actions/trusted-ci-setup@c4ece3f812c7720ac622c11582d5ef2c085d6a2c"
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         with:
           "ref": "${{ github.event.pull_request.head.sha || github.sha }}"
