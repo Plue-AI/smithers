@@ -570,12 +570,21 @@ describe("form focus handoff from the slash door", () => {
     const host = mount(<FlowFormCardBody card={formCard()} onRunCommand={onRunCommand} />)
     const chat = document.createElement("button")
     chat.textContent = "Chat"
-    document.body.append(chat)
-    cleanups.push(() => chat.remove())
+    // Happy DOM has no layout. Supply the visible control's browser rectangle;
+    // CSS-invisible and display-none neighbors must never receive the keyboard.
+    Object.defineProperty(chat, "getClientRects", { value: () => [new DOMRect(0, 0, 40, 20)] })
+    const invisible = document.createElement("button")
+    invisible.style.visibility = "hidden"
+    Object.defineProperty(invisible, "getClientRects", { value: () => [new DOMRect(0, 0, 40, 20)] })
+    const collapsed = document.createElement("button")
+    collapsed.style.display = "none"
+    Object.defineProperty(collapsed, "getClientRects", { value: () => [] })
+    document.body.append(invisible, collapsed, chat)
+    cleanups.push(() => { invisible.remove(); collapsed.remove(); chat.remove() })
     const cancel = host.querySelector<HTMLButtonElement>("[data-testid=flow-form-cancel]")!
     cancel.focus()
     cancel.click()
-    expect(document.activeElement).toBe(chat)
+    expect(document.activeElement === chat).toBe(true)
     expect(calls).toEqual([["card.dismiss", "form-tab.harness"]])
   })
 })

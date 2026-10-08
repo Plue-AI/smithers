@@ -71,7 +71,8 @@ const holdFocus = (target: HTMLElement): void => {
 const focusNeighbor = (form: HTMLFormElement): void => {
   const card = form.closest<HTMLElement>(".smithers-card") ?? form
   const controls = [...form.ownerDocument.querySelectorAll<HTMLElement>("button, a[href], input, textarea, select, [tabindex]")]
-    .filter((node) => !card.contains(node) && node.tabIndex >= 0 && !node.matches(":disabled") && node.closest("[hidden], [inert], [aria-hidden='true']") === null)
+    .filter((node) => !card.contains(node) && node.tabIndex >= 0 && !node.matches(":disabled") && node.closest("[hidden], [inert], [aria-hidden='true']") === null
+      && node.getClientRects().length > 0 && !["hidden", "collapse"].includes(node.ownerDocument.defaultView?.getComputedStyle(node).visibility ?? ""))
   const after = controls.find((node) => (card.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0)
   ;(after ?? controls.at(-1))?.focus()
 }

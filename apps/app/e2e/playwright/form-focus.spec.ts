@@ -95,7 +95,7 @@ test("T1: a restored form after reload does not take the keyboard; Cancel return
   await form.getByTestId("flow-form-cancel").focus()
   await page.keyboard.press("Enter")
   await expect(form).toHaveCount(0)
-  await expect(page.locator('.smithers-transcript .message-cta[data-flow="sign-in"]').last()).toBeFocused()
+  await expect(page.getByRole("navigation", { name: "Timeline", exact: true }).getByRole("button").first()).toBeFocused()
 })
 
 /*
