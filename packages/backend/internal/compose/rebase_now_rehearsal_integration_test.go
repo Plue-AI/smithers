@@ -176,6 +176,15 @@ func (r *rehearsal) rebaseReleased(n int64, press bool) (string, error) {
 			if count != 1 {
 				return "", fmt.Errorf("%d rebase completions, want one", count)
 			}
+			if press {
+				var system, requester string
+				if err := r.pool.QueryRow(r.t.Context(), `SELECT data->'actor'->>'id', data->'by'->>'person' FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&system, &requester); err != nil {
+					return "", err
+				}
+				if system != "stack" || requester != "rehearsal-owner" {
+					return "", fmt.Errorf("rebase attribution: system %q, requester %q", system, requester)
+				}
+			}
 			if !press {
 				var completed time.Time
 				if err := r.pool.QueryRow(r.t.Context(), `SELECT created_at FROM product_job_events WHERE event_type='todo.rebased' AND (data->>'n')::bigint=$1 AND data->>'onto'=$2`, n, main).Scan(&completed); err != nil {

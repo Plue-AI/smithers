@@ -142,6 +142,10 @@ func TestBranchRebaseNowComposedAdmission(t *testing.T) {
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.rebase-requested'`).Scan(&count))
 	require.Equal(t, 1, count)
+	var system, requester string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT data->'actor'->>'id', data->'by'->>'person' FROM product_job_events WHERE event_type='todo.rebase-requested' AND (data->>'n')::bigint=1`).Scan(&system, &requester))
+	require.Equal(t, "stack", system)
+	require.Equal(t, "pin-owner", requester)
 	require.False(t, host.touched.Load(), "the press returned without waiting for Git")
 	// A new press cannot supersede a merge/publication fence.
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op='{"kind":"push"}' WHERE id=$1`, item.ID)

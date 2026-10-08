@@ -79,6 +79,10 @@ func TestBranchRebaseNowUsesStackPublication(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt, again, "replay survives completion")
 	require.Equal(t, []string{"Rebased onto main"}, f.rebasedActivity(published))
+	var system, requester string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT data->'actor'->>'id', data->'by'->>'person' FROM product_job_events WHERE principal_id=$1 AND event_type='todo.rebased'`, "todo:"+uuidString(second.ID)).Scan(&system, &requester))
+	require.Equal(t, "stack", system)
+	require.Equal(t, owner.Username, requester)
 }
 
 func TestRequestedRebaseBindsHeadGenerationAndOnto(t *testing.T) {
