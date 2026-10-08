@@ -33,6 +33,22 @@ func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db
 	if len(children) == 0 {
 		return nil
 	}
+	// A steer starts a new attempt and clears its current candidate. The
+	// accepted generation remains in history; live Drop's writer-excluded
+	// final capture is the source to fold while that attempt is still working.
+	if mythicalChecksOf(source).DropRequested != nil {
+		workspace, err := q.GetWorkspace(ctx, source.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		if workspace.RepositoryID != source.RepositoryID || workspace.Status != "suspended" && workspace.Status != "stopped" {
+			return todoControlUnavailable()
+		}
+		source.CandidateHead = workspace.HeadCommitID
+		if source.CandidateBase == "" {
+			source.CandidateBase = source.BaseCommit
+		}
+	}
 	if s == nil || s.host == nil || !mythicalSHA.MatchString(source.CandidateBase) || !mythicalSHA.MatchString(source.CandidateHead) {
 		return todoControlUnavailable()
 	}

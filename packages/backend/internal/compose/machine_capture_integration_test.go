@@ -478,6 +478,28 @@ func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
 		_, err = wire.Read(todoPeer)
 		require.Error(t, err)
 		require.Equal(t, late.Head, git("", "rev-parse", todoRef))
+
+		// A committed Drop captures member edits for reopen without revoking
+		// the last accepted generation or scheduling another coding attempt.
+		_, err = pool.Exec(t.Context(), `UPDATE mythical_items SET pending_op=NULL,candidate_verified=true,checks='{"todo":true,"drop_requested":{"request":"drop","by":"ben"},"land":{"head":"approved"}}' WHERE id=$1`, id)
+		require.NoError(t, err)
+		_, err = pool.Exec(t.Context(), `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, todoBranch)
+		require.NoError(t, err)
+		beforeDrop, beforeWake := read(), generation()
+		_, todoPeer = presenceTestLink(t, registry, todoBranch)
+		final := wire.Captured{Head: git("drop final\n", "commit-tree", stale.Tree, "-p", late.Head), Tree: stale.Tree, Base: late.Head}
+		send(todoPeer, event(20, 35, final))
+		ack(todoPeer, 20, machined.AckApplied)
+		require.Equal(t, beforeDrop, read(), "final capture preserves accepted candidate and attempt evidence")
+		require.Equal(t, beforeWake, generation(), "Drop does not schedule captured continuation")
+		var retained []byte
+		require.NoError(t, pool.QueryRow(t.Context(), `SELECT capture_pending FROM workspaces WHERE id=$1`, todoBranch).Scan(&retained))
+		require.NoError(t, json.Unmarshal(retained, &work))
+		require.Equal(t, final.Head, work.Head)
+		require.Equal(t, final.Tree, work.Tree)
+		send(todoPeer, event(21, 35, final))
+		ack(todoPeer, 21, machined.AckDuplicate)
+		require.Equal(t, beforeDrop, read())
 	})
 
 }

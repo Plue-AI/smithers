@@ -107,7 +107,7 @@ func TestBranchAddAdoptsScratchAndReplays(t *testing.T) {
 func ptrAdd(n int64) *int64 { return &n }
 
 func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
-	for _, scenario := range []string{"unchanged", "steered", "moved-before"} {
+	for _, scenario := range []string{"unchanged", "steered", "moved-before", "captured-after-steer"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newMythicalServiceFixture(t)
 			pool := f.pool.(*pgxpool.Pool)
@@ -168,6 +168,32 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 				source, err = q.SaveMythicalItem(ctx, source)
 				require.NoError(t, err)
 			}
+			if scenario == "captured-after-steer" {
+				f.commit("Final capture", "source.txt", "source latest\n")
+				latest := f.publish()
+				captured, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: "smithers/source", Status: "running"})
+				require.NoError(t, err)
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$1 WHERE id=$2`, latest, captured.ID)
+				require.NoError(t, err)
+				pending := source
+				pending.WorkspaceID, pending.BaseCommit = captured.ID, base
+				pending.CandidateHead, pending.CandidateBase = "", ""
+				checks := mythicalChecksOf(pending)
+				checks.DropRequested = &todoDrop{Request: "drop-source", By: person.Username}
+				pending.Checks = checks.encode()
+				stack, err := q.GetMythicalStack(ctx, f.repoID)
+				require.NoError(t, err)
+				fold := func() error {
+					return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { return f.service.FoldIntoForks(ctx, tx, stack, pending) })
+				}
+				require.Equal(t, todoControlUnavailable(), fold(), "a still-running source cannot supply final capture")
+				unchanged, err := q.GetMythicalItem(ctx, child.ID)
+				require.NoError(t, err)
+				require.Equal(t, child, unchanged)
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, captured.ID)
+				require.NoError(t, err)
+				require.NoError(t, fold())
+			}
 			// Drive the real Drop control, including its placement removal, transaction,
 			// cancellation guard and fold hook; the capture contract is test-only.
 			_, err = f.service.ControlTodo(ctx, source.Number.Int64, TodoControlInput{Op: "drop", Repository: f.repoID, Actor: f.userID, Request: "drop-source"})
@@ -177,7 +203,7 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 			seed := mythicalChecksOf(child).Seed
 			require.NotNil(t, seed)
 			wantSource := "source original"
-			if scenario == "steered" {
+			if scenario == "steered" || scenario == "captured-after-steer" {
 				wantSource = "source latest"
 			}
 			require.Equal(t, wantSource, f.git(f.hostDir, "show", seed.Head+":source.txt"))

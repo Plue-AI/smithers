@@ -113,7 +113,7 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 					_, reads := s.lanes.(interface {
 						CapturedHead(context.Context, string, int64, int64) (string, error)
 					})
-					if !reads || s.host == nil || !mythicalSHA.MatchString(item.CandidateBase) || !mythicalSHA.MatchString(item.CandidateHead) {
+					if !reads || s.host == nil || (!mythicalSHA.MatchString(item.CandidateBase) && !mythicalSHA.MatchString(item.BaseCommit)) {
 						return todoControlUnavailable()
 					}
 				}
