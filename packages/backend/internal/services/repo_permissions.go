@@ -1070,6 +1070,7 @@ func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject Install
 	// Require the issuer's run restriction too: a retained machine bearer
 	// must not select a replacement attempt by copying its run into the body.
 	if !InstallExecutionCredential(ctx) || info == nil || !info.Scopes.Has(middleware.ScopeWriteRepository) || subject.RunID == "" || subject.WorkspaceID == "" || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) != subject.RunID {
+		slog.Warn("source_refused: stack_credential_binding", "run", subject.RunID, "workspace", subject.WorkspaceID)
 		return deny()
 	}
 	decision, err := authorizeExecutionTodoRead(ctx, q, subject)
@@ -1081,16 +1082,19 @@ func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject Install
 		return InstallAuthorization{}, err
 	}
 	if item.WorkspaceID != subject.WorkspaceID || item.RequestRunID != subject.RunID || item.Generation != subject.Generation || item.BaseCommit != subject.Base {
+		slog.Warn("source_refused: stack_subject_mismatch", "actual_workspace", item.WorkspaceID, "expected_workspace", subject.WorkspaceID, "actual_run", item.RequestRunID, "expected_run", subject.RunID, "actual_generation", item.Generation, "expected_generation", subject.Generation, "actual_base", item.BaseCommit, "expected_base", subject.Base)
 		return deny()
 	}
 	lane, err := q.GetMythicalLane(ctx, subject.WorkspaceID)
 	if stdErrors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("source_refused: stack_lane_missing", "workspace", subject.WorkspaceID)
 		return deny()
 	}
 	if err != nil {
 		return InstallAuthorization{}, err
 	}
 	if lane.RetiredAt.Valid || lane.RepositoryID != subject.RepositoryID || lane.ItemID != item.ID {
+		slog.Warn("source_refused: stack_lane_mismatch", "actual_repository", lane.RepositoryID, "expected_repository", subject.RepositoryID, "actual_item", lane.ItemID, "expected_item", item.ID)
 		return deny()
 	}
 	stack, err := q.GetMythicalStack(ctx, subject.RepositoryID)
@@ -1098,6 +1102,7 @@ func authorizeStackCandidate(ctx context.Context, q *db.Queries, subject Install
 		return InstallAuthorization{}, err
 	}
 	if !stack.ActorUserID.Valid || stack.State != "active" {
+		slog.Warn("source_refused: stack_inactive", "repository", subject.RepositoryID, "state", stack.State)
 		return deny()
 	}
 	return decision, nil

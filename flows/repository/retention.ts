@@ -1,3 +1,4 @@
+import { sourceRefusal } from "../coding/source-refusal.ts"
 /** Capture only exact source named by a repository-authorized event. */
 import * as Digest from "@smthrs/core/Digest"
 import { FlowRuntime } from "@smthrs/flow"
@@ -22,7 +23,10 @@ export const sourceRequest = (event: typeof Event.Type, capturedPayload: Schema.
         catch: (error) =>
           error instanceof CodingError
             ? error
-            : new CodingError({ code: "source_refused", message: "Invalid source event" })
+            : new CodingError({
+              code: "source_refused",
+              message: sourceRefusal("event_invalid", { source: event.source, type: event.type })
+            })
       })
       if (normalized.ignored) return undefined
       const pushed = object(normalized.payload)
@@ -48,7 +52,7 @@ export const sourceRequest = (event: typeof Event.Type, capturedPayload: Schema.
       Effect.mapError(() =>
         new CodingError({
           code: "source_refused",
-          message: "The repository event has no exact retainable source identity"
+          message: sourceRefusal("event_identity_invalid", { source: event.source, type: event.type })
         })
       )
     )
@@ -66,7 +70,7 @@ const lookupSourceCommits = (options: ImmutableSourceOptions, commits: ReadonlyA
     ) {
       return yield* new CodingError({
         code: "source_refused",
-        message: "Source lookup requires full native identities"
+        message: sourceRefusal("lookup_identity_invalid", { commits, operationId })
       })
     }
     const result = yield* runSourceProcess(

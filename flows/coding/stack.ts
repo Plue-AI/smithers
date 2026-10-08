@@ -1,3 +1,4 @@
+import { sourceRefusal } from "./source-refusal.ts"
 /**
  * A coding request that starts from a retained base: the repository's
  * mythical stack tip, or the caller's own pushed ref
@@ -14,6 +15,7 @@
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Effect, Layer, Option, Schema } from "effect"
+import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import {
   NativeCoding,
   NativeCodingError,
@@ -23,7 +25,6 @@ import {
   StackCandidate,
   StackProposal
 } from "./native.ts"
-import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { CodingError, Plan, Revision, StackBase } from "./schema.ts"
 
 export { StackBase } from "./schema.ts"
@@ -64,13 +65,21 @@ export const Propose = Action.make("stack.propose", {
 export const captureStackCandidate = (executionId: string, plan?: typeof Plan.Type) =>
   Effect.gen(function*() {
     const invocation = yield* Action.CurrentInvocationKey
-    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    if (!invocation) {
+      return yield* refused(
+        "Durable stack operation identity is unavailable (" +
+          sourceRefusal("stack_candidate_invocation_missing", { executionId }) + ")"
+      )
+    }
     const native = yield* NativeCoding
     if (native.sourcePublication === "local-only") {
       return yield* new CodingError({ code: "not_a_todo_run", message: "Draft version" })
     }
     if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
-      return yield* refused("Current TODO run and machine authority is unavailable")
+      return yield* refused(
+        "Current TODO run and machine authority is unavailable (" +
+          sourceRefusal("stack_candidate_authority_missing", { executionId }) + ")"
+      )
     }
     return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`), plan)
   })
@@ -78,20 +87,32 @@ export const captureStackCandidate = (executionId: string, plan?: typeof Plan.Ty
 export const proposeStackCandidate = (executionId: string, generation: number) =>
   Effect.gen(function*() {
     const invocation = yield* Action.CurrentInvocationKey
-    if (!invocation) return yield* refused("Durable stack operation identity is unavailable")
+    if (!invocation) {
+      return yield* refused(
+        "Durable stack operation identity is unavailable (" +
+          sourceRefusal("stack_propose_invocation_missing", { executionId }) + ")"
+      )
+    }
     const native = yield* NativeCoding
     if (native.sourcePublication === "local-only") {
       return yield* new CodingError({ code: "not_a_todo_run", message: "Draft version" })
     }
     if (native.sourcePublication !== "cloud" || !native.stackPropose) {
-      return yield* refused("Current TODO run and machine authority is unavailable")
+      return yield* refused(
+        "Current TODO run and machine authority is unavailable (" +
+          sourceRefusal("stack_propose_authority_missing", { executionId }) + ")"
+      )
     }
     const proposal = yield* native.stackPropose(
       requestIdFor(executionId, `stack.propose/${generation}/${invocation}`),
       generation
     )
     if (proposal.generation !== generation) {
-      return yield* refused("Stack proposal acknowledged another candidate generation")
+      return yield* refused(
+        "Stack proposal acknowledged another candidate generation (" +
+          sourceRefusal("stack_proposal_generation_mismatch", { actual: proposal.generation, expected: generation }) +
+          ")"
+      )
     }
     return proposal
   })
@@ -102,7 +123,10 @@ export const prepareStackBase = (base: StackBase, executionId: string) =>
   Effect.gen(function*() {
     const native = yield* NativeCoding
     if (!native.importSource) {
-      return yield* refused("This workspace's native helper cannot import the base; upgrade the workspace")
+      return yield* refused(
+        "This workspace's native helper cannot import the base; upgrade the workspace (" +
+          sourceRefusal("stack_import_unavailable", { commitId: base.commitId }) + ")"
+      )
     }
     const imported = yield* native.importSource({
       requestId: requestIdFor(executionId, "stack-base/import"),
@@ -110,7 +134,10 @@ export const prepareStackBase = (base: StackBase, executionId: string) =>
     })
     const target = imported.revisions.find((revision) => revision.commitId === base.commitId)
     if (target === undefined || target.kind !== "resolved") {
-      return yield* refused("The base was not imported as a resolved commit")
+      return yield* refused(
+        "The base was not imported as a resolved commit (" +
+          sourceRefusal("stack_import_unresolved", { expected: base.commitId, actual: target?.commitId }) + ")"
+      )
     }
     return {
       operation: "create" as const,
@@ -127,7 +154,13 @@ export const observeStackBase = (base: StackBase, result: typeof OperationResult
     result.status !== "accepted" || revision.kind !== "resolved" || revision.parentCommitIds.length !== 1 ||
     revision.parentCommitIds[0] !== base.commitId
   ) {
-    return Effect.fail(refused("The working change was not created on the base"))
+    return Effect.fail(
+      refused(
+        "The working change was not created on the base (" +
+          sourceRefusal("stack_base_parent_mismatch", { actual: revision.parentCommitIds, expected: base.commitId }) +
+          ")"
+      )
+    )
   }
   return Effect.succeed({
     changeId: revision.changeId,
@@ -175,7 +208,12 @@ export const stackBaseLayer = Layer.mergeAll(
       // a later launch, and historical/fresh requests still create their base.
       if (Option.isSome(owner) && owner.value.flowId === "todo" && (owner.value.launchOrdinal ?? 0) > 0) {
         const current = yield* native.read()
-        if (current.head.kind !== "resolved") return yield* refused("The retained working change is unresolved")
+        if (current.head.kind !== "resolved") {
+          return yield* refused(
+            "The retained working change is unresolved (" +
+              sourceRefusal("stack_retained_unresolved", { commitId: current.head.commitId }) + ")"
+          )
+        }
         return current.head
       }
       const result = yield* native.apply(operation)

@@ -94,7 +94,7 @@ test("a runtime without durable invocation identity refuses before the authority
   for (const operation of [captureStackCandidate("run"), proposeStackCandidate("run", 3)]) {
     const error = await Effect.runPromise(Effect.flip(operation).pipe(Effect.provide(provider)))
     assert.equal(error.code, "source_refused")
-    assert.match(error.message, /identity/)
+    assert.match(error.message, /source_refused: stack_(candidate|propose)_invocation_missing/)
   }
 })
 
@@ -150,5 +150,5 @@ test("Propose refuses an acknowledgement for another generation", async () => {
     )
   )
   assert.equal(error.code, "source_refused")
-  assert.match(error.message, /another candidate generation/)
+  assert.match(error.message, /source_refused: stack_proposal_generation_mismatch/)
 })

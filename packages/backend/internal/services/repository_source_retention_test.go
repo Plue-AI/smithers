@@ -189,6 +189,12 @@ func TestSourceRetentionRejectsMovedForeignAndRefusedPR(t *testing.T) {
 			var api *pkgerrors.APIError
 			require.ErrorAs(t, err, &api)
 			require.Contains(t, []int{403, 404, 409}, api.Status)
+			if mode == "refused" {
+				require.Equal(t, "source_refused: pull_request_authorization", api.Message)
+			}
+			if mode == "foreign" || mode == "wrong-number" {
+				require.Equal(t, "source_refused: pull_request_identity_mismatch", api.Message)
+			}
 		})
 	}
 }
@@ -224,6 +230,12 @@ func TestSourceRetentionWriteOwnerAndSignedPushAdmission(t *testing.T) {
 			} else {
 				require.Error(t, err)
 				require.Empty(t, *calls)
+				reasons := map[string]string{"foreign-workspace": "workspace_owner_mismatch", "unsigned": "push_event_missing", "wrong-repository": "push_identity_mismatch", "wrong-head": "push_identity_mismatch", "deleted": "push_identity_mismatch"}
+				if reason := reasons[mode]; reason != "" {
+					var api *pkgerrors.APIError
+					require.ErrorAs(t, err, &api)
+					require.Equal(t, "source_refused: "+reason, api.Message)
+				}
 				require.Empty(t, q.issued)
 			}
 		})
@@ -317,4 +329,27 @@ func TestSourceRetentionTokenReadsPullRequest(t *testing.T) {
 	_, err = s.Retain(context.Background(), 7, 9, input)
 	require.Error(t, err)
 	require.Len(t, issuer.calls, 3, "a refused member gets no owner credential")
+}
+
+func TestSourceRetentionDistinctRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*retentionTestStore, *retentionTestAuthority)
+	}{
+		{"workspace_owner_mismatch", func(q *retentionTestStore, _ *retentionTestAuthority) { q.workspace.UserID++ }},
+		{"workspace_repository_mismatch", func(q *retentionTestStore, _ *retentionTestAuthority) { q.workspace.RepositoryID++ }},
+		{"workspace_deleted", func(q *retentionTestStore, _ *retentionTestAuthority) { q.workspace.DeletedAt.Valid = true }},
+		{"workspace_kind", func(q *retentionTestStore, _ *retentionTestAuthority) { q.workspace.Kind = "foreign" }},
+		{"repository_source_name", func(_ *retentionTestStore, a *retentionTestAuthority) { a.source.FullName = "invalid" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, q, a, input, _ := retentionTestFixture(t)
+			tc.change(q, a)
+			_, err := s.Retain(t.Context(), 7, 9, input)
+			var api *pkgerrors.APIError
+			require.ErrorAs(t, err, &api)
+			require.Equal(t, "source_refused: "+tc.name, api.Message)
+			require.Equal(t, map[string]string{"reason": "source_refused"}, api.Details)
+		})
+	}
 }

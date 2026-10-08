@@ -1,3 +1,4 @@
+import { sourceRefusal } from "./source-refusal.ts"
 /** Request admission uses captured JJ source facts, never a silently refreshed tip. */
 import { Action, FlowRuntime } from "@smthrs/flow"
 import { Effect, Schema } from "effect"
@@ -64,9 +65,16 @@ export const admitSource = (plan: Plan, requestId?: string) =>
                 error.code === "permission_denied" || error.code === "permission_required"
             ? "source_refused" :
             "execution",
-          message: `Prepared source snapshot failed (${error.code}): ${
-            "reason" in error ? error.reason : error.message || error._tag
-          }`
+          message:
+            (["invalid_ref", "snapshot_refused", "permission_denied", "permission_required"].includes(error.code) ?
+              sourceRefusal("admission_snapshot_refused", {
+                head: plan.observedHead?.commitId,
+                base: plan.base.commitId
+              }) :
+              "Source snapshot failed") +
+            `: Prepared source snapshot failed (${error.code}): ${
+              "reason" in error ? error.reason : error.message || error._tag
+            }`
         })
       )
     )

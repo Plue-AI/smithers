@@ -106,6 +106,7 @@ test("the working change is accepted only on the tip", async () => {
   )
   assert.ok(error instanceof CodingError)
   assert.equal(error.code, "source_refused")
+  assert.match(error.message, /source_refused: stack_base_parent_mismatch/)
 })
 
 test(
@@ -264,35 +265,45 @@ test(
 
 // Supplemental native boundary proof: only the executor-owned continuation
 // keeps the existing working change. J10 proves this through the served install.
-for (const [label, owner, retained] of [
-  ["legacy", undefined, false],
-  ["first TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 0 }, false],
-  ["later TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 1 }, true],
-  ["other flow", { rootId: "request-run", flowId: "coding/request", launchOrdinal: 1 }, false]
-] as const) test(`base setup preserves edits only on executor re-entry: ${label}`, async (t) => {
-  const { Action, Flow, Interpreter } = await import("@smthrs/flow")
-  const { FlowEngine } = await import("@smthrs/engine")
-  const { NodeCrypto } = await import("@effect/platform-node")
-  const { ManagedRuntime } = await import("effect")
-  const { ModuleOwner } = await import("../../packages/smithers/src/internal/ModuleOwner.ts")
-  const { Revision } = await import("../coding/schema.ts")
-  const { CreateStackBase, stackBaseLayer } = await import("../coding/stack.ts")
-  const current = resolved("z", "d".repeat(40), ["e".repeat(40)])
-  const native = fake(current)
-  const operation = await Effect.runPromise(prepareStackBase(base, "base-setup").pipe(Effect.provide(native.layer)))
-  native.calls.length = 0
-  const Probe = Flow.make("test/retained-base", { payload: {}, success: Revision,
-    error: CreateStackBase.errorSchema, body: () => CreateStackBase.call({ base, operation }) })
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Interpreter.layer(Probe), stackBaseLayer).pipe(
-    Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(FlowEngine.layerMemory),
-    Layer.provideMerge(NodeCrypto.layer),
-    Layer.provide(native.layer),
-    Layer.provide(owner === undefined ? Layer.empty : Layer.succeed(ModuleOwner, owner))
-  ))
-  t.after(() => runtime.dispose())
-  const result = await runtime.runPromise(Probe.execute({}, { executionId: "probe" }))
-  assert.equal(result.changeId, retained ? current.changeId : "m".repeat(32))
-  assert.equal(result.commitId, retained ? current.commitId : "c".repeat(40))
-  assert.deepEqual(native.calls, retained ? ["read"] : [`create:${tip}`])
-})
+for (
+  const [label, owner, retained] of [
+    ["legacy", undefined, false],
+    ["first TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 0 }, false],
+    ["later TODO launch", { rootId: "todo-run", flowId: "todo", launchOrdinal: 1 }, true],
+    ["other flow", { rootId: "request-run", flowId: "coding/request", launchOrdinal: 1 }, false]
+  ] as const
+) {
+  test(`base setup preserves edits only on executor re-entry: ${label}`, async (t) => {
+    const { Action, Flow, Interpreter } = await import("@smthrs/flow")
+    const { FlowEngine } = await import("@smthrs/engine")
+    const { NodeCrypto } = await import("@effect/platform-node")
+    const { ManagedRuntime } = await import("effect")
+    const { ModuleOwner } = await import("../../packages/smithers/src/internal/ModuleOwner.ts")
+    const { Revision } = await import("../coding/schema.ts")
+    const { CreateStackBase, stackBaseLayer } = await import("../coding/stack.ts")
+    const current = resolved("z", "d".repeat(40), ["e".repeat(40)])
+    const native = fake(current)
+    const operation = await Effect.runPromise(prepareStackBase(base, "base-setup").pipe(Effect.provide(native.layer)))
+    native.calls.length = 0
+    const Probe = Flow.make("test/retained-base", {
+      payload: {},
+      success: Revision,
+      error: CreateStackBase.errorSchema,
+      body: () => CreateStackBase.call({ base, operation })
+    })
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(Interpreter.layer(Probe), stackBaseLayer).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provideMerge(NodeCrypto.layer),
+        Layer.provide(native.layer),
+        Layer.provide(owner === undefined ? Layer.empty : Layer.succeed(ModuleOwner, owner))
+      )
+    )
+    t.after(() => runtime.dispose())
+    const result = await runtime.runPromise(Probe.execute({}, { executionId: "probe" }))
+    assert.equal(result.changeId, retained ? current.changeId : "m".repeat(32))
+    assert.equal(result.commitId, retained ? current.commitId : "c".repeat(40))
+    assert.deepEqual(native.calls, retained ? ["read"] : [`create:${tip}`])
+  })
+}

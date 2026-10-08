@@ -1099,6 +1099,8 @@ fn reserved_authenticated(
             body["source"] = serde_json::json!({"change_id":request.source.change_id,"commit_id":request.source.commit_id,"tree_id":request.source.tree_id,"parent_commit_ids":request.source.parent_commit_ids});
             // CodingLock is released before waiting for the engine's verify lane.
         } else if status != "200" && status != "202" {
+            log_reserved_reason(&value);
+            eprintln!("source_refused: reserved_preflight_http repository={} workspace={} request={} status={} expected=200|202|204", config.repository_id, config.workspace_id, request_id, status);
             return Err(reserved_refusal(&status));
         }
         if status == "200" {
@@ -1119,8 +1121,50 @@ fn reserved_authenticated(
                     message: "Candidate verification or proposal is still running; retry",
                 });
             }
-            _ => return Err(reserved_refusal(&next)),
+            _ => {
+                log_reserved_reason(&value);
+                eprintln!("source_refused: reserved_operation_http repository={} workspace={} request={} status={} expected=200|202", config.repository_id, config.workspace_id, request_id, next);
+                return Err(reserved_refusal(&next));
+            }
         }
+    }
+}
+
+// The HTTP diagnostic crosses stderr only; native/machined error envelopes stay unchanged.
+fn reserved_reason(value: &serde_json::Value) -> Option<&str> {
+    let message = value.get("message").and_then(|v| v.as_str())?;
+    let reason = message.strip_prefix("source_refused: ")?;
+    if !reason.is_empty() && reason.bytes().all(|c| c.is_ascii_lowercase() || c == b'_') {
+        Some(reason)
+    } else {
+        None
+    }
+}
+
+fn log_reserved_reason(value: &serde_json::Value) {
+    if let Some(reason) = reserved_reason(value) {
+        eprintln!("source_refused: {reason}");
+    }
+}
+
+#[test]
+fn reserved_diagnostic_accepts_only_stable_names() {
+    assert_eq!(
+        reserved_reason(
+            &serde_json::json!({"message":"source_refused: reserved_live_tree_mismatch"})
+        ),
+        Some("reserved_live_tree_mismatch")
+    );
+    for message in [
+        "source_refused: ",
+        "source_refused: unsafe/token",
+        "source_refused: name private-token",
+        "permission denied",
+    ] {
+        assert_eq!(
+            reserved_reason(&serde_json::json!({"message": message})),
+            None
+        );
     }
 }
 

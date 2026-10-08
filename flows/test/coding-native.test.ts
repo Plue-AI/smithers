@@ -140,6 +140,7 @@ test("reserved native providers refuse absent installed transport and draft publ
     ) {
       const error = await run(transport, (native) => Effect.flip(operation(native)), local)
       assert.equal(error.code, "source_refused")
+      assert.match(error.message, /source_refused: native_stack_authority_missing/)
     }
   }
   assert.deepEqual(await readdir(root), ["helper"])
@@ -235,23 +236,38 @@ test("unprovisioned packaged reserved dispatch refuses through the Action bounda
   assert.deepEqual(await readdir(root), [])
 })
 
-
 test("private native credential reaches source import, publication and reserved transports", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "coding-native-private-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const helper = join(root, "helper")
-  await writeFile(helper, `#!/bin/sh\ncat > request.json\nprintf '%s' "$SMITHERS_NATIVE_REPOSITORY_TOKEN" > credential.txt\nprintf '%s' '${JSON.stringify(candidate)}'\n`, { mode: 0o700 })
-  const layer = nativeLayer({ repositoryPath: root, helperPath: helper, sourcePublication: "cloud", nativeRepositoryToken: Redacted.make("fixture-private-token") })
+  await writeFile(
+    helper,
+    `#!/bin/sh\ncat > request.json\nprintf '%s' "$SMITHERS_NATIVE_REPOSITORY_TOKEN" > credential.txt\nprintf '%s' '${
+      JSON.stringify(candidate)
+    }'\n`,
+    { mode: 0o700 }
+  )
+  const layer = nativeLayer({
+    repositoryPath: root,
+    helperPath: helper,
+    sourcePublication: "cloud",
+    nativeRepositoryToken: Redacted.make("fixture-private-token")
+  })
     .pipe(Layer.provide(Layer.mergeAll(NodeServices.layer, NativeTransport.layerFrom(NodeServices.layer))))
   const run = <A, E>(call: (native: NativeCoding["Service"]) => Effect.Effect<A, E>) =>
     Effect.runPromise(Effect.flatMap(NativeCoding, call).pipe(Effect.provide(layer)))
   await run((native) => native.stackCandidate!(requestId))
   assert.equal(await readFile(join(root, "credential.txt"), "utf8"), "fixture-private-token")
   assert.equal((await readFile(join(root, "request.json"), "utf8")).includes("fixture-private-token"), false)
-  await run((native) => Effect.result(native.importSource!({
-    requestId,
-    commits: [{ commitId: "a".repeat(40), ref: `refs/smithers/workspaces/11111111-1111-4111-8111-111111111111/sources/${"a".repeat(40)}` }]
-  })))
+  await run((native) =>
+    Effect.result(native.importSource!({
+      requestId,
+      commits: [{
+        commitId: "a".repeat(40),
+        ref: `refs/smithers/workspaces/11111111-1111-4111-8111-111111111111/sources/${"a".repeat(40)}`
+      }]
+    }))
+  )
   assert.equal(await readFile(join(root, "credential.txt"), "utf8"), "fixture-private-token")
   assert.equal(JSON.parse(await readFile(join(root, "request.json"), "utf8")).operation, "import_source")
   assert.equal((await readFile(join(root, "request.json"), "utf8")).includes("fixture-private-token"), false)

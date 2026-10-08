@@ -1,3 +1,4 @@
+import { sourceRefusal } from "./source-refusal.ts"
 /**
  * The actions and values of `coding/verify` (verify/flow.ts): import the
  * retained commit, then every required check runs on its immutable export
@@ -99,7 +100,8 @@ export const admitVerifySource = (source: StackBase, checks: ReadonlyArray<typeo
     if (!native.importSource) {
       return yield* new CodingError({
         code: "source_refused",
-        message: "This workspace's native helper cannot import a stack commit"
+        message: "This workspace's native helper cannot import a stack commit (" +
+          sourceRefusal("verify_import_unavailable", { commitId: source.commitId }) + ")"
       })
     }
     const imported = yield* native.importSource({
@@ -110,7 +112,8 @@ export const admitVerifySource = (source: StackBase, checks: ReadonlyArray<typeo
     if (revision === undefined || revision.kind !== "resolved") {
       return yield* new CodingError({
         code: "source_refused",
-        message: "The stack commit was not imported as a resolved commit"
+        message: "The stack commit was not imported as a resolved commit (" +
+          sourceRefusal("verify_import_unresolved", { expected: source.commitId, actual: revision?.commitId }) + ")"
       })
     }
     return {

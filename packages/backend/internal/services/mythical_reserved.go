@@ -41,9 +41,16 @@ type ReservedStackResult struct {
 // Pending work answers 202, so transport can recheck without holding DB locks.
 func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository int64, workspace, command string, input ReservedStackInput) (result ReservedStackResult, status int, retErr error) {
 	empty := ReservedStackResult{}
+	stage := "reserved_configuration"
+	defer func() {
+		if retErr != nil {
+			s.logger.Warn("source_refused: "+stage, "repository", repository, "workspace", workspace, "request", input.RequestID, "operation", command)
+		}
+	}()
 	if !s.installAuthorization || command != "stack.candidate" && command != "stack.propose" {
 		return empty, 0, confirmationPermission()
 	}
+	stage = "reserved_subject"
 	subject, err := ResolveReservedStackSubject(ctx, s.queries(), repository, workspace)
 	if err != nil {
 		return empty, 0, err
@@ -55,10 +62,12 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		source.ParentCommitIDs = append([]string(nil), source.ParentCommitIDs...)
 		input.Source = &source
 	}
+	stage = "reserved_payload"
 	subject, err = BindReservedStackPayload(subject, command, input)
 	if err != nil {
 		return empty, 0, err
 	}
+	stage = "reserved_authorize"
 	decision, err := Authorize(ctx, s.queries(), command, subject)
 	if err != nil {
 		return empty, 0, err
@@ -85,6 +94,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '100ms'"); err != nil {
 		return empty, 0, err
 	}
+	stage = "reserved_credential"
 	live, repo, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
 	if err != nil {
 		return empty, 0, err
@@ -116,6 +126,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	if item.Generation != subject.Generation && item.RequestRunID == subject.RunID && item.WorkspaceID == subject.WorkspaceID && item.BaseCommit == subject.Base {
 		return empty, 202, tx.Commit(live)
 	}
+	stage = "reserved_locked_authorize"
 	if _, err = authorizeStackCandidate(live, q, subject); err != nil {
 		return empty, 0, err
 	}
@@ -136,7 +147,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return result, 200, tx.Commit(live)
 	}
 	if mythicalSettledStates[item.State] {
-		return empty, 0, pkgerrors.Conflict("TODO is closed")
+		s.logger.Warn("source_refused: reserved_todo_closed", "workspace", workspace, "run", subject.RunID)
+		return empty, 0, pkgerrors.Conflict("source_refused: reserved_todo_closed")
 	}
 	if mythicalMergeFenced(item) || item.PausedAt.Valid {
 		return empty, 202, nil
@@ -147,7 +159,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return empty, 0, err
 		}
 		if pending.RequestID == input.RequestID && !same {
-			return empty, 0, pkgerrors.Conflict("stack operation request changed")
+			s.logger.Warn("source_refused: reserved_request_changed", "workspace", workspace, "run", subject.RunID)
+			return empty, 0, pkgerrors.Conflict("source_refused: reserved_request_changed")
 		}
 		if same && mythicalChecksOf(item).ProposalRun == item.RequestRunID && mythicalChecksOf(item).ProposalHead == input.Source.CommitID && item.State == "integrating" {
 			// Its exact admitted snapshot is already owned by the engine. A
@@ -183,7 +196,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		if consumedSource && checks.ProposalRun == item.RequestRunID && checks.ProposalHead == input.Source.CommitID && checks.Rebase != nil && !checks.Rebase.Rebased {
 			return empty, 202, tx.Commit(live)
 		}
-		return empty, 0, pkgerrors.Conflict("rebase pending")
+		s.logger.Warn("source_refused: reserved_prefix_mismatch", "actual", initialBase, "expected", prefix, "candidate_base", item.CandidateBase)
+		return empty, 0, pkgerrors.Conflict("source_refused: reserved_prefix_mismatch")
 	}
 	lanes, ok := s.lanes.(*workspaceMythicalLanes)
 	if !ok || lanes.workspaces == nil {
@@ -223,7 +237,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	// passing projection still waits for the engine to accept the checks.
 	checking := item.State == "verifying" && (item.VerifyOutcome == "" || item.VerifyOutcome == "passed")
 	if command == "stack.propose" && (input.Generation != item.Generation || !item.CandidateVerified && !checking || item.CandidateBase != prefix) {
-		return empty, 0, pkgerrors.Conflict("candidate changed")
+		s.logger.Warn("source_refused: reserved_candidate_changed", "actual_generation", input.Generation, "expected_generation", item.Generation, "actual_base", item.CandidateBase, "expected_base", prefix)
+		return empty, 0, pkgerrors.Conflict("source_refused: reserved_candidate_changed")
 	}
 	_, tree, err := machine.observeWorkspaceHeadTree(live, row)
 	if err != nil {
@@ -239,19 +254,22 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		// the live machine; these are different trees after a prefix move.
 		if json.Unmarshal(item.Integration, &integration) == nil && integration.Kind == "captured" && integration.Head == input.Source.CommitID && item.CandidateHead != input.Source.CommitID && mythicalChecksOf(item).Capture == nil {
 			if integration.Tree != input.Source.TreeID {
-				return empty, 0, pkgerrors.Conflict("captured source tree changed")
+				s.logger.Warn("source_refused: reserved_capture_tree_mismatch", "actual", input.Source.TreeID, "expected", integration.Tree)
+				return empty, 0, pkgerrors.Conflict("source_refused: reserved_capture_tree_mismatch")
 			}
 			previous, err := machine.workspaceCommitTree(live, row, item.CandidateHead)
 			if err != nil {
 				return empty, 0, err
 			}
 			if previous != tree {
-				return empty, 0, pkgerrors.Conflict("candidate prefix changed")
+				s.logger.Warn("source_refused: reserved_candidate_prefix_mismatch", "actual", tree, "expected", previous)
+				return empty, 0, pkgerrors.Conflict("source_refused: reserved_candidate_prefix_mismatch")
 			}
 			return complete(ReservedStackResult{Generation: item.Generation, Base: item.CandidateBase, Head: item.CandidateHead})
 		}
 		if input.Source.TreeID != tree {
-			return empty, 0, pkgerrors.Conflict("candidate is no longer the live revision")
+			s.logger.Warn("source_refused: reserved_live_tree_mismatch", "actual", input.Source.TreeID, "expected", tree)
+			return empty, 0, pkgerrors.Conflict("source_refused: reserved_live_tree_mismatch")
 		}
 		if _, err := machine.reportRetainedSource(live, row, ReportWorkspaceHeadInput{RetainSource: input.Source}); err != nil {
 			return empty, 0, err
@@ -349,7 +367,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if err := tx.Commit(live); err != nil {
 				return empty, 0, err
 			}
-			return empty, 0, pkgerrors.Conflict("candidate changed")
+			s.logger.Warn("source_refused: reserved_candidate_changed", "actual_generation", input.Generation, "expected_generation", item.Generation, "actual_base", item.CandidateBase, "expected_base", prefix)
+			return empty, 0, pkgerrors.Conflict("source_refused: reserved_candidate_changed")
 		}
 		if item.State == "proposed" && item.PRHead != "" && len(item.PendingOp) == 0 {
 			// The run saw its acceptance; review may now take its machine.

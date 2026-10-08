@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -101,6 +102,14 @@ func sourceRetentionError(code string) *pkgerrors.APIError {
 	return err
 }
 
+// Values are explicit source identities only; never pass credentials or payloads.
+func sourceRefusal(reason string, values ...any) *pkgerrors.APIError {
+	slog.Warn("source_refused: "+reason, values...)
+	err := sourceRetentionError("source_refused")
+	err.Message = "source_refused: " + reason
+	return err
+}
+
 func validateSourceRetention(input RepositorySourceRetentionInput) error {
 	id, err := uuid.Parse(input.WorkspaceID)
 	if err != nil || id == uuid.Nil || id.String() != input.WorkspaceID || !repositorySourceSHA.MatchString(input.Head) || input.Head == sourceZeroSHA || !repositorySourceSHA.MatchString(input.Base) {
@@ -133,8 +142,17 @@ func (s *RepositorySourceRetentionService) authorize(ctx context.Context, repoID
 	if err != nil {
 		return w, sourceRetentionError("source_retention_unavailable")
 	}
-	if w.UserID != userID || w.RepositoryID != repoID || w.DeletedAt.Valid || (w.Kind != "vm" && w.Kind != "container") {
-		return w, sourceRetentionError("source_refused")
+	if w.UserID != userID {
+		return w, sourceRefusal("workspace_owner_mismatch", "actual", w.UserID, "expected", userID)
+	}
+	if w.RepositoryID != repoID {
+		return w, sourceRefusal("workspace_repository_mismatch", "actual", w.RepositoryID, "expected", repoID)
+	}
+	if w.DeletedAt.Valid {
+		return w, sourceRefusal("workspace_deleted", "workspace", workspaceID)
+	}
+	if w.Kind != "vm" && w.Kind != "container" {
+		return w, sourceRefusal("workspace_kind", "actual", w.Kind, "expected", "vm|container")
 	}
 	return w, nil
 }
@@ -153,12 +171,12 @@ func (s *RepositorySourceRetentionService) Retain(ctx context.Context, repoID, u
 	}
 	owner, name, found := strings.Cut(source.FullName, "/")
 	if source.Source != "github" || !found || !repositorySourceName.MatchString(owner) || !repositorySourceName.MatchString(name) {
-		return result, sourceRetentionError("source_refused")
+		return result, sourceRefusal("repository_source_name", "source", source.Source, "name", source.FullName)
 	}
 	if input.Kind == "push" {
 		payload, err := s.q.GetRepositorySourcePushEvent(ctx, db.GetRepositorySourcePushEventParams{RepositoryID: repoID, DeliveryKey: input.DeliveryKey})
 		if errors.Is(err, pgx.ErrNoRows) {
-			return result, sourceRetentionError("source_refused")
+			return result, sourceRefusal("push_event_missing", "repository", repoID, "delivery", input.DeliveryKey)
 		}
 		if err != nil {
 			return result, sourceRetentionError("source_retention_unavailable")
@@ -193,7 +211,7 @@ func (s *RepositorySourceRetentionService) Retain(ctx context.Context, repoID, u
 			return result, err
 		}
 		if !repository.UserID.Valid || repository.UserID.Int64 <= 0 {
-			return result, sourceRetentionError("source_refused")
+			return result, sourceRefusal("repository_owner_missing", "repository", repoID, "owner", repository.UserID.Int64)
 		}
 		readerID = repository.UserID.Int64
 	}
@@ -201,7 +219,7 @@ func (s *RepositorySourceRetentionService) Retain(ctx context.Context, repoID, u
 	if err != nil {
 		var api *pkgerrors.APIError
 		if errors.As(err, &api) && (api.Status == 401 || api.Status == 403 || api.Status == 404) {
-			return result, sourceRetentionError("source_refused")
+			return result, sourceRefusal("clone_authorization", "reader", readerID, "repository", source.FullName)
 		}
 		return result, sourceRetentionError("source_retention_unavailable")
 	}
@@ -315,7 +333,7 @@ func verifyRetainedPush(payload []byte, fullName string, input RepositorySourceR
 		} `json:"repository"`
 	}
 	if json.Unmarshal(payload, &event) != nil || event.Deleted || !strings.EqualFold(event.Repository.FullName, fullName) || event.Before != input.Base || event.After != input.Head || event.Ref != input.Ref {
-		return sourceRetentionError("source_refused")
+		return sourceRefusal("push_identity_mismatch", "actual_repository", event.Repository.FullName, "expected_repository", fullName, "actual_base", event.Before, "expected_base", input.Base, "actual_head", event.After, "expected_head", input.Head, "actual_ref", event.Ref, "expected_ref", input.Ref)
 	}
 	return nil
 }
@@ -343,7 +361,7 @@ func (s *RepositorySourceRetentionService) verifyPR(ctx context.Context, token, 
 		return sourceRetentionError("source_missing")
 	}
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return sourceRetentionError("source_refused")
+		return sourceRefusal("pull_request_authorization", "repository", fullName, "number", input.Number)
 	}
 	if resp.StatusCode != 200 {
 		return sourceRetentionError("source_retention_unavailable")
@@ -364,7 +382,7 @@ func (s *RepositorySourceRetentionService) verifyPR(ctx context.Context, token, 
 		return sourceRetentionError("source_retention_unavailable")
 	}
 	if pr.Number != input.Number || !strings.EqualFold(pr.Base.Repo.FullName, fullName) {
-		return sourceRetentionError("source_refused")
+		return sourceRefusal("pull_request_identity_mismatch", "actual_repository", pr.Base.Repo.FullName, "expected_repository", fullName, "actual_number", pr.Number, "expected_number", input.Number)
 	}
 	if pr.Base.SHA != input.Base || pr.Head.SHA != input.Head {
 		return sourceRetentionError("source_changed")

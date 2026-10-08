@@ -1163,6 +1163,29 @@ func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 		}
 		return "declined: " + declined.Message
 	}
+	// Use the existing final projection; do not change the machine wire.
+	if strings.HasSuffix(tag, "/source_refused") && run.FinalOutput != nil {
+		var failure struct {
+			Message string `json:"message"`
+		}
+		if json.Unmarshal([]byte(*run.FinalOutput), &failure) == nil {
+			if start := strings.Index(failure.Message, "source_refused: "); start >= 0 {
+				reason := strings.Fields(failure.Message[start+len("source_refused: "):])
+				if len(reason) > 0 {
+					name := strings.TrimRight(reason[0], ":;,)")
+					valid := name != ""
+					for _, c := range name {
+						if c != '_' && (c < 'a' || c > 'z') {
+							valid = false
+						}
+					}
+					if valid {
+						tag += ": " + name
+					}
+				}
+			}
+		}
+	}
 	switch fault := strings.TrimSpace(run.FailureFault); fault {
 	case "factory":
 		return "failed: " + tag

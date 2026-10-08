@@ -1,3 +1,4 @@
+import { sourceRefusal } from "../coding/source-refusal.ts"
 /** Reserved repository/gateway credentials stay inside this host-owned service. */
 import { Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, type HttpClientResponse } from "effect/unstable/http"
@@ -158,7 +159,18 @@ export const makeRemote = (options: RemoteOptions) =>
               : response.status === 400 || response.status === 401 || response.status === 403 ?
               ["source_refused", "The repository refused this source identity or workspace binding"] as const
               : ["source_unavailable", "The selected repository source could not be retained"] as const
-            return yield* new CodingError({ code: refusal[0], message: refusal[1] })
+            const body = object(yield* readJson(response).pipe(Effect.orElseSucceed(() => null)))
+            const reason = string(body.message ?? object(body.error).message, 200)
+            const named = refusal[0] !== "source_refused" ? refusal[1] : /^source_refused: [a-z_]+$/.test(reason)
+              ? reason
+              : sourceRefusal("remote_http_refused", {
+                repository: options.repositorySlug,
+                workspace: options.workspaceId
+              })
+            return yield* new CodingError({
+              code: refusal[0],
+              message: refusal[0] === "source_refused" ? named : refusal[1]
+            })
           }
           return yield* failed(`Repository operation returned HTTP ${response.status}`)
         }
@@ -282,7 +294,11 @@ export const makeRemote = (options: RemoteOptions) =>
         Effect.gen(function*() {
           const commit = yield* Schema.decodeUnknownEffect(SourceCommit)(commitId).pipe(
             Effect.mapError(() =>
-              new CodingError({ code: "source_refused", message: "Main retention requires an exact immutable commit" })
+              new CodingError({
+                code: "source_refused",
+                message: "Main retention requires an exact immutable commit (" +
+                  sourceRefusal("main_commit_invalid", { commitId }) + ")"
+              })
             )
           )
           const retained = yield* send(
@@ -326,7 +342,7 @@ export const makeRemote = (options: RemoteOptions) =>
             Effect.mapError(() =>
               new CodingError({
                 code: "source_refused",
-                message: "Source retention needs the exact admitted push or PR identity"
+                message: sourceRefusal("retention_identity_invalid", { head: request.head, base: request.base })
               })
             )
           )
@@ -337,7 +353,7 @@ export const makeRemote = (options: RemoteOptions) =>
           ) {
             return yield* new CodingError({
               code: "source_refused",
-              message: "This repository has no verified GitHub source"
+              message: sourceRefusal("remote_source_invalid", { source: metadata.source, name: metadata.full_name })
             })
           }
           const retained = yield* send(

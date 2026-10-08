@@ -1,3 +1,4 @@
+import { sourceRefusal } from "./source-refusal.ts"
 /** Private recipe composition over the packaged native workspace helper.
  * No credential, JJ implementation, process runtime, or receipt ledger lives here.
  */
@@ -141,13 +142,18 @@ export const nativeLayer = (options: NativeOptions) =>
           ChildProcess.make(helperPath(options), ["--local"], {
             stdin: Stream.make(new TextEncoder().encode(input)),
             ...(options.nativeRepositoryToken !== undefined && "operation" in request &&
-                ["import_source", "publish_source", "stack.candidate", "stack.propose"].includes(String(request.operation))
-              ? { extendEnv: true, env: { SMITHERS_NATIVE_REPOSITORY_TOKEN: Redacted.value(options.nativeRepositoryToken) } }
+                ["import_source", "publish_source", "stack.candidate", "stack.propose"].includes(
+                  String(request.operation)
+                )
+              ? {
+                extendEnv: true,
+                env: { SMITHERS_NATIVE_REPOSITORY_TOKEN: Redacted.value(options.nativeRepositoryToken) }
+              }
               : {}),
             cwd: options.repositoryPath
           })
         )
-        const [stdout, , exitCode] = yield* Effect.all([
+        const [stdout, stderr, exitCode] = yield* Effect.all([
           capture(process.stdout, 16 * 1024 * 1024),
           capture(process.stderr, 64 * 1024),
           process.exitCode
@@ -162,13 +168,17 @@ export const nativeLayer = (options: NativeOptions) =>
             Schema.Struct({ code: Schema.String, message: Schema.String, recovery: Schema.optionalKey(FileRecovery) })
           )(result.error)
             .pipe(Effect.mapError(() => failure("outcome_unknown", "Native helper returned an invalid error envelope")))
+          const refusalSite = error.code === "source_refused"
+            ? stderr.match(/source_refused: ([a-z_]+)/)?.[1]
+            : undefined
+          const message = refusalSite ? error.message + " (" + sourceRefusal(refusalSite) + ")" : error.message
           // The envelope comes from another process, so its code is a
           // string until this repo's own vocabulary admits it. A code nothing here
           // declares is not passed through: it would put an unauthored code on the
           // `{ code, message }` record a run card reads its sentence off, and no
           // source sweep can see a string. The helper's own words are kept.
           return yield* isNativeCode(error.code)
-            ? failure(error.code, error.message, error.recovery)
+            ? failure(error.code, message, error.recovery)
             : failure(
               "invalid_receipt",
               `Native helper answered with a code this build does not declare (${error.code}): ${error.message}`,
@@ -210,11 +220,20 @@ export const nativeLayer = (options: NativeOptions) =>
     // Reserved operations cannot fall back to the run's ordinary process
     // service. Only the installed host transport can read its authority binding.
     const stackInvoke = (
-      request: { operation: "stack.candidate" | "stack.propose"; requestId: string; generation?: number; plan?: unknown }
+      request: {
+        operation: "stack.candidate" | "stack.propose"
+        requestId: string
+        generation?: number
+        plan?: unknown
+      }
     ) =>
       Effect.gen(function*() {
         if (options.sourcePublication === "local-only" || Option.isNone(transport)) {
-          return yield* failure("source_refused", "Current TODO run and machine authority is unavailable")
+          return yield* failure(
+            "source_refused",
+            "Current TODO run and machine authority is unavailable (" +
+              sourceRefusal("native_stack_authority_missing", { operation: request.operation }) + ")"
+          )
         }
         yield* Schema.decodeUnknownEffect(PublishSource.fields.requestId)(request.requestId).pipe(
           Effect.mapError(() => failure("invalid_request", "Stack operation requires a durable invocation identity"))
@@ -302,13 +321,26 @@ export const nativeLayer = (options: NativeOptions) =>
         Effect.gen(function*() {
           const input = yield* Schema.decodeUnknownEffect(ImportSource)(request).pipe(
             Effect.mapError(() =>
-              failure("source_refused", "Native source import requires exact immutable source refs")
+              failure(
+                "source_refused",
+                "Native source import requires exact immutable source refs (" +
+                  sourceRefusal("native_import_identity_invalid", {
+                    commits: request.commits?.map((c) => c?.commitId)
+                  }) + ")"
+              )
             )
           )
           if (
             new Set(input.commits.map((commit) => commit.commitId)).size !== input.commits.length ||
             input.commits.some((commit) => commit.commitId === "0".repeat(40))
-          ) return yield* failure("source_refused", "Native source import needs distinct nonempty commits")
+          ) {
+            return yield* failure(
+              "source_refused",
+              "Native source import needs distinct nonempty commits (" +
+                sourceRefusal("native_import_duplicate_or_zero", { commits: input.commits.map((c) => c.commitId) }) +
+                ")"
+            )
+          }
           const result = yield* invoke({ operation: "import_source", ...input }).pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(SourceImport)),
             Effect.mapError((error) =>

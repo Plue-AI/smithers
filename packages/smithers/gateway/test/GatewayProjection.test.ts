@@ -52,6 +52,17 @@ const run: ControlSchema.RunSummary = {
 }
 
 describe("GatewayProjection.runSummary", () => {
+  it("carries only a named source refusal through the existing final output", () => {
+    const failure = event("control.run.failed", {
+      cause: "coding/Error: source_refused: workspace_owner_mismatch private-fixture-token",
+      fault: { class: "user", tag: "coding/Error/source_refused" }
+    })
+    const row = GatewayProjection.runSummary({ ...run, status: "failed" }, [failure])
+    expect(row.finalOutput).toBe(JSON.stringify({ message: "source_refused: workspace_owner_mismatch" }))
+    expect(row.failureTag).toBe("coding/Error/source_refused")
+    expect(GatewayProjection.runSummary(run, [failure]).finalOutput).toBeUndefined()
+  })
+
   it("returns a typed module's committed root result across bounded windows, never a child or unbound result", () => {
     const value = { requestId: "setup-1", receipt: { phase: "completed" } }
     const binding = event("control.engine.bound", { version: 1, controlRunId: run.runId, executionId: "native-root" })
