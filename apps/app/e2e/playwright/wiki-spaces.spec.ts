@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "./browserTest"
 import * as Y from "yjs"
+import * as sync from "y-protocols/sync"
+import * as encoding from "lib0/encoding"
+import * as decoding from "lib0/decoding"
+import { decodeLiveDocBinary, encodeLiveDocBinary } from "@smthrs/rpc/LiveDoc"
 import { installCloudFixture } from "./cloudFixture"
+import { fillComposer } from "./composer"
 
 /*
  * The wiki spaces (#1922) in the Wiki pane, against a fake Smithers Cloud
@@ -21,11 +26,8 @@ type Space = "public" | "private"
 
 /** A slash command from the app home: Control+K opens the composer (D-18), the line runs, Escape closes it. */
 const slash = async (page: Page, line: string) => {
-  const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.keyboard.press("Control+k")
-  await expect(input).toBeVisible()
-  await input.fill(line)
-  await page.getByTestId("composer-send").click()
+  await fillComposer(page, line)
+  await page.getByTestId("composer-input").press("Enter")
   await expect(page.getByTestId("composer-input")).toHaveValue("")
   await page.getByTestId("composer-input").press("Escape")
 }
@@ -155,22 +157,42 @@ const wikiFixture = async (page: Page) => {
     }
     // A live revision stream stays open; a stream that ended would say "Reconnecting". The request rests until the page closes.
     if (slugMatch !== null && slugMatch[2] === "stream") return new Promise<void>(() => {})
-    if (slugMatch !== null && slugMatch[2] === "updates") {
-      const input = request.postDataJSON() as { update_id: string; update: string; page_id: number }
-      const row = pages[space].find((candidate) => candidate.id === input.page_id)!
-      const doc = docOf(space, String(row.slug))
-      Y.applyUpdate(doc, new Uint8Array(Buffer.from(input.update, "base64")))
-      row.revision = Number(row.revision) + 1
-      return route.fulfill(json({ document: { page: { ...row, body: doc.getText("markdown").toString() }, state: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64"), state_vector: Buffer.from(Y.encodeStateVector(doc)).toString("base64") }, update_id: input.update_id, accepted_revision: row.revision }))
-    }
     if (path.endsWith("/wiki")) {
       return route.fulfill(json(pages[space].map(({ metadata: _m, backlinks: _b, ...row }) => row)))
     }
     return route.fulfill(json({ message: `unexpected ${path}` }, 500))
   }
+  const liveWrites: number[] = []
+  let nextClient = 42
+  await page.routeWebSocket("**/api/live", socket => {
+    const documents = new Map<number, { doc: Y.Doc; pageId: number; seq: number }>()
+    socket.onMessage(raw => {
+      if (typeof raw === "string") {
+        const frame = JSON.parse(raw)
+        if (frame.t !== "sub") return
+        const pageId = /^doc:wiki:(\d+)$/.exec(frame.topic)?.[1]
+        const entry = (["public", "private"] as const).flatMap(space => pages[space].map(row => ({ space, row }))).find(({ row }) => String(row.id) === pageId)
+        if (!entry) { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+        documents.set(frame.id, { doc: docOf(entry.space, String(entry.row.slug)), pageId: Number(pageId), seq: 0 })
+        socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data: { epoch: "00112233445566778899aabbccddeeff", client_id: nextClient++ } }))
+        return
+      }
+      const frame = decodeLiveDocBinary(new Uint8Array(raw))
+      const target = documents.get(frame.id)
+      if (!target || frame.kind !== 1) return
+      const kind = decoding.readVarUint(decoding.createDecoder(frame.payload))
+      const reply = encoding.createEncoder()
+      sync.readSyncMessage(decoding.createDecoder(frame.payload), reply, target.doc, socket)
+      if (encoding.length(reply)) socket.send(Buffer.from(encodeLiveDocBinary({ kind: 1, id: frame.id, payload: encoding.toUint8Array(reply) })))
+      if (kind === sync.messageYjsUpdate) {
+        liveWrites.push(target.pageId)
+        socket.send(JSON.stringify({ t: "saved", id: frame.id, seq: ++target.seq, sv: Buffer.from(Y.encodeStateVector(target.doc)).toString("base64") }))
+      }
+    })
+  })
   await page.route(`**/api/repos/${repo}/wiki/**`, wikiRoute)
   await page.route(`**/api/repos/${repo}/wiki?*`, wikiRoute)
-  return { pages, bodies, requests, docOf, holdRename: () => { let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve }); renameHold = () => gate; return release } }
+  return { pages, bodies, requests, docOf, liveWrites, holdRename: () => { let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve }); renameHold = () => gate; return release } }
 }
 
 test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })
@@ -305,7 +327,8 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await page.keyboard.press("Enter")
   await page.keyboard.type("Edited here.")
   await expect.poll(() => fixture.docOf("public", "start").getText("markdown").toString()).toContain("Edited here.")
-  expect(fixture.requests.some((request) => request.url === `/api/repos/${repo}/wiki/start/updates?visibility=public`)).toBe(true)
+  expect(fixture.liveWrites).toContain(2)
+  expect(fixture.requests.some(request => /\/wiki\/[^/]+\/(updates|stream)/.test(request.url))).toBe(false)
   await pane.getByTestId("wiki-page-edit").click()
   await expect(pane.getByTestId("wiki-page")).toContainText("Edited here.")
   // The tag narrows the tree; the search does too.
@@ -332,7 +355,10 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(rename.locator("label")).toHaveCount(1)
   await rename.getByTestId("flow-form-path").fill("Guides/Home.md")
   await rename.getByTestId("flow-form-submit").click()
-  await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: "changed since you opened it" })).toBeVisible()
+  const refusal = rename.getByTestId("flow-form-failure")
+  await expect(refusal).toBeVisible()
+  await refusal.getByText("Details", { exact: true }).click()
+  await expect(refusal).toContainText("changed since you opened it")
   expect(fixture.pages.public[0]!.path).toBe("Home.md")
   // The refusal stays until dismissed; every notice leaves before the switch is pressed (the stack sits over the pane's header).
   for (let attempt = 0; attempt < 3 && await page.locator('.notice[data-tone="failed"]').count() > 0; attempt++) {
@@ -349,9 +375,10 @@ test("the Wiki pane: spaces, tree, page, backlinks, edit, history, attachment, r
   await expect(create.locator("label")).toHaveCount(1)
   await create.getByTestId("flow-form-title").fill("Notes")
   await create.getByTestId("flow-form-submit").click()
-  await expect(page.locator('.notice[data-tone="done"]').filter({ hasText: "Notes created" })).toBeVisible()
+  await expect(create.getByTestId("flow-form-title")).toBeDisabled()
+  await expect(create.getByTestId("flow-form-submit")).toHaveCount(0)
   await expect(pane.getByTestId("wiki-page-path")).toHaveText("Notes.md")
-  expect(fixture.requests.some((request) => request.method === "POST" && request.url === `/api/repos/${repo}/wiki?visibility=private`)).toBe(true)
+  expect(fixture.requests.filter(request => request.method === "POST" && request.url === `/api/repos/${repo}/wiki?visibility=private`)).toHaveLength(1)
   // Public rows never reached the private tree.
   await expect(tree.getByRole("button", { name: "Start", exact: true })).toHaveCount(0)
 })

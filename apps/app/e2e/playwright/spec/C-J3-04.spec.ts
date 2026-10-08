@@ -60,7 +60,10 @@ test("C-J3-04: two mounted File cards co-edit through the production browser cha
     await expect.poll(() => editorText(b)).toBe("Alice keeps retries bounded")
     await viewer.bringToFront(); await b.click(); await viewer.keyboard.press("Control+End"); await viewer.keyboard.type("; Bob keeps delivery idempotent")
     await expect.poll(() => editorText(a)).toBe("Alice keeps retries bounded; Bob keeps delivery idempotent")
-    await expect(page.locator('.cm-ySelectionCaret').last()).toBeVisible()
+    // Remote carets ship off until the two-Mac C-UI-14 receipt; line flags stay live.
+    if (process.env.VITE_SMITHERS_REMOTE_CARETS === "1") await expect(page.locator('.cm-ySelectionCaret').last()).toBeVisible()
+    else await expect(page.locator('.cm-ySelectionCaret')).toHaveCount(0)
+    await expect(page.locator('.code-name-flag').filter({ hasText: "Bob" })).toBeVisible()
     await expect(page.locator('.code-author').first()).toBeVisible()
     await expect(viewer.getByText("Saved to the machine", { exact: true }).last()).toBeVisible()
     await expect(page.getByRole("button", { name: "Save", exact: true })).toHaveCount(0)

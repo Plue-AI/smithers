@@ -50,7 +50,7 @@ test("CAP-004: unresolved GitHub sync launch leaves Chat usable and progress las
       await pending
       await route.fulfill({ status: 202, json: { state: "accepted" } })
       accepted = true
-    } else await route.fulfill({ json: { state: finished ? "fresh" : "stale", last_success_at: finished ? "2026-10-08T12:00:00Z" : null } })
+    } else await route.fulfill({ json: { state: finished ? "fresh" : "stale", last_success_at: finished ? new Date().toISOString() : null } })
   })
   try {
     await page.goto("/")

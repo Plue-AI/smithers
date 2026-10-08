@@ -192,6 +192,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             if (!current()) throw new Error("Wiki account changed")
             const latest = read(id)
             if (!latest) throw new Error("Wiki page gone")
+            // Refusal/offline before the first sync has no authoritative replica.
+            // Keep the fetched page; a restored live replica may retain pending edits.
+            if (!provider.available && latest.cloud.live === undefined) return
             const state = encodeWikiState(value.state)
             // Persistence may trail rapid admitted keystrokes. Render the current
             // replica and locally staged edits, never an earlier save snapshot.

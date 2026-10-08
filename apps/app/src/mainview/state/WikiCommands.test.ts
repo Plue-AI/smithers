@@ -1,3 +1,4 @@
+import { LiveChannel } from "../runtime/LiveChannel"
 import { expect, test } from "bun:test"
 import * as Y from "yjs"
 import { flowArgs } from "../flows/FlowArgs"
@@ -19,7 +20,8 @@ test.each(["slash", "button", "form", "agent"] as const)("Wiki Open reaches its 
   doc.destroy()
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const reads: string[] = [], mutations: string[] = []
-  const controller = createAppController(store, unavailableAgent, { fetchImpl: async (input, init) => {
+  const live = new LiveChannel({ documentFrames: true, socket: () => ({ readyState: 0, onopen: null, onclose: null, onmessage: null, send() {}, close() {} }) })
+  const controller = createAppController(store, unavailableAgent, { live, fetchImpl: async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     const path = new URL(url, "https://app.test").pathname, method = init?.method ?? "GET"
     if (method !== "GET") mutations.push(`${method} ${path}`)
@@ -46,4 +48,8 @@ test.each(["slash", "button", "form", "agent"] as const)("Wiki Open reaches its 
   const form = store.collections.cards.get("form-wiki.cloud.open")
   expect(form === undefined || form.status === "acted").toBe(true)
   expect(mutations).toEqual([])
+  // A refused document transport has never received an authoritative replica.
+  live.dispose()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(store.collections.worldDocuments.get(id)?.body).toBe(document.page.body)
 })

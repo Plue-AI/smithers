@@ -9,7 +9,7 @@ export async function owner(page: Page) {
 }
 export async function say(page: Page, text: string) {
   await fillComposer(page, text)
-  await page.keyboard.press("Enter")
+  await page.getByTestId("composer-input").press("Enter")
   await expect(page.getByTestId("composer-input")).toHaveValue("")
 }
 export const setup = (page: Page) => page.getByRole("region", { name: "Set up Smithers" })
