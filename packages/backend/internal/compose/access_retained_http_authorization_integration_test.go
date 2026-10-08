@@ -36,10 +36,29 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("composed-install PostgreSQL campaign runs in the access integration gate")
 	}
+	// Each composed install owns its stack worker scratch repository. Other
+	// campaigns on this host also use repository id 1; sharing /tmp aliases
+	// their independent stacks and makes source/readiness receipts unreliable.
+	t.Setenv("TMPDIR", t.TempDir())
 	var fixture struct{ Commands []retainedHTTPCase }
 	data, err := os.ReadFile("testdata/access/retained-http.json")
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &fixture))
+	// Catalog UI-only entries also have production HTTP adapters. Record those
+	// literal doors here rather than counting them as descriptors without doors.
+	managementDoors := map[string]retainedHTTPCase{
+		"members.add":    {Command: "members.add", Method: "POST", Path: "/api/members", Door: "app-http", Body: map[string]any{"login": "charlie"}, Delegated: "never", MaintainerDelegated: "never", MemberDelegated: "permission"},
+		"members.role":   {Command: "members.role", Method: "PATCH", Path: "/api/members/charlie", Door: "app-http", Body: map[string]any{"role": "maintainer"}, Delegated: "never", MaintainerDelegated: "never", MemberDelegated: "permission"},
+		"members.remove": {Command: "members.remove", Method: "DELETE", Path: "/api/members/charlie", Door: "app-http", Body: map[string]any{}, Delegated: "never", MaintainerDelegated: "never", MemberDelegated: "permission"},
+	}
+	appCommandsWithoutHTTPDoor := 0
+	for i, c := range fixture.Commands {
+		if door, exists := managementDoors[c.Command]; exists {
+			fixture.Commands[i] = door
+		} else if c.Method == "" {
+			appCommandsWithoutHTTPDoor++
+		}
+	}
 	t.Setenv("SMITHERS_RETAINED_ACCESS_CAMPAIGN", "1")
 	r := newRehearsal(t, "SMITHERS_RETAINED_ACCESS_CAMPAIGN", "C-ACC-01", "retained-")
 	require.True(t, r.install("Retained commands"))
@@ -635,6 +654,92 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			}
 		})
 	}
+	// The successful management cells above do not establish the whole trusted
+	// profile boundary. Exercise each retained management action separately,
+	// with a real stored target and a literal role/class outcome. Charlie is an
+	// isolated subject: removing him must not kill a campaign actor's tokens.
+	_, err = r.member("charlie", 210, "write")
+	require.NoError(t, err)
+	charlie, err := q.GetUserByLowerUsername(ctx, "charlie")
+	require.NoError(t, err)
+	managementEffectCells := 0
+	for index, cred := range credentials {
+		// Frozen O/M/E x session/external-cli/external-codex/app_agent oracle.
+		// These outcomes are independent of the descriptor input under test.
+		code := []string{"allow", "never", "never", "never", "allow", "never", "never", "never", "permission", "permission", "permission", "permission"}[index]
+		for _, cell := range []struct {
+			command, method, path, body string
+			status                      int
+		}{
+			{"secrets.set", "POST", "/api/secrets", `{"name":"PROFILE_EFFECT","value":"never-disclose-campaign-secret"}`, 201},
+			{"secrets.scope", "PATCH", "/api/secrets/PROFILE_EFFECT", `{"main_only":true}`, 200},
+			{"secrets.delete", "DELETE", "/api/secrets/PROFILE_EFFECT", `{}`, 204},
+			{"members.role", "PATCH", "/api/members/charlie", `{"role":"maintainer"}`, 204},
+			{"members.remove", "DELETE", "/api/members/charlie", `{}`, 204},
+			{"members.add", "POST", "/api/members", `{"login":"charlie"}`, 204},
+		} {
+			t.Run("management-effect/"+cell.command+"/"+cred.name, func(t *testing.T) {
+				// Setup and reset use the same production person doors. A refused
+				// delete sees a real secret; refused Add sees an absent roster row.
+				call(credentials[0], "POST", "/api/secrets", `{"name":"PROFILE_EFFECT","value":"baseline-secret","main_only":false}`, "", "secrets.set", 201)
+				if cell.command == "members.add" {
+					call(credentials[0], "DELETE", "/api/members/charlie", `{}`, "", "members.remove", 204)
+				}
+				var baselineCiphertext []byte
+				require.NoError(t, pool.QueryRow(ctx, `SELECT value_encrypted FROM repository_secrets WHERE repository_id=$1 AND name='PROFILE_EFFECT'`, repo.ID).Scan(&baselineCiphertext))
+				if code != "allow" {
+					var body map[string]any
+					require.NoError(t, json.Unmarshal([]byte(cell.body), &body))
+					request(t, retainedHTTPCase{Command: cell.command, Method: cell.method, Path: cell.path, Body: body, Decision: cell.command}, cred, "active/full/other-member-or-install-repository", 403, code)
+				} else {
+					var beforeApprovals, afterApprovals int
+					require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&beforeApprovals))
+					outbound := githubMutations()
+					out := call(cred, cell.method, cell.path, cell.body, fmt.Sprintf("campaign-management-%d", managementEffectCells), cell.command, cell.status)
+					require.NotContains(t, out.Body.String(), `"confirmation"`)
+					require.NotContains(t, out.Body.String(), `"value"`)
+					require.NotContains(t, out.Body.String(), "never-disclose-campaign-secret")
+					require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterApprovals))
+					require.Equal(t, beforeApprovals, afterApprovals)
+					require.Equal(t, outbound, githubMutations())
+					switch cell.command {
+					case "secrets.set":
+						var encrypted []byte
+						require.NoError(t, pool.QueryRow(ctx, `SELECT value_encrypted FROM repository_secrets WHERE repository_id=$1 AND name='PROFILE_EFFECT'`, repo.ID).Scan(&encrypted))
+						require.NotEmpty(t, encrypted)
+						require.NotEqual(t, []byte("never-disclose-campaign-secret"), encrypted)
+						require.NotEqual(t, baselineCiphertext, encrypted, "replacement must change the stored encrypted value")
+					case "secrets.scope":
+						var mainOnly bool
+						require.NoError(t, pool.QueryRow(ctx, `SELECT main_only FROM repository_secrets WHERE repository_id=$1 AND name='PROFILE_EFFECT'`, repo.ID).Scan(&mainOnly))
+						require.True(t, mainOnly)
+					case "secrets.delete":
+						var remaining int
+						require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_secrets WHERE repository_id=$1 AND name='PROFILE_EFFECT'`, repo.ID).Scan(&remaining))
+						require.Zero(t, remaining)
+					case "members.role", "members.add":
+						var permission string
+						require.NoError(t, pool.QueryRow(ctx, `SELECT permission FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, charlie.ID).Scan(&permission))
+						want := "admin"
+						if cell.command == "members.add" {
+							want = "write"
+						}
+						require.Equal(t, want, permission)
+					case "members.remove":
+						var remaining int
+						require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, charlie.ID).Scan(&remaining))
+						require.Zero(t, remaining)
+					}
+					receipts = append(receipts, map[string]any{"command": cell.command, "credential": cred.name, "state": "active/full", "subject": "other-member-or-install-repository", "status": cell.status, "effects": 1, "decisions": []string{cell.command}})
+				}
+				// Restore literal baseline before the next independent cell.
+				call(credentials[0], "POST", "/api/members", `{"login":"charlie"}`, "", "members.add", 204)
+				call(credentials[0], "PATCH", "/api/members/charlie", `{"role":"member"}`, "", "members.role", 204)
+				managementEffectCells++
+			})
+		}
+	}
+	require.Equal(t, 72, managementEffectCells)
 	// Owner target and role-to-owner bypass cases are independent literal
 	// subject fixtures, including a no-op update on the stored Owner.
 	for _, target := range []struct{ login, role string }{{"rehearsal-owner", "maintainer"}, {"rehearsal-owner", "owner"}, {"alice", "owner"}} {
@@ -957,11 +1062,17 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2*(httpCommands+len(dispatchCases)), runDeathCells)
-	require.Equal(t, 137, httpCommands)
-	require.Equal(t, 2081+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts)-todoEffectCells-36-terminalProfileCells, "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 140, httpCommands)
+	require.Equal(t, 2081+3*21+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts)-todoEffectCells-managementEffectCells-36-terminalProfileCells, "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
+	httpPolicyRefusalCells := 0
+	for _, receipt := range receipts {
+		if status, ok := receipt["status"].(int); ok && (status == 401 || status == 403) && receipt["door"] != "workflow-body-mismatch" {
+			httpPolicyRefusalCells++
+		}
+	}
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "todo_control_effect_cells": todoEffectCells, "terminal_profile_effect_cells": terminalProfileCells, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": 2109, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": 194, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "todo_control_effect_cells": todoEffectCells, "management_profile_effect_cells": managementEffectCells, "terminal_profile_effect_cells": terminalProfileCells, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": httpPolicyRefusalCells, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": appCommandsWithoutHTTPDoor, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))
