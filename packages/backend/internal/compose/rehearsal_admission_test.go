@@ -55,9 +55,10 @@ func TestRehearsalAdmissionReviewConfirmedStop(t *testing.T) {
 	r := &rehearsalAdmissionRuntime{Runtime: p, aliases: map[string]string{}, reviewRequests: map[string]microsandbox.AdmissionRequest{
 		"workspace:review": {Holder: "workspace:review", Class: "background", Actor: "review:1", State: "granted"},
 	}}
-	require.NoError(t, r.SyncTodoAdmission("repository:1", []string{"todo:1", "todo:2"}, 2))
+	require.NoError(t, r.SyncTodoAdmission("repository:1", []string{"todo:1", "todo:2", "todo:3"}, 3))
 	require.True(t, r.TodoAdmissionEligible("todo:1"))
-	require.False(t, r.TodoAdmissionEligible("todo:2"))
+	require.True(t, r.TodoAdmissionEligible("todo:2"), "review consumes total capacity, not the owner TODO limit")
+	require.False(t, r.TodoAdmissionEligible("todo:3"))
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	require.ErrorIs(t, r.StopWorkspace(cancelled, "review"), context.Canceled)
@@ -73,8 +74,8 @@ func TestRehearsalAdmissionReviewConfirmedStop(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, workspaceapi.ServiceStopped, host.State)
 	require.Equal(t, "released", r.reviewRequests["workspace:review"].State)
-	require.NoError(t, r.SyncTodoAdmission("repository:1", []string{"todo:1", "todo:2"}, 2))
-	require.True(t, r.TodoAdmissionEligible("todo:2"), "a stopped review no longer consumes parallel")
+	require.NoError(t, r.SyncTodoAdmission("repository:1", []string{"todo:1", "todo:2", "todo:3"}, 3))
+	require.True(t, r.TodoAdmissionEligible("todo:3"), "a stopped review releases the third machine slot")
 	require.NoError(t, r.StopWorkspace(ctx, "review"), "repeated confirmed stop is idempotent")
 	require.Equal(t, "released", r.reviewRequests["workspace:review"].State)
 }

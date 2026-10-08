@@ -111,7 +111,7 @@ func (r *rehearsal) rebaseCheckpoint(n int64) error {
 				return err
 			}
 			var candidate string
-			if err = r.pool.QueryRow(r.t.Context(), `SELECT candidate_head FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&candidate); err != nil {
+			if err = r.pool.QueryRow(r.t.Context(), `SELECT candidate_head FROM mythical_items WHERE number=$1 AND source IN ('todo','issue')`, n).Scan(&candidate); err != nil {
 				return err
 			}
 			if branch.Head != candidate {
@@ -325,7 +325,7 @@ func (r *rehearsal) rebaseBranchWithMain(n int64, press bool, targetPath, target
 				return "", err
 			}
 			var candidate string
-			if err = r.pool.QueryRow(r.t.Context(), `SELECT candidate_head FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&candidate); err != nil {
+			if err = r.pool.QueryRow(r.t.Context(), `SELECT candidate_head FROM mythical_items WHERE number=$1 AND source IN ('todo','issue')`, n).Scan(&candidate); err != nil {
 				return "", err
 			}
 			if branch.Head != candidate {

@@ -112,6 +112,12 @@ func (r *rehearsalReviewRuntime) StartManagedHost(ctx context.Context, id string
 		if err != nil {
 			return command, err
 		}
+		// The Linux namespace has the same provisioned helper as coding;
+		// the fixed guest install path does not exist in this fixture.
+		if command.Environment == nil {
+			command.Environment = map[string]string{}
+		}
+		command.Environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = r.helper
 		return r.confined(placement.Workspace, command), nil
 	})
 	connection, err := r.Runtime.StartManagedHost(ctx, id, spec)
