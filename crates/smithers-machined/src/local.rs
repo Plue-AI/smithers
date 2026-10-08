@@ -26,15 +26,13 @@ pub(crate) fn write_response(
     args: conn::WriteArgs,
     admitted_epoch: u64,
 ) -> Frame {
-    if cx.epoch.load(std::sync::atomic::Ordering::SeqCst) != admitted_epoch {
+    // Rebase preserves the item: compare queued writes on the rewritten tree.
+    // Return changes authority, including requests admitted during its hold.
+    if admitted_epoch < cx.return_epoch {
         return daemon::refused(
             id,
             Error {
-                code: if admitted_epoch < cx.return_epoch {
-                    10
-                } else {
-                    4
-                },
+                code: 10,
                 ..Error::unsupported()
             },
         );
@@ -52,15 +50,13 @@ pub(crate) fn batch_response(
     actor: crate::hooks::Actor,
     admitted_epoch: u64,
 ) -> Frame {
-    if cx.epoch.load(std::sync::atomic::Ordering::SeqCst) != admitted_epoch {
+    // Rebase preserves the item: compare queued writes on the rewritten tree.
+    // Return changes authority, including requests admitted during its hold.
+    if admitted_epoch < cx.return_epoch {
         return daemon::refused(
             id,
             Error {
-                code: if admitted_epoch < cx.return_epoch {
-                    10
-                } else {
-                    4
-                },
+                code: 10,
                 ..Error::unsupported()
             },
         );

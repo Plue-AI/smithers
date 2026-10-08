@@ -154,6 +154,179 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn queued_local_writes_compare_after_rebase_but_refuse_after_return() {
+        // Independent dispatcher control. Real rewrite/digest/object behavior
+        // is exercised by compose::TestMachinedMutationQueuedHTTPWrites.
+        struct Allowed;
+        impl Core for Allowed {
+            fn validate_coding_write(&self) -> hooks::Result<()> {
+                Ok(())
+            }
+        }
+        struct Compared;
+        impl hooks::Documents for Compared {
+            fn write_batch(
+                &self,
+                _: &mut LockCx,
+                changes: &[hooks::FileWrite],
+                _: &hooks::Actor,
+            ) -> hooks::Result<hooks::DocumentBatch> {
+                assert_eq!(changes.len(), 1);
+                match changes[0].base {
+                    hooks::Base::Absent => Ok(hooks::DocumentBatch {
+                        writes: vec![hooks::DocumentWrite {
+                            digest: Some([8; 32]),
+                            raced: None,
+                        }],
+                        failure: None,
+                    }),
+                    hooks::Base::Digest(_) => Ok(hooks::DocumentBatch {
+                        writes: vec![],
+                        failure: Some(hooks::BatchFailure {
+                            index: 0,
+                            preflight: true,
+                            error: Error {
+                                code: 4,
+                                current_digest: Some([9; 32]),
+                                ..Error::unsupported()
+                            },
+                        }),
+                    }),
+                }
+            }
+            fn write_through(
+                &self,
+                cx: &mut LockCx,
+                path: &str,
+                base: &hooks::Base,
+                content: &[u8],
+                actor: &hooks::Actor,
+            ) -> Option<hooks::Result<hooks::DocumentWrite>> {
+                Some(
+                    self.write_batch(
+                        cx,
+                        &[hooks::FileWrite {
+                            path: path.into(),
+                            base: base.clone(),
+                            content: Some(content.into()),
+                        }],
+                        actor,
+                    )
+                    .and_then(|mut r| {
+                        if let Some(f) = r.failure {
+                            return Err(f.error);
+                        }
+                        Ok(r.writes.remove(0))
+                    }),
+                )
+            }
+        }
+        for returning in [false, true] {
+            for batch in [false, true] {
+                for stale in [false, true] {
+                    let root = tempfile::tempdir().unwrap();
+                    let files = Arc::new(Files::fixture(
+                        File::open(root.path()).unwrap(),
+                        Arc::new(Allowed),
+                    ));
+                    let executor = crate::lock::Executor::start(hooks::Hooks {
+                        documents: Arc::new(Compared),
+                        ..Default::default()
+                    })
+                    .unwrap();
+                    let before = executor.lock.epoch();
+                    let (started, held) = std::sync::mpsc::channel();
+                    let (release, resume) = std::sync::mpsc::channel();
+                    let rewrite = executor
+                        .lock
+                        .enqueue("rewrite", move |cx| {
+                            cx.begin_rewrite_for(returning).unwrap();
+                            started.send(()).unwrap();
+                            resume.recv().unwrap();
+                            cx.settle_rewrite().unwrap();
+                        })
+                        .unwrap();
+                    held.recv().unwrap();
+                    let during = executor.lock.epoch();
+                    let mut pending = vec![];
+                    for admitted in [before, during] {
+                        let files = files.clone();
+                        pending.push(
+                            executor
+                                .lock
+                                .enqueue("local_write", move |cx| {
+                                    let base = if stale {
+                                        hooks::Base::Digest([1; 32])
+                                    } else {
+                                        hooks::Base::Absent
+                                    };
+                                    if batch {
+                                        crate::local::batch_response(
+                                            cx,
+                                            &files,
+                                            73,
+                                            vec![hooks::FileWrite {
+                                                path: "queued".into(),
+                                                base,
+                                                content: Some(b"bytes".to_vec()),
+                                            }],
+                                            hooks::Actor::Principal(vec![7; 16]),
+                                            admitted,
+                                        )
+                                    } else {
+                                        crate::local::write_response(
+                                            cx,
+                                            &files,
+                                            73,
+                                            conn::WriteArgs {
+                                                path: "queued".into(),
+                                                base,
+                                                content: b"bytes".to_vec(),
+                                                actor: hooks::Actor::Principal(vec![7; 16]),
+                                            },
+                                            admitted,
+                                        )
+                                    }
+                                })
+                                .unwrap(),
+                        );
+                    }
+                    release.send(()).unwrap();
+                    rewrite.wait().unwrap();
+                    for receipt in pending {
+                        let response = receipt.wait().unwrap();
+                        let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+                        if returning {
+                            assert_eq!(value[0], 255);
+                            assert_eq!(conn::fields("error", &value[1..]).unwrap()[0].1, [10]);
+                        } else if batch {
+                            assert_eq!(value[0], 17);
+                            let fields = conn::fields("result17", &value[1..]).unwrap();
+                            if stale {
+                                assert_eq!(fields[0].1, [0, 0]);
+                                let failure = conn::fields("batch_failure", fields[1].1).unwrap();
+                                let error = conn::fields("error", failure[2].1).unwrap();
+                                assert_eq!(error[0].1, [4]);
+                                assert_eq!(error[1].1, [9; 32]);
+                            } else {
+                                assert_eq!(&fields[0].1[..2], [0, 1]);
+                            }
+                        } else if stale {
+                            assert_eq!(value[0], 255);
+                            let error = conn::fields("error", &value[1..]).unwrap();
+                            assert_eq!(error[0].1, [4]);
+                            assert_eq!(error[1].1, [9; 32]);
+                        } else {
+                            assert_eq!(value[0], 3);
+                            assert_eq!(conn::fields("result3", &value[1..]).unwrap()[0].1, [8; 32]);
+                        }
+                    }
+                    executor.shutdown().unwrap();
+                }
+            }
+        }
+    }
     struct Restorer(AtomicBool);
     impl Core for Restorer {
         fn restore_rewrite(&self, _: &mut LockCx) -> hooks::Result<()> {
