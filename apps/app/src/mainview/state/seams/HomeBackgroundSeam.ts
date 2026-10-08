@@ -9,7 +9,7 @@ type Request = NonNullable<Session["homeBackgroundRequests"]>[number]
 export class HomeBackgroundFailure extends Data.TaggedError("HomeBackgroundFailure")<{
   readonly sentence: "Run action failed" | "Run status unavailable" | "Run failed" | "Run cancelled"
 }> {}
-const Receipt = z.object({ state: z.string(), run_id: z.number().int().positive() })
+const Receipt = z.object({ state: z.string(), run_id: z.union([z.number().int().positive(), z.string().uuid()]) })
 
 /** Persist before acknowledgement; admission and remote settlement keep one toast. */
 export function createHomeBackgroundSeam(options: {
@@ -86,7 +86,7 @@ export function createHomeBackgroundSeam(options: {
   }
   const control = (id: string, op: Request["op"]): Promise<{ readonly value: string } | string> => {
     const owner = options.owner()
-    if (!owner || disposed || !/^[1-9]\d*$/.test(id)) return Promise.resolve("Background runs unavailable")
+    if (!owner || disposed || (!/^[1-9]\d*$/.test(id) && !z.string().uuid().safeParse(id).success)) return Promise.resolve("Background runs unavailable")
     const identity = JSON.stringify([owner, id, op])
     const pending = starting.get(identity)
     if (pending) return pending

@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -47,7 +49,8 @@ func (r *LearningRuntime) ResolveFlowHostTarget(ctx context.Context, target flow
 		return refuse()
 	}
 	var raw []byte
-	err = r.service.store.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch' AND tenant_id=$1 AND principal_id=$2 AND request_id=$3 AND state NOT IN ('completed','failed','cancelled','uncertain')`, target.TenantID, target.PrincipalID, "learning-run:"+target.BindingID).Scan(&raw)
+	var attempt int
+	err = r.service.store.QueryRow(ctx, `SELECT payload,d.external_attempt FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE operation='flow.runtime.launch' AND tenant_id=$1 AND principal_id=$2 AND request_id=$3 AND state NOT IN ('completed','failed','cancelled','uncertain')`, target.TenantID, target.PrincipalID, "learning-run:"+target.BindingID).Scan(&raw, &attempt)
 	if err != nil {
 		return refuse()
 	}
@@ -71,6 +74,17 @@ func (r *LearningRuntime) ResolveFlowHostTarget(ctx context.Context, target flow
 	}
 	if !retained {
 		return refuse()
+	}
+	// A Home Retry reuses the stored binding and pin after terminal cleanup.
+	// Allocation stays in the existing background worker, never the HTTP request.
+	if _, missing := q.GetWorkspace(ctx, target.WorkspaceID); errors.Is(missing, pgx.ErrNoRows) && attempt > 1 && r.service.learningMachines != nil {
+		ensured, err := r.service.learningMachines.EnsureLearningMachine(ctx, repository, actor, target.BindingID, *launch.Pin)
+		if err != nil {
+			return flowhost.Authority{}, err
+		}
+		if ensured != target {
+			return refuse()
+		}
 	}
 	workspace, err := q.GetWorkspace(ctx, target.WorkspaceID)
 	if err != nil || workspace.RepositoryID != repository || workspace.UserID != actor || workspace.DeletedAt.Valid {

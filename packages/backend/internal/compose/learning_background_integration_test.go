@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,12 +70,20 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "background-machine", BindingKind: "learning", BindingID: itemID}
 	admit := func(id string, target flowruntime.Target, todo int) string {
 		t.Helper()
-		payload, _ := json.Marshal(map[string]any{"target": target, "flowId": "learning", "payload": map[string]int{"todo": todo}})
+		payload, _ := json.Marshal(map[string]any{"target": target, "flowId": "learning", "payload": map[string]int{"todo": todo}, "pin": flowruntime.Pin{Flow: "learning", SourceCommit: strings.Repeat("a", 40), ExecutionDigest: strings.Repeat("b", 64)}})
 		receipt, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: flowdispatch.OperationLaunch, RequestID: id, Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: id})
 		require.NoError(t, err)
 		return receipt.OperationID
 	}
-	operation := admit("learning-one", target, 1)
+	operation := admit("learning-run:"+itemID, target, 1)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		return nil, fmt.Errorf("HTTP must not resolve a runtime")
+	})})
+	require.NoError(t, err)
+	service.SetLauncher(dispatcher)
+	service.SetLearningMachines(homeLearningMachines{})
+	provider := &services.HomeBackground{Pool: pool, Billing: services.NewUnlimitedBillingPolicy()}
+	service.SetHomeBackground(provider)
 	_, err = q.EnsureMythicalWiki(ctx, repo)
 	require.NoError(t, err)
 	// The merge-refresh worker records each refresh as a flow-plane run.
@@ -85,10 +94,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	// A payload cannot borrow an item from a different tenant or TODO.
 	wrong := target
 	wrong.TenantID = "repository:999"
-	admit("wrong-repo", wrong, 1)
+	wrongOperation := admit("wrong-repo", wrong, 1)
 	admit("wrong-todo", target, 2)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.SessionCookieName = "smithers_session"
 	server := httptest.NewUnstartedServer(nil)
 	t.Cleanup(server.Close)
 	origin := "http://" + server.Listener.Addr().String()
@@ -99,10 +109,8 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.NoError(t, bus.Start(hubCtx))
 	topics := &liveTopics{queries: q, todos: service}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
-	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), &middleware.AuthInfo{User: &owner, SessionHash: sessionHash})))
-	})
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Background: provider, Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
+	server.Config.Handler = router
 	server.Start()
 	for _, row := range []struct {
 		stored, visible, wikiStored, wikiRun, wikiVisible string
@@ -125,7 +133,7 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 			require.NoError(t, err)
 			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			defer done()
-			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}}})
+			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=fixture-person"}}})
 			require.NoError(t, err)
 			defer conn.CloseNow()
 			require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
@@ -148,12 +156,20 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 				require.Equal(t, 0, home.Counts["merged"])
 				expected := []map[string]any{}
 				if row.visible != "" {
-					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": []any{}})
+					actions := []any{}
+					if row.visible == "failed" {
+						if row.stored == "failed" {
+							actions = append(actions, map[string]any{"tag": "background.retry", "label": "Retry"})
+						}
+						actions = append(actions, map[string]any{"tag": "background.dismiss", "label": "Dismiss"})
+					}
+					expected = append(expected, map[string]any{"id": operation, "title": "Learning · T1", "state": row.visible, "actions": actions})
 				}
 				if row.wikiVisible != "" {
 					wiki := map[string]any{"id": fmt.Sprint(wikiRun.ID), "title": "Refresh wiki", "state": row.wikiVisible, "actions": []any{}}
 					if row.wikiVisible == "failed" {
 						wiki["detail"] = "Page review failed"
+						wiki["actions"] = []any{map[string]any{"tag": "background.dismiss", "label": "Dismiss"}}
 					}
 					expected = append(expected, wiki)
 				}
@@ -162,4 +178,92 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 			}
 		})
 	}
+	post := func(id, op, key string) *http.Response {
+		t.Helper()
+		request, err := http.NewRequest("POST", origin+"/api/runs/"+id, strings.NewReader(`{"op":"`+op+`"}`))
+		require.NoError(t, err)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Cookie", "smithers_session=fixture-person; __csrf=learn-csrf")
+		request.Header.Set("X-CSRF-Token", "learn-csrf")
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", key)
+		response, err := server.Client().Do(request)
+		require.NoError(t, err)
+		t.Cleanup(func() { response.Body.Close() })
+		if response.StatusCode == 403 {
+			body, _ := io.ReadAll(response.Body)
+			t.Fatalf("action refused: %s", body)
+		}
+		return response
+	}
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='failed',terminal_receipt='{"reason":"lint"}' WHERE id=$1`, operation)
+	require.NoError(t, err)
+	require.Equal(t, 400, post(operation, "retry", "").StatusCode)
+	require.Equal(t, 404, post(wrongOperation, "dismiss", "").StatusCode)
+	require.Equal(t, 404, post("00000000-0000-0000-0000-000000000001", "retry", "missing").StatusCode)
+	first := post(operation, "retry", "retry-one")
+	require.Equal(t, 202, first.StatusCode)
+	var receipt map[string]any
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&receipt))
+	require.Equal(t, map[string]any{"state": "accepted", "run_id": operation}, receipt)
+	require.Equal(t, 202, post(operation, "retry", "retry-one").StatusCode)
+	require.Equal(t, 409, post(operation, "retry", "retry-two").StatusCode)
+	var attempt int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT external_attempt FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&attempt))
+	require.Equal(t, 2, attempt)
+	request, err := http.NewRequest("GET", origin+"/api/runs/"+operation+"/background-status", nil)
+	require.NoError(t, err)
+	request.Header.Set("Cookie", "smithers_session=fixture-person")
+	response, err := server.Client().Do(request)
+	require.NoError(t, err)
+	require.Equal(t, 200, response.StatusCode)
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&receipt))
+	response.Body.Close()
+	require.Equal(t, "queued", receipt["state"])
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='uncertain',terminal_receipt='{"reason":"ambiguous"}' WHERE id=$1`, operation)
+	require.NoError(t, err)
+	require.Equal(t, 409, post(operation, "retry", "unsafe").StatusCode)
+	require.Equal(t, 200, post(operation, "dismiss", "").StatusCode)
+	require.Equal(t, 200, post(operation, "dismiss", "").StatusCode)
+	runs, err := service.LearningBackgroundRuns(ctx, repo)
+	require.NoError(t, err)
+	require.Empty(t, runs)
+	var state string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE id=$1`, itemID).Scan(&state))
+	require.Equal(t, "landed", state)
+	var retries, dismissals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE event_type='operation.retry_authorized'),count(*) FILTER(WHERE event_type='operation.dismissed') FROM product_job_events WHERE operation_id=$1`, operation).Scan(&retries, &dismissals))
+	require.Equal(t, 1, retries)
+	require.Equal(t, 1, dismissals)
+	// Failures before the launch use the same Home door and retain the first
+	// qualified pin in the admission checkpoint.
+	merge := strings.Repeat("a", 40)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_merge_commit=$2 WHERE id=$1`, itemID, merge)
+	require.NoError(t, err)
+	raw, _ := json.Marshal(map[string]any{"item": itemID, "todo": 1, "repository": repo, "actor": owner.ID, "commit": merge})
+	admission, err := store.Admit(ctx, jobs.Admission{Scope: scope, Operation: services.LearningAdmissionOperation, RequestID: "learning:" + itemID, Payload: raw, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "learning:" + itemID})
+	require.NoError(t, err)
+	checkpoint := `{"pin":{"flow":"learning","sourceCommit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executionDigest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}`
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='failed',terminal_receipt='{}' WHERE id=$1`, admission.OperationID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2 WHERE operation_id=$1`, admission.OperationID, []byte(checkpoint))
+	require.NoError(t, err)
+	require.Equal(t, 202, post(admission.OperationID, "retry", "retry-admission").StatusCode)
+	saved, err := store.Get(ctx, scope, admission.OperationID)
+	require.NoError(t, err)
+	require.JSONEq(t, checkpoint, string(saved.ExternalReceipt))
+	require.Equal(t, 2, saved.ExternalAttempt)
+	require.Equal(t, admission.OperationID, saved.ID)
+
+}
+
+// The allocator is never called by the served Retry door; execution belongs to
+// the production dispatch worker and the separately qualified machine boundary.
+type homeLearningMachines struct{}
+
+func (homeLearningMachines) EnsureLearningMachine(context.Context, int64, int64, string, flowruntime.Pin) (flowruntime.Target, error) {
+	panic("HTTP allocated a machine")
+}
+func (homeLearningMachines) RetireLearningMachine(context.Context, flowruntime.Target) error {
+	panic("HTTP retired a machine")
 }

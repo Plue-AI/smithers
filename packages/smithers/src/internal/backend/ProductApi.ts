@@ -1099,8 +1099,11 @@ export type LearningProposalCard = {
 
 export type HomeBackgroundReceipt = {
   state: string
-  run_id: number
+  run_id: HomeBackgroundID
 }
+
+/** Numeric workflow run ID or durable Learning operation UUID. */
+export type HomeBackgroundID = number | string
 
 /** HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved. */
 export type HomeCard = {
@@ -6100,7 +6103,7 @@ export type PostApiRunsIdBody = {
 export type PostApiRunsIdResponse = HomeBackgroundReceipt
 
 export interface PostApiRunsIdInput {
-  readonly path: { readonly id: number }
+  readonly path: { readonly id: string }
   readonly headers: { readonly "Idempotency-Key": string }
   readonly body: PostApiRunsIdBody
 }
@@ -6123,7 +6126,7 @@ export const getApiRunsIdTrace = (transport: Transport, input: GetApiRunsIdTrace
 export type GetApiRunsIdBackgroundStatusResponse = HomeBackgroundReceipt
 
 export interface GetApiRunsIdBackgroundStatusInput {
-  readonly path: { readonly id: number }
+  readonly path: { readonly id: string }
 }
 
 /** GET /api/runs/{id}/background-status: Read a background run receipt */

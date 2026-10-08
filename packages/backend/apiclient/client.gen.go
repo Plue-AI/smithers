@@ -1730,9 +1730,12 @@ type LearningProposalCardTodo struct {
 
 // HomeBackgroundReceipt is generated from docs/api/openapi.yaml.
 type HomeBackgroundReceipt struct {
-	State string `json:"state"`
-	RunID int64  `json:"run_id"`
+	State string           `json:"state"`
+	RunID HomeBackgroundID `json:"run_id"`
 }
+
+// HomeBackgroundID — Numeric workflow run ID or durable Learning operation UUID.
+type HomeBackgroundID = json.RawMessage
 
 // HomeCard — HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
 type HomeCard struct {
@@ -6152,9 +6155,9 @@ func (c *Client) GetAPIRunsID(ctx context.Context, id string, params GetAPIRunsI
 }
 
 // PostAPIRunsID calls POST /api/runs/{id}.
-func (c *Client) PostAPIRunsID(ctx context.Context, id int64, idempotencyKey string, body PostAPIRunsIDBody) (HomeBackgroundReceipt, error) {
+func (c *Client) PostAPIRunsID(ctx context.Context, id string, idempotencyKey string, body PostAPIRunsIDBody) (HomeBackgroundReceipt, error) {
 	var out HomeBackgroundReceipt
-	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10)), nil, body, &out)
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/runs/"+url.PathEscape(id), nil, body, &out)
 	return out, err
 }
 
@@ -6170,9 +6173,9 @@ func (c *Client) GetAPIRunsIDTrace(ctx context.Context, id string, params GetAPI
 }
 
 // GetAPIRunsIDBackgroundStatus calls GET /api/runs/{id}/background-status.
-func (c *Client) GetAPIRunsIDBackgroundStatus(ctx context.Context, id int64) (HomeBackgroundReceipt, error) {
+func (c *Client) GetAPIRunsIDBackgroundStatus(ctx context.Context, id string) (HomeBackgroundReceipt, error) {
 	var out HomeBackgroundReceipt
-	err := c.do(ctx, "GET", "/api/runs/"+url.PathEscape(strconv.FormatInt(id, 10))+"/background-status", nil, nil, &out)
+	err := c.do(ctx, "GET", "/api/runs/"+url.PathEscape(id)+"/background-status", nil, nil, &out)
 	return out, err
 }
 

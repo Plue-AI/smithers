@@ -3,6 +3,7 @@ package routes
 import (
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"net/http"
 	"strconv"
@@ -32,6 +33,21 @@ func (h *HomeBackgroundHandler) Control(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	raw := chi.URLParam(r, "id")
+	if parsed, parseErr := uuid.Parse(raw); parseErr == nil && parsed.String() == raw {
+		receipt, err := h.Service.ControlLearning(r.Context(), repo, user, raw, input.Op, r.Header.Get("Idempotency-Key"))
+		if err != nil {
+			homeBackgroundError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if input.Op == "retry" {
+			w.WriteHeader(http.StatusAccepted)
+		}
+		_ = json.NewEncoder(w).Encode(receipt)
+		return
+	}
+
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
 		todoRouteError(w, &services.TodoControlError{Status: 404, Code: "run_not_found", Class: "user", Message: "Run unavailable"})
@@ -56,6 +72,18 @@ func (h *HomeBackgroundHandler) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw := chi.URLParam(r, "id")
+	if parsed, parseErr := uuid.Parse(raw); parseErr == nil && parsed.String() == raw {
+		receipt, err := h.Service.LearningStatus(r.Context(), repo, raw)
+		if err != nil {
+			homeBackgroundError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(receipt)
+		return
+	}
+
 	id, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
 		todoRouteError(w, &services.TodoControlError{Status: 404, Code: "run_not_found", Class: "user", Message: "Run unavailable"})

@@ -199,6 +199,23 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 	require.Zero(t, queue.InUse())
 	require.Zero(t, count(`SELECT count(*) FROM workspaces WHERE id=$1`, workspaceID))
 	require.Equal(t, learningCounts{creates: 1, restores: 1, deletes: 1}, runtime.counts())
+	// Retry after terminal cleanup preserves the operation, target and pin.
+	var operation string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM product_job_requests WHERE request_id=$1`, "learning-run:"+item).Scan(&operation))
+	_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='failed',terminal_receipt='{"error":"lint"}' WHERE id=$1`, operation)
+	require.NoError(t, err)
+	provider := &services.HomeBackground{Pool: pool, Billing: services.NewUnlimitedBillingPolicy()}
+	service.SetHomeBackground(provider)
+	receipt, err := provider.ControlLearning(ctx, repository, owner.ID, operation, "retry", "retry-after-cleanup")
+	require.NoError(t, err)
+	require.Equal(t, operation, receipt["run_id"])
+	authority, err = service.LearningRuntime().ResolveFlowHostTarget(ctx, target)
+	require.NoError(t, err)
+	require.Equal(t, saved.Pin, *authority.ExecutionPin)
+	require.Equal(t, learningCounts{creates: 2, restores: 2, deletes: 1}, runtime.counts())
+	require.Equal(t, 1, queue.InUse())
+	require.NoError(t, machines.RetireLearningMachine(ctx, target))
+
 }
 
 type learningCounts struct{ creates, restores, deletes int }

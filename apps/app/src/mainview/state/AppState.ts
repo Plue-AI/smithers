@@ -979,7 +979,7 @@ export const SessionSchema = z.object({
   githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional(), mainReset: z.object({ id: z.string().min(1), old: z.string().regex(/^[0-9a-f]{40}$/), new: z.string().regex(/^[0-9a-f]{40}$/) }).optional() }).optional(),
   homeBackgroundRequests: z.array(z.object({
     key: z.string(), owner: z.string(), id: z.string(), op: z.enum(["retry", "dismiss"]),
-    state: z.enum(["requested", "running", "completed", "failed"]), run_id: z.number().int().positive().optional(), error: z.string().optional()
+    state: z.enum(["requested", "running", "completed", "failed"]), run_id: z.union([z.number().int().positive(), z.string().uuid()]).optional(), error: z.string().optional()
   })).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 

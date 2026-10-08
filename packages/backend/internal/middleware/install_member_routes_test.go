@@ -44,6 +44,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/agents/reviewer", "agents.read"},
 		{http.MethodGet, "/api/agents/reviewer/model", ""},
 		{http.MethodPost, "/api/runs/7", "background.retry"},
+		{http.MethodPost, "/api/runs/00000000-0000-4000-8000-000000000007", "background.retry"},
+		{http.MethodGet, "/api/runs/00000000-0000-4000-8000-000000000007/background-status", "flows.read"},
 		{http.MethodGet, "/api/runs/7/background-status", "flows.read"},
 		{http.MethodPost, "/api/runs/foreign", ""},
 		{http.MethodGet, "/api/runs/7", "monitor"},

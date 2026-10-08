@@ -20912,7 +20912,7 @@ paths:
         - Runs
       security: [{sessionCookie: []}]
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+        - {name: id, in: path, required: true, description: Numeric workflow run ID or durable Learning operation UUID, schema: {type: string}}
         - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
       requestBody:
         required: true
@@ -20973,7 +20973,7 @@ paths:
         - Runs
       security: [{sessionCookie: []}]
       parameters:
-        - {name: id, in: path, required: true, schema: {type: integer, minimum: 1}}
+        - {name: id, in: path, required: true, description: Numeric workflow run ID or durable Learning operation UUID, schema: {type: string}}
       responses:
         '200':
           description: Background run receipt
@@ -27026,7 +27026,12 @@ components:
       required: [state, run_id]
       properties:
         state: {type: string}
-        run_id: {type: integer, format: int64}
+        run_id: {$ref: '#/components/schemas/HomeBackgroundID'}
+    HomeBackgroundID:
+      description: Numeric workflow run ID or durable Learning operation UUID.
+      oneOf:
+        - {type: integer, format: int64, minimum: 1}
+        - {type: string, format: uuid}
     HomeCard:
       description: HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
       type: object
