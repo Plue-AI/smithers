@@ -53,6 +53,11 @@ func exerciseTerminalCatalogScope(t *testing.T, ctx context.Context, origin, tok
 		{[]string{"todo", "new", "--text", "A guest cannot append without confirmation", "--idempotencyKey", "terminal-scope-new"}, "confirm_in_app"},
 		{[]string{"todo", "new", "--text", "A guest cannot insert", "--before", "T2", "--idempotencyKey", "terminal-scope-before"}, "permission"},
 		{[]string{"todo", "drop", "T2"}, "permission"},
+		{[]string{"stack", "move", "T2", "up"}, "permission"},
+		{[]string{"todo", "amend", "T2", "A guest cannot change the prompt"}, "permission"},
+		{[]string{"todo", "stop", "T2"}, "permission"},
+		{[]string{"todo", "resume", "T2"}, "permission"},
+		{[]string{"todo", "retry", "T2"}, "permission"},
 		{[]string{"merge", "T2", "--reviewed_head_sha", strings.Repeat("a", 40)}, "permission"},
 	} {
 		code, receipt := invoke(fixture.argv...)
