@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/google/uuid"
@@ -19,7 +18,8 @@ import (
 
 // No approval wait is seeded: a real SQLite-backed HumanTask produces it,
 // the production checkpoint consumer projects it, and the installed card admits
-// the real dispatcher's boolean signal. A fresh engine process consumes it.
+// the real dispatcher's boolean signal. Production AgentSession delivery checks
+// SQL-backed approval authority and completes the exact durable wait after restart.
 // This receipt does not qualify the guest or the reference-host timing budget.
 func TestTodoApprovalProducerAnswerComposedInstall(t *testing.T) {
 	for _, answer := range []string{"true", "false"} {
@@ -145,7 +145,7 @@ func TestTodoApprovalProducerAnswerComposedInstall(t *testing.T) {
 			require.Equal(t, answer == "true", input.Payload)
 			require.Equal(t, "coding-plan-approval", input.Name)
 			require.Equal(t, "run-1", input.RunID)
-			completed, err := exec.CommandContext(ctx, node, fixture, sqlite, "answer", strconv.FormatBool(input.Payload)).CombinedOutput()
+			completed, err := exec.CommandContext(ctx, node, fixture, sqlite, "answer", string(signal)).CombinedOutput()
 			require.NoError(t, err, string(completed))
 			require.JSONEq(t, `{"completed":`+answer+`}`, string(completed), "the durable HumanTask consumes the admitted boolean after process restart")
 			// A delayed pre-answer checkpoint cannot reopen the approval.
