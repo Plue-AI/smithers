@@ -6,26 +6,33 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
 type mythicalForeignBring struct {
-	Workspace string                 `json:"workspace"`
-	SHA       string                 `json:"sha"`
-	Wait      string                 `json:"wait"`
-	Onto      string                 `json:"onto"`
-	Request   *mythicalRebaseRequest `json:"request"`
+	Workspace string                  `json:"workspace"`
+	SHA       string                  `json:"sha"`
+	Wait      string                  `json:"wait"`
+	Onto      string                  `json:"onto"`
+	Request   *mythicalRebaseRequest  `json:"request"`
+	Native    *machined.RewriteResult `json:"native,omitempty"`
 }
 
 // Bring in is durable admission only. The stack worker consumes the retained
 // push at a safe boundary; the person's HTTP request never fetches or rewrites.
 func (s *MythicalService) requestForeignBring(ctx context.Context, tx pgx.Tx, q *db.Queries, item db.MythicalItem, input TodoControlInput, person db.User, credential string, index int, receipt *TodoControlReceipt) error {
+
 	if item.Reason == "rebase_conflict_pending" {
 		return &TodoControlError{409, "rebase_conflict_pending", "conflict", "Resolve the conflict"}
 	}
+	if pending := mythicalChecksOf(item).ForeignBring; pending != nil && pending.Wait == input.Wait && pending.SHA == input.Revision {
+		return todoControlConflict("Bring in is pending")
+	}
+
 	if s.host == nil || s.launcher == nil {
 		return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
 	}
@@ -39,7 +46,7 @@ func (s *MythicalService) requestForeignBring(ctx context.Context, tx pgx.Tx, q 
 		}
 		item.PendingOp = nil
 	}
-	if item.CandidateHead == "" || !item.StackPosition.Valid {
+	if item.CandidateHead == "" && item.WorkspaceID == "" || !item.StackPosition.Valid {
 		return todoControlConflict("Branch publication is in progress")
 	}
 	if err := AuthorizeTodoBranch(ctx, q, item.RepositoryID, item.Number.Int64); err != nil {
@@ -102,63 +109,29 @@ func (st *mythicalItemStep) consumeForeignBring(ctx context.Context, item db.Myt
 	// Occupied branches wait for the inspected native boundary. Never rewrite
 	// an active working copy on the host, even after an explicit choice.
 	if item.WorkspaceID != "" {
-		return nil, false, nil
+		return st.consumeNativeForeignBring(ctx, item, *pending, index)
 	}
 	branch, err := st.s.queries().GetWorkspace(ctx, pending.Workspace)
-	if err != nil || branch.RepositoryID != item.RepositoryID || (branch.Status != "stopped" && branch.Status != "suspended") {
+	if err != nil || branch.RepositoryID != item.RepositoryID || (branch.Status != "stopped" && branch.Status != "suspended" && branch.Status != "running") || st.s.branchRebase == nil || st.s.lanes == nil {
 		return nil, false, nil
 	}
-	if err = st.fetchCandidate(ctx, item); err != nil {
-		return nil, false, err
+	// Re-admit released work through the existing stack machine placement. The
+	// retained commit is source data; only the newly admitted guest rewrites it.
+	if !st.slot(item) {
+		return nil, false, nil
 	}
-	if err = st.fetchOnto(ctx, pending.Onto); err != nil {
-		return nil, false, err
+	placement, refused := st.place(ctx, item)
+	if refused != nil {
+		return refused, false, nil
 	}
-	if err = st.r.g.fetch(ctx, st.r.bridge.URL(), 0, 0, repohost.KeptCommitRefPrefix+checks.ForeignHead); err != nil {
-		return nil, false, fmt.Errorf("fetch retained push: %w", err)
-	}
-	// Use the stack's existing rebase engine. The foreign commit becomes part
-	// of this item's change, which remains based on its stack prefix.
-	head, err := st.r.g.rebaseCandidate(ctx, checks.ForeignHead, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64, Base: item.CandidateBase, Head: item.CandidateHead}, mythicalChainLimit)
-	var conflict *errMythicalConflict
-	if errors.As(err, &conflict) {
-		reservation, e := st.reserveConflict(ctx, item, conflict.Head, checks.ForeignHead)
-		if e != nil {
-			return nil, false, e
-		}
-		if e = st.s.pin(ctx, st.r, conflict.Head); e != nil {
-			return nil, false, e
-		}
-		next := item
-		next.Integration, _ = json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": checks.ForeignHead, "head": conflict.Head, "tree": conflict.Tree, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
-		checks.ConflictReservation = reservation
-		next.Checks, next.State, next.Reason = checks.encode(), "integrating", "rebase_conflict_pending"
-		return &next, false, nil
-	}
+	workspace, err := st.lane(context.WithValue(ctx, mythicalInitialSourceKey{}, item.CandidateHead), item, fmt.Sprintf("TODO %d Bring in g%d", item.Number.Int64, item.Generation), placement)
 	if err != nil {
 		return nil, false, err
 	}
-	commit, err := st.r.g.readCommit(ctx, head)
-	if err != nil {
-		return nil, false, err
-	}
-	written, err := st.r.g.replant(ctx, pending.Onto, []mythicalCommit{commit}, "bring-in", false)
-	if err != nil {
-		return nil, false, err
-	}
-	head = written[0].ID
 	next := item
-	next.CandidateHead = head
-	if paths, e := st.protectedChanges(ctx, next); e != nil {
-		return nil, false, e
-	} else if len(paths) > 0 {
-		return nil, false, errors.New("foreign push changes protected paths")
-	}
-	now := st.now
-	checks.Waits[index].SettledAt = &now
-	checks.ForeignBring, checks.ForeignHead, checks.Review, checks.Land = nil, "", nil, nil
-	next.PRHead, next.Checks = checks.Waits[index].SHA, checks.encode()
-	return st.verifyCandidate(ctx, item, next, pending.Onto, head, nil)
+	checks.ForeignBring.Workspace = workspace
+	next.WorkspaceID, next.Checks = workspace, checks.encode()
+	return &next, false, nil
 }
 
 func (st *mythicalItemStep) lockForeignBring(ctx context.Context, tx pgx.Tx, item db.MythicalItem, pending mythicalForeignBring) error {
@@ -191,7 +164,8 @@ func (st *mythicalItemStep) lockForeignBring(ctx context.Context, tx pgx.Tx, ite
 	if err := tx.QueryRow(ctx, `SELECT repository_id,status FROM workspaces WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, pending.Workspace).Scan(&repository, &status); err != nil {
 		return err
 	}
-	if repository != current.RepositoryID || current.WorkspaceID != "" || (status != "stopped" && status != "suspended") {
+	occupied := current.WorkspaceID != ""
+	if repository != current.RepositoryID || (occupied && (current.WorkspaceID != pending.Workspace || status != "running" || current.PausedAt.Valid || mythicalMergeFenced(current))) || (!occupied && status != "stopped" && status != "suspended" && status != "running") {
 		return errors.New("branch woke before Bring in verification")
 	}
 	_, err = foreignPushAnswerWait(current, pending.Wait, pending.SHA)
@@ -205,4 +179,135 @@ func foreignBringPusher(item db.MythicalItem, id string) json.RawMessage {
 		}
 	}
 	return nil
+}
+
+// The occupied branch uses the daemon's mutation lock and inspected checkpoint.
+// Persist the rewrite result before capture/verification so retries never issue
+// a second rewrite after capture or launcher failure.
+func (st *mythicalItemStep) consumeNativeForeignBring(ctx context.Context, item db.MythicalItem, pending mythicalForeignBring, index int) (*db.MythicalItem, bool, error) {
+	if st.s.branchRebase == nil || (item.WorkspaceID != "" && pending.Workspace != item.WorkspaceID) {
+		return nil, false, nil
+	}
+	if pending.Native == nil {
+		var tx pgx.Tx
+		defer func() {
+			if tx != nil {
+				_ = tx.Rollback(context.WithoutCancel(ctx))
+			}
+		}()
+		result, err := st.s.branchRebase.Rebase(ctx, pending.Workspace, pending.Request.User, pending.SHA,
+			func(tx pgx.Tx) error { return st.lockForeignBring(ctx, tx, item, pending) },
+			func(rewrite func() error) error {
+				var err error
+				tx, err = st.s.store.Begin(ctx)
+				if err != nil {
+					return err
+				}
+				if err = st.lockForeignBring(ctx, tx, item, pending); err != nil {
+					return err
+				}
+				return rewrite()
+			})
+		if err != nil {
+			return nil, false, err
+		}
+		if tx == nil || !result.Inspected || !codingCommitID.MatchString(result.Head) {
+			return nil, false, machined.ErrNotReady
+		}
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.ForeignBring.Native = &result
+		next.Checks = checks.encode()
+		saved, err := db.New(tx).SaveMythicalItem(ctx, next)
+		if err != nil {
+			return nil, false, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return nil, false, err
+		}
+		return &saved, true, nil
+	}
+	result := pending.Native
+	if len(result.Paths) != 0 {
+		reservation, err := st.reserveConflict(ctx, item, result.Head, pending.SHA)
+		if err != nil {
+			return nil, false, err
+		}
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.ConflictReservation = reservation
+		next.Checks = checks.encode()
+		next.Integration, _ = json.Marshal(map[string]any{"conflict": map[string]any{"head": result.Head, "onto": pending.SHA, "paths": result.Paths, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
+		next.State, next.Reason = "integrating", "rebase_conflict_pending"
+		return &next, false, nil
+	}
+	capture, err := st.s.branchRebase.Capture(ctx, pending.Workspace)
+	if err != nil {
+		return nil, false, err
+	}
+	current, err := st.s.queries().GetMythicalItem(ctx, item.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	binding := mythicalChecksOf(current).ForeignBring
+	if binding == nil || binding.Native == nil || binding.Native.Head != result.Head || binding.SHA != pending.SHA || current.WorkspaceID != item.WorkspaceID || current.CandidateHead != item.CandidateHead || current.Generation != item.Generation {
+		return nil, false, errors.New("Bring in capture binding changed")
+	}
+	index, err = foreignPushAnswerWait(current, pending.Wait, pending.SHA)
+	if err != nil {
+		return nil, false, err
+	}
+	ref := "refs/smithers/branches/" + pending.Workspace + "/captures/" + capture.Head
+	if err = st.r.g.fetch(ctx, st.r.bridge.URL(), 0, 0, ref); err != nil {
+		return nil, false, err
+	}
+	commit, err := st.r.g.readCommit(ctx, result.Head)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(commit.Parents) != 1 || commit.Parents[0] != pending.SHA {
+		return nil, false, errors.New("Bring in result has a different target")
+	}
+	next := current
+	next.CandidateHead = result.Head
+	if paths, err := st.protectedChanges(ctx, next); err != nil {
+		return nil, false, err
+	} else if len(paths) > 0 {
+		return nil, false, errors.New("foreign push changes protected paths")
+	}
+	checks := mythicalChecksOf(next)
+	now := st.now
+	checks.Waits[index].SettledAt = &now
+	checks.ForeignBring, checks.ForeignHead, checks.Review, checks.Land, checks.Capture = nil, "", nil, nil, nil
+	next.PRHead, next.Checks = pending.SHA, checks.encode()
+	if current.State == "running" && current.RequestOutcome == "" {
+		// Planning can be waiting for an independent answer before it has a
+		// candidate. Keep that pinned composition running on the rebased guest;
+		// its normal route→deliver path will verify and publish its result.
+		next.CandidateHead = ""
+		tx, err := st.s.store.Begin(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		defer tx.Rollback(context.WithoutCancel(ctx))
+		if err = st.lockForeignBring(ctx, tx, current, pending); err != nil {
+			return nil, false, err
+		}
+		saved, err := db.New(tx).SaveMythicalItem(ctx, next)
+		if err != nil {
+			return nil, false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, pending.Workspace); err != nil {
+			return nil, false, err
+		}
+		fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "sha": pending.SHA, "head": result.Head, "by": pending.Request.By, "pusher": foreignBringPusher(current, pending.Wait), "actor": map[string]string{"kind": "system", "id": "stack"}})
+		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.foreign_brought-in", todoState(saved), fact); err != nil {
+			return nil, false, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return nil, false, err
+		}
+		return &saved, true, nil
+	}
+	return st.verifyCandidate(ctx, current, next, pending.Onto, result.Head, nil)
 }

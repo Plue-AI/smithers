@@ -36,6 +36,12 @@ func TestPushAsRecordsRepositoryActivity(t *testing.T) {
 	server.mu.Unlock()
 	before := git("--git-dir", filepath.Join(root, "acme/app.git"), "rev-parse", "refs/heads/smithers/retry")
 
+	pull := Pull{Number: 1, Repository: "acme/app", State: "open"}
+	pull.Head.Ref, pull.Head.SHA = "smithers/retry", before
+	server.mu.Lock()
+	server.pulls["acme/app/1"] = pull
+	server.mu.Unlock()
+
 	_, err := server.PushAs("acme/app", "smithers/retry", 202, "alice", "Nested", map[string]string{"dir/file.md": "x\n"})
 	require.ErrorContains(t, err, "root paths only")
 	first, err := server.PushAs("acme/app", "smithers/retry", 202, "alice", "Log each retry", map[string]string{"alice.md": "log\n"})
@@ -51,7 +57,17 @@ func TestPushAsRecordsRepositoryActivity(t *testing.T) {
 	require.Equal(t, "canary", git("--git-dir", filepath.Join(root, "acme/app.git"), "show", second+":JOURNEY.md"))
 	require.Equal(t, "alice", git("--git-dir", filepath.Join(root, "acme/app.git"), "log", "-1", "--format=%an", first))
 
-	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	status, body := request(t, server, "GET", "/_fake/pull?repo=acme/app&number=1", "", nil)
+	require.Equal(t, 200, status, string(body))
+	var observed struct {
+		Pull   Pull
+		Parent string
+	}
+	require.NoError(t, json.Unmarshal(body, &observed))
+	require.Equal(t, second, observed.Pull.Head.SHA, "person readback follows the actual Git branch")
+	require.Equal(t, first, observed.Parent)
+
+	status, body = request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
 	require.Equal(t, 201, status)
 	var access struct {
 		Token string `json:"token"`

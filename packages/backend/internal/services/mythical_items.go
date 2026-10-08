@@ -1546,7 +1546,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		item = s.deliverNotice(ctx, r, item)
 		if mythicalSettledStates[item.State] || item.State == "proposed" && item.PRState != "" {
 			// A finished item's lane is retired even if an earlier release failed.
-			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
+			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item) && mythicalChecksOf(item).ForeignBring == nil) {
 				item = s.releaseLane(ctx, r, item)
 			}
 			if mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, step.now) {
@@ -1646,7 +1646,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			}
 		}
 		s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(result.ID))
-		if result.WorkspaceID != "" && (mythicalSettledStates[result.State] || result.State == "proposed" && !mythicalChecksOf(result).reviewing(result)) {
+		if result.WorkspaceID != "" && (mythicalSettledStates[result.State] || result.State == "proposed" && !mythicalChecksOf(result).reviewing(result) && mythicalChecksOf(result).ForeignBring == nil) {
 			s.releaseLane(ctx, r, result)
 		}
 		moved = moved || result.State != item.State
@@ -2092,6 +2092,29 @@ func mythicalComposedOutcome(item db.MythicalItem, now time.Time) *db.MythicalIt
 	case "":
 		return nil
 	case "completed":
+		// Delivery can finish just after a person steers the offered PR. The
+		// route→deliver composition has no remaining input boundary; carry that
+		// exact input into the next pinned attempt rather than reporting no proposal.
+		checks := mythicalChecksOf(item)
+		retained := false
+		for index := range checks.Steers {
+			feedback := &checks.Steers[index]
+			if feedback.AfterProposal && feedback.Attempt == item.Attempt {
+				feedback.Attempt, feedback.ReleasePending = item.Attempt+1, true
+				feedback.AfterProposal, feedback.InputConsumed = false, false
+				feedback.InputVersion++
+				if feedback.InputVersion < 2 {
+					feedback.InputVersion = 2
+				}
+				retained = true
+			}
+		}
+		if retained && item.PRNumber.Valid && item.PRHead != "" {
+			next := item
+			next.Checks = checks.encode()
+			next = queueReopenedTodo(next)
+			return &next
+		}
 		return mythicalStop(item, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO flow ended without an accepted proposal")
 	default:
 		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, outcome, now)
@@ -2308,7 +2331,7 @@ func (st *mythicalItemStep) commitWithGuard(ctx context.Context, item db.Mythica
 // two inserts can leave an unbound, unprovisioned workspace row.
 func (st *mythicalItemStep) lane(ctx context.Context, item db.MythicalItem, name string, placement MythicalPlacement) (string, error) {
 	s, r := st.s, st.r
-	if s.installParallelRequired && mythicalTodo(item) && (item.State == "queued" || item.State == "retrying") {
+	if s.installParallelRequired && mythicalTodo(item) && (item.State == "queued" || item.State == "retrying" || mythicalChecksOf(item).ForeignBring != nil) {
 		ctx = context.WithValue(ctx, todoMachineDemandKey{}, todoMachineHolder(item))
 	}
 	q := s.queries()
@@ -3537,7 +3560,16 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		stamp = strconv.FormatInt(item.CreatedAt.Time.Unix(), 10) + " +0000"
 	}
 	identity := "Smithers <smithers@smithers.sh> " + stamp
-	commit, err := r.g.writeCommit(ctx, mythicalCommit{Tree: candidate.Tree, Parents: []string{r.mainTip}, Author: identity,
+	parents := []string{r.mainTip}
+	// A person's accepted commit remains in the PR's ancestry even though
+	// its verified tree is published as the stack's logical change. GitHub
+	// still squash-merges that item onto append-only main as one commit.
+	for _, wait := range mythicalChecksOf(item).Waits {
+		if wait.Kind == "foreign_push" && wait.Answer == "bring-in" && wait.SettledAt != nil && codingCommitID.MatchString(wait.SHA) && !slices.Contains(parents, wait.SHA) {
+			parents = append(parents, wait.SHA)
+		}
+	}
+	commit, err := r.g.writeCommit(ctx, mythicalCommit{Tree: candidate.Tree, Parents: parents, Author: identity,
 		Committer: identity, Message: title + "\n\n" + body + "\n"})
 	if err != nil {
 		return nil, err

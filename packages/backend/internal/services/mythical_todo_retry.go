@@ -43,6 +43,7 @@ type todoSteer struct {
 	// release, including invalidating a fenced candidate. Clearing it does not mean
 	// the runtime accepted the message or the model consumed it.
 	ReleasePending bool `json:"release_pending,omitempty"`
+	AfterProposal  bool `json:"after_proposal,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,

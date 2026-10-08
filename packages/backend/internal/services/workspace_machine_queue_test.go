@@ -419,3 +419,21 @@ func TestTodoReviewRetainsOrderedAdmissionAfterCodingStops(t *testing.T) {
 		})
 	}
 }
+
+func TestForeignBringReentersOrderedAdmission(t *testing.T) {
+	svc, _ := machineQueueService(t)
+	lanes := &workspaceMythicalLanes{workspaces: svc}
+	item := db.MythicalItem{Source: "todo", State: "proposed", PRHead: "head"}
+	item.StackPosition.Int64, item.StackPosition.Valid = 1, true
+	checks := mythicalChecks{ForeignHead: "foreign", Review: &mythicalReview{Head: "head", Verdict: "approve"}}
+	item.Checks = checks.encode()
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+	require.False(t, lanes.TodoMachineEligible(item), "an unanswered push does not admit a machine")
+	checks.ForeignBring = &mythicalForeignBring{SHA: "foreign", Wait: "wait"}
+	item.Checks = checks.encode()
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+	require.True(t, lanes.TodoMachineEligible(item), "the durable person choice needs the native machine")
+	item.PausedAt.Valid = true
+	require.NoError(t, lanes.SyncTodoMachines(1, []db.MythicalItem{item}, 1, time.Now()))
+	require.False(t, lanes.TodoMachineEligible(item), "pause continues to hold re-admission")
+}

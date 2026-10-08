@@ -180,3 +180,31 @@ func TestInReviewInputAfterEndedRunStartsNextAttempt(t *testing.T) {
 		})
 	}
 }
+
+func TestInReviewSteerSurvivesLateCompositionCompletion(t *testing.T) {
+	item, input, ctx := steerFixture()
+	item.State = "proposed"
+	item.PRNumber.Valid, item.PRNumber.Int64, item.PRHead = true, 17, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	next, feedback, deliver, _, err := prepareTodoSteer(ctx, item, input, nil, nil, time.Now())
+	require.NoError(t, err)
+	require.True(t, deliver)
+	require.True(t, feedback.AfterProposal)
+	next.RequestOutcome = "completed"
+	queued := mythicalComposedOutcome(next, time.Now())
+	require.NotNil(t, queued)
+	require.Equal(t, "queued", queued.State)
+	require.Equal(t, item.FlowDigest, queued.FlowDigest)
+	require.Equal(t, item.Attempt, queued.Attempt, "admission alone advances the attempt")
+	retained := mythicalChecksOf(*queued).Steers[0]
+	require.Equal(t, feedback.ID, retained.ID)
+	require.Equal(t, feedback.Text, retained.Text)
+	require.Equal(t, mythicalChecksOf(next).Steers[0].By, retained.By)
+	require.Equal(t, item.Attempt+1, retained.Attempt)
+	require.True(t, retained.ReleasePending)
+	require.False(t, retained.AfterProposal, "carry once rather than repeating a late completion recovery")
+	require.Equal(t, int64(2), retained.InputVersion)
+	require.Equal(t, item.PRHead, queued.PRHead)
+	// A composition with no offered PR is still a real no-proposal failure.
+	next.PRNumber.Valid = false
+	require.Equal(t, "blocked", mythicalComposedOutcome(next, time.Now()).State)
+}

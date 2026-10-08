@@ -433,7 +433,9 @@ func (l *workspaceMythicalLanes) SyncTodoMachines(repositoryID int64, items []db
 		reviewPending := item.State == "proposed" && checks.ForeignHead == "" &&
 			(checks.Review == nil || checks.Review.Head != item.PRHead ||
 				strings.HasPrefix(checks.Review.Verdict, mythicalOutage) && checks.Outages <= mythicalOutageBound)
-		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying" || reviewPending) && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
+		// A person-admitted Bring in must re-admit its released coding machine.
+		bringPending := checks.ForeignBring != nil
+		eligible := item.StackPosition.Valid && !item.PausedAt.Valid && len(item.PendingOp) == 0 && (item.State == "queued" || item.State == "retrying" || reviewPending || bringPending) && (!item.NextAttemptAt.Valid || !item.NextAttemptAt.Time.After(now)) && item.Reason != todoDailyLimitReason
 		starting := item.WorkspaceID != "" && !item.PausedAt.Valid && mythicalHoldsLane(item)
 		if held || eligible || starting {
 			holders = append(holders, holder)

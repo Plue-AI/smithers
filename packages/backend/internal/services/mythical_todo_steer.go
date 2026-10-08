@@ -458,7 +458,7 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 		}
 	}
 	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Credential: credential, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now.UTC(), Attempt: attempt,
-		ReleasePending: !deliver}
+		ReleasePending: !deliver, AfterProposal: item.State == "proposed"}
 	checks.Steers = append(checks.Steers, feedback)
 	next.Checks = checks.encode()
 	return next, feedback, deliver, false, nil

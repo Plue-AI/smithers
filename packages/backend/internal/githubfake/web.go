@@ -102,6 +102,7 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 			http.Error(w, "pull not found", 404)
 			return true
 		}
+		pull = s.current(key)
 		w.Header().Set("Content-Type", "application/json")
 		parent := ""
 		if dir, hosted := s.gitDir(r.URL.Query().Get("repo")); hosted {

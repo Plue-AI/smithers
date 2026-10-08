@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"testing"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestForeignBringReleasedUsesStackWorkerAndSamePR(t *testing.T) { testForeignBring(t, false) }
-func TestForeignBringConflictRetainsHeadAndBudget(t *testing.T)     { testForeignBring(t, true) }
+func TestForeignBringNativeUsesStackWorkerAndSamePR(t *testing.T) { testForeignBring(t, false) }
+func TestForeignBringConflictRetainsHeadAndBudget(t *testing.T)   { testForeignBring(t, true) }
 
 func testForeignBring(t *testing.T, conflicting bool) {
 	f := newRebaseFixture(t)
@@ -33,11 +34,11 @@ func testForeignBring(t *testing.T, conflicting bool) {
 	checks := mythicalChecksOf(item)
 	checks.ForeignHead = foreign
 	checks.Waits = append(checks.Waits, TodoWait{ID: "foreign-wait", Kind: "foreign_push", SHA: foreign, Since: time.Now().UTC(), By: json.RawMessage(`{"kind":"github","login":"alice"}`)})
-	retained, err := db.New(f.pool).CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: branch, Status: "stopped"})
+	retained, err := db.New(f.pool).CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: branch, Status: "running"})
 	require.NoError(t, err)
 	_, _, err = db.New(f.pool).BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: retained.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "TODO 1 coding"})
 	require.NoError(t, err)
-	item.WorkspaceID = ""
+	item.WorkspaceID = retained.ID
 	item.Checks = checks.encode()
 	item, err = db.New(f.pool).SaveMythicalItem(t.Context(), item)
 	require.NoError(t, err)
@@ -58,6 +59,12 @@ func testForeignBring(t *testing.T, conflicting bool) {
 	replay, err := f.service.AnswerBranch(session, branch, input)
 	require.NoError(t, err)
 	require.Equal(t, receipt, replay)
+	secondPress := input
+	secondPress.Request = "different-bring-press"
+	_, err = f.service.AnswerBranch(session, branch, secondPress)
+	var already *TodoControlError
+	require.ErrorAs(t, err, &already)
+	require.Equal(t, "conflict", already.Class)
 	require.Equal(t, item.CandidateHead, f.item(item.Number.Int64).CandidateHead, "HTTP admission does not execute Git work")
 	admitted := f.item(item.Number.Int64)
 	for _, field := range []string{"head", "generation", "onto", "sha", "occupied"} {
@@ -91,6 +98,15 @@ func testForeignBring(t *testing.T, conflicting bool) {
 	require.Zero(t, f.verifies(item))
 	_, err = f.pool.Exec(t.Context(), `UPDATE auth_sessions SET expires_at=NOW()+interval '1 hour' WHERE session_key='owner-session'`)
 	require.NoError(t, err)
+	// The guest result is independent of the implementation under test.
+	nativeHead := f.git(f.hostDir, "commit-tree", f.hostTree(foreign), "-p", foreign, "-m", "native Bring in")
+	paths := []string(nil)
+	if conflicting {
+		paths = []string{"OWN.md"}
+	}
+	f.git(f.hostDir, "update-ref", "refs/smithers/branches/"+retained.ID+"/captures/"+nativeHead, nativeHead)
+	f.service.SetBranchRebaseExecutor(&rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: nativeHead, Inspected: true, Paths: paths}})
+	f.wake()
 	f.wake()
 	verified := f.item(item.Number.Int64)
 	if conflicting {
@@ -133,6 +149,7 @@ func testForeignBring(t *testing.T, conflicting bool) {
 	require.Equal(t, "proposed", published.State, published.Reason)
 	require.Equal(t, item.PRNumber, published.PRNumber)
 	require.Equal(t, published.PRHead, f.githubRef(branch))
+	f.git(f.github, "merge-base", "--is-ancestor", foreign, published.PRHead)
 	require.Equal(t, "alice bytes", f.git(f.github, "show", published.PRHead+":alice.md"))
 	require.Equal(t, 1, f.verifies(published))
 	var count int
@@ -141,4 +158,80 @@ func testForeignBring(t *testing.T, conflicting bool) {
 	replay, err = f.service.AnswerBranch(session, branch, input)
 	require.NoError(t, err)
 	require.Equal(t, receipt, replay)
+}
+
+func TestForeignBringOccupiedCheckpointRecovery(t *testing.T) { testForeignBringRecovery(t, false) }
+func TestForeignBringPlanningQuestionCheckpointRecovery(t *testing.T) {
+	testForeignBringRecovery(t, true)
+}
+func testForeignBringRecovery(t *testing.T, planning bool) {
+	f := newRebaseFixture(t)
+	item := f.candidate("Bring", f.main, "OWN.md", "own\n")
+	f.wake()
+	item = f.item(item.Number.Int64)
+	branch := mythicalChecksOf(item).Branch
+	foreign, err := f.fake.PushAs("rehearsal-owner/app", branch, 202, "alice", "Alice's addition", map[string]string{"alice.md": "alice bytes\n"})
+	require.NoError(t, err)
+	f.git(f.work, "fetch", "-q", f.github, foreign)
+	f.git(f.work, "push", "-q", f.hostDir, foreign+":"+repohost.KeptCommitRefPrefix+foreign)
+	q := db.New(f.pool)
+	workspace, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: f.repoID, UserID: f.userID, TargetBookmark: branch, Kind: "vm", Status: "running"})
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(t.Context(), db.MythicalLane{WorkspaceID: workspace.ID, RepositoryID: f.repoID, ItemID: item.ID, Name: "coding"})
+	require.NoError(t, err)
+	checks := mythicalChecksOf(item)
+	checks.ForeignHead = foreign
+	checks.Waits = append(checks.Waits, TodoWait{ID: "foreign-wait", Kind: "foreign_push", SHA: foreign, Since: time.Now().UTC(), By: json.RawMessage(`{"kind":"github","login":"alice"}`)})
+	openWaits := 1
+	if planning {
+		// A reopened TODO still carries the previous attempt's candidate while planning.
+		item.State, item.RequestOutcome, item.Plan = "running", "", nil
+		checks.Waits = append(checks.Waits, TodoWait{ID: "independent-question", Kind: "question", Since: time.Now().UTC(), Prompt: "Which greeting?"})
+		openWaits++
+	}
+	item.WorkspaceID, item.Checks = workspace.ID, checks.encode()
+	item, err = q.SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
+	f.service.SetOrchestration(f.service.github, f.launcher, &fakeMythicalLanes{})
+	owner, err := q.GetUserByID(t.Context(), f.userID)
+	require.NoError(t, err)
+	session := middleware.ContextWithAuthInfo(t.Context(), &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+	_, err = f.service.AnswerBranch(session, branch, TodoControlInput{Op: "bring-in", Repository: f.repoID, Actor: f.userID, Request: "occupied-bring", Wait: "foreign-wait", Revision: foreign})
+	require.NoError(t, err)
+	// Missing provider retains the admitted answer and publication hold.
+	f.wake()
+	require.Equal(t, item.CandidateHead, f.item(item.Number.Int64).CandidateHead)
+	require.Len(t, todoOpenWaits(f.item(item.Number.Int64)), openWaits)
+	// Literal independently created native result, parented on Alice's push.
+	f.git(f.work, "checkout", "--detach", foreign)
+	f.git(f.work, "commit", "--allow-empty", "-m", "Native checkpoint")
+	head := f.git(f.work, "rev-parse", "HEAD")
+	f.git(f.work, "push", "-q", f.hostDir, head+":refs/smithers/mythical/keep/"+head)
+	executor := &rebaseExecutionFixture{f: f, result: machined.RewriteResult{Head: head, Inspected: true}, failCapture: true}
+	f.service.SetBranchRebaseExecutor(executor)
+	f.wake()
+	require.Equal(t, 1, executor.calls, "item=%+v checks=%s", f.item(item.Number.Int64), f.item(item.Number.Int64).Checks)
+	require.NotNil(t, mythicalChecksOf(f.item(item.Number.Int64)).ForeignBring.Native)
+	// A new worker pass after failed capture does not repeat the rewrite.
+	f.wake()
+	require.Equal(t, 1, executor.calls)
+	executor.failCapture = false
+	f.wake()
+	next := f.item(item.Number.Int64)
+	if planning {
+		require.Equal(t, "running", next.State, next.Reason)
+		require.Empty(t, next.CandidateHead, "the current pinned composition still delivers its candidate")
+		require.Len(t, todoOpenWaits(next), 1)
+		require.Equal(t, "independent-question", todoOpenWaits(next)[0].ID)
+		require.Equal(t, item.RequestRunID, next.RequestRunID)
+	} else {
+		require.Equal(t, "verifying", next.State, next.Reason)
+		require.Equal(t, head, next.CandidateHead)
+		require.Empty(t, todoOpenWaits(next))
+	}
+	require.Equal(t, foreign, next.PRHead)
+	require.Equal(t, 1, executor.calls)
+	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_brought-in'`).Scan(&count))
+	require.Equal(t, 1, count)
 }
