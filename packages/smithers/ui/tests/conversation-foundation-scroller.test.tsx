@@ -356,6 +356,46 @@ describe("MessageScroller compound", () => {
     expect(getViewport().scrollTop).toBe(300 - 56);
   });
 
+  test("a delayed initial view restores once without replacing a focused control", async () => {
+    geometryByMessageId.set("target", { top: 300, height: 80 });
+    const view = (initialMessageId?: string) => <MessageScrollerProvider scrollAnchor="bottom" initialMessageId={initialMessageId}>
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="target"><button>Keep focus</button></MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport>
+    </MessageScrollerProvider>;
+    await render(view(), { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+    const viewport = getViewport();
+    const button = container!.querySelector("button")!;
+    button.focus();
+    await act(async () => root!.render(view("target")));
+    expect(getViewport() === viewport).toBe(true);
+    expect(container!.querySelector("button") === button).toBe(true);
+    expect(document.activeElement === button).toBe(true);
+    expect(viewport.scrollTop).toBe(300 - 56);
+    viewport.scrollTop = 120;
+    viewport.dispatchEvent(new Event("scroll"));
+    await act(async () => root!.render(view()));
+    await act(async () => root!.render(view("target")));
+    expect(viewport.scrollTop).toBe(120);
+  });
+
+  for (const gesture of ["wheel", "key", "scroll"] as const) test(`a ${gesture} before the initial view arrives keeps the reader's position`, async () => {
+    geometryByMessageId.set("target", { top: 300, height: 80 });
+    const view = (initialMessageId?: string) => <MessageScrollerProvider scrollAnchor="bottom" initialMessageId={initialMessageId}>
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="target">Target</MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport>
+    </MessageScrollerProvider>;
+    await render(view(), { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+    const viewport = getViewport();
+    if (gesture === "wheel") viewport.dispatchEvent(new WheelEvent("wheel", { deltaY: -20 }));
+    if (gesture === "key") viewport.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp" }));
+    viewport.scrollTop = 120;
+    viewport.dispatchEvent(new Event("scroll"));
+    await act(async () => root!.render(view("target")));
+    expect(viewport.scrollTop).toBe(120);
+  });
+
   test("a missing initialMessageId falls back to the anchor and retries on registration", async () => {
     const view = (withTarget: boolean) => (
       <MessageScrollerProvider scrollAnchor="bottom" initialMessageId="target">

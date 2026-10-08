@@ -361,7 +361,7 @@ function AppContent() {
   ].sort(transcriptOrder)
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
   const transcriptKey = controller.sharedConversation
-    ? `${identity?.login ?? ""}:${session.branchNavigation?.selected_branch ?? "main"}:${sharedConversation.view ? "ready" : "loading"}`
+    ? `${identity?.login ?? ""}:${session.branchNavigation?.selected_branch ?? "main"}`
     : `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
   /*
@@ -482,7 +482,7 @@ function AppContent() {
         data-testid="tab-body-main"
       >
       <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
-            initialMessageId={sharedConversation.view?.scroll_anchor ?? initialReadId}
+            initialMessageId={controller.sharedConversation ? sharedConversation.view?.scroll_anchor : initialReadId}
             readAnchor={controller.sharedConversation && !(latestEntry?.kind === "card" && latestEntry.card.kind === "docs") ? undefined : { messageId: latestReadId ?? "",
               targetId: latestEntry?.kind === "card" && latestEntry.card.kind === "docs" ? latestEntry.card.payload.anchor : undefined,
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",

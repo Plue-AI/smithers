@@ -35,7 +35,7 @@ export type MessageScrollerCommands = {
 export type MessageScrollerProviderProps = {
   /** 'bottom' pins and follows growth; 'none' (upstream default) never autoscrolls. */
   scrollAnchor?: "bottom" | "none";
-  /** Saved-transcript restore: anchor this registered message on mount. */
+  /** Saved-transcript restore: anchor once, including a delayed initial read. */
   initialMessageId?: string;
   /** Read new output from its top when oversized; otherwise follow its bottom. */
   readAnchor?: { targetId?: string; messageId: string; actor?: "arrival" | "user" | "output"; userMessageId?: string; requestId?: number; version?: string | number };
@@ -138,6 +138,13 @@ function MessageScrollerProviderImpl({
   const followingRef = useRef(scrollAnchor === "bottom");
   const ignoreScrollUntilBottomRef = useRef(false);
   const restorePendingRef = useRef(initialMessageId !== undefined);
+  const initialRestoreSeenRef = useRef(initialMessageId !== undefined);
+  // A member's saved view may arrive after the mounted conversation. Arm its
+  // first restore without replacing the controls the reader is already using.
+  if (!initialRestoreSeenRef.current && initialMessageId !== undefined) {
+    initialRestoreSeenRef.current = true;
+    restorePendingRef.current = true;
+  }
   const turnAnchorRef = useRef<{ id: string; top: number; } | null>(null);
   const pendingAnchorIdRef = useRef<string | null>(null);
   const ignoreNextScrollRef = useRef(false);
@@ -580,6 +587,7 @@ function MessageScrollerProviderImpl({
   );
 
   const cancelProgrammaticScroll = useCallback(() => {
+    initialRestoreSeenRef.current = true;
     const viewport = viewportRef.current;
     if (!viewport) return;
     restorePendingRef.current = false;
@@ -663,6 +671,7 @@ function MessageScrollerProviderImpl({
       return;
     }
     const previousTop = snapshotRef.current.scrollTop;
+    if (viewport.scrollTop !== previousTop) initialRestoreSeenRef.current = true;
     const bottom = measure(viewport);
     // A scroll that leaves the anchor pin while a restore is pending is a user
     // gesture (scrollbar drags surface only as scroll events): cancel retrying.

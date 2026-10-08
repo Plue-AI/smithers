@@ -458,8 +458,11 @@ test("initial member view arrival never remounts an interactive Context disclosu
     flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
     await waitFor(() => releases.length > 0)
     expect(host.querySelector(".context-toggle")).toBeNull()
+    await waitFor(() => host.querySelector(".home") !== null)
+    const mountedHome = host.querySelector(".home")!
     releaseViews()
     await waitFor(() => host.querySelector(".context-toggle") !== null)
+    expect(host.querySelector(".home") === mountedHome).toBe(true)
     const toggle = host.querySelector<HTMLButtonElement>(".context-toggle")!
     flushSync(() => toggle.click())
     expect(toggle.getAttribute("aria-expanded")).toBe("true")

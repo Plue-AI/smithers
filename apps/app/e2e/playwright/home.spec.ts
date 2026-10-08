@@ -133,12 +133,12 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
     alice: { home: { filter: null }, toasts_hidden: false },
     maya: { home: { filter: null }, toasts_hidden: false }
   }
-  const viewWrites: Array<{ login: string; body: unknown }> = []
+  const viewWrites: Array<{ login: string; body: unknown; before: Record<string, unknown> }> = []
   await page.route("**/api/conversations/main/view-state", route => {
     const login = principal(route.request().headers())
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON()
-      viewWrites.push({ login, body }); memberViews[login] = body
+      viewWrites.push({ login, body, before: structuredClone(memberViews[login]!) }); memberViews[login] = body
     }
     return route.fulfill({ json: memberViews[login] })
   })
@@ -226,12 +226,17 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
 
   // Navigation may advance the anchor while a card scrolls into view.
   // Filtering must retain the member's independent look and toast preferences.
-  const beforeFilter = structuredClone(memberViews.ben!)
   viewWrites.length = 0
   const reviewFilter = home.locator('[data-filter="in_review"]')
   await reviewFilter.click()
   await expect.poll(() => memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
-  expect([...viewWrites].reverse().find(write => write.login === "ben" && (write.body as { home?: { filter?: string } }).home?.filter === "in_review")).toEqual({ login: "ben", body: { ...beforeFilter, home: { filter: "in_review", menu: null } } })
+  const filterWrite = viewWrites.find(write => write.login === "ben" &&
+    (write.body as { home?: { filter?: string } }).home?.filter === "in_review" &&
+    (write.before.home as { filter?: string } | undefined)?.filter !== "in_review")
+  expect(filterWrite).toBeDefined()
+  // Timeline expiry can settle before this serialized write. Preserve the
+  // complete persisted view at admission, including its current timestamp.
+  expect(filterWrite!.body).toEqual({ ...filterWrite!.before, home: { filter: "in_review", menu: null } })
   // The intercepted PUT records its body before the response commits the view.
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
   await page.reload()
