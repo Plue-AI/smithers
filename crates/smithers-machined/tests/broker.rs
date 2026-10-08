@@ -69,6 +69,39 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
     for bytes in [
         packet(1, &[conn::field(1, 0u32.to_be_bytes())]),
         packet(1, &[conn::field(1, 1001u32.to_be_bytes())]),
+        packet(1, &[conn::field(1, u32::MAX.to_be_bytes())]),
+        // Freeze accepts only a bounded timeout, never a caller-selected
+        // session, cgroup, repository path or process identity.
+        packet(
+            1,
+            &[
+                conn::field(1, 1000u32.to_be_bytes()),
+                conn::field(2, 999u32.to_be_bytes()),
+            ],
+        ),
+        packet(
+            1,
+            &[
+                conn::field(1, 1000u32.to_be_bytes()),
+                conn::field(2, b"/sys/fs/cgroup/smithers/sessions/../../root"),
+            ],
+        ),
+        packet(
+            1,
+            &[
+                conn::field(1, 1000u32.to_be_bytes()),
+                conn::field(2, b"/workspace/.jj/repo/config.toml"),
+            ],
+        ),
+        packet(
+            1,
+            &[
+                conn::field(1, 1000u32.to_be_bytes()),
+                conn::field(1, 1u32.to_be_bytes()),
+            ],
+        ),
+        packet(1, &[]),
+        packet(254, &[]),
         packet(2, &[conn::field(1, b"/workspace/evil")]),
         packet(3, &[conn::field(1, b"../../root")]),
         packet(4, &[conn::field(1, b"/bin/sh")]),
@@ -79,8 +112,8 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
         assert_eq!(&response[..4], &9u32.to_be_bytes());
         assert_eq!(response[4], 255);
     }
-    // Length validation remains a unit assertion; the authority inputs above
-    // traverse the same seqpacket server used by the installed root broker.
+    // Short frames cannot reach the provider either. Oversized frames traverse
+    // the production socket server in the separate test below.
     let mut kernel = Kernel::default();
     assert!(control::handle(&vec![0; 65537], &mut kernel).is_err());
     for n in 0..9 {
@@ -103,6 +136,36 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
         &conn::structure_bytes(&[conn::field(1, [2])])
     )
     .is_err());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn oversized_freeze_frames_close_socket_before_privileged_effects() {
+    use rustix::net::{send, socketpair, AddressFamily, SendFlags, SocketFlags, SocketType};
+    // Include a datagram larger than the receive buffer. Its valid freeze
+    // prefix must never be accepted after kernel truncation.
+    for length in [65537, 65561, 70000] {
+        let (server, client) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let worker = std::thread::spawn(move || {
+            let mut kernel = Kernel::default();
+            let error = control::serve(&server, &mut kernel).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            assert!(kernel.calls.is_empty());
+        });
+        let mut bytes = packet(1, &[conn::field(1, 1000u32.to_be_bytes())]);
+        bytes.resize(length, 0);
+        assert_eq!(send(&client, &bytes, SendFlags::NOSIGNAL).unwrap(), length);
+        // EOF also bounds a regression that incorrectly accepts the packet
+        // and keeps serving, rather than leaving the test blocked in join.
+        drop(client);
+        worker.join().unwrap();
+    }
 }
 struct Child {
     log: Vec<String>,

@@ -29,6 +29,11 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 	for _, choice := range []string{"keep-moved", "return-to-item", "race"} {
 		t.Run(choice, func(t *testing.T) {
 			f := presenceInstall(t)
+			// The app opens the TODO's reserved bookmark through /api/branches,
+			// just as a composed install does. The presence fixture starts as a
+			// scratch workspace; binding a lane alone does not rename it.
+			_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET target_bookmark='smithers/retry-webhooks' WHERE id=$1`, f.row.ID)
+			require.NoError(t, err)
 			service := services.NewMythicalService(f.pool, nil)
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = "selfhost"
@@ -41,7 +46,7 @@ func TestMovedOffAuthenticatedIngestProjectsIndependentWaitThroughInstallHTTP(t 
 			server.Config.Handler = githubAppSetupComposeRouter(cfg, f.pool, nil, &routes.WorkspaceHandler{Service: f.p.branches}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Live: channel})
 			server.Start()
 			defer server.Close()
-			_, err := f.pool.Exec(t.Context(), `UPDATE mythical_items SET state='running',checks='{"waits":[{"id":"other-question","kind":"question","prompt":"Which?","since":"2026-10-07T00:00:00Z"}]}' WHERE repository_id=$1 AND number=1`, f.row.RepositoryID)
+			_, err = f.pool.Exec(t.Context(), `UPDATE mythical_items SET state='running',checks=checks || '{"waits":[{"id":"other-question","kind":"question","prompt":"Which?","since":"2026-10-07T00:00:00Z"}]}'::jsonb WHERE repository_id=$1 AND number=1`, f.row.RepositoryID)
 			require.NoError(t, err)
 			registry := &machined.Registry{}
 			boot := [16]byte{1}

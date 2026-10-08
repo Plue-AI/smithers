@@ -25,7 +25,8 @@ export const journeySpecs = [
   "todo-stack-actions.spec.ts",
   "home.spec.ts",
   "todo-placement.spec.ts",
-  "branch-presence.spec.ts"
+  "branch-presence.spec.ts",
+  "ssh-branch.spec.ts"
 ] as const
 
 /** The journey specs this run leaves out: all of them, except the one SMITHERS_JOURNEY enables. */
