@@ -2,7 +2,7 @@ import { expect, test } from "./browserTest"
 import { fillComposer } from "./composer"
 import { installCloudFixture } from "./cloudFixture"
 
-test("install item Diff reads its branch while burst Diff refuses substitution", async ({ page }) => {
+test("install item Diff reads its branch while burst Diff rejects an item-base response", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const reads: string[] = []
   await page.route("**/api/branches/**/diff**", route => {
@@ -14,17 +14,17 @@ test("install item Diff reads its branch while burst Diff refuses substitution",
   await page.goto("/")
   await fillComposer(page, '/diff {"branch":"smithers/retry-webhooks","entry":"6ad2b1a9-1869-4d1a-b087-8ba32a09b102"}')
   await page.getByTestId("composer-send").click()
-  await expect(page.getByText("Burst diff unavailable", { exact: true }).last()).toBeVisible()
-  await expect(page.locator('[data-testid^="card-diff"]')).toHaveCount(0)
+  await expect(page.getByText("Diff unavailable", { exact: true }).last()).toBeVisible()
+  await expect(page.getByTestId('card-diff-burst-smithers/retry-webhooks-6ad2b1a9-1869-4d1a-b087-8ba32a09b102-')).not.toContainText('const delay = 2')
   await expect(page.getByTestId("composer-input")).toBeEditable()
-  expect(reads).toEqual([])
+  expect(new URL(reads[0]!).searchParams.get("entry")).toBe("6ad2b1a9-1869-4d1a-b087-8ba32a09b102")
   await fillComposer(page, "/diff smithers/retry-webhooks")
   await page.getByTestId("composer-send").click()
   const diff = page.getByTestId("card-diff-branch-smithers/retry-webhooks")
   await expect(diff).toBeVisible()
   await expect(diff).toContainText("retry.ts")
-  await expect.poll(() => reads.length).toBe(1)
-  expect(new URL(reads[0]!).pathname).toBe("/api/branches/smithers%2Fretry-webhooks/diff")
+  await expect.poll(() => reads.length).toBe(2)
+  expect(new URL(reads[1]!).pathname).toBe("/api/branches/smithers%2Fretry-webhooks/diff")
 })
 
 // Browser contract proof. The PostgreSQL/SSH/lease journey remains reference-host evidence.

@@ -152,13 +152,13 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   // no seed rows stand in for unavailable activity or changed files.
   const optionalData = (snapshot: typeof activity) => snapshot?.error === "unsupported" ? [] : snapshot?.data
   const refused = (snapshot: typeof activity) => snapshot?.error !== undefined && snapshot.error !== "unsupported"
-  const model = branch?.error || refused(activity) || refused(files) ? undefined
+  const base = branch?.error || refused(activity) || refused(files) ? undefined
     : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id, { roster: roster?.model?.members.map(member => ({ ...member, id: member.login })) })
   const todos = useSyncExternalStore(controller.todoList?.subscribe ?? (() => () => {}),
     controller.todoList?.get ?? (() => undefined), controller.todoList?.get ?? (() => undefined))
-  const questionWait = todos?.todos?.find(todo => todo.n === model?.item?.n)?.waits
+  const questionWait = todos?.todos?.find(todo => todo.n === base?.item?.n)?.waits
     .find(wait => wait.kind === "question" && wait.actions.some(action => action.tag === "todo.answer"))?.id
-  const movedWait = todos?.todos?.find(todo => todo.n === model?.moved_off?.item)?.waits.find(wait => wait.kind === "moved_off")
+  const movedWait = todos?.todos?.find(todo => todo.n === base?.moved_off?.item)?.waits.find(wait => wait.kind === "moved_off")
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (branchSeedAvailable(controller) && branch?.data === undefined
@@ -179,12 +179,15 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (typeof controller.answerTodo === "function" && questionWait !== undefined) providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
   const dispatch: CardCommandDispatch = (tag, input) => controller.submitCommand({
-    name: tag, payload: { branch: model?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
+    name: tag, payload: { branch: base?.name ?? card.payload.id, ...(input ?? {}) }, actor: "user", originCardId: card.id
   })
+  const changes = cardActions(dispatch, base && typeof controller.branchDiff === "function" ? changeActionDefinitions(base) : [])
+  const model: BranchModel | undefined = base && { ...base, activity: base.activity.map(entry => entry.kind !== "change" ? entry
+    : { ...entry, actions: changes.actions.filter(action => action.args?.burst === entry.id) }) }
   const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers, questionWait, movedWait?.id) : [])
   if (!model) return branchSeedAvailable(controller) ? <DesignBranchBody card={card} actions={actions} /> : null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
-    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}
+    onAction={(tag, input) => (tag === "diff" ? changes : bindings).onAction(tag, input)} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}
     onView={patch => persistBranchView(controller, card, patch)} />
 }
 
