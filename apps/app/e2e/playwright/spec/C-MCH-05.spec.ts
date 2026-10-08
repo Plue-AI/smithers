@@ -1,25 +1,30 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { withGitHubInstall } from "./github-install-fixture"
 
-// UI projection of .specs/engineering/checks/C-MCH-05.md; not a qualification receipt.
-// Written before implementation: mvp.md §6.7, J7; lands with T-MCH-09
-test("C-MCH-05: Cleanup retains uncaptured work and active terminals with history", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.7, J7; lands with T-MCH-09")
-  await owner(page)
-  await page.goto("/")
-  // Seed after cleanup: failed capture, post-capture write, active terminal,
-  // active SSH, failed service stop and an unsettled In review branch retained.
-  // Settled captured branches lose disks only after 24 h; retained objects rebuild on reopen.
-  await say(page, "/branch retry-webhooks")
-  await page.getByRole("tab", { name: /^Terminals/ }).last().press("Enter")
-  await expect(page.getByRole("button", { name: "Ben's terminal", exact: true }).last()).toBeVisible()
-  await say(page, "/file shared.txt")
-  await expect(page.getByRole("region", { name: "File content", exact: true }).last()).toContainText("uncaptured work")
-  await say(page, "/todo T8")
-  await expect(page.getByText("In review", { exact: true }).last()).toBeVisible()
-  await page.reload()
-  await expect(page.getByText("In review", { exact: true }).last()).toBeVisible()
-  await say(page, "/branch retry-webhooks")
-  await page.getByRole("tab", { name: /^Terminals/ }).last().press("Enter")
-  await expect(page.getByRole("button", { name: "Ben's terminal", exact: true }).last()).toBeVisible()
+// Production cleaner, host objects, GitHub reopen and reconstruction; native
+// capture inputs use the process fixture. Real microVM/security receipts remain
+// required on the reference host.
+test("C-MCH-05: dropped cleanup preserves captured files through reopen and reload", async ({ page }) => {
+  test.setTimeout(300_000)
+  await withGitHubInstall(page, "TestCleanupReopenComposedInstall", "SMITHERS_GH03_REHEARSAL", async fixture => {
+    for (const phase of ["dropped", "cleaned", "in_review"] as const) {
+      const host = await fixture.phase(phase)
+      await fixture.open(host)
+      await say(page, `/todo T${host.number}`)
+      const card = page.getByRole("article", { name: `TODO T${host.number}`, exact: true }).last()
+      await expect(card).toBeVisible({ timeout: 30_000 })
+      await expect(card).toContainText(phase === "dropped" || phase === "cleaned" ? "Dropped" : "In review")
+      if (phase === "cleaned" || phase === "in_review") {
+        await say(page, `/branch T${host.number}`)
+        await expect(page.getByRole("tab", { name: /^Files/ }).last()).toBeVisible({ timeout: 30_000 })
+        await say(page, "/file tracked.txt")
+        await expect(page.getByRole("textbox", { name: "tracked.txt", exact: true }).last()).toContainText("tracked final bytes")
+        await say(page, "/file untracked.txt")
+        await expect(page.getByRole("textbox", { name: "untracked.txt", exact: true }).last()).toContainText("untracked final bytes")
+      }
+      await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+      await fixture.acknowledge(phase)
+    }
+  })
 })

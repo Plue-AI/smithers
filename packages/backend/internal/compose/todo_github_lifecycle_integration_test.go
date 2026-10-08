@@ -37,7 +37,17 @@ func TestTODOGitHubReopenWindowComposedInstall(t *testing.T) {
 	testTODOGitHubCloseReopenComposedInstall(t, 7, time.Second)
 }
 
+func TestCleanupReopenComposedInstall(t *testing.T) {
+	t.Setenv("SMITHERS_FEATURE_FLAGS_WORKSPACES", "true")
+	t.Setenv("SMITHERS_FEATURE_FLAGS_SANDBOXES", "true")
+	testCleanupGitHubLifecycle(t, 6, true, 23*time.Hour)
+}
+
 func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...time.Duration) {
+	testCleanupGitHubLifecycle(t, days, false, extra...)
+}
+
+func testCleanupGitHubLifecycle(t *testing.T, days int, cleanupRecovery bool, extra ...time.Duration) {
 	closeAge := time.Duration(days) * 24 * time.Hour
 	if len(extra) > 0 {
 		closeAge += extra[0]
@@ -183,6 +193,10 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...t
 	require.Equal(t, installationID, source.Installation)
 	require.Equal(t, int64(100), source.Github)
 	require.True(t, source.Metadata)
+	var recovery *cleanupReopenProof
+	if cleanupRecovery {
+		recovery = prepareCleanupReopen(t, r, filed.N, repository, owner, publishedHead)
+	}
 	for _, smithersDrop := range []bool{false, true} {
 		// Reopen's durable branch-restoration intent must settle before the
 		// next control, just as any pending GitHub write must.
@@ -257,6 +271,9 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...t
 		// install's webhook-triggered worker still uses its production clock.
 		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{githubClosedAt}',to_jsonb(clock_timestamp() - $2 * interval '1 second')),updated_at=clock_timestamp(),version=version+1 WHERE number=$1`, filed.N, int64(closeAge/time.Second))
 		require.NoError(t, err)
+		if recovery != nil {
+			recovery.remove(t, r)
+		}
 		// Simulate GitHub deleting the closed PR's branch, while its accepted
 		// objects and immutable manifest remain retained in the install.
 		deleteBranch := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "update-ref", "-d", "refs/heads/"+branch, publishedHead)
@@ -290,6 +307,10 @@ func testTODOGitHubCloseReopenComposedInstall(t *testing.T, days int, extra ...t
 			remoteHead, readErr := branchRead.Output()
 			return readErr == nil && strings.TrimSpace(string(remoteHead)) == publishedHead
 		}, 30*time.Second, 50*time.Millisecond, "reopen restores the accepted published head")
+		if recovery != nil {
+			recovery.reconstruct(t, r)
+			return
+		}
 		hint("reopened")
 		var attempt int
 		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, filed.N).Scan(&attempt))
