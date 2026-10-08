@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -207,6 +208,13 @@ func projectTodoPause(next *db.MythicalItem, projection mythicalProjection, upda
 	if pause.Resuming && pause.Delivered && (run.Status == "running" || run.Status == "parked") {
 		pause.Requested, pause.Resuming = false, false
 		checks.RunAttached = true
+		// A parked working composition can have its candidate rebased and
+		// verified while paused. Attachment restores that unfinished work;
+		// the retained open PR must not project it as a review rebuild.
+		if slices.Contains([]string{"running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying"}, pause.State) && next.RequestOutcome == "" &&
+			(next.State == "integrating" || next.State == "verifying" || next.State == "proposing" || next.State == "waiting" || next.State == "proposed") {
+			next.State = "running"
+		}
 	}
 	next.Checks = checks.encode()
 }

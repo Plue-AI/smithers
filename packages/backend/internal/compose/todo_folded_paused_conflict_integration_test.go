@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -18,8 +19,21 @@ import (
 // sync, native conflict, member file/Done, and same-journal HTTP Resume. No
 // parked input or conflict receipt is seeded. Linux process evidence only.
 func TestTodoFoldedPausedConflictResumeComposedInstall(t *testing.T) {
+	testTodoFoldedPausedConflictResume(t, "SMITHERS_TODO_FOLDED_CONFLICT")
+}
+
+// Uses the approved installed guest providers without a process fallback.
+func TestTodoFoldedPausedConflictResumeMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_TODO_FOLDED_CONFLICT_MICROVM") != "1" {
+		t.Skip("requires the reference microVM and approved bundle")
+	}
+	t.Setenv(pinnedMicroVMRehearsal, "1")
+	testTodoFoldedPausedConflictResume(t, pinnedMicroVMRehearsal)
+}
+
+func testTodoFoldedPausedConflictResume(t *testing.T, enable string) {
 	t.Setenv("TODO_HOLD_STEP", "coding/draft-plan")
-	r := newRehearsal(t, "SMITHERS_TODO_FOLDED_CONFLICT", "C-STK-08", "folded-conflict-", 25)
+	r := newRehearsal(t, enable, "C-STK-08", "folded-conflict-", 25)
 	require.True(t, r.install("Install through Machine ready"))
 	require.NoError(t, db.New(r.pool).UpsertInstallSetting(r.ctx, db.UpsertInstallSettingParams{Key: services.InstallCodingProjectKey, Value: []byte(`{"conflictAttempts":0}`)}))
 	n, err := r.file("Pause through main conflict", "[NORESOLVE] Add a greeting to JOURNEY.md")

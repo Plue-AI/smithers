@@ -5,6 +5,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -17,8 +18,21 @@ import (
 // the next question independently reveals the boolean the flow consumed.
 // Linux process transport does not qualify a real guest or reference timing.
 func TestTodoApprovalManagedHostComposedInstall(t *testing.T) {
+	testTodoApprovalManagedHost(t, "SMITHERS_TODO_APPROVAL_HOST")
+}
+
+// Uses the approved installed guest providers without a process fallback.
+func TestTodoApprovalManagedHostMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_TODO_APPROVAL_MICROVM") != "1" {
+		t.Skip("requires the reference microVM and approved bundle")
+	}
+	t.Setenv(pinnedMicroVMRehearsal, "1")
+	testTodoApprovalManagedHost(t, pinnedMicroVMRehearsal)
+}
+
+func testTodoApprovalManagedHost(t *testing.T, enable string) {
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
-	r := newRehearsal(t, "SMITHERS_TODO_APPROVAL_HOST", "C-STK-01", "approval-host-")
+	r := newRehearsal(t, enable, "C-STK-01", "approval-host-")
 	require.True(t, r.install("Install through Machine ready"))
 	source := `import { Flow, HumanTask } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
