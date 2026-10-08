@@ -208,15 +208,15 @@ test('real watcher host campaign requires every process-exit recovery lifecycle'
 
 test('S2 receipts cannot combine missing, reordered, failed or different revisions into qualification', async () => {
   const { s2Campaigns, s2Verdict } = await import('./faults.mjs')
-  const campaigns = s2Campaigns.map(({ name, points }) => ({ name, points,
+  const campaigns = s2Campaigns.map(({ name, points }, i) => ({ name, points, host: { platform: i < 2 ? 'linux' : 'darwin' },
     commit: 'a'.repeat(40), componentStatus: 'boundary-passed' }))
-  assert.equal(s2Verdict(campaigns), 'incomplete', 'separate guest and host runs do not qualify integrated K4/K4b')
+  assert.equal(s2Verdict(campaigns), 'passed')
   assert.equal(s2Verdict([]), 'failed')
   assert.equal(s2Verdict([...campaigns].reverse()), 'failed')
   assert.equal(s2Verdict([...campaigns, campaigns[0]]), 'failed')
   for (let i = 0; i < campaigns.length; i++) {
     for (const changed of [{ componentStatus: 'failed' }, { componentStatus: 'component-passed' },
-      { commit: 'b'.repeat(40) }, { commit: '' }, { points: [] }, { name: 'fixture' }]) {
+      { commit: 'b'.repeat(40) }, { commit: '' }, { host: { platform: i < 2 ? 'darwin' : 'linux' } }, { points: [] }, { name: 'fixture' }]) {
       assert.equal(s2Verdict(campaigns.map((item, j) => j === i ? { ...item, ...changed } : item)), 'failed')
     }
   }
@@ -252,10 +252,53 @@ test('member/host qualification requires each of the ten real guest outage lifec
  const logs = receipt(memberHostLifecycles, 1)
  assert.equal(memberHostVerdict(0, logs), 'boundary-passed')
  assert.equal(memberHostVerdict(1, logs), 'failed')
- assert.equal(memberHostLifecycles.length, 11)
+ assert.equal(memberHostLifecycles.length, 22)
  for (const name of memberHostLifecycles) {
   for (const replacement of ['', event('skip', name), event('fail', name)]) {
    assert.equal(memberHostVerdict(0, logs.replace(event('pass', name), replacement)), 'failed')
   }
  }
+})
+
+
+test('cross-host argv pins revision and quotes paths before remote execution', async () => {
+ const { linuxCommand } = await import('./faults.mjs')
+ const config = { host: 'member@linux', root: "/tmp/a'b $(touch bad)" }
+ const args = linuxCommand(config, 'watcherHostOnly', 'a'.repeat(40))
+ assert.deepEqual(args.slice(0,2), ['--', 'member@linux'])
+ assert.ok(args[2].includes("cd '/tmp/a'\"'\"'b $(touch bad)'"))
+ assert.ok(args[2].endsWith('--watcher-host-only --receipt'))
+ for (const changed of [{ host: '-oProxyCommand=bad' }, { host: 'host;bad' }, { root: 'relative' }, { root: '/tmp/a\ncommand' }]) {
+  assert.throws(() => linuxCommand({...config,...changed}, 'watcherOnly', 'a'.repeat(40)), /invalid/)
+ }
+ assert.throws(() => linuxCommand(config, 'vmOnly', 'a'.repeat(40)), /invalid/)
+ assert.throws(() => linuxCommand(config, 'watcherOnly', 'HEAD'), /invalid/)
+})
+
+
+test('copied cross-host evidence must independently contain every real lifecycle at the pinned revision', async () => {
+ const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+ const { tmpdir } = await import('node:os')
+ const { join } = await import('node:path')
+ const { readLinuxCampaign, s2Campaigns, watcherHostLifecycles } = await import('./faults.mjs')
+ const directory = await mkdtemp(join(tmpdir(), 's2-copied-'))
+ try {
+  for (const campaign of s2Campaigns.slice(0,2)) {
+   const names = campaign.mode === 'watcherOnly' ? watcherLifecycles : watcherHostLifecycles
+   const file = join(directory, campaign.mode === 'watcherOnly' ? 'watcher.log' : 'watcher-host.log')
+   const commit = 'a'.repeat(40)
+   const summary = { commit, host: {platform:'linux'}, componentStatus:'boundary-passed', points:campaign.points.map(point=>({point})) }
+   const save = value => writeFile(join(directory,'summary.json'),JSON.stringify(value))
+   await save(summary); await writeFile(file,receipt(names,1))
+   assert.equal((await readLinuxCampaign(directory,campaign,commit)).componentStatus,'boundary-passed')
+   for (const patch of [{commit:'b'.repeat(40)}, {host:{platform:'darwin'}}, {componentStatus:'failed'}, {points:[]}]) {
+    await save({...summary,...patch}); await assert.rejects(readLinuxCampaign(directory,campaign,commit),/lifecycles failed/)
+   }
+   await save(summary)
+   for (const logs of [receipt(names,1).replace(event('pass',names.at(-1)),''), receipt(names,1)+'\n'+event('skip',names[0]), receipt(names,1)+'\n'+event('pass',names[0])]) {
+    await writeFile(file,logs); await assert.rejects(readLinuxCampaign(directory,campaign,commit),/lifecycles failed/)
+   }
+   await rm(file); await assert.rejects(readLinuxCampaign(directory,campaign,commit),/ENOENT/)
+  }
+ } finally {await rm(directory,{recursive:true,force:true})}
 })

@@ -145,40 +145,42 @@ retains the writer hashes, outbox, heads, rows and host object checks. A green
 selected campaign remains incomplete evidence for C-DUR-04 until real watcher
 K4/K4b host crash/outage and the remaining campaigns qualify together.
 
-`node scripts/working-together/faults.mjs --s2` runs the real Linux watcher,
-Linux watcher/host, approved guest-session, VM and guest-member host outage
-campaigns sequentially. Each
-campaign retains its existing logs and per-run evidence; the aggregate
-`s2-*/summary.json` links every receipt and checks that they tested the same
-commit. Missing fixtures remain failures and do not prevent recording the
-remaining campaigns' refusals. Evidence directories have unique suffixes so
-fast preflight failures cannot collide in the same millisecond.
+`node scripts/working-together/faults.mjs --member-host-only` runs K4 and
+K4b ten times each on the approved reference guest. K4 opens its writer through
+the authenticated terminal route and records its member UID and broker cgroup.
+It then transfers the retained private daemon connection to a separate host
+process running the production event consumer, PostgreSQL transaction and host
+object importer. This process exits with code 73 after committing a burst and
+before ACK. The writer stays alive in its member cgroup. The install's ordinary
+reconnect replays the outbox; capture, HTTP file reads and terminal reattachment
+check every acknowledged byte, unique file row and retained versions object.
+K4b keeps the host alive during a thirty-second outage and fifty bursts.
+Neither case installs branch code as root or synthesizes a session census.
 
-This command currently exits 1 on a failed campaign or 2 when all five selected
-boundaries pass. It never grants a C-DUR-04 pass: the Linux K4/K4b campaign has
-an empty broker census, so populated guest member sessions during host exit
-remain an integration gap. A reference host is necessary to execute
-the guest campaigns; authoring the combined K4 host-exit/session campaign remains work.
+`node scripts/working-together/faults.mjs --s2` orchestrates all S2 campaigns.
+Run it on the approved reference Mac. Its private
+`.artifacts/working-together-host.json` contains `databaseUrl`, `libraryPath`,
+`checkBundle`, a lane-specific `databaseNamespace` (at most fifteen characters)
+and `s2Linux: {"host":"member@linux-host","root":"/absolute/checkout"}`.
+The Linux checkout must be at the identical commit, with its own private host
+fixture naming the real killpoint rehearsal binary. SSH and SCP must already
+be authenticated. No test writes to a real GitHub repository.
 
+The driver invokes Linux watcher and watcher/host campaigns over SSH, checks
+the remote revision before launch, and copies their complete evidence trees
+back. It independently validates the copied Go lifecycle logs. Guest sessions,
+VM force-stop and both member/host faults run sequentially on the Mac. Guest
+bundles must name the campaign revision; receipts link their full rehearsal
+evidence directories and retain the bundle manifest digest. Configuration and
+boot secrets stay outside evidence.
 
-`node scripts/working-together/faults.mjs --member-host-only` authors ten K4b
-runs on the approved reference guest through the composed install. The writer
-opens through the authenticated member terminal route; its recorded UID and
-`/proc/self/cgroup` must show a real member in the production broker cgroup.
-The driver closes the private link and holds the existing authoritative-head
-lookup while production reconnect retries. Fifty writes each fsync and close
-before the ordinary debug local-capture hook closes their bursts. All fifty
-bursts and captures must remain in the actual outbox, with no host rows during
-the outage. Reconnect is released only after fifty captures and at least thirty
-seconds. The production reconnect, authenticated event consumer, PostgreSQL,
-host object store, file HTTP route and terminal reattachment then verify the
-retained writes. This keeps the same host process and guest daemon. Evidence
-includes the member process/cgroup, writer hashes, actual outage duration,
-host PID, queued records, drained outbox, database exports and capture heads.
-
-This case is authored and compiled on Linux; executing its ten runs requires
-the approved Apple Silicon guest bundle. It remains unqualified until those
-runs pass. It does not author or qualify K4's host-process exit with real members.
+The aggregate requires every campaign, matching revisions, Linux and Darwin
+host profiles and all K1–K6 lifecycles. It returns zero only when those campaigns
+pass; a skip, missing fixture, copy failure or missing lifecycle returns one.
+The summary links each evidence directory and preserves failures while running
+the remaining campaigns. This is S2 campaign evidence, not owner approval of a
+check-command mapping. C-J3-03, C-J3-06 (including the recorded VS Code step)
+and C-PERF-04 still require their separate reference-install/browser campaigns.
 
 K4's first Linux repetition deliberately waits for the first acknowledged file
 to commit before writing the other nineteen. A real host can exit at an early

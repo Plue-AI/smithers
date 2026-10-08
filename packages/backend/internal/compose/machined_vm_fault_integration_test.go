@@ -27,25 +27,29 @@ import (
 // checkout binary, helper, script or interpreter is planted or executed as root.
 // This campaign never substitutes a process kill for msb force-stop.
 func TestMachinedK6VMStop(t *testing.T) {
-	testMachinedGuestFaults(t, true, false)
+	testMachinedGuestFaults(t, true, false, false)
 }
 
 // Uses the same installed watcher/member cgroups/object store as K6. Guest
 // init, rather than the driver, replaces the daemon and cleans up sessions.
 func TestMachinedDaemonSessionFaultRecovery(t *testing.T) {
-	testMachinedGuestFaults(t, false, false)
+	testMachinedGuestFaults(t, false, false, false)
 }
 
 func TestMachinedMemberHostOutageRecovery(t *testing.T) {
-	testMachinedGuestFaults(t, false, true)
+	testMachinedGuestFaults(t, false, true, false)
 }
 
-func testMachinedGuestFaults(t *testing.T, vmStop, hostOutage bool) {
+func TestMachinedMemberHostCrashRecovery(t *testing.T) {
+	testMachinedGuestFaults(t, false, false, true)
+}
+
+func testMachinedGuestFaults(t *testing.T, vmStop, hostOutage, hostCrash bool) {
 	flag := "SMITHERS_MACHINED_K6_REFERENCE"
 	if !vmStop {
 		flag = "SMITHERS_MACHINED_SESSION_FAULT_REFERENCE"
 	}
-	if hostOutage {
+	if hostOutage || hostCrash {
 		flag = "SMITHERS_MACHINED_HOST_SESSION_REFERENCE"
 	}
 	if os.Getenv(flag) != "1" {
@@ -55,8 +59,17 @@ func testMachinedGuestFaults(t *testing.T, vmStop, hostOutage bool) {
 	require.Equal(t, "arm64", runtime.GOARCH)
 	bundle, err := installbundle.Open(os.Getenv("SMITHERS_CHECK_BUNDLE"))
 	require.NoError(t, err)
+	if commit := os.Getenv("SMITHERS_REHEARSAL_COMMIT"); commit != "" {
+		require.Equal(t, commit, bundle.Revision(), "guest qualification bundle must match the campaign revision")
+	}
 	t.Setenv(pinnedMicroVMRehearsal, "1")
 	r := newRehearsal(t, pinnedMicroVMRehearsal, "C-DUR-04", "k6-")
+	if directory := os.Getenv("SMITHERS_REHEARSAL_FAULT_EVIDENCE"); directory != "" {
+		require.True(t, filepath.IsAbs(directory))
+		data, err := json.Marshal(map[string]string{"directory": r.evidence, "bundle_revision": bundle.Revision(), "bundle_manifest": bundle.ManifestSHA256()})
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(directory, strings.ReplaceAll(t.Name(), "/", "-")+"-guest-evidence.json"), data, 0600))
+	}
 	vm, ok := r.workspaceRuntime.(*microsandbox.Runtime)
 	require.True(t, ok, "K6 must use production CreateWorkspace/StartWorkspace, planting and relay")
 	require.True(t, r.install("Install through Machine ready"))
@@ -114,15 +127,22 @@ func testMachinedGuestFaults(t *testing.T, vmStop, hostOutage bool) {
 		points = []string{"K1", "K2", "K3", "K3b", "K5a", "K5b", "K5c"}
 		campaign = "session"
 	}
-	if hostOutage {
+	if hostOutage || hostCrash {
 		points = []string{"K4b"}
+		if hostCrash {
+			points = []string{"K4"}
+		}
 		campaign = "host-session"
 	}
 	for _, point := range points {
 		for run := 1; run <= 10; run++ {
 			t.Run(fmt.Sprintf("%s/%02d", point, run), func(t *testing.T) {
-				if hostOutage {
-					testMemberHostOutage(t, r, vm, branch, run, control, evidence, hostGit)
+				if hostOutage || hostCrash {
+					if hostCrash {
+						testMemberHostCrash(t, r, vm, branch, machine, run, control, evidence, hostGit)
+					} else {
+						testMemberHostOutage(t, r, vm, branch, run, control, evidence, hostGit)
+					}
 					return
 				}
 				prefix := fmt.Sprintf("%s-%s-%02d", campaign, point, run)

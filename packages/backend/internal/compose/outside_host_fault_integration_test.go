@@ -39,6 +39,8 @@ type outsideFaultHostConfig struct {
 	Database, Storage, Branch, Endpoint, Head, Ready, Captured, Evidence string
 	Authority                                                            machined.BootAuthority
 	Crash, Outage                                                        bool
+	Owner, Machine                                                       string
+	RetainSessions                                                       bool
 }
 
 // K4 with a real inotify producer, versions, bundles, host ingest and PostgreSQL.
@@ -383,12 +385,12 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 	client.BindMachineRepository(server.WithMachineRepository)
 	registry := new(machined.Registry)
 	defer registry.Close()
-	require.NoError(t, registry.RegisterBoot(config.Branch, config.Branch, config.Authority))
+	require.NoError(t, registry.RegisterBoot(config.Branch, faultHostMachine(config), config.Authority))
 	registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
 		if branch != config.Branch {
 			return "", machined.ErrUnauthorized
 		}
-		return filepath.Join(cfg.RepoPath("presence-owner", "app"), ".jj", "repo", "store", "git"), nil
+		return filepath.Join(cfg.RepoPath(faultHostOwner(config), "app"), ".jj", "repo", "store", "git"), nil
 	}))
 	var observe func()
 	if config.Crash {
@@ -417,8 +419,10 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 			require.NotEmpty(t, fields[2])
 			require.Equal(t, byte(wire.WakeReconcile), fields[2][0], "wake must succeed before initial admission")
 		}
-		_, err = link.Request(ctx, config.Branch, wire.SetRoster, wire.Field(1, wire.U16(0)))
-		require.NoError(t, err)
+		if !config.RetainSessions {
+			_, err = link.Request(ctx, config.Branch, wire.SetRoster, wire.Field(1, wire.U16(0)))
+			require.NoError(t, err)
+		}
 		var lastStatus []byte
 		// Replay imports fifty real capture bundles as well as fifty bursts.
 		// Its completion is distinct from the authentication deadline.
@@ -440,7 +444,7 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 	}
 	// A transport reconnect retains this daemon's completed native wake. Do
 	// not rewrite it to the original seed while its real captures replay.
-	link := establish(config.Crash || config.Outage)
+	link := establish(!config.RetainSessions && (config.Crash || config.Outage))
 	require.NoError(t, os.WriteFile(config.Ready, []byte("ready"), 0600))
 	if config.Outage {
 		require.NoError(t, link.Close())
@@ -477,4 +481,17 @@ func TestOutsideWatcherHostProcessChild(t *testing.T) {
 	data, err = json.Marshal(captured)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(config.Captured, data, 0600))
+}
+
+func faultHostOwner(c outsideFaultHostConfig) string {
+	if c.Owner != "" {
+		return c.Owner
+	}
+	return "presence-owner"
+}
+func faultHostMachine(c outsideFaultHostConfig) string {
+	if c.Machine != "" {
+		return c.Machine
+	}
+	return c.Branch
 }
