@@ -278,6 +278,29 @@ func TestLiveChannelComposedUpgradePostgres(t *testing.T) {
 	revokedConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: headers})
 	require.NoError(t, err)
 	defer revokedConn.CloseNow()
+	// A second browser session of the same person must retain delivery and
+	// access to persisted results when only the first session is revoked.
+	otherToken := "live-channel-other-session"
+	otherHash := sha256.Sum256([]byte(otherToken))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(otherHash[:]), UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(24 * time.Hour)})
+	require.NoError(t, err)
+	otherHeaders := headers.Clone()
+	otherHeaders.Set("Cookie", "smithers_session="+otherToken)
+	otherConn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: otherHeaders})
+	require.NoError(t, err)
+	defer otherConn.CloseNow()
+	readOther := func() live.Frame {
+		t.Helper()
+		deadline, stop := context.WithTimeout(ctx, 5*time.Second)
+		defer stop()
+		_, raw, err := otherConn.Read(deadline)
+		require.NoError(t, err)
+		var frame live.Frame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		return frame
+	}
+	require.NoError(t, otherConn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":8,"topic":"home"}`)))
+	require.Equal(t, "snap", readOther().T)
 	started := time.Now()
 	require.NoError(t, revocation.NewDBPublisher(q, nil).Publish(ctx, revocation.Event{Kind: revocation.KindBrowserSessionRevoked, TokenHash: hex.EncodeToString(hash[:]), UserID: user.ID}))
 	deadline, stop := context.WithTimeout(ctx, 5*time.Second)
@@ -285,4 +308,24 @@ func TestLiveChannelComposedUpgradePostgres(t *testing.T) {
 	_, _, err = revokedConn.Read(deadline)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 	require.Less(t, time.Since(started), 5*time.Second)
+	_, refused, err = websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: headers})
+	require.Error(t, err)
+	require.Equal(t, http.StatusUnauthorized, refused.StatusCode)
+	refused.Body.Close()
+	writeFact("complete", false)
+	retained := readOther()
+	require.Equal(t, "delta", retained.T)
+	require.EqualValues(t, 1003, *retained.Cursor)
+	require.NoError(t, json.Unmarshal(retained.Data, &event))
+	require.Equal(t, jobs.State("complete"), event.State)
+	// Reconnect with the surviving session and replay the saved result.
+	require.NoError(t, otherConn.CloseNow())
+	otherConn, _, err = websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: otherHeaders})
+	require.NoError(t, err)
+	defer otherConn.CloseNow()
+	require.NoError(t, otherConn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":9,"topic":"home","cursor":1002}`)))
+	saved := readOther()
+	require.Equal(t, "delta", saved.T)
+	require.EqualValues(t, 1003, *saved.Cursor)
+	require.JSONEq(t, string(retained.Data), string(saved.Data))
 }
