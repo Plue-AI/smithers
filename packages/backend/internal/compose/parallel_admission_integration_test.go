@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -12,9 +13,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,7 +177,7 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	// Ben's sleeping scratch branch: a stopped machine the runtime retains.
 	machines, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
-	scratchBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machines, Name: "notes", TargetBookmark: "scratch/ben/notes", Kind: "vm", Status: "suspended"})
+	scratchBranch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machines, Name: "notes", TargetBookmark: "scratch/ben/notes", Kind: "container", Status: "suspended"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=id WHERE id=$1`, scratchBranch.ID)
 	require.NoError(t, err)
@@ -695,10 +698,97 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 			return branch.Machine.WaitPosition == position && branch.State == state
 		}), "branch machine %+v", branch)
 	}
+	// Concurrent requests enter the real terminal/auth/router door. They must
+	// keep the two member actors on one waiting holder and leave every TODO
+	// position unchanged; duplicate launches cannot spend extra slots.
+	type terminalResult struct {
+		code int
+		body []byte
+	}
+	results := make(chan terminalResult, 50)
+	var launches sync.WaitGroup
+	for i := range 50 {
+		launches.Add(1)
+		go func() {
+			defer launches.Done()
+			cookie := benCookie
+			if i%2 == 0 {
+				cookie = mayaCookie
+			}
+			code, body := call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, scratchBranch.ID), cookie)
+			results <- terminalResult{code, body}
+		}()
+	}
+	launches.Wait()
+	close(results)
+	accepted, limited := 0, 0
+	for result := range results {
+		switch result.code {
+		case http.StatusAccepted:
+			accepted++
+		case http.StatusTooManyRequests:
+			limited++
+			var refusal struct {
+				Code  string `json:"code"`
+				Class string `json:"class"`
+			}
+			require.NoError(t, json.Unmarshal(result.body, &refusal))
+			require.Equal(t, "rate_limit_exceeded", refusal.Code)
+			require.Equal(t, "capacity", refusal.Class)
+		default:
+			t.Fatalf("terminal launch returned %d: %s", result.code, result.body)
+		}
+	}
+	require.Positive(t, accepted)
+	require.Positive(t, limited, "the production per-member launch limit remains enforced")
+	require.Equal(t, 50, accepted+limited)
+	waitingActors := map[string]bool{}
+	for _, row := range runtime.AdmissionSnapshot() {
+		if row.Holder == "workspace:"+scratchBranch.ID && row.State == "waiting" {
+			require.Equal(t, "person", row.Class)
+			require.Equal(t, 1, row.Position)
+			waitingActors[row.Actor] = true
+		}
+	}
+	require.Len(t, waitingActors, 2)
+	held("concurrent terminal requests", 3)
 	readBranchPlace(1, "asleep")
 	settle("step 5 waiting", working, map[int]int{3: 2, 4: 3, 5: 4})
 	todoSnapshot("step 5 waiting", 3, 2)
 	held("step 5 waiting", 3)
+	var browser *exec.Cmd
+	var browserOutput *bufio.Scanner
+	var browserErrors bytes.Buffer
+	if os.Getenv("SMITHERS_LIVE_BROWSER") == "1" {
+		app, err := filepath.Abs("../../../../apps/app")
+		require.NoError(t, err)
+		browserCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		t.Cleanup(cancel)
+		browser = exec.CommandContext(browserCtx, "bun", "e2e/real/admission-branch.browser.ts")
+		browser.Dir = app
+		browser.Env = append(os.Environ(), "SMITHERS_ADMISSION_ORIGIN="+server.URL, "SMITHERS_ADMISSION_BRANCH="+scratchBranch.ID, "SMITHERS_ADMISSION_COOKIE="+mayaCookie)
+		output, err := browser.StdoutPipe()
+		require.NoError(t, err)
+		browser.Stderr = &browserErrors
+		require.NoError(t, browser.Start())
+		t.Cleanup(func() {
+			cancel()
+			if browser.ProcessState == nil {
+				_ = browser.Wait()
+			}
+		})
+		browserOutput = bufio.NewScanner(output)
+		waiting := false
+		for browserOutput.Scan() {
+			line := browserOutput.Text()
+			t.Log(line)
+			if line == "ADMISSION_BROWSER_WAITING" {
+				waiting = true
+				break
+			}
+		}
+		require.True(t, waiting, "browser did not observe the real queue: %s", browserErrors.String())
+	}
 	// Capacity returns to 4: one machine is free and T3 is eligible again.
 	// Ben's person request is granted before it; T3 starts and waits #1.
 	freeDisk.Store(168 << 30)
@@ -707,6 +797,39 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery b
 	homeSnapshot("step 5 granted", homeView{Order: []int{1, 6, 2, 3, 4, 5}, Positions: map[int]int{3: 1, 4: 2, 5: 3}, Parallel: 4})
 	held("step 5 granted", 4)
 	readBranchPlace(0, "waking")
+	// The already-mounted branch subscriber must observe the actual grant,
+	// rather than relying on a fresh GET or an intercepted browser frame.
+	// Scratch branches use the existing snapshot stream; its cursor advances
+	// in process. Durable TODO replay is checked independently above.
+	lastBranchCursor := int64(*branchWaiting.Cursor)
+	for {
+		frame := readFrame(branchConn)
+		require.Equal(t, "snap", frame.T)
+		require.Greater(t, int64(*frame.Cursor), lastBranchCursor)
+		lastBranchCursor = int64(*frame.Cursor)
+		branchCard.Machine.State = ""
+		branchCard.Machine.Position = 0
+		require.NoError(t, json.Unmarshal(frame.Data, &branchCard))
+		if branchCard.Machine.State == "waking" {
+			require.Zero(t, branchCard.Machine.Position)
+			break
+		}
+		if branchCard.Machine.State == "asleep" {
+			// Admission has granted the slot; the durable wake transaction
+			// may not yet have changed the retained machine's state.
+			require.Zero(t, branchCard.Machine.Position)
+		} else {
+			require.Equal(t, "waiting", branchCard.Machine.State)
+			require.Equal(t, 1, branchCard.Machine.Position)
+		}
+	}
+	if browser != nil {
+		for browserOutput.Scan() {
+			t.Log(browserOutput.Text())
+		}
+		require.NoError(t, browserOutput.Err())
+		require.NoError(t, browser.Wait(), browserErrors.String())
+	}
 	until := time.Now().Add(3 * time.Second)
 	for time.Now().Before(until) {
 		held("step 5 granted", 4)

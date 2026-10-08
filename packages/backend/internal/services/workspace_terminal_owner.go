@@ -72,21 +72,34 @@ func (s *WorkspaceService) OpenOwnerTerminal(ctx context.Context, registry *mach
 	if err != nil {
 		return nil, err
 	}
-	join, err := s.transactions.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer join.Rollback(context.WithoutCancel(ctx))
-	if err = s.authorizeBranchMachine(ctx, join, repo, member, row.TargetBookmark, row.ID); err != nil {
-		return nil, err
-	}
-	// Hold branch.join authority through wake. Owner-uid terminals do not
-	// grant legacy same-user write shares, including alongside a coding host.
-	err = commitWorkspaceMutation(ctx, join, workspaceMutationAuthority{workspaceID: row.ID, userID: member}, func(ctx context.Context) error {
-		var err error
-		row, err = s.ensureExistingWorkspaceRunningFor(personMachineDemand(ctx), row, member)
-		return err
-	})
+	// Wait for this branch's wake before acquiring a database connection.
+	// Coalesced terminals share a machine, so holding one authority transaction
+	// per waiter would exhaust the pool while the first guest is still booting.
+	// Recheck and hold branch.join after the lock is acquired, through the wake.
+	err = func() error {
+		unlock := s.lockRuntimeWorkspace(row.ID)
+		defer unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, err := s.currentRuntimeWorkspaceLocked(ctx, row)
+		if err != nil {
+			return err
+		}
+		join, err := s.transactions.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer join.Rollback(context.WithoutCancel(ctx))
+		if err = s.authorizeBranchMachine(ctx, join, repo, member, current.TargetBookmark, current.ID); err != nil {
+			return err
+		}
+		return commitWorkspaceMutation(ctx, join, workspaceMutationAuthority{workspaceID: current.ID, userID: member}, func(ctx context.Context) error {
+			var err error
+			row, err = s.ensureRuntimeWorkspaceRunningLocked(personMachineDemand(ctx), current, member)
+			return err
+		})
+	}()
 	if err != nil {
 		return nil, err
 	}

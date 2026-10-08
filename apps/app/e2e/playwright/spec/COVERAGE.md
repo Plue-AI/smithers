@@ -188,7 +188,7 @@ keeps the sleeping branch Asleep across reload. Composed HTTP tests cover captur
 | C-MCH-08 | [C-MCH-08.spec.ts](C-MCH-08.spec.ts) | fixme-before-implementation | T-MCH-08 |
 | C-MCH-09 | [C-MCH-09.spec.ts](C-MCH-09.spec.ts) | fixme-before-implementation | T-MCH-11 |
 | C-MCH-10 | [C-MCH-10.spec.ts](C-MCH-10.spec.ts) | fixme-before-implementation | T-MCH-11 |
-| C-MCH-11 | [C-MCH-11.spec.ts](C-MCH-11.spec.ts) | install card live admission | T-MCH-06 |
+| C-MCH-11 | [C-MCH-11.spec.ts](C-MCH-11.spec.ts) | composed PostgreSQL router, concurrent terminal admission, real Branch/Home subscriptions and Chromium reload (boot observations injected; full matrix pending) | T-MCH-06 |
 | C-MNT-01 | [C-MNT-01.spec.ts](C-MNT-01.spec.ts) | fixme-before-implementation | T-MNT-01 |
 | C-MNT-02 | [C-MNT-02.spec.ts](C-MNT-02.spec.ts) | fixme-before-implementation | T-MNT-02 |
 
