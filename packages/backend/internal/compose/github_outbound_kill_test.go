@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -188,7 +189,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					var published string
 					if kind != "push" && kind != "open" {
 						wake()
-						prepared := githubKillWorker(t, r, r.fake.URL, r.repositoryRoot)
+						prepared := githubKillWorker(t, r, r.fake.URL, r.repositoryRoot, 90*time.Second)
 						_, err := r.waitTodoWithin(number, 60*time.Second, "in_review")
 						prepared.close()
 						require.NoError(t, err, prepared.output())
@@ -355,7 +356,7 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 					}))
 					defer func() { unlock(); peer.Close() }()
 					wake()
-					child := githubKillWorker(t, r, peer.URL, r.repositoryRoot)
+					child := githubKillWorker(t, r, peer.URL, r.repositoryRoot, 90*time.Second)
 					defer child.close()
 					select {
 					case <-reached:
@@ -476,9 +477,10 @@ func TestGitHubOutboundKillProductionProposal(t *testing.T) {
 						_, err = r.pool.Exec(r.ctx, `UPDATE mythical_stacks SET running=true,claim=999999,lease_expires_at=NOW()+interval '1 hour' WHERE repository_id=$1`, repository)
 						require.NoError(t, err)
 					}
-					restarted := githubKillWorker(t, r, peer.URL, r.repositoryRoot)
-					defer restarted.close()
 					recoveryDeadline := time.Now().Add(60 * time.Second)
+					restarted := githubKillWorker(t, r, peer.URL, r.repositoryRoot, time.Until(recoveryDeadline))
+					defer restarted.close()
+					require.Positive(t, time.Until(recoveryDeadline), "startup counts against the recovery deadline")
 					if variant == "competing-fence" {
 						require.Eventually(t, func() bool { return strings.Contains(restarted.output(), "github-kill-worker-ready") }, time.Until(recoveryDeadline), 20*time.Millisecond, "worker must be composed before inspecting the competing fence")
 						require.Never(t, func() bool {
@@ -850,7 +852,7 @@ func (p *githubKillProcess) kill(t *testing.T) {
 	require.ErrorAs(t, err, &exit)
 	require.Equal(t, syscall.SIGKILL, exit.Sys().(syscall.WaitStatus).Signal())
 }
-func githubKillWorker(t *testing.T, r *rehearsal, peer, repositoryRoot string) *githubKillProcess {
+func githubKillWorker(t *testing.T, r *rehearsal, peer, repositoryRoot string, readyWithin time.Duration) *githubKillProcess {
 	t.Helper()
 	binary, err := os.Executable()
 	require.NoError(t, err)
@@ -883,6 +885,25 @@ func githubKillWorker(t *testing.T, r *rehearsal, peer, repositoryRoot string) *
 		p.close()
 		require.NoError(t, log.Close())
 	})
+	require.Eventually(t, func() bool {
+		return strings.Contains(p.output(), "github-kill-worker-ready")
+	}, readyWithin, 20*time.Millisecond, "retained runtime must be admitted before the fault control advances: %s", p.output())
+	var repositoryID int64
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT repository_id FROM mythical_stacks`).Scan(&repositoryID))
+	// Native admission may finish after an early fail-closed worker attempt.
+	// Request the same engine again without changing its live claim or lease.
+	requestCtx, cancel := context.WithTimeout(r.ctx, 250*time.Millisecond)
+	defer cancel()
+	_, err = db.New(r.pool).RequestMythicalStack(requestCtx, repositoryID)
+	if errors.Is(err, context.DeadlineExceeded) {
+		// A worker can hold this row while the fault proxy deliberately holds
+		// its response. Do not await that write before reaching the kill point.
+		var running bool
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT running FROM mythical_stacks WHERE repository_id=$1`, repositoryID).Scan(&running))
+		require.True(t, running, "a blocked wake must belong to an already running stack")
+	} else {
+		require.NoError(t, err)
+	}
 	return p
 }
 func TestGitHubOutboundKillChild(t *testing.T) {
