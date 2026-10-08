@@ -104,7 +104,7 @@ func TestRequestedRebaseBindsHeadGenerationAndOnto(t *testing.T) {
 		{"new generation", func(i *db.MythicalItem, _ *mythicalRebase) { i.Generation++ }, false},
 		{"new target", func(_ *db.MythicalItem, r *mythicalRebase) { r.Onto = "new" }, false},
 		{"completed", func(_ *db.MythicalItem, r *mythicalRebase) { r.Rebased = true }, false},
-		{"occupied branch", func(i *db.MythicalItem, _ *mythicalRebase) { i.WorkspaceID = "awake" }, false},
+		{"occupied branch", func(i *db.MythicalItem, _ *mythicalRebase) { i.WorkspaceID = "awake" }, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pending := &mythicalRebase{Onto: "main", Request: &mythicalRebaseRequest{Head: "candidate", Generation: 2}}

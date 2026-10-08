@@ -1287,6 +1287,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
 		mythicalService.SetMovedOffReturn(machineReturn{registry: options.Machined, pool: pool})
+		mythicalService.SetBranchRebaseExecutor(machineRebase{registry: options.Machined, pool: pool})
 	}
 	mythicalService.SetTodoLogStore(blobStore)
 	if config.IsSingleOwner(cfg.Auth) {

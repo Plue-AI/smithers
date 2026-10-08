@@ -57,9 +57,22 @@ func machineObjectExporter(lifetime context.Context, pool *pgxpool.Pool, host *r
 			defer done()
 			_ = tx.Rollback(cleanup)
 		}()
+		target := ""
+		if rebase, ok := ctx.Value(machineRebaseExportKey{}).(machineRebaseExport); ok {
+			if rebase.branch != branch || rebase.target != head || rebase.admit == nil {
+				return nil, machined.ErrUnauthorized
+			}
+			if err := rebase.admit(tx); err != nil {
+				return nil, err
+			}
+			target = rebase.target
+		}
 		var source io.ReadCloser
 		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
 			export := machined.GitBundleExporter(func(context.Context, string) (string, error) { return path, nil })
+			if target != "" {
+				export = machined.GitRebaseBundleExporter(func(context.Context, string) (string, error) { return path, nil }, target)
+			}
 			var e error
 			source, e = export(ctx, branch, head, stream)
 			return e

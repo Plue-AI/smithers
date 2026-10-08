@@ -61,12 +61,7 @@ type mythicalRebaseRequest struct {
 
 func requestedRebase(item db.MythicalItem, onto string) bool {
 	pending := mythicalChecksOf(item).Rebase
-	// An occupied branch must use the daemon freeze/capture/rebase boundary.
-	// Native conflict inspection exists, but this adapter has no inspected
-	// rewrite/capture receipt to verify and publish for an occupied branch.
-	// A press only authorizes the released candidate's host path; verification
-	// allocates a fresh machine.
-	return item.WorkspaceID == "" && pending != nil && !pending.Rebased && pending.Onto == onto && pending.Request != nil && pending.Request.Head == item.CandidateHead && pending.Request.Generation == item.Generation
+	return pending != nil && !pending.Rebased && pending.Onto == onto && pending.Request != nil && pending.Request.Head == item.CandidateHead && pending.Request.Generation == item.Generation
 }
 func rebaseRequester(item db.MythicalItem) map[string]string {
 	if pending := mythicalChecksOf(item).Rebase; pending != nil && pending.Request != nil {

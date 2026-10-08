@@ -30,6 +30,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -1950,6 +1951,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	if mythicalChecksOf(item).ForeignBring != nil {
 		return st.consumeForeignBring(ctx, item)
 	}
+	if rebase := mythicalChecksOf(item).Rebase; rebase != nil && rebase.Native != nil && !rebase.Rebased {
+		return st.continueNativeRebase(ctx, item)
+	}
 	if mythicalChecksOf(item).Capture != nil {
 		switch item.State {
 		case "integrating", "verifying", "proposing", "waiting", "proposed":
@@ -3147,6 +3151,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	if err := st.fetchOnto(ctx, onto); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
+	if item.WorkspaceID != "" && (s.branchRebase != nil || s.installAuthorization) {
+		return st.executeNativeRebase(ctx, item, onto)
+	}
 	rebased, err := r.g.rebaseCandidate(ctx, onto, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64,
 		Base: item.CandidateBase, Head: item.CandidateHead}, mythicalChainLimit)
 	var conflict *errMythicalConflict
@@ -3261,8 +3268,10 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	rebase := mythicalChecksOf(next)
 	name := st.ontoName(onto)
 	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true}
-	if pending := mythicalChecksOf(item).Rebase; pending != nil && !pending.Since.IsZero() {
-		rebase.Rebase.Since = pending.Since
+	if pending := mythicalChecksOf(item).Rebase; pending != nil {
+		if !pending.Since.IsZero() {
+			rebase.Rebase.Since = pending.Since
+		}
 		if s.mayExecuteRequestedRebase(ctx, item, onto) {
 			rebase.Rebase.Request = pending.Request
 		}
@@ -3270,6 +3279,19 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	var before func(pgx.Tx) error
 	also := func(tx pgx.Tx, saved db.MythicalItem) error {
 		return st.s.recordTodoRebased(ctx, tx, saved, from, name)
+	}
+	if native := mythicalChecksOf(item).Rebase; native != nil && native.Native != nil {
+		before = func(tx pgx.Tx) error { return st.lockNativeRebase(ctx, tx, item, onto) }
+		rebase.Review, rebase.Land = nil, nil
+		if capture := rebase.Capture; capture != nil && capture.Head == rebased {
+			rebase.Capture = nil
+			also = func(tx pgx.Tx, saved db.MythicalItem) error {
+				if _, err := tx.Exec(ctx, `UPDATE workspaces SET capture_pending=NULL WHERE id=$1`, item.WorkspaceID); err != nil {
+					return err
+				}
+				return st.s.recordTodoRebased(ctx, tx, saved, from, name)
+			}
+		}
 	}
 	if pending := mythicalChecksOf(item).ForeignBring; pending != nil {
 		rebase.Rebase.Request = pending.Request
@@ -5704,11 +5726,12 @@ type mythicalChecks struct {
 // earlier TODO T<k>) and Since when the prefix moved under the item. It is
 // pending until Rebased: the candidate was rebased and its checks launched.
 type mythicalRebase struct {
-	Onto    string                 `json:"onto"`
-	Name    string                 `json:"name"`
-	Since   time.Time              `json:"since"`
-	Rebased bool                   `json:"rebased,omitempty"`
-	Request *mythicalRebaseRequest `json:"request,omitempty"`
+	Onto    string                  `json:"onto"`
+	Name    string                  `json:"name"`
+	Since   time.Time               `json:"since"`
+	Rebased bool                    `json:"rebased,omitempty"`
+	Request *mythicalRebaseRequest  `json:"request,omitempty"`
+	Native  *machined.RewriteResult `json:"native,omitempty"`
 }
 
 // rebuilding reports an item in review whose pull request rebuilds after a

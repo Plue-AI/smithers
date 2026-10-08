@@ -1005,7 +1005,7 @@ func TestJ10Rehearsal(t *testing.T) {
 	})
 	if !r.step("4 Rebase pending while a person is present", "Branch browser presence; GitHub fake main moves; GET /api/todos/{T1}",
 		"T1 keeps its head while present; one rebase within 60 s of departure; same PR", "T-STK-08", func() error {
-			_, err := r.rebaseReleased(t1, false)
+			_, err := r.rebaseBranch(t1, false)
 			return err
 		}) {
 		return

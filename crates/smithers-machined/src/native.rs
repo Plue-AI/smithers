@@ -571,6 +571,26 @@ impl Repository {
             .map_err(invalid)?;
         Ok(head)
     }
+    // Object transport retains raw Git objects without publishing bookmarks.
+    // jj's ancestry index must include that admitted target before any lookup;
+    // reading it from the store alone does not add it to the index.
+    fn load_rebase_target(&self, onto: Oid) -> io::Result<(Workspace, Arc<ReadonlyRepo>)> {
+        let (workspace, repo) = self.load()?;
+        let target = Self::commit(&repo, onto)?;
+        if repo.index().has_id(target.id()).map_err(invalid)? {
+            return Ok((workspace, repo));
+        }
+        let mut tx = repo.start_transaction();
+        tx.repo_mut()
+            .add_head(&target)
+            .block_on()
+            .map_err(invalid)?;
+        let indexed = tx
+            .commit("import admitted rebase target")
+            .block_on()
+            .map_err(invalid)?;
+        Ok((workspace, indexed))
+    }
     fn rebase_commits(
         workspace: &Workspace,
         repo: &ReadonlyRepo,
@@ -600,14 +620,14 @@ impl Repository {
     /// Validate before the RPC freezes writers. The mutation path checks again
     /// after capture, against the snapshot taken under the shared lock.
     pub fn validate_rebase(&self, onto: Oid) -> io::Result<()> {
-        let (workspace, repo) = self.load()?;
+        let (workspace, repo) = self.load_rebase_target(onto)?;
         Self::rebase_commits(&workspace, &repo, onto).map(|_| ())
     }
     /// Rebase the item change, including already-captured work, onto its new
     /// prefix. An acknowledged capture is a transport checkpoint, not the
     /// item's old parent. Wake reconciliation alone applies that local delta.
     pub fn rebase(&self, onto: Oid) -> io::Result<Oid> {
-        let (mut workspace, repo) = self.load()?;
+        let (mut workspace, repo) = self.load_rebase_target(onto)?;
         let (current, onto) = Self::rebase_commits(&workspace, &repo, onto)?;
         if current.parent_ids() == [onto.id().clone()] {
             return oid(current.id().as_bytes());
@@ -735,6 +755,60 @@ pub(crate) mod tests {
         reopened.clear_return_actor().unwrap();
         assert_eq!(fs::read(sentinel).unwrap(), b"untouched");
         assert_eq!(reopened.return_actor(target).unwrap(), None);
+    }
+    #[test]
+    fn rebase_indexes_a_target_received_as_raw_git_objects() {
+        let (_dir, native) = fixture();
+        let (base, tree) = native.current().unwrap();
+        let item = child(&native, base, "item work");
+        let hex = |id: Oid| id.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let output = std::process::Command::new("/usr/bin/git")
+            .arg("-C")
+            .arg(&native.root)
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "commit-tree",
+                &hex(tree),
+                "-p",
+                &hex(base),
+                "-m",
+                "imported main",
+            ])
+            .env("GIT_AUTHOR_NAME", "Fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.test")
+            .env("GIT_COMMITTER_NAME", "Fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.test")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let target = {
+            let text = String::from_utf8(output.stdout).unwrap();
+            let mut id = [0; 20];
+            for (n, byte) in id.iter_mut().enumerate() {
+                *byte = u8::from_str_radix(&text[n * 2..n * 2 + 2], 16).unwrap();
+            }
+            id
+        };
+        let (_, repo) = native.load().unwrap();
+        assert!(!repo
+            .index()
+            .has_id(Repository::commit(&repo, target).unwrap().id())
+            .unwrap());
+        native.validate_rebase(target).unwrap();
+        assert_eq!(native.current().unwrap().0, item);
+        let head = native.rebase(target).unwrap();
+        let (_, repo) = native.load().unwrap();
+        let commit = Repository::commit(&repo, head).unwrap();
+        assert_eq!(
+            commit.parent_ids(),
+            &[jj_lib::backend::CommitId::new(target.to_vec())]
+        );
+        assert_eq!(native.rebase(target).unwrap(), head);
     }
     pub(crate) fn fixture() -> (tempfile::TempDir, Repository) {
         let dir = tempfile::tempdir().unwrap();

@@ -1886,7 +1886,10 @@ func (r bindingProcessRuntime) ensureDaemon(ctx context.Context, id, root string
 	if err != nil {
 		return err
 	}
-	return startRehearsalMachined(r.t, ctx, r.daemons, id, root, r.evidence, r.daemonBinary, &item)
+	// The connection belongs to the retained machine, not to one host launch.
+	// A failed or completed launch cancels ctx; the next stack boundary still
+	// needs this boot for capture/rebase. Test cleanup retires the process.
+	return startRehearsalMachined(r.t, r.t.Context(), r.daemons, id, root, r.evidence, r.daemonBinary, &item)
 }
 
 func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {

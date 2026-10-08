@@ -32,6 +32,13 @@ func TestRebaseNowRehearsal(t *testing.T) {
 	}) {
 		return
 	}
+
+	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowBranch(n); return err }) {
+		return
+	}
+	if !r.step("Rebase after browser departure", "POST /api/live presence; GitHub main sync", "hold while present, one clean rebase within 60 s of departure, same PR", "T-STK-08", func() error { _, err := r.rebaseBranch(n, false); return err }) {
+		return
+	}
 	if !r.step("Bring in Alice's clean commit", "GitHub fake push; POST /api/branches/{b} {op:bring-in}", "one Bring in, Alice's bytes in the same PR", "T-STK-08, T-GH-06", func() error {
 		before, err := r.todo(n)
 		if err != nil || before.Branch == nil {
@@ -58,37 +65,32 @@ func TestRebaseNowRehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !r.step("Rebase now with browser presence", "POST /api/branches/{b} {rebase:true}; GET /api/todos/{n}; GitHub fake", "one clean rebase, same PR, new head, checks rerun", "T-STK-08", func() error { _, err := r.rebaseNowReleased(n); return err }) {
-		return
-	}
-	r.step("Rebase after browser departure", "POST /api/live presence; GitHub main sync", "hold while present, one clean rebase within 60 s of departure, same PR", "T-STK-08", func() error { _, err := r.rebaseReleased(n, false); return err })
+
 }
 
-func (r *rehearsal) rebaseNowReleased(n int64) (string, error) {
-	return r.rebaseReleased(n, true)
+func (r *rehearsal) rebaseNowBranch(n int64) (string, error) {
+	return r.rebaseBranch(n, true)
 }
 
-func (r *rehearsal) rebaseReleased(n int64, press bool) (string, error) {
-	// A completed review releases its lane. The retained candidate then uses
-	// the existing host rebase path, with checks on a fresh machine.
-	for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(time.Second) {
-		var workspace string
-		if err := r.pool.QueryRow(r.t.Context(), `SELECT workspace_id FROM mythical_items WHERE number=$1 AND source='todo'`, n).Scan(&workspace); err != nil {
-			return "", err
-		}
-		if workspace == "" {
-			break
-		}
-		if time.Now().After(deadline) {
-			return "", fmt.Errorf("T%d's review has not released its lane", n)
-		}
-	}
+func (r *rehearsal) rebaseBranch(n int64, press bool) (string, error) {
 	before, err := r.todo(n)
 	if err != nil {
 		return "", err
 	}
 	if before.Branch == nil || before.PR.Head == "" {
 		return "", fmt.Errorf("T%d has no branch/PR", n)
+	}
+	// The process coding-file fixture does not launch the daemon when an
+	// unplanned run starts. Once its logical change exists, reconcile the
+	// actual native boot on the retained checkout before driving HTTP.
+	if runtime, ok := r.workspaceRuntime.(bindingProcessRuntime); ok {
+		observed, err := runtime.InspectWorkspace(r.ctx, before.Branch.ID)
+		if err != nil {
+			return "", err
+		}
+		if err := runtime.ensureDaemon(r.ctx, before.Branch.ID, observed.Root); err != nil {
+			return "", err
+		}
 	}
 	tab, err := r.openLive(r.jar)
 	if err != nil {

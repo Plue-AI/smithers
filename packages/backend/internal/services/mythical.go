@@ -66,6 +66,7 @@ type MythicalService struct {
 	installAuthorization       bool
 	homeBackground             *HomeBackground
 	conflictValidator          ConflictValidator
+	branchRebase               BranchRebaseExecutor
 	rebasePresence             func(context.Context, int64, string) (RebasePresence, error)
 	installParallel            *InstallCapacityService
 	installParallelRequired    bool
