@@ -1,18 +1,20 @@
+//go:build darwin
+
 package localbootstrap
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"fmt"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -22,69 +24,110 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/hostbackup"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/postgres"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 )
 
-// restoreHarness runs the packaged backup.sh and restore.sh against real
-// PostgreSQL and data roots.
+// restoreHarness backs an install state root up and restores it into another
+// with the Mac backup and restore coordinators, the kernel clone and the
+// PostgreSQL programs a bundle packages. Each state root owns its database
+// under postgres/, as an install does.
 type restoreHarness struct {
-	t            *testing.T
-	distribution string
-	release      string
-	env          []string
+	t       *testing.T
+	bin     string
+	version hostbackup.Version
 }
 
 func newRestoreHarness(t *testing.T) restoreHarness {
 	t.Helper()
-	// The packaged scripts need PostgreSQL client tools of the server's major
-	// version, as the distribution tests do.
 	bin, major := testdb.Tools(t)
-	if testdb.ServerURL() == "" {
-		testdb.Unavailable(t, testdb.ErrNotConfigured)
+	if major != 18 {
+		t.Fatalf("an install packages PostgreSQL 18, got %d", major)
 	}
-	distribution, err := filepath.Abs("../../../distribution")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The image build generates version.env; a source checkout has no copy.
-	// Keep the fixture bound to the migrated schema and actual client tools.
 	schema, err := product.HeadVersion()
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := filepath.Join(t.TempDir(), "version.env")
-	manifest := fmt.Sprintf("SMITHERS_DISTRIBUTION_VERSION=1.0.0-rc.1\nSMITHERS_SCHEMA_VERSION=%d\nSMITHERS_POSTGRES_MAJOR=%d\n", schema, major)
-	if err := os.WriteFile(release, []byte(manifest), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	// The container serializes maintenance with flock(1); the maintenance
-	// lock itself is exercised by the distribution tests.
-	fake := t.TempDir()
-	if err := os.WriteFile(filepath.Join(fake, "flock"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return restoreHarness{t: t, distribution: distribution, release: release, env: []string{
-		"PATH=" + fake + ":" + bin + ":" + os.Getenv("PATH"),
-		"SMITHERS_LIB=" + filepath.Join(distribution, "lib.sh"),
-		"SMITHERS_RELEASE_FILE=" + release,
-	}}
+	return restoreHarness{t: t, bin: bin, version: hostbackup.Version{Release: "1.0.0-rc.1", Schema: schema, PostgresMajor: major}}
 }
 
-func (h restoreHarness) run(script string, env []string, args ...string) string {
+// start runs the state root's own database and opens a pool on it.
+func (h restoreHarness) start(state string) (*postgres.Instance, *pgxpool.Pool) {
 	h.t.Helper()
-	command := exec.Command("sh", append([]string{filepath.Join(h.distribution, script)}, args...)...)
-	command.Env = append(append(os.Environ(), h.env...), env...)
-	var stderr bytes.Buffer
-	command.Stderr = &stderr
-	out, err := command.Output()
+	database, err := postgres.Start(context.Background(), postgres.Config{BinDir: h.bin, StateDir: filepath.Join(state, "postgres"), Major: h.version.PostgresMajor, StartupTimeout: 20 * time.Second})
 	if err != nil {
-		h.t.Fatalf("%s: %v\n%s", script, err, stderr.String())
+		h.t.Fatal(err)
 	}
-	return strings.TrimSpace(string(out))
+	h.t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := database.Stop(ctx); err != nil {
+			h.t.Error(err)
+		}
+	})
+	pool, err := postgresfixture.Open(context.Background(), database.ConnectionString, 0)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.t.Cleanup(pool.Close)
+	return database, pool
+}
+
+// backup publishes one snapshot of state: the supervised database's dump and
+// a clone of every tree beside it.
+func (h restoreHarness) backup(state string, database *postgres.Instance) string {
+	h.t.Helper()
+	directory, err := hostbackup.Backup(h.t.Context(), hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: state, Version: h.version, Authority: restoreSource{database}, Cloner: hostbackup.APFSCloner{}})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return directory
+}
+
+// restore publishes the backup into target, a state root no install holds.
+func (h restoreHarness) restore(backup, target string) {
+	h.t.Helper()
+	authority := restoreTarget{postgres.Config{BinDir: h.bin, Major: h.version.PostgresMajor, StartupTimeout: 20 * time.Second}}
+	if _, err := hostbackup.Restore(h.t.Context(), hostbackup.RestoreConfig{State: target, Backup: backup, Version: h.version, Authority: authority, Cloner: hostbackup.APFSCloner{}}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// restoreSource is the owner bridge's database half without its socket.
+type restoreSource struct{ database *postgres.Instance }
+
+func (restoreSource) Check(context.Context) error { return nil }
+func (a restoreSource) DatabaseSize(ctx context.Context) (uint64, error) {
+	return a.database.DatabaseSize(ctx)
+}
+func (restoreSource) Freeze(context.Context, string) (time.Time, error) {
+	return time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC), nil
+}
+func (restoreSource) Renew(context.Context, string) error  { return nil }
+func (restoreSource) Reopen(context.Context, string) error { return nil }
+func (a restoreSource) Dump(ctx context.Context, target io.Writer) error {
+	return a.database.Dump(ctx, target)
+}
+func (restoreSource) Summary(context.Context) (hostbackup.Manifest, error) {
+	return hostbackup.Manifest{Stack: json.RawMessage(`[]`), BranchHeads: json.RawMessage(`{}`), MachineDisks: json.RawMessage(`[]`), RunJournals: json.RawMessage(`[]`)}, nil
+}
+
+// restoreTarget loads the dump as an install's restore does. The test starts
+// the restored state itself, so the lifecycle steps have nothing to do.
+type restoreTarget struct{ postgres postgres.Config }
+
+func (restoreTarget) CheckStopped(context.Context) error                                { return nil }
+func (restoreTarget) CheckRetainedIsolation(context.Context, hostbackup.Manifest) error { return nil }
+func (restoreTarget) StartRestored(context.Context, string) error                       { return nil }
+func (a restoreTarget) RestoreDatabase(ctx context.Context, stage *os.Root, dump io.Reader, _ hostbackup.Version) error {
+	config := a.postgres
+	config.StateDir = filepath.Join(stage.Name(), "postgres")
+	return postgres.RestoreInto(ctx, config, dump)
 }
 
 // providerPoolCall sends one pooled ChatGPT call through the product handler
@@ -133,14 +176,10 @@ func TestRestoredProviderCredentialServesModelCallsPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	backedUpKey := os.Getenv(operatorKeyName)
-	release, err := os.ReadFile(h.release)
-	if err != nil {
+	sourceDatabase, sourcePool := h.start(sourceRoot)
+	if err := product.Apply(ctx, sourcePool); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(sourceRoot, "version.env"), release, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sourcePool, sourceURL := postgresfixture.NewProductDatabase(t)
 	sourceCodec, err := webhook.NewSecretCodec(backedUpKey)
 	if err != nil {
 		t.Fatal(err)
@@ -182,11 +221,10 @@ func TestRestoredProviderCredentialServesModelCallsPostgres(t *testing.T) {
 		t.Fatalf("source call = %d %q", code, got)
 	}
 
-	backups := t.TempDir()
-	backup := h.run("backup.sh", []string{"SMITHERS_DATABASE_URL=" + sourceURL, "SMITHERS_DATA_ROOT=" + sourceRoot, "SMITHERS_BACKUP_ROOT=" + backups})
-	target := testdb.New(t)
-	targetRoot := t.TempDir()
-	h.run("restore.sh", []string{"SMITHERS_DATABASE_URL=" + target.URL, "SMITHERS_DATA_ROOT=" + targetRoot}, backup)
+	backup := h.backup(sourceRoot, sourceDatabase)
+	// Another account: a state root that does not exist until the restore.
+	targetRoot := filepath.Join(t.TempDir(), "Smithers")
+	h.restore(backup, targetRoot)
 
 	// The restored installation starts with none of the source's secrets in
 	// its environment and reads them from the restored file.
@@ -200,11 +238,7 @@ func TestRestoredProviderCredentialServesModelCallsPostgres(t *testing.T) {
 	if restoredKey != backedUpKey {
 		t.Fatal("the restored installation did not reopen the backed-up operator key")
 	}
-	targetPool, err := postgresfixture.Open(ctx, target.URL, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(targetPool.Close)
+	_, targetPool := h.start(targetRoot)
 	restoredCodec, err := webhook.NewSecretCodec(restoredKey)
 	if err != nil {
 		t.Fatal(err)

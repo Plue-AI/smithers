@@ -83,7 +83,7 @@ func (a *restoreAuthority) CheckRetainedIsolation(ctx context.Context, _ hostbac
 // initdb of the manifest's major and loads the dump into it. The live data
 // directory is never opened. The database is stopped before it returns, so
 // restore can publish the staged directory as the install's own.
-func (a *restoreAuthority) RestoreDatabase(ctx context.Context, stage *os.Root, dump io.Reader, version hostbackup.Version) (err error) {
+func (a *restoreAuthority) RestoreDatabase(ctx context.Context, stage *os.Root, dump io.Reader, version hostbackup.Version) error {
 	if version.PostgresMajor != a.postgres.Major {
 		return &hostbackup.Error{Code: hostbackup.WrongVersion, Path: "postgres major"}
 	}
@@ -103,16 +103,7 @@ func (a *restoreAuthority) RestoreDatabase(ctx context.Context, stage *os.Root, 
 	}
 	config := a.postgres
 	config.StateDir = filepath.Join(directory, "postgres")
-	database, err := postgres.Start(ctx, config)
-	if err != nil {
-		return fmt.Errorf("create the restored database: %w", err)
-	}
-	defer func() {
-		stopping, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-		defer cancel()
-		err = errors.Join(err, database.Stop(stopping))
-	}()
-	return database.RestoreDump(ctx, dump)
+	return postgres.RestoreInto(ctx, config, dump)
 }
 
 // StartRestored starts the install on the backup's bundle when it holds one,

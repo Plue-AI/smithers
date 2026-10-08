@@ -10,6 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func executable(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nset -eu\n"+body+"\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBackendReleaseBuildStampsCLIVersion(t *testing.T) {
 	root := t.TempDir()
 	manifest := filepath.Join(root, "packages", "smithers", "package.json")

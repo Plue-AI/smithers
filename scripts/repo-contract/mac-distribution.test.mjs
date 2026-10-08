@@ -14,7 +14,14 @@ test("active consumers contain no deleted image or launcher references", () => {
   const result = spawnSync("rg", ["-n", "-F", ...patterns.flatMap(pattern => ["-e", pattern]), ".github", "scripts", "apps", "packages", "distribution", "PACKAGE.ts", ".smithers/target-index.json", "--glob", "!*.lock"], { cwd: root, encoding: "utf8" })
   assert.equal(result.status, 1, result.stdout + result.stderr)
 })
-test("lifecycle port sources and surviving command executor remain", () => {
-  for (const name of ["backup.sh", "restore.sh", "upgrade.sh", "lib.sh", "distribution_test.go", "backend_build_test.go"]) assert.ok(existsSync(`${root}/distribution/${name}`), name)
+test("retired lifecycle scripts are absent and no active consumer runs them", () => {
+  // T-INS-07 ported their guards to the backend; `smthrs host` owns the lifecycle.
+  for (const name of ["backup.sh", "restore.sh", "upgrade.sh", "lib.sh", "distribution_test.go"]) assert.equal(existsSync(`${root}/distribution/${name}`), false, name)
+  const patterns = ["distribution/" + "lib.sh", "distribution/" + "backup.sh", "distribution/" + "restore.sh", "distribution/" + "upgrade.sh", "SMITHERS_" + "BACKUP_ROOT", "SMITHERS_LIB" + "="]
+  const result = spawnSync("rg", ["-n", "-F", ...patterns.flatMap(pattern => ["-e", pattern]), ".github", "scripts", "apps", "packages", "distribution", "--glob", "!*.lock"], { cwd: root, encoding: "utf8" })
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+})
+test("the surviving build test and command executor remain", () => {
+  assert.ok(existsSync(`${root}/distribution/backend_build_test.go`))
   assert.ok(existsSync(`${root}/apps/app/scripts/mode-matrix/command-execution.ts`))
 })

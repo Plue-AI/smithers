@@ -148,6 +148,11 @@ func TestRealBackupMutateRestoreReturnsTheBackupRows(t *testing.T) {
 	require.Equal(t, want, digest(f.rows(live)))
 	write(t, filepath.Join(f.state, "repositories/o/r/proof"), "files", 0600)
 	write(t, filepath.Join(f.state, "config/secrets.json"), "install key", 0600)
+	// One file of each durable class an install keeps beside its database.
+	classes := map[string]string{"repositories/owner/repo/change": "repository", "blobs/chat/transcript": "chat", "blobs/approvals/pending": "approval", "blobs/artifacts/output": "artifact", "workspaces/run/file": "workspace", "config/instance.key": "credential"}
+	for name, body := range classes {
+		write(t, filepath.Join(f.state, name), body, 0600)
+	}
 
 	at := time.Date(2026, 10, 7, 1, 2, 3, 0, time.UTC)
 	backup, err := hostbackup.Backup(t.Context(), hostbackup.BackupConfig{FreeSpaceFloor: 1 << 20, State: f.state, Version: hostbackup.Version{Release: "1.2.3", Schema: 2, PostgresMajor: 18}, Authority: &liveDatabase{database: live, at: at}, Cloner: hostbackup.APFSCloner{}})
@@ -193,6 +198,11 @@ func TestRealBackupMutateRestoreReturnsTheBackupRows(t *testing.T) {
 		info, err = os.Stat(filepath.Join(other, "config/secrets.json"))
 		require.NoError(t, err)
 		require.Equal(t, os.FileMode(0600), info.Mode().Perm())
+		for name, body := range classes {
+			restored, err := os.ReadFile(filepath.Join(other, name))
+			require.NoError(t, err, name)
+			require.Equal(t, body, string(restored), name)
+		}
 		version, err := os.ReadFile(filepath.Join(other, "postgres/data/PG_VERSION"))
 		require.NoError(t, err)
 		require.Equal(t, "18\n", string(version))

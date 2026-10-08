@@ -7,8 +7,10 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -68,6 +70,31 @@ func (p *Instance) RestoreDump(ctx context.Context, source io.Reader) error {
 		return fmt.Errorf("packaged pg_restore failed: %w", err)
 	}
 	return nil
+}
+
+// RestoreInto creates a database in cfg.StateDir with the packaged initdb,
+// loads a custom-format dump into it and stops it. The directory must not
+// hold a database yet: a restore never loads over existing data. The stopped
+// directory can then be published as an install's own.
+func RestoreInto(ctx context.Context, cfg Config, dump io.Reader) (err error) {
+	if dump == nil {
+		return errors.New("restore dump source required")
+	}
+	if entries, readErr := os.ReadDir(cfg.StateDir); readErr == nil && len(entries) != 0 {
+		return errors.New("restore requires a fresh postgres state directory")
+	} else if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+	database, err := Start(ctx, cfg)
+	if err != nil {
+		return fmt.Errorf("create the restored database: %w", err)
+	}
+	defer func() {
+		stopping, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		err = errors.Join(err, database.Stop(stopping))
+	}()
+	return database.RestoreDump(ctx, dump)
 }
 
 func (p *Instance) maintenanceReady(ctx context.Context) error {

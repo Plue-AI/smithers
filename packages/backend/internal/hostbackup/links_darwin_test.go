@@ -55,9 +55,9 @@ func manifestLinks(t *testing.T, dir string) map[string]string {
 	return links
 }
 
-// The staged-link confinement cases of the retired distribution/lib.sh
-// (path_stays_inside): a link inside the tree is captured and restored with
-// its target, and one that leads out is never published.
+// Link confinement: a link inside the tree is captured and restored with its
+// target, and one that leads out (absolute, a climb, a climb through another
+// link, a loop) is never published.
 func TestBackupConfinesStateLinks(t *testing.T) {
 	t.Run("in-tree relative links restore", func(t *testing.T) {
 		state := linkState(t, map[string]string{"workspaces/run/readme": "../run/file", "workspaces/run/self": "."})
