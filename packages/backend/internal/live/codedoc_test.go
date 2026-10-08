@@ -2,8 +2,10 @@ package live
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -77,4 +79,71 @@ func TestCodeDocumentCoalescedDeletionReceipt(t *testing.T) {
 	d.pending = nil
 	send(deletion)
 	require.Equal(t, uint64(2), d.pending[0].streamSeq)
+}
+
+// receiptPeer acknowledges each input at once into a bounded queue, like the
+// machine link's per-stream queue. A queue that stays full means the link
+// would close for every document and session on the branch.
+type receiptPeer struct{ queue chan []byte }
+
+func (p *receiptPeer) Send(ctx context.Context, raw []byte) error {
+	msg, err := wire.DecodeDocumentV2(raw)
+	if err != nil {
+		return err
+	}
+	receipt, err := wire.EncodeDocumentV2(wire.Document{Msg: wire.DocumentSaved, AtMS: 1, ThroughSeq: msg.Seq, Data: []byte{0}})
+	if err != nil {
+		return err
+	}
+	select {
+	case p.queue <- receipt:
+		return nil
+	case <-time.After(time.Second):
+		return errors.New("receipt queue stayed full")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (p *receiptPeer) Receive(ctx context.Context) ([]byte, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case b := <-p.queue:
+		return b, nil
+	}
+}
+func (p *receiptPeer) Close() error { return nil }
+
+func TestCodeDocumentDrainsReceiptsDuringBurst(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	d := &codeDocument{ctx: ctx, cancel: cancel, subscribers: make(map[*codeSubscription]bool), peer: &receiptPeer{queue: make(chan []byte, 8)}, peerCancel: func() {}}
+	// Twenty batches flush in one tick, more than the link queues per stream.
+	for seq := uint64(1); seq <= 20; seq++ {
+		b := &codeBatch{streamSeq: seq, actor: []byte("alice"), update: []byte{0, 0}}
+		d.next = seq
+		d.pending = append(d.pending, b)
+		d.receipts = append(d.receipts, b)
+	}
+	done := make(chan error, 1)
+	go func() { done <- d.pump() }()
+	deadline := time.After(5 * time.Second)
+	for {
+		d.mu.Lock()
+		left := len(d.receipts)
+		d.mu.Unlock()
+		if left == 0 {
+			break
+		}
+		select {
+		case err := <-done:
+			t.Fatalf("pump stopped with %d unreceipted batches: %v", left, err)
+		case <-deadline:
+			t.Fatalf("%d batches never receipted", left)
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Equal(t, uint64(20), d.sent)
 }

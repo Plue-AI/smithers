@@ -196,8 +196,13 @@ opening its agent broker session, binds the run before spawn, confirms it throug
 `register_run`, and requires broker-confirmed termination during cleanup. Direct
 writes still need their dependency-owned admission migration. The document relay binds
 committed member references to current membership, write-share, lane and machine
-authority. Its host remains unmounted by default pending real-machine document
-qualification; component admission tests do not enable installed editing.
+authority. An install mounts the document host only when `app.Config`
+sets `LiveCodeDocuments`; the shipped install leaves it unset until ADR 0003 is
+accepted and C-J3-04, C-DUR-04 K7 and C-PERF-03 pass on the reference host.
+The host shares the wiki's native library and applies daemon receipts while it
+sends, because the link closes when one document stream's queue overflows.
+`TestLiveCodeDocumentsComposedInstall` drives two members through the composed
+install with a scripted daemon peer; it is not disk or latency evidence.
 The T-COL-05 moved-off event remains unavailable without its transactional writer.
 
 `POST /api/branches/{b}/files/{path}` accepts the File seam's

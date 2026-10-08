@@ -317,22 +317,32 @@ func (d *codeDocument) connect(open func(context.Context) (DocumentStream, error
 }
 
 func (d *codeDocument) pump() error {
+	// The receiver exits before pump returns, so a reconnect's renumbered
+	// ledger never sees a receipt from the previous stream.
+	var receiving sync.WaitGroup
+	defer receiving.Wait()
 	ctx, cancel := context.WithCancel(d.ctx)
 	defer cancel()
 	defer d.peerCancel()
 	peer := d.peer
-	incoming := make(chan []byte)
 	failed := make(chan error, 1)
+	// Daemon frames are applied as they arrive, never only between sends. The
+	// link queues few frames per stream and closes the whole machine link when
+	// one stream's queue overflows, so receipts must drain during a burst.
+	receiving.Add(1)
 	go func() {
+		defer receiving.Done()
 		for {
 			b, e := peer.Receive(ctx)
+			if e == nil {
+				d.mu.Lock()
+				if e = ctx.Err(); e == nil {
+					e = d.receive(b)
+				}
+				d.mu.Unlock()
+			}
 			if e != nil {
 				failed <- e
-				return
-			}
-			select {
-			case incoming <- b:
-			case <-ctx.Done():
 				return
 			}
 		}
@@ -345,13 +355,6 @@ func (d *codeDocument) pump() error {
 			return d.ctx.Err()
 		case err := <-failed:
 			return err
-		case raw := <-incoming:
-			d.mu.Lock()
-			err := d.receive(raw)
-			d.mu.Unlock()
-			if err != nil {
-				return err
-			}
 		case <-ticker.C:
 			d.mu.Lock()
 			batch := d.pending
@@ -365,12 +368,14 @@ func (d *codeDocument) pump() error {
 				}
 			}
 			for _, b := range batch {
-				if err := d.send(ctx, wire.Document{Msg: wire.DocumentInput, Actor: b.actor, Seq: b.streamSeq, Data: syncPayload(2, b.update)}); err != nil {
-					return err
-				}
+				// A fast daemon may acknowledge before Send returns. A failed send
+				// ends this stream; reconnect renumbers the whole ledger.
 				d.mu.Lock()
 				d.sent = b.streamSeq
 				d.mu.Unlock()
+				if err := d.send(ctx, wire.Document{Msg: wire.DocumentInput, Actor: b.actor, Seq: b.streamSeq, Data: syncPayload(2, b.update)}); err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -91,6 +91,11 @@ type Config struct {
 	// branch machines (#3751). Only a hosted deployment with a microVM
 	// Workspace may set it.
 	HostedBranchMachines bool
+	// LiveCodeDocuments lets members co-edit code files through the branch
+	// machine's daemon (T-COL-08). Only a single-owner install with branch
+	// machines may set it, after ADR 0003 is accepted; unset, File cards stay
+	// read-only.
+	LiveCodeDocuments bool
 	// FlowHostRegistry is the verified set of packaged canonical Flow hosts.
 	// Nil leaves durable Flow admission unavailable for development setups
 	// without a built host bundle.
@@ -247,6 +252,7 @@ func (cfg Config) options() compose.Options {
 		Workspace:              cfg.Workspace,
 		InstallBranchMachines:  cfg.BranchMachines,
 		HostedBranchMachines:   cfg.HostedBranchMachines,
+		LiveCodeDocuments:      cfg.LiveCodeDocuments,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
 		FlowHostConfig:         cfg.FlowHostConfig,
 		FlowHostProductAPIURL:  cfg.FlowHostProductAPIURL,
