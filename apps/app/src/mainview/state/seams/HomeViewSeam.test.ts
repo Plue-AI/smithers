@@ -274,3 +274,21 @@ test("repeated committed Home preferences do not enqueue identical reads and wri
     expect(saved).toEqual({ home: { filter: "queued", menu: 9 }, last_seen_seq: 2 })
   } finally { stop(); seam.dispose() }
 })
+
+
+test("Home remount replaces an invalidated initial read before the poll interval", async () => {
+  let release: (response: Response) => void = () => {}
+  let reads = 0
+  const first = new Promise<Response>(resolve => { release = resolve })
+  const seam = createHomeViewSeam({ owner: () => "Ben", subscribeOwner: () => () => {},
+    report: error => { throw error }, http: async () => ++reads === 1 ? first : Response.json({ home: { filter: "in_review" } }) })
+  let stop = seam.subscribe(() => {})
+  try {
+    await waitFor(() => reads === 1)
+    stop()
+    stop = seam.subscribe(() => {})
+    release(Response.json({ home: { filter: "queued" } }))
+    await waitFor(() => seam.get().filter === "in_review", 500)
+    expect(reads).toBe(2)
+  } finally { release(Response.json({})); stop(); seam.dispose() }
+})

@@ -118,7 +118,7 @@ export function createHomeViewSeam(options: {
       stopHome = options.live?.subscribe("home", observeHome)
       observeHome(); changeOwner()
       const now = Date.now()
-      if (now - subscribedReadAt >= 2000) { subscribedReadAt = now; void read() }
+      if (!preferencesKnown || now - subscribedReadAt >= 2000) { subscribedReadAt = now; void read() }
       poll()
     }
     return () => {
