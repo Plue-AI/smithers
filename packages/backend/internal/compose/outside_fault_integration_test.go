@@ -45,7 +45,57 @@ func TestOutsideWatcherDaemonFaultRecovery(t *testing.T) {
 	}
 }
 
-func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
+// A deliberately failed child campaign must archive its real provider state
+// before fixture cleanup. A green parent is not a passing recovery campaign.
+func TestOutsideWatcherFailureArtifacts(t *testing.T) {
+	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY") == "" {
+		t.Skip("requires rehearsal_daemon built with --features killpoints")
+	}
+	directory := t.TempDir()
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestOutsideWatcherFaultArchiveChild$", "-test.v")
+	child.Env = append(os.Environ(), "SMITHERS_FAULT_ARCHIVE_CHILD=1", "SMITHERS_REHEARSAL_FAULT_EVIDENCE="+directory)
+	output, err := child.CombinedOutput()
+	var exit *exec.ExitError
+	require.ErrorAs(t, err, &exit, string(output))
+	require.Equal(t, 1, exit.ExitCode(), string(output))
+	require.Contains(t, string(output), "failure-archive probe", "setup must reach the deliberately failed assertion")
+	evidence := filepath.Join(directory, "K1", "TestOutsideWatcherFaultArchiveChild")
+	for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts", "outbox"} {
+		data, err := os.ReadFile(filepath.Join(evidence, "failure-"+table+".json"))
+		require.NoError(t, err)
+		var rows []json.RawMessage
+		require.NoError(t, json.Unmarshal(data, &rows))
+	}
+	checkpoint, err := os.ReadFile(filepath.Join(evidence, "failure-watcher.json"))
+	require.NoError(t, err)
+	var stored struct{ Version int }
+	require.NoError(t, json.Unmarshal(checkpoint, &stored))
+	require.Equal(t, 1, stored.Version)
+	for n := 0; n < 20; n++ {
+		data, err := os.ReadFile(filepath.Join(evidence, fmt.Sprintf("failure-acknowledged-%02d.ts", n)))
+		require.NoError(t, err)
+		require.Equal(t, fmt.Sprintf("// acknowledged write %02d at K1\n", n), string(data))
+	}
+}
+
+func TestOutsideWatcherFaultArchiveChild(t *testing.T) {
+	if os.Getenv("SMITHERS_FAULT_ARCHIVE_CHILD") != "1" {
+		return
+	}
+	outsideWatcherDaemonFault(t, os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY"), "K1")
+}
+
+func TestOutsideWatcherInterruptedWriterRecovery(t *testing.T) {
+	binary := os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY")
+	if binary == "" {
+		t.Skip("requires rehearsal_daemon built with --features killpoints")
+	}
+	outsideWatcherDaemonFault(t, binary, "K3", true)
+}
+
+func outsideWatcherDaemonFault(t *testing.T, binary, point string, interruptWriter ...bool) {
 	f := presenceInstall(t, true)
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
@@ -118,6 +168,47 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 	writer, err := os.Create(filepath.Join(evidence, "writer.jsonl"))
 	require.NoError(t, err)
 	expected := map[string]string{}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		// Archive before the daemon, repository and database fixture cleanups.
+		// A failed convergence assertion must retain the actual rows/checkpoint,
+		// rather than leave only a timeout and destroy its recovery evidence.
+		archive := func(name string, data []byte, err error) {
+			if err != nil {
+				data = []byte(err.Error())
+				name += ".error"
+			}
+			if err := os.WriteFile(filepath.Join(evidence, "failure-"+name), data, 0600); err != nil {
+				t.Logf("failure evidence %s: %v", name, err)
+			}
+		}
+		diagnosticCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		for _, table := range []string{"product_job_events", "burst_files", "machine_event_receipts"} {
+			var data []byte
+			err := f.pool.QueryRow(diagnosticCtx, "SELECT COALESCE(json_agg(row_to_json(r)), '[]'::json) FROM "+table+" r").Scan(&data)
+			archive(table+".json", data, err)
+		}
+		checkpoint, err := os.ReadFile(filepath.Join(restart.State, "watcher.json"))
+		archive("watcher.json", checkpoint, err)
+		entries, err := os.ReadDir(filepath.Join(restart.State, "outbox"))
+		names := []string{}
+		for _, entry := range entries {
+			if strings.HasSuffix(entry.Name(), ".ev") {
+				names = append(names, entry.Name())
+				data, err := os.ReadFile(filepath.Join(restart.State, "outbox", entry.Name()))
+				archive(entry.Name(), data, err)
+			}
+		}
+		manifest, _ := json.Marshal(names)
+		archive("outbox.json", manifest, err)
+		for path := range expected {
+			data, err := os.ReadFile(filepath.Join(root, path))
+			archive(path, data, err)
+		}
+	})
 	for n := 0; n < 20; n++ {
 		path := fmt.Sprintf("acknowledged-%02d.ts", n)
 		content := fmt.Sprintf("// acknowledged write %02d at %s\n", n, point)
@@ -130,6 +221,11 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 		hash := sha256.Sum256([]byte(content))
 		expected[path] = content
 		require.NoError(t, json.NewEncoder(writer).Encode(map[string]any{"seq": n, "path": path, "sha256": hex.EncodeToString(hash[:])}))
+		if n == 0 && len(interruptWriter) == 1 && interruptWriter[0] {
+			// Continue the same acknowledged writer after the first burst kills
+			// the daemon. Restart must discover the other nineteen files too.
+			require.Eventually(t, func() bool { return len(restart.Exited) == 1 }, 20*time.Second, 50*time.Millisecond)
+		}
 		if n == 0 && strings.HasPrefix(point, "K5") && filepath.Base(t.Name()) == "1" {
 			// Deliberately cross the five-second background capture boundary.
 			// The old eagerly armed hook exits here, before the remaining writes.
@@ -152,6 +248,9 @@ func outsideWatcherDaemonFault(t *testing.T, binary, point string) {
 	}
 	require.NoError(t, writer.Sync())
 	require.NoError(t, writer.Close())
+	if os.Getenv("SMITHERS_FAULT_ARCHIVE_CHILD") == "1" {
+		t.Fatal("failure-archive probe")
+	}
 	if strings.HasPrefix(point, "K5") {
 		require.Eventually(t, func() bool {
 			var n int

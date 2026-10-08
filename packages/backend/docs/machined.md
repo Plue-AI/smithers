@@ -229,6 +229,14 @@ runtime's qualified WorkspaceCompareWriter; it has no blind-write fallback.
 
 The existing Git backing-store provider writes literal per-file blobs and parentless version commits without filters or hooks. The private watcher checkpoint pins its current and previous version sets before atomic replacement, and recovery validates burst identities, paths, modes and rename relationships. Corrupt or unsafe recovery files refuse startup instead of resetting history. Installed watcher composition remains required.
 
+Before appending a closed burst, the installed watcher durably retains its
+immutable close intent and versions commit. Startup replays that intent with
+stable event identities, completes any missing multipart entries, and settles
+the original burst before scanning later disk writes. The intent and its pin
+are removed after the watcher checkpoint commits. Writes made while the daemon
+was stopped therefore open a new burst instead of changing an already
+published burst's payload.
+
 ## Composed install consumers
 
 `POST /api/terminals` persists a current member's branch request and terminal

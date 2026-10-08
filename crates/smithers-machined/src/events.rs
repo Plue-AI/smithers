@@ -8,7 +8,7 @@ use crate::{
 use sha2::{Digest as _, Sha256};
 use std::{collections::BTreeMap, io};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Closed<A, B, C> {
     pub burst_id: [u8; 16],
     pub actor: Option<A>,
@@ -26,6 +26,50 @@ pub struct Checkpoint<A, B> {
     identities: Vec<(Key<A>, [u8; 16], Option<Window<A>>)>,
 }
 impl<A: Clone + Eq, B: Clone> Checkpoint<A, B> {
+    /// Finish an immutable close recovered from the private close journal.
+    /// New disk writes must never join that already-published burst identity.
+    pub(crate) fn settle_closed<C>(&mut self, closed: &Closed<A, B, C>) -> io::Result<()> {
+        let Some(key) = self
+            .identities
+            .iter()
+            .find(|(_, id, _)| *id == closed.burst_id)
+            .map(|(key, _, _)| key.clone())
+        else {
+            return Ok(());
+        };
+        let removed: std::collections::BTreeSet<_> = self
+            .bursts
+            .pending()
+            .iter()
+            .filter(|burst| burst.key == key)
+            .flat_map(|burst| burst.files.keys().cloned())
+            .collect();
+        let pending: Vec<_> = self
+            .bursts
+            .pending()
+            .iter()
+            .filter(|burst| burst.key != key)
+            .cloned()
+            .collect();
+        let now = pending.iter().map(|burst| burst.last_ms).max().unwrap_or(0);
+        self.bursts = Bursts::restore(pending, now).map_err(io::Error::other)?;
+        self.identities.retain(|(_, id, _)| *id != closed.burst_id);
+        self.renames
+            .retain(|from, to| !removed.contains(from) && !removed.contains(to));
+        for (path, file) in &closed.files {
+            if let Some(to) = closed.renamed_to.get(path) {
+                self.recorded.remove(path);
+                if let Some(version) = &file.after {
+                    self.recorded.insert(to.clone(), version.clone());
+                }
+            } else if let Some(version) = &file.after {
+                self.recorded.insert(path.clone(), version.clone());
+            } else {
+                self.recorded.remove(path);
+            }
+        }
+        Ok(())
+    }
     pub fn renames(&self) -> &BTreeMap<String, String> {
         &self.renames
     }

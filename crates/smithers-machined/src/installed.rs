@@ -160,15 +160,12 @@ impl Provider<Actor> for Ports {
         )))
     }
     fn checkpoint(&mut self, s: &Checkpoint<Actor, Oid>) -> io::Result<()> {
-        self.store.save(s, &mut self.git)
+        self.store.save(s, &mut self.git)?;
+        self.store.finish_closes(&self.git)
     }
     fn append(&mut self, e: &Closed<Actor, Oid, Oid>) -> io::Result<()> {
-        for event in crate::events::wire_events(e).map_err(io::Error::other)? {
-            self.events
-                .append(&event, Some(e.versions_commit))
-                .map_err(crate::watch::provider_error)?;
-        }
-        Ok(())
+        self.store.prepare_close(e, &self.git)?;
+        crate::watcher_store::Store::publish_close(e, &self.events)
     }
     fn hint(
         &mut self,
@@ -414,7 +411,9 @@ pub fn run() -> io::Result<()> {
         ..Default::default()
     };
     let store = crate::watcher_store::Store::open(state)?;
-    let checkpoint = store.load()?;
+    let mut checkpoint = store.load()?;
+    let mut recovery_git = git.clone();
+    store.recover_closes(&mut checkpoint, &mut recovery_git, &events)?;
     let ignore = crate::ignore::GitIgnore::new("/workspace".into(), "/usr/bin/git".into(), vec![])?;
     let (watch, _) = crate::watch::Inotify::new(workspace.try_clone()?, ignore)?;
     let mut cx = LockCx::recovering(hooks.clone(), crate::rewrite_journal::Journal::open(state)?)?;

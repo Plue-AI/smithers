@@ -44,6 +44,37 @@ pub struct Repository {
     spool: PathBuf,
 }
 impl Repository {
+    pub(crate) fn retain_watcher_close(&self, id: [u8; 16], commit: Oid) -> io::Result<()> {
+        if id == [0; 16] || !self.contains(commit)? {
+            return Err(invalid());
+        }
+        self.command(&[
+            "update-ref",
+            &format!("refs/smithers/watcher/closing/{}", hex(&id)),
+            &hex(&commit),
+        ])?;
+        self.sync()
+    }
+    pub(crate) fn clear_watcher_closes(&self) -> io::Result<()> {
+        let refs = self.command(&[
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/smithers/watcher/closing/",
+        ])?;
+        let mut checked = Vec::new();
+        for name in refs.split(|b| *b == b'\n').filter(|name| !name.is_empty()) {
+            let name = std::str::from_utf8(name).map_err(|_| invalid())?;
+            let suffix = name
+                .strip_prefix("refs/smithers/watcher/closing/")
+                .ok_or_else(invalid)?;
+            id::<16>(suffix.as_bytes())?;
+            checked.push(name);
+        }
+        for name in checked {
+            self.command(&["update-ref", "-d", name])?;
+        }
+        self.sync()
+    }
     /// Fixed installed executable and trusted state directory are supplied by
     /// composition, never by an RPC or repository configuration.
     pub fn open(directory: &Path, spool: &Path) -> io::Result<Self> {

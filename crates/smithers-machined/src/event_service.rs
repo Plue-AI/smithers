@@ -58,12 +58,16 @@ impl<R: Refs, B: Bundles> Events<R, B> {
     }
 
     pub(crate) fn append_keyed(&self, id: [u8; 16], event: &[u8], pin: Oid) -> io::Result<()> {
-        self.state
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| io::Error::other("event state poisoned"))?
-            .outbox
-            .append_keyed(id, event, Some(pin))
-            .map(|_| ())
+            .map_err(|_| io::Error::other("event state poisoned"))?;
+        let before = state.outbox.depth();
+        state.outbox.append_keyed(id, event, Some(pin))?;
+        if event.first() == Some(&1) && state.outbox.depth() != before {
+            state.bursts = state.bursts.wrapping_add(1);
+        }
+        Ok(())
     }
     pub fn next_sequence(&self) -> io::Result<u64> {
         self.state
