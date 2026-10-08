@@ -256,3 +256,18 @@ refusals are now scheduled; none has been qualified on this Linux lane.
 permissions/ownership and both destination object types. They use the installed
 provider's actual installer dispatch, preserve outside fingerprints and require
 refusal before init. Local syscall tests do not replace installed receipts.
+
+The installed session campaign includes six `-revoke-race` cases for parent
+and ancestor replacement, ownership and writable-mode mutations. Both workers
+wait at one launch barrier, then call the installed observer and authenticated
+relay concurrently. `live-synchronized-revoke.json` retains both operation
+intervals and failures; nonoverlapping intervals refuse. `live-drain.json` is
+captured before subsequent admission probes, including on failed operations.
+The independent original-descriptor samples must still meet the five-second
+bound. These cases have not been executed on a reference guest by the Linux lane.
+
+The synchronized SFTP leaf/ancestor schedules retain `sftp-mutations.jsonl`
+alongside `sftp-packets.jsonl`: literal SSH commands, start/end timestamps, raw
+acknowledgments and failures. Existing mutation evidence refuses before SSH
+effects. A successful packet exchange without the independent outside-sentinel
+observations remains insufficient for acceptance.

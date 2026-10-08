@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Literal SFTP v3 controls through the real SSH subsystem. Path operations are
@@ -142,7 +143,7 @@ func sftpBoundaryFixture(client *ssh.Client, race bool, evidence ...string) erro
 		if err := sftpPathRace(client, request, openBody); err != nil {
 			return err
 		}
-		return sftpHeldPathReplacements(client, request, openBody)
+		return sftpHeldPathReplacements(client, request, openBody, evidence...)
 	}
 	return nil
 }
@@ -260,14 +261,39 @@ printf '%s' "$n"`
 // Each mutation is acknowledged by the real SSH exec channel before SFTP uses
 // the handle/path again. The outside sentinel is checked independently by the
 // installed campaign after revocation; protocol success alone cannot pass it.
-func sftpHeldPathReplacements(client *ssh.Client, request func(byte, uint32, []byte) ([]byte, error), openBody func(string) []byte) error {
-	command := func(text string) error {
+func sftpHeldPathReplacements(client *ssh.Client, request func(byte, uint32, []byte) ([]byte, error), openBody func(string) []byte, evidence ...string) error {
+	var transcript *os.File
+	if len(evidence) > 0 {
+		var err error
+		transcript, err = os.OpenFile(filepath.Join(evidence[0], "sftp-mutations.jsonl"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err != nil {
+			return err
+		}
+		defer transcript.Close()
+	}
+	command := func(text string) (result error) {
+		started := time.Now().UTC()
+		var output []byte
+		defer func() {
+			if transcript == nil {
+				return
+			}
+			record := map[string]any{"command": "set -e; " + text, "started_utc": started, "completed_utc": time.Now().UTC(), "output": output}
+			if result != nil {
+				record["failure"] = result.Error()
+			}
+			if err := json.NewEncoder(transcript).Encode(record); err != nil {
+				result = errors.Join(result, err)
+				return
+			}
+			result = errors.Join(result, transcript.Sync())
+		}()
 		session, err := client.NewSession()
 		if err != nil {
 			return err
 		}
 		defer session.Close()
-		output, err := session.CombinedOutput("set -e; " + text)
+		output, err = session.CombinedOutput("set -e; " + text)
 		if err != nil {
 			return fmt.Errorf("SFTP replacement exec failed: %w", err)
 		}

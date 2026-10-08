@@ -4,7 +4,10 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -159,7 +162,7 @@ func TestSFTPHeldReplacementSchedules(t *testing.T) {
 				}
 				return nil, fmt.Errorf("unexpected request %d", kind)
 			}
-			err = sftpHeldPathReplacements(client, request, func(path string) []byte { return []byte(path) })
+			err = sftpHeldPathReplacements(client, request, func(path string) []byte { return []byte(path) }, root)
 			_ = client.Close()
 			if serverErr := <-done; serverErr != nil {
 				t.Fatal(serverErr)
@@ -170,10 +173,62 @@ func TestSFTPHeldReplacementSchedules(t *testing.T) {
 			if !corrupt && (opened != 32 || denied != 32 || written != 32 || closed != 32) {
 				t.Fatalf("schedules: open=%d deny=%d write=%d close=%d", opened, denied, written, closed)
 			}
+			transcript, err := os.Open(filepath.Join(root, "sftp-mutations.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer transcript.Close()
+			decoder := json.NewDecoder(transcript)
+			records, failures := 0, 0
+			for {
+				var record struct {
+					Command   string    `json:"command"`
+					Started   time.Time `json:"started_utc"`
+					Completed time.Time `json:"completed_utc"`
+					Output    []byte    `json:"output"`
+					Failure   string    `json:"failure"`
+				}
+				if err := decoder.Decode(&record); err == io.EOF {
+					break
+				} else if err != nil {
+					t.Fatal(err)
+				}
+				records++
+				if !strings.HasPrefix(record.Command, "set -e; ") || record.Started.IsZero() || record.Completed.Before(record.Started) {
+					t.Fatal("mutation timeline absent")
+				}
+				if record.Failure != "" {
+					failures++
+				} else if string(record.Output) != "replaced" {
+					t.Fatal("mutation acknowledgment absent")
+				}
+			}
+			wantRecords, wantFailures := 144, 0
+			if corrupt {
+				wantRecords, wantFailures = 4, 1
+			}
+			if records != wantRecords || failures != wantFailures {
+				t.Fatalf("mutation evidence: %d records/%d failures", records, failures)
+			}
 			data, err := os.ReadFile(sentinel)
 			if err != nil || string(data) != "outside-fixture\x00" {
 				t.Fatalf("outside changed: %q %v", data, err)
 			}
 		})
+	}
+}
+
+func TestSFTPMutationEvidenceRefusesExistingOutputBeforeSSH(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sftp-mutations.jsonl")
+	if err := os.WriteFile(path, []byte("prior-evidence"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Nil SSH/request dependencies prove refusal precedes any channel effects.
+	if err := sftpHeldPathReplacements(nil, nil, nil, root); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("expected existing-evidence refusal, got %v", err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "prior-evidence" {
+		t.Fatal("prior mutation evidence overwritten")
 	}
 }

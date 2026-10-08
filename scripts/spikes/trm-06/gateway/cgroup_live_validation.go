@@ -23,8 +23,8 @@ func cgroupLiveFixture(scenario string) bool {
 // Installed authenticated relay only. Mutation happens after enrollment, while
 // both foreground and lingering processes are independently observed. The
 // observer holds the original events descriptors before the path is changed.
-func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl, closeFirst bool) error {
-	if !cgroupLiveFixture(scenario) {
+func validateLiveCgroupBoundary(ctx context.Context, control relayControl, observe func(string) ([]byte, error), scenario string, outside []byte, evidence string, closeControl, closeFirst, revokeRace bool) error {
+	if !cgroupLiveFixture(scenario) || (revokeRace && (!cgroupRevokeRaceFixture(scenario) || closeControl || closeFirst)) {
 		return errAuthority
 	}
 	// Retain every poll and failed mutation, not only the final sample at a path.
@@ -132,12 +132,42 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 			return err
 		}
 	}
-	mutation, mutationErr := observe(scenario)
+	var mutation []byte
+	var mutationErr, revokeErr error
+	var invoked time.Time
+	var drained []byte
+	var observeErr error
+	if revokeRace {
+		race := synchronizedCgroupRevoke(
+			func() ([]byte, error) { return observe(scenario) },
+			func() error { return control.revoke(ctx) },
+		)
+		mutation, mutationErr, revokeErr = race.Mutation.Raw, race.Mutation.err, race.Revocation.err
+		invoked = race.Revocation.Started
+		body, marshalErr := json.Marshal(race)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if err = retain("live-synchronized-revoke", body); err != nil {
+			return err
+		}
+		// Consume the observer exactly once, including failed operations. Later
+		// admission probes cannot erase the original-group revocation evidence.
+		drained, observeErr = observe("drain")
+		if err = retain("live-drain", drained); err != nil {
+			return errors.Join(mutationErr, revokeErr, observeErr, err)
+		}
+		if err = race.validateOverlap(); err != nil {
+			return errors.Join(mutationErr, revokeErr, observeErr, err)
+		}
+	} else {
+		mutation, mutationErr = observe(scenario)
+	}
 	if err = retain("live-mutation", mutation); err != nil {
-		return errors.Join(mutationErr, err)
+		return errors.Join(mutationErr, revokeErr, err)
 	}
 	if mutationErr != nil {
-		return mutationErr
+		return errors.Join(mutationErr, revokeErr)
 	}
 	// Do not mistake a failed handshake, timeout or generic EOF for the specific
 	// admission refusal: the live broker must return the invalid typed response.
@@ -162,12 +192,16 @@ func validateLiveCgroupBoundary(ctx context.Context, control relayControl, obser
 			return err
 		}
 	}
-	invoked := time.Now().UTC()
-	revokeErr := control.revoke(ctx)
+	if !revokeRace {
+		invoked = time.Now().UTC()
+		revokeErr = control.revoke(ctx)
+	}
 	// Preserve the independent original-group observations even on a NO revoke.
-	drained, observeErr := observe("drain")
-	if err = retain("live-drain", drained); err != nil {
-		return errors.Join(revokeErr, observeErr, err)
+	if !revokeRace {
+		drained, observeErr = observe("drain")
+		if err = retain("live-drain", drained); err != nil {
+			return errors.Join(revokeErr, observeErr, err)
+		}
 	}
 	if err = retain("live-revoke", []byte(`{"invoked_utc":`+quoteUTC(invoked)+`}`)); err != nil {
 		return err

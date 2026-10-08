@@ -96,6 +96,9 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 		for _, scenario := range append([]string(nil), scenarios...) {
 			if cgroupLiveFixture(scenario) {
 				scenarios = append(scenarios, scenario+"-close", scenario+"-close-first")
+				if cgroupRevokeRaceFixture(scenario) {
+					scenarios = append(scenarios, scenario+"-revoke-race")
+				}
 			}
 		}
 	}
@@ -259,6 +262,14 @@ func cgroupRestartFixture(scenario string) bool {
 func validationScenario(ctx context.Context, a *installedAuthority, runtime *microsandbox.Runtime, runtimeRoot, home, fixture, scenario, operation, evidence string) error {
 	closeControl := false
 	closeFirst := false
+	revokeRace := false
+	if strings.HasSuffix(scenario, "-revoke-race") {
+		scenario = strings.TrimSuffix(scenario, "-revoke-race")
+		if operation != "check-session" || !cgroupRevokeRaceFixture(scenario) {
+			return errAuthority
+		}
+		revokeRace = true
+	}
 	if strings.HasSuffix(scenario, "-close-first") {
 		scenario = strings.TrimSuffix(scenario, "-close-first")
 		if operation != "check-session" || !cgroupLiveFixture(scenario) {
@@ -401,7 +412,7 @@ func validationScenario(ctx context.Context, a *installedAuthority, runtime *mic
 		return validateNoLandlockBoundary(ctx, control, observe, before, evidence)
 	}
 	if cgroupLiveFixture(scenario) {
-		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl, closeFirst)
+		return validateLiveCgroupBoundary(ctx, control, observe, scenario, before, evidence, closeControl, closeFirst, revokeRace)
 	}
 	if operation == "check-session" {
 		if err = validateSessionBoundary(ctx, control, observe, evidence); err != nil {
