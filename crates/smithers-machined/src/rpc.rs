@@ -51,10 +51,18 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
 
             12 => {
                 let actor = conn::return_to_item_actor(args)?;
-                hooks.core.validate_return_to_item().and_then(|()| {
-                    crate::freeze::freeze_return(cx, &actor, |cx| hooks.core.return_to_item(cx))
-                        .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
-                })
+                crate::wiring::ready(&hooks)
+                    .map_err(|error| match error {
+                        crate::wiring::StartError::NotReady { source, .. } => source,
+                        crate::wiring::StartError::Executor(_) => {
+                            crate::hooks::Error::unsupported()
+                        }
+                    })
+                    .and_then(|()| hooks.core.validate_return_to_item())
+                    .and_then(|()| {
+                        crate::freeze::freeze_return(cx, &actor, |cx| hooks.core.return_to_item(cx))
+                            .map(|head| conn::structure_bytes(&[conn::field(1, head)]))
+                    })
             }
 
             13 => {

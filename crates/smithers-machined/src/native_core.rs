@@ -943,10 +943,309 @@ pub(crate) mod tests {
         );
         executor.shutdown().unwrap();
     }
+    #[test]
+    #[allow(non_snake_case)]
+    fn TestMovedOffUnavailableProviders() {
+        // Real native repository and framed Return dispatcher. Startup is not
+        // enough: a provider can disappear after an authenticated link starts.
+        for missing in [
+            "watcher",
+            "documents",
+            "sessions",
+            "broker",
+            "events",
+            "core",
+            "binding",
+        ] {
+            let (dir, mut core) = fixture();
+            let root = dir.path().join("workspace");
+            fs::write(root.join("base"), b"base\n").unwrap();
+            let base = core.native.snapshot().unwrap().0;
+            let item = crate::native::tests::child(&core.native, base, "item");
+            let change = crate::native::tests::change(&core.native, item);
+            Arc::get_mut(&mut core).unwrap().item =
+                Some(crate::boot::ItemBinding { number: 2, change });
+            core.git.clone().acknowledge_and_sync(item).unwrap();
+            crate::native::tests::child(&core.native, base, "off item");
+            core.observe_moved_off(&Actor::Outside).unwrap();
+            fs::write(root.join("notes.txt"), b"keep after move\n").unwrap();
+            let before = core.native.snapshot().unwrap().0;
+            if missing == "binding" {
+                Arc::get_mut(&mut core).unwrap().item = None;
+            }
+            let mut hooks = Hooks {
+                core: core.clone(),
+                events: core.events.clone(),
+                watcher: Arc::new(Flushed),
+                documents: Arc::new(Flushed),
+                sessions: Arc::new(Flushed),
+                broker: Arc::new(Flushed),
+                ..Default::default()
+            };
+            match missing {
+                "watcher" => hooks.watcher = Arc::new(Disabled),
+                "documents" => hooks.documents = Arc::new(Disabled),
+                "sessions" => hooks.sessions = Arc::new(Disabled),
+                "broker" => hooks.broker = Arc::new(Disabled),
+                "events" => hooks.events = Arc::new(Disabled),
+                "core" => hooks.core = Arc::new(Disabled),
+                "binding" => (),
+                _ => unreachable!(),
+            }
+            assert!(crate::wiring::compose(hooks.clone()).is_err(), "{missing}");
+            let frame = Frame {
+                kind: 1,
+                stream: 0,
+                payload: tagged(
+                    1,
+                    &[
+                        field(1, 73u32.to_be_bytes()),
+                        field(
+                            2,
+                            tagged(
+                                12,
+                                &[field(1, conn::actor_bytes(&Actor::Principal(vec![7; 16])))],
+                            ),
+                        ),
+                    ],
+                ),
+            };
+            let mut output = Vec::new();
+            rpc::serve_one(
+                &mut std::io::Cursor::new(frame.encode().unwrap()),
+                &mut output,
+                &mut LockCx::new(hooks),
+            )
+            .unwrap();
+            let response = Frame::decode(&output).unwrap();
+            let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+            assert_eq!(value[0], 255, "{missing}");
+            assert_eq!(
+                conn::fields("error", &value[1..]).unwrap()[0].1,
+                [2],
+                "{missing}"
+            );
+            assert_eq!(core.native.current().unwrap().0, before, "{missing}");
+            assert_eq!(
+                fs::read(root.join("notes.txt")).unwrap(),
+                b"keep after move\n",
+                "{missing}"
+            );
+            assert!(core.validate_coding_write().is_err(), "{missing}");
+        }
+    }
+    // Run only from the install/main-built test bundle in an isolated guest.
+    // The broker stays root; the Return dispatcher and repository stay machined.
+    #[test]
+    #[ignore = "requires isolated guest, installed admission and fixed cgroup-v2 parent"]
+    #[allow(non_snake_case)]
+    fn TestReturnToItemBrokerValidatesFreezeInputs() {
+        use crate::broker::{
+            cgroups::Cgroups,
+            control,
+            spawn::{InstalledAdmission, Processes},
+            supervisor::Supervisor,
+        };
+        use rustix::net::{
+            recv, send, socketpair, AddressFamily, RecvFlags, SendFlags, SocketFlags, SocketType,
+        };
+        use std::os::{fd::AsRawFd, unix::process::CommandExt};
+        assert_eq!(
+            rustix::process::geteuid().as_raw(),
+            0,
+            "guest broker must run as root"
+        );
+        let (server, client) = socketpair(
+            AddressFamily::UNIX,
+            SocketType::SEQPACKET,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .unwrap();
+        let broker = std::thread::spawn(move || {
+            let kernel = Processes::new(Cgroups::open().unwrap(), InstalledAdmission);
+            control::serve(&server, &mut Supervisor::new(kernel)).unwrap();
+        });
+        rustix::net::sockopt::set_socket_timeout(
+            &client,
+            rustix::net::sockopt::Timeout::Recv,
+            Some(std::time::Duration::from_secs(2)),
+        )
+        .unwrap();
+        let exchange = |op, fields: &[Vec<u8>]| {
+            let mut packet = 9u32.to_be_bytes().to_vec();
+            packet.extend(tagged(op, fields));
+            send(&client, &packet, SendFlags::NOSIGNAL).unwrap();
+            let mut output = [0; 65536];
+            let (length, _) = recv(&client, &mut output, RecvFlags::empty()).unwrap();
+            output[..length].to_vec()
+        };
+        // Registry identities and fixed cgroup paths are never freeze inputs.
+        for fields in [
+            vec![field(1, 0u32.to_be_bytes())],
+            vec![field(1, 1001u32.to_be_bytes())],
+            vec![
+                field(1, 1000u32.to_be_bytes()),
+                field(2, 999u32.to_be_bytes()),
+            ],
+            vec![
+                field(1, 1000u32.to_be_bytes()),
+                field(2, b"/sys/fs/cgroup/smithers/sessions/../../root"),
+            ],
+            vec![
+                field(1, 1000u32.to_be_bytes()),
+                field(2, b"/workspace/.git/config"),
+            ],
+            vec![
+                field(1, 1000u32.to_be_bytes()),
+                field(1, 1u32.to_be_bytes()),
+            ],
+        ] {
+            assert_eq!(exchange(1, &fields)[4], 255);
+        }
+        assert_eq!(exchange(254, &[])[4], 255);
+        assert_eq!(exchange(7, &[field(1, 999u32.to_be_bytes())])[4], 255);
+        assert!(fs::read_to_string("/sys/fs/cgroup/smithers/sessions/cgroup.events")
+            .unwrap().lines().any(|line| line == "frozen 0"));
+        assert_eq!(exchange(2, &[field(1, b"/workspace/evil")])[4], 255);
+        // Pass only the already boot-controlled socket descriptor to machined.
+        rustix::io::fcntl_setfd(&client, rustix::io::FdFlags::empty()).unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_core::tests::return_broker_guest_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("SMITHERS_COL05_BROKER_FD", client.as_raw_fd().to_string())
+            .uid(19998)
+            .gid(20000)
+            .status()
+            .unwrap();
+        assert!(status.success(), "unprivileged Return dispatcher failed");
+        drop(client);
+        broker.join().unwrap();
+        // Oversized frames must terminate the real broker without a freeze.
+        for length in [65537, 65561, 70000] {
+            let (server, client) = socketpair(
+                AddressFamily::UNIX,
+                SocketType::SEQPACKET,
+                SocketFlags::CLOEXEC,
+                None,
+            )
+            .unwrap();
+            let broker = std::thread::spawn(move || {
+                let kernel = Processes::new(Cgroups::open().unwrap(), InstalledAdmission);
+                assert_eq!(
+                    control::serve(&server, &mut Supervisor::new(kernel))
+                        .unwrap_err()
+                        .kind(),
+                    io::ErrorKind::InvalidData
+                );
+            });
+            let mut packet = 9u32.to_be_bytes().to_vec();
+            packet.extend(tagged(1, &[field(1, 1000u32.to_be_bytes())]));
+            packet.resize(length, 0);
+            send(&client, &packet, SendFlags::NOSIGNAL).unwrap();
+            drop(client);
+            broker.join().unwrap();
+        }
+        assert!(
+            fs::read_to_string("/sys/fs/cgroup/smithers/sessions/cgroup.events")
+                .unwrap()
+                .lines()
+                .any(|line| line == "frozen 0")
+        );
+    }
+
+    #[test]
+    #[ignore = "child of TestReturnToItemBrokerValidatesFreezeInputs, never run separately"]
+    fn return_broker_guest_child() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        assert_eq!(rustix::process::geteuid().as_raw(), 19998);
+        let fd: i32 = std::env::var("SMITHERS_COL05_BROKER_FD")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(fd > 2);
+        // Owned descriptor inherited solely from the parent guest test.
+        let socket = unsafe { OwnedFd::from_raw_fd(fd) };
+        let (dir, mut core) = fixture();
+        let root = dir.path().join("workspace");
+        fs::write(root.join("base"), b"base\n").unwrap();
+        let base = core.native.snapshot().unwrap().0;
+        let item = crate::native::tests::child(&core.native, base, "item");
+        let change = crate::native::tests::change(&core.native, item);
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 2, change });
+        core.git.clone().acknowledge_and_sync(item).unwrap();
+        crate::native::tests::child(&core.native, base, "off item");
+        core.observe_moved_off(&Actor::Outside).unwrap();
+        fs::write(root.join("notes.txt"), b"keep after move\n").unwrap();
+        // Branch-controlled config and aliases are daemon-only data. A FIFO
+        // makes an accidental root read observable as a bounded socket timeout;
+        // even its symlink must be rejected before the broker touches a file.
+        let fifo = root.join("hostile-config");
+        let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let alias = root.join("config-alias");
+        std::os::unix::fs::symlink(&fifo, &alias).unwrap();
+        for path in [&fifo, &alias] {
+            let mut packet = 9u32.to_be_bytes().to_vec();
+            packet.extend(tagged(1, &[field(1, 1000u32.to_be_bytes()),
+                field(2, path.to_str().unwrap().as_bytes())]));
+            rustix::net::send(&socket, &packet, rustix::net::SendFlags::NOSIGNAL).unwrap();
+            let mut response = [0; 65536];
+            let (length, _) = rustix::net::recv(&socket, &mut response, rustix::net::RecvFlags::empty()).unwrap();
+            assert!(length > 4);
+            assert_eq!(response[4], 255);
+        }
+        fs::remove_file(alias).unwrap();
+        fs::remove_file(fifo).unwrap();
+        let broker = Arc::new(crate::broker::control::SocketpairBroker::new(socket).unwrap());
+        let files = Arc::new(crate::files::Files::new(std::fs::File::open(&root).unwrap(), core.clone()).unwrap());
+        let executor = crate::lock::Executor::start(Hooks {
+            core: core.clone(), events: core.events.clone(),
+            documents: Arc::new(Flushed), watcher: Arc::new(Flushed),
+            sessions: broker.clone(), broker, ..Default::default()
+        }).unwrap();
+        let admitted = executor.lock.epoch();
+        let (release, held) = std::sync::mpsc::channel();
+        let returning = executor.lock.enqueue("return_to_item", move |cx| {
+            held.recv().unwrap();
+            call_in(cx, 12, &[field(1, conn::actor_bytes(&Actor::Principal(vec![7;16])))])
+        }).unwrap();
+        // Admitted before Return, but queued behind it on the production FIFO.
+        let queued = executor.lock.enqueue("coding_batch", move |cx| {
+            crate::local::batch_response(cx, &files, 74, vec![crate::hooks::FileWrite {
+                path: "notes.txt".into(), base: crate::hooks::Base::Absent,
+                content: Some(b"must never land".to_vec()),
+            }], Actor::Principal(vec![7;16]), admitted)
+        }).unwrap();
+        release.send(()).unwrap();
+        let response = returning.wait().unwrap();
+        let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+        assert_eq!(value[0], 12, "{value:?}");
+        let response = queued.wait().unwrap();
+        let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
+        assert_eq!(value[0], 255);
+        assert_eq!(conn::fields("error", &value[1..]).unwrap()[0].1, [10]);
+        executor.shutdown().unwrap();
+        assert_eq!(core.native.current().unwrap().0, item);
+        assert!(!root.join("notes.txt").exists());
+    }
     // These collaborators isolate native core behavior; production composition
     // uses the real document/watcher/broker providers in installed.rs.
     struct Flushed;
+    impl hooks::Sessions for Flushed {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+    }
     impl Documents for Flushed {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
         fn flush_all(&self, _: &mut LockCx) -> hooks::Result<u16> {
             Ok(0)
         }
@@ -955,6 +1254,9 @@ pub(crate) mod tests {
         }
     }
     impl Broker for Flushed {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
         fn freeze(&self, _: std::time::Duration) -> hooks::Result<Option<u32>> {
             Ok(None)
         }
@@ -963,6 +1265,9 @@ pub(crate) mod tests {
         }
     }
     impl Watcher for Flushed {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
         fn drain(&self, _: &mut LockCx) -> hooks::Result<()> {
             Ok(())
         }
@@ -1008,6 +1313,7 @@ pub(crate) mod tests {
             documents,
             watcher: Arc::new(Flushed),
             broker: Arc::new(Flushed),
+            sessions: Arc::new(Flushed),
             ..Default::default()
         });
         call_in(&mut cx, method, fields)
@@ -1146,7 +1452,8 @@ pub(crate) mod tests {
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         let status = conn::fields("result1", &fields[1].1[1..]).unwrap();
         assert_eq!(status[3].1, [0, 0, 0, 1]);
-        assert_eq!(status.last().unwrap().1, [0, 0]);
+        assert_eq!(status.iter().find(|(tag, _)| *tag == 6).unwrap().1, [0, 0]);
+        assert_eq!(status.iter().find(|(tag, _)| *tag == 8).unwrap().1, [1]);
         let response = call(core.clone(), 5, &[field(1, head)]);
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1, [5, 0, 0, 0, 6, 1, 1, 0, 0, 0, 0]);
