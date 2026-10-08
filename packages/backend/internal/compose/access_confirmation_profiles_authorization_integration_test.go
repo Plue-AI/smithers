@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -408,7 +410,141 @@ func TestAccessConfirmationProfilesComposedInstallPostgres(t *testing.T) {
 	}
 	require.Equal(t, 120, controlCells)
 
-	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "isolated-confirmation-profiles.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install OAuth and production confirmation dispatcher", "explicit_cards": len(ids), "app_edit_effect_cells": editCells, "queued_retrying_control_effect_cells": controlCells, "cells": receipts, "test_passed": !t.Failed(), "full_C_ACC_02_complete": false}), 0600))
+	moveCells := 0
+	for _, a := range actors {
+		if a.profile != "" {
+			continue
+		}
+		for _, state := range []string{"queued", "retrying"} {
+			for _, ownership := range []string{"own", "other-member"} {
+				for _, direction := range []string{"up", "down"} {
+					t.Run("move-effect/"+a.name+"/"+state+"/"+ownership+"/"+direction, func(t *testing.T) {
+						holder := a.member
+						if ownership == "other-member" {
+							holder = actors[0].member
+							if holder == a.member {
+								holder = actors[5].member
+							}
+						}
+						var position int64
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT coalesce(max(stack_position),0)+1 FROM mythical_items WHERE repository_id=$1 AND state NOT IN ('landed','cancelled','rejected','declined')`, repo.ID).Scan(&position))
+						insert := func(state string, place int64) int64 {
+							var n int64
+							require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt,stack_position)
+ VALUES($1,'todo',$2,'Move effect','Move effect',$3,$3,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1,$4) RETURNING number`, repo.ID, state, holder, place).Scan(&n))
+							return n
+						}
+						from, to := position, position+1
+						if direction == "up" {
+							from, to = to, from
+						}
+						var number, peer int64
+						if direction == "up" {
+							peer = insert("queued", to)
+							number = insert(state, from)
+						} else {
+							number = insert(state, from)
+							peer = insert("queued", to)
+						}
+						path, key := fmt.Sprintf("/api/todos/%d", number), fmt.Sprintf("move-%d", number)
+						payload := fmt.Sprintf(`{"op":"move","direction":%q}`, direction)
+						cardsBefore := count()
+						out := call(t, a, "POST", path, payload, key, "stack.move", 202, "")
+						require.JSONEq(t, fmt.Sprintf(`{"state":"accepted","place":%d}`, to), out.Body.String())
+						require.Equal(t, cardsBefore, count(), "run policy creates no confirmation")
+						item, err := q.GetMythicalItemByNumber(ctx, repo.ID, number)
+						require.NoError(t, err)
+						neighbor, err := q.GetMythicalItemByNumber(ctx, repo.ID, peer)
+						require.NoError(t, err)
+						require.Equal(t, to, item.StackPosition.Int64)
+						require.Equal(t, from, neighbor.StackPosition.Int64)
+						require.Equal(t, holder, item.OwnerID.Int64)
+						require.Equal(t, state, item.State)
+						replay := call(t, a, "POST", path, payload, key, "stack.move", 202, "")
+						require.JSONEq(t, out.Body.String(), replay.Body.String())
+						again, err := q.GetMythicalItemByNumber(ctx, repo.ID, number)
+						require.NoError(t, err)
+						require.Equal(t, item, again, "replay cannot reorder or rebase a second time")
+						for _, n := range []int64{number, peer} {
+							call(t, people[a.member], "POST", fmt.Sprintf("/api/todos/%d", n), `{"op":"drop"}`, fmt.Sprintf("move-cleanup-%d", n), "todo.drop", 202, "")
+						}
+						moveCells++
+					})
+				}
+			}
+		}
+	}
+	require.Equal(t, 120, moveCells)
+
+	roleOrderCells := 0
+	for _, a := range actors {
+		if a.profile != "" || a.role == 0 {
+			continue
+		}
+		t.Run("ordinary-role-write/"+a.name, func(t *testing.T) {
+			original, changed := "admin", "write"
+			if a.role == 2 {
+				original, changed = changed, original
+			}
+			defer func() {
+				_, err := r.pool.Exec(ctx, `UPDATE collaborators SET permission=$1 WHERE repository_id=$2 AND user_id=$3`, original, repo.ID, a.member)
+				require.NoError(t, err)
+			}()
+			var number, peer, place int64
+			for i := range 2 {
+				var n int64
+				require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
+ VALUES($1,'todo','queued','Role-bound move','Role-bound move',$2,$2,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number,stack_position`, repo.ID, a.member).Scan(&n, &place))
+				if i == 0 {
+					number = n
+				} else {
+					peer = n
+				}
+			}
+			lock, err := r.pool.Begin(ctx)
+			require.NoError(t, err)
+			defer lock.Rollback(context.Background())
+			_, err = lock.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repo.ID)
+			require.NoError(t, err)
+			path, key := fmt.Sprintf("/api/todos/%d", number), fmt.Sprintf("role-order-%d", number)
+			response := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				defer close(response)
+				response <- call(t, a, "POST", path, `{"op":"move","direction":"down"}`, key, "stack.move", 202, "")
+			}()
+			require.Eventually(t, func() bool {
+				var n int
+				err := r.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock($1)'`).Scan(&n)
+				return err == nil && n >= 1
+			}, 5*time.Second, 10*time.Millisecond)
+			_, err = r.pool.Exec(ctx, `UPDATE collaborators SET permission=$1 WHERE repository_id=$2 AND user_id=$3`, changed, repo.ID, a.member)
+			require.NoError(t, err)
+			require.NoError(t, lock.Commit(ctx))
+			var out *httptest.ResponseRecorder
+			select {
+			case out = <-response:
+			case <-time.After(10 * time.Second):
+				t.Fatal("role-bound HTTP request did not finish")
+			}
+			require.NotNil(t, out, "the admitted request must retain its ordinary decision")
+			require.JSONEq(t, fmt.Sprintf(`{"state":"accepted","place":%d}`, place), out.Body.String())
+			item, err := q.GetMythicalItemByNumber(ctx, repo.ID, number)
+			require.NoError(t, err)
+			require.Equal(t, place, item.StackPosition.Int64)
+			// A later request reads the new role; it cannot retain the earlier
+			// maintainer-only members-card mutation grant after demotion.
+			if changed == "write" {
+				call(t, a, "PATCH", "/api/members/"+strings.Split(a.name, "/")[0], `{"role":"maintainer"}`, key+"-next", "members.role", 403, "permission")
+			}
+			for _, n := range []int64{number, peer} {
+				call(t, people[a.member], "POST", fmt.Sprintf("/api/todos/%d", n), `{"op":"drop"}`, fmt.Sprintf("role-cleanup-%d", n), "todo.drop", 202, "")
+			}
+			roleOrderCells++
+		})
+	}
+	require.Equal(t, 10, roleOrderCells)
+
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "isolated-confirmation-profiles.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install OAuth and production confirmation dispatcher", "explicit_cards": len(ids), "app_edit_effect_cells": editCells, "queued_retrying_control_effect_cells": controlCells, "queued_retrying_move_effect_cells": moveCells, "ordinary_role_write_order_cells": roleOrderCells, "cells": receipts, "test_passed": !t.Failed(), "full_C_ACC_02_complete": false}), 0600))
 	t.Logf("confirmation profiles: %d HTTP cells, %d isolated private cards", len(receipts), len(ids))
 }
 

@@ -177,19 +177,10 @@ func lockInstallCredential(ctx context.Context, tx pgx.Tx, info *middleware.Auth
 		if binding.credential != info || binding.decision.UserID != fresh.User.ID || info.RawScopes != fresh.RawScopes || info.CredentialKind() != fresh.CredentialKind() {
 			return ctx, 0, confirmationPermission()
 		}
-		role, err := InstallRoleOf(ctx, q, fresh.User.ID)
-		if err != nil {
-			return ctx, 0, err
-		}
-		// The captured decision belongs to this exact membership role. A
-		// demotion after admission must not retain an Owner command grant;
-		// even promotions need a fresh request instead of rebinding authority.
-		if role == "" {
-			return ctx, 0, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
-		}
-		if role != binding.decision.Role {
-			return ctx, 0, confirmationPermission()
-		}
+		// Ordinary requests keep their captured command grant while this live
+		// fence checks identity, scope and membership. A later request resolves
+		// the new role. Merge separately reloads approving-member authority
+		// under its send fence; it never inherits this ordinary exception.
 		binding.credential = fresh
 		ctx = context.WithValue(ctx, installAuthorizationKey{}, binding)
 	}

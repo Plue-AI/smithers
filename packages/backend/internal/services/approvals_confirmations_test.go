@@ -705,10 +705,13 @@ func TestConfirmationMergeGitHubRefusalPostgres(t *testing.T) {
 }
 
 func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
-	for _, scenario := range []string{"same grant", "replaced credential", "wrong principal", "removed member", "revoked session", "changed scopes", "changed role"} {
+	for _, scenario := range []string{"same grant", "replaced credential", "wrong principal", "removed member", "revoked session", "changed scopes", "changed role", "role downgrade"} {
 		t.Run(scenario, func(t *testing.T) {
 			f := newConfirmationFixture(t)
 			ctx := f.person
+			if scenario == "role downgrade" {
+				f.exec(`UPDATE collaborators SET permission='admin' WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
+			}
 			if scenario == "changed scopes" {
 				ctx = f.token("reload", "read:repository,write:repository,via:codex", true)
 			}
@@ -732,6 +735,8 @@ func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
 				f.exec(`DELETE FROM auth_sessions WHERE session_key=$1`, info.SessionHash)
 			case "changed role":
 				f.exec(`UPDATE collaborators SET permission='admin' WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
+			case "role downgrade":
+				f.exec(`UPDATE collaborators SET permission='write' WHERE repository_id=$1 AND user_id=$2`, f.repo, f.member.ID)
 			case "changed scopes":
 				f.exec(`UPDATE access_tokens SET scopes='read:repository,via:codex' WHERE id=$1`, info.TokenID)
 			}
@@ -739,17 +744,13 @@ func TestBoundInstallCredentialReloadPostgres(t *testing.T) {
 			require.NoError(t, err)
 			defer tx.Rollback(t.Context())
 			fresh, repository, err := lockInstallWriteCredential(ctx, tx, info)
-			if scenario != "same grant" {
+			if scenario != "same grant" && scenario != "changed role" && scenario != "role downgrade" {
 				require.Error(t, err)
-				if scenario == "changed role" || scenario == "removed member" {
+				if scenario == "removed member" {
 					var refusal *AccessError
 					require.ErrorAs(t, err, &refusal)
-					status, code := 403, "permission"
-					if scenario == "removed member" {
-						status, code = 401, "unauthenticated"
-					}
-					require.Equal(t, status, refusal.Status)
-					require.Equal(t, code, refusal.Code)
+					require.Equal(t, 401, refusal.Status)
+					require.Equal(t, "unauthenticated", refusal.Code)
 				}
 				return
 			}
