@@ -462,4 +462,14 @@ test("shared subject facts produce one line with host tone and a role-bound acti
   expect(lines[0]).toMatchObject({ entry_id: "todo:24", title: "Shared entry", tone: "failed", glyph: { state: "failed" }, action: { tag: "todo.retry", args: { n: "24" } } })
   // The host can put an otherwise live subject under stack attention.
   expect(sharedRailLines({ ...conversation, entries: [{ ...conversation.entries[0]!, subject: { ...subject, tone: "attention" } }] }, { role: "member" })[0]?.tone).toBe("attention")
+  const summarized = { ...conversation, entries: [{ ...conversation.entries[0]!, summary: "Checks failed in retry.ts", summary_rev: 3 }] }
+  for (const role of ["owner", "member"] as const) {
+    const rows = sharedRailLines(summarized, { role })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ title: "Shared entry", tone: "failed", summary: "Checks failed in retry.ts", action: { tag: "todo.retry", args: { n: "24" } } })
+    const host = mount(<Timeline lines={rows} on_screen={["todo:24", "todo:24"]} onAction={() => {}} onView={() => {}} />)
+    expect(host.querySelector('[data-summary][aria-label="Summary"]')?.textContent).toBe("Checks failed in retry.ts")
+    expect(railEdges([{ entry_id: "visible", kind: "prompt", title: "Earlier", tone: "quiet", glyph: { state: "queued" } }, ...rows], ["visible", "visible"]).below[0]?.detail).toBe("Checks failed in retry.ts")
+  }
+  expect(lines[0]?.summary).toBeUndefined()
 })

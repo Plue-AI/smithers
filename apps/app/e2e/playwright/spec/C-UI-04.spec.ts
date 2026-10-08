@@ -25,7 +25,7 @@ test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump an
   await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [
     { id: "subject", author: 1, authorLogin: "canary-owner", runId: "subject", prompt: "", state: "completed", sequence: 1,
-      title: "Starting entry", tone: "live", subject: { n: 24, title: "Starting entry", state: "starting", tone: "live" },
+      title: "Starting entry", tone: "live", summary: "Preparing the greeting change", summary_rev: 3, subject: { n: 24, title: "Starting entry", state: "starting", tone: "live" },
       entry_sequences: { "todo:24": 1000002 }, frames: [{ runId: "subject", type: "card", card }] },
     { id: "answer", author: 1, authorLogin: "canary-owner", runId: "answer", prompt: "Read the notes", state: "completed", sequence: 2,
       title: "Read the notes", tone: "done", frames: [{ runId: "answer", type: "delta", kind: "text", text: Array.from({ length: 50 }, (_, i) => `Note ${i}.`).join("\n\n") }] }
@@ -36,6 +36,7 @@ test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump an
   await expect(line).toHaveCount(1)
   await expect(line).toContainText("Starting entry")
   await expect(line).toHaveAttribute("data-tone", "live")
+  await expect(line.locator('[data-summary][aria-label="Summary"]')).toHaveText("Preparing the greeting change")
   await expect(timeline.locator('[data-entry="subject:prompt"], [data-entry="subject:answer"]')).toHaveCount(0)
   await line.getByRole("button").first().press("Enter")
   await expect(page.locator('[data-message-id="todo:24"]')).toBeInViewport()
