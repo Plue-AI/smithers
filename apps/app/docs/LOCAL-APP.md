@@ -146,7 +146,7 @@ only, so a streaming answer is never cut off. A body an upstream refuses with
 is restated in this host's envelope, keeping the upstream's status, `code`,
 `retry_after` and `Retry-After`, so a router's plain 404 or an HTML error page
 never reaches a reader. A top-level page navigation (the system browser opening
-`/api/auth/github/start`) keeps the upstream's own page.
+`/api/auth/github`) keeps the upstream's own page.
 
 | Method | Path | Purpose |
 | --- | --- | --- |

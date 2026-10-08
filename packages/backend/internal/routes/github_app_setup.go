@@ -180,6 +180,7 @@ func (h *GitHubAppSetupHandler) OpenSetup(w http.ResponseWriter, r *http.Request
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: middleware.CSRFCookieName, Value: token, Path: "/", SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://"), MaxAge: 86400})
+	http.SetCookie(w, &http.Cookie{Name: "smithers_session", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://"), MaxAge: -1})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

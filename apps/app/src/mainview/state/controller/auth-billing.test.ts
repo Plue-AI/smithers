@@ -215,7 +215,7 @@ describe("sign-in return path", () => {
       controller.signIn()
       // The redirect waits for the durable queue first (DurableCollection.settled), so it lands a tick later.
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(assigned).toEqual(["/api/auth/github/start?return_to=%2Fsmithersai%2Fsmithers%3Ftab%3Dissues"])
+      expect(assigned).toEqual(["/api/auth/github?return_to=%2Fsmithersai%2Fsmithers%3Ftab%3Dissues"])
     })
   })
 
@@ -225,7 +225,7 @@ describe("sign-in return path", () => {
       controller.signIn()
       // The redirect waits for the durable queue first (DurableCollection.settled), so it lands a tick later.
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(assigned).toEqual(["/api/auth/github/start?return_to=%2F%3Fsigned-in%3Dgithub"])
+      expect(assigned).toEqual(["/api/auth/github?return_to=%2F%3Fsigned-in%3Dgithub"])
     })
   })
 

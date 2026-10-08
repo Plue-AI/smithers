@@ -169,14 +169,14 @@ describe("the local origin", () => {
     // A top-level navigation (window.location, the system browser from the
     // native handoff) cannot carry the local-session header; gating these
     // two on it answered 401 to every sign-in attempt from this origin.
-    for (const path of ["/api/auth/github/start?handoff=abc", "/api/auth/github/callback?code=1&state=2"]) {
+    for (const path of ["/api/auth/github?handoff=abc", "/api/auth/github/callback?code=1&state=2"]) {
       const response = await fetch(`${server.origin}${path}`, { redirect: "manual" })
       expect(response.status).not.toBe(401)
       expect(response.status).toBe(501) // the stub seam: reached, and honest about being stubbed
     }
     // Everything else under /api/ still needs the capability.
     expect((await fetch(`${server.origin}/api/user`)).status).toBe(401)
-    expect((await fetch(`${server.origin}/api/auth/github/start`, { method: "POST" })).status).toBe(401)
+    expect((await fetch(`${server.origin}/api/auth/github`, { method: "POST" })).status).toBe(401)
   })
 
   test("a proxied ready claim re-scopes the session cookie and the trail says the cookie was there", async () => {

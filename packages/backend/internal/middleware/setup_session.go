@@ -8,6 +8,8 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+type validatedSetupSessionKey struct{}
+
 // SetupSessionBoundary prevents a live setup cookie from reaching person APIs.
 // The durable validator also distinguishes expired cookies from claim revocation.
 func SetupSessionBoundary(validate func(context.Context, string) error) func(http.Handler) http.Handler {
@@ -27,6 +29,9 @@ func SetupSessionBoundary(validate func(context.Context, string) error) func(htt
 				return
 			}
 			if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" {
+				if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") {
+					r = r.WithContext(context.WithValue(r.Context(), validatedSetupSessionKey{}, true))
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

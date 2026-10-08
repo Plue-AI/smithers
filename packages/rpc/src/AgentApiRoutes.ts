@@ -72,7 +72,7 @@ export const AUTH_SESSION_PATH = "/api/auth/session"
  * @since 1.0.0
  * @category constants
  */
-export const AUTH_SIGN_IN_PATH = "/api/auth/github/start"
+export const AUTH_SIGN_IN_PATH = "/api/auth/github"
 /* The native sign-in handoff (device-flow style): OAuth in the system browser. */
 /**
  * The auth native start route shared by server and client.

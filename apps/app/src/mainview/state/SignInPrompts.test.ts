@@ -234,7 +234,7 @@ for (const authFlow of ["native-handoff", "both"] as const) test(`the ${authFlow
     expect(localStatusReads).toBe(0)
     expect(controller.identityProvider).toBe("github")
     expect(popupCount).toBe(1)
-    expect(popup.location.href).toBe("https://smithers.sh/api/auth/github/start?handoff=owned-handoff")
+    expect(popup.location.href).toBe("https://smithers.sh/api/auth/github?handoff=owned-handoff")
     expect(requests).toContain("POST /api/auth/native/start")
     expect(requests).toContain("POST /api/auth/native/claim")
     expect(requests.some(path => path.includes("/api/auth/session"))).toBe(false)

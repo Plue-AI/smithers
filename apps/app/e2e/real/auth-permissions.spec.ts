@@ -151,7 +151,7 @@ test("an unsafe absolute OAuth return destination is discarded before GitHub", s
   const requestedOrigins: string[] = []
   page.on("request", (request) => requestedOrigins.push(new URL(request.url()).origin))
 
-  await page.goto(new URL(`/api/auth/github/start?return_to=${encodeURIComponent(`${unsafeOrigin}/escape`)}`, baseURL).toString(), {
+  await page.goto(new URL(`/api/auth/github?return_to=${encodeURIComponent(`${unsafeOrigin}/escape`)}`, baseURL).toString(), {
     waitUntil: "domcontentloaded"
   })
   expect(new URL(page.url()).hostname).toBe("github.com")

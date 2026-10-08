@@ -269,6 +269,13 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				return
 			}
 
+			// Setup authority was validated by the outer boundary and remains
+			// restricted to its existing setup routes. Never bind a member cookie.
+			if setup, _ := ctx.Value(validatedSetupSessionKey{}).(bool); setup {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 				authInfo, session, err := loadSessionAuth(ctx, queries, cookie.Value, now)
 				if err != nil {

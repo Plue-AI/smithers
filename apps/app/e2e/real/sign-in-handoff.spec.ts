@@ -34,7 +34,7 @@ test("the hosted sign-in button starts its advertised GitHub handoff", scenario(
   try {
     await page.getByTestId("login-github").press("Enter")
     await expect.poll(() => startStatus).toBe(200)
-    await expect.poll(() => popupPaths.includes("/api/auth/github/start")).toBe(true)
+    await expect.poll(() => popupPaths.includes("/api/auth/github")).toBe(true)
     await expect.poll(() => popups.some(popup => new URL(popup.url()).hostname === "github.com"), { timeout: 30_000 }).toBe(true)
     expect(requests.filter(({ path }) => path.startsWith("/api/auth/local/"))).toEqual([])
     await expect(page.locator(".local-auth-dialog")).toHaveCount(0)

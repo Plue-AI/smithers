@@ -236,7 +236,7 @@ describe("an upstream that refuses", () => {
     try {
       // The path the native handoff opens in the system browser, which is a
       // navigation and so carries no local session header at all.
-      const response = await fetch(`${host.origin}/api/auth/github/start?handoff=h`, {
+      const response = await fetch(`${host.origin}/api/auth/github?handoff=h`, {
         headers: { accept: "text/html,application/xhtml+xml" }
       })
       expect(response.status).toBe(400)

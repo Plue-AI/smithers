@@ -47,7 +47,7 @@ const okFetch = () => {
   const impl = (async (input: RequestInfo | URL) => {
     const url = String(input)
     calls.push(url)
-    if (url.includes("/api/auth/github/start")) return startResponse()
+    if (new URL(url).pathname === "/api/auth/github") return startResponse()
     if (url.includes("/api/auth/github/callback")) {
       return new Response(null, {
         status: 302,
@@ -68,7 +68,7 @@ test("main does not echo the session cookie when the set-cookie header is unpars
   try {
     const fetchImpl = (async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes("/api/auth/github/start")) return startResponse()
+      if (new URL(url).pathname === "/api/auth/github") return startResponse()
       if (url.includes("/api/auth/github/callback")) {
         // A header the parser rejects, carrying the cookie value.
         return new Response(null, { status: 302, headers: { "set-cookie": `=${cookieValue}` } })

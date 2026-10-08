@@ -159,12 +159,16 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 			status, _, _ := request(server, method, path, nil, true)
 			require.Equal(t, 401, status)
 		}
-		status, _, cookies := request(server, "GET", "/setup?token=setup-token", nil, false)
+		status, _, cookies := request(server, "GET", "/setup?token=setup-token", []*http.Cookie{{Name: "smithers_session", Value: "previous-install"}}, false)
 		require.Equal(t, 303, status)
-		require.Len(t, cookies, 2)
+		require.Len(t, cookies, 3)
 		require.Equal(t, "/", cookies[0].Path)
 		require.Equal(t, http.SameSiteLaxMode, cookies[0].SameSite)
 		require.Equal(t, i == 1, cookies[0].Secure)
+		require.Equal(t, "smithers_session", cookies[2].Name)
+		require.Equal(t, -1, cookies[2].MaxAge)
+		// Keep the old member cookie throughout the setup writes as well.
+		cookies[2] = &http.Cookie{Name: "smithers_session", Value: "previous-install"}
 		status, _, _ = request(server, "GET", "/api/install", cookies, false)
 		require.Equal(t, 200, status)
 

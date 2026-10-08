@@ -63,7 +63,7 @@ export const main = async (
 
   const appUrl = new URL(appOrigin)
 
-  const start = await fetchImpl(`${identityBase}/api/auth/github/start`, { redirect: "manual" })
+  const start = await fetchImpl(`${identityBase}/api/auth/github`, { redirect: "manual" })
   const location = start.headers.get("location")
   if (start.status !== 302 || location === null) {
     console.error(`OAuth start answered ${start.status} with no redirect — is identity in TEST MODE?`)

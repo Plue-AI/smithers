@@ -181,7 +181,7 @@ one: native `auth.sign-in` runs `AUTH_NATIVE_START_PATH` + `openExternal`
 (`controller/auth-billing.ts:228-302`); the system browser already holds
 the web session; the claim rescopes the cookie onto loopback
 (`server.ts:336`). One click, no second GitHub consent if identity honors
-its own session on `/api/auth/github/start?handoff=` (W7 verifies). Codex's
+its own session on `/api/auth/github?handoff=` (W7 verifies). Codex's
 `smithers://continue/<id>` needs unproven protocol registration, a
 continuation store and a Bun claim route; deferred (R5).
 
