@@ -1,6 +1,6 @@
 # ADR 0004: The machine daemon's wire contract
 
-Status: accepted at protocol 6 (2026-10-07; smithers-8a rulings 820aa0d89b, 94715a1b07, 7f11af21a8, 02fe2e50a2; smithers-3f independent wire sign-off on #3626, corpus 13de9c59b7). Protocol 7 (36e1705ca0, #3508) is under 3f delta review on #3626; every later bump takes a recorded 3f delta review and does not reopen this acceptance. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). The golden frames under `packages/backend/internal/compose/testdata/cocontracts/` gate the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
+Status: accepted at protocol 6 (2026-10-07; smithers-8a rulings 820aa0d89b, 94715a1b07, 7f11af21a8, 02fe2e50a2; smithers-3f independent wire sign-off on #3626, corpus 13de9c59b7). Protocol 7 (36e1705ca0, #3508) is under 3f delta review on #3626; protocol 8 (0e17d29b83, #3567: `status` fields 7 `bursts_idle` and 8 `documents_flushed`) is under 3f delta review on #3567; every later bump takes a recorded 3f delta review and does not reopen this acceptance. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). The golden frames under `packages/backend/internal/compose/testdata/cocontracts/` gate the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
 
 ## Context
 
