@@ -138,7 +138,7 @@ func runRootValidation(ctx context.Context, a *installedAuthority, root, home, o
 	// This executable campaign does not pretend its current fixture subset covers
 	// the complete check. Preserve all samples; the reference lane must add/execute
 	// the remaining poison/race/SFTP/restart controls before issuing PASS.
-	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "installed host startup library/import canary controls", "reference execution of synchronized cgroup admission/revocation and SFTP path controls", "execution of installed unsupported-Landlock kernel variant"}
+	receipt["pending_controls"] = []string{"installed host launcher/artifact/destination replacement races", "reference execution of installed host startup library/import canary controls", "reference execution of synchronized cgroup admission/revocation and SFTP path controls", "execution of installed unsupported-Landlock kernel variant"}
 	fmt.Printf("{\"check\":%q,\"status\":\"partial-pass\",\"evidence\":%q}\n", check, evidence)
 	return errors.New("root validation incomplete: pending controls retained in receipt")
 }

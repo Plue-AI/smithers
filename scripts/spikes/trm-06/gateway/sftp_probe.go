@@ -143,7 +143,10 @@ func sftpBoundaryFixture(client *ssh.Client, race bool, evidence ...string) erro
 		if err := sftpPathRace(client, request, openBody); err != nil {
 			return err
 		}
-		return sftpHeldPathReplacements(client, request, openBody, evidence...)
+		if err := sftpHeldPathReplacements(client, request, openBody, evidence...); err != nil {
+			return err
+		}
+		return sftpSynchronizedPathOpen(client, request, openBody, evidence...)
 	}
 	return nil
 }

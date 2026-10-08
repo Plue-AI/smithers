@@ -27,6 +27,10 @@ func validateInstalledHostStartup(ctx context.Context, a *installedAuthority, ev
 	if err := a.recheck(); err != nil {
 		return err
 	}
+	canaries, err := prepareHostStartupCanaries(ctx, evidence)
+	if err != nil {
+		return err
+	}
 	names := make([]string, 0, len(startupEnvironmentPoisons))
 	for name := range startupEnvironmentPoisons {
 		names = append(names, name)
@@ -42,7 +46,8 @@ func validateInstalledHostStartup(ctx context.Context, a *installedAuthority, ev
 			return err
 		}
 		control, cancel := context.WithTimeout(ctx, 10*time.Second)
-		err = hostStartupControl(control, a.bundle.Path("share/trm06/run.sh"), a.bundle.Revision(), directory, name)
+		err = hostStartupControlWithEnvironment(control, a.bundle.Path("share/trm06/run.sh"), a.bundle.Revision(), directory, name, canaries.environment)
+		err = errors.Join(err, canaries.unchanged())
 		cancel()
 		if err != nil {
 			return fmt.Errorf("host startup %s: %w", name, err)
@@ -52,15 +57,19 @@ func validateInstalledHostStartup(ctx context.Context, a *installedAuthority, ev
 }
 
 func hostStartupControl(ctx context.Context, entry, revision, evidence, name string) (result error) {
+	return hostStartupControlWithEnvironment(ctx, entry, revision, evidence, name, startupEnvironmentPoisons)
+}
+
+func hostStartupControlWithEnvironment(ctx context.Context, entry, revision, evidence, name string, poisons map[string]string) (result error) {
 	command := exec.CommandContext(ctx, "/bin/sh", entry, "startup-validation")
 	command.Dir = "/"
 	values := map[string]string{"PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 	if name == "all" {
-		for key, value := range startupEnvironmentPoisons {
+		for key, value := range poisons {
 			values[key] = value
 		}
 	} else if name != "positive" {
-		value, exists := startupEnvironmentPoisons[name]
+		value, exists := poisons[name]
 		if !exists {
 			return errAuthority
 		}

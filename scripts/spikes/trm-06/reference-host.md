@@ -299,3 +299,31 @@ cgroup drain samples. An admission that wins before mutation runs only sleep;
 post-mutation admission must explicitly refuse, and revocation must drain all
 Ben processes within five seconds. These installed controls are authored but
 unexecuted on the Linux lane. The campaign remains partial-pass/unaccepted.
+
+Installed startup and synchronized path controls (fr17-trm06-r2):
+
+`check-install` now creates real Python import and shell startup files and a
+native library constructor under its evidence directory. `/usr/bin/clang`
+builds the Darwin library and an ordinary probe; import, shell and library
+positive controls must each produce the literal marker before it is removed.
+Compiler output, positive marker copies and the actual injected environment are
+retained. Each installed shell/loader/gateway startup control then requires the
+marker to remain absent, alongside the existing independent process/environment
+samples. A missing compiler or ineffective positive control refuses the check.
+The local Linux constructor control observes LD_PRELOAD executing before the
+shell clears its environment; that platform result is not Mac startup evidence.
+No compiler output is installed or used as prototype authority.
+
+`check-session` additionally releases member-owned leaf/ancestor replacement and
+SFTP OPEN together, sixteen times each, through the installed SSH listener.
+`sftp-path-races.jsonl` retains both operation intervals and raw OPEN replies;
+nonoverlapping operations are inconclusive and refuse. Each path has a positive
+OPEN/CLOSE, and post-replacement OPEN must refuse. An OPEN that precedes the swap
+must preserve its original workspace handle through WRITE/CLOSE, with the saved
+bytes checked after restoring the path. Existing independent outside sentinel
+bytes/owner/mode checks remain mandatory. Run these on the approved native
+install; local reply-classification tests are not confinement acceptance.
+
+These controls do not complete installed host artifact/destination replacement
+validation, the unsupported-Landlock execution, native steps/revocations, complete
+same-revision overlay or the second-Mac/security/protocol acceptance.
