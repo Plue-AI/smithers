@@ -22,13 +22,22 @@ if (!self) throw new Error("Campaign member missing from Members")
 const actor = ActorSchema.parse({ kind: "person", login: self.login, name: self.name, avatar_url: self.avatar_url, color_index: self.color_index })
 const params = new URLSearchParams(location.search)
 const channel = new LiveChannel({ documentFrames: true })
-const provider = new LiveDocProvider(params.get("topic")!, channel, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
+const topic = params.get("topic")!
+const [, , branch, path] = topic.split(":")
+const presence = channel.trackPresence({ branch: branch!, path: path!, line: 1 })
+const provider = new LiveDocProvider(topic, channel, { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true })
 const resource = fileDocument(provider, {}, params.get("carets") === "on")
+// Observation only: edits still enter through Chromium and the real provider.
+provider.doc.getText("content").observe(event => {
+ for (const delta of event.delta) if (typeof delta.insert === "string") {
+  for (const key of delta.insert) void (window as any).campaignReceipt?.(key)
+ }
+})
 const root = createRoot(document.getElementById("root")!)
 const model: FileCard = { branch: "T12", path: "retry.ts", language: "typescript", digest: "campaign", content: { kind: "text", text: "" }, mode: "read_only", diagnostics: [], authors: [], editors: [] }
 const Mount = () => {
  useLiveQuery(q => q.from({ status: provider.collection }))
- return <CodeEditorView model={liveFileModel(model, provider, provider.awareness.getStates())} binding={provider.editable ? resource.binding : undefined} view={{ maximized: false }} actions={[]} gestures={{}} onAction={() => {}} onView={({ line }) => provider.awareness.setLocalState({ ...provider.awareness.getLocalState(), actor, colour: actorColour(actor), line: line ?? 1 })} />
+ return <CodeEditorView model={liveFileModel(model, provider, provider.awareness.getStates())} binding={provider.editable ? resource.binding : undefined} view={{ maximized: false }} actions={[]} gestures={{}} onAction={() => {}} onView={({ line }) => { presence.move({ branch: branch!, path: path!, line: line ?? 1 }); provider.awareness.setLocalState({ ...provider.awareness.getLocalState(), actor, colour: actorColour(actor), line: line ?? 1 }) }} />
 }
 root.render(<Mount />)
 Object.assign(window, { campaign: { text: () => provider.doc.getText("content").toString(), ready: () => provider.editable } })

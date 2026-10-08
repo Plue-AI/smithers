@@ -1,0 +1,566 @@
+[
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-19-38.498Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": false,
+      "sourceDigest": "424631c1673be8cc0a1f76a64968999988bc533019c68d1e10e19258bd87fb1f",
+      "patchDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 380.88794699998107,
+          "offP95": 292.34405700000934,
+          "delta": 88.54388999997173
+        },
+        {
+          "member": "alice",
+          "onP95": 409.1882990000013,
+          "offP95": 296.07839599996805,
+          "delta": 113.10990300003323
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "limitation": "Linux composed install with scripted native daemon; reference Mac and second Mac pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 757,
+          "p95": 380.88794699998107,
+          "elapsed": 300893.927362
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 776,
+          "p95": 409.1882990000013,
+          "elapsed": 300894.33839
+        },
+        {
+          "flag": "off",
+          "member": "ben",
+          "samples": 891,
+          "p95": 292.34405700000934,
+          "elapsed": 300791.198555
+        },
+        {
+          "flag": "off",
+          "member": "alice",
+          "samples": 890,
+          "p95": 296.07839599996805,
+          "elapsed": 300791.514999
+        }
+      ],
+      "failure": "AssertionError [ERR_ASSERTION]: false == true"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-24-15.567Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "424631c1673be8cc0a1f76a64968999988bc533019c68d1e10e19258bd87fb1f",
+      "patchDigest": "f75a79a109d9fd316f92077902c811c8c97a4151e1ffe68b39850670fae16b8e",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 780.9477600000027,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 848.6369780000023,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 202,
+          "p95": 780.9477600000027,
+          "elapsed": 67298.715316
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 197,
+          "p95": 848.6369780000023,
+          "elapsed": 67299.120634
+        }
+      ],
+      "failure": "TimeoutError: waitForFunction: Timeout 10000ms exceeded."
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-27-35.036Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "424631c1673be8cc0a1f76a64968999988bc533019c68d1e10e19258bd87fb1f",
+      "patchDigest": "07ce7ac3146611f9bd1202958f1c50db8afd86e3fa40de68bc1a38db66cfe066",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 490.33545199999935,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 502.31546000000526,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 261,
+          "p95": 490.33545199999935,
+          "elapsed": 68408.638687
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 256,
+          "p95": 502.31546000000526,
+          "elapsed": 68408.783803
+        }
+      ],
+      "failure": "TimeoutError: waitForFunction: Timeout 10000ms exceeded."
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-33-10.298Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "1324f5f2f1e04ec1285d758fe5457659839a9fff89398b479376780cc639e500",
+      "patchDigest": "f9a097eaa9221f44cdda21c0a5487b9efabd1ddf38339222722882bbd0aeedf3",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 799.2636650000059,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 4917.99611800001,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "scripted-native",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 723,
+          "p95": 799.2636650000059,
+          "elapsed": 145549.29149
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 722,
+          "p95": 4917.99611800001,
+          "elapsed": 145549.644716
+        }
+      ],
+      "failure": "TimeoutError: waitForFunction: Timeout 10000ms exceeded."
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-33-12.006Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "1324f5f2f1e04ec1285d758fe5457659839a9fff89398b479376780cc639e500",
+      "patchDigest": "f9a097eaa9221f44cdda21c0a5487b9efabd1ddf38339222722882bbd0aeedf3",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 3179.445536000014,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 3963.6650389999995,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 1192,
+          "p95": 3179.445536000014,
+          "elapsed": 259828.19181
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 1194,
+          "p95": 3963.6650389999995,
+          "elapsed": 259828.773816
+        }
+      ],
+      "failure": "TimeoutError: waitForFunction: Timeout 10000ms exceeded."
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-38-05.920Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "19e735a280783adad05b4c2fceeebf6f108073d52e1b78dd196acd9d8f10ee43",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 677.9564660000033,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 1041.7395369999995,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 746,
+          "p95": 677.9564660000033,
+          "elapsed": 169033.238105
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 745,
+          "p95": 1041.7395369999995,
+          "elapsed": 169033.843902
+        }
+      ],
+      "failure": "Error: Missing receipt: ben/795"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-38-32.419Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "19e735a280783adad05b4c2fceeebf6f108073d52e1b78dd196acd9d8f10ee43",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 5244.683232999989,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 8096.549161000003,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "scripted-native",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 200,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 837,
+          "p95": 5244.683232999989,
+          "elapsed": 172010.432609
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 843,
+          "p95": 8096.549161000003,
+          "elapsed": 172012.483111
+        }
+      ],
+      "failure": "Error: Missing receipt: alice/791"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-43-59.524Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "b1282de38de63c81ca2f36a8430e82c2c95d8f7e878871fba615a136053e2620",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 677.7139770000067,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 673.8613640000112,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 250,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 521,
+          "p95": 677.7139770000067,
+          "elapsed": 150265.222665
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 521,
+          "p95": 673.8613640000112,
+          "elapsed": 150265.574321
+        }
+      ],
+      "failure": "Error: Missing receipt: ben/561"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-49-04.358Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "2b065ad814d53bf03c69392e010dcfdf4820d548a9c8a557254a4ce58a99abaa",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 355.9637709999988,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 378.6531410000025,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 250,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 219,
+          "p95": 355.9637709999988,
+          "elapsed": 74770.26672
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 219,
+          "p95": 378.6531410000025,
+          "elapsed": 74770.343683
+        }
+      ],
+      "failure": "Error: Missing receipt: ben/259"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-53-18.886Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "5a32aef62dcd225fc00ade127fbc58fc3b3164afeca1831f00e51084da59f4ca",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 1122.830610000001,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 1119.6328090000025,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "installed-linux-daemon",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 250,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 839,
+          "p95": 1122.830610000001,
+          "elapsed": 229773.282825
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 839,
+          "p95": 1119.6328090000025,
+          "elapsed": 229773.926834
+        }
+      ],
+      "failure": "Error: Missing receipt: alice/879"
+    }
+  },
+  {
+    "artifacts": ".artifacts/checks/C-UI-14/2026-10-08T09-58-42.786Z",
+    "summary": {
+      "sha": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+      "dirty": true,
+      "sourceDigest": "fad7a6fe86669c663bc1f92a5e3b0ddbb51e2590ba98027a8a5001ec52bb9405",
+      "patchDigest": "5a32aef62dcd225fc00ade127fbc58fc3b3164afeca1831f00e51084da59f4ca",
+      "comparison": [
+        {
+          "member": "ben",
+          "onP95": 897.3563029999787,
+          "delta": null
+        },
+        {
+          "member": "alice",
+          "onP95": 7613.894869000011,
+          "delta": null
+        }
+      ],
+      "passed": false,
+      "qualification": "development-only",
+      "guest": "scripted-native",
+      "diskVerified": false,
+      "limitation": "Development mount; reference Mac, second Mac and LAN pending",
+      "host": "msb-lat-nyc-01",
+      "platform": "linux",
+      "arch": "x64",
+      "browser": "151.0.7922.34",
+      "duration": 300000,
+      "interval": 250,
+      "budget": 1000,
+      "summaries": [
+        {
+          "flag": "on",
+          "member": "ben",
+          "samples": 921,
+          "p95": 897.3563029999787,
+          "elapsed": 232444.982623
+        },
+        {
+          "flag": "on",
+          "member": "alice",
+          "samples": 921,
+          "p95": 7613.894869000011,
+          "elapsed": 232445.637683
+        }
+      ],
+      "failure": "Error: Missing receipt: alice/882"
+    }
+  }
+]

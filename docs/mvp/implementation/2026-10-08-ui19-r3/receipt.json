@@ -1,0 +1,98 @@
+{
+  "ticket": "T-UI-19",
+  "issue": 3589,
+  "tested_revision": "8f86d65869992c0dfcd0d0fb1e6959615d708a0e",
+  "qualification": "development-only",
+  "production_activation": false,
+  "campaign_results": {
+    "passed": 0,
+    "failed": 11,
+    "startup_failed": 1
+  },
+  "campaign_command": "SMITHERS_CODE_LATENCY_CAMPAIGN=1 go test -C packages/backend -p 4 ./internal/compose -run '^TestCodeDocumentLatencyCampaign$' -count=1 -timeout 18m -v",
+  "real_daemon_environment": "SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY=$PWD/.artifacts/rehearsal-machined/debug/examples/rehearsal_daemon",
+  "daemon_sha256": "11ac82a0d2048c35f510263408d34c18500b4311f781430b6a81336854e71290",
+  "unit": {
+    "passed": 50,
+    "failed": 0,
+    "filtered": 1157,
+    "command": "bun test --isolate src/mainview/cards/views/Views.test.tsx -t 'File|CodeEditor'"
+  },
+  "browser": {
+    "passed": 5,
+    "failed": 0,
+    "flag_on_passed": 1,
+    "flag_on_failed": 0,
+    "story_screenshots": 90,
+    "axe_violations": 0,
+    "command": "SMITHERS_VIEW_STORIES=1 SMITHERS_VIEW_STORY_FILTER=CodeEditorView pnpm exec playwright test view-stories.spec.ts spec/C-UI-14.spec.ts --grep 'every View story|File remote carets|mounted member carets|File.*(Reapply|Copy|recovery)'"
+  },
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exit_code": 0
+  },
+  "gate": {
+    "checks": 5,
+    "failed": 0,
+    "deferred": 1
+  },
+  "environment": {
+    "LANE": "fr14-ui19-r3",
+    "GOMAXPROCS": 8,
+    "namespace": [
+      "fr14ui19r3",
+      "fr14ui19r3real",
+      "fr14ui19r3last"
+    ]
+  },
+  "not_done": [
+    "Linux campaign qualification: every attempt failed; retain failures, do not enable carets",
+    "Reference Mac plus second Mac campaign on LAN with real branch machine",
+    "smithers-06 per-screen visual/copy approval in issue #3589"
+  ],
+  "limitations": [
+    "Test-only mount uses the production View, binding, provider and composed authenticated transport; not the full File command adapter.",
+    "Real Linux daemon runs in an unprivileged namespace with an empty broker census, not a microVM.",
+    "In the diagnostic real-daemon failure, workspace stayed running but registry.Current returned not_ready; root cause remains unproven.",
+    "Early missing receipts terminate an attempt; no partial attempt is a five-minute qualification.",
+    "Baseline clean-source trial completed both five-minute flags but failed the minimum sample count.",
+    "Source SHA and retained patches/bundles identify measured versions; evidence landing SHA does not replace them.",
+    "Shared-host timings and flag deltas are observations, not causal performance claims."
+  ],
+  "files": {
+    "campaigns.tar.gz": "049520e20a920f977f221e9f4b41698928fe952767c4e45569d4064bc91d01dc",
+    "logs.tar.gz": "01bafbc87952d324a438d725567f7fd08966dbe849d2d1452e518ebafd86a19a",
+    "stories.tar.gz": "75ba2586cb8bcf2cf0a14aa4e205fd820997d5ee55b2bb691c4736ce491e253e",
+    "observations.json": "921b2d6295f73579a187459fd85aabedeb3507e16b682fba9f5c0eadc73c88e1"
+  },
+  "composed_short": {
+    "passed": 4,
+    "failed": 0,
+    "command": "go test -C packages/backend -p 4 ./internal/compose -run '^TestLiveCodeDocumentsComposedInstall$' -count=1 -timeout 4m -v",
+    "note": "One parent plus three subtests; production Chromium member path included"
+  },
+  "logs": {
+    "fr14-ui19-r3-flag-on.log": "2f8489906457eeae04dee92c1b1b011cbdd34289492e46eee379bb852542cd39",
+    "fr14-ui19-r3-gates.log": "1ebde88e45fd5979d1c55e8b8b55ed8d04285c02e8dfa7c9daab8f4042ac38eb",
+    "fr14-ui19-r3-file-views.log": "228dc983d208f147a73355a75f15a785dc7e0fd127dba8b944d025252dd89769",
+    "fr14-ui19-r3-real-campaign2.log": "8485e16979a4e17b21a1c8870b3440e56e18eaa18d38e9571f982076f2180ced",
+    "fr14-ui19-r3-real-campaign3.log": "718feb52c479a253f5c848917eba68f5c6b0e269d08875a927b94aebaaae6383",
+    "fr14-ui19-r3-real-state.log": "fcbc2ee8e7b776f558d63f43534c84b289fa1c94d4ae1baf5ddad3a54b06a830",
+    "fr14-ui19-r3-real-campaign-final.log": "de0cc7c66f914fb05993bf006151a62c6f4816042273146e8385655f9e09e102",
+    "fr14-ui19-r3-real-campaign4.log": "954c2fb0c9f30ae17bb331896707bb96a0acb21ef4d10095f72d466efec9cf1b",
+    "fr14-ui19-r3-real-campaign-bmp.log": "9ce670f1317fdccf8263016669f20a82f92c61b52b55af3a9647333c0686008d",
+    "fr14-ui19-r3-scripted-alone.log": "65e3393c9f02d3dd9398a057d6aa8909f454c2a352b9371779a056e9d0ff8446",
+    "fr14-ui19-r3-daemon-build.log": "70cb9a2ac95ef8a8a04a9e70781cd80686893e629f3a287982abaa50cb311a8a",
+    "fr14-ui19-r3-real-diagnostic.log": "5e1c8d58054c79929a630bfab1bdbad4ef71f1cb14cb2c0c6f678ed95019866e",
+    "fr14-ui19-r3-typecheck.log": "8366207267355d3e3d5bf3bf6e8c94c5f93f6078c34f08973fa2b38cdda6cc92",
+    "fr14-ui19-r3-composed-short.log": "d913b1386eca0c627e050a5fd2bf3276ed8ea815a589e1d88b671209db554a59",
+    "fr14-ui19-r3-file-views-final.log": "5207747c73d211aaf51c762e0604f7eb9b11cf042861151848fb0613f6c87465",
+    "fr14-ui19-r3-scripted-callback.log": "a67f60401e132dfdc0543dad864b864007e9adde6bcae01f8287538e37415d57",
+    "fr14-ui19-r3-landing-gates.log": "d849cbad7bdd3d8a8aaee559b397e24b1f6a9c01a8f06acef9dbc36d617e2b28",
+    "fr14-ui19-r3-real-campaign.log": "9f49ed06eb4c810a9bcf6013837f8c79c9bb5cef62caffa764e18cf17ee9f6a0",
+    "fr14-ui19-r3-stories.log": "4a3f4cfbc5511d1982ffd7eaeb3e677aac904f317ff6edd2d5613e5ff0f9eeb5",
+    "fr14-ui19-r3-final-gates.log": "1ebde88e45fd5979d1c55e8b8b55ed8d04285c02e8dfa7c9daab8f4042ac38eb",
+    "fr14-ui19-r3-campaign.log": "4ffca7edb0269139726510d76fdcaa0e705979d516c2ec7d21427bdd0bda4eeb",
+    "fr14-ui19-r3-campaign-final.log": "379624ffcfc2beb954532c2df03d78d7c272ee9c83ced16154a81167172f438d"
+  }
+}

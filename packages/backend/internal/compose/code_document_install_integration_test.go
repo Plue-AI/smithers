@@ -162,21 +162,41 @@ func TestLiveCodeDocumentsComposedInstall(t *testing.T) {
 }
 
 // Development campaign only: the authenticated composed router and production
-// Chromium editor run for five minutes per flag. The guest remains scripted;
-// this is never the reference-Mac qualification receipt.
+// Chromium editor run for five minutes per flag. An explicit rehearsal binary
+// selects the installed Linux daemon; neither mode qualifies the reference Mac.
 func TestCodeDocumentLatencyCampaign(t *testing.T) {
 	if os.Getenv("SMITHERS_CODE_LATENCY_CAMPAIGN") != "1" {
 		t.Skip("opt-in ten-minute C-UI-14 development campaign")
 	}
-	install := startCodeDocumentInstall(t, true)
+	var install *codeDocumentInstall
+	guestEnvironment := []string{"SMITHERS_CODE_DOCUMENT_GUEST=scripted-native"}
+	if os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY") != "" {
+		real := startRealDocumentInstall(t, "")
+		install = real.codeDocumentInstall
+		guestEnvironment = []string{"SMITHERS_CODE_DOCUMENT_GUEST=installed-linux-daemon", "SMITHERS_CODE_DOCUMENT_DISK=" + filepath.Join(real.root, "retry.ts")}
+	} else {
+		install = startCodeDocumentInstall(t, true)
+	}
 	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-latency.campaign.ts")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, "bun", "run", script)
 	command.Env = append(os.Environ(), "SMITHERS_CODE_DOCUMENT_ORIGIN="+install.origin, "SMITHERS_CODE_DOCUMENT_TOPIC="+install.topic)
+	command.Env = append(command.Env, guestEnvironment...)
 	output, err := command.CombinedOutput()
 	t.Log(string(output))
+	if err != nil {
+		var state, machine string
+		queryErr := install.pool.QueryRow(t.Context(), `SELECT status,vm_id FROM workspaces WHERE id=$1`, install.branch).Scan(&state, &machine)
+		t.Logf("campaign machine state=%s machine=%s query=%v", state, machine, queryErr)
+		link, linkErr := install.options.Machined.Current(install.branch)
+		if linkErr == nil {
+			t.Logf("campaign admission readiness: %v", link.Connection.RequireReady(install.branch))
+		} else {
+			t.Logf("campaign daemon link: %v", linkErr)
+		}
+	}
 	require.NoError(t, err)
 }
 
