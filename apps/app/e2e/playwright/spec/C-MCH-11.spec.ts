@@ -80,3 +80,12 @@ test("C-MCH-11: cold preparation and TODO promotion keep one successful slot", a
   expect(output).toContain("--- PASS: TestTodoPersonConcurrentPromotionInstallBoundary")
   expect(output).toContain("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
 })
+
+// A compiled host is killed; the independent VM transport preserves inventory.
+// This is a Linux process fault, not physical microVM/root qualification.
+test("C-MCH-11: host death retains boot capacity until confirmed orphan stop", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestAdmissionKilledHostInstallBoundary$")
+  expect(output).toContain("--- PASS: TestAdmissionKilledHostInstallBoundary")
+  expect(output).toContain("PASS C-MCH-11 compiled host SIGKILL, retained boot inventory, confirmed-stop recovery and idempotent HTTP replay")
+})
