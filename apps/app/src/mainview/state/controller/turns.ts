@@ -5,6 +5,7 @@ import { parseSubmit } from "../../flows/registry"
 import type { Card } from "../AppState"
 import { isCurrentApprovalAnswer, prepareApprovalAnswer } from "../ApprovalAnswerState"
 import { parseApprovalActionId } from "../ApprovalReference"
+import { identityProviderFor } from "../IdentityProvider"
 import type { ControllerContext } from "./context"
 import type { FailureController } from "./failures"
 import { latestOrdinal } from "./spokenLines"
@@ -54,7 +55,9 @@ export const createTurnController = (ctx: ControllerContext, dependencies: TurnC
       // The installed composer uses createSharedPrompts. A runtime without
       // conversation admission must never fall back to browser execution.
       if (store.collections.identitySessions.get("identity")?.state === "signed-out") {
-        return store.dispatch({ type: "chat.sign-in.required", actor: "system", provider: "github", draft: text }).isPersisted.promise.then(() => false)
+        // The gate names this origin's sign-in door and never clears the draft, so a refused receipt is reported, not thrown at the composer.
+        return store.dispatch({ type: "chat.sign-in.required", actor: "system", provider: identityProviderFor(ctx.services), draft: text }).isPersisted.promise
+          .then(() => false, error => { ctx.failures.report("turn.sign-in", error); return false })
       }
       void ctx.withToast("chat.unavailable", "Chat", "Chat", async () => { throw new Error("Conversation unavailable") })
       return Promise.resolve(false)

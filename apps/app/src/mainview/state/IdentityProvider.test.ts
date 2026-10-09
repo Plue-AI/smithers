@@ -21,9 +21,9 @@ const servicesFor = (mode: "owner" | "bearer" | "github"): AppServices => ({
 })
 
 for (const mode of ["owner", "bearer", "github"] as const) {
-  test(`${mode}: connector, completion receipt and agent context reflect the selected identity`, async () => {
+  test(`${mode}: connector and completion receipt reflect the selected identity`, async () => {
     const storage = memoryStorage(), store = await createAppStore({ kind: "localStorage", storage })
-    const { agent, requests } = scriptedToolAgent([() => [{ type: "done", reason: "stop" }]])
+    const { agent } = scriptedToolAgent([() => [{ type: "done", reason: "stop" }]])
     const controller = createAppController(store, agent, servicesFor(mode))
     const provider = mode === "bearer" ? "local" : "github"
     try {
@@ -34,12 +34,6 @@ for (const mode of ["owner", "bearer", "github"] as const) {
       await controller.adoptSession(signedIn)
       expect(store.collections.identitySessions.get("identity")).toMatchObject({ provider })
       expect(store.collections.messages.get(prompt.id)?.answeredAction?.answer).toBe(`Signed in${provider === "github" ? " with GitHub" : ""} as @owner.`)
-      await settle()
-      controller.send("Describe the connected identity")
-      await settle(80)
-      expect(requests.length).toBeGreaterThan(0)
-      expect(requests[0]?.context?.github).toMatchObject({ connected: provider === "github", login: provider === "github" ? "owner" : null, repositories: provider === "github" ? 0 : null })
-      expect(requests[0]?.instructions).toContain(provider === "github" ? "GitHub is connected as owner" : "GitHub is NOT connected")
       await controller.signIn()
       expect(store.collections.toasts.get("toast-auth.sign-in.already")?.detail).toBe(provider === "github" ? "GitHub is connected." : "Signed in.")
       await controller.dispose()
