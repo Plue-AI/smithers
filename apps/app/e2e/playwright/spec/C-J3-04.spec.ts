@@ -22,7 +22,7 @@ test("C-J3-04: 1,000 interleaved member edits converge in both mounted editors",
       const tab = [page, viewer][index]!
       await tab.bringToFront()
       await editors[index]!.click()
-      await tab.keyboard.press("Control+End")
+      await tab.keyboard.press("ControlOrMeta+End")
       for (let edit = 0; edit < 10; edit++) {
         // Keep the line within CodeMirror's rendered viewport. Long lines
         // elide off-screen text, so DOM text is not a full-document oracle.
@@ -58,7 +58,7 @@ test("C-J3-04: two mounted File cards co-edit through the production browser cha
     const b = viewer.locator('[data-kind="file"] .cm-content').last()
     await page.bringToFront(); await a.click(); await page.keyboard.type("Alice keeps retries bounded")
     await expect.poll(() => editorText(b)).toBe("Alice keeps retries bounded")
-    await viewer.bringToFront(); await b.click(); await viewer.keyboard.press("Control+End"); await viewer.keyboard.type("; Bob keeps delivery idempotent")
+    await viewer.bringToFront(); await b.click(); await viewer.keyboard.press("ControlOrMeta+End"); await viewer.keyboard.type("; Bob keeps delivery idempotent")
     await expect.poll(() => editorText(a)).toBe("Alice keeps retries bounded; Bob keeps delivery idempotent")
     // Remote carets ship off until the two-Mac C-UI-14 receipt; line flags stay live.
     if (process.env.VITE_SMITHERS_REMOTE_CARETS === "1") await expect(page.locator('.cm-ySelectionCaret').last()).toBeVisible()
@@ -105,7 +105,7 @@ test("C-J3-04: an overlapping recovery compares current and retained bytes", asy
     await say(page, '/file {"path":"retry.ts","branch":"T12"}')
     await expect(page.locator('[data-kind="file"][data-mode="live"]').last()).toBeVisible()
     const editor = page.locator('[data-kind="file"] .cm-content').last()
-    await editor.click(); await page.keyboard.press("Control+End")
+    await editor.click(); await page.keyboard.press("ControlOrMeta+End")
     for (let i = 0; i < 5; i++) await page.keyboard.press("Backspace")
     await page.keyboard.insertText("friend")
     await expect.poll(() => host.text()).toBe("hello friend")
