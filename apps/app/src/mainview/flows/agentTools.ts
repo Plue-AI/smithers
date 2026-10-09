@@ -182,6 +182,12 @@ export const executeAgentToolCall = async (
   const target = registry.find(name)
   if (target === undefined) return unknownCommandResult(name)
   if (target !== undefined && !registry.callable().includes(target)) {
+    // Preserve the registry's authorization-before-never ordering for
+    // served person-only commands. Their binding remains unreachable.
+    if (target.metadata.agent === "never" && target.metadata.http != null) {
+      const outcome = await registry.runAsAgent(name, input.args, call.httpCall)
+      if (outcome.status === "failed") return outcome.error
+    }
     return userOnlyError(name, target.metadata.agentReason)
   }
   /*

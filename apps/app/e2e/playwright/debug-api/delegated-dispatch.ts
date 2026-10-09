@@ -27,8 +27,10 @@ const controller = createAppController(store, silentAgent, {
   }
 })
 try {
-  for (const door of ["open", "send", "submit", "native"] as const) {
-    const result = door === "submit"
+  for (const door of ["open", "send", "submit", "native", "tool"] as const) {
+    const result = door === "tool"
+      ? { status: "failed", error: await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "debug-api", args: "get_api_todos" }) }) }
+      : door === "submit"
       ? await controller.commands.submit({ name: "debug-api", actor: "agent", payload: { intent: "send", operationId: "get_api_todos" } })
       : door === "native"
       ? await controller.commands.runAsAgent("debug-api", "get_api_todos")
@@ -39,6 +41,6 @@ try {
       : expected === "scope" ? "Insufficient credential scope" : "Sign in again"), JSON.stringify(result))
   }
   assert.equal(store.collections.cards.has("debug-api"), false)
-  assert.equal(effects, 4)
+  assert.equal(effects, 5)
   console.log("C-UI-10 SHARED APP-AGENT PRECEDENCE PASS")
 } finally { await controller.dispose() }
