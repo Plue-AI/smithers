@@ -1,36 +1,34 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 02:39 PDT
-main          e5a5b0fa87 when written
+Updated       2026-10-09 06:24 PDT
+main          0b2667305e when written
 
-Publish       NOT PUBLISHED. Cut 8598789b91; dry run #9 37904154080 on it:
-              every blocking job green (02:00). A new cut follows the fixes
-              below.
-Real install  Run 6, dry run #9's bundle, no patch. Proven on a real machine
-              for the first time: the setup card shows from step 1, the first
-              machines retire cleanly (fence fix), T1 gets its own machine
-              9 s after its row. Then it STOPPED: no TODO has reached a pull
-              request on a real install yet.
-Broken        1. The machine daemon wedges during a TODO's first agent
-                 command: its one executor thread blocks, roster pushes time
-                 out, every agent write fails, the run fails after 5 tries.
-                 Run 5 hit it too. Being fixed (real-VM repro on this Mac).
-              2. Fixed on main, e5a5b0fa87: the setup card's Sign in did
-                 nothing (the session read answered 403).
-              3. Every fetched GitHub "issues" delivery retries forever on an
-                 install: no consumer is registered. Lane fr31.
-              4. A TODO whose run failed and is retrying shows "Working" with
-                 no reason. Open.
-              5. Section 3 lists the older ones.
-Journeys      25cb01da69: three full passes and a fourth through J9, no failed
-              row. J10 (pass 3) and J7 (pass 4) each passed on a retry.
+Publish       NOT PUBLISHED. Cut 8ab73f0c82; dry run #11 37934773000 on it is
+              running. Run 10 installs its bundle.
+Real install  Runs 6 to 9 each got further and each found a stop that only a
+              real machine shows. All are fixed on main and in the cut:
+              6  setup card Sign in did nothing          e5a5b0fa87
+              6  daemon wedged on the agent's first edit  c471b306ae
+              6  msb lease stranded by a reconnect storm  5039aa9b94
+              7  a repository with no check (by spec)     test repo got a check
+              8  any outside write killed the TODO run    4653cacd08
+              9  candidate tree read refused by git       f4381cd226
+              8,9 daemon exited after agent jj in bwrap   8a6ac03825
+              Run 9 reached checks passed and a drafted commit. No TODO has
+              reached a pull request on a real install yet: run 10 next.
+Fixed, after  0b2667305e: a machine whose daemon is gone releases its slot.
+the cut       Ships in the next prerelease.
+Broken        Failure reasons now show (6983c36574). Section 3 lists the rest.
+Journeys      e51543369f: full pass, every journey green on its first try.
+              25cb01da69: four passes, no failed row (J7, J10 needed a retry).
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
               J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
 Doneish       No. It needs a real install to take a TODO to a merged PR.
 Dry runs      #8 37867965100 (5e83665567) finished SUCCESS at 4 h 24 m: every
               blocking job green and the gates lane ended inside its budget.
-              #9 37904154080 (8598789b91): every blocking job green.
+              #9 37904154080 (8598789b91), #10 37919566771 (e51543369f):
+              every blocking job green.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
