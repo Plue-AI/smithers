@@ -9,7 +9,7 @@ the release notes at
 
 <!-- commits:1.0.0-rc.2 -->
 
-66 commits since [v1.0.0-rc.1](https://github.com/smithersai/smithers/commit/c50a52b5d4).
+106 commits since [v1.0.0-rc.1](https://github.com/smithersai/smithers/commit/c50a52b5d4).
 
 ### ✨ Features
 
@@ -21,6 +21,21 @@ the release notes at
 
 ### 🐛 Bug fixes
 
+- **review:** a review machine writes its initialization receipt (#3385) ([9fdb1884d6](https://github.com/smithersai/smithers/commit/9fdb1884d6ad18f7b8d46cc7ebdc9776a5fffa2f))
+- **app:** reopen a URL the catalog refused before a signed-in answer ([69c8e669a9](https://github.com/smithersai/smithers/commit/69c8e669a9ce1bdbce854d45b2150a628195b1fb))
+- **app:** probe install setup from the identity answer, not construction ([3c36ef9aa6](https://github.com/smithersai/smithers/commit/3c36ef9aa697693c8dc1f9f8a0bab004e7ab895b))
+- **app:** word the install's Debug API door refusal through refusalLine ([9ea805f54c](https://github.com/smithersai/smithers/commit/9ea805f54cc811e13039f5e32a8cbba07fe6871f))
+- **app:** let the seeded A✓ Drop press confirm the act instead of asking again ([54400ed3f7](https://github.com/smithersai/smithers/commit/54400ed3f7b4e1aa0e023a889cc46df8ac5872b5))
+- **wiki:** an unchanged live replica never re-saves its page ([dba3794f35](https://github.com/smithersai/smithers/commit/dba3794f35851847baeefeae0806a7f8ab1bde1f))
+- **app:** read the durable-write door inventory's members, not its if statements ([db463a60d9](https://github.com/smithersai/smithers/commit/db463a60d9aed95657595087c0b4319eaabebc44))
+- **app:** route new controller and seam failures through sentences ([4e92df1b63](https://github.com/smithersai/smithers/commit/4e92df1b63dab6a48d7099754faa3993e1d3a536))
+- **site:** load ApplicationAuth under Node and typecheck the island again ([0ef72e5f77](https://github.com/smithersai/smithers/commit/0ef72e5f7710e999d7502e71e7e6de9b54a66fdf))
+- **app:** keep the File View props-only (C-UI-08) ([3eca85731a](https://github.com/smithersai/smithers/commit/3eca85731a4d0b394923ed9b3c55a6d69b4f3fce))
+- **app:** name the selected sign-in door at the chat gate; retarget deleted turn-driver tests ([c749ab9952](https://github.com/smithersai/smithers/commit/c749ab9952ae269de66029ec325a5d4cd378d570))
+- **app:** answer the three new coding receipt codes on setup cards ([3ac99b39c7](https://github.com/smithersai/smithers/commit/3ac99b39c79193f21895684e40c41bb4d20747c0))
+- **app:** resolve the bundled OpenAPI module in browser probe fixtures ([9a6d04e8a5](https://github.com/smithersai/smithers/commit/9a6d04e8a59e8b868ea07e8ee43d5e8f29ef35b6))
+- **app:** tag the seams' new raw failure sites ([5d5cff1d38](https://github.com/smithersai/smithers/commit/5d5cff1d38f69bafbd845e46a8820c0f039c9040))
+- **access:** fence workspace publishers by current sponsorship (#3492) ([db9f1304fb](https://github.com/smithersai/smithers/commit/db9f1304fbf92daf0c24e69bb9fa4df36867d290))
 - **release:** a missing version of an existing npm name reads as absent ([1618f9d9ce](https://github.com/smithersai/smithers/commit/1618f9d9cebecd738a520366a5f3b42328210acb))
 - **access:** bind branch capture and confirmation write authority (#3492) ([6b9227376f](https://github.com/smithersai/smithers/commit/6b9227376fa97b279ac8c86333bfd144118a2836))
 - **admission:** show retained Resume starting at its machine grant (#3567) ([c8c1e0dc75](https://github.com/smithersai/smithers/commit/c8c1e0dc75e52dc76f5514c0f12b43b95e23855b))
@@ -58,12 +73,37 @@ the release notes at
 
 ### 📝 Documentation
 
+- **specs:** move the start-recovery lane note out of the checks inventory ([f090b14e4c](https://github.com/smithersai/smithers/commit/f090b14e4c9f48fefe74847b6c5da6865183d353))
+- **site:** regenerate the reference, CLI data and llms bundles drifted on main ([2469f87993](https://github.com/smithersai/smithers/commit/2469f87993fc383957df8a8a0e3daaa1a7eb80e8))
+- **release:** PRERELEASE.md after the rc.1 tag run, 10:45 PDT ([8932abcc92](https://github.com/smithersai/smithers/commit/8932abcc92fd0c2054031fa6f2f03c45c0f44bcc))
 - **release:** PRERELEASE.md doneish on the 1.0.0-rc.1 cut, 08:25 PDT ([108dc9a7b1](https://github.com/smithersai/smithers/commit/108dc9a7b13ea4b5414640b10f68e18916898e45))
 - **stack:** record fresh steering and recovery proof (#3531) ([0baf3086c4](https://github.com/smithersai/smithers/commit/0baf3086c44b0af504fae7c49974a703b2976b5c))
 - **release:** PRERELEASE.md after install runs 6 to 9, 06:24 PDT ([91ebcc3e78](https://github.com/smithersai/smithers/commit/91ebcc3e784a8a7fd8123d835a6a4567a852e589))
 
 ### 📦 Other changes
 
+- **test(app):** press CodeMirror's Mod key in the diagnostics shortcut test ([9886be6498](https://github.com/smithersai/smithers/commit/9886be64985d8f1774c2bb1107cdc509dd0508f1))
+- **test(app):** count a spec's own install helpers in the install tier check ([2596d6825b](https://github.com/smithersai/smithers/commit/2596d6825b0dd537d7bb5ad70504720e61d88abe))
+- **test(app):** run real-install Playwright tests in their own install tier ([cb3a161506](https://github.com/smithersai/smithers/commit/cb3a16150642892228b053ed6c25ba71ff5efcf6))
+- **test(app):** reconcile the real E2E gate with the consolidated catalog ([404662b19a](https://github.com/smithersai/smithers/commit/404662b19a9769d9ecee02bd906774aa87c6448d))
+- **test(app):** reconcile the real E2E gate with the consolidated catalog ([0dba2e4a12](https://github.com/smithersai/smithers/commit/0dba2e4a12267e4798074cdb4f3b35069e336dae))
+- **test(app):** read the debug tools through the person's door ([f3f61aa6a6](https://github.com/smithersai/smithers/commit/f3f61aa6a6bc89604946d820af4cee51388b3c05))
+- **test(app):** follow the retired and moved doors in four state tests ([4dd5432e0f](https://github.com/smithersai/smithers/commit/4dd5432e0f9f8188530ce4834118c8c15af0acc2))
+- **test(app):** build the last direct state controllers through scopedControllers() ([d790476b57](https://github.com/smithersai/smithers/commit/d790476b5733e092fc814ddcc627a09deba7027a))
+- **ci:** actionlint the two trusted workflows ([4bc56fcec3](https://github.com/smithersai/smithers/commit/4bc56fcec3182672a901f992ae727347aeb16af4))
+- **test(app):** follow host turns, child commits and flow.run in CardFrames and ComposerHotPath ([a5eb70f6d0](https://github.com/smithersai/smithers/commit/a5eb70f6d0fcb0b4deeaaa219c1ccd4c4261af94))
+- **test(app):** prove controller disposal releases its live topics, not the retired agent subscription ([f052c05e22](https://github.com/smithersai/smithers/commit/f052c05e22e4b3db8ae84c0358ed42b7547f3dfd))
+- **test(app):** drive ChatShell and ReviewRegressions through the install Wiki and host turns ([63e9cc7799](https://github.com/smithersai/smithers/commit/63e9cc779991ae2633987269ef962c1b24ccb303))
+- **test(server):** follow the canary probe, JUnit step and site routes to current main ([b14f71323c](https://github.com/smithersai/smithers/commit/b14f71323c960d0866ab4351b397cdfe00236bab))
+- **test(access):** prove Drop ordering and installed private approval (#3492) ([691d2b4031](https://github.com/smithersai/smithers/commit/691d2b4031a390330877c68c31fe123054fce0ec))
+- **test(app):** open the PR list through the canonical /pr door when signed out ([acdf88af55](https://github.com/smithersai/smithers/commit/acdf88af55437572bc8addf25d8b9ec79a42bfc9))
+- **test(app):** follow turn context, claim gate and usage to their host-era paths ([8427e64f53](https://github.com/smithersai/smithers/commit/8427e64f53636487226559bc74e4dab6ef989a3d))
+- **test(app):** refuse a malformed Settings call from the model, not the retired env.set ([00f99f0ff8](https://github.com/smithersai/smithers/commit/00f99f0ff86d47c21205d3f594301be93e5e6629))
+- **test(app):** story the Retrying state word as the primitive renders it ([3d301cb000](https://github.com/smithersai/smithers/commit/3d301cb00049a0e3e2b29614ff56950c90592675))
+- **test(debug-api):** inventory the install issue-create and Debug API admission operations ([ee74d39d40](https://github.com/smithersai/smithers/commit/ee74d39d40630c705b4667c07867d45db7ae23ef))
+- **test(access):** prove Amend ordering and installed private approval (#3492) ([4ff211c6e8](https://github.com/smithersai/smithers/commit/4ff211c6e8edf3b6db08909773ba8e8a87cc17ca))
+- **test(access):** qualify issue comment ordering and settled replay (#3492) ([fe4ef7e4d6](https://github.com/smithersai/smithers/commit/fe4ef7e4d68e27687000ba66025149504c14b46c))
+- **test(access):** prove settled replay and queued publisher refusal (#3492) ([e5bec0689b](https://github.com/smithersai/smithers/commit/e5bec0689b2827b57d8b031dde8295a6e83d8dff))
 - **test(access):** qualify immutable confirmation replay identities (#3492) ([fe3ab23508](https://github.com/smithersai/smithers/commit/fe3ab2350867b256ff87a568656563c23585fbb0))
 - **test(access):** qualify Learning confirmation profiles on installs (#3492) ([03fbd75388](https://github.com/smithersai/smithers/commit/03fbd75388eb799ae7586fe0a723d03bdd3c6efe))
 - **test(admission):** refuse missing authorities through install terminals (#3567) ([0610aa3ad4](https://github.com/smithersai/smithers/commit/0610aa3ad483486aa8b87728d1f78a43e35d0d25))
