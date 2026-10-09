@@ -6,6 +6,7 @@ const origin = process.env.SMITHERS_BRANCH_CARD_ORIGIN!
 const branch = process.env.SMITHERS_BRANCH_CARD_ID!
 const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
 const scratchFork = process.env.SMITHERS_BRANCH_CARD_FORK === "1"
+const scratchRebase = process.env.SMITHERS_BRANCH_CARD_REBASE === "1"
 const machineControl = process.env.SMITHERS_BRANCH_MACHINE_CONTROL
 const newTerminal = process.env.SMITHERS_BRANCH_CARD_TERMINAL === "1"
 const agentAdd = process.env.SMITHERS_BRANCH_CARD_AGENT === "1"
@@ -70,7 +71,24 @@ try {
   assert.equal(card.kind, "branch")
   if (card.kind !== "branch") throw new Error("Expected Branch")
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
-  if (machineControl) {
+  if (scratchRebase) {
+    await waitFor(() => host.querySelector('[data-flow="branch.rebase-now"]') !== null)
+    assert.ok(host.textContent?.includes("Scratch"))
+    await act(async () => (host.querySelector('[data-flow="branch.rebase-now"]') as HTMLButtonElement).click())
+    await waitFor(() => store.session().branchControlRequests?.some(request => request.state === "completed") === true)
+    const row = store.session().branchControlRequests!.find(request => request.state === "completed")!
+    assert.equal(row.workspace, branch)
+    assert.equal(row.number, undefined)
+    assert.equal(row.operation, "rebase")
+    const writes = requests.filter(request => request.method === "POST")
+    assert.equal(writes.length, 1)
+    assert.deepEqual(writes[0]!.body, { rebase: true })
+    assert.equal(writes[0]!.status, 202)
+    assert.ok(requests.some(request => request.path === `/api/branches/${branch}` && request.status === 200))
+    assert.equal(controller.design.enabled, false)
+    console.log(`REBASE_CARD_REQUEST=${row.key}`)
+    console.log("PASS mounted scratch Rebase through production dispatcher, PostgreSQL and native completion")
+  } else if (machineControl) {
     assert.equal(machineControl, "wake")
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "sleepowner/demo", org: "sleepowner", ownerKind: "user", name: "demo", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
     await store.dispatch({ type: "repo.selected", actor: "user", id: "sleepowner/demo" }).isPersisted.promise

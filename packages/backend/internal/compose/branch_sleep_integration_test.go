@@ -1018,6 +1018,9 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	var signals int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&signals))
 	require.Equal(t, 1, signals, "the mounted Answer admits exactly one durable signal")
+	// Explicit Wake/Answer above may start a machine or read its working copy.
+	// Cold projection reads must add no effects to that completed activity.
+	coldStarts, coldReads := counted.starts.Load(), counted.reads.Load()
 	t.Run("cold machine transitions stay visible without a host", func(t *testing.T) {
 		conn, response, err := websocket.Dial(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{
 			Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Origin": {server.URL}, "Cookie": {"smithers_session=" + cookie}},
@@ -1037,8 +1040,8 @@ func branchSleepInstall(t *testing.T, scenario string) {
 			require.Contains(t, string(frame.Data), `"state":"`+transition.state+`"`)
 			require.Contains(t, string(frame.Data), `"id":"`+id+`"`)
 		}
-		require.Zero(t, counted.starts.Load(), "machine projections never launch a workspace")
-		require.Zero(t, counted.reads.Load(), "cold projections never read a guest")
+		require.Equal(t, coldStarts, counted.starts.Load(), "machine projections never launch a workspace")
+		require.Equal(t, coldReads, counted.reads.Load(), "cold projections never read a guest")
 	})
 	// An awake/released candidate keeps its existing immutable candidate semantics.
 	counted.stopped.Store(false)
@@ -1053,13 +1056,14 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.NoError(t, os.MkdirAll(filepath.Join(liveWorkspace.Root, "src"), 0700))
 	const uncommitted = "export const retry = 17;\n"
 	require.NoError(t, os.WriteFile(filepath.Join(liveWorkspace.Root, "src/retry.ts"), []byte(uncommitted), 0600))
+	awakeReads := counted.reads.Load()
 	var currentFile struct{ Content struct{ Kind, Text string } }
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/retry.ts", 200), &currentFile))
 	require.Equal(t, uncommitted, currentFile.Content.Text)
-	require.Equal(t, int32(1), counted.reads.Load())
+	require.Equal(t, awakeReads+1, counted.reads.Load())
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/retry.ts?at="+head, 200), &currentFile))
 	require.Equal(t, retry, currentFile.Content.Text)
-	require.Equal(t, int32(1), counted.reads.Load(), "a pinned revision does not read the working copy")
+	require.Equal(t, awakeReads+1, counted.reads.Load(), "a pinned revision does not read the working copy")
 	// Start a fresh measurement interval for all subsequent sleeping reads.
 	counted.reads.Store(0)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=true, candidate_head=$2 WHERE id=$1`, item.ID, base)
@@ -1104,7 +1108,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	// The shared retained reader distinguishes non-regular objects from absent
 	// files: a symlink is unavailable, never an absence eligible for caching.
 	readPath("/api/branches/"+id+"/files/outside-link", 503)
-	require.Zero(t, counted.starts.Load())
+	require.Equal(t, coldStarts, counted.starts.Load(), "reads never launch a workspace")
 	require.Zero(t, counted.reads.Load())
 	minted := 0
 	mint := func(branch string) (string, int64) {
@@ -1280,6 +1284,6 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	var status string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1`, id).Scan(&status))
 	require.Equal(t, "suspended", status)
-	require.Zero(t, counted.starts.Load())
+	require.Equal(t, coldStarts, counted.starts.Load(), "reads never launch a workspace")
 	require.Zero(t, counted.reads.Load())
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
@@ -30,6 +31,10 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
+
+func TestScratchRebaseCardComposedInstall(t *testing.T) {
+	testScratchRebaseComposed(t, false, false, "app-card")
+}
 
 func TestScratchRebaseNativeComposedInstall(t *testing.T) { testScratchRebaseComposed(t, false, false) }
 func TestScratchRebaseConflictDoneComposedInstall(t *testing.T) {
@@ -222,7 +227,9 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfgHTTP.Server.PublicURL, cfgHTTP.Server.AllowedOrigins = origin, []string{origin}
-	server.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: f.pool}, Owners: q, Roster: q, Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }}, &routes.WorkspaceHandler{Service: workspaces}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}})
+	topics := &liveTopics{changePool: f.pool, queries: q, presence: f.p, todos: service}
+	channel := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }, Topics: topics.resolver, Presence: f.p.session}
+	server.Config.Handler = githubAppSetupComposeRouter(cfgHTTP, f.pool, &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: f.pool}, Owners: q, Roster: q, Origins: func() []string { return cfgHTTP.Server.AllowedOrigins }}, &routes.WorkspaceHandler{Service: workspaces}, routerExtras{Mythical: &routes.MythicalHandler{Service: service}, Live: channel})
 	server.Start()
 	t.Cleanup(server.Close)
 	request := func(method, path, key string, body any, status int) map[string]any {
@@ -250,11 +257,50 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 	receiptKey := "scratch-rebase"
 	initial := request("GET", branchPath, "", nil, 200)
 	require.Equal(t, map[string]any{"state": "pending", "onto": sourceName}, initial["rebase"], "the real Branch card exposes Rebase now before admission")
-	receipt := request("POST", branchPath, "scratch-rebase", map[string]bool{"rebase": true}, 202)
+	if slices.Contains(options, "app-card") {
+		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
+		require.NoError(t, err)
+		command := exec.CommandContext(ctx, "bun", "run", script)
+		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+f.row.ID,
+			"SMITHERS_BRANCH_CARD_SUBJECT="+branch, "SMITHERS_BRANCH_CARD_REBASE=1", "SMITHERS_BRANCH_CARD_COOKIE=session="+f.cookie, "SMITHERS_BRANCH_CARD_LOGIN=presence-owner")
+		var output bytes.Buffer
+		command.Stdout, command.Stderr = &output, &output
+		require.NoError(t, command.Start())
+		finished := make(chan error, 1)
+		go func() { finished <- command.Wait() }()
+		ticker := time.NewTicker(25 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.NewTimer(30 * time.Second)
+		defer timeout.Stop()
+		observed := false
+		for !observed {
+			select {
+			case err := <-finished:
+				require.NoError(t, err, output.String())
+				for _, line := range strings.Split(output.String(), "\n") {
+					if key, ok := strings.CutPrefix(line, "REBASE_CARD_REQUEST="); ok {
+						receiptKey = key
+					}
+				}
+				require.NotEqual(t, "scratch-rebase", receiptKey, output.String())
+				observed = true
+			case <-ticker.C:
+				_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+				require.NoError(t, err)
+				require.NoError(t, service.PollOnce(ctx))
+			case <-timeout.C:
+				_ = command.Process.Kill()
+				<-finished
+				t.Fatal("mounted scratch Rebase timed out", output.String())
+			}
+		}
+		t.Log(output.String())
+	}
+	receipt := request("POST", branchPath, receiptKey, map[string]bool{"rebase": true}, 202)
 	require.Equal(t, f.row.ID, receipt["branch"])
 	require.Equal(t, onto, receipt["onto"])
 	require.NotContains(t, receipt, "n")
-	require.Equal(t, receipt, request("POST", branchPath, "scratch-rebase", map[string]bool{"rebase": true}, 202))
+	require.Equal(t, receipt, request("POST", branchPath, receiptKey, map[string]bool{"rebase": true}, 202))
 	if slices.Contains(options, "busy") {
 		_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
 		require.NoError(t, err)
@@ -266,7 +312,7 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 		require.Equal(t, "requested", phase)
 		require.Zero(t, outages, "a busy writer retains the request without a stack outage")
 		require.Equal(t, before, git("-C", store, "rev-parse", "refs/heads/"+branch))
-		require.Equal(t, receipt, request("POST", branchPath, "scratch-rebase", map[string]bool{"rebase": true}, 202))
+		require.Equal(t, receipt, request("POST", branchPath, receiptKey, map[string]bool{"rebase": true}, 202))
 		if slices.Contains(options, "busy-edit") {
 			current, err := registry.ReadFile(ctx, f.row.ID, "later.txt", "")
 			require.NoError(t, err)

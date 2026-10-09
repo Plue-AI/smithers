@@ -121,14 +121,17 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
 
 // Mounted card → typed action → production dispatcher → durable seam. HTTP
 // contracts are controlled here; the native composed test proves the receipts.
-for (const scenario of ["completed", "failed", "unacknowledged reload", "launch failure retry"] as const) test(`T-APP-10: Rebase background request survives ${scenario}`, async ({ page }) => {
+for (const scenario of ["completed", "scratch completed", "failed", "unacknowledged reload", "launch failure retry"] as const) test(`T-APP-10: Rebase background request survives ${scenario}`, async ({ page }) => {
+  const scratch = scenario === "scratch completed"
+  const branchName = scratch ? "scratch/ben/retry" : "smithers/retry"
+  const branchId = scratch ? "11111111-1111-4111-8111-111111111111" : "b-rebase"
   const outcome = scenario === "failed" ? "failed" : "completed"
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   let release!: () => void, state = "running", admitted = false, rejectLaunch = scenario === "launch failure retry"
   const writes: string[] = [], receiptKeys: string[] = [], commands: string[] = []
   page.on("console", message => { if (message.type() === "debug") commands.push(message.text()) })
-  await page.route("**/api/branches/smithers%2Fretry", async route => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { name: "smithers/retry", machine: { id: "b-rebase" } } })
+  await page.route(`**/api/branches/${encodeURIComponent(branchName)}`, async route => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { name: branchName, machine: { id: branchId } } })
     writes.push(route.request().headers()["idempotency-key"]!)
     const attempt = writes.length
     expect(route.request().postDataJSON()).toEqual({ rebase: true })
@@ -136,19 +139,19 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
     if (rejectLaunch) return route.fulfill({ status: 503, json: { code: "rebase_execution_unavailable", class: "infra", message: "Rebase execution unavailable" } })
     // The first POST is intentionally abandoned by the unacknowledged reload.
     if (scenario === "unacknowledged reload" && attempt === 1) return route.abort().catch(() => {})
-    await route.fulfill({ status: 202, json: { state: "accepted", n: 2, onto: "new-main" } })
+    await route.fulfill({ status: 202, json: { state: "accepted", ...(scratch ? { branch: branchId } : { n: 2 }), onto: "new-main" } })
   })
-  await page.route("**/api/todos/2?rebase_request=*", route => {
+  await page.route(scratch ? `**/api/branches/${branchId}?rebase_request=*` : "**/api/todos/2?rebase_request=*", route => {
     receiptKeys.push(new URL(route.request().url()).searchParams.get("rebase_request")!)
-    return route.fulfill({ json: { n: 2, rebase_execution: { onto: "new-main", state } } })
+    return route.fulfill({ json: { ...(scratch ? { kind: "scratch", machine: { id: branchId } } : { n: 2 }), rebase_execution: { onto: "new-main", state } } })
   })
   await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
     if (typeof raw !== "string") return
     const frame = JSON.parse(raw)
     if (frame.t !== "sub") return
-    const data = frame.topic === "branch:b-rebase" ? {
-      id: "b-rebase", name: "smithers/retry", machine: { state: "awake" },
-      item: { n: 2, title: "Retry", state: "in_review", place: 1 },
+    const data = frame.topic === `branch:${branchId}` ? {
+      id: branchId, name: branchName, machine: { state: "awake" },
+      ...(scratch ? { scratch: { forked_from: { kind: "main" } } } : { item: { n: 2, title: "Retry", state: "in_review", place: 1 } }),
       presence: [], terminals: [], rebase: { state: "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
     } : []
     socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
@@ -157,15 +160,15 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
   await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await fillComposer(page, "/debug.verbose")
   await page.getByTestId("composer-send").click()
-  await say(page, "/branch smithers/retry")
-  const card = page.getByTestId("card-branch:b-rebase")
+  await say(page, `/branch ${branchName}`)
+  const card = page.getByTestId(`card-branch:${branchId}`)
   await card.getByRole("button", { name: "Rebase now", exact: true }).press("Enter")
   const running = page.locator('.notice[data-tone="live"]').filter({ hasText: "Rebase" })
   await expect(running).toBeVisible()
-  await say(page, "/branch.rebase smithers/retry")
+  await say(page, `/branch.rebase ${branchName}`)
   // Clearing the draft precedes command admission. Keep launch unresolved until
   // the duplicate has actually returned Requested through the shared flow.
-  await expect.poll(() => commands.filter(line => line.includes("You ran /branch.rebase smithers/retry [hidden] → executed (Requested)")).length).toBe(1)
+  await expect.poll(() => commands.filter(line => line.includes(`You ran /branch.rebase ${branchName} [hidden] → executed (Requested)`)).length).toBe(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
   expect(writes).toHaveLength(1)
   expect(receiptKeys).toEqual([])
@@ -220,7 +223,7 @@ for (const scenario of ["completed", "failed", "unacknowledged reload", "launch 
     expect(retryKey).not.toBe(key)
     // Hold the new execution running: the failed attempt cannot settle it.
     await expect(running).toBeVisible()
-    await say(page, "/branch.rebase smithers/retry")
+    await say(page, `/branch.rebase ${branchName}`)
     expect(writes).toEqual([key, retryKey])
     await expect.poll(() => receiptKeys.slice(observed).includes(retryKey)).toBe(true)
     await page.reload()
