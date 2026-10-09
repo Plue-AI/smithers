@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/plugin",
   "type": "module",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -168,8 +168,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/canonical": "1.0.0-rc.1",
-    "@smthrs/flow": "1.0.0-rc.1"
+    "@smthrs/canonical": "1.0.0-rc.2",
+    "@smthrs/flow": "1.0.0-rc.2"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

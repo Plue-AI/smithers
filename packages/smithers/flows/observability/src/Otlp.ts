@@ -66,7 +66,7 @@ export const defaultServiceName = "flows"
  * @category resource
  * @since 0.1.0
  */
-export const defaultServiceVersion = "1.0.0-rc.1"
+export const defaultServiceVersion = "1.0.0-rc.2"
 
 // The upstream logger and tracer each buffer at most one 1,000-record batch.
 // Do not queue at the transport: upstream forks every full batch independently.

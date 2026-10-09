@@ -5,6 +5,92 @@ release (what changed and why it matters, with screenshots and examples), see
 the release notes at
 [smithers.sh/changelogs/1.0.0-rc.0](https://smithers.sh/changelogs/1.0.0-rc.0).
 
+## 1.0.0-rc.2 (2026-10-09)
+
+<!-- commits:1.0.0-rc.2 -->
+
+66 commits since [v1.0.0-rc.1](https://github.com/smithersai/smithers/commit/c50a52b5d4).
+
+### ✨ Features
+
+- **access:** deliver confirmed issue creation on installs (#3492) ([7ba4c5a53f](https://github.com/smithersai/smithers/commit/7ba4c5a53f1e70fa45a4106f19f161c3c94dedcd))
+- **branch:** show broker-observed foreground terminal commands (#3555) ([d4a86d264f](https://github.com/smithersai/smithers/commit/d4a86d264f40ef9726e30ce8741443977b992008))
+- **access:** confirm wiki page creation on the install (#3492) ([d598e1c687](https://github.com/smithersai/smithers/commit/d598e1c687a67550bf65348ef27a524e026bcc95))
+- **branch:** project authenticated broker freeze facts (#3555) ([d5e5ff3d80](https://github.com/smithersai/smithers/commit/d5e5ff3d80e5f73e6ace7b838e4254fc812e6589))
+- **presence:** follow external agent process lifetimes (#3622) ([376a4276bd](https://github.com/smithersai/smithers/commit/376a4276bd65b7500e884e3e4d03a7393bd96f76))
+
+### 🐛 Bug fixes
+
+- **release:** a missing version of an existing npm name reads as absent ([1618f9d9ce](https://github.com/smithersai/smithers/commit/1618f9d9cebecd738a520366a5f3b42328210acb))
+- **access:** bind branch capture and confirmation write authority (#3492) ([6b9227376f](https://github.com/smithersai/smithers/commit/6b9227376fa97b279ac8c86333bfd144118a2836))
+- **admission:** show retained Resume starting at its machine grant (#3567) ([c8c1e0dc75](https://github.com/smithersai/smithers/commit/c8c1e0dc75e52dc76f5514c0f12b43b95e23855b))
+- **agent:** pause transcript import until install services are ready (#3622) ([b29d9817c0](https://github.com/smithersai/smithers/commit/b29d9817c08a3579f55a489c04dbca50fd98ca24))
+- **branch:** fence awake fork candidates before Drop (#3525) ([6b95c58a4c](https://github.com/smithersai/smithers/commit/6b95c58a4c887a740752b0c2db9f95b67f51e5ed))
+- **catalog:** retire CI Feature and Chores execution doors (#3434) ([908e0b7e22](https://github.com/smithersai/smithers/commit/908e0b7e229e0248eb5a03df869cc2cdd4c6f070))
+- **access:** bind Retry current flow to its catalog authority (#3492) ([30dbe83076](https://github.com/smithersai/smithers/commit/30dbe830762ab646ec12ab9f3406169fceb571cc))
+- **admission:** keep eligible TODO capacity ahead of Learning (#3567) ([f390c387b1](https://github.com/smithersai/smithers/commit/f390c387b12bcf1cab73765677f1f4cdbcf63b76))
+- **branch:** verify folded fork heads before publication (#3525) ([a6d9d9b1ea](https://github.com/smithersai/smithers/commit/a6d9d9b1eacd876aa9efa04cf69729f7ffeb0f0d))
+- **branch:** show admitted rebase progress to both viewers (#3555) ([57f4277ed0](https://github.com/smithersai/smithers/commit/57f4277ed0b9300ddca36b3f23cbd6fe83ca7f49))
+- **branch:** guard Drop while fork delivery and review run (#3525) ([1260ffe36e](https://github.com/smithersai/smithers/commit/1260ffe36ed32a4ddcecd11bb9aabb1b31c44ffb))
+- **catalog:** connect the installed branch diff CLI door (#3434) ([2c7484d8bd](https://github.com/smithersai/smithers/commit/2c7484d8bd734f9d15733a932149ef7feb2d28f2))
+- **app:** authorize debug API requests from the command tool (#3559) ([89dd837e6e](https://github.com/smithersai/smithers/commit/89dd837e6ecca6277d1d260ced6978582ebaaa3b))
+- **branch:** keep rebase writer details private to requester (#3555) ([f6ea24fc6d](https://github.com/smithersai/smithers/commit/f6ea24fc6d0c90bbecdaff5b0d0ea5557a12f6a9))
+- **flowhost:** wait for initialization and bound failed starts (#3385) ([aac3bf4993](https://github.com/smithersai/smithers/commit/aac3bf4993fa072302234b2ff202aebc93216b4c))
+- **app:** authorize debug API command doors on the install (#3559) ([5d21b2a5a6](https://github.com/smithersai/smithers/commit/5d21b2a5a6f67c8e9c06b87001c41ca507175d5f))
+- **branch:** refuse unsafe Drop before source cancellation (#3525) ([43a092659f](https://github.com/smithersai/smithers/commit/43a092659f3ef4a1dd4f9017ee6e1fcc460d8f45))
+- **machined:** reconcile agents waiting for their session files (#3622) ([44fdc95a8b](https://github.com/smithersai/smithers/commit/44fdc95a8bb7df332055c6a5e8145a73e4dd02b2))
+- **catalog:** hide deferred Machine and signal actions (#3447) ([ea92e14a67](https://github.com/smithersai/smithers/commit/ea92e14a67a89566257ff1f068de6ce2f993a3fa))
+- **learning:** recover the installed guest evidence origin (#3588) ([4097fe9992](https://github.com/smithersai/smithers/commit/4097fe999261b6c62ab1dd26a75fe55a91fc249e))
+- **app:** retire preview owner-home transcript reads (#3622) ([431fe8c4b3](https://github.com/smithersai/smithers/commit/431fe8c4b3fd5e05b7f470b03404721483d0b32f))
+- **chat:** keep Chat reachable beside external live entries (#3623) ([f3299a8ce2](https://github.com/smithersai/smithers/commit/f3299a8ce2fc58e69e349bd67e0e8b09fe71dbc6))
+- **machines:** keep authenticated secret transport failures value-free (#3456) ([e6e5a48d30](https://github.com/smithersai/smithers/commit/e6e5a48d30618475c5a645fe78f4c376a49c5ef0))
+- **terminal:** refuse missing managed credential paths (#3537) ([bf2163aa34](https://github.com/smithersai/smithers/commit/bf2163aa34164639b4a629c4ee3d55cc4102aca3))
+- **terminal:** require data modes in the approved manifest (#3537) ([31f206b023](https://github.com/smithersai/smithers/commit/31f206b023488e3407820b4069c7529f82dc8c0c))
+- **terminal:** preserve release peers and reject bearer overrides (#3537) ([80b1cba69a](https://github.com/smithersai/smithers/commit/80b1cba69adc846c20769ca18f541d1d3bc65a14))
+- **catalog:** reject replaced entry points on the installed host (#3434) ([3409374a2c](https://github.com/smithersai/smithers/commit/3409374a2c5286aaad99dcc74e938ea2d68c5f12))
+- **machined:** share transcript polling across busy sessions (#3622) ([1534734098](https://github.com/smithersai/smithers/commit/15347340989aa73de6b716559ade75dcb88a837b))
+- **branch:** restore composed item Add and capture proofs (#3525) ([44919c7b67](https://github.com/smithersai/smithers/commit/44919c7b67524ce730051f0a48b7ed3ccaeb7d9d))
+- **api:** restore generated terminal TODO command clients (#3509) ([0999d034d6](https://github.com/smithersai/smithers/commit/0999d034d6cb4b2bfdf61cf19ca9d268d94c9e64))
+- **stack:** refresh recovered conflict Done addresses (#3532) ([aa035f459a](https://github.com/smithersai/smithers/commit/aa035f459ab8156fc6319ec9e1faab4bf945b279))
+- **machined:** revoke stopped machine boot authority (#3560) ([8a8ce889d2](https://github.com/smithersai/smithers/commit/8a8ce889d25718aa617dcfa239229b470495eef5))
+- **learning:** restore install launch admission guard (#3588) ([842f808f65](https://github.com/smithersai/smithers/commit/842f808f6511f490a33cd2c1d4a2c823cce87406))
+- **machined:** a machine whose daemon stays gone releases its slot (#3385) ([0b2667305e](https://github.com/smithersai/smithers/commit/0b2667305e388767aa603864f3ea3350637ac7d5))
+
+### 📝 Documentation
+
+- **release:** PRERELEASE.md doneish on the 1.0.0-rc.1 cut, 08:25 PDT ([108dc9a7b1](https://github.com/smithersai/smithers/commit/108dc9a7b13ea4b5414640b10f68e18916898e45))
+- **stack:** record fresh steering and recovery proof (#3531) ([0baf3086c4](https://github.com/smithersai/smithers/commit/0baf3086c44b0af504fae7c49974a703b2976b5c))
+- **release:** PRERELEASE.md after install runs 6 to 9, 06:24 PDT ([91ebcc3e78](https://github.com/smithersai/smithers/commit/91ebcc3e784a8a7fd8123d835a6a4567a852e589))
+
+### 📦 Other changes
+
+- **test(access):** qualify immutable confirmation replay identities (#3492) ([fe3ab23508](https://github.com/smithersai/smithers/commit/fe3ab2350867b256ff87a568656563c23585fbb0))
+- **test(access):** qualify Learning confirmation profiles on installs (#3492) ([03fbd75388](https://github.com/smithersai/smithers/commit/03fbd75388eb799ae7586fe0a723d03bdd3c6efe))
+- **test(admission):** refuse missing authorities through install terminals (#3567) ([0610aa3ad4](https://github.com/smithersai/smithers/commit/0610aa3ad483486aa8b87728d1f78a43e35d0d25))
+- **test(admission):** kill the composed host during retained boot (#3567) ([fbed114b5e](https://github.com/smithersai/smithers/commit/fbed114b5e0baedfadd2070e4973dc57438f99c3))
+- **test(catalog):** reconcile the retained raw API door fixture (#3434) ([b9ff889ef5](https://github.com/smithersai/smithers/commit/b9ff889ef51d332983a8ae903f648b2ff3f86adc))
+- **test(access):** prove comment profiles and stored child bindings (#3492) ([86d1b42106](https://github.com/smithersai/smithers/commit/86d1b42106ecca1686f8e4c6d5b86ed93113a39b))
+- **test(stack):** prove revoked members cannot retrieve TODO logs (#3433) ([c1b9d36f6b](https://github.com/smithersai/smithers/commit/c1b9d36f6bf7685a64c7e66c865740547ed50652))
+- **test(todo):** record green full steering and J7 proof (#3531) ([102e233d0c](https://github.com/smithersai/smithers/commit/102e233d0cb3c787db511b3590e7b3ea47b7e237))
+- **test(access):** fence provider effects and resolve response contracts (#3492) ([913fed71df](https://github.com/smithersai/smithers/commit/913fed71df9ee5cdbb219d9fc648be85167d8d45))
+- **test(machine):** validate working guest before idle release (#3567) ([bc01f2309e](https://github.com/smithersai/smithers/commit/bc01f2309e7d0548a689d8e617c5abe77b121330))
+- **test(merge):** prove delegated settlement from a production TODO (#3529) ([b857243731](https://github.com/smithersai/smithers/commit/b8572437315e33db2b79778235473c9c83213c6e))
+- **test(stack):** distinguish evidence reads from held publication (#3433) ([b1845d4326](https://github.com/smithersai/smithers/commit/b1845d4326573d81a3447c15ff92e05b8c8ff25b))
+- **test(access):** qualify provider pool grants across member roles (#3492) ([54219a5835](https://github.com/smithersai/smithers/commit/54219a58353b3902441a3425006fa67440cc430b))
+- **test(branch):** qualify mounted scratch conflict completion (#3555) ([94c44f0bba](https://github.com/smithersai/smithers/commit/94c44f0bbaf24ea80ab019a3fc7550b2840e5978))
+- **test(machine):** recover safe-idle protocol conformance (#3567) ([09cedc7eab](https://github.com/smithersai/smithers/commit/09cedc7eab723bdc928ffe7a442e8de76659e794))
+- **test(secrets):** adapt restored snapshot proof to current API (#3456) ([d296a0f700](https://github.com/smithersai/smithers/commit/d296a0f700e08d0e489b7890c331cfc82d729cbb))
+- **test(secrets):** prove served host-binding exclusion (#3456) ([efd1d404e5](https://github.com/smithersai/smithers/commit/efd1d404e5e5263785d132dc3719f189fad4c9cb))
+- **test(machines):** qualify secret replacement and delivery snapshots (#3456) ([d281682d70](https://github.com/smithersai/smithers/commit/d281682d702bf4bffe90bc4d30f99309a683652c))
+- **test(access):** qualify hidden child grants across member roles (#3492) ([a0136aa6d5](https://github.com/smithersai/smithers/commit/a0136aa6d5a0ac74848a160a8a7e384fbb070772))
+- **test(access):** pin suspended credential refusals (#3447) ([2b0bc267af](https://github.com/smithersai/smithers/commit/2b0bc267af942b61300ccd3a1ec3b1602838543d))
+- **test(mvp):** admit sign-in before real-host journeys (#3447) ([ab9f995240](https://github.com/smithersai/smithers/commit/ab9f995240a748e36bce4227590b8f560d6c9f8a))
+- **test(app):** qualify mounted scratch Rebase completion (#3555) ([a70cefb553](https://github.com/smithersai/smithers/commit/a70cefb553b43186f96ac170e7c224f0aa85f06a))
+- **test(chat):** qualify imported conversations on the install router (#3623) ([f6aa0f7530](https://github.com/smithersai/smithers/commit/f6aa0f75302a5d774e00a02ea9f8765d96086e5c))
+- **test(app):** pin Branch View handler parity (#3579) ([4db4b46fcc](https://github.com/smithersai/smithers/commit/4db4b46fcc32bd4a93320dd585859045f9bae792))
+
+<!-- /commits:1.0.0-rc.2 -->
+
 ## Unreleased
 
 ### Removed

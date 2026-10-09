@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/journal",
   "type": "module",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -259,14 +259,14 @@
     "test:matrix": "node ../database/scripts/test-matrix.mjs"
   },
   "dependencies": {
-    "@smthrs/database": "1.0.0-rc.1"
+    "@smthrs/database": "1.0.0-rc.2"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
     "@effect/sql-sqlite-node": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
-    "@smthrs/flow": "1.0.0-rc.1",
+    "@smthrs/flow": "1.0.0-rc.2",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",
     "dprint": "0.57.1",

@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/evals",
   "type": "module",
-  "version": "1.0.0-rc.1",
+  "version": "1.0.0-rc.2",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -190,8 +190,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/core": "1.0.0-rc.1",
-    "@smthrs/scorers": "1.0.0-rc.1"
+    "@smthrs/core": "1.0.0-rc.2",
+    "@smthrs/scorers": "1.0.0-rc.2"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"
