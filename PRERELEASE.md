@@ -1,8 +1,8 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 19:02 PDT
-main          00cea70baa when written
+Updated       2026-10-08 19:03 PDT
+main          98fefa1e84 when written
 
 Publish       NOT PUBLISHED. The release path is green: dry run #8 passed every
               blocking job. Left: the final cut and one last dry run.
@@ -55,14 +55,14 @@ Needs Will    Now: nothing required. Optional: say yes to using your model keys
 
 ## 1. What works
 
-**On a real install.** This MacBook, bundle built here from 3fc44ee1e8. Source: the install run's reports through 18:33 PDT.
+**On a real install.** This MacBook, bundle built here from 3fc44ee1e8. Source: the install run's reports through 19:03 PDT.
 
 - With 39.19 GiB free, `./bin/smthrs host start --bundle .` refuses once: `host_capacity_zero ... 44 GiB required`. No restart loop.
 - With 44.77 GiB free it starts (16:18 PDT). `host status` reads ready and `/readyz` answers 200.
 - All seven setup steps are done (16:55 PDT): address, GitHub App, owner sign-in, repository, models, source, machine.
 - A TODO can be created (T1, 16:57 PDT).
 - With 2d1f60faf0 the first machine runs 6.7 to 6.9 s after the request. Before, it never ran.
-- With a local-only patch, the flow's host started on a real machine at 18:21:42 PDT, a first. That patch is not on main (section 3).
+- The flow's host started on a real machine at 18:21:42 PDT, a first, with a local-only patch. The fix is now on main as 1b4f32941e. The first machine then loads the catalog, 4 s after its flow host starts.
 
 **In a real VM.** At 99a4356a1a the machine daemon starts, admits its session and lands reads and writes, and the agent's git and jj work afterwards. A development run on this MacBook, no workarounds (Detail B).
 
@@ -84,7 +84,7 @@ J11    19    0     0     inspect a merged TODO's run
 All   188    0    33
 ```
 
-J7 passed on its second attempt; its conflict row is intermittent (section 3). The board is running on 5e83665567: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so far.
+J7 passed on its second attempt; it is intermittent (section 3). On 5e83665567 so far: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2, J5 21/0/0, J6 4/0/16, J7 19/0/2, J8 6/0/3, J9 12/0/1. On 1b4f32941e: J1 21/0/0, J2 14/0/0, J3 14/0/5.
 
 ## 2. Off
 
@@ -103,7 +103,7 @@ None of these is fixed on main.
 
 | | Defect | State |
 |---|---|---|
-| 1 | **A TODO cannot run on a real install.** No agent, member terminal or actor can be admitted to a branch machine: the machine's record held the wrong identifier, and admission required a machine kind that TODO machines do not have. Tests and journeys passed because their fixtures set both by hand. | Fix in progress, with the security owner's isolation gate at six sites. Until it lands, a released bundle cannot run a TODO. |
+| 1 | **A TODO cannot run on a real install.** The first machine finishes loading the catalog and then cannot be retired: a process stays alive in its writers group and the final capture check refuses. It keeps the install's only machine, and the TODO waits for a machine forever. The log shows only "microVM isolation is unavailable … EOF". Found 18:58 PDT. | Fix in progress. Until it lands, a released bundle cannot run a TODO. |
 | 2 | A failed machine start stays "Starting" on Home and keeps the only machine. The TODO has no control that restarts it. The queued "Refresh wiki" row has no button unless it has failed. | In progress |
 | 3 | A machine start re-driven after a host restart answered 401 on its clone. | In progress |
 | 4 | A workspace caught mid-release by a restart never settles. | In progress |
@@ -111,19 +111,20 @@ None of these is fixed on main.
 | 6 | A machine start does not notice a workspace deleted while it is being admitted. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
 | 7 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | Open |
 
-Fixed on main, unverified on a real install until a rebuilt bundle runs:
+Fixed on main, unverified until a fresh install built from main, with no local patch, runs:
 
 | | Defect | Fix |
 |---|---|---|
-| 8 | The setup card stayed hidden through the first four setup steps. | c5120a5856 |
-| 9 | The app's sign-in path answered 404 on an install. | 9a218b7f68 |
-| 10 | A sign-in cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68 |
-| 11 | Model access read "Not signed incoding model". Reopening `/setup` after setup closed showed raw JSON. | 88b768b019 |
+| 8 | No agent, member terminal or actor could be admitted to a branch machine. Tests and journeys passed because their fixtures set the fields by hand. | 1b4f32941e. The security owner accepted it at 18:55 PDT. |
+| 9 | The setup card stayed hidden through the first four setup steps. | c5120a5856 |
+| 10 | The app's sign-in path answered 404 on an install. | 9a218b7f68 |
+| 11 | A sign-in cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68 |
+| 12 | Model access read "Not signed incoding model". Reopening `/setup` after setup closed showed raw JSON. | 88b768b019 |
 
 ### Journey rows
 
-- **J7 is intermittent on current main.** "A person resolves the retained conflict" failed on 3 of 4 attempts across c5120a5856 and 2d1f60faf0. Cause: Branch Done is answered while the agent's repair is still live; the repair then fails and the answer is dropped. Fix written, not landed.
-- J10 row 6 is green on the board (c5120a5856, 36/0/4). Rows fixed today: Detail G.
+- **J7 is intermittent on main.** Red on both attempts at 2d1f60faf0; 19/0/2 at 5e83665567. Two product defects found, neither fix on main: (1) Branch Done answered while the agent's repair is live is dropped when that repair fails (fixed in the lane, the scenario then passed 6 of 6); (2) a lock-order deadlock between machine capture and burst ingest in row 16 (fix in progress).
+- J10 row 6 is green on the board: 36/0/4 at c5120a5856 and at 2d1f60faf0. Rows fixed today: Detail G.
 
 ### Real VM
 
@@ -140,11 +141,11 @@ Fixed on main, unverified on a real install until a rebuilt bundle runs:
 ## 4. Unverified
 
 - **TODO to merged PR on the real install: not yet run.** No TODO has reached a pull request on a real install. Remaining:
-  1. Land the machine admission fix (section 3, row 1) and rebuild the bundle.
-  2. Take a TODO to a merged PR with the scripted model.
+  1. Land the fix that lets the first machine be retired (section 3, row 1).
+  2. Run a fresh install built from main, then take a TODO to a merged PR with the scripted model.
   3. A TODO with a real model under the production launcher, only if Will says yes to using his keys. Not received.
+- **Agent admission (1b4f32941e)** has not run on a real machine at that exact commit. The next fresh install is built from main with no local patch.
 - **API baseline drift on `@smthrs/cli`** is unreviewed. The Release run reports it and does not block on it.
-- **The four installed-CLI jobs** have not run in any Release run. Dry run #8 is the first that can show them.
 - **Not yet exercised in a real VM:** the coding agent as a daemon session, member terminals, capture, sleep and wake.
 - **The eight real-machine fixes** await smithers-3f's review (Detail B).
 - **Disk per machine.** Measured: 0.74 GiB for a running machine holding the Smithers repository. A working machine with dependencies installed is estimated at about 15 GiB; not measured.
@@ -163,7 +164,7 @@ Fixed on main, unverified on a real install until a rebuilt bundle runs:
 
 ## 6. Publish
 
-**Cannot publish yet.** Every job that can block is green on dry run #8 (37867965100, commit 5e83665567). Two things remain: a released bundle cannot run a TODO until the machine admission fix is on main (section 3), and the final cut with its own dry run.
+**Not published.** Every job that can block is green on dry run #8 (37867965100, commit 5e83665567): build of 49 packages, pack, the installed-package smoke, the four installed-CLI jobs (18:39 PDT, their first run ever) and the Mac bundle (18:51 PDT; `server-bundle-darwin-arm64`, artifact 11590976234, 777,699,337 bytes). The plan it printed: 1.0.0-rc.1 on the `next` dist-tag; publication skipped. Two things remain: a released bundle cannot run a TODO until the first machine can be retired (section 3), and the final cut with its own dry run.
 
 Every dry run and why it failed: Detail H.
 
