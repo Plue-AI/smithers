@@ -457,14 +457,17 @@ func (s *WorkspaceService) FlowHostWorkspaceInitialized(ctx context.Context, aut
 		return err
 	}
 	data, err := s.readRuntimeRepositoryFile(ctx, row, authority.UserID, "flow-host-init", workspaceRepositoryReceiptPath)
-	if err != nil {
-		return workspaceInitializing{}
-	}
-	var receipt workspaceRepositoryReceipt
-	if json.Unmarshal(data, &receipt) != nil || receipt.Version != workspaceRepositoryReceiptVersion || receipt.WorkspaceID != row.ID || receipt.RepositoryID != row.RepositoryID || receipt.InitializedAt.IsZero() || !isLowerHexRevision(receipt.SourceRevision) {
+	if err != nil || !completedWorkspaceReceipt(data, row.ID, row.RepositoryID) {
 		return workspaceInitializing{}
 	}
 	return nil
+}
+
+// completedWorkspaceReceipt is the receipt a Flow host start waits for: every
+// machine's own setup writes it last, branch setup and review Restore alike.
+func completedWorkspaceReceipt(data []byte, workspaceID string, repositoryID int64) bool {
+	var receipt workspaceRepositoryReceipt
+	return json.Unmarshal(data, &receipt) == nil && receipt.Version == workspaceRepositoryReceiptVersion && receipt.WorkspaceID == workspaceID && receipt.RepositoryID == repositoryID && !receipt.InitializedAt.IsZero() && isLowerHexRevision(receipt.SourceRevision)
 }
 
 type workspaceInitializing struct{}

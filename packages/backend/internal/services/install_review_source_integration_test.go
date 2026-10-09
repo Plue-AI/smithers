@@ -174,6 +174,13 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 		require.NoError(t, err)
 		return string(data)
 	}
+	// Restore is the review machine's whole setup, so it ends with the receipt
+	// a Flow host start waits for; without it /review waited forever (J10 row 9).
+	receipt, err := runtime.ReadFile(ctx, workspaceID, workspaceRepositoryReceiptPath)
+	require.NoError(t, err)
+	require.True(t, completedWorkspaceReceipt(receipt, workspaceID, admission.RepositoryID), string(receipt))
+	require.Contains(t, string(receipt), `"source_revision":"`+head+`"`)
+	require.False(t, completedWorkspaceReceipt(receipt, workspaceID, admission.RepositoryID+1), "the receipt names its own repository")
 	require.Equal(t, "export const capacity = 2 + 1\n", read("cache.ts"))
 	show := func(object string) string {
 		result, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"git", "show", object}})
