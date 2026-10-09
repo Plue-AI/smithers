@@ -15,7 +15,7 @@ the release notes at
 
 <!-- commits:1.0.0-rc.1 -->
 
-10650 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
+10726 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
 
 ### ✨ Features
 
@@ -1314,6 +1314,45 @@ the release notes at
 
 ### 🐛 Bug fixes
 
+- **rebase:** order capture locks before the boot fence (#3532) ([25cb01da69](https://github.com/smithersai/smithers/commit/25cb01da69a7d69f0734d21fad4d875d0519e986))
+- **rebase:** retain Done authority across repair failure (#3532) ([b096080ac1](https://github.com/smithersai/smithers/commit/b096080ac19ccefa2ffcc1b07fd48ff4dd380e67))
+- **machine:** keep capture control processes outside the writer fence (#3385) ([1ff8afef7e](https://github.com/smithersai/smithers/commit/1ff8afef7e9957a0cfb878d97af17c6fe9607064))
+- **machine:** recover failed starts and interrupted releases (#3385) ([59566c2cb3](https://github.com/smithersai/smithers/commit/59566c2cb32204fd17ec7c008ef1d98f23ec9f08))
+- **release:** the gates lane of a prerelease ends on its own instead of at the job limit ([aab381def5](https://github.com/smithersai/smithers/commit/aab381def563e5c07bccd5a0375ab06041bb4db6))
+- **machine:** admit branch guests by authenticated machine identity (#3385) ([1b4f32941e](https://github.com/smithersai/smithers/commit/1b4f32941ee78f638097b686612728ee9cc1022e))
+- **release:** the containment fixture finds its shell child from the host, not from a namespace-local pid ([5e83665567](https://github.com/smithersai/smithers/commit/5e836655675528c704ed28600c6de93fb0fdf527))
+- **app:** pin both local install origins journey cases ([8a2b342d7d](https://github.com/smithersai/smithers/commit/8a2b342d7d8989ea8cd69430037ea29578500782))
+- **app:** separate Settings reads from the startup setup probe ([fac8063f08](https://github.com/smithersai/smithers/commit/fac8063f08a95049ae4be0f8e1e5fab0e555090d))
+- **machines:** stop a member's machine start waiting on its own roster lock (#3578) ([2d1f60faf0](https://github.com/smithersai/smithers/commit/2d1f60faf0ce5098d472d3d825ac765989946dc9))
+- **stack:** distinguish reserved source comparisons (#2290) ([0a32067cfa](https://github.com/smithersai/smithers/commit/0a32067cfad7e13a192ee2480c72d5c975fd0c51))
+- **release:** run the installer jobs when the candidate lane ends, not when the gates lane does ([184c226a80](https://github.com/smithersai/smithers/commit/184c226a805fc263ccd8b19145d6173b5e1ec514))
+- **journey:** observe mirrored main before the stack fold (#3532) ([50a1a5eb91](https://github.com/smithersai/smithers/commit/50a1a5eb911d4c6878ad7836acd1b2fd1f8845f2))
+- **setup:** reopen closed setup links in the app (#3522) ([88b768b019](https://github.com/smithersai/smithers/commit/88b768b019d0a2a7cea49c8b32a95b48f91d6aad))
+- **flows:** retain candidate authority through generation races (#3450) ([0d238afba5](https://github.com/smithersai/smithers/commit/0d238afba545399c10a58ad98e70a726391d8164))
+- **install:** the bundle README shows what `host start` prints, and the build command that works ([3fe21fd0b4](https://github.com/smithersai/smithers/commit/3fe21fd0b4294feac2dcabdcda609d93d04491a4))
+- **release:** read the Effect family from the MCP consumer's tree, where it is returned ([4556117406](https://github.com/smithersai/smithers/commit/4556117406ad38f122231995d1bf03201f939942))
+- **auth:** align install sign-in and ignore stale setup member cookies (#3522) ([9a218b7f68](https://github.com/smithersai/smithers/commit/9a218b7f68ef3f610b467798b48bc5886c647854))
+- **release:** let the installed-consumer smoke and smithers-build start without @effect/platform-node ([06209aa7b1](https://github.com/smithersai/smithers/commit/06209aa7b12c5cfac0bea03e7de75947a4f704d0))
+- **app:** open setup after the token redirect (#3522) ([c5120a5856](https://github.com/smithersai/smithers/commit/c5120a5856b7ae5aa0d6e5e61076dc754608ff63))
+- **app:** give the UI unit target 30 minutes as the suite has grown ([ed7fc41f3a](https://github.com/smithersai/smithers/commit/ed7fc41f3ae803180871ac2d38b57102990b99ab))
+- **release:** name the paths that make a release candidate dirty ([e09af57d09](https://github.com/smithersai/smithers/commit/e09af57d09a453bdb9416b54a68c003e6260d9b2))
+- **release:** the installed-consumer smoke expects the third integration migration ([a3e6ac767e](https://github.com/smithersai/smithers/commit/a3e6ac767e3d3f6d803b492e796f519510ff28fb))
+- **githubfake:** seed external pull identity for sync (#3532) ([5e1bc3c020](https://github.com/smithersai/smithers/commit/5e1bc3c020549da25518d6be465db6d8c4dd28a6))
+- **stack:** retain merged prefix until main folds (#3532) ([1e26a590f4](https://github.com/smithersai/smithers/commit/1e26a590f49eaba0c40c04ce2cc399643b7442bf))
+- **coding:** keep malformed imports diagnostically refused (#2290) ([a64960b9c3](https://github.com/smithersai/smithers/commit/a64960b9c39c35488a8d8e1980988dddbdf48f17))
+- **sync:** refresh waiting TODOs on GitHub Retry (#3532) ([be293254c0](https://github.com/smithersai/smithers/commit/be293254c0a19d33d0feaa3b38bf0090f1203d35))
+- **stack:** retain captured edits through a pending Scratch rebase (#3532) ([ec4d770b79](https://github.com/smithersai/smithers/commit/ec4d770b793576f442be6ac08a1f3199999f33b2))
+- **stack:** rebase sealed TODO captures on their native branch (#3532) ([77e4a9e8fe](https://github.com/smithersai/smithers/commit/77e4a9e8fe04ee269b656f59bdc09fcb8ee7ea25))
+- **coding:** name and log source refusal sites (#2290) ([43e26fff08](https://github.com/smithersai/smithers/commit/43e26fff0800f4eef32cd4b156c03a6b3e77902c))
+- **release:** drop the create-app template profile the smoke script still imported ([0489b1c08c](https://github.com/smithersai/smithers/commit/0489b1c08c9dbd921b9ea95f59588cad6cc25275))
+- **app:** refresh the reviewed install API inventory ([2e5837243e](https://github.com/smithersai/smithers/commit/2e5837243e3af271fd547f0a90c5a17653a01489))
+- **workspace:** check a Jujutsu workspace's head by the tree it captures (#3560) ([992ca6aa8b](https://github.com/smithersai/smithers/commit/992ca6aa8bc97af40a69a5a38df9e05191fb6ae3))
+- **stack:** compare reserved plans in their stored JSONB representation (#3450) ([f9d3b72e29](https://github.com/smithersai/smithers/commit/f9d3b72e2985d896ad638c6a1988338ab35770d4))
+- **stack:** name the live rebase blocking writer (#3532) ([4881e80270](https://github.com/smithersai/smithers/commit/4881e80270f99963181b8e829b878f5848d85040))
+- **release:** upload the server bundle; run a prerelease as a candidate lane and a report-only gates lane ([86881fe0d0](https://github.com/smithersai/smithers/commit/86881fe0d0c53b3f09e8c281f758bdb00081d5f0))
+- **machined:** share daemon repository and replacement writes (#3567) ([3fc44ee1e8](https://github.com/smithersai/smithers/commit/3fc44ee1e8e790aaf9482312c89560eb51040ddc))
+- **host:** lower shared disk floor to 12 GiB (#3659) ([b74a68604e](https://github.com/smithersai/smithers/commit/b74a68604eb4ae7f9d653ca65dd50a32b8a8764a))
+- **machined:** keep newly created files team writable (#3567) ([99a4356a1a](https://github.com/smithersai/smithers/commit/99a4356a1ac29e036d1a2e61a74adafae3729825))
 - **release:** read a release range larger than Node's 1 MiB child buffer ([eb8e520b99](https://github.com/smithersai/smithers/commit/eb8e520b99a0aea99e41c142f234607618de0acc))
 - **todo:** release dropped machines with retained captures (#3530) ([09e889efce](https://github.com/smithersai/smithers/commit/09e889efcee78cccf0b80546a4e25331c4fb64c7))
 - **stack:** retain admitted candidate requests across rebases (#3450) ([ba1a27bc91](https://github.com/smithersai/smithers/commit/ba1a27bc91a6f536af4782426bde65a072e577a0))
@@ -7234,6 +7273,29 @@ the release notes at
 
 ### 📝 Documentation
 
+- **release:** record landed retire fence fix (#3385) ([6bac0f6e17](https://github.com/smithersai/smithers/commit/6bac0f6e17c1cd6e0f0e614b6be9aa1af0a5cd56))
+- **release:** refresh PRERELEASE.md body, 19:04 PDT ([933b9ecbda](https://github.com/smithersai/smithers/commit/933b9ecbdae0df6a3c143f777931f8a5b0b555b3))
+- **release:** PRERELEASE.md status block, 19:03 PDT ([98fefa1e84](https://github.com/smithersai/smithers/commit/98fefa1e84606d6ddbbea6c87ef6d2741c4239c6))
+- **release:** PRERELEASE.md release sections after dry run #8 ([00cea70baa](https://github.com/smithersai/smithers/commit/00cea70baa414c4b42299e5e378f5c4b334f1f6e))
+- **release:** PRERELEASE.md Detail G points at the c5120a5856 pass ([3a1b96d5ce](https://github.com/smithersai/smithers/commit/3a1b96d5ced8d0343862d0ee61462da7df349055))
+- **release:** refresh PRERELEASE.md body, 18:34 PDT ([b8e47bb8f0](https://github.com/smithersai/smithers/commit/b8e47bb8f090dca459c1417e504e8e446daa96db))
+- **release:** PRERELEASE.md status block, 18:33 PDT ([4ed515face](https://github.com/smithersai/smithers/commit/4ed515face33acd383f915921d3d7b48555b4803))
+- **release:** refresh PRERELEASE.md body, 17:50 PDT ([a6c5ee87ec](https://github.com/smithersai/smithers/commit/a6c5ee87ec41ca7c1f8cd9448e8d5c1d734c70e7))
+- **release:** PRERELEASE.md status block, 17:47 PDT ([dd4042aeeb](https://github.com/smithersai/smithers/commit/dd4042aeeb7b2115a4b81c1ceacedddcc1e3ae01))
+- **release:** record green merge-follow journey reruns (#3532) ([093dba2ce3](https://github.com/smithersai/smithers/commit/093dba2ce37674d645e2c31931422f33611967a6))
+- **release:** refresh PRERELEASE.md below the status block, 17:00 PDT ([e4df964a9b](https://github.com/smithersai/smithers/commit/e4df964a9bf0791ffd00c5479eb40db8685b3b7d))
+- **release:** PRERELEASE.md status block, 16:58 PDT ([372e9e445c](https://github.com/smithersai/smithers/commit/372e9e445c8f9b7a86d4acfe6b9579b1a0e4a9da))
+- **auth:** record verified install sign-in fixes (#3522) ([3a7f3b31fe](https://github.com/smithersai/smithers/commit/3a7f3b31fe80b81d9f93dbe82777e813758d8b5b))
+- **release:** refresh PRERELEASE.md below the status block, 16:39 PDT ([80cd7213fa](https://github.com/smithersai/smithers/commit/80cd7213fa81fca916efcb9a0dd5545cab5af0ec))
+- **release:** PRERELEASE.md status block, 16:37 PDT ([4b3eb8782e](https://github.com/smithersai/smithers/commit/4b3eb8782e67cf5649c4c953fd230d882e977126))
+- **release:** clear freshly passing J4 and J7 rows (#3530) ([28f5ffe85b](https://github.com/smithersai/smithers/commit/28f5ffe85bb4278e0fe2887b45cd57d404f9aa45))
+- **release:** record remaining J7 conflict failure (#3530) ([d744b5300c](https://github.com/smithersai/smithers/commit/d744b5300c10eb47fc2dcdebb0f8ae775b933f73))
+- **release:** mark TODO controls implemented but unverified (#3530) ([5bae86e3dd](https://github.com/smithersai/smithers/commit/5bae86e3dd1a8ab3ac985a188816240a1d23bff4))
+- **stack:** record available rebase acceptance drivers (#3532) ([3a1d1eebce](https://github.com/smithersai/smithers/commit/3a1d1eebce164af79427017dde062ebf54c88c09))
+- **release:** refresh PRERELEASE.md below the status block, 14:36 PDT ([d95e7525d8](https://github.com/smithersai/smithers/commit/d95e7525d8a48deb5820a86de9bb98583c871729))
+- **release:** PRERELEASE.md status block, 14:33 PDT ([8d94b9e5db](https://github.com/smithersai/smithers/commit/8d94b9e5db1c030493e232aaac1eda73d9de022c))
+- **release:** refresh PRERELEASE.md below the status block ([e3c0c51996](https://github.com/smithersai/smithers/commit/e3c0c5199626ad3e37cb0a04d15a0ed545fe32c3))
+- **release:** PRERELEASE.md status block, 14:03 PDT ([26581af898](https://github.com/smithersai/smithers/commit/26581af898e6ca6e6f0179d4772ca9ebb105b039))
 - **spec:** host disk floor 40 → 12 GiB; one machine needs 44 GiB free (8a ruling) ([8657eb2a49](https://github.com/smithersai/smithers/commit/8657eb2a497f5722081b4489e61bf451e4c60dfe))
 - **release:** PRERELEASE.md says real machines are broken on main ([cf9f889584](https://github.com/smithersai/smithers/commit/cf9f889584fb75c5d32826f1daae9d2deb00e336))
 - **spec:** tickets README doneish needs one real install run (8fac93dd7a) ([fa2bffbaa0](https://github.com/smithersai/smithers/commit/fa2bffbaa0a5df3ad875445d95a771af4edcacb6))
@@ -8067,6 +8129,7 @@ the release notes at
 
 ### 🧹 Chores
 
+- **release:** report what the npm fallback token may do, without identifying it ([7424cc9a75](https://github.com/smithersai/smithers/commit/7424cc9a758453601b6c35ef1becce2630df849d))
 - **api:** record agent, targets and cli declarations after review ([1a4779f973](https://github.com/smithersai/smithers/commit/1a4779f973409d5341e26b40f397ceafde2ffe21))
 - **flows:** refresh the merged operation catalog (#3438) ([339fd1274c](https://github.com/smithersai/smithers/commit/339fd1274ca9465570161713203a4d0ef2c3d27a))
 - **api:** record agent and harness declarations after #3632 ([079f3f318a](https://github.com/smithersai/smithers/commit/079f3f318afcbaa86b1c0703fbd0a81643b3d167))
@@ -8177,6 +8240,19 @@ the release notes at
 
 ### 📦 Other changes
 
+- **test(machine):** prove fenced sleep admits the next TODO (#3385) ([4b5fe4405e](https://github.com/smithersai/smithers/commit/4b5fe4405e53f82aa553c3b5f02107c3dea18277))
+- **test(app):** pin SQLite probe and review evidence identifiers ([5bbcd1b75b](https://github.com/smithersai/smithers/commit/5bbcd1b75b04a1273b6490e003d5b507ce0daf7e))
+- **test(release):** the installer workflow test follows the workflow it reads ([62f72789fa](https://github.com/smithersai/smithers/commit/62f72789fa1e6526ba44616055ec3c6c20c6a093))
+- **test(coding):** verify admission refusal identities (#2290) ([45cfd6b90a](https://github.com/smithersai/smithers/commit/45cfd6b90a61fbd682a7f34ccd250d986ce5a042))
+- **test(coding):** exercise distinct source refusal diagnostics (#2290) ([7a2c228bfa](https://github.com/smithersai/smithers/commit/7a2c228bfa4e4a4d99a1b7433c421ba1304b8609))
+- **test(todo):** provision retained review lane fixture (#3530) ([70d75088ef](https://github.com/smithersai/smithers/commit/70d75088efd4b1b99c80d8ab8765ccd27ebe08c4))
+- **test(stack):** exercise J7 conflict continuation on the install (#3532) ([7434189c5f](https://github.com/smithersai/smithers/commit/7434189c5fe3ef8cbb078f03c4c4cf16420fb9f4))
+- **test(flows):** persist retained branch in pinned engine proof (#3450) ([e04a4bf97f](https://github.com/smithersai/smithers/commit/e04a4bf97f9fe0adc7559bf50deda9671a26651b))
+- **test(todo):** qualify controls with retained retry workspaces (#3530) ([8ff49d84d4](https://github.com/smithersai/smithers/commit/8ff49d84d45ec2900b112eaf125e43bd524ca27a))
+- **test(flows):** verify every adopted retry flow pin (#3450) ([02c4a72445](https://github.com/smithersai/smithers/commit/02c4a72445026c2ed16391db9d1654e1e6bf7bc1))
+- **test(host):** use shared disk reserve in prepare fixture (#3659) ([fed0498b80](https://github.com/smithersai/smithers/commit/fed0498b809fd61fa0cdf131695b890be20fc9e8))
+- **test(host):** align composed capacity fixtures with disk floor (#3659) ([d746d2ebca](https://github.com/smithersai/smithers/commit/d746d2ebca5e561e187c33bb48be4ae2d176b1a4))
+- **test(todo):** enforce one Drop machine release deadline (#3530) ([a99aaedc99](https://github.com/smithersai/smithers/commit/a99aaedc99e69cff268f4c4fcc0af99653ca3762))
 - **test(machine):** verify team access after jj checkout (#3567) ([d627baaf97](https://github.com/smithersai/smithers/commit/d627baaf97a46770e5fb733233890afc5a7ab49c))
 - **test(host):** verify named refusals and macOS restart policy (#3659) ([c3aece0daa](https://github.com/smithersai/smithers/commit/c3aece0daa55bf6d817a67ebb61086cec33928f5))
 - **test(access):** bind live merge sessions and machine head grants (#3492) ([87bf2cf115](https://github.com/smithersai/smithers/commit/87bf2cf115513920502366f60d0dda69afaaa363))
