@@ -32,6 +32,7 @@ import { RunState } from "@smthrs/engine-store/RunState"
 import * as StepBoundary from "@smthrs/engine-store/StepBoundary"
 import * as WorkspaceSandbox from "@smthrs/engine-store/WorkspaceSandbox"
 import { Action, FlowRuntime } from "@smthrs/flow"
+import * as ReplacedFlowPolicy from "./ReplacedFlowPolicy.ts"
 import * as Graph from "@smthrs/flow/Graph"
 import type * as NodeFlowsRuntime from "@smthrs/flows/NodeRuntime"
 import type * as GatewayServer from "@smthrs/gateway/GatewayServer"
@@ -1868,7 +1869,7 @@ export const make = (
       },
       StepBoundary.layer,
       WorkspaceSandbox.layerFileSystem(),
-      registration
+      registration.pipe(Layer.provide(ReplacedFlowPolicy.layer))
     ).pipe(
       Layer.provide([engineHost, native.crypto, actionJj]),
       // Resolved by the engine at composition, like its sandboxes.

@@ -1,6 +1,6 @@
-import { Flow } from "@smthrs/flow"
+import { Flow, FlowRuntime } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
@@ -59,4 +59,28 @@ test("the default build command audits production registries, while the app/CLI 
   const combined = spawnSync("bun", [script], { encoding: "utf8", timeout: 60_000 })
   assert.equal(combined.status, violations.length === 0 ? 0 : 1, combined.stderr)
   for (const { id, reason } of violations) assert.ok(combined.stderr.includes(`${reason}: ${id}`), `${reason}: ${id}`)
+})
+
+test("production host refuses replaced entry points before executing their bodies", { timeout: 120_000 }, async () => {
+  const forbidden = appendixC.rows.filter(row => row.status === "replaced" && !(row.id in appendixC.engineeringOverrides))
+  for (const row of forbidden) {
+    let executed = 0
+    const flow = Flow.make(row.id, { payload: Schema.Struct({}), success: Schema.Void, body: () => { executed++; return Node.succeed(undefined) } })
+    let allowed = 0
+    const registration = Layer.effectDiscard(Effect.gen(function*() {
+      const runtime = yield* FlowRuntime.FlowRuntime
+      for (const id of Object.keys(appendixC.engineeringOverrides)) {
+        const retained = Flow.make(id, { payload: Schema.Struct({}), success: Schema.Void, body: () => { executed++; return Node.succeed(undefined) } })
+        yield* runtime.register(retained, () => Effect.sync(() => { executed++ }))
+        allowed++
+      }
+      yield* runtime.register(flow, () => Effect.sync(() => { executed++ }))
+    }))
+    await assert.rejects(withProductionRegistries(() => Effect.void, registration), error => {
+      assert.ok(String(error).includes(`replaced: ${row.id}`), String(error))
+      return true
+    })
+    assert.equal(allowed, Object.keys(appendixC.engineeringOverrides).length, "E-19 engine launches remain admissible")
+    assert.equal(executed, 0, "host admission must execute no forbidden body or handler")
+  }
 })

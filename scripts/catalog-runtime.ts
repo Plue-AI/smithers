@@ -35,7 +35,8 @@ export const policyRegistration = (runtime: FlowRuntime.FlowRuntime["Service"], 
  * runtime placement comes from the built host, never the policy fixture.
  */
 export const withProductionRegistries = async <A>(
-  inspect: (inventories: readonly RegistryInventory[], runtimes: readonly FlowRuntime.FlowRuntime["Service"][]) => Effect.Effect<A, never, Scope.Scope>
+  inspect: (inventories: readonly RegistryInventory[], runtimes: readonly FlowRuntime.FlowRuntime["Service"][]) => Effect.Effect<A, never, Scope.Scope>,
+  extraRegistrations?: Layer.Layer<never, never, FlowRuntime.FlowRuntime>
 ): Promise<A> => {
   const artifactRoot = resolve(repository, ".artifacts")
   await mkdir(artifactRoot, { recursive: true })
@@ -78,7 +79,7 @@ export const withProductionRegistries = async <A>(
         }
         const stateRoot = resolve(temporary, `${host}-state`)
         const layer = host === "native"
-          ? NativeControl.make(observedPlatform).layerHost({ root: repositoryPath, stateRoot, credential: "registry-fixture" })
+          ? NativeControl.make(observedPlatform).layerHost({ root: repositoryPath, stateRoot, credential: "registry-fixture" }, extraRegistrations as NativeControl.ModuleRegistration | undefined)
           : Host.layer(observedPlatform, {
             repositoryPath, stateRoot, helperPath, sourcePublication: "local-only", systemFlows,
             gatewayId: "11111111-1111-4111-8111-111111111111", credential: "registry-fixture", implementationModel: "openai:gpt-6-luna",
