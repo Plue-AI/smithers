@@ -54,8 +54,8 @@ offline Playwright, showcase, site and flow-graph suites, serially: T1 and
 graph each rebuild `dist/`, the showcase serves T1's `dist/`, and T1, site and
 graph write `test-results/`. A failed Chromium install stops the wrapper; a
 failed suite does not stop the later ones, and the wrapper exits with the first
-failure's code. Each step prints its duration. The run takes ~22 min on
-ubuntu-latest under the target's 30m timeout. TestInventory admits a CI
+failure's code. Each step prints its duration. The run takes ~40 min on
+ubuntu-latest under the target's 45m timeout. TestInventory admits a CI
 browser tier only from that runner's argv, never from a `package.json` alias.
 T1 leaves out every Playwright test tagged `@install`: it starts a real install
 through the Go backend harness. The `installE2e` target runs those tests through

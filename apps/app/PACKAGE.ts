@@ -201,15 +201,19 @@ const conformance = Smithers.NodeTest({
  * calls, the built smithers.sh landing and its AppIsland (e2e/site), and the
  * flow-graph tier: the app over a real control plane and a real engine on
  * localhost, with nothing intercepted (e2e/graph/README.md). The steps run
- * serially (scripts/run-pr-e2e.mjs says why) in ~22 min on ubuntu-latest;
- * 30m keeps 30% headroom inside the apps-e2e job's 70.
+ * serially (scripts/run-pr-e2e.mjs says why). On ubuntu-latest, apps-deploy
+ * run 37987394687 (2026-10-09) had T1 at ~530 of 585 tests, all green, when
+ * the old 30m limit killed it: T1 alone is ~33 min there (13.4 min on a
+ * 16-core Mac), so the whole run is ~40 min. 45m is what fits beside the
+ * ~20 min of earlier gate steps and the server and site steps inside
+ * apps-deploy.yml's 75-minute job.
  *
  * Exclusive: wildcard `test` and `ci` selections omit it, and CI's apps-e2e
  * job names it by label.
  */
 const browserE2e = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("scripts/run-pr-e2e.mjs")),
-  timeout: "30m",
+  timeout: "45m",
   srcs: [sources, componentSources, styleSources, harnessSources, suiteSources, ...buildConfigs,
     Smithers.file("playwright.config.ts"), Smithers.file("playwright.site.config.ts"), Smithers.file("playwright.graph.config.ts"),
     Smithers.file("playwright.showcase.config.ts"), Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml"),

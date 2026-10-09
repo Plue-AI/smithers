@@ -12,7 +12,8 @@
  * Measured on ubuntu-latest (runs 36364540459 and 36369423415): install
  * 0.4 min, T1 11.7, showcase 3.7, site 1.2; the whole run crossed 20 min at
  * graph test 16 of 20 (the graph step alone: 1.5 min on a 16-core Mac), so
- * ~22 min. The browserE2e timeout in PACKAGE.ts keeps 30% headroom over that.
+ * ~22 min. By run 37987394687 (2026-10-09) T1 had grown to 585 tests and
+ * ~33 min, so the run is ~40 min; PACKAGE.ts says why its timeout is 45m.
  */
 import { spawnSync } from "node:child_process"
 
