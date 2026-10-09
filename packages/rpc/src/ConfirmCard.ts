@@ -6,7 +6,7 @@
 import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import { ActorSchema, EvidenceSchema, MergeSchema, PersonRefSchema } from "./CardPrimitives.ts"
-import { CatalogTagSchema } from "./CatalogTags.ts"
+import { CatalogOperationSchema } from "./CatalogTags.ts"
 import { type Refusal, refusalOf } from "./Refusal.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
@@ -26,7 +26,7 @@ export const ConfirmRevisionSchema = z.string()
  */
 export const ConfirmCardSchema = z.object({
   kind: z.enum(["one_click", "review_merge"]),
-  action: z.object({ tag: CatalogTagSchema, verb: z.string() }),
+  action: z.object({ tag: CatalogOperationSchema, verb: z.string() }),
   summary: z.string(),
   subject: z.object({
     kind: z.enum(["todo", "branch", "flow", "agent", "wiki", "proposal", "issue"]),
@@ -65,7 +65,7 @@ export type ConfirmCard = z.infer<typeof ConfirmCardSchema>
 export const MemberConfirmationSchema = z.object({
   id: z.string().uuid(),
   state: z.enum(["pending", "approved", "rejected", "expired"]),
-  command: CatalogTagSchema,
+  command: CatalogOperationSchema,
   revision: z.string().min(1),
   expires_at: z.string().datetime({ offset: true }),
   decided_at: z.string().datetime({ offset: true }).optional(),

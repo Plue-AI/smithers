@@ -98,3 +98,13 @@ through production HTTP, credentials through production issuers, and cards
 through the installed consumer. C-ACC-02's wiki browser case reloads the private
 card, presses Delete by keyboard and reads the real page's 404. These increments
 do not declare the full confirmation matrix or reference-host recovery complete.
+
+T-ACC-03 creation increment (`fr30-acc-03-r4`): the composed install wiki-create
+campaign proves 18 page creations, 66 profile/actor/session-create refusals and
+12 slug/path collision expirations. It uses production credential issuers,
+implicit and explicit confirmation doors, public/private pages, requester-only
+presses, duplicate request/press replay, denial and malformed inputs. The
+installed browser reloads the private card and presses Create by keyboard, then
+reads the stored page. No page exists before approval. Confirmation presentation
+accepts registered operation names without extending executable button tags.
+Full confirmation/effect matrices and reference-host recovery remain unqualified.

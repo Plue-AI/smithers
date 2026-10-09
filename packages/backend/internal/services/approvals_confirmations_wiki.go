@@ -92,3 +92,90 @@ func (s *MythicalService) deleteConfirmedWiki(ctx context.Context, tx pgx.Tx, re
 		s.learningWiki.dispatchWikiEvent(ctx, request.repository, actor, "deleted", mapWikiPage(request.page))
 	}, nil
 }
+
+type wikiCreateConfirmation struct {
+	Owner      string              `json:"owner"`
+	Repo       string              `json:"repo"`
+	Visibility string              `json:"visibility,omitempty"`
+	Page       CreateWikiPageInput `json:"page"`
+	repository db.Repository
+}
+
+func (s *MythicalService) prepareWikiCreateConfirmation(ctx context.Context, tx pgx.Tx, repository int64, input ConfirmationInput, inspect bool) (preparedConfirmation, error) {
+	p := preparedConfirmation{}
+	if s.learningWiki == nil {
+		return p, confirmationUnavailable()
+	}
+	var subject struct {
+		Kind string `json:"kind"`
+		Ref  string `json:"ref"`
+	}
+	var request wikiCreateConfirmation
+	if confirmationJSON(input.Subject, &subject) != nil || subject.Kind != "wiki" || confirmationJSON(input.Payload, &request) != nil || request.Owner == "" || request.Repo == "" {
+		return p, invalidConfirmation()
+	}
+	var err error
+	request.Page, err = normalizeWikiCreate(request.Page)
+	if err != nil {
+		return p, err
+	}
+	if subject.Ref != "" && subject.Ref != request.Page.Slug {
+		return p, invalidConfirmation()
+	}
+	subject.Ref = request.Page.Slug
+	if request.Visibility == "" {
+		request.Visibility = "public"
+	}
+	ctx, err = WithWikiVisibility(ctx, request.Visibility)
+	if err != nil {
+		return p, invalidConfirmation()
+	}
+	p.subject, _ = json.Marshal(subject)
+	p.input, _ = json.Marshal(request)
+	if !inspect {
+		return p, nil
+	}
+	wiki := *s.learningWiki
+	wiki.queries = db.New(tx)
+	request.repository, err = wiki.resolveRepoByOwnerAndName(ctx, request.Owner, request.Repo)
+	if err != nil || request.repository.ID != repository {
+		return p, confirmationPermission()
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if err = wiki.requireWriteAccess(ctx, request.repository, info.User); err != nil {
+		return p, confirmationPermission()
+	}
+	var exists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wiki_pages WHERE repository_id=$1 AND visibility=$2 AND (slug=$3 OR lower(path)=lower($4)))`, repository, request.Visibility, subject.Ref, request.Page.Path).Scan(&exists); err != nil {
+		return p, err
+	}
+	if exists {
+		return p, todoControlConflict("Wiki page changed")
+	}
+	p.revision = "absent"
+	p.title = request.Page.Title
+	p.wikiCreate = &request
+	p.card = map[string]any{"kind": "one_click", "action": map[string]string{"tag": "wiki.create", "verb": "Create"}, "summary": p.title,
+		"subject": map[string]string{"kind": "wiki", "ref": subject.Ref, "revision": p.revision}, "text": request.Page.Body, "asked_by": todoActor(ctx, *info.User)}
+	return p, nil
+}
+
+func (s *MythicalService) createConfirmedWiki(ctx context.Context, tx pgx.Tx, request *wikiCreateConfirmation) (func(), error) {
+	if s.learningWiki == nil || request == nil {
+		return nil, confirmationUnavailable()
+	}
+	ctx, err := WithWikiVisibility(ctx, request.Visibility)
+	if err != nil {
+		return nil, err
+	}
+	wiki := *s.learningWiki
+	wiki.queries, wiki.documents, wiki.dispatcher = db.New(tx), db.New(tx), nil
+	actor := middleware.AuthInfoFromContext(ctx).User
+	page, err := wiki.CreateWikiPage(ctx, actor, request.Owner, request.Repo, request.Page)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		s.learningWiki.dispatchWikiEvent(ctx, request.repository, actor, "created", page)
+	}, nil
+}

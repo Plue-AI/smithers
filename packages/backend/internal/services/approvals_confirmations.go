@@ -370,6 +370,7 @@ type preparedConfirmation struct {
 	editTodo        *MythicalTodoInput
 	comment         *installIssueCommentJob
 	wiki            *wikiDeleteConfirmation
+	wikiCreate      *wikiCreateConfirmation
 }
 
 // prepareConfirmation adapts existing transactional TODO consumers. Its switch
@@ -395,6 +396,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		return s.prepareRepositoryEditConfirmation(ctx, tx, repository, input, inspect)
 	case "issue.comment":
 		return s.prepareIssueCommentConfirmation(ctx, tx, repository, input, inspect)
+	case "wiki.create":
+		return s.prepareWikiCreateConfirmation(ctx, tx, repository, input, inspect)
 	case "wiki.delete":
 		return s.prepareWikiDeleteConfirmation(ctx, tx, repository, input, inspect)
 	case "learning.accept", "learning.dismiss":
@@ -844,6 +847,8 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var admitted jobs.RequestReceipt
 				admitted, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
 				commentOperationID = admitted.OperationID
+			case "wiki.create":
+				afterCommit, err = consumer.createConfirmedWiki(bound, tx, prepared.wikiCreate)
 			case "wiki.delete":
 				afterCommit, err = consumer.deleteConfirmedWiki(bound, tx, prepared.wiki)
 			case "learning.accept", "learning.dismiss":

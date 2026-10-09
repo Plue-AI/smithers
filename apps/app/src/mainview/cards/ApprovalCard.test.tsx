@@ -4,6 +4,7 @@ import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
+import { CatalogTagSchema } from "@smthrs/rpc/CatalogTags"
 import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { Card } from "../state/AppState"
 import type { CardActions } from "./CardFamily"
@@ -70,7 +71,7 @@ for (const kind of ["one_click", "review_merge"] as const) {
     expect(props.model).toBe(model)
     expect(props.actions).toEqual([])
     expect(render(model)).toContain(kind === "one_click" ? "Keep the S3 fields optional" : "Card model contracts")
-    for (const tag of [model.action.tag, "merge.confirm", "confirm.cancel"] as const) {
+    for (const tag of [CatalogTagSchema.parse(model.action.tag), "merge.confirm", "confirm.cancel"] as const) {
       try {
         props.onAction(tag, { confirmation: "c-1", revision: "4bc79ae" })
         throw new Error("Expected missing consumer refusal")

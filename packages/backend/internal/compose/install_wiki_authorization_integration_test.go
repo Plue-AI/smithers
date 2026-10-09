@@ -85,9 +85,6 @@ func TestInstallWikiWriteAuthorizationPostgres(t *testing.T) {
 			})
 		}
 	}
-	t.Run("app create refuses without a confirmation consumer", func(t *testing.T) {
-		require.Contains(t, call(t, "POST", "", `{"slug":"pending","title":"Pending","body":"Not created"}`, appAgent, "wiki.create", 503), `"code":"confirmation_unavailable"`)
-	})
 	var count int
 	require.NoError(t, f.pool.QueryRow(f.ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, f.repoID).Scan(&count))
 	require.Zero(t, count)

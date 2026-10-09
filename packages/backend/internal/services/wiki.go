@@ -250,6 +250,39 @@ func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, r
 	return response, nil
 }
 
+func normalizeWikiCreate(input CreateWikiPageInput) (CreateWikiPageInput, error) {
+	if len(input.Body) > maxWikiBodyBytes {
+		return input, pkgerrors.ValidationFailed(pkgerrors.FieldError{
+			Resource: "WikiPage",
+			Field:    "body",
+			Code:     "too_large",
+		})
+	}
+
+	title, err := normalizeWikiTitle(input.Title)
+	if err != nil {
+		return input, err
+	}
+	slug := strings.TrimSpace(input.Slug)
+	if slug == "" {
+		slug = slugifyWikiTitle(title)
+	}
+	slug, err = normalizeWikiSlug(slug)
+	if err != nil {
+		return input, err
+	}
+
+	pagePath, err := normalizeWikiPath(input.Path, slug)
+	if err != nil {
+		return input, err
+	}
+	if err = validWikiBody(input.Body); err != nil {
+		return input, err
+	}
+	input.Title, input.Slug, input.Path = title, slug, pagePath
+	return input, nil
+}
+
 func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner, repo string, input CreateWikiPageInput) (WikiPageResponse, error) {
 	repository, err := s.resolveRepoByOwnerAndName(ctx, owner, repo)
 	if err != nil {
@@ -259,32 +292,8 @@ func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner,
 		return WikiPageResponse{}, err
 	}
 
-	if len(input.Body) > maxWikiBodyBytes {
-		return WikiPageResponse{}, pkgerrors.ValidationFailed(pkgerrors.FieldError{
-			Resource: "WikiPage",
-			Field:    "body",
-			Code:     "too_large",
-		})
-	}
-
-	title, err := normalizeWikiTitle(input.Title)
+	input, err = normalizeWikiCreate(input)
 	if err != nil {
-		return WikiPageResponse{}, err
-	}
-	slug := strings.TrimSpace(input.Slug)
-	if slug == "" {
-		slug = slugifyWikiTitle(title)
-	}
-	slug, err = normalizeWikiSlug(slug)
-	if err != nil {
-		return WikiPageResponse{}, err
-	}
-
-	pagePath, err := normalizeWikiPath(input.Path, slug)
-	if err != nil {
-		return WikiPageResponse{}, err
-	}
-	if err = validWikiBody(input.Body); err != nil {
 		return WikiPageResponse{}, err
 	}
 	if _, err = s.putWikiContent(ctx, repository.ID, []byte(input.Body)); err != nil {
@@ -295,11 +304,11 @@ func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner,
 	}
 	created, err := s.queries.CreateWikiPage(ctx, db.CreateWikiPageParams{
 		RepositoryID: repository.ID, Visibility: wikiVisibility(ctx),
-		Slug:        slug,
-		Title:       title,
+		Slug:        input.Slug,
+		Title:       input.Title,
 		TitleSource: pgtype.Text{String: wikiTitleSource(input.ImportedTitle), Valid: true},
 		Body:        input.Body,
-		AuthorID:    actor.ID, Path: pagePath,
+		AuthorID:    actor.ID, Path: input.Path,
 	})
 	if err != nil {
 		if isWikiPageConflict(err) {

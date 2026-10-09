@@ -217,3 +217,43 @@ test("C-ACC-02: wiki delete uses the private installed card across reload", asyn
     if (complete) expect(status, logs).toBe(0)
   }
 })
+
+// Real page creation from a private card after reload and keyboard approval.
+test("C-ACC-02: wiki create uses the private installed card across reload", async ({ page }) => {
+  test.setTimeout(300_000)
+  const directory = await mkdtemp(join(tmpdir(), "smithers-access-wiki-create-"))
+  const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessWikiCreateProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ACCESS_WIKI_CREATE_PHASE_DIR: directory, SMITHERS_REHEARSAL_SPA_DIR: resolve("dist") }, stdio: ["pipe", "pipe", "pipe"]
+  })
+  let logs = "", complete = false
+  backend.stdout.on("data", bytes => { logs += String(bytes) })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  try {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return /WIKI_CREATE_READY (http:\/\/\S+) (\S+) (\S+) (\S+)/.test(logs) }, { timeout: 120_000 }).toBe(true)
+    const [, origin, id, cookie, path] = logs.match(/WIKI_CREATE_READY (http:\/\/\S+) (\S+) (\S+) (\S+)/)!
+    const slug = path!.split("/").at(-1)!.split("?")[0]!
+    await page.context().addCookies([{ name: "smithers_session", value: cookie!, url: origin! }])
+    await page.goto(origin!)
+    const card = page.locator('[data-kind="confirm"]').filter({ hasText: "Wiki create " + slug })
+    await expect(card).toContainText("Keep these exact bytes", { timeout: 60_000 })
+    await page.reload()
+    await expect(card.getByRole("button", { name: "Create", exact: true })).toBeVisible({ timeout: 60_000 })
+    const response = page.waitForResponse(value => value.url().endsWith(`/api/confirmations/${id}/approve`) && value.request().method() === "POST")
+    await card.getByRole("button", { name: "Create", exact: true }).press("Enter")
+    expect((await response).status()).toBe(200)
+    await expect(card.getByRole("button", { name: "Create", exact: true })).toHaveCount(0)
+    const created = await page.request.get(origin! + path!)
+    expect(created.status()).toBe(200)
+    expect(await created.json()).toMatchObject({ body: "Keep these exact bytes" })
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await writeFile(join(directory, "approved"), "approved")
+    complete = true
+  } finally {
+    await writeFile(join(directory, "approved"), "done")
+    const status = await exited
+    if (status !== 0) console.error(logs)
+    await rm(directory, { recursive: true, force: true })
+    if (complete) expect(status, logs).toBe(0)
+  }
+})

@@ -638,6 +638,23 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/flows/"), "/edit")
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "flow", "ref": name})
 	}
+	if command == "wiki.create" {
+		parts := strings.Split(r.URL.EscapedPath(), "/")
+		var page services.CreateWikiPageInput
+		if len(parts) != 6 || json.Unmarshal(raw, &page) != nil {
+			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid wiki page"})
+			return true
+		}
+		owner, _ := url.PathUnescape(parts[3])
+		repo, _ := url.PathUnescape(parts[4])
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "wiki", "ref": page.Slug})
+		input.Payload, _ = json.Marshal(struct {
+			Owner      string                       `json:"owner"`
+			Repo       string                       `json:"repo"`
+			Visibility string                       `json:"visibility,omitempty"`
+			Page       services.CreateWikiPageInput `json:"page"`
+		}{owner, repo, r.URL.Query().Get("visibility"), page})
+	}
 	if command == "wiki.delete" {
 		parts := strings.Split(r.URL.EscapedPath(), "/")
 		if len(parts) != 7 {

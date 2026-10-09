@@ -10,6 +10,7 @@ import {
   ConfirmCardSchema,
   MemberConfirmationSchema
 } from "../../src/ConfirmCard.ts"
+import { CatalogTagSchema } from "../../src/CatalogTags.ts"
 import { cardContract } from "../cardContract.ts"
 import { fixtures } from "../fixtures/Confirm.ts"
 
@@ -167,4 +168,12 @@ test("Issue comment confirmations preserve the exact text and unambiguous worker
     { ...row.payload.effect, issue_comment: "" }, { ...row.payload.effect, state: "approved" }]) {
     expect(MemberConfirmationSchema.safeParse({ ...row, payload: { ...row.payload, effect } }).success).toBe(false)
   }
+})
+
+// The initiating command is presentation; person decision tags own execution.
+test("wiki create confirmation preserves its command without granting a button dispatch", () => {
+  const card = { ...fixtures.one_click.model, action: { tag: "wiki.create", verb: "Create" }, subject: { kind: "wiki", ref: "new-page", revision: "absent" } }
+  expect(ConfirmCardSchema.parse(card)).toMatchObject({ action: { tag: "wiki.create" }, subject: { revision: "absent" } })
+  expect(CatalogTagSchema.safeParse("wiki.create").success).toBe(false)
+  expect(ConfirmCardSchema.safeParse({ ...card, action: { tag: "unknown-command", verb: "Create" } }).success).toBe(false)
 })

@@ -80,6 +80,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_wiki_create_authorization_integration_test.go",
+    "tests": [
+      "TestAccessWikiCreateProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_wiki_delete_authorization_integration_test.go",
     "tests": [
       "TestAccessWikiDeleteProfilesComposedPostgres"
