@@ -51,6 +51,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_provider_grant_authorization_integration_test.go",
+    "tests": [
+      "TestAccessProviderGrantMatrixComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_retained_http_authorization_integration_test.go",
     "tests": [
       "TestRetainedCommandHTTPStateEffectsPostgres",
