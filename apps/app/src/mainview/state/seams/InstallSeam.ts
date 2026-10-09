@@ -204,7 +204,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     }
     await options.present?.(kind)
     for (const row of fastRequests().filter(row => row.state === "requested" || row.state === "running")) {
-      if (row.body.fast_model === "sign-in" && shared.snapshot.model.fast_model?.signed_in) await saveRequest({...row,state:"completed"})
+      // A request whose effect the install already serves is complete; replaying it would repeat the act.
+      const signedIn = shared.snapshot.model.fast_model?.signed_in
+      if (row.body.fast_model === "sign-in" ? signedIn === true : signedIn === false) await saveRequest({...row,state:"completed"})
       else if (!(Date.parse(row.expires_at ?? "") > Date.now())) await saveRequest({...row,state:"failed"})
       else fastModelAccess(row.body.fast_model === "sign-out" ? "sign-out" : "sign-in",row)
     }

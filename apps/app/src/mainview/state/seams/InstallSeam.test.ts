@@ -927,4 +927,15 @@ describe("C-FM-01 fast-model access", () => {
   const next=await harness(()=>Response.json(after),{fastModelHandoff:url=>handoffs.push(url)},storage);next.seam.showSettings();await next.idle()
   expect(next.store.session().installRequests?.at(-1)?.state).toBe("completed");expect(handoffs).toEqual([]);expect(next.requests.every(row=>row.init?.method!=="POST")).toBe(true);next.seam.dispose()
  })
+ // C-FM-01: a reload before the sign-out's receipt persists finds the install already signed out.
+ for(const served of [{signed_in:false,source:"team key"},{signed_in:true,source:"Smithers"}] as const) test(`reload ${served.signed_in?"resends":"reconciles"} a sign-out the install ${served.signed_in?"has not seen":"already shows"}`,async()=>{
+  const storage=memoryStorage();const before=installFixture();before.fast_model={signed_in:true,source:"Smithers"}
+  const first=await harness(()=>Response.json(before),{},storage);await first.seam.readInstall()
+  await first.store.dispatch({type:"install.requests.changed",actor:"user",requests:[{id:"request-id",origin:"",step:"models",body:{fast_model:"sign-out"},state:"requested",expires_at:new Date(Date.now()+60000).toISOString()}]}).isPersisted.promise
+  first.seam.dispose()
+  const after={...before,fast_model:{...served}}
+  const next=await harness((_path,init)=>init?.method==="DELETE"?Response.json({ok:true}):Response.json(after),{},storage);next.seam.showSettings();await next.idle()
+  expect(next.store.session().installRequests?.at(-1)?.state).toBe("completed")
+  expect(next.requests.filter(row=>row.init?.method==="DELETE")).toHaveLength(served.signed_in?1:0);next.seam.dispose()
+ })
 })
