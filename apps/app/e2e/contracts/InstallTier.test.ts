@@ -24,25 +24,43 @@ const sources = (directory: string): string[] =>
     return entry.name.endsWith(".ts") ? [path] : []
   })
 
-/** Each test declaration with the lines up to the next one, in every suite file. */
+/* A top-level helper: its body runs until the next test or helper. */
+const HELPER = /^(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*[(<]|^(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|\w+\s*=>)/
+
+/**
+ * Each test declaration with the lines up to the next test or helper, in
+ * every suite file. A door in a helper the file defines counts wherever the
+ * file calls that helper.
+ */
 const declarations = () => sources(SUITE).flatMap(path => {
   const lines = readFileSync(path, "utf8").split("\n")
+  const end = (start: number, stops: ReadonlyArray<number>) => stops.find(stop => stop > start) ?? lines.length
   const starts = lines.flatMap((line, index) => DECLARATION.test(line) ? [index] : [])
-  return starts.map((start, at) => ({
-    at: `${relative(SUITE, path)}:${start + 1}`,
-    head: lines[start]!,
-    body: lines.slice(start, starts[at + 1] ?? lines.length).join("\n")
-  }))
+  const declared = lines.flatMap((line, index) => {
+    const name = HELPER.exec(line)?.slice(1).find(Boolean)
+    return name ? [{ name, index }] : []
+  })
+  const stops = [...starts, ...declared.map(helper => helper.index)].sort((a, b) => a - b)
+  const helpers = declared.map(({ name, index }) => ({ name, body: lines.slice(index, end(index, stops)).join("\n") }))
+  const doors = new Set<string>()
+  for (let pass = 0; pass < 3; pass++) for (const helper of helpers) {
+    if (REAL_INSTALL.test(helper.body) || [...doors].some(name => new RegExp(`\\b${name}\\(`).test(helper.body))) doors.add(helper.name)
+  }
+  const reaches = (body: string) => REAL_INSTALL.test(body) || [...doors].some(name => new RegExp(`\\b${name}\\(`).test(body))
+  return starts.map(start => {
+    const body = lines.slice(start, end(start, stops)).join("\n")
+    return { at: `${relative(SUITE, path)}:${start + 1}`, head: lines[start]!, install: reaches(body) }
+  })
 })
 
 describe("the install tier", () => {
   test("every test that starts a real install is tagged @install", () => {
-    const untagged = declarations().filter(test => REAL_INSTALL.test(test.body) && !TAGGED.test(test.head)).map(test => test.at)
+    const untagged = declarations().filter(test => test.install && !TAGGED.test(test.head)).map(test => test.at)
     expect(untagged).toEqual([])
   })
 
   test("the tag marks only tests that start a real install", () => {
-    const stray = declarations().filter(test => TAGGED.test(test.head) && !REAL_INSTALL.test(test.body)).map(test => test.at)
+    const stray = declarations().filter(test => TAGGED.test(test.head) && !test.install).map(test => test.at)
     expect(stray).toEqual([])
   })
 

@@ -7,7 +7,7 @@ import { resolve, join } from "node:path"
 
 // PostgreSQL, signed webhook, polling, delivery replay and install reads are real.
 // The backend also asserts the transaction and runtime acknowledgement fences.
-test("C-GH-13: GitHub facts use one pure decision seam", async ({ page, baseURL }) => {
+test("C-GH-13: GitHub facts use one pure decision seam", { tag: "@install" }, async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   await factsBrowser(page, baseURL, false)
 })
