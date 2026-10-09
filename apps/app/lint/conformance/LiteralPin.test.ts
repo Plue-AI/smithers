@@ -561,9 +561,14 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "tag and class composed by the geometry probe from the real card element, not a flow id"
   },
   {
+    literal: "retained-review-",
+    file: "e2e/real/todo-steer.spec.ts",
+    reason: "composed-install.ts keep() writes retained JSON evidence to host.evidence; this prefix names the review receipt by PR head, never an application card ID"
+  },
+  {
     literal: "storage-test-",
-    file: "e2e/playwright/storage-refusal.spec.ts",
-    reason: "test-owned request IDs on the shipped SQLite worker protocol, not application card IDs"
+    file: "e2e/playwright/databaseProbe.ts",
+    reason: "queryDatabase send() generates correlation request IDs for worker.postMessage and matches message responses; test-owned SQLite protocol IDs, never application card IDs"
   },
   {
     literal: "smithers-mvp-quarantine.private-test",
@@ -977,7 +982,7 @@ describe("every literal the suites assert against still resolves", () => {
   test("the allowlist stays small enough to read", () => {
     // The current-main sweep includes external protocol domains and deferred
     // retired surfaces. Keep a finite bound; stale and duplicate entries still fail.
-    expect(ALLOWLIST.length).toBeLessThanOrEqual(159)
+    expect(ALLOWLIST.length).toBeLessThanOrEqual(160)
   })
 })
 
