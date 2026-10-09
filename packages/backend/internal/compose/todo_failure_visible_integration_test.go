@@ -25,6 +25,7 @@ func TestTodoNoChecksFailureVisibleComposedInstall(t *testing.T) {
 		State   string `json:"state"`
 		Failure struct {
 			Step          string `json:"step"`
+			Label         string `json:"label"`
 			Class         string `json:"class"`
 			Message       string `json:"message"`
 			Configuration bool   `json:"check_configuration"`
@@ -34,7 +35,8 @@ func TestTodoNoChecksFailureVisibleComposedInstall(t *testing.T) {
 	require.Equal(t, "failed", card.State)
 	require.Equal(t, "user", card.Failure.Class)
 	require.Equal(t, "No checks found", card.Failure.Message)
-	require.Equal(t, "coding/check-command", card.Failure.Step)
+	require.Equal(t, "coding/check", card.Failure.Step)
+	require.Equal(t, "Ran checks", card.Failure.Label)
 	require.True(t, card.Failure.Configuration)
 }
 
