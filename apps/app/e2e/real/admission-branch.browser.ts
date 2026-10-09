@@ -7,6 +7,7 @@ import { resolve } from "node:path"
 const origin = process.env.SMITHERS_ADMISSION_ORIGIN!
 const branch = process.env.SMITHERS_ADMISSION_BRANCH!
 const cookie = process.env.SMITHERS_ADMISSION_COOKIE!
+const resumed = process.env.SMITHERS_ADMISSION_RESUMED === "true"
 const mixed = process.env.SMITHERS_ADMISSION_MIXED === "1"
 const successful = process.env.SMITHERS_ADMISSION_SUCCESSFUL === "1"
 const publicURL = process.env.SMITHERS_ADMISSION_PUBLIC_URL ?? "http://127.0.0.1:4000"
@@ -72,6 +73,22 @@ try {
   expect(errors).toEqual([])
   console.log("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
   if (mixed) console.log("PASS C-MCH-02 mixed queue mounted Home Learning position and reload")
+  if (resumed) {
+    console.log("ADMISSION_BROWSER_RELEASED")
+    const todo = stack.locator('li').filter({ hasText: "T5" })
+    await expect(todo).toHaveAttribute("data-state", "paused", { timeout: 60000 })
+    console.log("ADMISSION_BROWSER_RESUME_PAUSED")
+    await expect(todo).toHaveAttribute("data-state", "queued", { timeout: 60000 })
+    console.log("ADMISSION_BROWSER_RESUME_QUEUED")
+    await expect(todo).toHaveAttribute("data-state", "starting", { timeout: 60000 })
+    await page.reload()
+    await expect(todo).toHaveAttribute("data-state", "starting")
+    console.log("ADMISSION_BROWSER_RESUME_STARTING")
+    await expect(todo).toHaveAttribute("data-state", "working", { timeout: 60000 })
+    await page.reload()
+    await expect(todo).toHaveAttribute("data-state", "working")
+    console.log("PASS C-MCH-02 resumed TODO mounted Starting before current attachment and Working after reload")
+  }
 } finally {
   await browser.close()
   await vite.close()

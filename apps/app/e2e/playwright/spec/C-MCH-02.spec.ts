@@ -23,9 +23,17 @@ test("C-MCH-02: a working TODO survives two hours before confirmed safe-idle rel
 // Learning dispatch, authenticated live positions and the mounted Home/Branch.
 test("C-MCH-02: Alice, Ben SSH, TODOs and Learning share literal positions and FIFO grants", async () => {
   test.setTimeout(300_000)
-  const output = await runLiveInstall("^TestMixed.*ClassAdmissionInstallBoundary$")
+  const output = await runLiveInstall("^(TestMixedClassAdmissionInstallBoundary|TestMixedConcurrentClassAdmissionInstallBoundary)$")
   expect(output).toContain("--- PASS: TestMixedClassAdmissionInstallBoundary")
   expect(output).toContain("--- PASS: TestMixedConcurrentClassAdmissionInstallBoundary")
   expect(output).toContain("PASS C-MCH-02 literal Alice, Ben SSH, T5, T6, Learning positions and grant order")
   expect(output).toContain("PASS C-MCH-02 mixed queue mounted Home Learning position and reload")
+})
+
+test("C-MCH-02: retained Resume shows Starting until the current run attaches", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestMixedResumedClassAdmissionInstallBoundary$")
+  expect(output).toContain("--- PASS: TestMixedResumedClassAdmissionInstallBoundary")
+  expect(output).toContain("PASS C-MCH-02 retained resumed run waits for current-attempt attachment")
+  expect(output).toContain("PASS C-MCH-02 resumed TODO mounted Starting before current attachment and Working after reload")
 })

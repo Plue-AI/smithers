@@ -40,6 +40,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/repository"
@@ -96,6 +97,10 @@ func (parallelFlowHost) Deny(context.Context, flowruntime.Decision) (flowruntime
 func (h parallelFlowHost) Signal(_ context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
 	if h.paused != nil && input.Name == "pause" {
 		h.paused.Store(input.RunID, true)
+		return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: input.RunID}}, nil
+	}
+	if h.paused != nil && h.ended != nil && input.Name == "resume#1" {
+		h.paused.Delete(input.RunID)
 		return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID, Receipt: flowruntime.Receipt{Tag: "Accepted", RunID: input.RunID}}, nil
 	}
 	return flowruntime.MutationResult{}, errParallelFlowHostUnsupported
@@ -164,6 +169,10 @@ func TestMixedClassAdmissionInstallBoundary(t *testing.T) {
 }
 func TestMixedConcurrentClassAdmissionInstallBoundary(t *testing.T) {
 	testParallelAdmissionInstallBoundary(t, false, false, true, true, true)
+}
+
+func TestMixedResumedClassAdmissionInstallBoundary(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, false, false, true, true, false, true)
 }
 
 func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops, matrix bool, mixed ...bool) {
@@ -273,12 +282,14 @@ case "$1" in
  list)
   if [ -f %q ]; then
    printf '[{"name":"%%s","status":"running"}]\n' "$(cat %q)"
+  elif [ -f %q ]; then
+   printf '[{"name":"%%s","status":"stopped"}]\n' "$(cat %q)"
   else
    printf '%%s\n' %q
   fi ;;
  *) printf '[]\n' ;;
 esac
-`, release, firstBoot, firstBoot, stopAcknowledged, stopPending, stopPending, inventoryJSON)), 0o700))
+`, release, firstBoot, firstBoot, stopAcknowledged, stopPending, stopPending, firstBoot+".retained", firstBoot+".retained", inventoryJSON)), 0o700))
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	machineRuntime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
 		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 8})
@@ -322,11 +333,27 @@ esac
 	}
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: stack, SteerAuthorizer: stack, ObservationDelay: 20 * time.Millisecond, MaxObservationDelay: 200 * time.Millisecond,
 		Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
-			if !runtime.AdmissionHeld("workspace:" + target.WorkspaceID) {
+			resuming := false
+			if len(mixed) > 2 && mixed[2] {
+				_ = pool.QueryRow(ctx, `SELECT coalesce((checks->'pause'->>'resuming')::boolean,false) FROM mythical_items WHERE id::text=$1`, target.BindingID).Scan(&resuming)
+			}
+			if !runtime.AdmissionHeld("workspace:"+target.WorkspaceID) && !resuming {
 				return nil, nil
 			}
 			if len(mixed) > 0 && mixed[0] {
 				row, err := q.GetWorkspace(ctx, target.WorkspaceID)
+				if err == nil && resuming && (row.Status == "suspended" || row.Status == "stopped") {
+					// The production box launcher uses this same retained-TODO
+					// wake door before attaching the injected guest host.
+					authority, err := services.NewMythicalFlowHostTargetResolver(stack).ResolveFlowHostTarget(ctx, target)
+					if err != nil {
+						return nil, err
+					}
+					if err := workspaces.WakeTodoWorkspace(ctx, target.BindingID, authority.WorkspaceID, authority.RepositoryID, authority.UserID); err != nil {
+						return nil, err
+					}
+					row, err = q.GetWorkspace(ctx, target.WorkspaceID)
+				}
 				if err != nil || row.Status != "running" {
 					return nil, nil
 				}
@@ -381,7 +408,7 @@ esac
 	go func() {
 		worker, stop := context.WithCancel(liveContext)
 		defer stop()
-		_ = dispatcher.RunWorker(worker, jobs.WorkerConfig{WorkerID: "c-stk-02", Capacity: 8, Lease: 5 * time.Second, PollInterval: 20 * time.Millisecond, RetryDelay: 50 * time.Millisecond})
+		_ = dispatcher.RunWorker(worker, jobs.WorkerConfig{WorkerID: "c-stk-02", Capacity: 8, Lease: 5 * time.Second, PollInterval: 20 * time.Millisecond, RetryDelay: 50 * time.Millisecond, MaxRetryDelay: 200 * time.Millisecond})
 	}()
 	if len(mixed) == 0 || !mixed[0] {
 		go stack.Start(liveContext)
@@ -417,7 +444,7 @@ esac
 		return byNumber
 	}
 	if len(mixed) > 0 && mixed[0] {
-		exerciseMixedClassAdmission(t, pool, stack, workspaces, runtime, host, store, cfg, server, repo.ID, maya.ID, ben.ID, mayaCookie, call, branches, &freeDisk, stopPending, stopAcknowledged, firstBoot, guest.ended, len(mixed) > 1 && mixed[1])
+		exerciseMixedClassAdmission(t, pool, stack, workspaces, runtime, host, store, cfg, server, repo.ID, maya.ID, ben.ID, mayaCookie, call, branches, &freeDisk, stopPending, stopAcknowledged, firstBoot, guest, len(mixed) > 1 && mixed[1], len(mixed) > 2 && mixed[2])
 		return
 	}
 	if matrix {
@@ -1532,7 +1559,7 @@ func queuedSSHProbe(t *testing.T, pool *pgxpool.Pool, service *services.Workspac
 // its Learning admission is consumed by the real dispatcher. TODOs and terminals
 // enter HTTP, SSH enters the installed gateway, and snapshots enter /api/live.
 // Guest responses, stop inventory, disk and elapsed time remain Linux test ports.
-func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *services.MythicalService, workspaces *services.WorkspaceService, runtime *parallelIdleRuntime, host *pollingGitHost, store *jobs.Store, cfg *config.Config, server *httptest.Server, repo, alice, ben int64, cookie string, call func(string, string, string, string) (int, []byte), branches []db.Workspace, disk *atomic.Int64, pending, acknowledged, firstBoot string, finished *sync.Map, concurrent bool) {
+func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *services.MythicalService, workspaces *services.WorkspaceService, runtime *parallelIdleRuntime, host *pollingGitHost, store *jobs.Store, cfg *config.Config, server *httptest.Server, repo, alice, ben int64, cookie string, call func(string, string, string, string) (int, []byte), branches []db.Workspace, disk *atomic.Int64, pending, acknowledged, firstBoot string, flowHost parallelFlowHost, concurrent, resumed bool) {
 	t.Helper()
 	ctx := t.Context()
 	q := db.New(pool)
@@ -1546,6 +1573,14 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 
 	engineCtx, stopEngine := context.WithCancel(ctx)
 	defer stopEngine()
+	if resumed {
+		codec, err := webhook.NewSecretCodec("mixed-retained-resume")
+		require.NoError(t, err)
+		services.WithWorkspaceCommandJobs(store, codec)(workspaces)
+		go func() {
+			_ = workspaces.RunWorkspaceCommandWorker(engineCtx, jobs.WorkerConfig{WorkerID: "mixed-branch", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond})
+		}()
+	}
 	go stack.Start(engineCtx)
 
 	disk.Store(72 << 30) // capacity one
@@ -1736,7 +1771,7 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 		defer stop()
 		browser = exec.CommandContext(browserCtx, "bun", "e2e/real/admission-branch.browser.ts")
 		browser.Dir = "../../../../apps/app"
-		browser.Env = append(os.Environ(), "SMITHERS_ADMISSION_ORIGIN="+server.URL, "SMITHERS_ADMISSION_PUBLIC_URL="+cfg.Server.PublicURL, "SMITHERS_ADMISSION_BRANCH="+aliceBranch.ID, "SMITHERS_ADMISSION_COOKIE="+cookie, "SMITHERS_ADMISSION_MIXED=1")
+		browser.Env = append(os.Environ(), "SMITHERS_ADMISSION_ORIGIN="+server.URL, "SMITHERS_ADMISSION_PUBLIC_URL="+cfg.Server.PublicURL, "SMITHERS_ADMISSION_BRANCH="+aliceBranch.ID, "SMITHERS_ADMISSION_COOKIE="+cookie, "SMITHERS_ADMISSION_MIXED=1", fmt.Sprintf("SMITHERS_ADMISSION_RESUMED=%t", resumed))
 		output, err := browser.StdoutPipe()
 		require.NoError(t, err)
 		browser.Stderr = &browserErrors
@@ -1769,12 +1804,30 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 	require.Eventually(t, func() bool { return runtime.AdmissionHeld("workspace:" + aliceBranch.ID) }, 2*time.Second, 10*time.Millisecond)
 	require.False(t, runtime.AdmissionHeld("workspace:"+benBranch.ID))
 	require.Equal(t, 1, runtime.InUse())
-	if browser != nil {
+	browserCheckpoint := func(marker string) {
+		if browser == nil {
+			return
+		}
+		reached := false
 		for browserOutput.Scan() {
 			t.Log(browserOutput.Text())
+			if browserOutput.Text() == marker {
+				reached = true
+				break
+			}
 		}
-		require.NoError(t, browserOutput.Err())
-		require.NoError(t, browser.Wait(), browserErrors.String())
+		require.True(t, reached, "%s: %s", marker, browserErrors.String())
+	}
+	if browser != nil {
+		if resumed {
+			browserCheckpoint("ADMISSION_BROWSER_RELEASED")
+		} else {
+			for browserOutput.Scan() {
+				t.Log(browserOutput.Text())
+			}
+			require.NoError(t, browserOutput.Err())
+			require.NoError(t, browser.Wait(), browserErrors.String())
+		}
 	}
 	for _, session := range extra {
 		code, body = call("POST", "/api/repos/maya/app/workspace/sessions/"+session.id+"/destroy", "", cookie)
@@ -1830,9 +1883,89 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 		require.Positive(t, starts)
 		require.NotNil(t, runtime.captureGuest)
 		runtime.captureGuest(row.ID)
+		if resumed && n == 5 {
+			// The observed guest is parked after its existing work. Sleep and Resume
+			// enter their authenticated HTTP doors; no grant is injected.
+			code, body = call("POST", "/api/todos/5", `{"op":"stop"}`, cookie)
+			require.Equal(t, 202, code, string(body))
+			require.Eventually(t, func() bool { return readTodo(5).State == "paused" }, 5*time.Second, 20*time.Millisecond)
+			browserCheckpoint("ADMISSION_BROWSER_RESUME_PAUSED")
+			disk.Store(40 << 30)
+			code, body = call("POST", "/api/branches/"+row.ID, `{"op":"sleep"}`, cookie)
+			require.Equal(t, 202, code, string(body))
+			require.Eventually(t, func() bool {
+				current, err := q.GetWorkspace(ctx, row.ID)
+				return err == nil && current.Status == "suspended" && !runtime.AdmissionHeld("workspace:"+row.ID)
+			}, 10*time.Second, 20*time.Millisecond)
+			require.NoError(t, os.Remove(firstBoot))
+			require.NoError(t, os.WriteFile(firstBoot+".retained", []byte("smthrs-ws-01234567-"+hex.EncodeToString(sum[:])[:20]), 0600))
+			code, body = call("POST", "/api/todos/5", `{"op":"resume"}`, cookie)
+			require.Equal(t, 202, code, string(body))
+			require.Eventually(t, func() bool {
+				card := readTodo(5)
+				if card.State != "queued" || card.Queue == nil || card.Queue.Position != 1 {
+					return false
+				}
+				for _, request := range runtime.AdmissionSnapshot() {
+					if request.Holder == "workspace:"+row.ID && request.Class == "person" && request.State == "waiting" && request.Position == 1 {
+						return true
+					}
+				}
+				return false
+			}, 5*time.Second, 20*time.Millisecond)
+			pending, err := q.GetMythicalItemByNumber(ctx, repo, 5)
+			require.NoError(t, err)
+			require.Equal(t, item.Attempt, pending.Attempt)
+			require.Equal(t, item.RequestRunID, pending.RequestRunID)
+			attachment.Attached = false
+			require.NoError(t, json.Unmarshal(pending.Checks, &attachment))
+			require.False(t, attachment.Attached)
+			browserCheckpoint("ADMISSION_BROWSER_RESUME_QUEUED")
+			disk.Store(72 << 30)
+			started := assertEventually(10*time.Second, func() bool { return readTodo(5).State == "starting" && runtime.AdmissionHeld("workspace:"+row.ID) })
+			if !started {
+				current, _ := q.GetWorkspace(ctx, row.ID)
+				var operations []byte
+				_ = pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_object('operation',r.operation,'state',r.state,'result',r.terminal_receipt,'error',d.last_error,'checkpoint',d.external_receipt)),'[]') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation IN ('flow.runtime.signal','flow.runtime.launch')`).Scan(&operations)
+				t.Logf("resumed workspace %+v; signals %s", current, operations)
+			}
+			require.True(t, started, "resumed card %+v, admission %+v", readTodo(5), runtime.AdmissionSnapshot())
+			starting, err := q.GetMythicalItemByNumber(ctx, repo, 5)
+			require.NoError(t, err)
+			attachment.Attached = false
+			require.NoError(t, json.Unmarshal(starting.Checks, &attachment))
+			require.False(t, attachment.Attached, "grant cannot reuse the previous attachment")
+			browserCheckpoint("ADMISSION_BROWSER_RESUME_STARTING")
+			require.NoError(t, os.WriteFile(firstBoot, []byte("smthrs-ws-01234567-"+hex.EncodeToString(sum[:])[:20]), 0600))
+			working := assertEventually(45*time.Second, func() bool { return readTodo(5).State == "working" })
+			if !working {
+				current, _ := q.GetWorkspace(ctx, row.ID)
+				var operations []byte
+				_ = pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_object('operation',r.operation,'state',r.state,'result',r.terminal_receipt,'error',d.last_error,'checkpoint',d.external_receipt)),'[]') FROM product_job_requests r JOIN product_job_dispatches d ON d.operation_id=r.id WHERE r.operation IN ('flow.runtime.signal','flow.runtime.launch')`).Scan(&operations)
+				t.Logf("resumed workspace %+v; signals %s; guest paused %v", current, operations, flowHost.paused)
+			}
+			require.True(t, working, "resumed card %+v", readTodo(5))
+			current, err := q.GetMythicalItemByNumber(ctx, repo, 5)
+			require.NoError(t, err)
+			require.Equal(t, item.Attempt, current.Attempt)
+			require.Equal(t, item.RequestRunID, current.RequestRunID)
+			require.Equal(t, item.FlowDigest, current.FlowDigest)
+			attachment.Attached = false
+			require.NoError(t, json.Unmarshal(current.Checks, &attachment))
+			require.True(t, attachment.Attached)
+			runtime.captureGuest(row.ID) // the resumed boot reconnects its daemon
+			if browser != nil {
+				for browserOutput.Scan() {
+					t.Log(browserOutput.Text())
+				}
+				require.NoError(t, browserOutput.Err())
+				require.NoError(t, browser.Wait(), browserErrors.String())
+			}
+			t.Log("PASS C-MCH-02 retained resumed run waits for current-attempt attachment")
+		}
 		// Inject the observed guest run ending before a person drops it.
 		// A running Drop's independent final-capture campaign is elsewhere.
-		finished.Store(item.RequestRunID, true)
+		flowHost.ended.Store(item.RequestRunID, true)
 		require.Eventually(t, func() bool {
 			current, err := q.GetMythicalItemByNumber(ctx, repo, n)
 			return err == nil && current.RequestOutcome != ""
@@ -1861,7 +1994,11 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 	require.NoError(t, rows.Err())
 	t1, err := q.GetMythicalItemByNumber(ctx, repo, 1)
 	require.NoError(t, err)
-	require.Equal(t, []string{t1.WorkspaceID, aliceBranch.ID, benBranch.ID, todoBranches[5], todoBranches[6], learningWorkspaceID(itemID)}, order)
+	expectedOrder := []string{t1.WorkspaceID, aliceBranch.ID, benBranch.ID, todoBranches[5], todoBranches[6], learningWorkspaceID(itemID)}
+	if resumed {
+		expectedOrder = []string{t1.WorkspaceID, aliceBranch.ID, benBranch.ID, todoBranches[5], todoBranches[5], todoBranches[6], learningWorkspaceID(itemID)}
+	}
+	require.Equal(t, expectedOrder, order)
 	require.NoError(t, guest.DeleteWorkspace(ctx, learningWorkspaceID(itemID)))
 	require.Zero(t, runtime.InUse())
 	t.Log("PASS C-MCH-02 literal Alice, Ben SSH, T5, T6, Learning positions and grant order")

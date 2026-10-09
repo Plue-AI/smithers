@@ -306,6 +306,17 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 		if s.installParallelRequired {
 			place, waiting = s.machineProjectionPlace(ctx, machineQueueHolder(workspace.ID))
 		}
+		// Resume queues until admission, then starts while the current run
+		// reattaches. Signal delivery is later than the machine grant.
+		if card["state"] == "queued" && checks.Pause != nil && checks.Pause.Resuming && !checks.RunAttached && workspace.ID == item.WorkspaceID {
+			if lanes, ok := s.lanes.(interface {
+				MachineHeld(context.Context, string) (bool, error)
+			}); ok {
+				if held, err := lanes.MachineHeld(ctx, workspace.ID); err == nil && held {
+					card["state"] = "starting"
+				}
+			}
+		}
 		if waiting {
 			machine = map[string]any{"state": "waiting", "position": place}
 			card["queue"] = map[string]any{"reason": "machine", "position": int64(place)}

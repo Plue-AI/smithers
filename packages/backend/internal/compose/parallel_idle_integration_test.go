@@ -206,7 +206,15 @@ func parallelAutomaticIdleRelease(t *testing.T, pool *pgxpool.Pool, branches *se
 	rawTree, err := hex.DecodeString(strings.TrimSpace(treeText.String()))
 	require.NoError(t, err)
 	peer, captures, drained := parallelCaptureObservation(t, registry, row.ID, rawHead, rawTree, rawHead)
-	runtime.captureGuest = func(id string) { parallelCaptureObservation(t, registry, id, rawHead, rawTree, make([]byte, 20)) }
+	var captureReconnects sync.Map
+	runtime.captureGuest = func(id string) {
+		_, reconnect := captureReconnects.LoadOrStore(id, true)
+		if reconnect {
+			parallelCaptureObservation(t, registry, id, rawHead, rawTree, rawHead, 2)
+		} else {
+			parallelCaptureObservation(t, registry, id, rawHead, rawTree, make([]byte, 20))
+		}
+	}
 	hosts, _ := presenceHostBinding(t, pool, row, ownerID)
 	bridge := realPresenceBridge(t)
 	presence := &branchPresence{queries: q, branches: branches, hosts: hosts, dispatcher: presenceBridgeFixture{bridge}, terminalManager: routes.NewTerminalSessionManager(nil), members: &services.Members{Pool: pool}}
@@ -280,7 +288,7 @@ func parallelBrowserCheckpoint(t *testing.T, step string) {
 
 // Only guest status/capture frames are injected; the installed event binder
 // records and acknowledges their capture through the native repository.
-func parallelCaptureObservation(t *testing.T, registry *machined.Registry, id string, rawHead, rawTree, base []byte) (net.Conn, *atomic.Int32, *atomic.Bool) {
+func parallelCaptureObservation(t *testing.T, registry *machined.Registry, id string, rawHead, rawTree, base []byte, retainedSequence ...byte) (net.Conn, *atomic.Int32, *atomic.Bool) {
 	t.Helper()
 	link, peer := presenceTestLink(t, registry, id)
 	require.NoError(t, link.Reconciled())
@@ -330,7 +338,11 @@ func parallelCaptureObservation(t *testing.T, registry *machined.Registry, id st
 				}
 			}
 			if wire.Method(method) == wire.Capture {
-				event := machined.Event{Seq: 1, EventID: [16]byte{1}, Payload: wire.Union(2, wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, base))}
+				sequence := byte(1)
+				if len(retainedSequence) > 0 {
+					sequence = retainedSequence[0]
+				}
+				event := machined.Event{Seq: uint64(sequence), EventID: [16]byte{sequence}, Payload: wire.Union(2, wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, base))}
 				if wire.Write(peer, transcriptEventFrame(event)) != nil {
 					return
 				}
