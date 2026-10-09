@@ -20,7 +20,8 @@ Fixed on main Not yet proven on a real install; needs a bundle built after
               404 and the stale-cookie 401 (9a218b7f68).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
 Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
-              Linux fixtures. Red: J10 row 6, sync still stale 10 s after Retry.
+              Linux fixtures. That pass's J10 Retry row was red.
+              Lane fr18 reruns: J10 36/0/4, J7 19/0/2, J4 23/0/2; Retry green.
               Pass running on c5120a5856: J1 to J4 so far, no failed row.
 Doneish       No. It needs the install run to take a TODO to a merged PR, and
               all 11 journeys passing on one commit.
@@ -105,9 +106,7 @@ Fixed on main, not yet proven on a real install. Each needs a bundle built after
 
 ### Journey rows
 
-| | Row | Error | Fix |
-|---|---|---|---|
-| J10 | 6 Network drop turns stale past 120 s, Retry | Sync still reads stale 10 s after Retry. | Lane fr18-j10. 5e1bc3c020 is on main and not yet on the board. |
+Lane fr18's Linux reruns pass: J10 36/0/4, J7 19/0/2 and J4 23/0/2. J10's next TODO follows a person's merge, keeps its PR, becomes ready with only its own change, and the person merges it. Retry recovers after the outage. The runs used ed7fc41f3a plus the journey correction landed in 50a1a5eb91: the merge assertion reads actual mirrored main through the bookmark API; the stack's fold checkpoint can lag it. The composed browser Rebase now proof also passes. Pending rows and real Mac/microVM acceptance remain unverified.
 
 A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so far. `source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal now names its reason (7a2c228bfa, a64960b9c3). The rows fixed today: Detail G.
 
@@ -223,7 +222,7 @@ Not started, after launch     11  ██
 | J7 | Insert a TODO before another, amend a TODO's prompt, fork to a scratch branch, drop a TODO, see `main` move, resolve a conflict. Not run: Add to stack after T2, the new TODO keeping T2's work. |
 | J8 | Merge a TODO and get a learning run admitted, co-edit a wiki page with a teammate, sync the wiki to an Obsidian folder. Not run: the learning run writing the decision page, the next plan citing the edited page. |
 | J9 | Ask where code lives, get file and wiki cards, make a TODO from the answer, save the answer to the wiki. Not run: the two buttons shown on the answer. |
-| J10 | See a TODO's PR on GitHub with its prompt and evidence. A review comment becomes a steer. A teammate's push holds the agent, with Bring in and Discard. Merge or close on GitHub and the TODO follows. The next TODO follows a merge. `/review` a teammate's PR. Red: sync stays stale after Retry. |
+| J10 | See a TODO's PR on GitHub with its prompt and evidence. A review comment becomes a steer. A teammate's push holds the agent, with Bring in and Discard. Merge or close on GitHub and the TODO follows. The next TODO follows a merge. `/review` a teammate's PR. Retry recovers after an outage. |
 | J11 | Open Inspect on a merged TODO's run: graph, each step's input, output and transcript, retries, the wait for an answer, tokens, time and cost per step. No rows exist for editing a flow's source, a test Run or switching a step's model. |
 
 ### B. Real-machine fixes
@@ -299,12 +298,13 @@ gh workflow run release.yml --ref main \
 
 ### G. Journey rows fixed today
 
-All are green on the full pass at 70d75088ef.
+Earlier rows are green on the full pass at 70d75088ef. The newer lane fr18 reruns above also verify J10 Retry and merge-following.
 
 | | Rows | Error | Fix |
 |---|---|---|---|
 | J4 | 12 Move T4 above T3 | The move answered 409 "TODO moved; try again". | d9bdb772e2 |
 | J5, J7, J3, J4 | every row after a TODO reached review | `coding/NativeCodingError/source_refused`. The server's real answer was 409 "stack operation request changed": PostgreSQL JSONB reorders a plan's nested keys and a byte comparison refused an identical plan. | f9d3b72e29, ba1a27bc91 |
 | J10 | 5 T2 follows T1's merge | The next TODO did not follow a merge within 8 minutes. | 9bb8cd3f9c |
+| J10 | 6 Retry after an outage | Sync stayed stale after Retry. | be293254c0, 5e1bc3c020; fresh 0 s after Retry in the lane rerun. |
 | J7 | 15 Drop T2 | A dropped TODO kept its machine after 60 s. | 09e889efce |
 | J4 | 17 T2 ready after T1 merges | T2's PR still contained T1's file. | Green on the board. Fix commit: not checked. |
