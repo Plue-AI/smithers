@@ -28,6 +28,19 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("composed confirmation write-order matrix requires PostgreSQL")
 	}
+	testAccessConfirmationWriteOrder(t, "todo.new")
+}
+
+func TestAccessConfirmationConsumerWriteOrderComposedPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("composed confirmation write-order matrix requires PostgreSQL")
+	}
+	for _, command := range []string{"issue.new", "wiki.create", "flow.edit", "agent.edit"} {
+		t.Run(command, func(t *testing.T) { testAccessConfirmationWriteOrder(t, command) })
+	}
+}
+
+func testAccessConfirmationWriteOrder(t *testing.T, command string) {
 	t.Setenv("SMITHERS_ACCESS_CONFIRMATION_ORDER", "1")
 	r := newRehearsal(t, "SMITHERS_ACCESS_CONFIRMATION_ORDER", "C-ACC-02", "confirmation-order-")
 	require.True(t, r.install("Confirmation write ordering"))
@@ -84,12 +97,16 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 		req.Header.Set("Origin", r.origin)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", key)
+		req.Header.Set("Smithers-Actor", "person")
+		req.Header.Set("Smithers-Via", "terminal")
+		req.Header.Set("Smithers-Profile", "full")
+		// A live requester cookie cannot promote or rescue a delegated bearer.
+		// Expiry cells leave this cookie live while the selected token dies.
+		req.AddCookie(&http.Cookie{Name: a.cookieName, Value: a.cookie})
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "order"})
+		req.Header.Set("X-CSRF-Token", "order")
 		if delegated {
 			req.Header.Set("Authorization", "Bearer "+a.token)
-		} else {
-			req.AddCookie(&http.Cookie{Name: a.cookieName, Value: a.cookie})
-			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "order"})
-			req.Header.Set("X-CSRF-Token", "order")
 		}
 		var decisions []string
 		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
@@ -97,12 +114,25 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 		r.server.Config.Handler.ServeHTTP(out, req)
 		return response{out.Code, out.Body.String(), decisions}
 	}
-	body := `{"command":"todo.new","payload":{"title":"[HOLD access-order] Private","prompt":"[HOLD access-order] Private"}}`
+	bodyFor := func(a identity) string {
+		switch command {
+		case "issue.new":
+			return `{"command":"issue.new","subject":{"kind":"issue","ref":"new"},"payload":{"title":"Private ordered issue","body":"Exact private issue bytes"}}`
+		case "wiki.create":
+			return fmt.Sprintf(`{"command":"wiki.create","subject":{"kind":"wiki","ref":"order-%d"},"payload":{"owner":"rehearsal-owner","repo":"app","page":{"slug":"order-%d","title":"Ordered page","body":"Exact private page bytes"}}}`, a.user, a.user)
+		case "flow.edit":
+			return `{"command":"flow.edit","subject":{"kind":"flow","ref":"todo"},"payload":{"request":"[HOLD access-order] Change the TODO flow"}}`
+		case "agent.edit":
+			return `{"command":"agent.edit","subject":{"kind":"agent","ref":"app"},"payload":{"request":"[HOLD access-order] Change App instructions"}}`
+		default:
+			return `{"command":"todo.new","payload":{"title":"[HOLD access-order] Private","prompt":"[HOLD access-order] Private"}}`
+		}
+	}
 	create := func(t *testing.T, a identity, key string) string {
 		t.Helper()
-		out := call(ctx, a, true, "/api/confirmations", body, key)
+		out := call(ctx, a, true, "/api/confirmations", bodyFor(a), key)
 		require.Equal(t, 202, out.status, out.body)
-		require.Equal(t, []string{"todo.new"}, out.decisions)
+		require.Equal(t, []string{command}, out.decisions)
 		var row map[string]string
 		require.NoError(t, json.Unmarshal([]byte(out.body), &row))
 		require.Equal(t, "pending", row["state"])
@@ -112,11 +142,21 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 	snapshot := func(t *testing.T) string {
 		t.Helper()
 		var s string
-		require.NoError(t, r.pool.QueryRow(ctx, `SELECT jsonb_build_object('cards',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY id),'[]') FROM approvals a),'todos',(SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY id),'[]') FROM mythical_items i))::text`).Scan(&s))
+		require.NoError(t, r.pool.QueryRow(ctx, `SELECT jsonb_build_object('cards',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY id),'[]') FROM approvals a),'todos',(SELECT coalesce(jsonb_agg(to_jsonb(i) ORDER BY id),'[]') FROM mythical_items i),'wiki',(SELECT coalesce(jsonb_agg(to_jsonb(w) ORDER BY id),'[]') FROM wiki_pages w))::text`).Scan(&s))
 		return s
 	}
+	effects := func(t *testing.T) int {
+		t.Helper()
+		var n int
+		require.NoError(t, r.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM mythical_items)+(SELECT count(*) FROM wiki_pages)+(SELECT count(*) FROM product_job_requests WHERE operation='install.issue.create')`).Scan(&n))
+		return n
+	}
+	vias := []string{"cli", "codex", "claude-code", "smithers"}
+	if command == "wiki.create" || command == "flow.edit" || command == "agent.edit" {
+		vias = []string{"smithers"}
+	}
 	var receipts []map[string]any
-	for _, via := range []string{"cli", "codex", "claude-code", "smithers"} {
+	for _, via := range vias {
 		for _, role := range []string{"admin", "write"} {
 			for _, operation := range []string{"create", "replay", "approve", "deny"} {
 				for _, change := range []string{"downgrade", "suspend", "remove", "credential-expiry", "deadline"} {
@@ -135,7 +175,7 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 							key = "press"
 							delegated = false
 						}
-						requestBody := body
+						requestBody := bodyFor(a)
 						if !delegated {
 							requestBody = `{}`
 						}
@@ -203,7 +243,7 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 								require.NotContains(t, out.body, id)
 							}
 						} else {
-							require.Equal(t, []string{"todo.new"}, out.decisions)
+							require.Equal(t, []string{command}, out.decisions)
 						}
 						if change == "deadline" {
 							var state string
@@ -218,22 +258,24 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 						var n int
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&n))
 						require.Zero(t, n)
+						require.Zero(t, effects(t), "refused or expired commands create no page, TODO or outbound intent")
 						receipts = append(receipts, map[string]any{"profile": via, "role": role, "operation": operation, "transition": change, "order": "transition-before-write", "status": out.status, "decisions": out.decisions, "todo_effects": 0})
 					})
 				}
 			}
 		}
 	}
-	require.Len(t, receipts, 152)
+	require.Len(t, receipts, 38*len(vias))
 	// The opposite order permits the committed action. A later member removal
 	// cannot erase it, and replay must authenticate before disclosing its result.
-	for _, via := range []string{"cli", "codex", "claude-code", "smithers"} {
+	for _, via := range vias {
 		for _, role := range []string{"admin", "write"} {
 			for _, operation := range []string{"approve", "deny"} {
 				t.Run(via+"/"+role+"/"+operation+"/write-before-remove", func(t *testing.T) {
 					a := actor(t, role, via)
 					id := create(t, a, "write-first")
 					path := "/api/confirmations/" + id + "/" + operation
+					beforeEffects := effects(t)
 					// Concurrent duplicate presses take the same production lock and
 					// durable operation key, so only one underlying action commits.
 					pressed := make(chan response, 2)
@@ -243,10 +285,10 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 					out := <-pressed
 					duplicate := <-pressed
 					require.Equal(t, 200, duplicate.status, duplicate.body)
-					require.Equal(t, []string{"todo.new"}, duplicate.decisions)
+					require.Equal(t, []string{command}, duplicate.decisions)
 					require.JSONEq(t, out.body, duplicate.body)
 					require.Equal(t, 200, out.status, out.body)
-					require.Equal(t, []string{"todo.new"}, out.decisions)
+					require.Equal(t, []string{command}, out.decisions)
 					state := "rejected"
 					if operation == "approve" {
 						state = "approved"
@@ -254,9 +296,14 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 					require.JSONEq(t, fmt.Sprintf(`{"id":%q,"state":%q}`, id, state), out.body)
 					again := call(ctx, a, false, path, `{}`, "write-first-press")
 					require.Equal(t, 200, again.status, again.body)
-					require.Equal(t, []string{"todo.new"}, again.decisions)
+					require.Equal(t, []string{command}, again.decisions)
 					require.JSONEq(t, out.body, again.body)
+					wantEffects := beforeEffects
 					if operation == "approve" {
+						wantEffects++
+					}
+					require.Equal(t, wantEffects, effects(t), "duplicate approval has exactly one durable effect; denial has none")
+					if operation == "approve" && command != "wiki.create" && command != "issue.new" {
 						var number int64
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE created_by=$1`, a.user).Scan(&number))
 						_, err := r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"drop"}`, 202)
@@ -276,7 +323,7 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 					otherSession := call(ctx, second, false, path, `{}`, "write-first-press")
 					require.Equal(t, 409, otherSession.status, otherSession.body)
 					require.Contains(t, otherSession.body, `"code":"confirmation_resolved"`)
-					require.Equal(t, []string{"todo.new"}, otherSession.decisions)
+					require.Equal(t, []string{command}, otherSession.decisions)
 					_, err = r.expect("DELETE", "/api/members/"+user.Username, "", 204)
 					require.NoError(t, err)
 					before := snapshot(t)
@@ -289,11 +336,11 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 					var current string
 					require.NoError(t, r.pool.QueryRow(ctx, `SELECT state FROM approvals WHERE id=$1`, id).Scan(&current))
 					require.Equal(t, state, current)
-					receipts = append(receipts, map[string]any{"profile": via, "role": role, "operation": operation, "transition": "remove", "order": "write-before-transition", "status": out.status, "replay_after_removal": dead.status, "todo_effects": map[bool]int{true: 1, false: 0}[operation == "approve"]})
+					receipts = append(receipts, map[string]any{"profile": via, "role": role, "operation": operation, "transition": "remove", "order": "write-before-transition", "status": out.status, "replay_after_removal": dead.status, "durable_effects": map[bool]int{true: 1, false: 0}[operation == "approve"]})
 				})
 			}
 		}
 	}
-	require.Len(t, receipts, 168)
-	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "confirmation-write-order.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install HTTP and production write lock", "cells": receipts, "full_C_ACC_02_complete": false}), 0600))
+	require.Len(t, receipts, 42*len(vias))
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "confirmation-write-order.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install HTTP and production write lock", "command": command, "cells": receipts, "full_C_ACC_02_complete": false}), 0600))
 }

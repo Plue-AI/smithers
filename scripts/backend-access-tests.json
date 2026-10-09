@@ -17,7 +17,8 @@
     "package": "packages/backend/internal/compose",
     "file": "access_confirmation_write_order_authorization_integration_test.go",
     "tests": [
-      "TestAccessConfirmationWriteOrderComposedPostgres"
+      "TestAccessConfirmationWriteOrderComposedPostgres",
+      "TestAccessConfirmationConsumerWriteOrderComposedPostgres"
     ]
   },
   {

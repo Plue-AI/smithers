@@ -39,6 +39,10 @@ func TestBranchAddComposedInstall(t *testing.T) {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
+func TestAccessBranchConfirmationDecisionsComposedPostgres(t *testing.T) {
+	runBranchAddComposed(t, "explicit-confirmation")
+}
+
 func TestBranchDropRunningForkComposedInstall(t *testing.T) {
 	for _, phase := range []string{"running", "delivering", "verifying", "proposed", "member-candidate"} {
 		t.Run(phase, func(t *testing.T) { runBranchAddComposed(t, "running-fork-drop-"+phase) })
@@ -77,6 +81,10 @@ func TestBranchFirstCaptureComposedInstall(t *testing.T) {
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	configureNativeInstallFixture(t)
+	explicitConfirmation := remove == "explicit-confirmation"
+	if explicitConfirmation {
+		remove = ""
+	}
 	runningForkPhase := strings.TrimPrefix(remove, "running-fork-drop-")
 	runningForkDrop := strings.HasPrefix(remove, "running-fork-drop-")
 	if runningForkDrop {
@@ -239,6 +247,19 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: origin,
 		// The daemon peer below supplies capture wire data, not a microVM.
 		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
+	composed := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		// Scope the invariant to Add to stack and its private confirmation
+		// doors. Live subscription requests have separate field-projection gates.
+		if !strings.HasSuffix(request.URL.Path, "/add-to-stack") && !strings.HasPrefix(request.URL.Path, "/api/confirmations") {
+			composed.ServeHTTP(w, request)
+			return
+		}
+		var decisions []string
+		observed := services.WithAuthorizationObserver(request.Context(), func(command string) { decisions = append(decisions, command) })
+		composed.ServeHTTP(w, request.WithContext(observed))
+		require.LessOrEqual(t, len(decisions), 1, "one bound decision at %s %s: %v", request.Method, request.URL.Path, decisions)
+	})
 	if server != nil {
 		server.Config.Handler = handler
 		server.Start()
@@ -619,7 +640,12 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	} else if placement == "default" {
 		agentPayload, expectedPlace = `{"text":"Confirmed scratch"}`, 2
 	}
-	agentRequest := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Fconfirmed/add-to-stack", strings.NewReader(agentPayload))
+	agentPath := "http://127.0.0.1:4000/api/branches/scratch%2Fben%2Fconfirmed/add-to-stack"
+	if explicitConfirmation {
+		agentPath = "http://127.0.0.1:4000/api/confirmations"
+		agentPayload = fmt.Sprintf(`{"command":"branch.add-to-stack","subject":{"kind":"branch","ref":"scratch/ben/confirmed"},"payload":%s}`, agentPayload)
+	}
+	agentRequest := httptest.NewRequest("POST", agentPath, strings.NewReader(agentPayload))
 	agentRequest.RemoteAddr = "127.0.0.1:12345"
 	agentRequest.Header.Set("Authorization", "Bearer "+token)
 	agentRequest.Header.Set("Content-Type", "application/json")

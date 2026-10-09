@@ -123,3 +123,23 @@ The matrix proves 18 effects, 66 refusals and 12 stale-subject expirations;
 acceptance appends one attributed TODO, dismissal appends none, and replay
 retains one result. Browser approval reloads the private installed card.
 This increment does not qualify reference recovery or the full effect matrix.
+
+T-ACC-03 capture/write-order increment (`fr30-acc-03-r5`): Add to stack carries
+its pre-capture command decision into the serialized live credential fence.
+Implicit and explicit creation, requester approval, stale-head refusal, failed
+adoption rollback and replay evaluate the bound command once. The composed
+native Branch test instruments both HTTP doors and the mounted card flow.
+Capture still precedes the stack lock; live identity and stored capture revision
+are checked before the confirmation or TODO transaction commits.
+
+The expanded production write-lock campaign adds 294 ordering cells for
+issue.new (CLI, Codex, Claude Code and App agent), wiki.create, flow.edit and
+agent.edit (App agent). It covers Maintainer/Member, create/replay/approve/deny,
+member removal/suspension, credential and card expiry, both serialization orders,
+concurrent duplicate presses and a second requester session. Requests carry a
+live cookie alongside the delegated bearer and forged attribution headers;
+expiry cannot fall back to the cookie. Approval commits exactly one durable
+page, TODO or outbound issue intent; denial commits none. Outbound intent is
+not proof of GitHub delivery. The existing 168 todo.new ordering cells remain.
+These tests do not qualify the full permission/effect matrix, guest execution
+or reference-host acceptance.

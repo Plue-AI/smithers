@@ -235,6 +235,7 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		return ConfirmationReceipt{}, invalidConfirmation()
 	}
 	ctx = withBranchCaptureContext(ctx)
+	var captureRequired *ConfirmationRequired
 	if input.Command == "branch.add-to-stack" && s.confirmationTodos != nil {
 		_, err := Authorize(ctx, db.New(s.confirmationStore), input.Command)
 		var required *ConfirmationRequired
@@ -244,6 +245,10 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 			}
 			return ConfirmationReceipt{}, err
 		}
+		// Capture needs authority before touching the workspace. Carry that
+		// decision through the live write fence instead of evaluating policy again.
+		captureRequired = required
+		ctx = WithInstallAuthorization(ctx, input.Command, required.Decision)
 		if err := s.confirmationTodos.prepareConfirmationCapture(ctx, input); err != nil {
 			return ConfirmationReceipt{}, err
 		}
@@ -257,7 +262,12 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		q := db.New(tx)
 		_, err = Authorize(bound, q, input.Command)
 		var required *ConfirmationRequired
-		if !errors.As(err, &required) {
+		if captureRequired != nil {
+			if err != nil {
+				return err
+			}
+			required = captureRequired
+		} else if !errors.As(err, &required) {
 			if err != nil {
 				return err
 			}
@@ -705,9 +715,11 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			return ConfirmationReceipt{}, err
 		}
 		if err == nil && command == "branch.add-to-stack" {
-			if _, err := Authorize(ctx, db.New(s.confirmationStore), command); err != nil {
+			authorized, err := Authorize(ctx, db.New(s.confirmationStore), command)
+			if err != nil {
 				return ConfirmationReceipt{}, err
 			}
+			ctx = WithInstallAuthorization(ctx, command, authorized)
 			if err := s.confirmationTodos.prepareConfirmationCapture(ctx, ConfirmationInput{Command: command, Subject: subject}); err != nil {
 				return ConfirmationReceipt{}, err
 			}
@@ -1025,7 +1037,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 }
 
 // Capture before credential admission takes the stack fence. The consumer
-// later binds this exact durable revision and reauthorizes under its locks.
+// later binds this exact durable revision and reloads live identity under its locks.
 func (s *MythicalService) prepareConfirmationCapture(ctx context.Context, input ConfirmationInput) error {
 	var subject struct {
 		Kind string `json:"kind"`
