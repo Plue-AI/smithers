@@ -293,12 +293,16 @@ pub fn serve(mut input: impl Read, mut output: impl Write) -> io::Result<()> {
             &serde_json::to_vec(&resolved).map_err(|_| invalid())?,
         ),
         Err(error) => {
-            // "Not yet" is told apart so the broker asks again at its next
-            // reconciliation instead of giving the process up.
+            // Agents create their root, session file and transcript during
+            // startup. Missing files and partial records are "not yet", so
+            // they do not accumulate the broker's hard-failure backoff.
             send(
                 &mut output,
                 ERROR,
-                &[u8::from(error.kind() == io::ErrorKind::WouldBlock)],
+                &[u8::from(matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::NotFound
+                ))],
             )?;
             Err(error)
         }

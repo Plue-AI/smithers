@@ -419,6 +419,10 @@ fn the_resolver_answers_as_the_owner_from_the_agents_own_files() {
     let session = |pid: u32, cwd: &str| {
         format!("{{\"pid\":{pid},\"sessionId\":\"{CLAUDE_SESSION}\",\"cwd\":\"{cwd}\",\"startedAt\":1791435951451,\"version\":\"2.1.291\",\"kind\":\"interactive\"}}")
     };
+    // The agent has started but has not created its root/session file yet.
+    assert_eq!(ask(&claude).unwrap(), None);
+    machine.directory("home/ben/.claude/sessions", BEN, 0o700);
+    assert_eq!(ask(&claude).unwrap(), None);
     machine.file(
         "home/ben/.claude/sessions/777.json",
         BEN,

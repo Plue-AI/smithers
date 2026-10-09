@@ -673,6 +673,15 @@ fn members_agent_sessions_are_imported_through_the_broker_and_the_daemon() {
         &format!("/home/maya/.local/share/claude/versions/2.1.291 {AGENT}"),
     );
     let claude_pid = session_processes(maya)[0];
+    // A slow first start must not build hard-failure backoff while Claude
+    // creates its session file. Keep the real broker and pump reconciling
+    // long enough that the old 2/4/8-second backoff misses the 5-second bound
+    // after the first complete record is written.
+    let waiting = Instant::now();
+    while waiting.elapsed() < Duration::from_secs(8) {
+        machine.pass();
+        std::thread::sleep(Duration::from_millis(100));
+    }
     let first_session = "889e416d-fda3-42c0-869a-56b3ced78a05";
     let transcript =
         |session: &str| format!("/home/maya/.claude/projects/-workspace/{session}.jsonl");
