@@ -301,7 +301,7 @@ gh workflow run release.yml --ref main \
 
 ### G. Journey rows fixed today
 
-Earlier rows are green on the full pass at 70d75088ef. The newer lane fr18 reruns above also verify J10 Retry and merge-following.
+All are green on the full board pass at c5120a5856.
 
 | | Rows | Error | Fix |
 |---|---|---|---|
