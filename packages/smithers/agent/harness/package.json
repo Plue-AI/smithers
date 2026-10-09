@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/harness",
   "type": "module",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -468,17 +468,17 @@
     "@babel/parser": "8.0.4",
     "@babel/types": "8.0.4",
     "@jitl/quickjs-singlefile-browser-release-sync": "0.32.0",
-    "@smthrs/capability": "1.0.0-rc.2",
-    "@smthrs/core": "1.0.0-rc.2",
-    "@smthrs/flow": "1.0.0-rc.2",
-    "@smthrs/journal": "1.0.0-rc.2",
-    "@smthrs/kernel": "1.0.0-rc.2",
-    "@smthrs/model": "1.0.0-rc.2",
-    "@smthrs/notifications": "1.0.0-rc.2",
-    "@smthrs/registry": "1.0.0-rc.2",
+    "@smthrs/capability": "1.0.0-rc.3",
+    "@smthrs/core": "1.0.0-rc.3",
+    "@smthrs/flow": "1.0.0-rc.3",
+    "@smthrs/journal": "1.0.0-rc.3",
+    "@smthrs/kernel": "1.0.0-rc.3",
+    "@smthrs/model": "1.0.0-rc.3",
+    "@smthrs/notifications": "1.0.0-rc.3",
+    "@smthrs/registry": "1.0.0-rc.3",
     "quickjs-emscripten-core": "0.32.0",
     "sucrase": "3.35.1",
-    "@smthrs/canonical": "1.0.0-rc.2"
+    "@smthrs/canonical": "1.0.0-rc.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

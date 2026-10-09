@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/jj",
   "type": "module",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -175,8 +175,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/capability": "1.0.0-rc.2",
-    "@smthrs/canonical": "1.0.0-rc.2"
+    "@smthrs/capability": "1.0.0-rc.3",
+    "@smthrs/canonical": "1.0.0-rc.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

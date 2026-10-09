@@ -5,6 +5,41 @@ release (what changed and why it matters, with screenshots and examples), see
 the release notes at
 [smithers.sh/changelogs/1.0.0-rc.0](https://smithers.sh/changelogs/1.0.0-rc.0).
 
+## 1.0.0-rc.3 (2026-10-09)
+
+<!-- commits:1.0.0-rc.3 -->
+
+18 commits since [v1.0.0-rc.2](https://github.com/smithersai/smithers/commit/7e9cc53727).
+
+### 🐛 Bug fixes
+
+- **app:** give the browser tier the time its 585 T1 tests take on CI ([b7caa3cb96](https://github.com/smithersai/smithers/commit/b7caa3cb96d37e6316bc9b6cc662f13ad58ce2d6))
+- **review:** the /review door names the install's conversation; an unknown one is a 404 ([fb6947bb77](https://github.com/smithersai/smithers/commit/fb6947bb77deaa0365803f5b59efed98ba908bdc))
+- **release:** a new npm name served late does not stop the publish ([3c8b53afd1](https://github.com/smithersai/smithers/commit/3c8b53afd1b5dc040b1b25527ba3ba8bf05f2f7b))
+- **flowhost:** a machine that never initializes exhausts the start bound (#3385) ([2e69b40037](https://github.com/smithersai/smithers/commit/2e69b40037a48b2ced2a74d25bda6fd3d63b3f6b))
+- **learning:** learning and manual main machines write their initialization receipt (#3385) ([63e75d5a19](https://github.com/smithersai/smithers/commit/63e75d5a1963b2ff38add1a6605aa76910313b93))
+- **app:** reconcile a recovered fast-model sign-out the install already shows ([96fcceacc3](https://github.com/smithersai/smithers/commit/96fcceacc36b3e79afc6fc3a296b8c4dd6d53858))
+
+### 📝 Documentation
+
+- **release:** PRERELEASE.md for the 1.0.0-rc.2 tag, 13:50 PDT ([be2cef63db](https://github.com/smithersai/smithers/commit/be2cef63dbec8f02b3caa7b7d52eb6a3708cb127))
+- **release:** PRERELEASE.md for the 1.0.0-rc.2 re-cut, 12:15 PDT ([dd26ea9bbc](https://github.com/smithersai/smithers/commit/dd26ea9bbcce4ab0b6fa7324efad62c19d36bbd1))
+
+### 📦 Other changes
+
+- **ci(apps-deploy):** give the gate job 100 minutes for a 40-minute browser tier ([9ba0a755cd](https://github.com/smithersai/smithers/commit/9ba0a755cdf71da142762a1e6f538c00ac48b1b6))
+- **test(app):** stop runs from their cards and read today's launch notices in the runs and flows showcases ([d1ef17ca99](https://github.com/smithersai/smithers/commit/d1ef17ca99cdd0e3717c4dcf51c9a2f1fb39f2b6))
+- **test(app):** decide showcase gates in the inbox and resolve the PR source ([218cb83400](https://github.com/smithersai/smithers/commit/218cb834002de110feda1fa4a3b0b5c89d6eb7e4))
+- **test(app):** walk the Branch card in the showcase where the box card was ([3c0942e216](https://github.com/smithersai/smithers/commit/3c0942e216b1c75a5b06f1ca9a2a186e7eb837b2))
+- **test(app):** open the change showcase through /diff ([3f9ba7dfed](https://github.com/smithersai/smithers/commit/3f9ba7dfed8860f60490afd2af21499d9e8f3a05))
+- **test(app):** walk four showcase cases through today's Chat and catalog doors ([63a8f33816](https://github.com/smithersai/smithers/commit/63a8f33816624c30e77308fbcc566aacb428c6fe))
+- **test(app):** drop the construction-time setup probe from the Settings harness ([667bae4b02](https://github.com/smithersai/smithers/commit/667bae4b0225964d4c933074086ec004f337b494))
+- **test(app):** give the install tier its test database; record its first run ([a339d7e91d](https://github.com/smithersai/smithers/commit/a339d7e91d4e08e4a99ea0263a4a02763e709d4f))
+- **test(app):** press CodeMirror's Mod-End in C-J3-04 on every platform ([45d9a88cbb](https://github.com/smithersai/smithers/commit/45d9a88cbbb42f5bc7c1fef265c21b218ed7b469))
+- **test(app):** retire the raw-transcript T1 specs; zoom and title a long imported conversation ([31800d64f8](https://github.com/smithersai/smithers/commit/31800d64f856402e178413c2e2151b514c9c3ce3))
+
+<!-- /commits:1.0.0-rc.3 -->
+
 ## 1.0.0-rc.2 (2026-10-09)
 
 <!-- commits:1.0.0-rc.2 -->

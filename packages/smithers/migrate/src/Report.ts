@@ -436,7 +436,7 @@ export class MigrationReport extends Schema.Class<MigrationReport>("@smthrs/migr
  * @category models
  * @since 1.0.0-rc.0
  */
-export const tool = { name: "@smthrs/migrate", version: "1.0.0-rc.2" } as const
+export const tool = { name: "@smthrs/migrate", version: "1.0.0-rc.3" } as const
 
 /**
  * Projects a {@link Detection} into the report's project section.

@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/registry",
   "type": "module",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -212,23 +212,23 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/core": "1.0.0-rc.2",
-    "@smthrs/flow": "1.0.0-rc.2",
-    "@smthrs/plan": "1.0.0-rc.2",
+    "@smthrs/core": "1.0.0-rc.3",
+    "@smthrs/flow": "1.0.0-rc.3",
+    "@smthrs/plan": "1.0.0-rc.3",
     "yaml": "2.9.0",
     "@mdx-js/mdx": "3.1.1",
-    "@smthrs/artifacts": "1.0.0-rc.2"
+    "@smthrs/artifacts": "1.0.0-rc.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
     "@effect/platform-node": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
-    "@smthrs/engine-store": "1.0.0-rc.2",
-    "@smthrs/journal": "1.0.0-rc.2",
-    "@smthrs/kernel": "1.0.0-rc.2",
-    "@smthrs/platform-node": "1.0.0-rc.2",
-    "@smthrs/run-store": "1.0.0-rc.2",
+    "@smthrs/engine-store": "1.0.0-rc.3",
+    "@smthrs/journal": "1.0.0-rc.3",
+    "@smthrs/kernel": "1.0.0-rc.3",
+    "@smthrs/platform-node": "1.0.0-rc.3",
+    "@smthrs/run-store": "1.0.0-rc.3",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",
     "dprint": "0.57.1",
@@ -243,7 +243,7 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.69.0",
     "vitest": "5.0.0",
-    "@smthrs/engine": "1.0.0-rc.2"
+    "@smthrs/engine": "1.0.0-rc.3"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"

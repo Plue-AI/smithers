@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/step-cache",
   "type": "module",
-  "version": "1.0.0-rc.2",
+  "version": "1.0.0-rc.3",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -160,8 +160,8 @@
     "test:matrix": "node ../database/scripts/test-matrix.mjs"
   },
   "dependencies": {
-    "@smthrs/canonical": "1.0.0-rc.2",
-    "@smthrs/database": "1.0.0-rc.2"
+    "@smthrs/canonical": "1.0.0-rc.3",
+    "@smthrs/database": "1.0.0-rc.3"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
