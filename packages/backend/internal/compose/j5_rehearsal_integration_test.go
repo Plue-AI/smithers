@@ -642,6 +642,27 @@ func runJ5Rehearsal(t *testing.T, enable string) {
 		}
 		return nil
 	})
+	r.step("18 Reviewed deliveries keep healthy coding runs", "GET /api/runs/{branch}:{run}", "A, C and Retry-current retain healthy delivery runs behind their reviewed PRs", "T-FLW-11", func() error {
+		// A candidate can reach review before its native helper's next poll.
+		// Checking only the PR state hid source_refused in the earlier 20/0 run.
+		for _, number := range []int64{a, c, retryTodo} {
+			card, err := r.todo(number)
+			if err != nil {
+				return err
+			}
+			if card.Branch == nil || card.Run == nil {
+				return fmt.Errorf("T%d has no delivery run binding", number)
+			}
+			monitor, err := r.inspect(card.Branch.ID, card.Run.ID)
+			if err != nil {
+				return err
+			}
+			if !slices.Contains([]string{"running", "waiting", "held", "done"}, monitor.State) {
+				return fmt.Errorf("T%d reviewed PR hides delivery run state %q", number, monitor.State)
+			}
+		}
+		return nil
+	})
 }
 
 // rehearsalFlowCard is what the flow rows read of one GET /api/flows card.

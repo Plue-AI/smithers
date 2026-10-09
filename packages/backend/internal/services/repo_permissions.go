@@ -1177,6 +1177,15 @@ func ResolveReservedStackSubject(ctx context.Context, q *db.Queries, repository 
 	if !InstallExecutionCredential(ctx) || info == nil || middleware.ParseTokenAgentSessionRestriction(info.RawScopes) == "" {
 		return InstallSubject{}, confirmationPermission()
 	}
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
+		if (bound.command != "stack.candidate" && bound.command != "stack.propose") || info != bound.credential || bound.subject.RepositoryID != repository || bound.subject.WorkspaceID != workspace {
+			return InstallSubject{}, confirmationPermission()
+		}
+		// Retain the router's exact decision through payload validation. The
+		// serialized operation reauthorizes the live item; a completed capture
+		// between admission and its locks yields a fresh poll, not a new subject.
+		return bound.subject, nil
+	}
 	subject, err := ResolveInstallExecutionSubject(ctx, q, repository)
 	if err != nil {
 		return InstallSubject{}, err

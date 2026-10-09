@@ -121,6 +121,51 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 	input := services.ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source}
 	raw, err := json.Marshal(input)
 	require.NoError(t, err)
+	t.Run("generation advances during authorization retries without effects", func(t *testing.T) {
+		body := strings.Replace(string(raw), input.RequestID, "88888888-8888-4888-8888-888888888888", 1)
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/stack/candidate", row.ID), strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		decisions := 0
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) {
+			require.Equal(t, "stack.candidate", command)
+			decisions++
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET generation=8 WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}))
+		before, reads := runtime.calls, objects.reads
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, 202, out.Code, out.Body.String())
+		require.Equal(t, 1, decisions)
+		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+		replay := call(t, token, "candidate", body, 200)
+		require.JSONEq(t, fmt.Sprintf(`{"generation":8,"base":%q,"head":%q}`, base, head), replay.Body.String())
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET generation=7 WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
+	t.Run("run replacement during authorization still refuses before effects", func(t *testing.T) {
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/repos/gate-owner/app/workspaces/%s/stack/candidate", row.ID), bytes.NewReader(raw))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		decisions := 0
+		req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) {
+			require.Equal(t, "stack.candidate", command)
+			decisions++
+			_, err := f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='replacement' WHERE id=$1`, itemID)
+			require.NoError(t, err)
+		}))
+		before, reads := runtime.calls, objects.reads
+		out := httptest.NewRecorder()
+		router.ServeHTTP(out, req)
+		require.Equal(t, 403, out.Code, out.Body.String())
+		require.Equal(t, 1, decisions)
+		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run' WHERE id=$1`, itemID)
+		require.NoError(t, err)
+	})
 	t.Run("one decision cannot authorize substituted work", func(t *testing.T) {
 		digest := sha256.Sum256([]byte(token))
 		hash := hex.EncodeToString(digest[:])

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	stdErrors "errors"
 	"io"
@@ -190,6 +191,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				return
 			}
 			if (command == "stack.candidate" || command == "stack.propose") && strings.Contains(r.URL.Path, "/stack/") {
+				// Resolve and authorize one snapshot. Engine capture can advance
+				// the generation between these reads; the service rechecks current
+				// authority under its write locks before permitting any effect.
+				tx, err := queries.BeginTx(r.Context())
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				defer tx.Rollback(context.WithoutCancel(r.Context()))
+				if _, err := tx.Exec(r.Context(), "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"); err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				queries := queries.WithTx(tx)
 				repository, err := services.InstallRepositoryID(r.Context(), queries)
 				if err != nil {
 					writeConfirmationDispatchError(w, err)
@@ -237,6 +252,10 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				r.Body = io.NopCloser(bytes.NewReader(raw))
 				decision, err := services.Authorize(r.Context(), queries, command, subject)
 				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				if err := tx.Rollback(context.WithoutCancel(r.Context())); err != nil {
 					writeConfirmationDispatchError(w, err)
 					return
 				}
