@@ -1,11 +1,13 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +32,7 @@ func TestRebaseWriterAttributionThroughInstall(t *testing.T) {
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'write','alice',20001)`, f.row.RepositoryID, f.user.ID)
 	require.NoError(t, err)
 	registry := new(machined.Registry)
+	f.topics.machined = registry
 	var boot [16]byte
 	link, guest := presenceTestLink(t, registry, f.row.ID, &boot)
 	require.NoError(t, link.Reconciled())
@@ -91,6 +94,32 @@ func TestRebaseWriterAttributionThroughInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET workspace_id=$2,state='integrating',checks=$3 WHERE repository_id=$1`, f.row.RepositoryID, f.row.ID, checks)
 	require.NoError(t, err)
+	require.Contains(t, snapshot(f), "waiting_for")
+	require.NotContains(t, snapshot(other), "waiting_for")
+	// Observe one admitted daemon mutation through both installed live readers.
+	// The scripted reply proves transport projection, not a kernel freeze.
+	rewriteCtx, cancelRewrite := context.WithCancel(ctx)
+	go func() {
+		_, err := registry.Rebase(rewriteCtx, f.row.ID, []byte("actor-reference1"), strings.Repeat("ab", 20))
+		done <- err
+	}()
+	request, err := wire.Read(guest)
+	require.NoError(t, err)
+	requestID, method, _, err := request.Request()
+	require.NoError(t, err)
+	require.Equal(t, byte(wire.Rebase), method)
+	for _, viewer := range []presenceInstallFixture{f, other} {
+		require.Eventually(t, func() bool { return snapshot(viewer)["state"] == "rebasing" }, 3*time.Second, 20*time.Millisecond)
+		projected := snapshot(viewer)
+		require.Equal(t, "rebasing", projected["state"])
+		require.NotContains(t, projected, "waiting_for")
+	}
+	cancelRewrite()
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Equal(t, "rebasing", snapshot(f)["state"], "cancelled caller still has an admitted daemon mutation")
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(requestID)), wire.Field(2, wire.Union(255, wire.Field(1, []byte{9}), wire.Field(4, wire.U32(7)))))}))
+	require.Eventually(t, func() bool { return !link.Rebasing(f.row.ID) }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return snapshot(f)["state"] == "pending" && snapshot(other)["state"] == "pending" }, 3*time.Second, 20*time.Millisecond)
 	require.Contains(t, snapshot(f), "waiting_for")
 	require.NotContains(t, snapshot(other), "waiting_for")
 	// Replay a retained pre-fix fact through the served socket. Its historical

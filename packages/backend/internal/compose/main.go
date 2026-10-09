@@ -2175,7 +2175,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				return fmt.Errorf("compose automatic branch release: %w", err)
 			}
 		}
-		topics := &liveTopics{changePool: pool, summaries: conversationSummaries, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics := &liveTopics{changePool: pool, summaries: conversationSummaries, jobs: commandJobs, secrets: secretService, capacity: installCapacity, presence: presence, machined: options.Machined, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		topics.sources = repositorySourceFiles{client: repoHostClient}
 		topics.main = repoHostClient
 		if flow != nil {

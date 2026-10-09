@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -60,6 +61,7 @@ type liveTopics struct {
 	wikiDocuments *live.WikiHost
 	capacity      *services.InstallCapacityService
 	presence      *branchPresence
+	machined      *machined.Registry
 	conversation  func(context.Context, int64, string) (json.RawMessage, error)
 	viewState     func(context.Context, int64, string) (json.RawMessage, error)
 	secrets       *services.SecretService
@@ -133,12 +135,31 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 				build := source.Build
 				info := middleware.AuthInfoFromContext(r.Context())
 				source.Key += ":member:" + strconv.FormatInt(member, 10)
+				progress := func(raw json.RawMessage) (json.RawMessage, error) {
+					if t.machined == nil {
+						return raw, nil
+					}
+					link, err := t.machined.Current(strings.TrimPrefix(topic, "branch:"))
+					if err != nil || !link.Rebasing(strings.TrimPrefix(topic, "branch:")) {
+						return raw, nil
+					}
+					return branchRebasingProjection(raw)
+				}
 				source.Build = func(ctx context.Context) (json.RawMessage, error) {
-					return build(middleware.ContextWithAuthInfo(ctx, info))
+					raw, err := build(middleware.ContextWithAuthInfo(ctx, info))
+					if err != nil {
+						return nil, err
+					}
+					return progress(raw)
 				}
 				if snapshot := source.Snapshot; snapshot != nil {
 					source.Snapshot = func(ctx context.Context) (int64, json.RawMessage, error) {
-						return snapshot(middleware.ContextWithAuthInfo(ctx, info))
+						cursor, raw, err := snapshot(middleware.ContextWithAuthInfo(ctx, info))
+						if err != nil {
+							return cursor, nil, err
+						}
+						raw, err = progress(raw)
+						return cursor, raw, err
 					}
 				}
 				return source
@@ -213,6 +234,31 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository
+}
+
+// A live mutation observation overlays the complete TODO/scratch read after
+// their pending-state projection. It carries no private writer or freeze claim.
+func branchRebasingProjection(raw json.RawMessage) (json.RawMessage, error) {
+	var model map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &model); err != nil {
+		return nil, err
+	}
+	var rebase map[string]json.RawMessage
+	if json.Unmarshal(model["rebase"], &rebase) != nil || rebase == nil {
+		return raw, nil
+	}
+	var state string
+	if json.Unmarshal(rebase["state"], &state) != nil || state != "pending" {
+		return raw, nil
+	}
+	rebase["state"] = json.RawMessage(`"rebasing"`)
+	delete(rebase, "waiting_for")
+	var err error
+	model["rebase"], err = json.Marshal(rebase)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(model)
 }
 
 func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64, slug string, member int64) (live.Source, string) {

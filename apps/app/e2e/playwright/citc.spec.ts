@@ -186,7 +186,7 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
     const data = frame.topic === `branch:${branchId}` ? {
       id: branchId, name: branchName, machine: { state: "awake" },
       ...(scratch ? { scratch: { forked_from: { kind: "main" } } } : { item: { n: 2, title: "Retry", state: "in_review", place: 1 } }),
-      presence: [], terminals: [], rebase: { state: "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
+      presence: [], terminals: [], rebase: { state: admitted && !rejectLaunch && state === "running" ? "rebasing" : "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
     } : []
     socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
   }))
@@ -236,6 +236,8 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
   await page.reload()
   await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await expect(running).toBeVisible()
+  await expect(card.locator(".branch-notice")).toContainText("Rebasing…")
+  await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
   expect(writes).toHaveLength(scenario === "unacknowledged reload" || scenario === "launch failure retry" ? 2 : 1)
   expect(receiptKeys.every(receiptKey => receiptKey === key)).toBe(true)
   await expect(page.getByTestId("composer-input")).toBeEditable()

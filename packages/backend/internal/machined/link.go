@@ -234,6 +234,7 @@ type Link struct {
 	writeMu          sync.Mutex
 	mu               sync.Mutex
 	pending          map[uint32]chan wire.Frame
+	rebases          map[uint32]struct{}
 	documents        map[uint32]*documentQueue
 	openingDocuments int
 	protocol         uint16
@@ -262,6 +263,23 @@ var linkSilenceLimit = 30 * time.Second
 
 // Done closes when this exact authenticated connection ends.
 func (l *Link) Done() <-chan struct{} { return l.done }
+
+// Rebasing observes admitted RPCs on this exact boot. Caller cancellation does
+// not cancel a daemon mutation; only its reply or connection retirement ends
+// this observation. It is not evidence that the broker has frozen terminals.
+func (l *Link) Rebasing(branch string) bool {
+	if l.RequireReady(branch) != nil {
+		return false
+	}
+	select {
+	case <-l.done:
+		return false
+	default:
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.rebases) != 0
+}
 
 func (l *Link) Close() error {
 	l.once.Do(func() { close(l.done); _ = l.Connection.Close() })
@@ -313,6 +331,7 @@ func (l *Link) read() {
 			l.mu.Lock()
 			reply := l.pending[id]
 			delete(l.pending, id)
+			delete(l.rebases, id)
 			l.mu.Unlock()
 			if reply != nil {
 				value := fields[2]
@@ -440,6 +459,14 @@ func (l *Link) Request(ctx context.Context, branch string, method wire.Method, a
 	frame, err := wire.RequestFrame(id, method, args...)
 	if err != nil {
 		return wire.Frame{}, err
+	}
+	if method == wire.Rebase {
+		l.mu.Lock()
+		if l.rebases == nil {
+			l.rebases = make(map[uint32]struct{})
+		}
+		l.rebases[id] = struct{}{}
+		l.mu.Unlock()
 	}
 	if err = l.sendContext(ctx, frame); err != nil {
 		_ = l.Close()
