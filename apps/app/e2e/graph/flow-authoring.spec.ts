@@ -26,10 +26,10 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
   await finishSignup(page)
   // Nothing on this host names the authored flow yet: its entry file has not
   // been written, and the registry lists what is on disk.
-  await command(page, `/flow.list ${GRAPH_REPO}`)
+  await command(page, `/flows ${GRAPH_REPO}`)
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${AUTHORED_FLOW}"]`)).toHaveCount(0)
-  const request = `/flow.create Build a flow ${GRAPH_REPO}`
+  const request = `/flow.new Build a flow ${GRAPH_REPO}`
   await command(page, request)
   const author = page.locator('.smithers-card[data-kind="run-trace"]').first()
   await expect(author).toContainText("Creating a flow")
@@ -43,9 +43,14 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
   // Repeating the command neither launches another author nor blocks chat.
   await command(page, request)
   await expect(page.locator('.smithers-card[data-kind="run-trace"]')).toHaveCount(1)
+  // A plain prompt still settles beside the author: the prompt lands, Smithers
+  // answers after it, and the composer stays usable. The reply's words are the
+  // host's to choose; this host has no model.
   await command(page, "hello")
   await expect(page.getByTestId("composer-input")).toBeEnabled()
-  await expect(page.getByText("Local chat accepts /flow.* commands.", { exact: true })).toBeVisible()
+  const entries = page.locator("article.entry")
+  await expect(entries.filter({ hasText: "hello" }).last()).toHaveAttribute("data-role", "user")
+  await expect(entries.last()).toHaveAttribute("data-role", "assistant")
   await expect(page.getByTestId("composer-stop")).not.toBeVisible()
   await expect(page.locator("body")).not.toContainText("stub:")
   await page.keyboard.press("Escape")
@@ -53,7 +58,7 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
 
   await read.click()
   await expect(plan.locator(".flow-graph-drawer")).toHaveAttribute("data-node", AUTHORING_READ)
-  await command(page, `/flow.create Add validation to authoring-demo ${GRAPH_REPO}`)
+  await command(page, `/flow.new Add validation to authoring-demo ${GRAPH_REPO}`)
 
   await expect(validate).toBeVisible()
   await expect(plan).toHaveCount(1)
@@ -81,7 +86,7 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
    * nowhere in it before — is the whole claim: nothing on this host was
    * registered for `authoring-demo` until discovery found the file.
    */
-  await command(page, `/flow.list ${GRAPH_REPO}`)
+  await command(page, `/flows ${GRAPH_REPO}`)
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${AUTHORED_FLOW}"]`)).toBeVisible()
 
   await plan.locator('[data-flow="flow.run"]').click()

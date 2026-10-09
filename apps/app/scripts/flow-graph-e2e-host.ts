@@ -17,8 +17,8 @@
  *   3. `startLocalServer` in hybrid mode with both upstreams pointed at that
  *      relay, so `/api/workflow/*` and `/api/auth/*` reach it and nothing
  *      leaves the machine. The cloud upstream is what puts `cloud` in the
- *      origin's bootstrap capabilities, and `flow.list`, `flow.run` and
- *      `flow.plan` each declare it, so an origin without one lists no flows.
+ *      origin's bootstrap capabilities, and `flow.run` and `flow.plan`
+ *      each declare it.
  *
  * The gateway child dies with this process.
  */

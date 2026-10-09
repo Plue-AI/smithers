@@ -10,7 +10,7 @@ for (const moment of ["during", "after"] as const) {
     await finishSignup(page)
     const composer = page.getByTestId("composer-input")
     await openChat(page)
-    await composer.fill(`/flow.list ${GRAPH_REPO}`)
+    await composer.fill(`/flows ${GRAPH_REPO}`)
     await composer.press("Enter")
     await page.locator(`[data-flow="flow.plan"][data-flow-args="${GRAPH_FLOW}"]`).click()
     await expect(page.locator(".flow-plan-canvas [data-node]")).toHaveCount(GRAPH_NODE_IDS.length)

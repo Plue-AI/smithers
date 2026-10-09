@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import type { Locator, Page } from "@playwright/test"
 import { expect, test } from "@playwright/test"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
@@ -77,7 +77,7 @@ const zoomOf = async (page: Page): Promise<number> => {
 const listFlows = async (page: Page): Promise<void> => {
   await page.goto("/")
   await finishSignup(page)
-  await command(page, `/flow.list ${GRAPH_REPO}`)
+  await command(page, `/flows ${GRAPH_REPO}`)
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
 }
 
@@ -169,6 +169,16 @@ const SOURCE_PATH = resolve(__dirname, "../../../..", GRAPH_FLOW_SOURCE)
 const sourceLine = (line: number): string => readFileSync(SOURCE_PATH, "utf8").split("\n")[line - 1] ?? ""
 
 /**
+ * The line a File card is anchored on, as its editor draws it. The card
+ * reveals its line by putting the editor's cursor there, so the anchored line
+ * is the active line, and the line-number gutter beside it wears its number.
+ */
+const expectAnchoredOn = async (file: Locator, line: number): Promise<void> => {
+  await expect(file.locator(".cm-lineNumbers .cm-activeLineGutter")).toHaveText(String(line))
+  await expect(file.locator(".cm-content .cm-activeLine")).toContainText(sourceLine(line).trim())
+}
+
+/**
  * Runs a case that moves the fixture's source under the running host, and puts
  * the file back whatever happens, a SIGKILL included
  * (`scripts/flow-graph-fixture-source.ts`).
@@ -195,7 +205,7 @@ test.describe("the flow builder's plan door", () => {
     await finishSignup(page)
     // The session the relay answers is signed-in, which is what starts the
     // reads; waiting for a flow row means every one of them has been made.
-    await command(page, `/flow.list ${GRAPH_REPO}`)
+    await command(page, `/flows ${GRAPH_REPO}`)
     await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
     await expect(page.locator('.notice[data-tone="failed"]')).toHaveCount(0)
     // The balance the host really reported, rather than the absence of a
@@ -370,7 +380,7 @@ test.describe("the flow builder's plan door", () => {
     await expect(file).toBeVisible()
     // The file really was read: the line the card is anchored on holds the
     // declaration the node record pointed at.
-    await expect(file.locator(`[data-line="${line}"]`)).toContainText(sourceLine(line).trim())
+    await expectAnchoredOn(file, line)
 
     /*
      * A reload. Which node is open and which tab it shows are facts on the
@@ -397,7 +407,7 @@ test.describe("the flow builder's plan door", () => {
     const moved = page.locator(".world-card-panel[data-line]")
     await expect(moved).toHaveCount(1)
     await expect(moved).toHaveAttribute("data-line", String(steadyLine))
-    await expect(moved.locator(`[data-line="${steadyLine}"]`)).toContainText(sourceLine(steadyLine).trim())
+    await expectAnchoredOn(moved, steadyLine)
   })
 
   /*

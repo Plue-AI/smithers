@@ -26,8 +26,8 @@ and stays armed.
 It also serves a scripted `create-flow` that writes `authoring-demo` through
 real engine filesystem transactions. See **Author a flow beside its canvas**
 in [MANUAL-TEST.md](./MANUAL-TEST.md) for the create → edit → replan → run loop
-and the remaining production/provider limitations. Local chat dispatches
-commands; it is not a model-backed assistant.
+and the remaining production/provider limitations. The host has no model:
+slash commands run through the app's own registry.
 
 The authored half is the production path and nothing is registered for it
 (D-081). The `create-flow` run writes a real `@smthrs/flow` graph file, shaped
@@ -36,7 +36,7 @@ this box serves. A real registry discovers it, `@smthrs/registry` `Executable`
 measures and loads it, and `Executable.Refresh` registers the rebuilt body with
 the running engine before the run's receipt is readable — the same reaction
 `NativeControl` installs from `Application.Config.rebuildAuthoredFlows`, which
-D-078 permits for a disposable host like this one. So `/flow.list` holds the
+D-078 permits for a disposable host like this one. So `/flows` holds the
 flow only after a run has written its entry file, and the plan the card
 redraws is that file's own graph, with its nodes naming it. The drawer's Code
 TAB stays absent for those nodes: a scratch project under no version control
@@ -58,8 +58,8 @@ so the gateway is interrupted under the signal rather than exited under it;
 
 Both the identity upstream and the cloud upstream are that relay. The identity
 upstream is what carries `/api/workflow/*`; the cloud upstream is what puts
-`cloud` in the origin's bootstrap capabilities, and `flow.list`, `flow.run` and
-`flow.plan` all declare it, so an origin without one lists no flows at all.
+`cloud` in the origin's bootstrap capabilities, and `flow.run` and `flow.plan`
+both declare it.
 
 The relay answers these families, all of which the local origin forwards to it:
 

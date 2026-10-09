@@ -30,7 +30,7 @@ const listFlows = async (page: Page): Promise<void> => {
   await finishSignup(page)
   await openChat(page)
   const composer = page.getByTestId("composer-input")
-  await composer.fill(`/flow.list ${GRAPH_REPO}`)
+  await composer.fill(`/flows ${GRAPH_REPO}`)
   await composer.press("Enter")
   await expect(page.locator(`[data-flow="flow.run"][data-flow-args="${GRAPH_FLOW}"]`)).toBeVisible()
 }

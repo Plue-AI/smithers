@@ -27,7 +27,7 @@ reuses `apps/app/dist`.
 **1. List the flows.** Open the chat and send:
 
 ```
-/flow.list codeplanesmithers/smithers-demo
+/flows codeplanesmithers/smithers-demo
 ```
 
 Find `gateway/GraphFixture`, with a **Run** door and a **Plan** door. The
@@ -194,23 +194,23 @@ Use an unused port; lane cfxbuilder uses:
 cd apps/app && SMITHERS_FLOW_GRAPH_PORT=47371 bun scripts/flow-graph-e2e-host.ts
 ```
 
-1. Open Chat and send `/flow.create Build a flow codeplanesmithers/smithers-demo`.
+1. Open Chat and send `/flow.new Build a flow codeplanesmithers/smithers-demo`.
 2. The request returns before launch finishes. The authoring run stays beside
    the `authoring-demo` plan. Its first source version contains `authoring/Read`.
 3. Repeat the command while it runs: the same request remains. Chat stays usable.
-4. Open the Read node. Send `/flow.create Add validation to authoring-demo codeplanesmithers/smithers-demo`.
+4. Open the Read node. Send `/flow.new Add validation to authoring-demo codeplanesmithers/smithers-demo`.
 5. The same plan card gains `authoring/Validate`, retaining Read's selection.
    Read's Declaration says `unchanged`; Validate's says `added`. These compare
    keys, with no claim of cached execution or time saved.
-6. Send `/flow.list codeplanesmithers/smithers-demo` again: `authoring-demo`
+6. Send `/flows codeplanesmithers/smithers-demo` again: `authoring-demo`
    is listed now and was not in step 1. That listing is the registry's own
    answer, so it is the box having discovered the file.
 7. Reload: the edited plan and its selected node remain. Press the plan's
    **Run**. The new flow executes both actions; open its graph and inspect
    Validate's actual `built` settlement.
 
-The local chat is a command dispatcher, not Jev or an LLM. `/flow.*` uses the
-app's real registry; ordinary text says that local chat accepts commands. The
+This host has no model: slash commands run through the app's real registry,
+and ordinary text reaches no model. The
 fixture's `create-flow` is scripted: a real engine action writes TypeScript,
 the sandbox copies it into an isolated workspace, and the second chat request
 runs another action that writes version two. Real diff-bundle/copy-back records
