@@ -134,7 +134,9 @@ export const registryPublisher = ({ run = execFileSync, pause = (seconds) => exe
         return run("pnpm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 180_000 })
       } catch (error) {
         const diagnostic = `${error.code ?? ""}\n${error.stdout ?? ""}\n${error.stderr ?? ""}\n${error.message ?? ""}`
-        if (allowMissing && /\bE?404\b/.test(diagnostic)) return undefined
+        // A new name answers 404; a missing version of an existing name answers
+        // ERR_PNPM_PACKAGE_NOT_FOUND with no status code.
+        if (allowMissing && /\bE?404\b|\bERR_PNPM_PACKAGE_NOT_FOUND\b/.test(diagnostic)) return undefined
         const transient = /\b(?:ERR_PNPM_FETCH_|E)?(?:429|5[0-9][0-9])\b/.test(diagnostic) ||
           /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|ESOCKETTIMEDOUT|EAI_AGAIN|EPIPE|ENETUNREACH|EHOSTUNREACH)\b|socket hang up/i.test(diagnostic)
         if (!transient) throw error

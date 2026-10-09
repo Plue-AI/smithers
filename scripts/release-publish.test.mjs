@@ -31,6 +31,25 @@ test("new names publish with provenance from a detached tag checkout", () => {
   assert.deepEqual(calls[1], ["publish", "kernel.tgz", "--provenance", "--access", "public", "--tag", "next", "--no-git-checks"])
 })
 
+// pnpm 11 answers a missing version of an existing name without a 404; the
+// v1.0.0-rc.1 tag run 37963844319 stopped on it before publishing anything.
+test("a missing version of an existing name and a new name both read as absent", () => {
+  const pnpmViewFailure = (code, message) => Object.assign(new Error("Command failed: pnpm view"), {
+    status: 1,
+    stdout: `{\n  "error": {\n    "code": "${code}",\n    "message": "${message}"\n  }\n}\n`,
+    stderr: ""
+  })
+  const adapter = registryPublisher({
+    run: (command, [, spec]) => {
+      if (spec === "@smthrs/errors@1.0.0-rc.1") throw pnpmViewFailure("ERR_PNPM_PACKAGE_NOT_FOUND", "No matching version found for @smthrs/errors@1.0.0-rc.1")
+      throw pnpmViewFailure("ERR_PNPM_FETCH_404", "GET https://registry.npmjs.org/@smthrs%2Fcanonical: Not Found - 404")
+    },
+    pause: () => assert.fail("an absent version is not transient")
+  })
+  assert.equal(adapter.readRegistry("@smthrs/errors@1.0.0-rc.1"), undefined)
+  assert.equal(adapter.readRegistry("@smthrs/canonical@1.0.0-rc.1"), undefined)
+})
+
 test("already published versions return their exact integrity for candidate verification", () => {
   const { adapter, calls } = fixture({ view: [200], publish: [] })
   assert.equal(adapter.readRegistry("@smthrs/kernel@1.0.0-rc.0"), "sha512-verified")
