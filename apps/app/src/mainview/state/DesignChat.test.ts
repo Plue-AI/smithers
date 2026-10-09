@@ -3,7 +3,7 @@
  * a plain prompt it can read runs the person's flows and answers in the
  * conversation without a model turn; drop asks first with an A✓ card only
  * the asker sees; merge opens the person's own Review & merge; anything
- * else takes the real turn.
+ * else is the host's turn, never a seeded answer while an agent provider exists.
  */
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
@@ -101,8 +101,13 @@ describe("the app agent answers plain prompts from the seeded world", () => {
     const { controller, design } = await setup()
     controller.send("drop T11")
     await waitFor(() => design.world().acts.length === 1)
-    const outcome = await controller.commands.submit({ name: "todo.drop", payload: { n: 11 }, actor: "user" })
-    expect(outcome.status).toBe("executed")
+    const act = design.world().acts[0]!
+    // A person's own Drop asks first (9d5f381dab); the A✓ press is that confirmation, bound to this act.
+    expect(await controller.commands.submit({ name: "todo.drop", payload: { n: 11 }, actor: "user" }))
+      .toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
+    expect(design.world().todos.find(each => each.id === "t-log")?.state).toBe("queued")
+    expect(await controller.commands.confirm(act.id, "another revision")).toEqual({ status: "failed", error: "Confirmation is stale." })
+    expect((await controller.commands.confirm(act.id, act.id)).status).toBe("executed")
     expect(design.world().todos.find(each => each.id === "t-log")?.state).toBe("dropped")
   })
 
@@ -116,11 +121,13 @@ describe("the app agent answers plain prompts from the seeded world", () => {
     expect(store.collections.cards.has("design:confirm:merge:t-stripe")).toBe(false)
   })
 
-  test("a prompt the agent has no reading for takes the real turn", async () => {
-    const { controller, requests } = await setup()
-    controller.send("tell me a joke")
-    await waitFor(() => requests.length === 1)
-    expect(requests[0]?.messages.length).toBeGreaterThan(0)
+  test("with an agent provider, a prompt the seed has no reading for gets no seeded answer and starts no browser turn", async () => {
+    const { store, controller, requests, messages } = await setup()
+    // Turns run on the host (90ef5aaccb). A runtime without conversation admission refuses the prompt instead.
+    expect(await controller.send("tell me a joke")).toBe(false)
+    await waitFor(() => store.collections.toasts.get("toast-chat.unavailable")?.status === "failed")
+    expect(messages()).toEqual([])
+    expect(requests).toHaveLength(0)
   })
 
   test("with no agent provider, an unscripted prompt answers from the seed instead of failing", async () => {

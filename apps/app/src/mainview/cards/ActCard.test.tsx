@@ -10,11 +10,13 @@ import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
-import { memoryStorage } from "../state/TestFixtures"
+import { memoryStorage, waitFor } from "../state/TestFixtures"
 import { confirmCardFamily } from "./ActCard"
 import { reviewMergeOf } from "./TodoCard"
 import { createRoot } from "./views/testDom"
+import { scopedControllers } from "../state/ControllerTestScope"
 
+const createAppController = scopedControllers()
 const model = fixtures.in_review.model
 const head = model.pr!.head
 const viewer = { login: "maya", name: "maya", avatar_url: PlaceholderAvatarUrl }
@@ -88,5 +90,34 @@ test("on an install, only the person it was opened for sees Review & merge; Merg
     await act(async () => { await todo({ ...model, state: "merged", merge: { state: "done", on_github: true } }) })
     expect(host.querySelector('[aria-label="Merged T12"]')).not.toBeNull()
     expect(host.querySelector('button[data-flow="merge"]')).toBeNull()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+test("the seeded A✓ Drop press is the person's confirmation: it drops the TODO once and the card becomes its receipt", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+  /* A configured host with no TODO provider (/api/todos is a 404): the seed answers TODO flows. */
+  const controller = createAppController(store, { available: true, startTurn: async () => ({ status: "started" }), cancelTurn: async () => {}, subscribe: () => () => {} }, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["agent", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => new URL(String(input), "https://cloud.test").pathname.startsWith("/api/todos") ? Response.json({}, { status: 404 }) : Response.json({})
+  })
+  const host = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(host)
+  try {
+    controller.send("drop T11")
+    await waitFor(() => controller.design.world().acts.length === 1)
+    const asked = controller.design.world().acts[0]!
+    const card = store.collections.cards.get(`design:confirm:act:${asked.id}`)
+    if (card?.kind !== "confirm") throw new Error("the A✓ card is missing")
+    const render = () => root.render(<ControllerTestProvider controller={controller}>{confirmCardFamily.confirm.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+    await act(async () => render())
+    const drop = host.querySelector<HTMLButtonElement>('button[data-flow="todo.drop"]')!
+    expect(drop).not.toBeNull()
+    await act(async () => drop.click())
+    await waitFor(() => controller.design.world().acts[0]?.state === "done")
+    expect(controller.design.world().todos.find(each => each.id === "t-log")?.state).toBe("dropped")
+    // The press confirmed this act: it asked nothing again.
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "todo.drop")).toBe(false)
+    await waitFor(() => store.collections.cards.get(card.id)?.title === asked.receipt)
   } finally { await act(async () => root.unmount()); host.remove() }
 })

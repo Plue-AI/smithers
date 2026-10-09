@@ -28,9 +28,14 @@ const ActBody = ({ card, actId }: { readonly card: CardOf<"confirm">; readonly a
   const act = useDesignAct(actId)
   if (act === undefined) return null
   const confirm = designActCard(world, act)
-  /* The press runs the act's flow through the registry; its success settles the act into a receipt. */
+  /*
+   * The press runs the act's flow through the registry; its success settles the act into a receipt. The press is the
+   * person's confirmation, so a flow that also confirms a person's own act (Drop) continues through it, bound to this act.
+   */
   const dispatch: CardCommandDispatch = (tag, input) => {
-    const outcome = controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
+    const outcome = tag === act.tag && controller.commands.find(tag)?.metadata.confirmPerson === true
+      ? controller.commands.confirm(act.id, act.id)
+      : controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
     if (tag !== "confirm.cancel") void outcome.then(settled => {
       if (settled.status !== "executed") return
       design.patch("acts", act.id, current => ({ ...current, state: "done" }))

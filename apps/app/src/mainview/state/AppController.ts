@@ -2651,6 +2651,13 @@ export const createAppController = (
   }
   const registry = createCommandRegistry(commandActions, actors.select(commandActions), createCommandIntentLifecycle(ctx, () => {
   }, inputMode.setInputMode, prepareWorldDocument), (id, revision) => {
+    /* MOCK SEAM: a seeded A✓ act is its own confirmation; its id is its revision, as cancelConfirmation reads it. */
+    const act = design.row("acts", id)
+    if (act !== undefined) {
+      const args = act.state === "asked" && act.id === revision && act.tag !== undefined
+        ? commands.find(act.tag)?.metadata.confirmArgs?.(act.args ?? {}) : undefined
+      return args === undefined ? undefined : { name: act.tag!, args }
+    }
     const message = store.collections.messages.get(id)
     if (!message?.action || message.answeredAction || message.action.revision !== revision) return undefined
     return { name: message.action.flow, ...(message.action.args === undefined ? {} : { args: message.action.args }) }
