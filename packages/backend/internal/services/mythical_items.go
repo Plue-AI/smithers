@@ -893,6 +893,11 @@ func mythicalSettlePinMismatch(next *db.MythicalItem, item db.MythicalItem, phas
 // the copy of item a projection saves; false means the update changes
 // nothing.
 func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection mythicalProjection, update flowdispatch.ProjectionUpdate, runID string, pinned bool) bool {
+	// Folding replaced the candidate before a new verifier was admitted. A
+	// replay from its old verifier cannot bind evidence to the folded bytes.
+	if projection.Phase == "verify" && mythicalChecksOf(item).Folded != nil {
+		return false
+	}
 	// A later checkpoint cannot replace the run already bound to this phase.
 	bound := map[string]string{"todo": item.RequestRunID, "request": item.RequestRunID, "vibe": item.VibeRunID, "verify": item.VerifyRunID}
 	if review := mythicalChecksOf(item).Review; review != nil {
@@ -3549,6 +3554,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	}
 	next := item
 	if item.CandidateBase == onto {
+		if folded := mythicalChecksOf(item).Folded; !item.CandidateVerified && folded != nil && folded.Head == item.CandidateHead && folded.Base == onto {
+			return st.verifyCandidate(ctx, item, next, onto, item.CandidateHead, nil)
+		}
 		if !item.CandidateVerified {
 			return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
 		}
@@ -3872,6 +3880,7 @@ func (st *mythicalItemStep) verifyCandidate(ctx context.Context, item, next db.M
 	// The rebase is done; its checks run (rechecking) until the new
 	// generation is verified and proposed (§10.5.3).
 	rebase := mythicalChecksOf(next)
+	rebase.Folded = nil
 	retainedReview, err := st.cleanRebaseReview(ctx, item, onto, rebased)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the rebased patch identity could not be read: "+err.Error(), st.now), false, nil
@@ -6303,6 +6312,7 @@ type mythicalChecks struct {
 	Capture               *MachineCapturePending             `json:"capture,omitempty"`
 	MergedVia             *mythicalMergedVia                 `json:"merged_via,omitempty"`
 	MachineItemChanges    map[string]string                  `json:"machineItemChanges,omitempty"`
+	Folded                *mythicalFoldedCandidate           `json:"folded,omitempty"`
 	Seed                  *branchSeed                        `json:"seed,omitempty"`
 	ConflictReservation   *todoConflictReservation           `json:"conflictReservation,omitempty"`
 	MissingTool           *flowdispatch.CertifiedMissingTool `json:"missing_tool,omitempty"`

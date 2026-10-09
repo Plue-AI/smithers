@@ -4,8 +4,16 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
+
+// mythicalFoldedCandidate binds verification owed by a data-only fold to the
+// exact new candidate. It is consumed by the existing verification admission.
+type mythicalFoldedCandidate struct {
+	Base string `json:"base"`
+	Head string `json:"head"`
+}
 
 // forkFoldChildren validates every adopted descendant before Drop cancels the
 // source. The folding transaction repeats this check after capture, since a
@@ -155,11 +163,23 @@ func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db
 		seed := *checks.Seed
 		seed.Base, seed.Head, seed.Diff = base, folded, diff
 		checks.Seed = &seed
-		child.Checks = checks.encode()
 		child.BaseCommit = base
 		if child.CandidateHead != "" {
 			child.CandidateBase, child.CandidateHead = base, folded
+			child.CandidateVerified = false
+			child.VerifyOutcome, child.VerifyRunID = "", ""
+			// A fold invalidates publication evidence without reviving a failed or
+			// stopped TODO. Active completed proposals re-enter their same verifier.
+			switch child.State {
+			case "integrating", "verifying", "proposing", "waiting", "proposed":
+				child.State, child.Reason, child.NextAttemptAt = "integrating", "", pgtype.Timestamptz{}
+				checks.Folded = &mythicalFoldedCandidate{Base: base, Head: folded}
+			}
+			if checks.Land != nil {
+				checks.ApprovalCleared, checks.Land = checks.Land.Head, nil
+			}
 		}
+		child.Checks = checks.encode()
 		if _, err = q.SaveMythicalItem(ctx, child); err != nil {
 			return err
 		}

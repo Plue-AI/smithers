@@ -285,3 +285,56 @@ func TestAdoptedScratchAdmissionAndDeliveryKeepWholeDiff(t *testing.T) {
 		})
 	}
 }
+
+// The HTTP Drop regression covers how the fold records this obligation. This
+// worker control proves it launches the ordinary verifier once, on those bytes,
+// without starting a new coding attempt or accepting the old verification.
+func TestFoldedCandidateUsesExistingVerification(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := t.Context()
+	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 11, Title: "Keep fork", State: "open", TextByMaintainer: true, Labels: []string{"todo"}}, maintainerTodo))
+	stack := o.wake()
+	request := o.launcher.last("coding/request")
+	o.project(request, jobs.StateCompleted, "fold-request", validatedRequest)
+	o.wake()
+	item := o.item(11)
+	head := o.laneResult(item.WorkspaceID, stack.LandedMain, map[string]string{"fork.txt": "fixed folded bytes\n"}, "Keep fork")
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.LandedMain, Source: head, RequestRunID: "fold-request", Summary: "Keep fork"})
+	require.NoError(t, err)
+	item = o.item(11)
+	attempt, generation := item.Attempt, item.Generation
+	checks := mythicalChecksOf(item)
+	checks.Folded = &mythicalFoldedCandidate{Base: item.CandidateBase, Head: item.CandidateHead}
+	item.Checks, item.CandidateVerified = checks.encode(), false
+	_, err = db.New(o.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	stale := request
+	var projection mythicalProjection
+	require.NoError(t, json.Unmarshal(stale.Projection, &projection))
+	projection.Phase, projection.Generation = "verify", item.Generation
+	stale.Projection, err = json.Marshal(projection)
+	require.NoError(t, err)
+	o.project(stale, jobs.StateCompleted, "old-verify", `{"status":"passed","failed":[],"receipts":[]}`)
+	require.Empty(t, o.item(11).VerifyRunID)
+	require.Empty(t, o.item(11).VerifyOutcome)
+	o.wake()
+	verified := o.item(11)
+	require.Equal(t, "verifying", verified.State, verified.Reason)
+	require.Equal(t, attempt, verified.Attempt)
+	require.Equal(t, generation+1, verified.Generation)
+	require.Equal(t, head, verified.CandidateHead)
+	require.False(t, verified.CandidateVerified)
+	require.Nil(t, mythicalChecksOf(verified).Folded)
+	launches := o.launcher.all("coding/verify")
+	require.Len(t, launches, 1)
+	require.Contains(t, string(launches[0].Payload), head)
+	require.Contains(t, string(launches[0].Payload), "checks/fast")
+	o.wake()
+	require.Len(t, o.launcher.all("coding/verify"), 1, "pending verification survives another worker poll")
+	require.Equal(t, "verifying", o.item(11).State)
+	o.project(launches[0], jobs.StateCompleted, "fold-verify", `{"status":"passed","failed":[],"receipts":[]}`)
+	o.wake()
+	require.True(t, o.item(11).CandidateVerified)
+	require.Equal(t, head, o.item(11).CandidateHead)
+	require.Equal(t, attempt, o.item(11).Attempt)
+}

@@ -45,6 +45,12 @@ func TestBranchDropRunningForkComposedInstall(t *testing.T) {
 	}
 }
 
+func TestBranchDropVerifiedForkComposedInstall(t *testing.T) {
+	for _, placement := range []string{"after", "before", "failed-after"} {
+		t.Run(placement, func(t *testing.T) { runBranchAddComposed(t, "verified-fork-drop-"+placement) })
+	}
+}
+
 func TestBranchScratchForkCardComposedInstall(t *testing.T) { runBranchAddComposed(t, "app-card-fork") }
 
 func TestBranchTerminalCardComposedInstall(t *testing.T) {
@@ -76,7 +82,13 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	if runningForkDrop {
 		remove = ""
 	}
+	verifiedForkDrop := strings.HasPrefix(remove, "verified-fork-drop-")
+	failedForkDrop := remove == "verified-fork-drop-failed-after"
 	placement := "before"
+	if verifiedForkDrop {
+		placement = strings.TrimPrefix(strings.TrimPrefix(remove, "verified-fork-drop-"), "failed-")
+		remove = "confirm-steered-" + placement
+	}
 	captureLock := remove == "capture-lock"
 	if captureLock {
 		remove = ""
@@ -748,6 +760,14 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.State = base, sourceHead, true, "proposed"
 	_, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
+	if verifiedForkDrop {
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_base=$2,candidate_head=$3,candidate_verified=true,state='proposed',verify_outcome='passed',verify_run_id='old-verification',checks=checks || jsonb_build_object('land',jsonb_build_object('head',$3::text)) WHERE id=$1`, confirmedItem.ID, base, seed.Seed.Head)
+		require.NoError(t, err)
+		if failedForkDrop {
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked',reason='Checks failed' WHERE id=$1`, confirmedItem.ID)
+			require.NoError(t, err)
+		}
+	}
 	if runningForkDrop {
 		// The source has a live pinned attempt, and its adopted child launched.
 		// Refuse before cancellation/capture instead of accepting an obligation
@@ -820,6 +840,32 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	require.Equal(t, base, folded.Seed.Base)
 	require.Equal(t, "fixed scratch bytes", git("-C", store, "show", folded.Seed.Head+":scratch.txt"))
 	require.EqualValues(t, 1, confirmedItem.StackPosition.Int64)
+	if verifiedForkDrop {
+		require.NotEqual(t, seed.Seed.Head, confirmedItem.CandidateHead)
+		require.False(t, confirmedItem.CandidateVerified, "old verification cannot qualify the folded head")
+		if failedForkDrop {
+			require.Equal(t, "blocked", confirmedItem.State)
+			require.Equal(t, "Checks failed", confirmedItem.Reason)
+		} else {
+			require.Equal(t, "integrating", confirmedItem.State)
+		}
+		require.Empty(t, confirmedItem.VerifyOutcome)
+		require.Empty(t, confirmedItem.VerifyRunID)
+		var checks struct {
+			Land            json.RawMessage
+			ApprovalCleared string
+			Folded          struct{ Head, Base string }
+		}
+		require.NoError(t, json.Unmarshal(confirmedItem.Checks, &checks))
+		require.Empty(t, checks.Land, "old head approval cannot authorize the folded head")
+		require.Equal(t, seed.Seed.Head, checks.ApprovalCleared)
+		if failedForkDrop {
+			require.Empty(t, checks.Folded.Head)
+		} else {
+			require.Equal(t, confirmedItem.CandidateHead, checks.Folded.Head)
+			require.Equal(t, confirmedItem.CandidateBase, checks.Folded.Base)
+		}
+	}
 	if steered && placement == "before" {
 		require.Equal(t, git("-C", store, "rev-parse", head+"^{tree}"), git("-C", store, "rev-parse", folded.Seed.Head+"^{tree}"), "moving before the source preserves the child tree")
 	} else if steered {
