@@ -131,7 +131,10 @@ test("release workflow builds all four native archives before tag-bound signing 
   assert.deepEqual(build.strategy.matrix.include.map(({ platform }) => platform).sort(), [
     "darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64"
   ])
-  assert.equal(build.needs, "publish")
+  // The installers wait for the candidate lane, not for every lane of publish:
+  // a prerelease's gates lane runs for hours and blocks nothing.
+  assert.equal(build.needs, "candidate-result")
+  assert.equal(release.jobs["candidate-result"].needs, "native-helper")
   assert.equal(publish.needs, "installer-archive")
   assert.deepEqual(publish.concurrency, { group: "installer-publication", "cancel-in-progress": false })
   assert.equal(publish.permissions["id-token"], "write")

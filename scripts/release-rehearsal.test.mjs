@@ -438,6 +438,32 @@ test("a prerelease runs the candidate and the gates as two lanes, and only the c
     `inputs.sourceRef == '' && (github.event_name != 'workflow_dispatch' || !inputs.dryRun) && !${suffixed}`
   )
   assert.equal(release.jobs["installer-archive"].if, undefined)
+  // The installers follow the lane that produces the candidate, so a
+  // prerelease's hours-long gates lane does not hold them back. The job that
+  // hands them that lane's result names it exactly as GitHub names a matrix
+  // instance of the publish job, and reads nothing but this run's jobs.
+  const result = release.jobs["candidate-result"]
+  assert.equal(release.jobs["installer-archive"].needs, "candidate-result")
+  assert.equal(result.needs, "native-helper")
+  assert.deepEqual(result.permissions, { actions: "read" })
+  assert.equal(result.steps.length, 1)
+  assert.equal(result.steps[0].env.GH_TOKEN, "${{ github.token }}")
+  const lane = /test\("([^"]+)"\)/.exec(result.steps[0].run)?.[1]
+  assert.ok(lane !== undefined, "the wait step selects the lane by a jq test")
+  const laneName = new RegExp(JSON.parse(`"${lane}"`))
+  for (const [name, expected] of [
+    [`${job.name} (candidate)`, true],
+    [`${job.name} (release)`, true],
+    [`${job.name} (gates)`, false],
+    [job.name, false],
+    [`x ${job.name} (candidate)`, false]
+  ]) {
+    assert.equal(laneName.test(name), expected, name)
+  }
+  assert.match(result.steps[0].run, /"completed success"\) .*exit 0/)
+  assert.match(result.steps[0].run, /completed\*\) .*exit 1/)
+  assert.ok(Number.isInteger(result["timeout-minutes"]) && result["timeout-minutes"] >= job["timeout-minutes"],
+    "the wait outlasts the lane it waits for")
   assert.equal(
     release.jobs["installer-archive"].steps[0].with.ref,
     "${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}"

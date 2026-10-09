@@ -947,9 +947,40 @@ jobs:
           fi
           echo "A real run would publish these at $PUBLISH_VERSION on the $PUBLISH_DIST_TAG dist-tag:"
           cat "$PUBLISH_ORDER"
+  # The installer jobs need the candidate, not the gates. `needs: publish` waits
+  # for every lane of that job, and a prerelease's gates lane runs for hours
+  # and blocks nothing: the installers of dry run 37843714479 were still
+  # waiting on it two hours after the candidate lane ended. This job ends when
+  # the lane that builds, packs and smoke-tests ends, with that lane's result.
+  # That lane is `candidate` for a suffixed version. For an unsuffixed version
+  # it is `release`, whose success also means every gate passed and npm has
+  # published, which is what `needs: publish` meant there.
+  candidate-result:
+    name: candidate lane result
+    needs: native-helper
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for the lane that builds, packs and smoke-tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          while :; do
+            lane="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --paginate \
+              --jq '.jobs[] | select(.name | test("^validate, build, and publish \\((candidate|release)\\)$")) | "\(.status) \(.conclusion)"' | head -n 1 || true)"
+            case "$lane" in
+              "completed success") echo "The candidate lane passed."; exit 0 ;;
+              completed*) echo "The candidate lane ended as: ${lane#completed }." >&2; exit 1 ;;
+            esac
+            sleep 30
+          done
+        shell: bash
   installer-archive:
     name: installed npm CLI (${{ matrix.platform }})
-    needs: publish
+    needs: candidate-result
     # This job installs the packed npm CLI on each platform and starts it, so
     # it is part of what a rehearsal must prove: a tag push runs it only after
     # npm has published. A sourceRef rehearsal checks out that commit instead
