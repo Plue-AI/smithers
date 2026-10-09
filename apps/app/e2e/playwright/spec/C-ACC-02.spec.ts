@@ -334,3 +334,47 @@ test("C-ACC-02: Learning approval makes one attributed TODO after card reload", 
     if (complete) expect(status, logs).toBe(0)
   }
 })
+
+
+// Real paused TODO, issued delegation, private card and stored prompt revisions.
+test("C-ACC-02: Amend approves one revision after private card reload", async ({ page }) => {
+  test.setTimeout(300_000)
+  const directory = await mkdtemp(join(tmpdir(), "smithers-access-amend-"))
+  const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessAmendConfirmationWriteOrderComposedPostgres/queued/identity$", "-count=1", "-v", "-timeout", "4m"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ACCESS_AMEND_PHASE_DIR: directory, SMITHERS_REHEARSAL_SPA_DIR: resolve("dist") }, stdio: ["pipe", "pipe", "pipe"]
+  })
+  let logs = "", complete = false
+  backend.stdout.on("data", bytes => { logs += String(bytes) })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  try {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return /AMEND_CONFIRM_READY (http:\/\/\S+) (\S+) (\S+) (\d+)/.test(logs) }, { timeout: 120_000 }).toBe(true)
+    const [, origin, id, cookie, number] = logs.match(/AMEND_CONFIRM_READY (http:\/\/\S+) (\S+) (\S+) (\d+)/)!
+    await page.context().addCookies([{ name: "smithers_session", value: cookie!, url: origin! }])
+    await page.goto(origin!)
+    const card = page.locator('[data-kind="confirm"]').filter({ has: page.getByRole("button", { name: "Amend", exact: true }) })
+    await expect(card).toContainText("Confirmed ordered amendment", { timeout: 60_000 })
+    await page.reload()
+    await expect(card.getByRole("button", { name: "Amend", exact: true })).toBeVisible({ timeout: 60_000 })
+    const response = page.waitForResponse(value => value.url().endsWith(`/api/confirmations/${id}/approve`) && value.request().method() === "POST")
+    await card.getByRole("button", { name: "Amend", exact: true }).press("Enter")
+    const approved = await response
+    expect(approved.status()).toBe(200)
+    const key = approved.request().headers()["idempotency-key"]
+    expect(key).toBeTruthy()
+    const read = await page.request.get(origin! + `/api/todos/${number}`)
+    expect(read.status()).toBe(200)
+    const todo = await read.json()
+    expect(todo.n).toBe(Number(number))
+    expect(todo.prompt_revisions.map((row: { text: string }) => row.text)).toEqual(["Original prompt", "Confirmed ordered amendment"])
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await writeFile(join(directory, "approved"), JSON.stringify({ key }))
+    complete = true
+  } finally {
+    if (!complete) await writeFile(join(directory, "approved"), JSON.stringify({ key: "browser-failed" }))
+    const status = await exited
+    if (status !== 0) console.error(logs)
+    await rm(directory, { recursive: true, force: true })
+    if (complete) expect(status, logs).toBe(0)
+  }
+})

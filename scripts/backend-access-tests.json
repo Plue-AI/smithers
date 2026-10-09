@@ -19,7 +19,8 @@
     "tests": [
       "TestAccessConfirmationWriteOrderComposedPostgres",
       "TestAccessConfirmationConsumerWriteOrderComposedPostgres",
-      "TestAccessConfirmationConsumerIdentityComposedPostgres"
+      "TestAccessConfirmationConsumerIdentityComposedPostgres",
+      "TestAccessAmendConfirmationWriteOrderComposedPostgres"
     ]
   },
   {

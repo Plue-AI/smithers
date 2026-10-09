@@ -49,7 +49,24 @@ func TestAccessConfirmationConsumerIdentityComposedPostgres(t *testing.T) {
 	}
 }
 
-func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly bool) {
+func TestAccessAmendConfirmationWriteOrderComposedPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("composed amendment ordering requires PostgreSQL")
+	}
+	for _, state := range []string{"queued", "retrying"} {
+		t.Run(state, func(t *testing.T) {
+			t.Run("ordering", func(t *testing.T) { testAccessConfirmationWriteOrder(t, "todo.amend", false, state) })
+			t.Run("identity", func(t *testing.T) { testAccessConfirmationWriteOrder(t, "todo.amend", true, state) })
+		})
+	}
+}
+
+func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly bool, initialState ...string) {
+	subjectState := "queued"
+	if len(initialState) > 0 {
+		subjectState = initialState[0]
+	}
+
 	t.Setenv("SMITHERS_ACCESS_CONFIRMATION_ORDER", "1")
 	r := newRehearsal(t, "SMITHERS_ACCESS_CONFIRMATION_ORDER", "C-ACC-02", "confirmation-order-")
 	require.True(t, r.install("Confirmation write ordering"))
@@ -63,6 +80,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 		user                      int64
 	}
 	next := int64(300)
+	numbers := map[int64]int64{}
 	actor := func(t *testing.T, role, via string) identity {
 		t.Helper()
 		// Each cell models a fresh browser; clear only this isolated database's OAuth limiter between unrelated sign-ins.
@@ -92,6 +110,12 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 			token, err := issuer.MintForTurn(ctx, user.ID, liveAppTurnCredentialFixture(t, r.pool, user.ID), 1)
 			require.NoError(t, err)
 			a.token = token.Token
+		}
+		if command == "todo.amend" {
+			var number int64
+			require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
+ VALUES($1,'todo',$2,'Ordered amendment','Ordered amendment',$3,$3,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number`, repo.ID, subjectState, a.user).Scan(&number))
+			numbers[a.user] = number
 		}
 		return a
 	}
@@ -130,6 +154,8 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 	}
 	bodyFor := func(a identity) string {
 		switch command {
+		case "todo.amend":
+			return fmt.Sprintf(`{"command":"todo.amend","subject":{"kind":"todo","ref":%q},"payload":{"prompt":"Confirmed ordered amendment","acceptance":["Exactly one revision"]}}`, fmt.Sprintf("T%d", numbers[a.user]))
 		case "issue.comment":
 			return fmt.Sprintf(`{"command":"issue.comment","subject":{"kind":"issue","ref":%q},"payload":{"body":"Exact private ordered comment bytes"}}`, fmt.Sprint(issueNumber))
 		case "issue.new":
@@ -164,6 +190,10 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 	effects := func(t *testing.T) int {
 		t.Helper()
 		var n int
+		if command == "todo.amend" {
+			require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE jsonb_array_length(revisions)>1`).Scan(&n))
+			return n
+		}
 		require.NoError(t, r.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM mythical_items)+(SELECT count(*) FROM wiki_pages)+(SELECT count(*) FROM product_job_requests WHERE operation IN ('install.issue.create','install.issue.comment'))`).Scan(&n))
 		return n
 	}
@@ -310,7 +340,19 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
 					require.Equal(t, beforeCards+2, afterCards)
 					require.Equal(t, beforeEffects, effects(t), "identity isolation, mismatches and denial cannot execute any target")
-					approved := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, "identity-approve")
+					approveKey := "identity-approve"
+					if directory := os.Getenv("SMITHERS_ACCESS_AMEND_PHASE_DIR"); directory != "" && command == "todo.amend" && subjectState == "queued" && via == "cli" && role == "admin" {
+						t.Logf("AMEND_CONFIRM_READY %s %s %s %d", r.origin, right, b.cookie, numbers[b.user])
+						phase := filepath.Join(directory, "approved")
+						require.Eventually(t, func() bool { _, err := os.Stat(phase); return err == nil }, 90*time.Second, 20*time.Millisecond)
+						raw, err := os.ReadFile(phase)
+						require.NoError(t, err)
+						var browser struct{ Key string }
+						require.NoError(t, json.Unmarshal(raw, &browser))
+						require.NotEmpty(t, browser.Key)
+						approveKey = browser.Key
+					}
+					approved := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, approveKey)
 					require.Equal(t, 200, approved.status, approved.body)
 					require.Equal(t, []string{command}, approved.decisions)
 					for range 2 {
@@ -318,12 +360,36 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						require.Equal(t, 202, replay.status, replay.body)
 						require.Equal(t, []string{command}, replay.decisions)
 						require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"approved"}`, right), replay.body)
-						duplicate := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, "identity-approve")
+						duplicate := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, approveKey)
 						require.Equal(t, 200, duplicate.status, duplicate.body)
 						require.Equal(t, []string{command}, duplicate.decisions)
 						require.JSONEq(t, approved.body, duplicate.body)
 					}
 					require.Equal(t, beforeEffects+1, effects(t), "resolved replay creates exactly one durable target effect")
+					if command == "todo.amend" {
+						var revisions []byte
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT revisions FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, numbers[b.user]).Scan(&revisions))
+						var rows []struct {
+							Text       string
+							Acceptance []string
+							By         json.RawMessage
+							At, Reason string
+						}
+						require.NoError(t, json.Unmarshal(revisions, &rows))
+						require.Len(t, rows, 2)
+						require.Equal(t, "Original prompt", rows[0].Text)
+						require.Equal(t, "Confirmed ordered amendment", rows[1].Text)
+						require.Equal(t, []string{"Exactly one revision"}, rows[1].Acceptance)
+						require.Equal(t, "amend", rows[1].Reason)
+						person, err := q.GetUserByID(ctx, b.user)
+						require.NoError(t, err)
+						var author struct{ Kind, Login string }
+						require.NoError(t, json.Unmarshal(rows[1].By, &author))
+						require.Equal(t, "person", author.Kind)
+						require.Equal(t, person.Username, author.Login)
+						_, err = time.Parse(time.RFC3339Nano, rows[1].At)
+						require.NoError(t, err)
+					}
 					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
 					require.Equal(t, beforeCards+2, afterCards, "resolved create replay must not create a new card")
 					if command != "wiki.create" && command != "issue.new" && command != "issue.comment" {
@@ -339,7 +405,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					for _, delegated := range []bool{true, false} {
 						path, body, key := "/api/confirmations", bodyFor(b), "identity-key"
 						if !delegated {
-							path, body, key = "/api/confirmations/"+right+"/approve", `{}`, "identity-approve"
+							path, body, key = "/api/confirmations/"+right+"/approve", `{}`, approveKey
 						}
 						dead := call(ctx, b, delegated, path, body, key)
 						require.Equal(t, 401, dead.status, dead.body)
@@ -458,7 +524,11 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						}
 						var n int
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&n))
-						require.Zero(t, n)
+						if command == "todo.amend" {
+							require.Equal(t, len(numbers), n, "only seeded paused subjects remain")
+						} else {
+							require.Zero(t, n)
+						}
 						require.Zero(t, effects(t), "refused or expired commands create no page, TODO or outbound intent")
 						receipts = append(receipts, map[string]any{"profile": via, "role": role, "operation": operation, "transition": change, "order": "transition-before-write", "status": out.status, "decisions": out.decisions, "todo_effects": 0})
 					})
@@ -504,6 +574,15 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						wantEffects++
 					}
 					require.Equal(t, wantEffects, effects(t), "duplicate approval has exactly one durable effect; denial has none")
+					if command == "todo.amend" {
+						var revisions int
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT jsonb_array_length(revisions) FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, numbers[a.user]).Scan(&revisions))
+						want := 1
+						if operation == "approve" {
+							want = 2
+						}
+						require.Equal(t, want, revisions, "concurrent presses append no duplicate revision")
+					}
 					if operation == "approve" && command != "wiki.create" && command != "issue.new" && command != "issue.comment" {
 						var number int64
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE created_by=$1`, a.user).Scan(&number))
@@ -543,5 +622,5 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 		}
 	}
 	require.Len(t, receipts, 42*len(vias))
-	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "confirmation-write-order.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install HTTP and production write lock", "command": command, "cells": receipts, "full_C_ACC_02_complete": false}), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "confirmation-write-order.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed install HTTP and production write lock", "command": command, "subject_state": subjectState, "cells": receipts, "full_C_ACC_02_complete": false}), 0600))
 }

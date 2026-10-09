@@ -176,3 +176,15 @@ creates one durable comment intent and denial none. The installed browser
 separately passes private-card approval, running-job reload and actual local
 GitHub delivery. Intent and delivery receipts remain distinct. Full C-ACC-02
 qualification is still incomplete.
+
+
+The `fr30-acc-03-r6` Amend extension adds queued and retrying subjects to the
+production write-order and immutable replay campaigns: 336 ordering cells and
+16 Maintainer/Member profile identity pairs. Committed revocation or expiry
+before the write refuses without a new revision; approval and duplicate presses
+retain exactly two ordered revisions and person attribution. The installed
+browser reloads the private card, presses Amend by keyboard and reads both
+stored revisions on the same TODO. Initial paused subjects are stored fixture
+input; authorization, confirmation consumption and revision writes use the
+production composition. Full target/state/scope coverage and reference-host
+qualification remain incomplete.
