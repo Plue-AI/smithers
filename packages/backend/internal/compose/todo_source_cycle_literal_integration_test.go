@@ -625,7 +625,26 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 					current, err := f.q.GetMythicalItem(t.Context(), item.ID)
 					return err == nil && strings.Contains(current.Reason, "will not overwrite")
 				}, 10*time.Second, 20*time.Millisecond)
-				require.Equal(t, writes, f.upstream.Writes(), "a settled question cannot authorize an outside-head overwrite")
+				after := f.upstream.Writes()
+				require.GreaterOrEqual(t, len(after), len(writes))
+				require.Equal(t, writes, after[:len(writes)])
+				// Concurrent evidence polling can mint a read-only token. It
+				// cannot publish, or acquire write permissions, through this wait.
+				for _, write := range after[len(writes):] {
+					require.Equal(t, "POST", write.Method)
+					require.Equal(t, "/app/installations/351507/access_tokens", write.Path, "a settled question cannot authorize an outside-head overwrite")
+					var token struct {
+						Repositories []int64           `json:"repository_ids"`
+						Permissions  map[string]string `json:"permissions"`
+					}
+					require.NoError(t, json.Unmarshal(write.Body, &token))
+					require.Equal(t, []int64{100}, token.Repositories)
+					require.NotEmpty(t, token.Permissions)
+					for permission, access := range token.Permissions {
+						require.Contains(t, []string{"checks", "contents", "statuses"}, permission)
+						require.Equal(t, "read", access, "publication is held by the branch wait")
+					}
+				}
 				status, card = f.call(t, 1, "GET", "", "")
 				require.Equal(t, 200, status, card)
 				require.Equal(t, "needs_you", card["state"])
