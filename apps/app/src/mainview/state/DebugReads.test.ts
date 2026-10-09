@@ -71,16 +71,18 @@ describe("the debug reads render for the human", () => {
     expect(rendered).toContain("```json")
   })
 
-  test("the agent's own invocation renders nothing and still reads the value", async () => {
+  // mvp.md Appendix B: the debug reads are hidden developer tools; hidden flows refuse the agent (263c41d3d8).
+  test("the agent's invocation is refused and renders nothing; the human's door still returns the value", async () => {
     const store = await adminStore()
     const controller = createAppController(store, debugAgent(), {
       fetchImpl: async () => new Response("{}", { status: 200 })
     })
     const before = store.collections.messages.size
-    const outcome = await controller.commands.runForAgent("debug.snapshot")
+    expect((await controller.commands.runForAgent("debug.snapshot")).status).toBe("failed")
+    expect(store.collections.messages.size).toBe(before)
+    const outcome = await controller.commands.run("debug.snapshot")
     expect(outcome.status).toBe("executed")
     expect(outcome.status === "executed" ? outcome.value : undefined).toContain("surface")
-    expect(store.collections.messages.size).toBe(before)
   })
 
   test("the dev-tools panel's read never dispatches", async () => {

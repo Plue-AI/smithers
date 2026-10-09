@@ -4,7 +4,6 @@ import { createAppStore as openAppStore } from "./AppStore"
 import type { AppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { parseDiagnosticQuery, readDiagnostics } from "./Diagnostics"
-import { SMITHERS_INSTRUCTIONS } from "./Instructions"
 import { memoryStorage, settled, signupProfileFetch, silentAgent } from "./TestFixtures"
 
 // Pure read/query tests below are independent of these controlled controller boundaries.
@@ -63,28 +62,29 @@ const toast = async (store: AppStore, detail: string, key = "billing.refresh") =
   await store.dispatch({ type: "toast.shown", actor: "system", key, title: "Refreshing balance" }).isPersisted.promise
   await store.dispatch({ type: "toast.resolved", actor: "system", key, status: "failed", detail }).isPersisted.promise
 }
+// The person's slash door: debug.errors is a hidden developer tool with no agent door (mvp.md Appendix B).
 const read = async (controller: ReturnType<typeof createAppController>, args?: string) => {
-  const result = await controller.commands.runForAgent("debug.errors", args)
+  const result = await controller.commands.run("debug.errors", args)
   if (result.status !== "executed") throw new Error(JSON.stringify(result))
   return JSON.parse(result.value!) as ReturnType<typeof readDiagnostics>
 }
 
 describe("app diagnostics without a repository", () => {
-  test("the agent discovers and reads failures signed out without admin access", async () => {
+  test("a person reads failures signed out without admin access; the agent has no door to it", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent)
     await toast(store, "Billing service unavailable")
     expect(store.collections.repositories.size).toBe(0)
-    expect(controller.commands.callable().map(entry => entry.binding.descriptor.name)).toContain("debug.errors")
-    expect(controller.commands.disclosed().map(command => command.name)).toContain("debug.errors")
+    // mvp.md Appendix B: developer tools are hidden, so the agent neither lists nor runs them.
+    expect(controller.commands.callable().map(entry => entry.binding.descriptor.name)).not.toContain("debug.errors")
+    expect(controller.commands.disclosed().map(command => command.name)).not.toContain("debug.errors")
     expect(controller.commands.find("debug.snapshot")).toBeUndefined()
-    const before = store.collections.messages.size
     const result = await read(controller)
     expect(result.items).toHaveLength(1)
     expect(result.items[0]).toMatchObject({ source: "toast", status: "failed", title: "Refreshing balance", detail: "Billing service unavailable" })
+    const before = store.collections.messages.size
+    expect((await controller.commands.runForAgent("debug.errors")).status).toBe("failed")
     expect(store.collections.messages.size).toBe(before)
-    expect(SMITHERS_INSTRUCTIONS).toContain("execute debug.errors in this turn")
-    expect(SMITHERS_INSTRUCTIONS).toContain("never ask to import a repo to inspect app errors")
   })
 
   test("dismissed and repeated toasts remain readable after reopening the store", async () => {
@@ -127,7 +127,7 @@ describe("app diagnostics without a repository", () => {
     expect((await read(controller, "Still loading --all")).items[0]?.status).toBe("running")
     expect((await read(controller, "--source event")).items).toEqual([])
     for (const args of ["--limit 0", "--limit 101", "--limit 1.5", "--since yesterday", "--source missing", "--unknown"]) {
-      expect((await controller.commands.runForAgent("debug.errors", args)).status).toBe("failed")
+      expect((await controller.commands.run("debug.errors", args)).status).toBe("failed")
     }
   })
 
