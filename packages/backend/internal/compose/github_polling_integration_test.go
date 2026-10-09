@@ -666,3 +666,21 @@ func TestInstallIssueEventPagedAdmissionRecovery(t *testing.T) {
 	require.Len(t, todos, 1)
 	require.Equal(t, "After rename", todos[0]["title"])
 }
+
+// The first real install poll must settle issue snapshots as well as event facts.
+func TestInstallFetchedIssuesComplete(t *testing.T) {
+	f := newInstallPollingComposition(t, true)
+	number := f.upstream.OpenIssue("acme/app", "acme", "First fetched issue", "Current discussion")
+	f.start(t)
+	f.retry(t) // Exercise the composed install HTTP sync boundary.
+	require.Eventually(t, func() bool {
+		var issues, pending, failed int
+		err := f.pool.QueryRow(t.Context(), `SELECT count(*) FILTER (WHERE principal_id='issues' AND state='completed'), count(*) FILTER (WHERE state NOT IN ('completed','failed','cancelled')), count(*) FILTER (WHERE state='failed') FROM product_job_requests WHERE operation='github.fetched.consume'`).Scan(&issues, &pending, &failed)
+		return err == nil && issues == 1 && pending == 0 && failed == 0
+	}, 10*time.Second, 20*time.Millisecond)
+	var title, state string
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT title,state FROM github_synced_issues WHERE resource='issues' AND number=$1`, number).Scan(&title, &state))
+	require.Equal(t, "First fetched issue", title)
+	require.Equal(t, "open", state)
+	require.Empty(t, f.readTodos(t), "an issue snapshot alone never commits a TODO")
+}

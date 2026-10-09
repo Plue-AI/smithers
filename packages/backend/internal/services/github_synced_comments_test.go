@@ -72,10 +72,10 @@ func TestGitHubConversationCursorEditsRollbackAndRestart(t *testing.T) {
 	fresh.SetConditionalFetcherFactory(f.service.conditionalFetcherFactory)
 	require.NoError(t, fresh.backfillResource(t.Context(), f.row, gitHubConversationComments, nil))
 	require.Equal(t, 4, fetchedCount(t, f.pool, `SELECT count(*) FROM product_job_requests`))
-	// A missing consumer must retain every version after a worker/restart.
+	// A missing consumer terminates every undeliverable version after restart.
 	stop := runFetchedFixture(t, fresh)
 	require.Eventually(t, func() bool {
-		return fetchedCount(t, f.pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt>0 AND last_error<>''`) > 0
+		return fetchedCount(t, f.pool, `SELECT count(*) FROM product_job_requests WHERE state='failed' AND terminal_receipt->>'error'='github.fetched.consumer_missing'`) == 4
 	}, 5*time.Second, 10*time.Millisecond)
 	stop()
 	require.Zero(t, fetchedCount(t, f.pool, `SELECT count(*) FROM product_job_requests WHERE state='completed'`))

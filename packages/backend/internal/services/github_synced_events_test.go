@@ -41,6 +41,9 @@ func TestGitHubFetchedIssueEventsAtomicRecovery(t *testing.T) {
 	// A replay may carry a changed embedded issue; event identity is still its id.
 	require.NoError(t, s.commitIssueEvents(ctx, row, []json.RawMessage{json.RawMessage(`{"id":12,"event":"labeled","issue":{"number":99}}`)}))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issues`))
+	s.RegisterFetchedConsumer(gitHubIssueEvents, func(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
+		return nil, errors.New("temporary event consumer failure")
+	})
 	stop := runFetchedFixture(t, s)
 	require.Eventually(t, func() bool {
 		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id WHERE r.principal_id='issues/events' AND d.attempt>0`) == 3

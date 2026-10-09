@@ -155,6 +155,9 @@ func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 	allowFetched(s)
 	ctx := context.Background()
 	require.NoError(t, s.commitFetched(ctx, row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst), json.RawMessage(fetchedSecond)}))
+	s.RegisterFetchedConsumer("issues", func(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
+		return nil, errors.New("temporary consumer failure")
+	})
 	stop := runFetchedFixture(t, s)
 	require.Eventually(t, func() bool {
 		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt>0`) > 0
@@ -162,7 +165,7 @@ func TestGitHubFetchedConsumerRecoveryIsAtomicAndOrdered(t *testing.T) {
 	stop()
 	// Shutdown may leave a claim awaiting lease recovery. Both versions must
 	// remain durable and unacknowledged regardless of that transient state.
-	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state IN ('accepted','dispatching')`), "unregistered consumers retain both versions")
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state IN ('accepted','dispatching')`), "transient consumer failures retain both versions")
 	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='operation.accepted'`))
 	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='operation.completed'`))
 	// A fresh service simulates process restart; it reconstructs all pending work
@@ -273,4 +276,34 @@ func TestGitHubInstallWebhooksOnlyRequestFetch(t *testing.T) {
 	require.Equal(t, "factory", fresh.OwnerLogin)
 	fresh.LastWebhookAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
 	require.True(t, s.stale(fresh), "webhooks do not establish fetched freshness")
+}
+
+func TestGitHubFetchedMissingConsumerFailsTerminally(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	allowFetched(s)
+	s.RegisterFetchedConsumer("issues", nil)
+	require.NoError(t, s.commitFetched(t.Context(), row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
+	runFetchedFixture(t, s)
+	require.Eventually(t, func() bool {
+		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state='failed' AND terminal_receipt->>'error'='github.fetched.consumer_missing'`) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt=1`))
+}
+
+func TestGitHubFetchedPendingIssuesDoNotBlockPulls(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	allowFetched(s)
+	s.RegisterFetchedConsumer("issues", func(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
+		return nil, errors.New("issue remains pending")
+	})
+	s.RegisterFetchedConsumer("pulls", consumeCachedGitHubIssue)
+	require.NoError(t, s.commitFetched(t.Context(), row, "issues", nil, []json.RawMessage{json.RawMessage(fetchedFirst)}))
+	require.NoError(t, pgx.BeginFunc(t.Context(), pool, func(tx pgx.Tx) error {
+		return s.admitFetchedObject(t.Context(), tx, row, "pulls", 2001, 3, json.RawMessage(fetchedSecond))
+	}))
+	runFetchedFixture(t, s)
+	require.Eventually(t, func() bool {
+		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='pulls' AND state='completed'`) == 1
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='issues' AND state NOT IN ('completed','failed','cancelled')`))
 }

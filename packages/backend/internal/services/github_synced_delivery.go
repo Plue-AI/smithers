@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -69,8 +70,14 @@ func (s *GitHubSyncedRepoService) ConfigureInstallSync(pool *pgxpool.Pool) error
 	if err != nil {
 		return err
 	}
-	s.install = &gitHubInstallSync{pool: pool, jobs: store, consumers: map[string]gitHubFetchedConsumer{}, requested: map[gitHubStreamKey]bool{}, streams: map[gitHubStreamKey]gitHubPollState{}, wake: make(chan struct{}, 1)}
+	s.install = &gitHubInstallSync{pool: pool, jobs: store, consumers: map[string]gitHubFetchedConsumer{GitHubRepoMetadataIssues: consumeCachedGitHubIssue}, requested: map[gitHubStreamKey]bool{}, streams: map[gitHubStreamKey]gitHubPollState{}, wake: make(chan struct{}, 1)}
 	return nil
+}
+
+// Issue snapshots already update the issue card cache in commitFetchedIssue.
+// J2 freezes the TODO prompt at admission; subsequent issue edits do not alter it.
+func consumeCachedGitHubIssue(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
+	return json.RawMessage(`{"state":"cached"}`), nil
 }
 
 func gitHubFetchUnavailable() error {
@@ -122,8 +129,8 @@ func (s *GitHubSyncedRepoService) requestInstallFetchMode(ctx context.Context, g
 }
 
 // commitFetched atomically records a fetched batch and its durable deliveries.
-// A missing consumer does not discard the delivery. Repeated polls share the
-// same canonical object version, including JSON object ordering and numbers.
+// Repeated polls share the same canonical object version, including JSON
+// object ordering and numbers. Missing consumers produce terminal failures.
 func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.GithubSyncedRepo, resource string, read *gitHubPullRead, objects []json.RawMessage) error {
 	if err := s.authorizeFetched(ctx, row); err != nil {
 		return err
@@ -269,7 +276,15 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 	consumer := s.install.consumers[fact.Resource]
 	s.install.mu.Unlock()
 	if consumer == nil {
-		return gitHubFetchUnavailable()
+		receipt, err := json.Marshal(map[string]string{"error": "github.fetched.consumer_missing", "resource": fact.Resource})
+		if err != nil {
+			return err
+		}
+		if err := lease.Fail(ctx, receipt); err != nil {
+			return err
+		}
+		slog.Error("github.fetched.consumer_missing", "resource", fact.Resource, "operation_id", claim.OperationID)
+		return nil
 	}
 	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
 		row, err := lockFetchedRepo(ctx, tx, fact.Repo)
@@ -367,7 +382,7 @@ type GitHubFetchedObject = gitHubFetchedObject
 type GitHubFetchedConsumer = gitHubFetchedConsumer
 
 // RegisterFetchedConsumer binds the owner before workers start. Unregistered
-// resources keep their pending deliveries for restart and later registration.
+// resources fail terminally with a named receipt and log entry.
 func (s *GitHubSyncedRepoService) RegisterFetchedConsumer(resource string, consumer GitHubFetchedConsumer) {
 	if s == nil || s.install == nil {
 		return

@@ -68,6 +68,9 @@ func TestGitHubRefsAdmissionAndRecovery(t *testing.T) {
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 	// A different result cannot reuse one claim's identity.
 	require.Error(t, commit(ctx, "factory", "app", "main", map[string]string{"refs/heads/main": pullNew}))
+	s.RegisterFetchedConsumer(gitHubRefs, func(context.Context, pgx.Tx, gitHubFetchedObject) (json.RawMessage, error) {
+		return nil, fmt.Errorf("temporary ref consumer failure")
+	})
 	stop := runFetchedFixture(t, s)
 	require.Eventually(t, func() bool {
 		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt>0`) > 0

@@ -69,10 +69,10 @@ func TestGitHubIndividualPullHTTPCommitRestartAndCacheReplacement(t *testing.T) 
 	for _, scope := range minter.scopes {
 		require.Equal(t, []int64{99}, scope.RepositoryIDs)
 	}
-	// No consumer means durable pending delivery, even after a worker attempt.
+	// Missing consumers fail terminally rather than retry forever.
 	stop := runFetchedFixture(t, fresh)
 	require.Eventually(t, func() bool {
-		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_dispatches WHERE attempt > 0 AND last_error <> ''`) == 1
+		return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state='failed' AND terminal_receipt->>'error'='github.fetched.consumer_missing'`) == 1
 	}, 5*time.Second, 10*time.Millisecond)
 	stop()
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state<>'completed'`))
