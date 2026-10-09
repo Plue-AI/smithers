@@ -899,7 +899,7 @@ test.each([
   // Opening the missing-PR form may resolve its repository source, but never
   // falls back to allocating, provisioning or running the old working-copy review.
   expect(double.calls.slice(before)).toEqual([{ path: `/api/repos/${REPO}`, method: "GET", body: undefined },
-    { path: "/api/reviews", method: "POST", body: { number: 17, repo: REPO, conversation: "branch-main" } }])
+    { path: "/api/reviews", method: "POST", body: { number: 17, repo: REPO, conversation: "main" } }])
   expect(runCard(store)).toBeUndefined()
 
 })
