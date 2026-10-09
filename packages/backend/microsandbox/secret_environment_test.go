@@ -116,6 +116,18 @@ with open(%q,'a') as f:f.write(json.dumps([sys.argv[1:],sys.stdin.buffer.read().
 	require.NoError(t, err)
 	require.Greater(t, len(fourth), len(third))
 	third = fourth
+	// A failed transport can echo stdin; the projected failure stays value-free.
+	ws.forgetSecretDelivery()
+	env = map[string]string{"CANARY_TOKEN": "private-echoed-secret-value"}
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncat >&2\nexit 1\n"), 0700))
+	err = r.syncSecretEnvironment(t.Context(), ws, link)
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.NotContains(t, err.Error(), "private-echoed-secret-value")
+	require.NotContains(t, err.Error(), "CANARY_TOKEN")
+	require.Nil(t, ws.secretEnvironmentDigest)
+	cancelCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, r.syncSecretEnvironment(cancelCtx, ws, link), context.Canceled)
 	r.BindMemberRoster(nil)
 	require.False(t, r.SecretEnvironmentAvailable())
 	require.ErrorIs(t, r.syncSecretEnvironment(t.Context(), ws, link), ErrUnavailable)

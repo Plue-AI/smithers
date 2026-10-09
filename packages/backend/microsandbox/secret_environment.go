@@ -97,9 +97,15 @@ func (r *Runtime) syncSecretEnvironment(ctx context.Context, ws *workspace, link
 	if ws.secretEnvironmentDigest != nil && *ws.secretEnvironmentDigest == hash {
 		return nil
 	}
-	output, err := r.guest(ctx, ws.Machine, body, "put-env")
+	deliveryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	output, err := r.guest(deliveryCtx, ws.Machine, body, "put-env")
 	if err != nil {
-		return err
+		if deliveryCtx.Err() != nil {
+			return deliveryCtx.Err()
+		}
+		// Transport diagnostics may echo the secret-bearing stdin.
+		return fmt.Errorf("%w: replace machine secret environment", ErrUnavailable)
 	}
 	if err = link.RequireReady(ws.ID); err != nil {
 		return err
