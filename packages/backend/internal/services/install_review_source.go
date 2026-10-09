@@ -2,10 +2,8 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"io/fs"
 	"strings"
-	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -124,17 +122,7 @@ func (s *ReviewSource) Restore(ctx context.Context, workspaceID string, a Review
 	}
 	// Restore is this machine's whole setup. Its last step is the receipt a
 	// Flow host start waits for, as branch setup's is.
-	writer, ok := s.runtime.(interface {
-		WriteRepositoryReceipt(context.Context, string, []byte) error
-	})
-	if !ok {
-		return reviewUnavailable("review_source_unavailable")
-	}
-	receipt, err := json.Marshal(workspaceRepositoryReceipt{Version: workspaceRepositoryReceiptVersion, WorkspaceID: workspaceID, RepositoryID: a.RepositoryID, SourceRevision: a.Head, InitializedAt: time.Now().UTC()})
-	if err != nil {
-		return err
-	}
-	return writer.WriteRepositoryReceipt(ctx, workspaceID, append(receipt, '\n'))
+	return writeSetupReceipt(ctx, s.runtime, workspaceID, a.RepositoryID, a.Head, reviewUnavailable("review_source_unavailable"))
 }
 
 // Retire drops the machine's retained source refs from the install repository.

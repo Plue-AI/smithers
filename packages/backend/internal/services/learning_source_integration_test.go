@@ -92,9 +92,19 @@ func TestLearningSourceRestoresPinnedMerge(t *testing.T) {
 	require.Zero(t, countTokens(), "a refused restore revokes its read token")
 	_, err = workspaceapi.ResolveSourceRevision(ctx, runtime, workspaceID)
 	require.Error(t, err, "nothing is checked out before the merge is on main")
+	_, err = runtime.ReadFile(ctx, workspaceID, workspaceRepositoryReceiptPath)
+	require.Error(t, err, "a refused restore leaves the machine initializing")
 
 	reviewGit(t, work, "push", "--quiet", bare, "HEAD:refs/heads/main")
 	require.NoError(t, source.Restore(ctx, workspaceID, repo.ID, owner.ID, pin))
+	// Restore is the learning machine's whole setup, so it ends with the
+	// receipt a Flow host start waits for; without it run 12's learning
+	// machine was refused workspace_initializing until its slot was taken.
+	receipt, err := runtime.ReadFile(ctx, workspaceID, workspaceRepositoryReceiptPath)
+	require.NoError(t, err)
+	require.True(t, completedWorkspaceReceipt(receipt, workspaceID, repo.ID), string(receipt))
+	require.Contains(t, string(receipt), `"source_revision":"`+merge+`"`)
+	require.False(t, completedWorkspaceReceipt(receipt, workspaceID, repo.ID+1), "the receipt names its own repository")
 	require.Equal(t, []string{"learning-source-owner/app", "learning-source-owner/app"}, cloned)
 	revision, err := workspaceapi.ResolveSourceRevision(ctx, runtime, workspaceID)
 	require.NoError(t, err)
@@ -110,8 +120,12 @@ func TestLearningSourceRestoresPinnedMerge(t *testing.T) {
 	// A replay after a lost reply reuses the fetched merge: the endpoint is
 	// not read again.
 	source.clone = func(string, string) (string, error) { return "", errors.New("endpoint must not be read") }
+	require.NoError(t, runtime.RemoveFile(ctx, workspaceID, workspaceRepositoryReceiptPath))
 	require.NoError(t, source.Restore(context.WithoutCancel(ctx), workspaceID, repo.ID, owner.ID, pin))
 	revision, err = workspaceapi.ResolveSourceRevision(ctx, runtime, workspaceID)
 	require.NoError(t, err)
 	require.Equal(t, merge, revision)
+	receipt, err = runtime.ReadFile(ctx, workspaceID, workspaceRepositoryReceiptPath)
+	require.NoError(t, err)
+	require.True(t, completedWorkspaceReceipt(receipt, workspaceID, repo.ID), "a replay writes the receipt again")
 }

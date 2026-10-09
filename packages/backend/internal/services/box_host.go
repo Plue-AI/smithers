@@ -464,16 +464,33 @@ func (s *WorkspaceService) FlowHostWorkspaceInitialized(ctx context.Context, aut
 }
 
 // completedWorkspaceReceipt is the receipt a Flow host start waits for: every
-// machine's own setup writes it last, branch setup and review Restore alike.
+// machine's own setup writes it last, branch setup and setupReceipt alike.
 func completedWorkspaceReceipt(data []byte, workspaceID string, repositoryID int64) bool {
 	var receipt workspaceRepositoryReceipt
 	return json.Unmarshal(data, &receipt) == nil && receipt.Version == workspaceRepositoryReceiptVersion && receipt.WorkspaceID == workspaceID && receipt.RepositoryID == repositoryID && !receipt.InitializedAt.IsZero() && isLowerHexRevision(receipt.SourceRevision)
 }
 
+// writeSetupReceipt is the last step of a machine that sets itself up instead
+// of through branch setup: review and learning Restore, and the manual main
+// machine. Without it a Flow host start on that machine waits forever.
+func writeSetupReceipt(ctx context.Context, runtime any, workspaceID string, repositoryID int64, revision string, unavailable error) error {
+	writer, ok := runtime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	})
+	if !ok {
+		return unavailable
+	}
+	receipt, err := json.Marshal(workspaceRepositoryReceipt{Version: workspaceRepositoryReceiptVersion, WorkspaceID: workspaceID, RepositoryID: repositoryID, SourceRevision: revision, InitializedAt: time.Now().UTC()})
+	if err != nil {
+		return err
+	}
+	return writer.WriteRepositoryReceipt(ctx, workspaceID, append(receipt, '\n'))
+}
+
 type workspaceInitializing struct{}
 
-func (workspaceInitializing) Error() string              { return "workspace_initializing" }
-func (workspaceInitializing) FlowRuntimeCode() string    { return "workspace_initializing" }
+func (workspaceInitializing) Error() string              { return flowhost.WorkspaceInitializingCode }
+func (workspaceInitializing) FlowRuntimeCode() string    { return flowhost.WorkspaceInitializingCode }
 func (workspaceInitializing) FlowRuntimeRetryable() bool { return true }
 
 // ReleaseFailedFlowHostMachine retains the checkout and disk. The runtime's

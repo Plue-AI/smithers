@@ -111,9 +111,12 @@ func (s *WorkspaceService) PrepareMainMachine(ctx context.Context, id string, re
 	if !ok {
 		return fmt.Errorf("manual main revision resolver unavailable")
 	}
+	// This is the machine's whole setup, so both exits end with the receipt a
+	// Flow host start waits for, as branch setup's does.
+	unavailable := fmt.Errorf("manual main source unavailable")
 	actual, err := resolver.ResolveWorkspaceSourceRevision(ctx, id)
 	if err == nil && actual == revision {
-		return nil
+		return writeSetupReceipt(ctx, s.runtime, id, repository, revision, unavailable)
 	}
 	// All commands execute through the runtime's non-root guest boundary.
 	slug, err := q.GetRepoOwnerSlugAndNameByID(ctx, repository)
@@ -130,13 +133,12 @@ func (s *WorkspaceService) PrepareMainMachine(ctx context.Context, id string, re
 	}
 	defer revokeTemporaryRepoCloneToken(ctx, s.q, user, token.ID)
 	auth := map[string]string{"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.extraHeader", "GIT_CONFIG_VALUE_0": "Authorization: Bearer " + token.Plaintext}
-	refused := fmt.Errorf("manual main source unavailable")
 	for _, args := range [][]string{{"git", "init", "--quiet"}, {"git", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", clone.String(), "+refs/heads/main:refs/smithers/manual/main"}, {"git", "checkout", "--quiet", "--detach", revision}, {"jj", "git", "init", "--colocate"}, {"jj", "edit", revision}} {
 		env := map[string]string(nil)
 		if len(args) > 1 && args[1] == "fetch" {
 			env = auth
 		}
-		if err = machineCommand(ctx, s.runtime, id, env, refused, args...); err != nil {
+		if err = machineCommand(ctx, s.runtime, id, env, unavailable, args...); err != nil {
 			return err
 		}
 	}
@@ -147,7 +149,7 @@ func (s *WorkspaceService) PrepareMainMachine(ctx context.Context, id string, re
 	if strings.TrimSpace(actual) != revision {
 		return fmt.Errorf("manual main source revision differs")
 	}
-	return nil
+	return writeSetupReceipt(ctx, s.runtime, id, repository, revision, unavailable)
 }
 
 func (s *WorkspaceService) RetireMainMachine(ctx context.Context, id string) error {

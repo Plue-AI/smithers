@@ -86,7 +86,12 @@ func (s *LearningSource) Restore(ctx context.Context, workspaceID string, reposi
 			return err
 		}
 	}
-	return run(nil, "jj", "edit", pin.SourceCommit)
+	if err := run(nil, "jj", "edit", pin.SourceCommit); err != nil {
+		return err
+	}
+	// Restore is this machine's whole setup. Its last step is the receipt a
+	// Flow host start waits for, as branch setup's is.
+	return writeSetupReceipt(ctx, s.runtime, workspaceID, repository, pin.SourceCommit, refusal)
 }
 
 func (s *LearningSource) fetch(ctx context.Context, workspaceID string, repository, actor int64) error {

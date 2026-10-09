@@ -35,6 +35,10 @@ var ErrHostIdentityConflict = errors.New("flow host service identity conflict")
 // only when there is no durable binding to reconnect to.
 var ErrSourceRevisionRequired = errors.New("flow host creation requires a workspace source revision")
 
+// WorkspaceInitializingCode is the refusal of a workspace whose setup has not
+// written its initialization receipt (BindWorkspaceInitialized).
+const WorkspaceInitializingCode = "workspace_initializing"
+
 // SecretCodec protects the host bearer at rest. The existing application
 // secret codec satisfies this interface; a plaintext fallback is deliberately
 // not provided.
