@@ -1,6 +1,13 @@
 [
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_children_grant_authorization_integration_test.go",
+    "tests": [
+      "TestAccessChildrenGrantMatrixComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_confirmation_profiles_authorization_integration_test.go",
     "tests": [
       "TestAccessConfirmationProfilesComposedInstallPostgres"
@@ -438,6 +445,14 @@
     "file": "install_workspace_services_authorization_integration_test.go",
     "tests": [
       "TestInstallWorkspaceServicesAuthorizationPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "machine_admission_integration_test.go",
+    "tests": [
+      "TestBranchStartAdmitsMachineIdentityPostgres",
+      "TestInstallMachineAdmissionIsolation"
     ]
   },
   {
