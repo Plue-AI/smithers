@@ -111,7 +111,7 @@ const fileRows = (card: Locator): Locator => card.getByRole("button", { name: /^
 authenticatedTest("review.done, review.ack and review.reopen move a real review comment and survive reload", scenario("reviews.owned-comment-lifecycle", {
   capabilities: ["identity"],
   coverage: [
-    "action:review.done", "action:review.ack", "action:review.reopen", "action:change.view", "action:change.facet",
+    "action:review.done", "action:review.ack", "action:review.reopen", "action:diff", "action:change.facet",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:button", "door:slash",
     "dimension:keyboard", "dimension:reload", "surface:change-card", "evidence:landing-comment-api-readback"
   ],
@@ -165,7 +165,7 @@ authenticatedTest("review.done, review.ack and review.reopen move a real review 
 authenticatedTest("review.request asks a real reviewer and review.unrequest dismisses the request from the card", scenario("reviews.owned-request-unrequest", {
   capabilities: ["identity"],
   coverage: [
-    "action:review.request", "action:review.unrequest", "action:change.view", "host:local", "path:success", "path:persistence",
+    "action:review.request", "action:review.unrequest", "action:diff", "host:local", "path:success", "path:persistence",
     "path:keyboard", "door:slash", "door:button", "dimension:keyboard", "dimension:reload", "surface:change-card",
     "evidence:landing-review-request-api-readback"
   ],
@@ -206,7 +206,7 @@ authenticatedTest("review.request asks a real reviewer and review.unrequest dism
 authenticatedTest("review.since-mine, change.pins and change.checks read a change's recorded revisions", scenario("changes.owned-revision-pins-and-checks", {
   capabilities: ["identity"],
   coverage: [
-    "action:review.since-mine", "action:change.pins", "action:change.checks", "action:change.view", "action:change.facet",
+    "action:review.since-mine", "action:diff", "action:change.facet",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:keyboard", "dimension:reload", "dimension:interdiff", "surface:change-card",
     "evidence:change-diff-and-commit-status-api-readback"

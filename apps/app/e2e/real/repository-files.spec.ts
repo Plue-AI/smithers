@@ -52,7 +52,7 @@ authenticatedTest("files.list, files.read and search.files read seeded bytes fro
   capabilities: ["identity"],
   description: "Push a nested file to an owned repository's main, list its root and directory, read the file, find it with search.files and open it from the keyboard; every listing and byte is compared with the contents API, and the file card survives reload.",
   coverage: [
-    "action:files.list", "action:file", "action:search.files",
+    "action:files", "action:file", "action:search.files",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:keyboard", "dimension:reload", "surface:file-card", "evidence:contents-api-readback"
   ]
@@ -105,7 +105,7 @@ authenticatedTest("files.open-diff reads a changed file at the diff's pinned com
   capabilities: ["identity"],
   description: "Push one revision of a change to an owned repository, open its diff, press Open file on the changed path, and compare the file card with the contents API at the pinned commit before and after reload.",
   coverage: [
-    "action:files.open-diff", "action:change.diff",
+    "action:diff",
     "host:local", "path:success", "path:persistence", "path:keyboard", "door:button", "door:slash",
     "dimension:keyboard", "dimension:reload", "surface:diff-card", "evidence:pinned-contents-api-readback"
   ]

@@ -139,7 +139,7 @@ const expectInboxOnce = async (page: Page, request: APIRequestContext, repo: Own
 authenticatedTest("Inbox scope: several running boxes, one gone by Submit", scenario("approvals.inbox-running-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:approvals.list", "host:production", "path:success", "path:error",
+    "action:runs", "host:production", "path:success", "path:error",
     "door:slash", "dimension:ambiguous-box", "dimension:gone-box",
     "evidence:workflow-requests-and-inbox-readback"
   ],
@@ -170,7 +170,7 @@ authenticatedTest("Inbox scope: several running boxes, one gone by Submit", scen
 authenticatedTest("Inbox scope: several suspended boxes", scenario("approvals.inbox-suspended-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:approvals.list", "action:repo.select", "host:production", "path:success",
+    "action:runs", "action:repo.select", "host:production", "path:success",
     "door:slash", "dimension:resumable-box",
     "evidence:workflow-requests-and-inbox-readback"
   ],

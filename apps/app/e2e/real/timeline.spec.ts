@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs"
 import { test, expect, type Page } from "@playwright/test"
 import { memberRequest } from "./support/seed-stack"
+import { scenario } from "./coverage/types"
 
-test("a committed live TODO reaches both members through the install seam", async ({ browser }) => {
+test("a committed live TODO reaches both members through the install seam", scenario("timeline.live-todo-both-members", {
+  capabilities: [],
+  coverage: ["action:todo", "host:local", "path:success", "path:persistence", "path:keyboard", "door:button", "surface:timeline", "dimension:keyboard", "dimension:multi-member", "dimension:private-hide", "evidence:conversation-api-readback"]
+}), async ({ browser }) => {
   const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
     origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>; todos: { live: number }
   }
@@ -48,7 +52,10 @@ test("a committed live TODO reaches both members through the install seam", asyn
 
 // TestConversationTimelineInstallBrowser owns a real composed install,
 // PostgreSQL and GitHub fake. No browser route or live frame is intercepted.
-test("shared TODO entries reach both members' timeline and narrow edge", async ({ browser }) => {
+test("shared TODO entries reach both members' timeline and narrow edge", scenario("timeline.shared-entries-narrow-edge", {
+  capabilities: [],
+  coverage: ["action:todo", "host:local", "path:success", "path:persistence", "path:keyboard", "door:button", "surface:timeline", "dimension:keyboard", "dimension:multi-member", "dimension:narrow-edge", "evidence:conversation-api-readback"]
+}), async ({ browser }) => {
   const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
     origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>;
     todos: { ready: number; ask: number; fail: number; live: number }
@@ -100,7 +107,10 @@ test("shared TODO entries reach both members' timeline and narrow edge", async (
 
 // This install driver stops before any file edit, independently of Ready's
 // authenticated guest mutation prerequisite. HTTP and live are never mocked.
-test("shared attention and live entries preserve actions and private hiding", async ({ browser }) => {
+test("shared attention and live entries preserve actions and private hiding", scenario("timeline.attention-actions-private-hide", {
+  capabilities: [],
+  coverage: ["action:todo.answer", "action:todo.retry", "host:local", "path:success", "path:persistence", "path:keyboard", "door:button", "surface:timeline", "dimension:keyboard", "dimension:private-hide", "evidence:retry-admission-and-conversation-readback"]
+}), async ({ browser }) => {
   const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
     origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>;
     todos: { ask: number; live: number; aliceFail: number; mayaFail: number }
@@ -212,7 +222,10 @@ test("shared attention and live entries preserve actions and private hiding", as
 
 // The Go driver supplies a historical reviewed PR on the GitHub fake. Only
 // initial state is seeded; reads, publication and private confirmation are real.
-test("a historical reviewed TODO exposes Merge only to its owner", async ({ browser }) => {
+test("a historical reviewed TODO exposes Merge only to its owner", scenario("timeline.reviewed-merge-owner-only", {
+  capabilities: [],
+  coverage: ["action:merge", "host:local", "path:success", "path:permission", "door:button", "surface:timeline", "surface:confirm", "dimension:stale-order", "evidence:confirm-card-and-stale-merge-409"]
+}), async ({ browser }) => {
   const host = JSON.parse(readFileSync(process.env.SMITHERS_TIMELINE_INSTALL!, "utf8")) as {
     origin: string; repository: string; members: Record<string, Array<{ name: string; value: string }>>; todos: { ready: number }
   }

@@ -66,7 +66,7 @@ test("/agents opens one durable Agents card that survives a reload", scenario("a
 // Reference-host proof uses real sessions, SQL observations and merged-main data.
 // No intercepted API or direct GitHub writes: the owner merges the instruction TODO.
 test("C-J11-03 install roles, owner switch and merged app instructions", scenario("agents.install-owner-switch", {
- capabilities: ["install"], coverage: ["host:local", "door:slash", "door:button", "path:success", "dimension:evidence"]
+ capabilities: ["install"], coverage: ["action:agents", "action:model.assign", "action:settings", "host:local", "door:slash", "door:button", "path:success", "dimension:evidence", "evidence:database-readback", "evidence:merged-main-instructions-readback"]
 }), async ({ browser }, info) => {
  const { withReference, required, runSlash, attachJson, createTodo } = await import("./todo/reference")
  test.setTimeout(3_600_000)

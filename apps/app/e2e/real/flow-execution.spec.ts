@@ -47,7 +47,7 @@ test(
     capabilities: ["identity", "cloud"],
     description: "Invoke the three workflow entry points on the real local host while signed out and require the shared identity refusal before provision, RPC, or a run card exists.",
     coverage: [
-      "action:flow.new", "action:flow.list", "action:flow.run",
+      "action:flow.new", "action:flows", "action:flow.run",
       "host:local", "path:permission", "door:slash", "dimension:signed-out",
       "dimension:no-remote-side-effect", "evidence:transcript-and-request-observation"
     ]
@@ -144,7 +144,7 @@ configuredGatewayTest(
     capabilities: ["identity", "cloud"],
     description: "Read a configured canary repository's actual gateway catalog, list it through the UI, and require a runtime-declared flow's JSON schema to become keyboard-operable form fields.",
     coverage: [
-      "action:flow.list", "action:flow.run", "host:production", "path:success", "path:keyboard",
+      "action:flows", "action:flow.run", "host:production", "path:success", "path:keyboard",
       "door:slash", "door:button", "dimension:runtime-discovery", "dimension:declared-input-schema",
       "dimension:keyboard", "evidence:gateway-catalog-and-rendered-form"
     ]
@@ -228,7 +228,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Create an exact typed echo flow on an owned private workspace, retain its accepted run across reload, prove registry discovery, then submit the derived UI form and require the second provider run's output.",
     coverage: [
-      "action:flow.new", "action:flow.list", "action:flow.run",
+      "action:flow.new", "action:flows", "action:flow.run",
       "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
       "dimension:provider-run", "dimension:reload", "dimension:reconnect", "dimension:declared-input-schema",
       "dimension:exact-run-id", "dimension:created-artifact-readback", "dimension:keyboard",
@@ -298,7 +298,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Run the built-in authoring pipeline until its contractually required post-design gate, approve the exact projected request through its card, and require the gateway to retain the approved decision before cancelling the owned run.",
     coverage: [
-      "action:flow.new", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
+      "action:flow.new", "action:flow.run", "host:production", "path:success", "door:slash", "door:button",
       "dimension:provider-run", "dimension:approval-decision", "dimension:exact-run-id",
       "dimension:projection-readback", "dimension:approval-conflict-retry",
       "evidence:approval-submit-replay-conflict-and-decided-projection"
@@ -429,7 +429,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Launch a real provider-backed flow, capture its accepted job id, stop it through the rendered button, and require the server projection for that exact id to become cancelled.",
     coverage: [
-      "action:flow.new", "action:flow.run.stop", "host:production", "path:success", "door:slash", "door:button",
+      "action:flow.new", "action:flow.run", "host:production", "path:success", "door:slash", "door:button",
       "dimension:provider-run", "dimension:cancel", "dimension:exact-run-id",
       "evidence:accepted-id-and-terminal-cancel-projection"
     ]

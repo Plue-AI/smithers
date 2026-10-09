@@ -1,4 +1,6 @@
 // Invoked by the composed-install harness. One runner monotonic clock for both pages.
+// It serves its own mount on the install origin through Playwright routing, which the e2e/real
+// gate forbids, so the campaign lives outside e2e/real.
 import assert from "node:assert/strict"
 import { chromium } from "@playwright/test"
 import { mkdir, writeFile, readdir, statfs } from "node:fs/promises"

@@ -107,7 +107,7 @@ authenticatedTest("repository secret metadata survives reload and follows actual
 authenticatedTest("the Secrets card adds, rotates and deletes a secret through the masked form, never reading a value back", scenario("secrets.card-editor", {
   capabilities: ["identity", "cloud"],
   description: "In a uniquely owned private repository, add a bound secret from the card's masked form, rotate it with a blank binding, and delete it, reading the real backend's metadata after each step without the value reaching the page or any response.",
-  coverage: ["action:secrets.set", "action:secrets.delete", "action:secrets", "host:local", "host:production", "path:success", "door:slash", "door:button", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
+  coverage: ["action:secrets", "host:local", "host:production", "path:success", "door:slash", "door:button", "dimension:write-only-secret", "evidence:backend-metadata-and-deletion-readback"]
 }), async ({ page, request }, testInfo) => {
   const user = await realApi(page, request, "GET", "/api/user")
   expect(user.status()).toBe(200)

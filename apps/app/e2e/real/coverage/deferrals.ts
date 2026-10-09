@@ -1,8 +1,8 @@
-import { approvals } from "./deferrals/approvals"
 import { billing } from "./deferrals/billing"
 import { box } from "./deferrals/box"
 import { branches } from "./deferrals/branches"
 import { change } from "./deferrals/change"
+import { code } from "./deferrals/code"
 import { commits } from "./deferrals/commits"
 import { egress } from "./deferrals/egress"
 import { files } from "./deferrals/files"
@@ -13,12 +13,10 @@ import { github } from "./deferrals/github"
 import { history } from "./deferrals/history"
 import { issues } from "./deferrals/issues"
 import { plugins } from "./deferrals/plugins"
-import { prs } from "./deferrals/prs"
 import { repo } from "./deferrals/repo"
 import { repos } from "./deferrals/repos"
 import { runs } from "./deferrals/runs"
 import { search } from "./deferrals/search"
-import { secrets } from "./deferrals/secrets"
 import { triggers } from "./deferrals/triggers"
 import { wiki } from "./deferrals/wiki"
 
@@ -39,10 +37,10 @@ export const RELEASE_CRITICAL_ACTIONS: readonly string[] = [
 export type Deferral = "browser" | "diagnostics" | "owed" | "deferred: mvp.md §8/§16"
 
 export const OWED_ACTIONS_BY_FAMILY = {
-  approvals,
   box,
   branches,
   change,
+  code,
   commits,
   egress,
   files,
@@ -53,10 +51,8 @@ export const OWED_ACTIONS_BY_FAMILY = {
   history,
   issues,
   plugins,
-  prs,
   runs,
   search,
-  secrets,
   wiki,
 } as const
 
@@ -84,17 +80,14 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "agent",
     "branch.bring-in",
     "branch.discard-foreign",
-    "branch.rebase-now",
     "file.compare",
     "file.follow-rename",
     "file.reapply",
     "file.restore-deleted",
-    "image.add",
     "learning.accept",
     "learning.dismiss",
     "main.reset-to-github",
     "merge.confirm",
-    "model.assign",
     "model.edit",
     "model.list",
     "model.new",
@@ -104,58 +97,41 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "model.test",
     "monitor",
     "order.ok",
-    "proposal",
     "settings.model.set",
     "todo.preapprove",
     "todo.takeover",
     "todo.unapprove",
     // Current MVP doors still owe real-host scenarios (#2290). These are gaps, never executed coverage.
+    "agent.edit",
     "auth.email",
     "background.dismiss",
     "background.retry",
-    "branch",
     "branch.add-to-stack",
+    "branch.archive",
     "branch.fork",
     "branch.rebase",
     "confirm.cancel",
-    // DARK (#3504): activation awaits the T-APP-16 context provider (#3446).
-    "context.inspect",
     "debug-api",
-    "diff",
     "docs",
     "draft.discard",
-    "file",
-    "file.restore",
-    "files",
     "flow.source",
-    "flows",
     "github",
     "issue",
     "issue.comment",
     "issue.new",
     "issues",
-    "merge",
     // DARK (#3558): activation awaits the T-APP-07 entry provider and synchronous person dispatch.
     "notifications.allow",
-    "pr",
-    "review",
     "run",
     "run.inspect",
-    "runs",
-    "settings",
     "ssh",
     "stack",
     "stack.move",
-    "terminal.send",
-    "todo",
     "todo.amend",
-    "todo.answer",
     "todo.drop",
     "todo.from-issue",
     "todo.resume",
-    "todo.retry",
     "todo.retry-current-flow",
-    "todo.steer",
     "todo.stop",
     "wiki.page",
     "wiki.save",

@@ -5,6 +5,11 @@
 | T1   | `pnpm --filter smithers-app test:e2e` | `playwright.config.ts` | `playwright/*.spec.ts`   |
 | Real | `pnpm --filter smithers-app test:e2e:real` | `scripts/run-real-e2e.ts` | `real/**/*.spec.ts` |
 | Showcase | `pnpm --dir apps/app showcase [id...]` | `playwright.showcase.config.ts` | `showcase/cases/*.case.ts` |
+| Composed | Go tests in `packages/backend/internal/compose` | `bun` | `composed/*.ts` |
+
+Composed harnesses drive an owned install and may intercept browser traffic for
+fault injection or to mount a campaign page, so they live outside `real/`, whose
+gate forbids interception.
 
 Keyboard traversal uses `controlTabKey(page)` from `playwright/browserTest.ts`:
 Tab elsewhere, Option-Tab in macOS WebKit; pass `true` for reverse traversal.

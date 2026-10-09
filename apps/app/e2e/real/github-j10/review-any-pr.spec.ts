@@ -138,13 +138,11 @@ const githubWrites = (auditPath: string, repo: string, since: string): AuditReco
   readFileSync(auditPath, "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line) as AuditRecord)
     .filter(record => record.at >= since && record.method.toUpperCase() !== "GET" && record.method.toUpperCase() !== "HEAD" && record.path.startsWith(`/repos/${repo}`))
 
-const journey = scenario("journey-review-any-pr", {
+test("C-J10-09 /review on a teammate's PR", scenario("journey-review-any-pr", {
   capabilities: [],
   coverage: ["action:review", "host:local", "path:success", "path:permission", "door:slash", "door:agent", "surface:confirm", "dimension:background-machine", "dimension:pinned-flow", "evidence:github-write-log"],
   description: "C-J10-09 S1: a member's PR reviewed in an ephemeral machine at its head with the Active review flow, the app agent's Confirm card, and an outsider's PR refused before any machine request."
-})
-
-test("C-J10-09 /review on a teammate's PR", journey, async ({ browser }, info) => {
+}), async ({ browser }, info) => {
   test.setTimeout(2_400_000)
   if ((process.env.SMITHERS_JOURNEY_STAGE ?? "S1") !== "S1") throw new JourneyUnavailable("This automation qualifies C-J10-09 S1; T-MCH-06 owns the S2 capacity run")
   const auditPath = required("SMITHERS_JOURNEY_GITHUB_AUDIT_LOG")

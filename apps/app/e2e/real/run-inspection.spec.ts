@@ -98,7 +98,7 @@ test("signed-out run inspection parks durably before any workspace RPC", scenari
 test("signed-out run attention cannot enumerate workspace state", scenario("runs.permission-attention-no-enumeration", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:runs.attention", "action:auth.prompt", "host:production", "path:permission", "door:slash",
+    "action:runs", "action:auth.prompt", "host:production", "path:permission", "door:slash",
     "dimension:signed-out-attention", "dimension:no-workspace-enumeration",
     "evidence:sign-in-card-and-absent-projection-rpc"
   ],
@@ -207,7 +207,7 @@ workflowTest("a completed provider run exposes its real trace, transcript, event
 workflowTest("a successful prompt run matches its journal while live and after keyboard scrubbing", scenario("runs.timeline-phase-strip-scrub-durable", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:box.view", "action:box.suspend", "action:box.resume", "action:repo.select",
+    "action:branch", "action:box.suspend", "action:box.resume", "action:repo.select",
     "action:flow.run", "action:runs.trace.select", "action:runs.trace.live", "action:runs.trace.view",
     "host:production", "path:success", "path:persistence", "path:keyboard", "door:slash", "door:button",
     "dimension:real-provider", "dimension:real-pty", "dimension:keyboard", "dimension:repository-owned-prompt-flow", "dimension:completed-run",
@@ -265,7 +265,7 @@ workflowTest("a successful prompt run matches its journal while live and after k
 workflowTest("a budget-failed prompt run shows its recorded failure without claiming an edit", scenario("runs.timeline-failed-prompt-evidence", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:box.view", "action:box.suspend", "action:box.resume", "action:repo.select", "action:flow.run",
+    "action:branch", "action:box.suspend", "action:box.resume", "action:repo.select", "action:flow.run",
     "host:production", "path:error", "door:slash", "dimension:real-provider", "dimension:failed-run",
     "dimension:repository-owned-prompt-flow", "dimension:timeline", "evidence:failed-journal-and-unchanged-file"
   ],
@@ -317,7 +317,7 @@ workflowTest("a budget-failed prompt run shows its recorded failure without clai
 workflowTest("an ordinary module run reports recorded step evidence or its pinned host limitation", scenario("runs.timeline-ordinary-module-evidence", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:box.view", "action:repo.select", "action:flow.run",
+    "action:branch", "action:repo.select", "action:flow.run",
     "host:production", "path:success", "door:slash", "dimension:real-provider", "dimension:ordinary-module-flow",
     "dimension:host-revision-evidence", "evidence:recorded-module-step-trail-or-host-predates-commit"
   ],
@@ -472,8 +472,7 @@ workflowTest("run again creates a second real execution and both appear in the s
 workflowTest("stop all cancels two live owned runs, leaves a terminal sibling unchanged, and terminal resume is refused", scenario("runs.stop-all-owned-live-scope", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:flow.new", "action:runs.list", "action:flow.run.stop-all", "action:runs.resume",
-    "action:flow.run.stop",
+    "action:flow.new", "action:runs.list", "action:flow.run", "action:runs.resume",
     "host:production", "path:error",
     "door:slash", "door:button", "dimension:real-provider", "dimension:multiple-live-runs",
     "dimension:owned-workspace-scope", "dimension:terminal-sibling", "dimension:terminal-drain",

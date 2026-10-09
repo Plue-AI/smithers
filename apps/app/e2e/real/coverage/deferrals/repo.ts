@@ -1,3 +1,3 @@
 export const repo = [
-  "repo.choose", "repo.tree", "repo.update",
+  "repo.choose", "repo.update",
 ] as const

@@ -485,7 +485,7 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "TODO evidence item discriminator emitted by packages/backend/internal/services/mythical_todo_read.go; the filter inspects attempt.items, never cards."
   },
   {
-    literal: "live-drop-", file: "e2e/real/live-todo.browser.ts",
+    literal: "live-drop-", file: "e2e/composed/live-todo.browser.ts",
     reason: "Test-owned HTTP Idempotency-Key for TODO drop requests, never an application card ID."
   },
   {

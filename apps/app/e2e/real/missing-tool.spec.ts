@@ -1,10 +1,14 @@
 import { expect, test } from "../playwright/browserTest"
-import { say } from "../playwright/spec/j1-fixtures"
+import { say } from "../playwright/composer"
+import { scenario } from "./coverage/types"
 
-test("C-APP-03: production coding check opens the machine image Draft", async ({ page, context }) => {
+test("C-APP-03: production coding check opens the machine image Draft", scenario("todo.missing-tool-image-draft", {
+  capabilities: [],
+  coverage: ["action:todo", "action:image.add", "host:local", "path:success", "door:slash", "door:button", "surface:todo", "dimension:missing-tool", "evidence:draft-seed-and-todo-api-readback"]
+}), async ({ page, context }) => {
   const origin = process.env.SMITHERS_MISSING_TOOL_ORIGIN
   const n = process.env.SMITHERS_MISSING_TOOL_N
-  test.skip(!origin || !n, "Run TestTodoMissingToolCodingReceiptBrowser")
+  if (!origin || !n) throw new Error("Run through TestTodoMissingToolCodingReceiptBrowser")
   const cookies: Array<{ Name: string; Value: string }> = JSON.parse(process.env.SMITHERS_MISSING_TOOL_COOKIES!)
   await context.addCookies(cookies.map(c => ({ name: c.Name, value: c.Value, url: origin! })))
   await page.goto(origin!)

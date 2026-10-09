@@ -117,7 +117,7 @@ func testLiveInstallBrowser(t *testing.T, secrets bool) {
 	t.Cleanup(func() { require.Zero(t, runtime.InUse(), "the control-path journey never boots a VM") })
 	app, err := filepath.Abs("../../../../apps/app")
 	require.NoError(t, err)
-	script := "e2e/real/live-todo.browser.ts"
+	script := "e2e/composed/live-todo.browser.ts"
 	if secrets {
 		script = "e2e/real/live-secrets.browser.ts"
 	}

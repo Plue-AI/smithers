@@ -217,7 +217,7 @@ const steersWith = (card: { steers: { text: string; by: any }[] }, text: string)
 
 test("C-J10-02 a GitHub review steers the TODO and its fix updates the same PR", scenario("journey-review-steer", {
   capabilities: [],
-  coverage: ["action:todo.steer", "host:local", "path:success", "path:permission", "surface:todo", "dimension:github-review", "dimension:live", "dimension:host-restart", "evidence:database-readback", "evidence:github-write-log"],
+  coverage: ["action:todo.steer", "host:local", "path:success", "path:permission", "door:slash", "door:user-only", "surface:todo", "dimension:github-review", "dimension:live", "dimension:host-restart", "evidence:database-readback", "evidence:github-write-log"],
   description: "C-J10-02: Alice's GitHub review steers the TODO within 60 s and its fix updates the same PR; a restart adds no second steer; an outsider's comment and the owner's approval change nothing."
 }), async ({ browser }, info) => {
   test.setTimeout(45 * 60_000)

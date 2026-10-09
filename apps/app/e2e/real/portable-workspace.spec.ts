@@ -43,7 +43,7 @@ const withWorkspaceCleanup = async <T>(page: Page, request: APIRequestContext, r
 
 authenticatedTest("a product workspace suspends, resumes, and deletes", scenario("workspaces.product-lifecycle", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:box.open", "action:box.suspend", "action:box.resume", "action:box.delete", "host:local", "host:production", "path:success", "door:slash", "surface:workspace-api", "evidence:state-transitions-and-delete"]
+  coverage: ["action:branch", "action:box.suspend", "action:box.resume", "action:box.delete", "host:local", "host:production", "path:success", "door:slash", "surface:workspace-api", "evidence:state-transitions-and-delete"]
 }), async ({ page, request }, testInfo) => {
   testInfo.setTimeout(600_000)
   await withOwnedRepository(page, request, async (repo) => {
@@ -142,7 +142,7 @@ authenticatedTest("a product workspace suspends, resumes, and deletes", scenario
 
 authenticatedTest("a failed UI workspace creation check still cleans up its box", scenario("workspaces.product-lifecycle-cleanup", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:box.open", "host:local", "host:production", "path:success", "door:slash", "evidence:owned-cleanup-after-create"]
+  coverage: ["action:branch", "host:local", "host:production", "path:success", "door:slash", "evidence:owned-cleanup-after-create"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const startedAt = performance.now()

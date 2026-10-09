@@ -52,7 +52,7 @@ test.use({ trace: "off", screenshot: "off", video: "off" })
 
 test("a fresh install creates and installs its GitHub App", scenario("github.localhost-app-manifest", {
   capabilities: [],
-  coverage: ["action:settings.setup", "host:local", "path:success", "door:button", "dimension:github-app-manifest", "evidence:live-github-and-install-readback"],
+  coverage: ["action:settings", "host:local", "path:success", "door:button", "dimension:github-app-manifest", "evidence:live-github-and-install-readback"],
   description: "Create an App under the saved canary account, install only canary-sandbox, read sanitized host state, and delete only the fresh App."
 }), async ({ playwright }, testInfo) => {
   test.setTimeout(180_000)

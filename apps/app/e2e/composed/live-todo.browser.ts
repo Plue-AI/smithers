@@ -1,4 +1,6 @@
 /** TestLiveTodoBrowserPostgres supplies the composed install. No API response or Live frame is mocked. */
+// The outage below holds and proxies real traffic through Playwright interception, which the
+// e2e/real gate forbids, so this composed-install harness lives outside e2e/real.
 import { chromium, expect } from "@playwright/test"
 import { createServer } from "vite"
 import { fillComposer } from "../playwright/composer"

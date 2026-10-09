@@ -1,3 +1,3 @@
 export const flow = [
-  "flow.plan", "flow.run.retry",
+  "flow.plan",
 ] as const

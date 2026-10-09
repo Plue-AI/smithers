@@ -39,7 +39,7 @@ configuredGatewayTest(
     capabilities: ["identity", "cloud"],
     description: "Open the configured canary workspace through the rendered UI, read files, services, snapshots, and egress from the provider, and verify every response remains bound to the exact repository and workspace id.",
     coverage: [
-      "action:box.view", "action:box.facet", "action:box.files", "action:box.file",
+      "action:branch", "action:box.facet", "action:files", "action:file",
       "action:box.services", "action:box.egress",
       "host:production", "path:success", "door:slash", "door:button", "dimension:provider-readback",
       "dimension:workspace-scope", "dimension:facet-readback", "evidence:ui-cards-and-independent-provider-responses"
@@ -113,7 +113,7 @@ workflowTest(
     capabilities: ["identity", "cloud"],
     description: "Drive suspend and resume through the UI's real commands, independently poll each provider state transition, then type the exact workspace name and verify the provider and UI both report deletion.",
     coverage: [
-      "action:box.suspend", "action:box.resume", "action:box.delete", "action:box.view",
+      "action:box.suspend", "action:box.resume", "action:box.delete", "action:branch",
       "host:production", "path:success", "path:keyboard", "door:slash", "door:button", "dimension:keyboard", "dimension:state-transitions",
       "dimension:typed-delete-confirmation", "dimension:post-delete-readback", "evidence:provider-status-polls-and-404"
     ]
@@ -190,7 +190,7 @@ workflowTest(
   scenario("workspaces.cloud-missing-model-refusal", {
     capabilities: ["identity", "cloud"],
     description: "Select a freshly imported running workspace with no model configured and require the real coding gateway to name the missing configuration in the UI.",
-    coverage: ["action:box.view", "action:repo.select", "action:flow.list", "host:production", "path:error", "door:slash", "dimension:missing-model", "dimension:bounded-refusal", "evidence:real-provision-response-and-visible-error"]
+    coverage: ["action:branch", "action:repo.select", "action:flows", "host:production", "path:error", "door:slash", "dimension:missing-model", "dimension:bounded-refusal", "evidence:real-provision-response-and-visible-error"]
   }),
   async ({ page, request, workflowRepo }, testInfo) => {
     const id = workflowRepo.workspaceId

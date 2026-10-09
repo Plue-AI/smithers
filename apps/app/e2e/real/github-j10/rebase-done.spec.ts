@@ -5,7 +5,7 @@ import { runSlash } from "../issues/local"
 
 test("TODO Done validates the retained conflict through the composed install", scenario("journey-rebase-done", {
   capabilities: [],
-  coverage: ["host:local", "action:todo.answer", "path:error", "path:success", "surface:todo", "door:button", "door:slash"],
+  coverage: ["host:local", "action:todo.answer", "path:error", "path:success", "surface:todo", "door:button", "door:slash", "evidence:service-answer-409-then-202"],
   description: "After restart, unresolved Done refuses; a person writes the resolution and Done resumes the same attempt."
 }), async ({ browser }) => {
   test.setTimeout(120_000)

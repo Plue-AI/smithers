@@ -13,3 +13,10 @@ export const fillComposer = async (page: Page, text: string): Promise<void> => {
   await expect(input).toBeVisible()
   await input.fill(text)
 }
+
+/** Send one composer line and wait for the composer to clear. */
+export const say = async (page: Page, text: string): Promise<void> => {
+  await fillComposer(page, text)
+  await page.getByTestId("composer-input").press("Enter")
+  await expect(page.getByTestId("composer-input")).toHaveValue("")
+}

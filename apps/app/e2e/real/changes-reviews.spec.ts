@@ -52,7 +52,7 @@ const currentPublicChange = async (page: Parameters<typeof realApi>[0], request:
 test("a signed-out production user can verify a public change and diff but change.view waits durably for GitHub sign-in", scenario("changes.production-public-read-auth-boundary", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:change.view", "action:auth.prompt", "host:production", "path:permission", "path:persistence",
+    "action:diff", "action:auth.prompt", "host:production", "path:permission", "path:persistence",
     "door:slash", "dimension:public-change-read", "dimension:public-diff-read", "dimension:signed-out-deferred-reload",
     "evidence:live-change-and-diff-api-plus-auth-step"
   ],
@@ -136,7 +136,7 @@ test("review.request issues no mutation while a production user is signed out", 
 authenticatedTest("an authenticated production user reads a live change and traverses its durable facets by keyboard", scenario("changes.production-authenticated-facets", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:change.view", "action:change.facet", "host:production", "path:success", "path:keyboard", "path:persistence",
+    "action:diff", "action:change.facet", "host:production", "path:success", "path:keyboard", "path:persistence",
     "door:slash", "door:button", "dimension:authenticated-public-change", "dimension:keyboard", "dimension:history-facet",
     "dimension:review-facet", "dimension:reload", "evidence:live-change-detail-diff-and-session-api"
   ],
@@ -212,7 +212,7 @@ authenticatedTest("an authenticated production user reads a live change and trav
 authenticatedTest("an authenticated production user opens the exact live diff through slash and file-row button doors", scenario("changes.production-authenticated-diff-doors", {
   capabilities: ["identity", "cloud"],
   coverage: [
-    "action:change.view", "action:change.diff", "host:production", "path:success", "path:keyboard", "path:persistence",
+    "action:diff", "host:production", "path:success", "path:keyboard", "path:persistence",
     "door:slash", "door:button", "dimension:authenticated-public-diff", "dimension:file-row-action", "dimension:keyboard",
     "dimension:reload", "evidence:live-diff-api-and-rendered-file-stat"
   ],

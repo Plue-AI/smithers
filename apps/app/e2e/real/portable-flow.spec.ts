@@ -26,7 +26,7 @@ const proofFlow = (marker: string): string => [
 
 authenticatedTest("an owned repository runs a declared Flow on its box and exposes its durable result", scenario("flows.product-run", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:box.view", "action:flow.list", "action:flow.run", "host:local", "host:production", "path:success", "door:slash", "surface:flow-api", "dimension:default-box", "dimension:fresh-box-catalog", "evidence:accepted-run-terminal-projection-and-box-file"]
+  coverage: ["action:branch", "action:flows", "action:flow.run", "host:local", "host:production", "path:success", "door:slash", "surface:flow-api", "dimension:default-box", "dimension:fresh-box-catalog", "evidence:accepted-run-terminal-projection-and-box-file"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const marker = randomUUID()
@@ -96,7 +96,7 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
 
 authenticatedTest("a flow list with no box of the repository asks for one instead of answering empty", scenario("flows.product-no-box", {
   capabilities: ["identity", "cloud"],
-  coverage: ["action:flow.list", "host:local", "host:production", "path:error", "door:slash", "dimension:no-box", "evidence:failure-toast-and-no-relay-call"]
+  coverage: ["action:flows", "host:local", "host:production", "path:error", "door:slash", "dimension:no-box", "evidence:failure-toast-and-no-relay-call"]
 }), async ({ page, request }) => {
   await withOwnedRepository(page, request, async (repo) => {
     const relayed: Array<string> = []

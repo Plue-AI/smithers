@@ -1,7 +1,11 @@
 import { test, expect } from "@playwright/test"
+import { scenario } from "./coverage/types"
 import { fillComposer } from "../playwright/composer"
 
-test("a host turn survives closing its author tab and replays for both members", async ({ browser, baseURL }) => {
+test("a host turn survives closing its author tab and replays for both members", scenario("branch-conversations.author-tab-close-replay", {
+  capabilities: [],
+  coverage: ["action:chat.send", "host:local", "path:success", "path:persistence", "door:user-only", "dimension:multi-member", "dimension:tab-close", "evidence:conversation-api-replay"]
+}), async ({ browser, baseURL }) => {
   if (!baseURL) throw new Error("Run through TestBranchConversationTabClose")
   const origin = new URL(baseURL)
   const member = async (login: string) => {

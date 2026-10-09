@@ -1,16 +1,13 @@
 import { expect, type Page } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
-import { fillComposer } from "../composer"
+import { say } from "../composer"
+
+export { say }
 
 // Owner privilege is required by J1 setup; do not raise the shared member fixture.
 export async function owner(page: Page) {
   await installCloudFixture(page)
   await page.route(url => url.pathname === "/api/user" || url.pathname === "/api/auth/session", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
-}
-export async function say(page: Page, text: string) {
-  await fillComposer(page, text)
-  await page.getByTestId("composer-input").press("Enter")
-  await expect(page.getByTestId("composer-input")).toHaveValue("")
 }
 export const setup = (page: Page) => page.getByRole("region", { name: "Set up Smithers" })
 export async function sourceReady(page: Page) {

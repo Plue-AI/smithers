@@ -172,7 +172,7 @@ func TestCodeDocumentLatencyCampaign(t *testing.T) {
 	real := startRealDocumentInstall(t, "")
 	install := real.codeDocumentInstall
 	guestEnvironment := []string{"SMITHERS_CODE_DOCUMENT_GUEST=installed-linux-daemon", "SMITHERS_CODE_DOCUMENT_DISK=" + filepath.Join(real.root, "retry.ts")}
-	script, err := filepath.Abs("../../../../apps/app/e2e/real/code-document-latency.campaign.ts")
+	script, err := filepath.Abs("../../../../apps/app/e2e/composed/code-document-latency.campaign.ts")
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()

@@ -9,7 +9,7 @@ import { authenticatedTest as test } from "./auth-permissions/profile"
 // the same unprivileged install. No mocked routes or shortened worker interval.
 test("Settings syncs a Mac folder in both directions without restart", scenario("wiki.obsidian-folder", {
   capabilities: ["install"],
-  coverage: ["host:local", "action:settings.obsidian", "door:button", "path:success", "path:persistence", "evidence:folder-revisions"]
+  coverage: ["host:local", "action:settings", "door:button", "path:success", "path:persistence", "evidence:folder-revisions"]
 }), async ({ page, request }, info) => {
   test.setTimeout(360_000)
   expect(process.platform, "C-J8-03 requires the install Mac").toBe("darwin")

@@ -5,8 +5,7 @@
 import { chromium, expect, type BrowserContext, type Page } from "@playwright/test"
 import { createServer } from "vite"
 import { expectRecordedConversation, importedRows, MEMBER_MACHINE_CODEX, RECORDED_ENTRIES } from "./external-transcript.checks"
-import { say } from "../playwright/spec/j1-fixtures"
-import { fillComposer } from "../playwright/composer"
+import { fillComposer, say } from "../playwright/composer"
 
 const origin = process.env.SMITHERS_LIVE_ORIGIN!
 if (!origin) throw new Error("The owned PostgreSQL install is required")

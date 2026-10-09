@@ -5,7 +5,7 @@ import { runSlash } from "../issues/local"
 
 test("Branch Rebase now runs through the composed install", scenario("journey-rebase-now", {
   capabilities: [],
-  coverage: ["host:local", "action:branch.rebase-now", "path:success", "surface:branch", "door:button", "door:slash"],
+  coverage: ["host:local", "action:branch.rebase-now", "path:success", "surface:branch", "door:button", "door:slash", "evidence:service-admission-202"],
   description: "The real Branch card admits Rebase now and leaves Chat usable while the stack rewrites and updates the existing PR."
 }), async ({ browser }) => {
   test.setTimeout(120_000)
