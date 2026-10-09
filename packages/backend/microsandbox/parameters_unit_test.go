@@ -170,7 +170,8 @@ func TestMicrosandboxUnitServiceReadinessAcceptsOnlyGuestLoopbackPorts(t *testin
 func TestMicrosandboxUnitDefaultsPreserveExplicitLimits(t *testing.T) {
 	for _, initial := range []int{-1, 0} {
 		config := Config{CPUs: initial, MemoryMiB: initial, DiskMiB: initial, MaxConcurrent: initial, MaxRunningVMs: initial,
-			OutputLimit: initial, FileReadLimit: int64(initial), CommandTimeout: time.Duration(initial)}
+			OutputLimit: initial, FileReadLimit: int64(initial), CommandTimeout: time.Duration(initial),
+			DaemonLossLimit: time.Duration(initial)}
 		applyDefaults(&config)
 		require.Equal(t, initial, config.CPUs)
 		require.Equal(t, initial, config.MemoryMiB)
@@ -180,10 +181,11 @@ func TestMicrosandboxUnitDefaultsPreserveExplicitLimits(t *testing.T) {
 		require.Equal(t, 4_194_304, config.OutputLimit)
 		require.Equal(t, int64(16_777_216), config.FileReadLimit)
 		require.Equal(t, time.Hour, config.CommandTimeout)
+		require.Equal(t, 3*time.Minute, config.DaemonLossLimit)
 		require.Regexp(t, `^node@sha256:[0-9a-f]{64}$`, config.Image)
 	}
 	explicit := Config{Image: "custom@sha256:declared", CPUs: 1, MemoryMiB: 1, DiskMiB: 1, MaxConcurrent: 1,
-		MaxRunningVMs: 1, OutputLimit: 1, FileReadLimit: 1, CommandTimeout: time.Nanosecond}
+		MaxRunningVMs: 1, OutputLimit: 1, FileReadLimit: 1, CommandTimeout: time.Nanosecond, DaemonLossLimit: time.Nanosecond}
 	before := explicit
 	applyDefaults(&explicit)
 	require.Equal(t, before, explicit)

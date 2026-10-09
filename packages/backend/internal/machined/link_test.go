@@ -330,3 +330,52 @@ func TestMintBootPublishesSecretAtomically(t *testing.T) {
 	link, _ := connectTest(t, r, "a", next)
 	require.NoError(t, link.Reconciled())
 }
+
+// #3385: a daemon that died behind the guest relay leaves the host transport
+// open. A request deadline after the daemon has been silent past the limit
+// ends the link so the reconnect watcher redials; a caller's cancellation or
+// a recently heard daemon does not.
+func TestHostLinkSilentDaemonEndsTheLink(t *testing.T) {
+	previous := linkSilenceLimit
+	linkSilenceLimit = 200 * time.Millisecond
+	t.Cleanup(func() { linkSilenceLimit = previous })
+	r := new(Registry)
+	a, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, daemon := connectTest(t, r, "a", a)
+	require.NoError(t, link.Reconciled())
+	// The daemon reads every request and answers none.
+	go func() {
+		for {
+			if _, err := wire.Read(daemon); err != nil {
+				return
+			}
+		}
+	}()
+	request := func(timeout time.Duration) error {
+		ctx, cancel := context.WithTimeout(t.Context(), timeout)
+		defer cancel()
+		_, err := link.Request(ctx, "a", wire.SetRoster, wire.Field(1, wire.U16(0)))
+		return err
+	}
+	open := func() bool {
+		select {
+		case <-link.Done():
+			return false
+		default:
+			return true
+		}
+	}
+	// Heard at the handshake: a missed deadline within the limit keeps it.
+	require.ErrorIs(t, request(20*time.Millisecond), context.DeadlineExceeded)
+	require.True(t, open())
+	time.Sleep(250 * time.Millisecond)
+	// Cancellation is the caller's choice, not evidence about the daemon.
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	_, err = link.Request(ctx, "a", wire.SetRoster, wire.Field(1, wire.U16(0)))
+	require.ErrorIs(t, err, context.Canceled)
+	require.True(t, open())
+	require.ErrorIs(t, request(20*time.Millisecond), context.DeadlineExceeded)
+	require.Eventually(t, func() bool { return !open() }, time.Second, time.Millisecond)
+}

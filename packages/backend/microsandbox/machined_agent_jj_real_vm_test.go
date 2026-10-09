@@ -167,3 +167,63 @@ for pid in os.listdir("/proc"):
 		return runtime.EnsureMachined(call, id) == nil
 	}, 60*time.Second, time.Second, "the broker restarts a daemon that died")
 }
+
+// A machine whose daemon cannot come back must not hold its slot. Here the
+// repository's op head is made unreadable to the daemon, as run 8's and run
+// 9's agent writes left it, and the daemon is killed: every restart fails.
+// The host notices the silent link, cannot redial, and stops the machine,
+// retaining its disk (#3385).
+func TestRealMicroVMLostDaemonReleasesItsSlot(t *testing.T) {
+	runtime := realRuntime(t, t.TempDir())
+	if runtime.config.Bundle == nil {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_CHECK_BUNDLE is required: only the bundle runs a daemon")
+		}
+		t.Skip("SMITHERS_CHECK_BUNDLE is not set: only the bundle runs a daemon")
+	}
+	runtime.config.DaemonLossLimit = 15 * time.Second
+	id := uuid.NewString()
+	ctx, cancel := context.WithTimeout(operation("lost-daemon"), 8*time.Minute)
+	defer cancel()
+	_, err := preparedRuntime{runtime}.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete-lost-daemon"), id)) }()
+	ws, err := runtime.runningWorkspace(id)
+	require.NoError(t, err)
+	require.NoError(t, runtime.EnsureMachined(ctx, id))
+	guest := func(script string) string {
+		out, _ := runtime.cli.run(context.Background(), nil, "exec", ws.Machine, "--", "timeout", "20", "/bin/sh", "-c", script)
+		return string(out)
+	}
+	var logs lockedBuffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	defer slog.SetDefault(previous)
+	// The backend's roster pushes: the only traffic that notices a silent link.
+	rosterCtx, stopRoster := context.WithCancel(ctx)
+	defer stopRoster()
+	go func() {
+		for rosterCtx.Err() == nil {
+			call, stop := context.WithTimeout(rosterCtx, 3*time.Second)
+			_ = runtime.MachinedRegistry().SetRoster(call, id, nil)
+			stop()
+			time.Sleep(time.Second)
+		}
+	}()
+	require.Contains(t, guest(`cd /workspace/.jj/repo/op_store/operations && head=$(ls /workspace/.jj/repo/op_heads/heads) &&
+chown agent "$head" && chmod 0600 "$head" && echo locked "$head"
+for p in /proc/[0-9]*; do case "$(tr '\000' ' ' < $p/cmdline 2>/dev/null)" in *"smithers-machined daemon"*) kill -9 ${p#/proc/};; esac; done`), "locked")
+	require.Eventually(t, func() bool {
+		runtime.mu.Lock()
+		defer runtime.mu.Unlock()
+		return ws.State == "stopped"
+	}, 4*time.Minute, time.Second, "host log:\n%s", logs.String())
+	t.Logf("host log:\n%s", logs.String())
+	require.Contains(t, logs.String(), "machine daemon lost; stopping the machine to release its slot")
+	require.Contains(t, logs.String(), "daemon_failed")
+	runtime.mu.Lock()
+	state, inUse := ws.State, runtime.inUseLocked()
+	runtime.mu.Unlock()
+	require.Equal(t, "stopped", state)
+	require.Zero(t, inUse, "the stopped machine holds no slot")
+}

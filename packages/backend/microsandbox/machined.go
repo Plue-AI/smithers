@@ -306,6 +306,7 @@ func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.
 			if current, err := r.runningWorkspace(id); err == nil && current == ws {
 				r.logDaemonReport(ws)
 			}
+			lost := time.Now()
 			for {
 				if current, err := r.runningWorkspace(id); err != nil || current != ws {
 					return
@@ -318,6 +319,9 @@ func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.
 				err := r.EnsureMachined(retry, id)
 				cancel()
 				if err != nil {
+					if time.Since(lost) >= r.config.DaemonLossLimit && r.stopDaemonLost(id, ws, time.Since(lost), err) {
+						return
+					}
 					continue
 				}
 				link, err = r.machined.Current(id)
@@ -327,6 +331,24 @@ func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.
 			}
 		}
 	}()
+}
+
+// stopDaemonLost stops a running machine whose daemon stayed unreachable past
+// DaemonLossLimit, so it no longer holds an admission slot (#3385). The stop
+// retains the disk and every unverified write on it, as an idle stop does;
+// the next start recovers them through a new daemon. It reports whether the
+// machine stopped.
+func (r *Runtime) stopDaemonLost(id string, ws *workspace, lost time.Duration, cause error) bool {
+	r.logDaemonReport(ws)
+	slog.Warn("machine daemon lost; stopping the machine to release its slot",
+		"machine", ws.Machine, "for", lost.Round(time.Second).String(), "error", cause)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := r.StopWorkspace(ctx, id); err != nil {
+		slog.Warn("stopping a machine without a daemon failed", "machine", ws.Machine, "error", err)
+		return false
+	}
+	return true
 }
 
 // logDaemonReport logs the newest lines of the guest's daemon.log: the

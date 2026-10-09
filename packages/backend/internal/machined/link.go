@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -215,6 +217,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		l.objectQueue = make(chan struct{}, 1)
 		go l.importObjects()
 	}
+	l.heard.Store(time.Now().UnixNano())
 	go l.read()
 	return l, nil
 }
@@ -248,7 +251,14 @@ type Link struct {
 	objectPending    int
 	objectEOF        bool
 	objectSeen       map[uint32]bool
+	// heard is when the daemon last sent any frame (Unix nanoseconds).
+	heard atomic.Int64
 }
+
+// linkSilenceLimit is how long a daemon may answer nothing before a request
+// that times out ends its link. The guest relay can end without ending its
+// host transport, so a link would otherwise outlive its daemon (#3385).
+var linkSilenceLimit = 30 * time.Second
 
 // Done closes when this exact authenticated connection ends.
 func (l *Link) Done() <-chan struct{} { return l.done }
@@ -289,6 +299,7 @@ func (l *Link) read() {
 		if err != nil {
 			return
 		}
+		l.heard.Store(time.Now().UnixNano())
 		switch f.Kind {
 		case wire.Control:
 			if f.Payload[0] != 2 {
@@ -436,6 +447,13 @@ func (l *Link) Request(ctx context.Context, branch string, method wire.Method, a
 	}
 	select {
 	case <-ctx.Done():
+		// A caller's deadline, not its cancellation, is evidence. A daemon
+		// silent this long is gone or wedged: end the link so the reconnect
+		// watcher redials it.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) &&
+			time.Since(time.Unix(0, l.heard.Load())) >= linkSilenceLimit {
+			_ = l.Close()
+		}
 		return wire.Frame{}, ctx.Err()
 	case <-l.done:
 		return wire.Frame{}, io.ErrClosedPipe

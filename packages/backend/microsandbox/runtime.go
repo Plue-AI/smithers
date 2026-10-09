@@ -103,6 +103,10 @@ type Config struct {
 	FileReadLimit int64
 	// CommandTimeout is the runaway guard for one command (default 60 min).
 	CommandTimeout time.Duration
+	// DaemonLossLimit is how long a running machine may stay without a
+	// reachable daemon before the runtime stops it to release its slot
+	// (default 3 min). The stop retains the disk; nothing is discarded.
+	DaemonLossLimit time.Duration
 	// Environments enables graph-keyed environment layers. Nil boots Image.
 	Environments *EnvironmentConfig
 	// Bundle is the approved installed bundle this backend runs from, pinned
@@ -393,6 +397,9 @@ func applyDefaults(config *Config) {
 	}
 	if config.CommandTimeout <= 0 {
 		config.CommandTimeout = 60 * time.Minute
+	}
+	if config.DaemonLossLimit <= 0 {
+		config.DaemonLossLimit = 3 * time.Minute
 	}
 }
 
