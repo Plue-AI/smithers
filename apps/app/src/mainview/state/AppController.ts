@@ -2650,7 +2650,23 @@ export const createAppController = (
     const message = store.collections.messages.get(id)
     if (!message?.action || message.answeredAction || message.action.revision !== revision) return undefined
     return { name: message.action.flow, ...(message.action.args === undefined ? {} : { args: message.action.args }) }
-  })
+  }, services.bootstrap?.capabilities.includes("debug.api") ? async (name, signal) => {
+    if (name !== debugApiOperation.name) return undefined
+    try {
+      const origin = services.debugApiOrigin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin)
+      const response = await ctx.boundedFetch(new URL(debugApiOperation.http.path, origin).href, {
+        method: debugApiOperation.http.method, credentials: "same-origin", redirect: "error", cache: "no-store", signal,
+        [UNRECORDED_NET]: true
+      } as UnrecordedInit)
+      if (response.status === 204) return undefined
+      const failure = await response.json() as { code?: string; message?: string }
+      // The local person-only refusal supplies the declaration's reason.
+      if (failure.code === "never") return undefined
+      return { status: "failed", error: typeof failure.message === "string" ? failure.message : "Debug API is unavailable" }
+    } catch {
+      return { status: "failed", error: "Debug API is unavailable" }
+    }
+  } : undefined)
   /*
    * The user's one door (slash, button, pill, form submit) also answers the
    * standing recommendation: the recommender reports the dispatched flow as

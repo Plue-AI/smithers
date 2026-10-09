@@ -3431,7 +3431,10 @@
     {
       "name": "debug-api",
       "slash": "/debug-api",
-      "cli": null,
+      "cli": [
+        "debug",
+        "api"
+      ],
       "journey": [],
       "group": "Advanced",
       "visibility": "advanced",
@@ -3442,7 +3445,11 @@
       "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Call the documented API",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/commands/debug-api",
+        "body": {}
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

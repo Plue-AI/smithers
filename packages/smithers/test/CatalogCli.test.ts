@@ -279,13 +279,13 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
     "confirm",
     "--confirmation",
     "stale"
-  ]])("rejects the UI-only playground CLI alias before transport: %s", async (...args) => {
-    const f = await fixture()
+  ]])("authorizes the playground CLI door without transmitting its API payload: %s", async (...args) => {
+    const f = await fixture(403, { code: "never", class: "never", message: "Only a person can do this" })
     try {
       const result = await f.invoke(["debug", "api", ...args])
       expect(result.exitCode).toBe(1)
-      expect(JSON.parse(result.stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND" })
-      expect(f.seen).toEqual([])
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "never" })
+      expect(f.seen).toEqual([{ method: "GET", path: "/api/commands/debug-api", body: undefined, via: "codex" }])
       expect(result.stdout).not.toContain("test-delegated-token")
     } finally {
       await f.close()

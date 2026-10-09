@@ -283,7 +283,7 @@ const valueOf = (value: unknown): string | undefined => {
 const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "theme", "input.mode"])
 
 
-export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle, resolveConfirmation?: (id: string, revision: string) => { name: string; args?: string } | undefined): CommandRegistry => {
+export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle, resolveConfirmation?: (id: string, revision: string) => { name: string; args?: string } | undefined, authorizeClientCommand?: (name: string, signal?: AbortSignal) => Promise<CommandOutcome | undefined>): CommandRegistry => {
   // Nested form dispatch borrows the same reservation. Its outer submission
   // releases write-only input after the complete continuation, exactly once.
   const gestureSubmissions = new WeakMap<CommandGesture["release"], number>()
@@ -627,7 +627,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (invoker === "agent" && !modelInvocable(target)) {
       // Host authority takes precedence over the person-only policy. Neither
       // decision invokes the binding or opens a card.
-      const denied = await authorizeTarget(true)
+      const denied = await authorizeTarget(true) ?? await authorizeClientCommand?.(nameOf(target), invocation?.signal)
       return denied ?? { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     // A user-only flow refuses every non-person actor, automatic `system` calls

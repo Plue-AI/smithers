@@ -1084,6 +1084,14 @@ func buildRouter(
 		if queries != nil {
 			r.Use(delegatedAttribution(services.NewAuditService(queries)))
 		}
+		if config.IsSingleOwner(cfg.Auth) {
+			r.Get("/commands/debug-api", func(w http.ResponseWriter, r *http.Request) {
+				// The shared command boundary has authorized the viewer. This
+				// client-only door grants no execution or reusable authority.
+				w.Header().Set("Cache-Control", "no-store")
+				w.WriteHeader(http.StatusNoContent)
+			})
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository)).Get("/stack", extras.Live.Stack)
 		}

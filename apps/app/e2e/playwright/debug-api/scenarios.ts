@@ -11,7 +11,6 @@ import operations from "../../../src/debugApi/install-operations.fixture.json"
 // Release YAML is input under test; the committed JSON is the literal oracle.
 // Like the app's existing Playwright commands, run from apps/app.
 const document = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
-const activationBlocker = "This check still requires its own install or branch-machine evidence. Slash/Advanced and documented forms have a local-own real-backend browser test; the composed install advertises debug.api."
 
 export function debugApiScenarios(prefix: string) {
   test.describe(prefix, () => {
@@ -40,17 +39,8 @@ export function debugApiScenarios(prefix: string) {
       })
     }
 
-    // Missing delegated-dispatch and execution receipts remain visible.
-    // Browser and role cases own an isolated startLocalOwn backend and PostgreSQL.
-    // This trusted-process test install supplies no branch-machine receipt.
-    // The blocked cases deliberately have no route.fulfill/cloudFixture and
-    // no guessed success bodies, sessions, SQL mappings or process receipts.
-    const pending = (name: string, dependency: string) => {
-      test(name, async () => {
-        test.fixme(true, `${activationBlocker} ${dependency}`)
-        throw new Error(`Missing real-install evidence: ${dependency}`)
-      })
-    }
+    // Browser cases use the real local-own backend; delegated cases below
+    // cross the composed install router and PostgreSQL without route mocks.
     test("slash and Advanced reach CardRenderers on a real install; literal operations and secret fields; selection sends nothing", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-browser-"))
@@ -115,7 +105,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("host-minted app-agent refuses locally; compiled smthrs has no debug.api door and makes no HTTP/SQL effects", async () => {
+    test("delegated app-agent and compiled CLI preserve scope and role failures before person-only refusal with zero API/SQL effects", async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIDelegatedDispatchBoundariesPostgres$", "-count=1", "-v"], {
         cwd: resolve("../../packages/backend"), env: process.env,
@@ -133,8 +123,6 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestLocalSharedPreflightUsesFastRoleThenCodingFallback")
       await test.info().attach("viewer-only-model-context", { body: result.stdout, contentType: "text/plain" })
     })
-    pending("delegated app-agent and CLI scope/role failures retain precedence over debug.api person-only refusal",
-      "The shipped catalog declares debug-api with cli:null and http:null. Compiled smthrs debug api returns COMMAND_NOT_FOUND without HTTP, and the app-agent default invocation has no credentialed host authorizer. Catalog.ts now delegates served HTTP commands to the server, but that does not supply this client-only door. T-CAT-01 must supply the shared authorization contract before combined real-install precedence can be proved; T-APP-21 excludes new backend routes.")
     test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {

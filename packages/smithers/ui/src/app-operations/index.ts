@@ -149,6 +149,8 @@ export const NoInput = Schema.Record(Schema.String, Schema.Never)
 /** The person-only raw API door shared by app and command hosts. */
 export const debugApiOperation = operation({
   name: "debug-api",
+  cli: ["debug", "api"],
+  http: { method: "GET", path: "/api/commands/debug-api", body: {} },
   visibility: "advanced",
   group: "debug",
   actors: ["person"],

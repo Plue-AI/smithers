@@ -3,21 +3,26 @@
 Folded into T-APP-21's tests (minimal-code synthesis, 2026-10-03).
 
 
-## Remaining delegated-dispatch evidence (2026-10-08)
+## Delegated command door (2026-10-09)
+
+`debug-api` declares `smthrs debug api` and an authorization-only
+`GET /api/commands/debug-api` door. The app agent and compiled CLI use that
+same descriptor. The install's existing member boundary and `services.Authorize`
+resolve the live credential scope and role before `never`. The door returns
+204 to a person's browser session and grants no execution or reusable authority;
+no selected operation, parameters or body are transmitted to it.
 
 `TestDebugAPIDelegatedDispatchBoundariesPostgres` uses a claimed real turn,
-`InstallAPI.Begin`/`MintForTurn`, the composed install router and PostgreSQL.
-It proves local app-agent refusal and a compiled production guest CLI's
-`COMMAND_NOT_FOUND`, with an authenticated `auth status` control and no HTTP
-requests from the absent Debug API CLI door. These are boundary receipts,
-not combined scope/role-before-`never` evidence.
+`InstallAPI.Begin`, the composed install router, production bootstrap, app
+controller and compiled guest CLI. Eligible Member credentials refuse with
+`never`; insufficient write scope refuses with `permission`; losing the Member
+role invalidates the delegated credential earlier with `unauthenticated`.
+Restoring the role returns to `never`. The selected API never receives a request,
+and PostgreSQL contains no TODO, workflow-run or approval effects.
 
-The shipped `debug-api` catalog row has `cli: null` and `http: null`. The app's
-unscoped agent invocation supplies no credentialed host authorization seam.
-Removing the local `never` check from `Catalog.ts` affects served HTTP commands;
-it does not supply this client-only command's missing door. Combined evidence
-remains blocked on T-CAT-01's shared authorization contract. T-APP-21's frozen
-scope excludes new backend routes and changes to endpoint permissions.
+The lane's explicit small-dependency directive supplies this missing catalog
+bridge beyond T-APP-21's original no-new-route exclusion. No endpoint permission
+or execution guard changes; all decisions use the existing shared authorizer.
 
 Positive branch-machine evidence still requires the approved Apple Silicon
 install bundle and a real microVM. The existing T-FLW-01 reference check is

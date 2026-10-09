@@ -400,6 +400,7 @@ var installMemberRoutes = []struct {
 	method, command string
 	path            *regexp.Regexp
 }{
+	{http.MethodGet, "debug-api", regexp.MustCompile(`^/api/commands/debug-api$`)},
 	{http.MethodPut, "account.signup.update", regexp.MustCompile(`^/api/user/settings/signup$`)},
 	{http.MethodPost, "account.device.register", regexp.MustCompile(`^/api/user/devices$`)},
 	{http.MethodDelete, "account.device.delete", regexp.MustCompile(`^/api/user/devices$`)},
