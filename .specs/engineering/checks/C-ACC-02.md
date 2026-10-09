@@ -116,3 +116,10 @@ and requester-scoped status exposes only state and the created number. The
 installed browser reloads and approves the card, then runs ordinary `/issue.new`
 and opens the delivered issue while chat remains usable. Full matrices and
 reference-host qualification remain incomplete.
+
+T-ACC-03 Learning increment (`fr30-acc-03-r4`): production-issued roles and
+profiles reach Make TODO and Dismiss through implicit and explicit doors.
+The matrix proves 18 effects, 66 refusals and 12 stale-subject expirations;
+acceptance appends one attributed TODO, dismissal appends none, and replay
+retains one result. Browser approval reloads the private installed card.
+This increment does not qualify reference recovery or the full effect matrix.

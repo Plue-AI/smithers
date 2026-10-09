@@ -43,6 +43,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_learning_authorization_integration_test.go",
+    "tests": [
+      "TestAccessLearningProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_machine_head_authorization_integration_test.go",
     "tests": [
       "TestAccessMachineHeadGrantsComposedPostgres"
