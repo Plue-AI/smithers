@@ -56,10 +56,11 @@ test("tag, source, dirty state and altered tested bytes are refused", () => fixt
   await assert.rejects(preflight(directory, candidate, { ...options, readRegistry }), /Local tarball integrity mismatch/)
 }))
 
-test("a publication with unverified resulting integrity stops the remainder", () => fixture(async (directory, candidate, options) => {
+test("a publication the registry never serves fails the run once the train has settled", () => fixture(async (directory, candidate, options) => {
   const calls = []
-  await assert.rejects(publishCandidate(directory, candidate, { ...options, readRegistry: async () => undefined, publish: async (_path, entry) => calls.push(entry.name) }), /Published integrity/)
-  assert.deepEqual(calls, ["a"])
+  await assert.rejects(publishCandidate(directory, candidate, { ...options, readRegistry: async () => undefined, publish: async (_path, entry) => calls.push(entry.name) }), /Published integrity could not be verified: a/)
+  assert.deepEqual(calls, ["a", "b"])
+  assert.deepEqual(JSON.parse(await readFile(join(directory, "publish-receipt.json"), "utf8")), { schemaVersion: 1, source: candidate.source, published: [], awaiting: ["a", "b"] })
 }))
 
 test("a publication the registry has not served yet is re-read through the retry ladder", () => fixture(async (directory, candidate, options) => {
@@ -83,7 +84,7 @@ test("a publication the registry has not served yet is re-read through the retry
   assert.deepEqual(pauses, [10, 2, 10, 30, 60])
 }))
 
-test("a publication still absent after the retry ladder stops the remainder", () => fixture(async (directory, candidate, options) => {
+test("a publication still absent after its ladder is settled with the train for 15 minutes", () => fixture(async (directory, candidate, options) => {
   const calls = []
   const pauses = []
   const reads = []
@@ -92,10 +93,58 @@ test("a publication still absent after the retry ladder stops the remainder", ()
     readRegistry: async (spec) => { reads.push(spec) },
     publish: async (_path, entry) => calls.push(entry.name)
   }), /Published integrity could not be verified: a/)
-  assert.deepEqual(calls, ["a"])
-  assert.deepEqual(pauses, [10, 30, 60])
-  // Preflight reads both packages once; verification reads a once per rung.
-  assert.deepEqual(reads, ["a@1.0.0-rc.0", "b@1.0.0-rc.0", ...Array(4).fill("a@1.0.0-rc.0")])
+  assert.deepEqual(calls, ["a", "b"])
+  assert.deepEqual(pauses, [10, 30, 60, 2, 10, 30, 60, ...Array(30).fill(30)])
+  assert.equal(pauses.slice(7).reduce((sum, seconds) => sum + seconds, 0), 900)
+  // Preflight reads both once; each ladder reads its package four times; each
+  // settle round reads every package still absent.
+  const both = ["a@1.0.0-rc.0", "b@1.0.0-rc.0"]
+  assert.deepEqual(reads, [...both, ...Array(4).fill(both[0]), ...Array(4).fill(both[1]), ...Array(31).fill(both).flat()])
+}))
+
+// A brand-new npm name took about 200 s to be served on the v1.0.0-rc.2 tag run
+// (37988746485), past the per-package ladder, and the run stopped after one package.
+test("a new name the registry serves late does not hold the rest of the train", () => fixture(async (directory, candidate, options) => {
+  const registry = new Map()
+  const lag = new Map()
+  const pauses = []
+  const calls = []
+  const result = await publishCandidate(directory, candidate, { ...options,
+    pause: async (seconds) => { pauses.push(seconds) },
+    readRegistry: async (spec) => {
+      const missing = lag.get(spec) ?? 0
+      if (missing === 0) return registry.get(spec)
+      lag.set(spec, missing - 1)
+      return undefined
+    },
+    publish: async (_path, entry) => {
+      calls.push(entry.name)
+      registry.set(`${entry.name}@${entry.version}`, entry.integrity)
+      if (entry.name === "a") lag.set(`${entry.name}@${entry.version}`, 5)
+    }
+  })
+  assert.deepEqual(calls, ["a", "b"])
+  assert.deepEqual(result, ["b", "a"])
+  assert.deepEqual(pauses, [10, 30, 60, 2, 30])
+  assert.deepEqual(JSON.parse(await readFile(join(directory, "publish-receipt.json"), "utf8")).awaiting, [])
+}))
+
+test("different bytes found while settling fail at once", () => fixture(async (directory, candidate, options) => {
+  const registry = new Map()
+  const reads = new Map()
+  const pauses = []
+  await assert.rejects(publishCandidate(directory, candidate, { ...options,
+    pause: async (seconds) => { pauses.push(seconds) },
+    readRegistry: async (spec) => {
+      const count = (reads.get(spec) ?? 0) + 1
+      reads.set(spec, count)
+      // a: absent at preflight and through its ladder, then different bytes.
+      if (spec.startsWith("a@") && count > 5) return integrity(Buffer.from("different candidate"))
+      return registry.get(spec)
+    },
+    publish: async (_path, entry) => { if (entry.name === "b") registry.set(`${entry.name}@${entry.version}`, entry.integrity) }
+  }), /Published integrity could not be verified: a/)
+  assert.deepEqual(pauses, [10, 30, 60, 2])
 }))
 
 test("a publication with different registry integrity fails closed without waiting", () => fixture(async (directory, candidate, options) => {

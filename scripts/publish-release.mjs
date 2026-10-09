@@ -13,6 +13,12 @@ export const candidateIntegrity = (candidate) => integrity(Buffer.from(JSON.stri
 /** Seconds between registry attempts, shared by transient failures and post-publish reads. */
 const retryDelays = [10, 30, 60]
 
+/** A brand-new name can take minutes before the registry serves it: @smthrs/canonical
+ * took about 200 s on the v1.0.0-rc.2 tag run. A version still absent after its
+ * ladder is re-read with the whole train for up to 15 minutes, so one slow name
+ * does not hold the rest. Different bytes still fail at once. */
+const settleDelays = Array(30).fill(30)
+
 /** Record the relative release date without treating a clock or a build as shipment.
  * The Mac lifecycle and authenticated artifact receipt providers are not mounted
  * in this publisher yet (T-INS-07 / T-MNT-05). Keep stage M dark until they are.
@@ -105,25 +111,42 @@ export const preflight = async (directory, candidate, { sourceSha, releaseTag, r
 export const publishCandidate = async (directory, candidate, options) => {
   const pending = await preflight(directory, candidate, options)
   const published = []
-  for (const entry of pending) {
+  const awaiting = []
+  const record = () => writeFile(join(directory, "publish-receipt.json"), JSON.stringify({ schemaVersion: 1, source: candidate.source, published, awaiting: awaiting.map((entry) => entry.name) }, null, 2) + "\n")
+  // The registry can accept a tarball before it serves the version. Only an
+  // absent version waits; different bytes fail at once.
+  const served = async (entry) => {
+    const observed = await options.readRegistry(`${entry.name}@${entry.version}`)
+    if (observed !== undefined && observed !== entry.integrity) throw new Error(`Published integrity could not be verified: ${entry.name}`)
+    return observed !== undefined
+  }
+  for (const [index, entry] of pending.entries()) {
     // A predecessor's publication may take minutes. Recheck the next local bytes
     // instead of relying on the earlier train preflight across that interval.
     if (integrity(await readFile(join(directory, entry.filename))) !== entry.integrity) throw new Error(`Local tarball integrity mismatch: ${entry.name}`)
     await options.publish(join(directory, entry.filename), entry)
-    // The registry can accept a tarball before it serves the version. Only an
-    // absent version waits; different bytes fail at once.
-    let observed = await options.readRegistry(`${entry.name}@${entry.version}`)
+    let verified = await served(entry)
     for (const delay of retryDelays) {
-      if (observed !== undefined) break
+      if (verified) break
       await options.pause?.(delay)
-      observed = await options.readRegistry(`${entry.name}@${entry.version}`)
+      verified = await served(entry)
     }
-    if (observed !== entry.integrity) throw new Error(`Published integrity could not be verified: ${entry.name}`)
-    published.push(entry.name)
-    await writeFile(join(directory, "publish-receipt.json"), JSON.stringify({ schemaVersion: 1, source: candidate.source, published }, null, 2) + "\n")
-    if (published.length < pending.length) await options.pause?.(2)
+    if (verified) published.push(entry.name)
+    else awaiting.push(entry)
+    await record()
+    if (index < pending.length - 1) await options.pause?.(2)
   }
-  return published
+  for (const delay of [...settleDelays, undefined]) {
+    for (const entry of [...awaiting]) {
+      if (!(await served(entry))) continue
+      awaiting.splice(awaiting.indexOf(entry), 1)
+      published.push(entry.name)
+      await record()
+    }
+    if (awaiting.length === 0) return published
+    if (delay !== undefined) await options.pause?.(delay)
+  }
+  throw new Error(`Published integrity could not be verified: ${awaiting.map((entry) => entry.name).join(", ")}`)
 }
 
 /** Keep registry throttling and detached-tag publication behind the verified candidate boundary. */

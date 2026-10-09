@@ -10,7 +10,7 @@ The workflow-run source SHA can differ from the candidate's SHA when a workflow 
 
 `restore-evidence.json` records the original run/artifact IDs, archive digest, workflow source, candidate source, and packages still missing from the registry. The resumed workflow also archives the verified directory under its own run ID. Each retry can therefore use an immutable archive without repacking.
 
-Publication rewrites `publish-receipt.json` after every package it publishes, and the run uploads that file as `release-publish-receipt-<run-id>` after the publish step, on failure as well. A train that stopped halfway therefore leaves a record of which names landed, next to the registry preflight the resume runs anyway.
+Publication rewrites `publish-receipt.json` after every package it publishes, and the run uploads that file as `release-publish-receipt-<run-id>` after the publish step, on failure as well. A train that stopped halfway therefore leaves a record of which names landed, next to the registry preflight the resume runs anyway. `awaiting` lists names the registry accepted but had not served yet. A brand-new name can take minutes to be served, so a version still absent after its own retries no longer stops the train: publication continues, then re-reads every awaiting name for up to 15 minutes. Different bytes still stop it at once.
 
 A missing or expired archive is a failed resume, not permission to rebuild different bytes under an already published version. For a changed candidate, use a new version and repeat the complete release validation. Publication remains controlled by the workflow's existing `dryRun` input and npm-publish environment.
 
