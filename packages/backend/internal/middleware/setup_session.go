@@ -35,7 +35,9 @@ func SetupSessionBoundary(validate func(context.Context, string) error) func(htt
 				next.ServeHTTP(w, r)
 				return
 			}
-			if r.Method == http.MethodGet && r.URL.Path == "/api/user" {
+			// The setup browser has no person yet: both identity reads answer
+			// signed out, so the app offers Sign in instead of "unavailable".
+			if r.Method == http.MethodGet && (r.URL.Path == "/api/user" || r.URL.Path == "/api/auth/session") {
 				pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeUnauthenticated, "Sign in required"))
 				return
 			}

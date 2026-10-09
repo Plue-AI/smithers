@@ -70,6 +70,14 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, status.Steps, 7)
 	require.Equal(t, "app_manifest", status.Steps[1].ID)
+	// The setup browser reads identity as signed out, so the card's Sign in
+	// proceeds to GitHub instead of reporting sign-in unavailable.
+	session, err := client.Get(origin + "/api/auth/session")
+	require.NoError(t, err)
+	sessionBody, _ := io.ReadAll(session.Body)
+	session.Body.Close()
+	require.Equal(t, 401, session.StatusCode, string(sessionBody))
+	require.Contains(t, string(sessionBody), `"code":"unauthenticated"`)
 	request := func(path, body string, bearer bool) *http.Response {
 		r, err := http.NewRequestWithContext(ctx, "POST", origin+path, strings.NewReader(body))
 		require.NoError(t, err)

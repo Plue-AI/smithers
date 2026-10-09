@@ -40,13 +40,25 @@ func TestSetupSessionBoundary(t *testing.T) {
 	}
 }
 
+// The app reads /api/auth/session on an install and /api/user elsewhere. A
+// 403 on either left the setup card's Sign in reporting "unavailable" and
+// never reaching /api/auth/github (real install run 6, 2026-10-09).
 func TestSetupIdentityIsSignedOut(t *testing.T) {
-	handler := SetupSessionBoundary(func(context.Context, string) error { return nil })(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("setup reached person identity") }))
-	req := httptest.NewRequest("GET", "/api/user", nil)
-	req.AddCookie(&http.Cookie{Name: "smithers_setup_session", Value: "live"})
+	for _, path := range []string{"/api/user", "/api/auth/session"} {
+		t.Run(path, func(t *testing.T) {
+			handler := SetupSessionBoundary(func(context.Context, string) error { return nil })(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("setup reached person identity") }))
+			req := httptest.NewRequest("GET", path, nil)
+			req.AddCookie(&http.Cookie{Name: "smithers_setup_session", Value: "live"})
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			require.Equal(t, 401, rec.Code)
+			require.Contains(t, rec.Body.String(), `"code":"unauthenticated"`)
+			require.Contains(t, rec.Body.String(), `"class":"permission"`)
+		})
+	}
+	post := httptest.NewRequest("POST", "/api/auth/session", nil)
+	post.AddCookie(&http.Cookie{Name: "smithers_setup_session", Value: "live"})
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	require.Equal(t, 401, rec.Code)
-	require.Contains(t, rec.Body.String(), `"code":"unauthenticated"`)
-	require.Contains(t, rec.Body.String(), `"class":"permission"`)
+	SetupSessionBoundary(func(context.Context, string) error { return nil })(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("setup reached a session write") })).ServeHTTP(rec, post)
+	require.Equal(t, 403, rec.Code)
 }
