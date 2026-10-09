@@ -8,7 +8,7 @@ import type { AppController as AppControllerType } from "./AppController"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { addWorldNote, memoryStorage, settled, unavailableAgent } from "./TestFixtures"
+import { addWorldNote, memoryStorage, unavailableAgent, waitFor } from "./TestFixtures"
 
 
 /*
@@ -86,13 +86,46 @@ const mount = (controller: AppControllerType): Mount => {
 /** The one-shot render the markup-only assertions use. */
 const renderApp = (controller: AppControllerType): string => mount(controller).markup()
 
-const harness = async (): Promise<{ store: AppStore; controller: AppControllerType }> => {
+const WIKI_CARD = "wiki-index-owner/repo-public"
+
+/*
+ * The install composition: a signed-in member on owner/repo. /wiki embeds the
+ * repository Wiki index (efa553957b), and the conversation is the shared one
+ * the host serves (90ef5aaccb): a sent prompt is admitted at
+ * /api/conversations/main/prompt and comes back as that conversation's turn.
+ */
+const harness = async (turns: ReadonlyArray<string> = []): Promise<{ store: AppStore; controller: AppControllerType }> => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await addWorldNote(store)
-  const controller = createAppController(store, unavailableAgent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null } })
-
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "owner/repo", org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: "owner/repo" }).isPersisted.promise
+  const turn = (prompt: string, index: number) => ({ id: `turn-${index}`, author: 1, authorLogin: "will", runId: `run-${index}`, prompt, state: "completed",
+    frames: [{ runId: `run-${index}`, type: "delta", kind: "text", text: "Noted." }, { runId: `run-${index}`, type: "done", reason: "stop" }] })
+  const entries = turns.map(turn)
+  const page = { id: 1, slug: "home", path: "home.md", title: "Home", body: "# Home\n", revision: 1, author: { id: 1, login: "will" }, created_at: "2026-10-05", updated_at: "2026-10-05" }
+  const controller = createAppController(store, unavailableAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const url = String(input)
+      if (url === "/api/conversations/main/prompt" && init?.method === "POST") {
+        entries.push(turn(JSON.parse(String(init.body)).prompt, entries.length))
+        return Response.json({ turnId: entries.at(-1)!.id, terminal: true }, { status: 202 })
+      }
+      if (url === "/api/conversations/main") return Response.json({ id: "main", entries })
+      if (url.endsWith("/view-state")) return Response.json({})
+      if (url.includes("/wiki?page=")) return Response.json([page])
+      if (url.includes("/navigation/index?")) return Response.json({ pages: [{ ...page, metadata: {} }] })
+      return Response.json({}, { status: 404 })
+    }
+  })
+  await waitFor(() => controller.sharedConversation?.get().conversation?.entries.length === entries.length)
   return { store, controller }
 }
+
+/** The shared conversation has read the turn the host admitted for `prompt`. */
+const sentAndRead = (controller: AppControllerType, prompt: string): Promise<void> =>
+  waitFor(() => controller.sharedConversation?.get().conversation?.entries.some((entry) => "prompt" in entry && entry.prompt === prompt) === true)
 
 describe("chat-first shell: panes never replace the conversation", () => {
   test("opening Wiki changes only the card, never the messages or draft", async () => {
@@ -102,7 +135,7 @@ describe("chat-first shell: panes never replace the conversation", () => {
 
     expect((await controller.commands.run("wiki")).status).toBe("executed")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
+    expect(store.collections.cards.get(WIKI_CARD)?.kind).toBe("world")
     expect([...store.collections.messages.values()].map((message) => message.id)).toEqual(before)
     expect(store.session().draft).toBe("a draft that must survive")
 
@@ -120,15 +153,9 @@ describe("chat-first shell: panes never replace the conversation", () => {
   })
 
   test("with the World pane open the transcript and composer still render, with content intact", async () => {
-    const { store, controller } = await harness()
     // Wave 14 §1: nothing is seeded into the transcript, so "content intact"
-    // is pinned against a real turn the session actually holds.
-    await store.dispatch({
-      type: "message.submitted",
-      actor: "user",
-      turnId: "turn-shell",
-      text: "a turn that must survive the pane"
-    }).isPersisted.promise
+    // is pinned against a real turn the shared conversation actually holds.
+    const { store, controller } = await harness(["a turn that must survive the pane"])
     controller.changeDraft("draft stays in the composer")
     // Previously persisted pane navigation remains renderable; the Wiki flow now embeds.
     store.dispatch({ type: "surface.changed", actor: "user", surface: "world" })
@@ -168,8 +195,8 @@ describe("chat-first shell: panes never replace the conversation", () => {
 
   test("a sent message stays in the transcript across pane open and close", async () => {
     const { controller } = await harness()
-    controller.send("remember this message")
-    await settled()
+    expect(await controller.send("remember this message")).toBe(true)
+    await sentAndRead(controller, "remember this message")
 
     await controller.commands.run("wiki")
     const openMarkup = renderApp(controller)
@@ -191,8 +218,8 @@ describe("chat-first shell: panes never replace the conversation", () => {
    */
   test("opening and closing panes never unmounts the transcript or the composer", async () => {
     const { store, controller } = await harness()
-    controller.send("a message that must outlive every pane")
-    await settled()
+    expect(await controller.send("a message that must outlive every pane")).toBe(true)
+    await sentAndRead(controller, "a message that must outlive every pane")
 
     const view = mount(controller)
     const transcript = view.host.querySelector(".smithers-transcript")

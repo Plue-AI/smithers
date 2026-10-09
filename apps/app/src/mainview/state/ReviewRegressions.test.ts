@@ -70,21 +70,28 @@ describe("review regressions: concurrent commands and working-copy identity", ()
   test("human presentation remains human while an agent read awaits, and its eventual card remains attributed to the agent", async () => {
     const gate = deferred()
     let reading = false
-    const { store, controller } = await boot(async (_input, init) => {
+    const page = { id: 1, slug: "home", path: "home.md", title: "Home", body: "# Home\n", revision: 1, author: { id: 1, login: "will" }, created_at: "2026-10-05", updated_at: "2026-10-05" }
+    const { store, controller } = await boot(async (input, init) => {
       if (init?.method === "POST") { reading = true; await gate.promise; return json({ status: 200, text: "read" }) }
+      // The install's /wiki embeds the repository Wiki index (efa553957b).
+      if (String(input).includes("/wiki?page=")) return json([page])
+      if (String(input).includes("/navigation/index?")) return json({ pages: [{ ...page, metadata: {} }] })
       return json({}, 404)
     })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "owner/repo", org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
+    await store.dispatch({ type: "repo.selected", actor: "user", id: "owner/repo" }).isPersisted.promise
     const read = controller.commands.runForAgent("browser.open", "https://example.test")
     await until(() => reading)
-    await controller.commands.run("wiki")
+    expect((await controller.commands.run("wiki")).status).toBe("executed")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.has("world-embedded")).toBe(true)
+    expect(store.collections.cards.has("wiki-index-owner/repo-public")).toBe(true)
     expect([...store.collections.transitions.values()].some((row) => row.type === "card.upsert" && row.actor === "user")).toBe(true)
     gate.resolve()
     expect((await read).status).toBe("executed")
     expect([...store.collections.transitions.values()].some((row) => row.type === "card.upsert" && row.actor === "smithers")).toBe(true)
-    await controller.commands.runForAgent("wiki")
-    expect(store.collections.cards.has("world-embedded")).toBe(true)
+    expect((await controller.commands.runForAgent("wiki")).status).toBe("executed")
+    expect(store.collections.cards.has("wiki-index-owner/repo-public")).toBe(true)
     expect(store.session().surface).toBe("chat")
   })
 
