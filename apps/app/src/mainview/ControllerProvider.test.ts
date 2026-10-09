@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
-import { canPaintAppBeforeIdentity, createControllerBoot, loadControllerBootInputs } from "./ControllerBootMemo"
+import { canPaintAppBeforeIdentity, createControllerBoot, followSignIn, loadControllerBootInputs } from "./ControllerBootMemo"
 import type { AppController } from "./state/AppController"
 
 /*
@@ -83,6 +83,72 @@ describe("controller readiness", () => {
       { requestedRepo: "owner/repo" },
       { hasTranscript: true }, { identityState: "signed-in" }, { accountOwnerLogin: "retained-owner" }, { identityLogin: "legacy-owner" },
     ]) expect(canPaintAppBeforeIdentity({ ...fresh, ...changed })).toBe(false)
+  })
+})
+
+/*
+ * `/api/live` refuses an upgrade without a signed-in person (backend
+ * routes/live.go answers 401), so a channel opened for anyone else can only
+ * be refused and retried. That holds on every host, the site landing's
+ * island included, not only on an install.
+ */
+describe("the live channel follows sign-in", () => {
+  const sessions = () => {
+    let state: string | undefined
+    const listeners = new Set<() => void>()
+    return {
+      get: (_id: "identity") => state === undefined ? undefined : { state },
+      subscribeChanges: (listener: () => void) => { listeners.add(listener); return { unsubscribe: () => { listeners.delete(listener) } } },
+      set: (next: string | undefined) => { state = next; for (const listener of [...listeners]) listener() },
+      listeners
+    }
+  }
+  const channel = () => {
+    const calls: boolean[] = []
+    return { calls, setEnabled: (enabled: boolean) => { calls.push(enabled) } }
+  }
+
+  test("a page with no signed-in person opens no socket", () => {
+    const live = channel()
+    const identity = sessions()
+    followSignIn(live, identity, new AbortController().signal)
+    expect(live.calls).toEqual([false])
+    identity.set("signed-out")
+    identity.set("unknown")
+    expect(live.calls).toEqual([false, false, false])
+  })
+
+  test("signing in connects, signing out disconnects", () => {
+    const live = channel()
+    const identity = sessions()
+    followSignIn(live, identity, new AbortController().signal)
+    identity.set("signed-in")
+    identity.set("signed-out")
+    identity.set("signed-in")
+    expect(live.calls).toEqual([false, true, false, true])
+  })
+
+  test("a remembered sign-in waits for the identity to answer before it connects", () => {
+    const live = channel()
+    const identity = sessions()
+    identity.set("signed-in")
+    followSignIn(live, identity, new AbortController().signal)
+    expect(live.calls).toEqual([false])
+    identity.set("signed-in")
+    expect(live.calls).toEqual([false, true])
+  })
+
+  test("leaving the page disconnects and stops following", () => {
+    const live = channel()
+    const identity = sessions()
+    const page = new AbortController()
+    followSignIn(live, identity, page.signal)
+    identity.set("signed-in")
+    page.abort()
+    expect(live.calls).toEqual([false, true, false])
+    expect(identity.listeners.size).toBe(0)
+    identity.set("signed-in")
+    expect(live.calls).toEqual([false, true, false])
   })
 })
 

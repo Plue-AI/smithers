@@ -11,7 +11,7 @@ import { BootstrapFailure, createRuntime, warmBootstrap, unavailableAgent } from
 import { createAppController } from "./state/AppController"
 import type { AppController } from "./state/AppController"
 import { createAppStore } from "./state/AppStore"
-import { canPaintAppBeforeIdentity, loadControllerBootInputs } from "./ControllerBootMemo"
+import { canPaintAppBeforeIdentity, followSignIn, loadControllerBootInputs } from "./ControllerBootMemo"
 import { createTurnEraser } from "./runtime/TurnErasure"
 import { liveChannel } from "./runtime/LiveChannel"
 import { installDaemonLsp } from "./state/CloudLspClient"
@@ -64,9 +64,9 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     }))
     const agent = yield* Effect.sync(() => runtime.backend.agent ?? unavailableAgent())
     const channel = liveChannel()
-    const install = hasCapability(bootstrap, "install")
-    if (install) channel.setEnabled(false)
     const pageLifetime = new AbortController()
+    // Closed until a person is signed in, on every host (ControllerBootMemo.ts followSignIn).
+    followSignIn(channel, store.collections.identitySessions, pageLifetime.signal)
     const controller = yield* Effect.sync(() =>
       createAppController(
         store,
@@ -118,12 +118,6 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         }, 0)
       }, { once: true })
     })
-
-    if (install) {
-      const enableLive = () => channel.setEnabled(store.collections.identitySessions.get("identity")?.state === "signed-in")
-      const subscription = store.collections.identitySessions.subscribeChanges(enableLive)
-      pageLifetime.signal.addEventListener("abort", () => { subscription.unsubscribe(); channel.setEnabled(false) }, { once: true })
-    }
 
     // The recorded store is still on disk. A temporary empty store must not
     // route URLs, resume deferred commands through identity, or start new work.
