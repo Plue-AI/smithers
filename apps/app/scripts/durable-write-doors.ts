@@ -37,6 +37,11 @@ interface Declared {
   readonly callable: boolean
 }
 
+/** Keywords a line can open with followed by `(`; none of them names a member. */
+const STATEMENT_KEYWORDS: ReadonlySet<string> = new Set([
+  "if", "for", "while", "switch", "catch", "return", "await", "typeof", "void", "new", "throw", "yield", "delete"
+])
+
 const sources = (dir: string): ReadonlyArray<string> =>
   readdirSync(dir).filter((file) => /\.tsx?$/.test(file) && !/\.test\.tsx?$/.test(file)).map((file) => join(dir, file))
 
@@ -54,7 +59,10 @@ const declarations = (file: string): ReadonlyArray<Declared> => {
     // returns (`openRun,` or `configureRepositorySetup: (id) => …`) as a
     // `const`. Both are declarations of the same thing to a person pressing it.
     const property = /^(\s*)([A-Za-z_$][\w$]*)\s*(?::\s*(?:async\s*)?\(|\()/.exec(text)
-    const match = declared ?? property
+    // `if (…)`, `for (…)` and `await (…)` open a statement, not a member. Read
+    // as one, a write inside an `if` became every `if`'s, and every member
+    // whose body holds an `if (` inherited it.
+    const match = declared ?? (property !== null && STATEMENT_KEYWORDS.has(property[2]!) ? null : property)
     if (match === null) return
     found.push({
       file, name: match[2]!, line: index + 1, indent: match[1]!.length,
