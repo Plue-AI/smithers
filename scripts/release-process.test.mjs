@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { processStates } from "./fixtures/installed-consumer/process-state.mjs"
+import { descendantsOf, processStates, processTable, selfReportedPid } from "./fixtures/installed-consumer/process-state.mjs"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -125,4 +125,50 @@ test("a targeted process snapshot agrees with a real child's recorded parent and
   assert.equal(snapshot.get(recorded.pid).group, snapshot.get(process.pid).group)
   assert.equal(snapshot.get(recorded.pid).stopped, false)
   assert.throws(() => processStates([1]), /Invalid fixture PID/)
+})
+
+test("the process table finds a real grandchild below this process and nothing above it", async (t) => {
+  // The installed containment fixture finds its shell child this way. On
+  // Linux that child is confined in a PID namespace (#3140) and announces
+  // pid 2; dry run 37862357655 took that for the host's pid 2 and signalled it.
+  const child = spawn(process.execPath, ["--eval", `
+    const { spawn } = require("node:child_process")
+    const grandchild = spawn(process.execPath, ["--eval", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
+    process.send({ pid: process.pid, grandchild: grandchild.pid })
+    process.on("message", () => {})
+  `], { stdio: ["ignore", "ignore", "inherit", "ipc"] })
+  const [recorded] = await once(child, "message")
+  t.after(async () => {
+    try { process.kill(recorded.grandchild, "SIGKILL") } catch (error) { if (error.code !== "ESRCH") throw error }
+    if (child.exitCode !== null || child.signalCode !== null) return
+    const exited = once(child, "exit")
+    child.kill("SIGKILL")
+    await exited
+  })
+  const table = processTable()
+  assert.deepEqual(table.get(recorded.pid), processStates([recorded.pid]).get(recorded.pid))
+  assert.equal(table.get(recorded.grandchild)?.parent, recorded.pid)
+  const below = descendantsOf(table, process.pid)
+  assert.ok(below.indexOf(recorded.pid) >= 0 && below.indexOf(recorded.pid) < below.indexOf(recorded.grandchild),
+    "a child is listed before its own child")
+  assert.deepEqual(descendantsOf(table, recorded.pid), [recorded.grandchild])
+  assert.deepEqual(descendantsOf(table, recorded.grandchild), [])
+  assert.equal(descendantsOf(table, recorded.pid).includes(process.pid), false)
+})
+
+test("a process's own view of its pid is the innermost NSpid entry on Linux and its pid elsewhere", () => {
+  const status = (line) => (path) => {
+    assert.equal(path, "/proc/4242/status")
+    return `Name:\tnode\n${line}Pid:\t4242\n`
+  }
+  // bubblewrap's first sandboxed command, seen from the host.
+  assert.equal(selfReportedPid(4242, "linux", status("NSpid:\t4242\t2\n")), 2)
+  assert.equal(selfReportedPid(4242, "linux", status("NSpid:\t4242\t17\t2\n")), 2)
+  // Not in a nested namespace, and a kernel that reports no NSpid line.
+  assert.equal(selfReportedPid(4242, "linux", status("NSpid:\t4242\n")), 4242)
+  assert.equal(selfReportedPid(4242, "linux", status("")), 4242)
+  // The process exited between the table and the read.
+  assert.equal(selfReportedPid(4242, "linux", () => { throw new Error("ENOENT") }), undefined)
+  assert.equal(selfReportedPid(4242, "darwin", () => { throw new Error("never read off Linux") }), 4242)
+  assert.equal(selfReportedPid(process.pid), process.pid)
 })
