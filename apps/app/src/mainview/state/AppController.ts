@@ -2753,11 +2753,30 @@ export const createAppController = (
     setupProbeAnswered = true
     if (installHost && !setupEntry && state !== "signed-in") queueMicrotask(() => { if (!ctx.disposed) void installSeam.readInstall() })
   }
+  /*
+   * A URL entry paints before the identity answer (ControllerBoot's
+   * canPaintAppBeforeIdentity), so a public-catalog miss can land first and
+   * refuse a repository the member can read. As RepoLink does for a member
+   * known at entry, their own inventory decides: a signed-in answer reopens
+   * that refusal once per member and repository.
+   */
+  const reopenedEntries = new Set<string>()
+  const reopenRefusedEntry = () => {
+    const identity = store.collections.identitySessions.get("identity")
+    const entry = store.session().repositoryEntry
+    if (ctx.disposed || identity?.state !== "signed-in" || entry?.phase !== "failed" || entry.failureKind !== "not-public") return
+    const key = `${identity.login ?? ""}:${entry.repo.toLowerCase()}`
+    if (reopenedEntries.has(key)) return
+    reopenedEntries.add(key)
+    void openRequestedRepo({ store, selectRepo, loadRepositories: repositoriesSeam.loadRepositories, runCommand: (name, args) => runCommand(name, args) },
+      ctx.http, entry.repo)
+  }
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     const owner = setupOwner()
     if (owner === setupIdentityOwner) return
     setupIdentityOwner = owner
     probeSetupOnce()
+    queueMicrotask(reopenRefusedEntry)
     if (installHost && installSignedIn() && !setupEntry) queueMicrotask(() => { if (!ctx.disposed) void installSeam.showSetup() })
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })

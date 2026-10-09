@@ -639,6 +639,49 @@ test("a retry resolving to not-public renders the sign-in gate and never loops t
   } finally { await h.close() }
 })
 
+// C-J11-03 flake: a URL entry paints before the identity answer, so the public catalog can refuse first.
+test("a URL refused by the public catalog before a signed-in answer reopens once from the member's inventory", async () => {
+  let catalogReads = 0, inventoryReads = 0
+  const h = await setup(undefined, async input => {
+    const path = String(input)
+    if (path === "/api/public/repos") { catalogReads++; return json(200, { repos: [] }) }
+    if (path.startsWith("/api/user/repos")) { inventoryReads++; return json(200, [{ owner: "alpha", name: "one", full_name: repo, default_bookmark: null }]) }
+    return json(200, [])
+  })
+  try {
+    const refusal = await openRequestedRepo(h.controller, async () => { catalogReads++; return json(200, { repos: [] }) }, repo, h.store.session().repositoryEntry!.requestId)
+    expect(refusal).toBe(`${repo} is not in the public repository catalog.`)
+    expect(h.store.session().repositoryEntry).toMatchObject({ phase: "failed", failureKind: "not-public" })
+    expect(inventoryReads).toBe(0)
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+    await until(() => h.store.session().repositoryEntry?.phase === "ready")
+    expect(h.store.session().repositoryEntry?.repo).toBe(repo)
+    expect(h.store.session().activeRepoKey).toBe(repo)
+    expect(h.store.collections.repositories.get(repo)?.catalog).not.toBe(true)
+    expect([catalogReads, inventoryReads]).toEqual([2, 1])
+  } finally { await h.close() }
+})
+
+test("a member whose inventory lacks the URL's repository keeps the refusal without reopening it again", async () => {
+  let catalogReads = 0, inventoryReads = 0
+  const h = await setup(undefined, async input => {
+    const path = String(input)
+    if (path === "/api/public/repos") { catalogReads++; return json(200, { repos: [] }) }
+    if (path.startsWith("/api/user/repos")) { inventoryReads++; return json(200, []) }
+    return json(200, [])
+  })
+  try {
+    await openRequestedRepo(h.controller, async () => json(200, { repos: [] }), repo, h.store.session().repositoryEntry!.requestId)
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+    await until(() => inventoryReads === 1 && h.store.session().repositoryEntry?.phase === "failed")
+    expect(h.store.session().repositoryEntry?.failureKind).toBe("not-public")
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: true, scopesPlain: null }).isPersisted.promise
+    await pause(50)
+    expect([catalogReads, inventoryReads]).toEqual([1, 1])
+    expect(h.store.session().activeRepoKey ?? null).toBeNull()
+  } finally { await h.close() }
+})
+
 for (const scope of ["account", "selection", "entry"] as const) {
   test(`a stale refreshed catalog cannot cross ${scope} ownership`, async () => {
     let release!: (response: Response) => void
