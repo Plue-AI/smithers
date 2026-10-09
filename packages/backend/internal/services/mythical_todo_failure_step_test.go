@@ -74,3 +74,24 @@ func TestTodoFailureStepBoundNativeEvidence(t *testing.T) {
 	project(&item, foreign)
 	require.Nil(t, mythicalChecksOf(item).FailureStep)
 }
+
+func TestTodoCheckConfigurationRetainedFailure(t *testing.T) {
+	for _, action := range []string{"factory/stamp-route", "coding/run-correction-round", "coding/check-command", "checks/build-only"} {
+		t.Run(action, func(t *testing.T) {
+			item := db.MythicalItem{Source: "todo", State: "blocked", Attempt: 1, RequestRunID: "run-1", Checks: mythicalChecks{
+				RunLaunched: true, RunAttached: true,
+				Fault:       &mythicalFault{Class: "user", Tag: "coding/Error/check_configuration", Kind: "stopped"},
+				FailureStep: &todoFailureStep{Attempt: 1, Run: "run-1", Tag: "coding/Error/check_configuration", Action: action},
+			}.encode()}
+			failure := todoFailure(item)
+			require.Equal(t, "No checks found", failure["message"])
+			require.Equal(t, "Ran checks", failure["label"])
+			require.Equal(t, true, failure["check_configuration"])
+			want := action
+			if action == "factory/stamp-route" || action == "coding/run-correction-round" {
+				want = "checks"
+			}
+			require.Equal(t, want, failure["step"])
+		})
+	}
+}

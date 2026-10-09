@@ -37,7 +37,7 @@ func testTodoRuntimeHumanWaitTransitionLiteralCases(t *testing.T, humanKind, tod
 		{"running", "working", true}, {"delivering", "working", true},
 		{"integrating", "working", true}, {"verifying", "working", true},
 		{"proposing", "working", true}, {"waiting", "working", true},
-		{"retrying", "working", true}, {"proposed", "in_review", false},
+		{"retrying", "retrying", true}, {"proposed", "in_review", false},
 		{"blocked", "failed", false}, {"landed", "merged", false},
 		{"cancelled", "dropped", false}, {"rejected", "dropped", false},
 		{"declined", "dropped", false},

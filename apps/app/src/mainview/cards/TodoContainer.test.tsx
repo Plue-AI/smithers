@@ -509,3 +509,24 @@ test("an absent run never offers Stop, including a legacy branch-wait snapshot",
     expect(h.dispatches).toEqual([])
   }
 })
+
+test("retrying TODO renders its reason and deadline without a manual Retry", () => {
+ const model = TodoCardSchema.parse({ ...fixtures.working.model, state: "retrying", retry: { reason: "The previous lane could not be retired", at: "2026-10-10T12:00:00Z" } })
+ const h = mount(model)
+ const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+ expect(markup).toContain("Retrying")
+ expect(markup).not.toContain("Working")
+ expect(markup).toContain("The previous lane could not be retired")
+ expect(markup).toContain('dateTime="2026-10-10T12:00:00Z"')
+ expect(h.props.actions.some(action => action.tag === "todo.retry")).toBe(false)
+})
+
+test("missing checks offer the existing project configuration flow", () => {
+ const model = TodoCardSchema.parse({ ...fixtures.failed.model, failure: { step: "coding/checks", class: "user", message: "No checks found", retryable: true, check_configuration: true } })
+ const h = mount(model)
+ const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+ expect(markup).toContain("No checks found")
+ expect(markup).toContain("Configure checks")
+ h.props.onAction("file", {})
+ expect(h.dispatches).toEqual([{ tag: "file", input: { path: ".smithers/coding-project.json", branch: "main" } }])
+})

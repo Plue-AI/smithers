@@ -36,7 +36,7 @@ func testTodoRuntimeFailureTransitionLiteralCases(t *testing.T, failure string) 
 		{"running", "starting", "failed", false}, {"running", "working", "failed", true},
 		{"delivering", "working", "failed", true}, {"integrating", "working", "failed", true},
 		{"verifying", "working", "failed", true}, {"proposing", "working", "failed", true},
-		{"waiting", "working", "failed", true}, {"retrying", "working", "failed", true},
+		{"waiting", "working", "failed", true}, {"retrying", "retrying", "failed", true},
 		{"proposed", "in_review", "in_review", true}, {"blocked", "failed", "failed", true},
 		{"landed", "merged", "merged", true}, {"cancelled", "dropped", "dropped", true},
 		{"rejected", "dropped", "dropped", true}, {"declined", "dropped", "dropped", true},

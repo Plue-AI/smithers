@@ -32,7 +32,7 @@ func TestTodoStopTransitionLiteralCases(t *testing.T) {
 		{"verifying", "working", "needs_you", "paused", true},
 		{"proposing", "working", "needs_you", "paused", true},
 		{"waiting", "working", "needs_you", "paused", true},
-		{"retrying", "working", "needs_you", "paused", true},
+		{"retrying", "retrying", "needs_you", "paused", true},
 		{"proposed", "in_review", "needs_you", "paused", true},
 		{"blocked", "failed", "needs_you", "paused", false},
 		{"landed", "merged", "merged", "merged", false},

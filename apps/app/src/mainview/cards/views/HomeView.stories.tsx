@@ -87,7 +87,7 @@ stories.push({
   ],
   render: callbacks => <StoryHome {...fixtures.fresh} {...callbacks} actions={[]} model={{ ...fixtures.fresh.model,
     machines: { in_use: 0, capacity: 0, slots: [] },
-    counts: { queued: 1, starting: 1, working: 1, needs_you: 1, paused: 1, failed: 1, in_review: 1, merged: 1, dropped: 1 },
+    counts: { queued: 1, starting: 1, working: 1, retrying: 0, needs_you: 1, paused: 1, failed: 1, in_review: 1, merged: 1, dropped: 1 },
     items: boundaryStates.map((state, index) => ({ ...fixtures.active.model.items[0]!, n: index + 20, place: index + 1, state,
       title: `T${index + 20}`, present: [], actions: [], approval_cleared: false,
       queue: index < 4 ? { reason: boundaryQueues[index]!, position: index + 1, after: index === 1 ? 8 : undefined } : undefined,

@@ -107,11 +107,14 @@ export const TodoCardSchema = z.object({
   waits: z.array(TodoWaitSchema),
   first_answer: z.object({ by: ActorSchema, text: z.string(), at: z.string() }).optional(),
   steers: z.array(z.object({ text: z.string(), by: ActorSchema, at: z.string() })),
+  retry: z.object({ reason: z.string(), at: z.string().optional() }).optional(),
   failure: z.object({
     step: z.string(),
+    label: z.string().optional(),
     class: z.string(),
     message: z.string(),
     retryable: z.boolean(),
+    check_configuration: z.boolean().optional(),
     missing_tool: z.object({ name: z.string(), file: z.string() }).optional()
   }).optional(),
   evidence: z.array(EvidenceSchema),

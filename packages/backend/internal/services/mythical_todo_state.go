@@ -56,6 +56,8 @@ func todoState(item db.MythicalItem) string {
 		return "paused"
 	}
 	switch item.State {
+	case "retrying":
+		return "retrying"
 	case "blocked":
 		return "failed"
 	case "proposed":

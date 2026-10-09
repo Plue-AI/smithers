@@ -48,6 +48,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   const definitions: CardActionDefinition[] = model.branch ? [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }] : []
   if (model.branch && live) definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: `T${n}` } })
   if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
+  if (model.failure?.check_configuration) definitions.push({ tag: "file", label: "Configure checks", command_input: { path: ".smithers/coding-project.json", branch: "main" } })
   if (model.failure?.missing_tool) definitions.push({ tag: "image.add", label: "Add to machine image", command_input: { name: model.failure.missing_tool.name } })
   if (!live) return definitions
   if (model.owner_removed && role !== "member") definitions.push({ tag: "todo.takeover", label: "Take over", command_input: { n } })
@@ -230,7 +231,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
 // POST/PATCH /api/todos/{n}, question and conflict answers (Done) and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed. The server serves Done and Bring in
 // on a wait only once their validator and checkpoint providers are composed; the card binds what it serves.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.stop", "todo.resume", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.bring-in", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
+const servedTodoActions: readonly CatalogTag[] = ["file", "run.inspect", "todo.stop", "todo.resume", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge", "branch.bring-in", "branch.discard-foreign", "todo.preapprove", "todo.unapprove"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

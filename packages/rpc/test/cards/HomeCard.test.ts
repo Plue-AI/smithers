@@ -112,6 +112,11 @@ describe("Home rows share the TODO shape", () => {
 })
 
 describe("Home numeric boundaries", () => {
+  test("historical Home counts decode with zero automatic retries", () => {
+    const base = fixtures.fresh.model
+    const { retrying: _retrying, ...counts } = base.counts
+    expect(HomeCardSchema.parse({ ...base, counts }).counts.retrying).toBe(0)
+  })
   test("amendments is a nonnegative integer", () => {
     for (const value of [0, 1, -1, 0.5, NaN, Infinity]) {
       const changed = structuredClone(active())

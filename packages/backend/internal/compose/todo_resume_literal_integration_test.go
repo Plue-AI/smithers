@@ -26,7 +26,7 @@ func TestTodoResumeTransitionLiteralCases(t *testing.T) {
 		{"running", "working", "queued", true}, {"delivering", "working", "queued", true},
 		{"integrating", "working", "queued", true}, {"verifying", "working", "queued", true},
 		{"proposing", "working", "queued", true}, {"waiting", "working", "queued", true},
-		{"retrying", "working", "queued", true}, {"proposed", "in_review", "queued", true},
+		{"retrying", "retrying", "queued", true}, {"proposed", "in_review", "queued", true},
 		{"blocked", "failed", "queued", true}, {"landed", "merged", "merged", false},
 		{"cancelled", "dropped", "dropped", false}, {"rejected", "dropped", "dropped", false},
 		{"declined", "dropped", "dropped", false},

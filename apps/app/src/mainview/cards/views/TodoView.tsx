@@ -210,10 +210,11 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
           <span>{steer.text}</span>
         </div>
       ))}
+      {todo.state === "retrying" && todo.retry && <p>{todo.retry.reason}{todo.retry.at && <> · <time dateTime={todo.retry.at}>{new Date(todo.retry.at).toLocaleTimeString()}</time></>}</p>}
       {todo.failure && (
         <div className="todo-failure">
-          <b>{todo.failure.step} failed</b>
-          <FailureDetails detail={failureDetail(todoDiagnostic)} />
+          <b>{todo.failure.label ?? todo.failure.step} failed</b>
+          {todo.failure.check_configuration ? <span>{todo.failure.message}</span> : <FailureDetails detail={failureDetail(todoDiagnostic)} />}
           {todo.failure.missing_tool && (
             <code>
               {todo.failure.missing_tool.name} · {todo.failure.missing_tool.file}

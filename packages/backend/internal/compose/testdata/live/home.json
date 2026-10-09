@@ -9,6 +9,7 @@
   "needs_you": 1,
   "paused": 1,
   "queued": 1,
+  "retrying": 0,
   "starting": 0,
   "working": 0
  },

@@ -44,7 +44,8 @@ function HomeRow({ item, onAction, now, view, onView }: { item: HomeItem; now: n
   return <li className="stack-row" data-state={item.state}>
     <span className="stack-node">{item.place}</span>
     <div className="stack-main"><div className="stack-title"><span className="ref">T{item.n}</span>{title ? <><button type="button" className="link" data-flow={title.tag} disabled={!!title.disabled} onClick={() => onAction(title.tag, title.args ?? {})}>{item.title}</button>{title.disabled ? <span className="meta">{title.disabled.reason}</span> : null}</> : <span>{item.title}</span>}{item.amendments > 0 ? <span className="count-chip">+{item.amendments}</span> : null}</div>
-      <div className="meta"><StateWord state={item.state} step={item.step} />
+      <div className="meta"><StateWord state={item.state} step={item.state === "retrying" ? undefined : item.step} />
+        {item.state === "retrying" && item.retry && <span>{item.retry.reason}{item.retry.at && <> · <time dateTime={item.retry.at}>{new Date(item.retry.at).toLocaleTimeString()}</time></>}</span>}
         <span className="where">{branch ? <button type="button" className="branch-chip" data-flow={branch.tag} disabled={!!branch.disabled}
           onClick={() => onAction(branch.tag, branch.args ?? {})}>{item.branch.name}</button> : item.branch.name}{branch?.disabled ? <span>{branch.disabled.reason}</span> : null}{item.present.map((actor, index) => <ActorChip key={index} actor={actor} size="s" live={item.state === "working"} />)}</span>
         {item.pr ? <span>#{item.pr.number}{item.pr.draft ? " · Draft" : ""}</span> : null}

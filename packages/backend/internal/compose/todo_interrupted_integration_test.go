@@ -505,7 +505,7 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 			{"running", "working", true}, {"delivering", "working", true},
 			{"integrating", "working", true}, {"verifying", "working", true},
 			{"proposing", "working", true}, {"waiting", "working", true},
-			{"retrying", "working", true}, {"proposed", "in_review", true},
+			{"retrying", "retrying", true}, {"proposed", "in_review", true},
 			{"blocked", "failed", true}, {"landed", "merged", false},
 			{"cancelled", "dropped", false}, {"rejected", "dropped", false}, {"declined", "dropped", false},
 		}

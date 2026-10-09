@@ -62,6 +62,9 @@ func mythicalOutcomeFault(failed, outcome string) mythicalFault {
 		return mythicalFault{Class: "user", Tag: "cancelled", Kind: mythicalFailStopped}
 	case strings.HasPrefix(outcome, mythicalStopped):
 		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalStopped), ": ")
+		if tag == "coding/Error/check_configuration" {
+			return mythicalFault{Class: class, Tag: tag, Kind: mythicalFailChecks}
+		}
 		if tag == mythicalLaneFailed {
 			return mythicalFault{Class: class, Tag: tag, Kind: mythicalFailProvisioning}
 		}
@@ -86,6 +89,8 @@ func mythicalOutageKind(class, tag string) string {
 // from its class and tag.
 func (f mythicalFault) kind() string {
 	switch {
+	case f.Tag == "coding/Error/check_configuration":
+		return mythicalFailChecks
 	case f.Kind != "":
 		return f.Kind
 	case f.Tag == "launch":
@@ -127,6 +132,8 @@ func (f mythicalFault) sentence() string {
 		sentence = "The model provider did not answer"
 	case mythicalFailChecks:
 		switch f.Tag {
+		case "coding/Error/check_configuration":
+			sentence = "No checks found"
 		case "ci":
 			sentence = "CI failed on the pull request"
 		case "ci_wait":
@@ -202,7 +209,7 @@ func todoFailure(item db.MythicalItem) map[string]any {
 	}
 	step := failure.Kind
 	checks := mythicalChecksOf(item)
-	if recorded := checks.FailureStep; recorded != nil && recorded.Attempt == item.Attempt && recorded.Run == item.RequestRunID && checks.Fault != nil && recorded.Tag == checks.Fault.Tag {
+	if recorded := checks.FailureStep; recorded != nil && recorded.Attempt == item.Attempt && recorded.Run == item.RequestRunID && checks.Fault != nil && recorded.Tag == checks.Fault.Tag && (checks.Fault.Tag != "coding/Error/check_configuration" || todoCheckFailureAction(recorded.Action)) {
 		step = recorded.Action
 	}
 	if checks := mythicalChecksOf(item); checks.RunLaunched && !checks.RunAttached && failure.Kind != mythicalFailProvisioning {
@@ -211,6 +218,10 @@ func todoFailure(item db.MythicalItem) map[string]any {
 		step = "start"
 	}
 	result := map[string]any{"step": step, "class": failure.Fault, "message": sentence, "retryable": true}
+	if checks.Fault != nil && checks.Fault.Tag == "coding/Error/check_configuration" {
+		result["check_configuration"] = true
+		result["label"] = "Ran checks"
+	}
 	if tool := mythicalChecksOf(item).MissingTool; tool != nil {
 		result["missing_tool"] = map[string]string{"name": tool.Name, "file": tool.File}
 	}
@@ -252,4 +263,20 @@ func mythicalReviewFault(item db.MythicalItem) string {
 // diagnostic, which only its typed sentence stands for on any surface.
 func mythicalDiagnostic(reason string) bool {
 	return strings.Contains(reason, mythicalOutage)
+}
+
+// Automatic retries keep the actionable stored cause without exposing runtime
+// tags or command diagnostics on the person's card.
+func todoRetryReason(item db.MythicalItem) string {
+	if strings.HasPrefix(item.Reason, mythicalOutage+"infra: the previous lane could not be retired:") {
+		return "The previous machine could not be retired"
+	}
+	if mythicalDiagnostic(item.Reason) {
+		_, sentence := mythicalFailureOf(item)
+		if sentence != "" {
+			return sentence
+		}
+		return "Smithers could not run this attempt"
+	}
+	return mythicalSentence(item.Reason)
 }

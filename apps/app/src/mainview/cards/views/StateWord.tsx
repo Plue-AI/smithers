@@ -3,7 +3,7 @@ import type { TodoState } from "@smthrs/rpc/CardPrimitives"
 
 export type StateWordProps = { state: TodoState; step?: string }
 export const stateWords: Record<TodoState, string> = {
-  queued: "Queued", starting: "Starting", working: "Working", needs_you: "Needs you",
+  queued: "Queued", starting: "Starting", working: "Working", retrying: "Retrying", needs_you: "Needs you",
   paused: "Paused", failed: "Failed", in_review: "In review", merged: "Merged", dropped: "Dropped"
 }
 const icons = { in_review: GitPullRequest, merged: GitMerge, failed: X, dropped: CircleDashed, paused: Pause }

@@ -133,7 +133,7 @@ export const homeFailureModel = (repository: string, code: string): HomeModel =>
     ? { sha: "", title: "main", last_success_at: new Date(0).toISOString(), health: "refused", cause: "Stack access refused" }
     : { sha: "", title: "main", last_success_at: new Date(0).toISOString(), health: "limited", cause: "Stack unavailable" },
   attention: [], items: [],
-  counts: { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
+  counts: { queued: 0, starting: 0, working: 0, retrying: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
   merged_since_last_look: [], machines: { in_use: 0, capacity: 0, slots: [] }, background_runs: []
 })
 

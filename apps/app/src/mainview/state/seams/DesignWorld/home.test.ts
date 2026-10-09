@@ -38,7 +38,7 @@ test("the seeded stack projects to the home topic's shape: items in merge order 
   expect(model.items[1]?.present).toHaveLength(2)
   expect(model.items[3]).toMatchObject({ queue: { reason: "machine", position: 1 } })
   expect(model.items[3]?.step).toBeUndefined()
-  expect(model.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 1, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
+  expect(model.counts).toEqual({ queued: 1, starting: 0, working: 1, retrying: 0, needs_you: 1, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(model.merged_since_last_look).toEqual([1, 2, 3, 4, 5])
   expect(model.machines).toMatchObject({ in_use: 3, capacity: 3 })
   expect(model.machines.slots.map(slot => [slot.branch, slot.actor.kind, slot.actor.kind === "agent" ? slot.actor.agent : undefined])).toEqual([

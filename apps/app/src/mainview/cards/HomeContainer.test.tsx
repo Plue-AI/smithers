@@ -506,7 +506,7 @@ test("Home from GET /api/todos: one row per unmerged TODO in served order, only 
   expect(HomeCardSchema.parse(home)).toEqual(home)
   expect(home.repository).toBe("local-owner/demo")
   expect(home.items.map(item => [item.n, item.state])).toEqual([[1, "queued"], [2, "working"], [3, "in_review"]])
-  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
+  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, retrying: 0, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(home.items[0]).toMatchObject({ queue: { reason: "machine", position: 1 }, branch: { id: "", name: "" }, place: 1 })
   expect(home.items[0]!.actions).toEqual([{ tag: "todo", label: "First local TODO", args: { n: "1", door: "title" } }])
   expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title]])
@@ -515,7 +515,7 @@ test("Home from GET /api/todos: one row per unmerged TODO in served order, only 
   expect(home.main).toMatchObject({ title: "main", health: "limited" })
   expect(home.main.cause).toBeUndefined()
   const mounted = mount(home)
-  expect(mounted.props.model.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
+  expect(mounted.props.model.counts).toEqual({ queued: 1, starting: 0, working: 1, retrying: 0, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(mounted.props.model.items.map(row => row.n)).toEqual([1, 2, 3])
 })
 

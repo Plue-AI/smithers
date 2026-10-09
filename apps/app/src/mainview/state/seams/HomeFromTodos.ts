@@ -11,7 +11,7 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
  * and main's row without sync facts, which the list does not carry.
  */
 export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>, role: "owner" | "maintainer" | "member" = "member"): HomeModel => {
-  const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
+  const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, retrying: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
   const open = todos.filter(todo => todo.state !== "merged" && todo.state !== "dropped")
   for (const todo of open) counts[todo.state] += 1
   const items = open.map((todo): HomeItem => {
@@ -23,6 +23,7 @@ export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>
     return {
       n: todo.n, title: todo.title, state: todo.state, owner: todo.owner, merge: todo.merge,
       ...(todo.place === undefined ? {} : { place: todo.place }),
+      ...(todo.retry === undefined ? {} : { retry: todo.retry }),
       ...(todo.queue === undefined ? {} : { queue: todo.queue }),
       ...(todo.step === undefined ? {} : { step: todo.step }),
       ...(todo.rebase_pending === undefined ? {} : { rebase_pending: todo.rebase_pending }),

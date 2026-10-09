@@ -166,6 +166,7 @@ export const TodoStateSchema = z.enum([
   "queued",
   "starting",
   "working",
+  "retrying",
   "needs_you",
   "paused",
   "failed",

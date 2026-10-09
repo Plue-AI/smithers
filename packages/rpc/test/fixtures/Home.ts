@@ -6,7 +6,7 @@ import { type Story, story } from "./_story.ts"
 const zero = {
   queued: 0,
   starting: 0,
-  working: 0,
+  working: 0, retrying: 0,
   needs_you: 0,
   paused: 0,
   failed: 0,
@@ -144,7 +144,7 @@ const activeModel: HomeCard = {
     }
   ],
   items,
-  counts: { ...zero, queued: 2, working: 1, needs_you: 1, failed: 1, in_review: 1, merged: 4, dropped: 1 },
+  counts: { ...zero, queued: 2, working: 1, retrying: 0, needs_you: 1, failed: 1, in_review: 1, merged: 4, dropped: 1 },
   merged_since_last_look: [6, 7],
   machines: {
     in_use: 2,

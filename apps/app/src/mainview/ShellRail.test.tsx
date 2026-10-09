@@ -480,3 +480,22 @@ test("shared subject facts produce one line with host tone and a role-bound acti
   }
   expect(lines[0]?.summary).toBeUndefined()
 })
+
+
+test("setup failures render while the shared view never loads", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "agent", "identity"], authFlow: "none", sandbox: null },
+    fetchImpl: async input => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (path.startsWith("/api/conversations/")) return new Promise<Response>(() => {})
+      return path === "/api/install" ? Response.json(installFixture()) : path === "/api/todos" ? Response.json([]) : new Response("", { status: 403 })
+    }
+  })
+  expect(controller.sharedConversation).toBeDefined()
+  await store.dispatch({ type: "toast.shown", actor: "system", key: "setup-refused", title: "Setup refused" }).isPersisted.promise
+  await store.dispatch({ type: "toast.resolved", actor: "system", key: "setup-refused", title: "Setup refused", detail: "Credentials required", status: "failed" }).isPersisted.promise
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider><ShellRail home={false} entries={[]} /></MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelectorAll(".notice").length === 1)
+  expect(host.textContent).toContain("Setup refused")
+})

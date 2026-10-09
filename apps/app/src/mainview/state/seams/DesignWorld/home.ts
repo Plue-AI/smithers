@@ -99,7 +99,7 @@ const rowActions = (world: DesignWorldRows, todo: DesignTodo, viewer: ActorId, f
 export const designHomeModel = (world: DesignWorldRows, viewer: ActorId, syncedAt: number): HomeCard => {
   const repo = world.repo
   const open = openItems(world)
-  const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
+  const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, retrying: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
   for (const todo of stackItems(world)) counts[STATES[todo.state]] += 1
   const merged = stackItems(world).filter(each => each.state === "merged").map(designTodoNumber)
   const items: HomeItem[] = open.map((todo, index) => {

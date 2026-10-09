@@ -14,7 +14,7 @@ func TestTodoStateLiteralProjection(t *testing.T) {
 	cases := []struct{ engine, product string }{
 		{"queued", "queued"}, {"skipped", "queued"}, {"running", "working"}, {"delivering", "working"},
 		{"integrating", "working"}, {"verifying", "working"}, {"proposing", "working"}, {"waiting", "working"},
-		{"retrying", "working"}, {"proposed", "in_review"}, {"landed", "merged"}, {"blocked", "failed"},
+		{"retrying", "retrying"}, {"proposed", "in_review"}, {"landed", "merged"}, {"blocked", "failed"},
 		{"cancelled", "dropped"}, {"rejected", "dropped"}, {"declined", "dropped"},
 	}
 	count := 0
@@ -26,7 +26,7 @@ func TestTodoStateLiteralProjection(t *testing.T) {
 					expected := c.product
 					if launched {
 						switch c.engine {
-						case "queued", "running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying":
+						case "queued", "running", "delivering", "integrating", "verifying", "proposing", "waiting":
 							expected = "starting"
 						}
 					}

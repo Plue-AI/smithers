@@ -30,6 +30,7 @@ const actorLabels: Record<string, string> = {
   "member-color-0": "Ben", "member-color-1": "Ben", "member-color-2": "Ben", "member-color-3": "Ben", "member-color-4": "Ben", "member-color-5": "Ben",
 }
 const stateLabels: Record<TodoState, readonly [string, string]> = {
+  retrying: ["Retrying", "Retrying"],
   queued: ["Queued", "Queued · Implement"],
   starting: ["Starting", "Starting · Implement"],
   working: ["Working", "Working · Implement"],

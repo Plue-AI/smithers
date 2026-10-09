@@ -48,7 +48,7 @@ func TestTodoSteerTransitionLiteralCases(t *testing.T) {
 		{"verifying", [4]string{"working", "starting", "paused", "needs_you"}, [4]string{"working", "starting", "paused", "needs_you"}, true},
 		{"proposing", [4]string{"working", "starting", "paused", "needs_you"}, [4]string{"working", "starting", "paused", "needs_you"}, true},
 		{"waiting", [4]string{"working", "starting", "paused", "needs_you"}, [4]string{"working", "starting", "paused", "needs_you"}, true},
-		{"retrying", [4]string{"working", "starting", "paused", "needs_you"}, [4]string{"working", "starting", "paused", "needs_you"}, true},
+		{"retrying", [4]string{"retrying", "retrying", "paused", "needs_you"}, [4]string{"retrying", "retrying", "paused", "needs_you"}, true},
 		{"proposed", [4]string{"in_review", "in_review", "paused", "needs_you"}, [4]string{"working", "in_review", "paused", "needs_you"}, true},
 		{"blocked", [4]string{"failed", "failed", "paused", "needs_you"}, [4]string{"queued", "queued", "queued", "needs_you"}, true},
 		{"landed", [4]string{"merged", "merged", "merged", "merged"}, [4]string{"merged", "merged", "merged", "merged"}, false},

@@ -271,6 +271,12 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 	if answer := todoFirstAnswer(item); answer != nil {
 		card["first_answer"] = answer
 	}
+	if todoState(item) == "retrying" {
+		card["retry"] = map[string]any{"reason": todoRetryReason(item)}
+		if item.NextAttemptAt.Valid {
+			card["retry"].(map[string]any)["at"] = item.NextAttemptAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+	}
 	if failure := todoFailure(item); failure != nil {
 		card["failure"] = failure
 	}

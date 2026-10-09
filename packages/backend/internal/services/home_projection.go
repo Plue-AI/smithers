@@ -7,7 +7,7 @@ import (
 )
 
 // homeStates are the TODO states Home counts (TodoStateSchema).
-var homeStates = []string{"queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"}
+var homeStates = []string{"queued", "starting", "working", "retrying", "needs_you", "paused", "failed", "in_review", "merged", "dropped"}
 
 // HomePlaceholderAvatar is @smthrs/rpc's PlaceholderAvatarUrl.
 const HomePlaceholderAvatar = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+"
@@ -52,7 +52,7 @@ func HomeModel(repository string, todos []map[string]any, sync *GitHubSyncHealth
 		}
 		item := map[string]any{"n": todo["n"], "title": todo["title"], "state": todo["state"], "owner": todo["owner"], "merge": todo["merge"],
 			"present": todo["present"], "actions": actions, "branch": map[string]any{"id": "", "name": ""}}
-		for _, field := range []string{"place", "queue", "step", "rebase_pending", "approval_cleared", "lessons"} {
+		for _, field := range []string{"place", "queue", "retry", "step", "rebase_pending", "approval_cleared", "lessons"} {
 			if value, ok := todo[field]; ok {
 				item[field] = value
 			}

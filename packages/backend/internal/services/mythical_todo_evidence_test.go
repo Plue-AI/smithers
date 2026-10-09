@@ -23,7 +23,7 @@ func TestTodoOwnerAdmissionRefusesBeforeEffects(t *testing.T) {
 			require.False(t, admitted)
 			require.Equal(t, "TODO admission unavailable", next.Reason)
 			require.Equal(t, []map[string]any{{"id": "start", "label": "Start", "state": "waiting"}, {"id": "request", "label": "Plan", "state": "waiting"}}, todoSteps(*next))
-			require.Equal(t, map[string]string{"queued": "queued", "retrying": "working"}[state], todoState(*next))
+			require.Equal(t, map[string]string{"queued": "queued", "retrying": "retrying"}[state], todoState(*next))
 			next.Reason, next.NextAttemptAt = item.Reason, item.NextAttemptAt
 			require.Equal(t, item, *next, "refusal preserves all attempt history")
 		})

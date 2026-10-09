@@ -37,7 +37,7 @@ func testTodoAnswerTransitionLiteralCases(t *testing.T, kind, answer, late strin
 		{"verifying", [4]string{"working", "needs_you", "paused", "needs_you"}, true},
 		{"proposing", [4]string{"working", "needs_you", "paused", "needs_you"}, true},
 		{"waiting", [4]string{"working", "needs_you", "paused", "needs_you"}, true},
-		{"retrying", [4]string{"working", "needs_you", "paused", "needs_you"}, true},
+		{"retrying", [4]string{"retrying", "needs_you", "paused", "needs_you"}, true},
 		{"proposed", [4]string{"in_review", "needs_you", "paused", "needs_you"}, true},
 		{"blocked", [4]string{"failed", "needs_you", "paused", "needs_you"}, true},
 		{"landed", [4]string{"merged", "merged", "merged", "merged"}, false},

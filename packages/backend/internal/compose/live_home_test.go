@@ -16,7 +16,7 @@ import (
 )
 
 // Literal state inventory keeps the Home projection oracle independent.
-var homeStates = []string{"queued", "starting", "working", "needs_you", "paused", "failed", "in_review", "merged", "dropped"}
+var homeStates = []string{"queued", "starting", "working", "retrying", "needs_you", "paused", "failed", "in_review", "merged", "dropped"}
 
 // liveHomeTodos are TODO cards as GET /api/todos served them in a J4
 // rehearsal, plus failed, merged, paused and dropped copies.
@@ -61,7 +61,7 @@ func TestLiveHomeIsTheAppsHome(t *testing.T) {
 		listed = append(listed, item.N)
 	}
 	require.Equal(t, []int64{1, 2, 3, 4, 6}, listed)
-	require.Equal(t, map[string]int{"queued": 1, "starting": 0, "working": 0, "needs_you": 1, "paused": 1, "failed": 1, "in_review": 1, "merged": 0, "dropped": 0}, home.Counts)
+	require.Equal(t, map[string]int{"queued": 1, "starting": 0, "working": 0, "retrying": 0, "needs_you": 1, "paused": 1, "failed": 1, "in_review": 1, "merged": 0, "dropped": 0}, home.Counts)
 	// T2's lane is awake and T6's waking: two machines in use.
 	require.Equal(t, 2, home.Machines.InUse)
 	tags := func(i int) (out []string) {

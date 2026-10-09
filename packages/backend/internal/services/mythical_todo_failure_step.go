@@ -72,7 +72,15 @@ func projectTodoFailureStep(item *db.MythicalItem, projection mythicalProjection
 		if failure.Code != "" {
 			tag += "/" + failure.Code
 		}
+		// Propagated factory errors must not replace the check action that failed.
+		if tag == "coding/Error/check_configuration" && !todoCheckFailureAction(p.Action) {
+			continue
+		}
 		checks.FailureStep = &todoFailureStep{Attempt: item.Attempt, Run: item.RequestRunID, Action: p.Action, Tag: tag, Cursor: cursor}
 	}
 	item.Checks = checks.encode()
+}
+
+func todoCheckFailureAction(action string) bool {
+	return action == "coding/check-command" || action == "coding/check" || action == "coding/CommandCheck" || strings.HasPrefix(action, "checks/")
 }

@@ -1576,7 +1576,7 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 		states := []struct{ engine, product string }{
 			{"queued", "queued"}, {"skipped", "queued"}, {"running", "working"},
 			{"delivering", "working"}, {"integrating", "working"}, {"verifying", "working"},
-			{"proposing", "working"}, {"waiting", "working"}, {"retrying", "working"},
+			{"proposing", "retrying"}, {"waiting", "retrying"}, {"retrying", "retrying"},
 			{"proposed", "in_review"}, {"blocked", "failed"},
 			{"landed", "merged"}, {"cancelled", "dropped"}, {"rejected", "dropped"}, {"declined", "dropped"},
 		}
