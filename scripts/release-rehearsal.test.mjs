@@ -278,6 +278,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Require Plue matrix target",
     "Validate GitHub Actions workflows",
     "Install PostgreSQL",
+    "Start the gates lane time budget",
     "Release changelog section",
     "Install Playwright Chromium",
     "Install PostgreSQL 18 for the owned local mode",
@@ -296,6 +297,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Archive tested release artifacts",
     "Collect ci-test-tier-evidence",
     "Upload ci-test-tier-evidence",
+    "Report a spent gates lane time budget",
     "Upload gate results",
     "Upload release runtime smoke evidence",
     "Compute the publish plan",
@@ -382,12 +384,57 @@ test("a prerelease runs the candidate and the gates as two lanes, and only the c
   // An unsuffixed release runs one lane with every gate ahead of the candidate.
   assert.deepEqual(
     named.map((candidate) => candidate.name).filter((name) => !ran("release").includes(name)),
-    ["Refuse a re-run attempt", "Restore and verify archived release candidate", "Publish packages in dependency order"]
+    [
+      "Refuse a re-run attempt",
+      "Start the gates lane time budget",
+      "Restore and verify archived release candidate",
+      "Report a spent gates lane time budget",
+      "Publish packages in dependency order"
+    ]
   )
   const names = job.steps.map((candidate) => candidate.name)
   for (const name of reportOnly.filter((gate) => !gate.startsWith("Upload") && !gate.startsWith("Collect"))) {
     assert.ok(names.indexOf(name) < names.indexOf("Build all workspaces from clean artifacts"), `${name} precedes the build`)
   }
+
+  // Only the gates lane has a time budget. A job that reaches its own limit
+  // is cancelled, which `continue-on-error` does not excuse, so the lane ends
+  // its gates before then and finishes as an ordinary red lane. A release's
+  // gates block, so they get no budget.
+  const budget = step("Start the gates lane time budget")
+  const spent = step("Report a spent gates lane time budget")
+  assert.equal(budget.if, "matrix.lane == 'gates'")
+  assert.equal(spent.if, "${{ always() && matrix.lane == 'gates' }}")
+  for (const lane of ["candidate", "release"]) {
+    assert.equal(runs(budget, lane, dryRun), false, lane)
+    assert.equal(runs(spent, lane, dryRun), false, lane)
+  }
+  assert.equal(runs(budget, "gates", dryRun), true)
+  assert.equal(runs(spent, "gates", dryRun), true)
+  assert.ok(names.indexOf("Install PostgreSQL") < names.indexOf(budget.name))
+  assert.ok(names.indexOf(budget.name) < names.indexOf("Release changelog section"), "the budget starts before the first gate")
+  // The budget, the fast failure of every gate after it, and the uploads fit inside the job's limit.
+  const budgetMinutes = Number(budget.env.GATES_BUDGET_MINUTES)
+  assert.ok(Number.isInteger(budgetMinutes) && budgetMinutes > 0 && budgetMinutes + 30 <= job["timeout-minutes"],
+    "the budget leaves half an hour of the job's limit")
+  // The watchdog ends gates by command line. It runs from a file, and even
+  // the step that writes that file must not match the pattern it contains.
+  const pattern = /pkill -KILL -f "([^"]+)"/.exec(budget.run)?.[1]
+  assert.ok(pattern !== undefined, "the watchdog ends gates by command line")
+  const gateCommand = new RegExp(pattern)
+  assert.equal(gateCommand.test(budget.run), false, "the watchdog would end the step that starts it")
+  assert.match(budget.run, /nohup bash "\$RUNNER_TEMP\/gates-budget\.sh" >\/dev\/null 2>&1 &/)
+  // It ends commands by pattern machine-wide, so it starts only on a hosted
+  // runner, and the guard comes before anything is written or started.
+  const guard = budget.run.indexOf('if [ "${GITHUB_ACTIONS:-}" != true ]; then')
+  assert.ok(guard >= 0 && guard < budget.run.indexOf("cat >") && guard < budget.run.indexOf("nohup"),
+    "the watchdog is refused off a GitHub runner before it exists")
+  assert.match(budget.run.slice(guard, budget.run.indexOf("cat >")), /exit 0\n\s*fi\n/)
+  for (const gate of gates) {
+    const command = named.find((candidate) => candidate.name === gate).run.replaceAll("'", "")
+    assert.equal(gateCommand.test(command), true, gate)
+  }
+  assert.match(spent.run, /gates-budget-spent/)
 
   // A tag push publishes from the candidate lane or the release lane, never from the gates lane.
   const push = pushContexts("v0.1.0-rc.1")

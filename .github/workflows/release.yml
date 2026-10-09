@@ -399,6 +399,41 @@ jobs:
       # on a runner with no rg binary and failed 25 cases. pack-release.test.mjs
       # compares these blocks against ci.yml, so the copy cannot go stale in
       # silence, and the toolchain block above is a one-line copy per bump.
+      # A prerelease reports its gates; it does not wait on them. The job has
+      # 330 minutes, and a job that reaches its limit is cancelled, which
+      # `continue-on-error` does not excuse: the run would not end green.
+      # Measured on 2026-10-08, the gates took more than 270 minutes with the
+      # shared backend suite still running. So the gates lane gives the gates
+      # a budget. When it is spent, a watchdog ends every gate command still
+      # running, and each one after it as it starts; those gates report as
+      # failed, and the lane finishes by itself as an ordinary red lane. An
+      # unsuffixed release has no budget: its gates block, and one that hangs
+      # fails the job at the limit.
+      - name: Start the gates lane time budget
+        if: matrix.lane == 'gates'
+        env:
+          GATES_BUDGET_MINUTES: "290"
+        run: |
+          # The watchdog ends commands by pattern across the whole machine.
+          # That is safe on a hosted runner, which runs this one job, and
+          # nowhere else: on a shared host it would end other people's gates.
+          if [ "${GITHUB_ACTIONS:-}" != true ]; then
+            echo "Not a GitHub runner: no gate watchdog is started."
+            exit 0
+          fi
+          # It runs from a file, so its own command line does not contain the
+          # pattern. A gate is a `smthrs <verb> //<target>` command, under
+          # pnpm and as itself.
+          cat > "$RUNNER_TEMP/gates-budget.sh" <<'WATCHDOG'
+          sleep "$(( GATES_BUDGET_MINUTES * 60 ))"
+          date -u +%FT%TZ > "$RUNNER_TEMP/gates-budget-spent"
+          while :; do
+            pkill -KILL -f " (ci|test|lint|build) //" || true
+            sleep 15
+          done
+          WATCHDOG
+          nohup bash "$RUNNER_TEMP/gates-budget.sh" >/dev/null 2>&1 &
+        shell: bash
       # The changelog is generated from the commit range, so a release whose
       # section is missing or stale is a release nobody wrote up. A red result
       # here blocks an unsuffixed release before the build, so it costs a
@@ -870,6 +905,15 @@ jobs:
           name: ci-test-tier-evidence
           path: "${{ runner.temp }}/ci-test-tier-evidence"
           if-no-files-found: ignore
+      - name: Report a spent gates lane time budget
+        if: ${{ always() && matrix.lane == 'gates' }}
+        run: |
+          if [ -f "$RUNNER_TEMP/gates-budget-spent" ]; then
+            echo "::warning::The gates lane spent its time budget at $(cat "$RUNNER_TEMP/gates-budget-spent"). Gates still running or not yet started then were ended and report as failed; they did not finish."
+          else
+            echo "Every gate finished inside the lane's time budget."
+          fi
+        shell: bash
       # One JSON file per gate: what the gates lane of a prerelease reports.
       - name: Upload gate results
         if: ${{ always() && steps.setup.conclusion == 'success' }}
