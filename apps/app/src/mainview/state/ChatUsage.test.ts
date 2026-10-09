@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test"
-import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { digest } from "@smthrs/core/Digest"
+import { agentTurnJournalDigestInput, type AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
+import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { ConfiguredModel } from "@smthrs/rpc/ConfiguredModel"
-import type { AgentPort } from "../runtime/AgentPort"
 import { emptyAppProjection, projectAppEvent, seedAppProjection, type AppProjectionSnapshot } from "./AppProjection"
 import type { AppTransition } from "./AppState"
 import { DEFAULT_BRANCH_ID } from "./AppState"
-import { createAppStore } from "./AppStore"
 import { APP_TRANSITION_SCHEMAS } from "./AppTransitionValidation"
-import { scopedControllers } from "./ControllerTestScope"
 import { projectHttpFrame, type HttpTurn, type HttpTurnLeg } from "./HttpTurn"
-import { memoryStorage, settled } from "./TestFixtures"
 
 const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 100, theme: "dark" })
 const apply = (state: AppProjectionSnapshot, transition: AppTransition, createdAt = 200): AppProjectionSnapshot =>
@@ -70,36 +68,33 @@ describe("done frames feed the meter", () => {
       .some((transition) => transition.type === "chat.usage.recorded")).toBe(false)
   })
 
-  test("the native turn loop folds the usage of each leg into the session", async () => {
-    const createAppController = scopedControllers()
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const listeners = new Set<(frame: AgentTurnFrame) => void>()
-    const legs: ReadonlyArray<ReadonlyArray<AgentTurnFrame>> = [
-      [
-        { runId: "", type: "tool_call", call_id: "c1", name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" }) },
-        { runId: "", type: "done", reason: "tool_call", usage: { inputTokens: 1_000, outputTokens: 20, cachedInputTokens: 0 } }
-      ],
-      [
-        { runId: "", type: "delta", kind: "text", text: "Done." },
-        { runId: "", type: "done", reason: "stop", usage: { inputTokens: 1_200, outputTokens: 10, cachedInputTokens: 1_000 } }
-      ]
-    ]
-    let started = 0
-    const agent: AgentPort = {
-      available: true,
-      startTurn: async (request: StartAgentTurnRequest) => {
-        const frames = legs[started++] ?? []
-        queueMicrotask(() => { for (const frame of frames) for (const listener of listeners) listener({ ...frame, runId: request.runId }) })
-        return { status: "started" }
-      },
-      cancelTurn: async () => {},
-      subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener) }
+  /*
+   * The browser turn loop that once drove legs is gone (90ef5aaccb); a turn's
+   * legs reach the session as recorded HTTP turn events, and each leg's done
+   * frame folds into the one meter.
+   */
+  test("a tool-loop turn's recorded legs fold the usage of each leg into the session", () => {
+    const token = "a".repeat(64)
+    const cursor = (legId: string): AgentTurnCursor => ({ version: 1, runId: "t1", legId, batch: 0, position: 0, hash: "0".repeat(64) })
+    const batch = (legId: string, frames: AgentTurnFrame[]): Extract<AppTransition, { type: "http.turn.batch.received" }> => {
+      const body = { version: 1 as const, runId: "t1", legId, batch: 1, from: 1, previousHash: "0".repeat(64), frames }
+      return { type: "http.turn.batch.received", actor: "system", attemptId: "a1", legId, batch: { ...body, hash: digest(agentTurnJournalDigestInput("batch", body)) } }
     }
-    const controller = createAppController(store, agent)
-    controller.send("make me a note")
-    await settled()
-    await settled()
-    expect(started).toBe(2)
-    expect(store.session().chatUsage).toEqual({ branchId: DEFAULT_BRANCH_ID, input: 2_200, output: 30, cached: 1_000, context: 1_200 })
+    let state = apply(boot(), { type: "http.turn.started", actor: "user", attemptId: "a1", turnId: "t1", text: "make me a note", retry: false, journal: { version: 1, legId: "l1", token } })
+    state = apply(state, { type: "http.leg.accepted", actor: "system", attemptId: "a1", legId: "l1", cursor: cursor("l1") })
+    state = apply(state, batch("l1", [
+      { runId: "t1", type: "tool_call", call_id: "c1", name: "commands", arguments: JSON.stringify({ action: "execute", name: "wiki.new-note" }) },
+      { runId: "t1", type: "done", reason: "tool_call", usage: { inputTokens: 1_000, outputTokens: 20, cachedInputTokens: 0 } }
+    ]))
+    state = apply(state, { type: "http.tool.started", actor: "smithers", attemptId: "a1", legId: "l1" })
+    state = apply(state, { type: "http.tool.settled", actor: "smithers", attemptId: "a1", legId: "l1", result: "ok: created note" })
+    state = apply(state, { type: "http.leg.prepared", actor: "system", attemptId: "a1", journal: { version: 1, legId: "l2", token } })
+    state = apply(state, { type: "http.leg.accepted", actor: "system", attemptId: "a1", legId: "l2", cursor: cursor("l2") })
+    state = apply(state, batch("l2", [
+      { runId: "t1", type: "delta", kind: "text", text: "Done." },
+      { runId: "t1", type: "done", reason: "stop", usage: { inputTokens: 1_200, outputTokens: 10, cachedInputTokens: 1_000 } }
+    ]))
+    expect(state.httpTurns[0]?.status).toBe("complete")
+    expect(state.sessions[0]!.chatUsage).toEqual({ branchId: DEFAULT_BRANCH_ID, input: 2_200, output: 30, cached: 1_000, context: 1_200 })
   })
 })

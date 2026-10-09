@@ -11,44 +11,38 @@
  * instead. Keyed on the ask, so ordinary conversation never enters the gate.
  */
 import { describe, expect, test } from "bun:test"
-import { scopedControllers } from "./ControllerTestScope"
-import { createAppStore } from "./AppStore"
+import { digest } from "@smthrs/core/Digest"
+import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
+import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
+import { emptyAppProjection, projectAppEvent, seedAppProjection, type AppProjectionSnapshot } from "./AppProjection"
+import type { AppTransition } from "./AppState"
 import { ASK_HONEST_LINES } from "./Instructions"
 import { impossibleAskOf, offersAskClassAct, renderedAskTurnText } from "./RunClaims"
-import { memoryStorage, scriptedToolAgent, settle } from "./TestFixtures"
 
-const createAppController = scopedControllers()
+/*
+ * The browser turn driver is gone (90ef5aaccb): a turn reaches the transcript
+ * as recorded HTTP turn events, and the projection arms the gate from the
+ * ask (http.turn.started) and settles it on the done frame.
+ */
+const boot = () => seedAppProjection(emptyAppProjection(), { createdAt: 1, theme: "light" })
+const step = (state: AppProjectionSnapshot, transition: AppTransition): AppProjectionSnapshot =>
+  projectAppEvent(state, { transition, revision: state.sessions[0]!.revision + 1, createdAt: 2, persistenceMode: "localStorage" })
 
-const webStore = () => createAppStore({ kind: "localStorage", storage: memoryStorage() })
-
-const signIn = async (store: Awaited<ReturnType<typeof webStore>>) => {
-  store.dispatch({
-    type: "identity.session.loaded",
-    actor: "system",
-    state: "signed-in",
-    login: "codeplanesmithers",
-    admin: false,
-    scopesPlain: null
-  })
-  store.dispatch({
-    type: "repositories.loaded",
-    actor: "system",
-    repositories: ["codeplanesmithers/smithers-demo"].map((fullName) => ({
-      id: fullName,
-      org: fullName.split("/")[0] ?? "",
-      ownerKind: "user",
-      name: fullName.split("/")[1] ?? "",
-      head: null
-    }))
-  })
-  await settle(2)
+/** The transcript one plain answer turn to `ask` renders when the model streams `answer`. */
+const transcript = (ask: string, answer: string): string => {
+  const cursor = { version: 1 as const, runId: "turn", legId: "leg", batch: 0, position: 0, hash: "0".repeat(64) }
+  const frames: AgentTurnFrame[] = [
+    { runId: "turn", type: "delta", kind: "text", text: answer },
+    { runId: "turn", type: "done", reason: "stop" }
+  ]
+  const body = { version: 1 as const, runId: "turn", legId: "leg", batch: 1, from: 1, previousHash: cursor.hash, frames }
+  let state = step(boot(), { type: "http.turn.started", actor: "user", attemptId: "attempt", turnId: "turn", text: ask, retry: false,
+    journal: { version: 1, legId: "leg", token: "a".repeat(64) } })
+  state = step(state, { type: "http.leg.accepted", actor: "system", attemptId: "attempt", legId: "leg", cursor })
+  state = step(state, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
+    batch: { ...body, hash: digest(agentTurnJournalDigestInput("batch", body)) } })
+  return [...state.messages].sort((left, right) => left.ordinal - right.ordinal).map((message) => message.text).join("\n")
 }
-
-const transcript = (store: Awaited<ReturnType<typeof webStore>>): string =>
-  [...store.collections.messages.values()]
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .map((message) => message.text)
-    .join("\n")
 
 /*
  * The exact laundering the live §F-5 tail produced (quoted in the wave-13
@@ -207,19 +201,8 @@ describe("wave 13c — the ask keys the gate", () => {
 })
 
 describe("wave 13c — the rendered turn answers honestly", () => {
-  test("the observed F-5 laundering transcript, replayed through the real controller, renders honest", async () => {
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: F5_LAUNDERING },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("Open a pull request for this work and paste me the PR link.")
-    await settle()
-    const rendered = transcript(store)
+  test("the observed F-5 laundering transcript, replayed through the turn projection, renders honest", () => {
+    const rendered = transcript("Open a pull request for this work and paste me the PR link.", F5_LAUNDERING)
     expect(rendered).not.toContain("creates the PR")
     expect(rendered).not.toContain("approve the run")
     expect(rendered).toContain(ASK_HONEST_LINES.pr)
@@ -227,87 +210,32 @@ describe("wave 13c — the rendered turn answers honestly", () => {
 
   test.each(F_ROWS.map((row) => [row.id, row.ask, row.askClass, row.theater] as const))(
     "%s: the armed capability-theater answer never reaches the transcript",
-    async (_id, ask, askClass, theater) => {
-      const store = await webStore()
-      const { agent } = scriptedToolAgent([
-        () => [
-          { type: "delta" as const, kind: "text" as const, text: theater },
-          { type: "done" as const, reason: "stop" as const }
-        ]
-      ])
-      const controller = createAppController(store, agent)
-      await signIn(store)
-      controller.send(ask)
-      await settle()
-      const rendered = transcript(store)
+    (_id, ask, askClass, theater) => {
+      const rendered = transcript(ask, theater)
       expect(rendered).not.toContain(theater)
       expect(rendered).toContain(ASK_HONEST_LINES[askClass])
     }
   )
 
-  test("an honest can't-yet answer to an impossible ask flushes verbatim", async () => {
+  test("an honest can't-yet answer to an impossible ask flushes verbatim", () => {
     const honest =
       "I can’t open a pull request or hand you a PR link yet. I can start a workflow that prepares the change, and you open the PR."
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: honest },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("Open a pull request for this work and paste me the PR link.")
-    await settle()
-    expect(transcript(store)).toContain(honest)
+    expect(transcript("Open a pull request for this work and paste me the PR link.", honest)).toContain(honest)
   })
 
-  test("a legitimately-possible ask is NOT intercepted — the turn streams untouched", async () => {
+  test("a legitimately-possible ask is NOT intercepted — the turn streams untouched", () => {
     const answer = "Happy to — which repository should the issues summary watch?"
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: answer },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("make me a workflow that summarizes issues")
-    await settle()
-    expect(transcript(store)).toContain(answer)
+    expect(transcript("make me a workflow that summarizes issues", answer)).toContain(answer)
   })
 
-  test("a possible ask that NAMES a class noun streams untouched — the gate is not a censor", async () => {
+  test("a possible ask that NAMES a class noun streams untouched — the gate is not a censor", () => {
     const answer = "I can create a workflow that summarizes your open PRs every morning."
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: answer },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("make me a workflow that summarizes open PRs")
-    await settle()
-    const rendered = transcript(store)
+    const rendered = transcript("make me a workflow that summarizes open PRs", answer)
     expect(rendered).toContain(answer)
     expect(rendered).not.toContain(ASK_HONEST_LINES.pr)
   })
 
-  test("conversation ABOUT the class noun is not an action ask — the same words §F-1 catches stand here", async () => {
-    const store = await webStore()
-    const { agent } = scriptedToolAgent([
-      () => [
-        { type: "delta" as const, kind: "text" as const, text: "I can email your team the summary." },
-        { type: "done" as const, reason: "stop" as const }
-      ]
-    ])
-    const controller = createAppController(store, agent)
-    await signIn(store)
-    controller.send("what would you do about email?")
-    await settle()
-    expect(transcript(store)).toContain("I can email your team the summary.")
+  test("conversation ABOUT the class noun is not an action ask — the same words §F-1 catches stand here", () => {
+    expect(transcript("what would you do about email?", "I can email your team the summary.")).toContain("I can email your team the summary.")
   })
 })

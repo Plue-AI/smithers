@@ -1,11 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
-import { scopedControllers } from "./ControllerTestScope"
-import { createAppStore } from "./AppStore"
 import { WORLD_BODY_PER_DOCUMENT, worldContextDocuments } from "./WorldContext"
-import { addWorldNote, memoryStorage, recordingAgent, settled } from "./TestFixtures"
-
-const createAppController = scopedControllers()
 
 /*
  * §10.8 — the World reaches the model, or it is decoration.
@@ -18,7 +12,6 @@ const createAppController = scopedControllers()
  * confidence, never by body.
  */
 
-/** An agent double that records every turn request and ends the turn fast. */
 const note = (id: string, body: string, path = `${id}.md`) => ({
   id,
   path,
@@ -71,24 +64,5 @@ describe("world notes ride the turn under a budget", () => {
     const [carried] = worldContextDocuments([note("World", "   ")], null)
     expect(carried?.body).toBe("")
     expect(carried?.bodyTruncated).toBeUndefined()
-  })
-
-  test("the turn the client sends carries the note's text, not just its path", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    await addWorldNote(store)
-    const requests: StartAgentTurnRequest[] = []
-    const controller = createAppController(store, recordingAgent(requests))
-    const seeded = [...store.collections.worldDocuments.values()][0]
-    expect(seeded).toBeDefined()
-    controller.changeWorldDocument(
-      seeded?.id ?? "",
-      "Project glossary. The canary codeword for this workspace is zarquon-mimsy-7741."
-    )
-
-    controller.send("What is the canary codeword for this workspace?")
-    await settled()
-
-    const documents = requests[0]?.context?.worldState.documents ?? []
-    expect(documents.some((document) => document.body?.includes("zarquon-mimsy-7741"))).toBe(true)
   })
 })
