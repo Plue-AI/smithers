@@ -1,12 +1,20 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 08:25 PDT
-main          89dd837e6e when written
+Updated       2026-10-09 10:45 PDT
+main          5ea0bf5b8f when written
 
-Doneish       YES on 8ab73f0c82 (the 1.0.0-rc.1 cut).
-Publish       READY, NOT PUBLISHED. Tag 8ab73f0c82: section 6. Will's keystroke.
-Real install  Run 10 PASS on the cut's own bundle (dry run #11), no patch: setup
+Publish       NOTHING PUBLISHED. The v1.0.0-rc.1 tag run (37963844319) stopped
+              in the npm publish preflight before any package: pnpm 11 answers
+              a missing version of an existing name without a 404, and the
+              preflight treated it as fatal. Fixed in 1618f9d9ce. The rc.1 tag
+              stays as a failed attempt; npm never had 1.0.0-rc.1.
+Next          1.0.0-rc.2, cut 5ea0bf5b8f (66 commits after rc.1, including the
+              fix). Running on it: dry run #12 (37967228802), J1 to J11, then
+              real install run 11 on #12's bundle. The tag follows when all
+              three pass.
+Doneish       YES on 8ab73f0c82 (rc.1). rc.2 is being proven.
+Real install  Run 10 PASS on the rc.1 cut's own bundle (dry run #11), no patch: setup
               on the card, TODO T1 to PR canary-sandbox#151, merged with the
               TODO card's Merge at 07:13:10 PDT, squash 815abef03b.
               Runs 6 to 9 found these stops; all are fixed in the cut:
@@ -17,7 +25,7 @@ Real install  Run 10 PASS on the cut's own bundle (dry run #11), no patch: setup
               8  any outside write killed the TODO run    4653cacd08
               9  candidate tree read refused by git       f4381cd226
               8,9 daemon exited after agent jj in bwrap   8a6ac03825
-Journeys      8ab73f0c82: no failed row. J5 passed on its second try.
+Journeys      8ab73f0c82 (rc.1): no failed row. J5 passed on its second try.
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
               J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
 Dry run       #11 37934773000 on 8ab73f0c82: every blocking job green. Its
@@ -39,8 +47,10 @@ To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
               (refused at 39.19, started at 44.77). Commands: section 6.
 No mini/Cloud The Mac mini is offline (Will, 10-08). Cloud cannot run a TODO.
 
-Needs Will    The tag push, section 6. Optional: say yes to using your model
-              keys if an install run should also run a TODO with a real model.
+Needs Will    Nothing. Will asked for the publish (10-09 10:00); the rc.2 tag
+              is pushed once its proof passes. Optional: say yes to using your
+              model keys if an install run should also run a TODO with a real
+              model.
 ```
 
 ## 1. What works
@@ -163,7 +173,9 @@ Confirmed by run 10 on the cut, built with no local patch: 1 (the catalog machin
 
 ## 6. Publish
 
-**Ready, not published.** The tag goes on the cut, 8ab73f0c824c94c08de47f9e6c4c560fb0b2af9a, not on today's `main`. On that commit: run 10 took a TODO to a merged PR, J1 to J11 have no failed row, and dry run #11 (37934773000) passed every blocking job: native helpers, build, pack, the installed-package smoke, the four installed-CLI jobs and the Mac bundle. The plan it printed: 1.0.0-rc.1 on the `next` dist-tag; publication skipped.
+**Not published.** The v1.0.0-rc.1 tag (on 8ab73f0c82) ran Release 37963844319 at 10:05 PDT. Its candidate passed build, pack and smoke, then the publish preflight stopped on `@smthrs/errors` before any upload: `pnpm view` answers `ERR_PNPM_PACKAGE_NOT_FOUND` with no 404 for a missing version of an existing name. 1618f9d9ce fixes it with the run's exact output as the regression test. A resume would check out the rc.1 tag and run the old script, so the next publish is 1.0.0-rc.2, cut 5ea0bf5b8fd3e45bd7c14c0cbb59ee21b0682ee2.
+
+The rc.1 proof, kept for the record. On that commit: run 10 took a TODO to a merged PR, J1 to J11 have no failed row, and dry run #11 (37934773000) passed every blocking job: native helpers, build, pack, the installed-package smoke, the four installed-CLI jobs and the Mac bundle. The plan it printed: 1.0.0-rc.1 on the `next` dist-tag; publication skipped.
 
 Every dry run and why it failed: Detail H.
 
@@ -187,22 +199,22 @@ No GitHub Release is created. The bundle has no public download: it is the run's
 
 ### Known risks
 
-1. The publish step runs for the first time on the tag. No dry run can run it.
+1. The publish step has run once on a tag (rc.1) and stopped in its preflight; fixed in 1618f9d9ce. Its upload half has still never run. No dry run can run it.
 2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (runs 37840712277, 37844231677). Whether it may create new `@smthrs/*` names could not be determined. If it may not, the publish stops at the first package, `@smthrs/canonical`, which is new, and nothing is published. Fix and resume: Detail F.
 3. This MacBook's `gh` token cannot push workflow files. Whether it can push the tag: not checked. The first command below removes the doubt.
 
 ### Commands
 
-Publish 1.0.0-rc.1:
+Publish 1.0.0-rc.2:
 
 ```sh
 cd ~/smithers
 gh auth refresh -h github.com -s workflow   # once, 1 minute
-SHA=8ab73f0c824c94c08de47f9e6c4c560fb0b2af9a
+SHA=5ea0bf5b8fd3e45bd7c14c0cbb59ee21b0682ee2   # the rc.2 cut, once its proof passes
 git fetch origin main
-git tag -a v1.0.0-rc.1 -m "🔖 release: 1.0.0-rc.1" "$SHA"
-git push origin v1.0.0-rc.1                 # this publishes to npm under `next`, about 45 minutes later
-npm view smthrs dist-tags                   # expect next = 1.0.0-rc.1, latest = 0.35.0
+git tag -a v1.0.0-rc.2 -m "🔖 release: 1.0.0-rc.2" "$SHA"
+git push origin v1.0.0-rc.2                 # this publishes to npm under `next`, about 45 minutes later
+npm view smthrs dist-tags                   # expect next = 1.0.0-rc.2, latest = 0.35.0
 ```
 
 Try it, on a Mac with 44 GiB free. Use a macOS account with no Smithers state. Have GitHub repository admin access, a provider key and an AI Gateway key ready.
