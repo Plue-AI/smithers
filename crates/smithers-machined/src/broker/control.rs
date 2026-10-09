@@ -16,6 +16,10 @@ pub trait Controls {
     fn session(&mut self, _request: super::request::Request) -> io::Result<Vec<u8>> {
         Err(io::ErrorKind::Unsupported.into())
     }
+    /// Reads only the broker-owned parent cgroup; no request supplies a path.
+    fn frozen(&mut self) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
     fn kill(&mut self) -> io::Result<u16>;
@@ -80,7 +84,7 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
         }
         let name = match packet[4] {
             1 => "broker_freeze",
-            2 | 3 => "empty",
+            2 | 3 | 31 => "empty",
             _ => return Err(error(2)),
         };
         let fields = conn::fields(name, &packet[5..]).map_err(|_| error(1))?;
@@ -100,6 +104,9 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
                         fields
                     })
             }
+            31 => controls
+                .frozen()
+                .map(|frozen| vec![conn::field(1, [u8::from(frozen)])]),
             2 => controls.thaw().map(|_| vec![]),
             3 => controls
                 .kill()
@@ -117,6 +124,7 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
 pub struct SocketpairBroker(
     std::sync::Mutex<(std::os::fd::OwnedFd, u32, bool)>,
     std::sync::Mutex<Presence>,
+    std::sync::atomic::AtomicU8,
     #[cfg(all(feature = "testing", debug_assertions))] bool,
 );
 #[cfg(target_os = "linux")]
@@ -140,13 +148,14 @@ impl SocketpairBroker {
         Ok(Self(
             std::sync::Mutex::new((fd, 0, false)),
             std::sync::Mutex::new(Presence::default()),
+            std::sync::atomic::AtomicU8::new(0),
             #[cfg(all(feature = "testing", debug_assertions))]
             false,
         ))
     }
     #[cfg(all(feature = "testing", debug_assertions))]
     pub(crate) fn with_installed_input_validation(mut self) -> Self {
-        self.2 = true;
+        self.3 = true;
         self
     }
     /// Acceptance images only: a bounded fixed packet ends this private
@@ -277,13 +286,52 @@ impl SocketpairBroker {
             *failed = true;
             return Err(error(12));
         }
+        // Store under the same packet lock as the exchange. A concurrent
+        // readiness read must never overwrite a newer freeze/thaw reply.
+        let observed = match variant {
+            1 => {
+                let fields = conn::fields("broker_frozen", &bytes[5..]).map_err(|_| error(12))?;
+                if fields[0].1 == [1] {
+                    Some(2)
+                } else {
+                    None
+                }
+            }
+            2 => {
+                conn::fields("empty", &bytes[5..]).map_err(|_| error(12))?;
+                Some(1)
+            }
+            31 => {
+                let fields = conn::fields("freeze_state", &bytes[5..]).map_err(|_| error(12))?;
+                Some(if fields[0].1 == [1] { 2 } else { 1 })
+            }
+            _ => None,
+        };
+        if let Some(observed) = observed {
+            self.2.store(observed, std::sync::atomic::Ordering::Release);
+        }
         Ok((bytes[5..].to_vec(), passed))
     }
 }
 #[cfg(target_os = "linux")]
 impl crate::hooks::Broker for SocketpairBroker {
+    fn frozen(&self) -> Option<bool> {
+        match self.2.load(std::sync::atomic::Ordering::Acquire) {
+            1 => Some(false),
+            2 => Some(true),
+            _ => None,
+        }
+    }
     fn ready(&self) -> crate::hooks::Result<()> {
-        self.call_body(23, &[]).map(|_| ())
+        self.call_body(23, &[])?;
+        // Read the initial kernel state rather than treating readiness as thaw.
+        // The packet lock serializes this with freeze/thaw replies.
+        match self.call(31, &[]) {
+            Ok(_) => {}
+            Err(error) if error.code == 2 => {} // no observation from an unavailable provider
+            Err(error) => return Err(error),
+        }
+        Ok(())
     }
     fn set_roster(&self, members: &[super::sessions::User]) -> crate::hooks::Result<()> {
         let body = super::request::roster_bytes(members).map_err(map_io)?;
@@ -314,7 +362,8 @@ impl crate::hooks::Broker for SocketpairBroker {
         }
     }
     fn thaw(&self) -> crate::hooks::Result<()> {
-        self.call(2, &[]).map(|_| ())
+        self.call(2, &[])?;
+        Ok(())
     }
     fn kill_sessions(&self, sessions: Option<&[u32]>) -> crate::hooks::Result<u16> {
         if sessions.is_some() {
@@ -500,7 +549,7 @@ impl crate::hooks::Sessions for SocketpairBroker {
         let body = self.call_body(method, args)?;
         conn::fields(&format!("result{method}"), &body).map_err(|_| error(12))?;
         #[cfg(all(feature = "testing", debug_assertions))]
-        if method == 6 && self.2 {
+        if method == 6 && self.3 {
             let fields = conn::fields("result6", &body).map_err(|_| error(12))?;
             let id = u32::from_be_bytes(fields[0].1.try_into().map_err(|_| error(12))?);
             if let Err(failure) = super::ssh_acceptance::installed(self, id) {

@@ -232,6 +232,9 @@ pub trait Sessions: Send + Sync {
     }
 }
 pub trait Broker: Send + Sync {
+    /// Nonblocking observation of a successful broker freeze/thaw reply.
+    /// Missing providers supply no fact; this is never inferred from an RPC.
+    fn frozen(&self) -> Option<bool> { None }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {

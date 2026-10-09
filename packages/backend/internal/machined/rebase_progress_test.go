@@ -51,3 +51,21 @@ func TestRebaseProgressRetainsCancelledMutationUntilReply(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalFreezeObservationsAreBootBound(t *testing.T) {
+	r, link, peer := rpcFixture(t)
+	require.True(t, link.TerminalsFrozen("a"))
+	report := func(value byte) {
+		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Presence, Payload: wire.Union(2, wire.Field(1, []byte{value}))}))
+	}
+	report(0)
+	require.Eventually(t, func() bool { return !link.TerminalsFrozen("a") }, time.Second, time.Millisecond)
+	require.True(t, link.TerminalsFrozen("other"))
+	report(1)
+	require.Eventually(t, func() bool { return link.TerminalsFrozen("a") }, time.Second, time.Millisecond)
+	report(0)
+	require.Eventually(t, func() bool { return !link.TerminalsFrozen("a") }, time.Second, time.Millisecond)
+	_, err := r.MintBoot("a", "replacement")
+	require.NoError(t, err)
+	require.True(t, link.TerminalsFrozen("a"), "a retired boot supplies no thaw fact")
+}

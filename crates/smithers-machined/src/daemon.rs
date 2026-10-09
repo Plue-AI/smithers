@@ -182,6 +182,39 @@ impl Daemon {
                 let _ = socket.shutdown(std::net::Shutdown::Both);
             }
         });
+        // Freeze is observed while the mutation executor is busy rewriting.
+        // Network IO stays on this transport thread, outside the shared lock.
+        let progress_stop = Arc::new(AtomicBool::new(false));
+        let progress_done = progress_stop.clone();
+        let progress_writer = writer.clone();
+        let progress_broker = self.hooks.broker.clone();
+        let progress_generation = self.generation.clone();
+        let progress = std::thread::spawn(move || {
+            let mut last = None;
+            while !progress_done.load(Ordering::Acquire)
+                && progress_generation.load(Ordering::Acquire) == generation
+            {
+                let frozen = progress_broker.frozen();
+                if frozen != last {
+                    if let Some(frozen) = frozen {
+                        let frame = Frame {
+                            kind: 3,
+                            stream: 0,
+                            payload: conn::tagged(2, &[conn::field(1, [u8::from(frozen)])]),
+                        };
+                        let Ok(mut socket) = progress_writer.lock() else {
+                            break;
+                        };
+                        if frame.write(&mut *socket).is_err() {
+                            let _ = socket.shutdown(std::net::Shutdown::Both);
+                            break;
+                        }
+                    }
+                    last = frozen;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        });
         let result = (|| loop {
             let frame = Frame::read_envelope(connection.stream())?;
             if let Err(error) = frame.validate(false) {
@@ -336,9 +369,11 @@ impl Daemon {
                 .map_err(|_| ProtocolError::Truncated)?;
             tx.send(receipt).map_err(|_| ProtocolError::Truncated)?;
         })();
+        progress_stop.store(true, Ordering::Release);
         drop(tx);
         let _ = connection.stream().shutdown(std::net::Shutdown::Both);
         let _ = responder.join();
+        let _ = progress.join();
         let current = self.generation.clone();
         let _ = self
             .executor
@@ -713,5 +748,110 @@ mod tests {
         assert_eq!(admitted_in_a_job(&daemon).0, Ok(true));
         daemon.roster.store(false, Ordering::Release);
         assert_eq!(admitted_in_a_job(&daemon).0, Ok(false));
+    }
+    #[test]
+    fn freeze_facts_cross_authenticated_transport_while_executor_is_busy() {
+        use std::sync::atomic::AtomicU8;
+        struct Observed(AtomicU8);
+        impl crate::hooks::Broker for Observed {
+            fn ready(&self) -> crate::hooks::Result<()> {
+                Ok(())
+            }
+            fn frozen(&self) -> Option<bool> {
+                match self.0.load(Ordering::Acquire) {
+                    1 => Some(false),
+                    2 => Some(true),
+                    _ => None,
+                }
+            }
+        }
+        let ready = Arc::new(Ready);
+        let broker = Arc::new(Observed(AtomicU8::new(0)));
+        let daemon = Arc::new(
+            Daemon::new(Hooks {
+                watcher: ready.clone(),
+                documents: ready.clone(),
+                sessions: ready.clone(),
+                broker: broker.clone(),
+                events: ready.clone(),
+                core: ready,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = daemon.clone();
+        let serving = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let identity =
+                crate::link::Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec())
+                    .unwrap();
+            let connection = crate::link::authenticate(socket, &identity, 1, &[]).unwrap();
+            server.serve(connection)
+        });
+        let mut host = std::net::TcpStream::connect(address).unwrap();
+        host.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let challenge = Frame::read(&mut host).unwrap();
+        let fields = conn::fields("challenge", &challenge.payload[1..]).unwrap();
+        let boot = fields[2].1.try_into().unwrap();
+        let nonce = fields[3].1.try_into().unwrap();
+        Frame {
+            kind: 0,
+            stream: 0,
+            payload: conn::tagged(
+                2,
+                &[
+                    conn::field(1, conn::PROTOCOL.to_be_bytes()),
+                    conn::field(2, conn::host_mac(&[9; 32], conn::PROTOCOL, &boot, &nonce)),
+                ],
+            ),
+        }
+        .write(&mut host)
+        .unwrap();
+        assert_eq!(Frame::read(&mut host).unwrap().payload[0], 3);
+        Frame {
+            kind: 0,
+            stream: 0,
+            payload: conn::tagged(4, &[]),
+        }
+        .write(&mut host)
+        .unwrap();
+        // Force reconnect setup to finish before holding the executor.
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while daemon.generation.load(Ordering::Acquire) == 0 {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        // The initial fact confirms that the independent pump has started.
+        broker.0.store(1, Ordering::Release);
+        assert_eq!(
+            Frame::read(&mut host).unwrap().payload,
+            conn::tagged(2, &[conn::field(1, [0])])
+        );
+        let (held, holding) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let receipt = daemon
+            .executor
+            .lock
+            .enqueue("held_rewrite", move |_| {
+                held.send(()).unwrap();
+                released.recv().unwrap();
+            })
+            .unwrap();
+        holding.recv_timeout(Duration::from_secs(3)).unwrap();
+        broker.0.store(2, Ordering::Release);
+        let frame = Frame::read(&mut host).unwrap();
+        assert_eq!(frame.kind, 3);
+        assert_eq!(frame.payload, conn::tagged(2, &[conn::field(1, [1])]));
+        broker.0.store(1, Ordering::Release);
+        assert_eq!(
+            Frame::read(&mut host).unwrap().payload,
+            conn::tagged(2, &[conn::field(1, [0])])
+        );
+        release.send(()).unwrap();
+        receipt.wait().unwrap();
+        host.shutdown(std::net::Shutdown::Both).unwrap();
+        assert!(serving.join().unwrap().is_err());
     }
 }

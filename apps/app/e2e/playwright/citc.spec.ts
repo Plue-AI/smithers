@@ -186,7 +186,7 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
     const data = frame.topic === `branch:${branchId}` ? {
       id: branchId, name: branchName, machine: { state: "awake" },
       ...(scratch ? { scratch: { forked_from: { kind: "main" } } } : { item: { n: 2, title: "Retry", state: "in_review", place: 1 } }),
-      presence: [], terminals: [], rebase: { state: admitted && !rejectLaunch && state === "running" ? "rebasing" : "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
+      presence: [], terminals: [{ id: "rebase-shell", title: "Shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }, agents: [], watchers: [], frozen: admitted && !rejectLaunch && state === "running" }], rebase: { state: admitted && !rejectLaunch && state === "running" ? "rebasing" : "pending", onto: "main" }, ssh_line: "ssh -p 2222 retry@localhost"
     } : []
     socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
   }))
@@ -237,6 +237,8 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
   await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
   await expect(running).toBeVisible()
   await expect(card.locator(".branch-notice")).toContainText("Rebasing…")
+  await card.getByRole("tab", { name: /Terminals/ }).press("Enter")
+  await expect(card.locator(".branch-frozen")).toHaveText("Rebasing…")
   await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
   expect(writes).toHaveLength(scenario === "unacknowledged reload" || scenario === "launch failure retry" ? 2 : 1)
   expect(receiptKeys.every(receiptKey => receiptKey === key)).toBe(true)
@@ -244,6 +246,9 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
   state = outcome
   await expect(page.locator(`.notice[data-tone="${outcome === "completed" ? "done" : "failed"}"]`).filter({ hasText: "Rebase" })).toBeVisible()
   await expect(running).toHaveCount(0)
+  await page.reload()
+  await expect(card.getByRole("tab", { name: /Terminals/ })).toHaveAttribute("aria-selected", "true")
+  await expect(card.locator(".branch-frozen")).toHaveCount(0)
   if (scenario === "failed") {
     // A terminal execution failure survives reload and never replays its POST.
     await page.reload()

@@ -18,7 +18,7 @@ func terminalProjection(pool *pgxpool.Pool, manager *routes.TerminalSessionManag
 		frozen := true
 		if registry != nil {
 			if link, err := registry.Current(branch.ID); err == nil {
-				frozen = link.RequireReady(branch.ID) != nil
+				frozen = link.TerminalsFrozen(branch.ID)
 			}
 		}
 		result := make([]any, 0, len(entries))

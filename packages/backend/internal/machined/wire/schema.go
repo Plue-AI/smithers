@@ -7,6 +7,7 @@ type field struct {
 }
 
 var structures = map[string][]field{
+	"freeze_state":    {{1, true, "bool"}},
 	"local_request":   {{1, true, "u32"}, {2, true, "local_call"}},
 	"empty":           {},
 	"principal":       {{1, true, "bytes1024"}},
@@ -96,7 +97,7 @@ var unions = map[string]map[byte]string{
 	"events":        {1: "durable", 2: "hint_wrapper", 3: "ack"},
 	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "moved_off", 5: "transcript"},
 	"hint":          {1: "written"},
-	"presence":      {1: "snapshot"},
+	"presence":      {1: "snapshot", 2: "freeze_state"},
 }
 
 // reserved union variants are refused with BadValue whatever their body

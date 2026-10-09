@@ -699,6 +699,9 @@ impl<A: Admission> Kernel for Processes<A> {
         self.processes.remove(&id);
         Ok(())
     }
+    fn frozen(&mut self) -> io::Result<bool> {
+        super::control::Controls::frozen(&mut self.groups)
+    }
     fn freeze(&mut self, t: Duration) -> io::Result<Option<u32>> {
         super::control::Controls::freeze(&mut self.groups, t)
     }

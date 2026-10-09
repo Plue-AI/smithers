@@ -235,6 +235,7 @@ type Link struct {
 	mu               sync.Mutex
 	pending          map[uint32]chan wire.Frame
 	rebases          map[uint32]struct{}
+	frozen           atomic.Uint32
 	documents        map[uint32]*documentQueue
 	openingDocuments int
 	protocol         uint16
@@ -279,6 +280,12 @@ func (l *Link) Rebasing(branch string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return len(l.rebases) != 0
+}
+
+// TerminalsFrozen is a current-boot broker observation, never an RPC guess.
+// No observation is fail-closed until a successful thaw is received.
+func (l *Link) TerminalsFrozen(branch string) bool {
+	return l.RequireReady(branch) != nil || l.frozen.Load() != 1
 }
 
 func (l *Link) Close() error {
@@ -384,6 +391,18 @@ func (l *Link) read() {
 				return
 			}
 		case wire.Presence:
+			if f.Payload[0] == 2 {
+				fields, err := wire.Fields("freeze_state", f.Payload[1:])
+				if err != nil {
+					return
+				}
+				if fields[1][0] == 1 {
+					l.frozen.Store(2)
+				} else {
+					l.frozen.Store(1)
+				}
+				continue
+			}
 			if _, err := f.PresenceSnapshot(); err != nil {
 				return
 			}

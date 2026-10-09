@@ -16,7 +16,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,6 +39,34 @@ func TestRebaseWriterAttributionThroughInstall(t *testing.T) {
 	var boot [16]byte
 	link, guest := presenceTestLink(t, registry, f.row.ID, &boot)
 	require.NoError(t, link.Reconciled())
+	manager := routes.NewTerminalSessionManager(nil)
+	defer manager.Close()
+	require.NoError(t, manager.OpenOwned(ctx, "freeze-terminal", revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) {
+		return &projectionTerminal{done: make(chan struct{})}, nil
+	}))
+	f.p.terminals = terminalProjection(f.pool, manager, registry)
+	frozen := func(viewer presenceInstallFixture) bool {
+		t.Helper()
+		reader := viewer.dial(t)
+		sendPresenceFrame(t, reader, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+		frame := readPresenceFrame(t, reader)
+		var value struct {
+			Terminals []struct {
+				Frozen bool `json:"frozen"`
+			} `json:"terminals"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &value))
+		require.Len(t, value.Terminals, 1)
+		return value.Terminals[0].Frozen
+	}
+	reportFreeze := func(value byte) {
+		t.Helper()
+		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Presence, Payload: wire.Union(2, wire.Field(1, []byte{value}))}))
+	}
+	require.True(t, frozen(f), "ready admission alone proves no thaw")
+	reportFreeze(0)
+	require.Eventually(t, func() bool { return !frozen(f) }, 3*time.Second, 20*time.Millisecond)
+
 	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("terminal")
 	respond := func(peer net.Conn, method wire.Method, fields ...[]byte) {
 		t.Helper()
@@ -114,12 +145,26 @@ func TestRebaseWriterAttributionThroughInstall(t *testing.T) {
 		require.Equal(t, "rebasing", projected["state"])
 		require.NotContains(t, projected, "waiting_for")
 	}
+
+	for _, viewer := range []presenceInstallFixture{f, other} {
+		require.False(t, frozen(viewer), "an admitted Rebase RPC is not freeze evidence")
+	}
+	reportFreeze(1)
+	for _, viewer := range []presenceInstallFixture{f, other} {
+		require.Eventually(t, func() bool { return frozen(viewer) }, 3*time.Second, 20*time.Millisecond)
+	}
 	cancelRewrite()
 	require.ErrorIs(t, <-done, context.Canceled)
 	require.Equal(t, "rebasing", snapshot(f)["state"], "cancelled caller still has an admitted daemon mutation")
 	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(requestID)), wire.Field(2, wire.Union(255, wire.Field(1, []byte{9}), wire.Field(4, wire.U32(7)))))}))
 	require.Eventually(t, func() bool { return !link.Rebasing(f.row.ID) }, time.Second, time.Millisecond)
 	require.Eventually(t, func() bool { return snapshot(f)["state"] == "pending" && snapshot(other)["state"] == "pending" }, 3*time.Second, 20*time.Millisecond)
+
+	require.True(t, frozen(f), "an RPC reply never substitutes for thaw")
+	reportFreeze(0)
+	for _, viewer := range []presenceInstallFixture{f, other} {
+		require.Eventually(t, func() bool { return !frozen(viewer) }, 3*time.Second, 20*time.Millisecond)
+	}
 	require.Contains(t, snapshot(f), "waiting_for")
 	require.NotContains(t, snapshot(other), "waiting_for")
 	// Replay a retained pre-fix fact through the served socket. Its historical

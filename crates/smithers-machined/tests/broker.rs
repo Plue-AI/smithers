@@ -104,6 +104,7 @@ fn broker_root_inputs_refused_before_privileged_side_effects() {
         packet(254, &[]),
         packet(2, &[conn::field(1, b"/workspace/evil")]),
         packet(3, &[conn::field(1, b"../../root")]),
+        packet(31, &[conn::field(1, b"/workspace/evil")]),
         packet(4, &[conn::field(1, b"/bin/sh")]),
         packet(7, &[conn::field(1, 0u32.to_be_bytes())]),
         packet(8, &[conn::field(1, b"LD_PRELOAD=evil")]),
@@ -244,4 +245,60 @@ fn production_seqpacket_correlates_freeze_thaw_and_kill() {
     assert_eq!(broker.kill_sessions(Some(&[1])).unwrap_err().code, 2);
     drop(broker);
     assert_eq!(worker.join().unwrap(), ["freeze", "thaw", "kill"]);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn freeze_observation_requires_successful_broker_replies() {
+    use rustix::net::{
+        recv, send, socketpair, AddressFamily, RecvFlags, SendFlags, SocketFlags, SocketType,
+    };
+    use smithers_machined::hooks::Broker;
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let worker = std::thread::spawn(move || {
+        // Freeze succeeded; thaw failed; freeze refused; thaw succeeded.
+        for (method, result) in [
+            (23, vec![23]),
+            (31, conn::tagged(31, &[conn::field(1, [0])])),
+            (1, conn::tagged(1, &[conn::field(1, [1])])),
+            (2, conn::tagged(255, &[conn::field(1, [12])])),
+            (1, conn::tagged(255, &[conn::field(1, [9])])),
+            (2, conn::tagged(2, &[])),
+        ] {
+            let mut packet = [0; 1024];
+            let (n, _) = recv(&parent, &mut packet, RecvFlags::empty()).unwrap();
+            assert!(n >= if method == 23 { 5 } else { 9 });
+            assert_eq!(packet[4], method);
+            let mut reply = packet[..4].to_vec();
+            reply.extend(result);
+            send(&parent, &reply, SendFlags::empty()).unwrap();
+        }
+    });
+    let broker = control::SocketpairBroker::new(child).unwrap();
+    assert_eq!(broker.frozen(), None);
+    broker.ready().unwrap();
+    assert_eq!(
+        broker.frozen(),
+        Some(false),
+        "initial thaw comes from the broker query"
+    );
+    assert_eq!(broker.freeze(Duration::from_secs(1)).unwrap(), None);
+    assert_eq!(broker.frozen(), Some(true));
+    assert!(broker.thaw().is_err());
+    assert_eq!(
+        broker.frozen(),
+        Some(true),
+        "failed thaw retains the barrier"
+    );
+    assert!(broker.freeze(Duration::from_secs(1)).is_err());
+    assert_eq!(broker.frozen(), Some(true));
+    broker.thaw().unwrap();
+    assert_eq!(broker.frozen(), Some(false));
+    worker.join().unwrap();
 }

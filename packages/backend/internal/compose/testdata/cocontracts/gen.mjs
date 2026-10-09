@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=13;
+const protocol=14;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'c6565e5bd79b58eb97f098269f78cd9f61be1454761500ee2834c04096baa62f'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'83aad95b3b5f0484f60799acda8b92ad535bf95f2604d8e44147b8caee483622'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'76c9e457c0257f26d44465d7b0ea5a3eee79d97b829845410302b65ca8377aee'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'585a9d6e2602d510f54769973916925d6b67107c0d5ef487ef2cbc5b06a00676'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'9a6ca874761960b396582c5fa38f49232ef4cb7d165fc7596c32b10512badaa5'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'f52d8b256b517af52b79f15a2432086698aea0234a41c97a999d094755d5e165'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -159,6 +159,9 @@ emit('ev_transcript_record_at_limit',2,durable(12,transcript({record:Buffer.allo
 emit('bad_value_transcript_record_over_1mib',2,durable(12,transcript({record:Buffer.alloc(1048577,0x61)}),eid(0xd2)),0,'bad_value','daemon-to-host');
 emit('ev_transcript_bad_utf8_nul',2,durable(12,transcript({record:Buffer.from('a\0b')}),eid(0xd3)),0,'bad_utf8','daemon-to-host');
 emit('hint_file_written',2,un(2,f(1,un(1,f(1,str('a')),f(2,actor),f(3,digest)))),0,'ok','daemon-to-host');
+emit('freeze_state_frozen',3,un(2,f(1,num(1,1))),0,'ok','daemon-to-host');
+emit('freeze_state_thawed',3,un(2,f(1,num(0,1))),0,'ok','daemon-to-host');
+emit('freeze_state_invalid',3,un(2,f(1,num(2,1))),0,'bad_value','daemon-to-host');
 emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,num(2,4)))))),0,'ok','daemon-to-host');
 // Live external processes share their transcript participant UUIDs. These
 // frames are independent literal inputs for both strict codecs.

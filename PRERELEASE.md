@@ -294,7 +294,7 @@ Also landed: 5e1a8748b5 moved tests off the removed guest read and write. 3fc44e
 | Access | T-ACC-03 | One permission check over every command. |
 | Own agents and terminals | T-AGT-02, T-AGT-03, T-TRM-02, T-TRM-05, T-TRM-06 | A member's Claude Code or Codex session shown on the branch. Terminal sign-in and the Smithers skill. The coding agent's shell in the Terminal card. VS Code Remote. |
 | Stack | T-STK-01, 04, 06, 08, T-MCH-08 | Ordered multi-TODO merge with pre-approval. Scratch Rebase and Done. Fork, Drop and Add to stack on a live child. |
-| Branch card | T-APP-10 | Native terminal freeze facts. Scratch Rebase/Done, requester-only waiting and Rebasing still need real-machine qualification. |
+| Branch card | T-APP-10 | Native terminal freeze/thaw facts are wired through the authenticated daemon connection; real-kernel timing and two-machine qualification remain unverified. Foreground terminal commands are missing from native metadata. Scratch Rebase/Done, requester-only waiting and Rebasing still need real-machine qualification. |
 | App | T-APP-21, T-CAT-01 | `/debug-api` on a real install. Command placement and unlisted commands. |
 | Machines | T-MCH-06, T-COL-03 | Admission order and safe idle. The daemon on hosted machines. |
 | Learning | T-FLW-06 | The lint proposal diff and its 3-of-5 evidence. |

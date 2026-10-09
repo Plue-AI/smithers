@@ -53,6 +53,9 @@ pub trait Kernel: Send {
     /// Also accepts a reserved ID whose spawn failed before creating a group.
     /// Return success only after no child or cgroup remains.
     fn kill(&mut self, id: u32, deadline: Instant) -> io::Result<()>;
+    fn frozen(&mut self) -> io::Result<bool> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
     /// External transcript import (spec §9.6.6). `live` and `sessions` are the
@@ -653,6 +656,9 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
             }
         };
         Ok(conn::structure_bytes(&fields))
+    }
+    fn frozen(&mut self) -> io::Result<bool> {
+        self.kernel.with(Kernel::frozen)
     }
     fn freeze(&mut self, t: Duration) -> io::Result<Option<u32>> {
         self.kernel.with(|k| k.freeze(t))

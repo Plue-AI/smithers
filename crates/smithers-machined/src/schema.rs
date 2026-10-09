@@ -72,6 +72,7 @@ fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(mat
 "reconciled" => &[(1,true,"oid"),(2,true,"oid"),(3,true,"reconcile_outcome"),(4,false,"list:str")],
 "written" => &[(1,true,"str"),(2,true,"actor"),(3,false,"digest")],
 "transcript" => &[(1,true,"u16"),(2,true,"u32"),(3,true,"id128"),(4,true,"id128"),(5,true,"str"),(6,true,"u64"),(7,true,"u64"),(8,true,"u64"),(9,true,"record"),(10,false,"u64")],
+"freeze_state" => &[(1,true,"bool")],
 "snapshot" => &[(1,true,"list:where"),(2,false,"list:process_where")],
 "process_where" => &[(1,true,"u32"),(2,true,"id128"),(3,true,"process_agent")],
 "where" => &[(1,true,"u32"),(2,false,"str")],
@@ -149,5 +150,6 @@ fn union(name: &str, variant: u8) -> Option<&'static str> { match (name,variant)
 ("event",5) => Some("transcript"),
 ("hint",1) => Some("written"),
 ("presence",1) => Some("snapshot"),
+("presence",2) => Some("freeze_state"),
 _ => None, } }
 fn is_union(name: &str) -> bool { matches!(name, "actor"|"host_actor"|"base"|"hello_message"|"control"|"call"|"local_call"|"result"|"target"|"outcome"|"events"|"event"|"hint"|"presence") }

@@ -227,6 +227,9 @@ impl Cgroups {
 }
 
 impl super::control::Controls for Cgroups {
+    fn frozen(&mut self) -> io::Result<bool> {
+        read_frozen(&self.parent)
+    }
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>> {
         if timeout.is_zero() || timeout > Duration::from_secs(1) {
             return Err(invalid("invalid freeze timeout"));
@@ -279,6 +282,29 @@ mod freeze_tests {
         fs::write(path.join("cgroup.events"), events).unwrap();
         fs::write(path.join("cgroup.freeze"), b"0").unwrap();
         File::open(path).unwrap()
+    }
+    #[test]
+    fn freeze_observation_reads_only_the_retained_parent() {
+        use super::super::control::Controls;
+        let root = tempfile::tempdir().unwrap();
+        let parent = group(root.path(), "parent", "populated 1\nfrozen 0\n");
+        let mut controls = Cgroups {
+            parent,
+            groups: BTreeMap::new(),
+        };
+        assert!(!controls.frozen().unwrap());
+        fs::rename(root.path().join("parent"), root.path().join("retained")).unwrap();
+        fs::write(
+            root.path().join("retained/cgroup.events"),
+            "populated 1\nfrozen 1\n",
+        )
+        .unwrap();
+        assert!(controls.frozen().unwrap());
+        fs::write(root.path().join("retained/cgroup.events"), "frozen 2\n").unwrap();
+        assert_eq!(
+            controls.frozen().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
     #[test]
     fn activity_reads_core_cpu_accounting_without_controller_files() {
