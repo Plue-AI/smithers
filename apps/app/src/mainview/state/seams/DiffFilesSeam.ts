@@ -9,6 +9,7 @@ import { CARD_CONTENT_CAP } from "@smthrs/rpc/FileRead"
 import { encodeRepoPath,unsafePath } from "./FilesSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage,readResult } from "./SeamContext"
+import { Data } from "effect"
 
 export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOptions, files?: BranchFileOperations, installDiff?: (branch: string, entry?: string, path?: string) => Promise<string | undefined>) => {
   let generation = 0
@@ -89,6 +90,8 @@ export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOption
 }
 
 const Result = z.object({ files: z.array(DiffCardSchema) })
+/** A sleeping branch with no captured head has no snapshot to diff; the request fails as "Diff unavailable". */
+class BranchSnapshotUnavailable extends Data.TaggedError("BranchSnapshotUnavailable")<Record<never, never>> {}
 
 /** One persisted request owns the read, its card and its debounced toast. */
 export const createBranchDiffReader = (ctx: ControllerContext, options?: BranchFileOptions) => {
@@ -108,7 +111,7 @@ export const createBranchDiffReader = (ctx: ControllerContext, options?: BranchF
       let failure = "Diff unavailable"
       try {
         const scope = options?.scope(branch)
-        if (!card.payload.branchDiffEntry && scope?.sleeping && !scope.capturedHead) throw new Error("Snapshot unavailable")
+        if (!card.payload.branchDiffEntry && scope?.sleeping && !scope.capturedHead) throw new BranchSnapshotUnavailable()
         const selector = card.payload.branchDiffEntry ? `?entry=${encodeURIComponent(card.payload.branchDiffEntry)}` : scope?.sleeping ? `?at=${encodeURIComponent(scope.capturedHead!)}` : ""
         const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/diff${selector}`, { credentials: "same-origin" })
         const body: unknown = await response.json()

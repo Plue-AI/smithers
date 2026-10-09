@@ -11,6 +11,11 @@ export class BranchActivityFailure extends Data.TaggedError("BranchActivityFailu
   override get message() { return this.sentence }
 }
 
+/** A Branch source fact that is not a TODO or machine fact, or that names another branch. */
+class BranchSourceFailure extends Data.TaggedError("BranchSourceFailure")<{ readonly sentence: "Branch source binding changed" | "Invalid Branch source fact" }> {
+  override get message() { return this.sentence }
+}
+
 /** Demo hosts keep their seed when topics are absent; installs never use it. */
 export const branchSeedAvailable = (host: { readonly bootstrap?: AppBootstrap; readonly live?: unknown }): boolean =>
   host.bootstrap === undefined ? !host.live : !host.bootstrap.capabilities.includes("install")
@@ -125,17 +130,17 @@ export function projectBranch(previous: unknown, delta: unknown): unknown {
   const fact = delta as { Type?: unknown; Data?: { card?: unknown; branch?: unknown } } | undefined
   if (fact?.Type === "branch.machine") {
     const patch = z.object({ id: z.string(), machine: MachineStateSchema }).parse(fact.Data?.branch)
-    if (patch.id !== before.id) throw new Error("Branch source binding changed")
+    if (patch.id !== before.id) throw new BranchSourceFailure({ sentence: "Branch source binding changed" })
     return Branch.parse({ ...before, machine: patch.machine })
   }
-  if (typeof fact?.Type !== "string" || !fact.Type.startsWith("todo.")) throw new Error("Invalid Branch source fact")
+  if (typeof fact?.Type !== "string" || !fact.Type.startsWith("todo.")) throw new BranchSourceFailure({ sentence: "Invalid Branch source fact" })
   const card = z.object({ n: z.number().int().positive(), title: z.string(), state: TodoStateSchema,
     place: z.number().int().nonnegative().optional(), branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }),
     steps: z.array(z.object({ state: z.string(), label: z.string() })).optional(),
     rebase_pending: z.object({ onto: z.string(), waiting_for: z.object({ actor: ActorSchema, terminal: z.string() }).optional() }).optional(),
     waits: z.array(z.object({ kind: z.string(), paths: z.array(z.string()).optional(), conflict_change: z.string().optional(), onto_revision: z.string().optional() })).optional()
   }).parse(fact.Data?.card)
-  if (card.branch.id !== before.id) throw new Error("Branch source binding changed")
+  if (card.branch.id !== before.id) throw new BranchSourceFailure({ sentence: "Branch source binding changed" })
   const current = card.steps?.find(step => step.state === "current")
   const conflict = card.waits?.find(wait => wait.kind === "conflict")
   return Branch.parse({ ...before, name: card.branch.name, scratch: undefined, machine: card.branch.machine,

@@ -89,6 +89,18 @@ test("invalid activity frames retain typed diagnostic reasons", () => {
   }
 })
 
+test("foreign or unknown Branch source facts retain typed diagnostic reasons", () => {
+  const card = { n: 2, title: "Retry", state: "in_review", branch: { id: "b2", name: "Other", machine: { state: "awake" } } }
+  for (const [delta, sentence] of [
+    [{ Type: "branch.machine", Data: { branch: { id: "b2", machine: { state: "awake" } } } }, "Branch source binding changed"],
+    [{ Type: "todo.updated", Data: { card } }, "Branch source binding changed"],
+    [{ Type: "issue.updated", Data: {} }, "Invalid Branch source fact"]
+  ] as const) {
+    try { projectBranch(branch, delta); throw new Error("accepted a foreign source fact") }
+    catch (value) { expect(value).toMatchObject({ _tag: "BranchSourceFailure", sentence, message: sentence }) }
+  }
+})
+
 test("File sleep scope accepts only the matching branch and a captured commit", () => {
   const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   expect(branchFileMachineScope({ ...branch, head }, "b1")).toEqual({ sleeping: true, capturedHead: head })

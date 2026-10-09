@@ -7,6 +7,7 @@ import { MODEL_CREDENTIALS, ModelCredentialRequestSchema, ModelCredentialResultS
 import { actorSharedState } from "../ActorBindings"
 import { InstallErrorSchema, InstallModelSchema, InstallReceiptSchema, type InstallManifest, type InstallError, type InstallModel, type InstallStepId } from "./InstallModel"
 import { randomUuid } from "../../runtime/RandomUuid"
+import { Data } from "effect"
 
 /** T-APP-03: the shared /api/live transport supplies complete install projections after snapshots/deltas. */
 export interface InstallTopic {
@@ -36,6 +37,8 @@ export interface SetupInput { readonly step: InstallStepId; readonly owner?: str
 export interface ModelKeyInput { readonly role: "fast" | "coding" | "jev"; readonly provider: string; readonly model?: string; readonly action?: "remove" }
 const error = (code: string, message: string, fault: InstallError["class"] = "infra"): InstallError => ({ code, class: fault, message })
 const permission = error("owner_required", "Owner access required", "permission")
+/** A fast model sign-in or sign-out that did not finish; the request fails as "Smithers sign-in unavailable". */
+class FastModelAccessFailed extends Data.TaggedError("FastModelAccessFailed")<{ readonly reason: "refused" | "expired" | "unreachable" }> {}
 /** GET /api/install found no install route on this host (see quietWithoutInstall). */
 export const NO_INSTALL = "no_install"
 /**
@@ -473,24 +476,24 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           })
           if (!active()) return false
           const data: unknown = await response.json().catch(() => undefined)
-          if (!response.ok || typeof data !== "object" || data === null) throw new Error("refused")
+          if (!response.ok || typeof data !== "object" || data === null) throw new FastModelAccessFailed({ reason: "refused" })
           if (action === "sign-in") {
-            if (!("url" in data) || typeof data.url !== "string") throw new Error("refused")
+            if (!("url" in data) || typeof data.url !== "string") throw new FastModelAccessFailed({ reason: "refused" })
             const url = new URL(data.url)
-            if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1","localhost"].includes(url.hostname))) throw new Error("refused")
+            if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1","localhost"].includes(url.hostname))) throw new FastModelAccessFailed({ reason: "refused" })
             target = url.href
             await saveRequest({...row,state:"running",body:{...row.body,url:target}})
-          } else if (!("ok" in data) || data.ok !== true) throw new Error("refused")
+          } else if (!("ok" in data) || data.ok !== true) throw new FastModelAccessFailed({ reason: "refused" })
         }
         if (action === "sign-in") {
           if (!recovered) handoff(target!)
           while (active() && !shared.snapshot.model?.fast_model?.signed_in) {
-            if (!(Date.parse(row.expires_at ?? "") > Date.now())) throw new Error("expired")
+            if (!(Date.parse(row.expires_at ?? "") > Date.now())) throw new FastModelAccessFailed({ reason: "expired" })
             await new Promise(resolve => setTimeout(resolve,1000))
             if (!active()) return false
-            const failure = await readInstall(); if (failure) throw new Error("unreachable")
+            const failure = await readInstall(); if (failure) throw new FastModelAccessFailed({ reason: "unreachable" })
           }
-        } else { const failure = await readInstall(); if (failure) throw new Error("unreachable") }
+        } else { const failure = await readInstall(); if (failure) throw new FastModelAccessFailed({ reason: "unreachable" }) }
         if (!active()) return false
         await saveRequest({...row,state:"completed"})
         return true

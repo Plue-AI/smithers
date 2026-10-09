@@ -18,6 +18,10 @@ import { actorName } from "../../cards/views/actorName"
 import { randomUuid } from "../../runtime/RandomUuid"
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
+/** main's .smithers/machine.json could not be read or decoded for a machine image draft. */
+class MachineJsonUnreadable extends Data.TaggedError("MachineJsonUnreadable") { readonly message = "Could not read machine.json." }
+/** The issue read answered with a failure sentence instead of the issue. */
+class IssueReadRefused extends Data.TaggedError("IssueReadRefused")<{ readonly message: string }> {}
 
 export type { DraftEntry, TodoEntry }
 type Request = TodoEntry["payload"]["requests"][number]
@@ -590,11 +594,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (!live()) return
       let content: string | undefined
       if (response.status !== 404) {
-        if (!response.ok) throw new Error("Could not read machine.json.")
+        if (!response.ok) throw new MachineJsonUnreadable()
         const file: unknown = await response.json()
-        if (!file || typeof file !== "object" || !("content" in file) || typeof file.content !== "string") throw new Error("Could not read machine.json.")
+        if (!file || typeof file !== "object" || !("content" in file) || typeof file.content !== "string") throw new MachineJsonUnreadable()
         const encoding = "encoding" in file ? file.encoding : undefined
-        if (encoding !== "base64" && encoding !== "utf-8" && encoding !== "utf8" && encoding !== undefined) throw new Error("Could not read machine.json.")
+        if (encoding !== "base64" && encoding !== "utf-8" && encoding !== "utf8" && encoding !== undefined) throw new MachineJsonUnreadable()
         content = encoding === "base64" ? new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(atob(file.content.replace(/\s/g, "")), char => char.charCodeAt(0))) : file.content
       }
       const proposal = addImagePackage(content, preparation.name)
@@ -699,7 +703,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       try {
         const source = await options.readIssue!(request.number, request.repo)
         if (!live()) return
-        if (typeof source === "string") throw new Error(source)
+        if (typeof source === "string") throw new IssueReadRefused({ message: source })
         // Retire only this read's in-flight marker before the same identity
         // becomes the model preparation. The model keeps its toast running.
         shared.sending.delete(request.id)
