@@ -165,3 +165,14 @@ saved requester-session press before disclosure. These are composed HTTP and
 production-issuer checks; issue intent does not qualify delivery. The installed
 wiki/issue creation browser cases pass. Full C-ACC-02 and reference recovery
 remain unqualified.
+
+
+The `fr30-acc-03-r6` issue-comment extension adds 168 serialized write-order
+cells and eight identity pairs across Maintainer/Member and CLI/Codex/Claude
+Code/App agent. Actual stored issue subjects exercise subject, payload and
+command mismatches. Request, press and resolved replay each use one bound
+decision; revocation and expiry prevent effects/disclosure. Concurrent approval
+creates one durable comment intent and denial none. The installed browser
+separately passes private-card approval, running-job reload and actual local
+GitHub delivery. Intent and delivery receipts remain distinct. Full C-ACC-02
+qualification is still incomplete.
