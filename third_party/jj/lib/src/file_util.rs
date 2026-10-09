@@ -222,41 +222,96 @@ fn to_slash_separated(path: &Path) -> OsString {
 // Smithers guests share one repository between agent/member and daemon UIDs.
 // tempfile deliberately creates 0600 files even with umask 002. Grant the
 // workspace group access before publishing the inode, never by sweeping paths.
-// The kernel's descriptor path excludes symlinks that lead outside /workspace.
+//
+// The new file's own directory decides, not the /workspace root: a confined
+// run (bubblewrap --unshare-all) sees /workspace as a tmpfs and, in its user
+// namespace, root and the team group as the overflow IDs. Deciding by the
+// root there left jj's operation store 0600, which the machine daemon (another
+// UID in the team group) cannot read (#3385).
 #[cfg(target_os = "linux")]
 pub(crate) fn share_workspace_file(file: &File) -> io::Result<()> {
-    use std::os::fd::AsRawFd as _;
-    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+    share_file_in(file, Path::new("/workspace"), WORKSPACE_TEAM_GID)
+}
 
-    let workspace = Path::new("/workspace");
-    let root = match fs::symlink_metadata(workspace) {
-        Ok(root) => root,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
+/// The guest's shared workspace group.
+#[cfg(target_os = "linux")]
+const WORKSPACE_TEAM_GID: u32 = 20000;
+
+/// Grant `team` read/write on `file` when it is a fresh single-link regular
+/// file below `root` whose directory is setgid, group rwx, not other-writable
+/// and owned by `team`, and the file inherited that group. Only group bits are
+/// added. The directory is opened from `/` without following any symlink.
+#[cfg(target_os = "linux")]
+fn share_file_in(file: &File, root: &Path, team: u32) -> io::Result<()> {
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::fs::MetadataExt as _;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
+    let Some(parent) = path.parent() else {
+        return Ok(());
     };
-    if !root.is_dir()
-        || root.uid() != 0
-        || root.gid() != 20000
-        || root.mode() & 0o2070 != 0o2070
-        || root.mode() & 0o002 != 0
+    if !parent.starts_with(root) {
+        return Ok(());
+    }
+    let Ok(relative) = parent.strip_prefix("/") else {
+        return Ok(());
+    };
+    let directory = match rustix::fs::openat2(
+        rustix::fs::CWD,
+        Path::new("/").join(relative),
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+        rustix::fs::ResolveFlags::NO_SYMLINKS | rustix::fs::ResolveFlags::NO_MAGICLINKS,
+    ) {
+        Ok(fd) => File::from(fd).metadata()?,
+        // A component replaced by a link is not a shared directory.
+        Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if directory.mode() & 0o2070 != 0o2070
+        || directory.mode() & 0o002 != 0
+        || !is_team(directory.gid(), team)
     {
         return Ok(());
     }
-    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?;
-    if !path.starts_with(workspace) {
-        return Ok(());
-    }
     let metadata = file.metadata()?;
-    if !metadata.is_file() || metadata.nlink() != 1 || metadata.gid() != 20000 {
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.gid() != directory.gid() {
         return Err(io::Error::new(
             ErrorKind::PermissionDenied,
             "workspace temporary file did not inherit team ownership",
         ));
     }
-    // Setgid parents already supply team; fchown/fchmod operate on our new
-    // inode, not on a branch-controlled pathname or a preexisting hard link.
-    rustix::fs::fchown(file, None, Some(rustix::fs::Gid::from_raw(20000)))?;
+    // fchmod operates on our new inode, not on a branch-controlled pathname or
+    // a preexisting hard link. Group bits only; other bits never change.
     file.set_permissions(fs::Permissions::from_mode(metadata.mode() | 0o060))
+}
+
+/// Whether `gid`, as this process sees it, is the team group. In a user
+/// namespace that does not map the team (a bubblewrap-confined run), every
+/// unmapped group reads as the overflow GID. A setgid directory the run can
+/// create files in, and that no one else may write, then has the team group:
+/// the run's only other group is its own, which the namespace maps.
+#[cfg(target_os = "linux")]
+fn is_team(gid: u32, team: u32) -> bool {
+    if gid == team {
+        return true;
+    }
+    let Ok(map) = fs::read_to_string("/proc/self/gid_map") else {
+        return false;
+    };
+    let mapped = map.lines().any(|line| {
+        let fields: Vec<u64> = line.split_whitespace().filter_map(|field| field.parse().ok()).collect();
+        matches!(fields[..], [_, outside, count] if outside <= u64::from(team) && u64::from(team) < outside + count)
+    });
+    !mapped
+        && fs::read_to_string("/proc/sys/kernel/overflowgid")
+            .ok()
+            .and_then(|value| value.trim().parse::<u32>().ok())
+            == Some(gid)
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -602,6 +657,43 @@ mod tests {
     use super::*;
     use crate::tests::TestResult;
     use crate::tests::new_temp_dir;
+
+    /// #3385: the new file's setgid team directory decides the grant, not the
+    /// root. A confined run sees the root as a tmpfs it cannot share.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn workspace_grant_follows_the_files_directory_and_never_widens_others() -> TestResult {
+        use std::os::unix::fs::MetadataExt as _;
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = new_temp_dir();
+        let team = fs::metadata(root.path())?.gid();
+        // The root itself is private and not setgid, as a confined run's tmpfs.
+        fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700))?;
+        let shared = root.path().join("shared");
+        let private = root.path().join("private");
+        let open = root.path().join("open");
+        for (dir, mode) in [(&shared, 0o2775), (&private, 0o775), (&open, 0o2777)] {
+            fs::create_dir(dir)?;
+            fs::set_permissions(dir, fs::Permissions::from_mode(mode))?;
+        }
+        let mode = |dir: &Path, team: u32| -> io::Result<u32> {
+            let temp = NamedTempFile::new_in(dir)?;
+            share_file_in(temp.as_file(), root.path(), team)?;
+            Ok(temp.as_file().metadata()?.mode() & 0o7777)
+        };
+        assert_eq!(mode(&shared, team)?, 0o660);
+        // Not setgid, another group, or writable by others: unchanged.
+        assert_eq!(mode(&private, team)?, 0o600);
+        assert_eq!(mode(&shared, team.wrapping_add(1))?, 0o600);
+        assert_eq!(mode(&open, team)?, 0o600);
+        // Outside the workspace root nothing changes.
+        let outside = new_temp_dir();
+        fs::set_permissions(outside.path(), fs::Permissions::from_mode(0o2775))?;
+        let temp = NamedTempFile::new_in(outside.path())?;
+        share_file_in(temp.as_file(), root.path(), team)?;
+        assert_eq!(temp.as_file().metadata()?.mode() & 0o777, 0o600);
+        Ok(())
+    }
 
     #[test]
     #[cfg(unix)]

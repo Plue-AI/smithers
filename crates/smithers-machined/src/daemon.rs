@@ -209,7 +209,11 @@ impl Daemon {
             // Take the admission time on the authenticated reader, before the
             // mutation queue waits for a rewrite. Application alone cannot
             // prove the edit was received while writes were held.
-            let held_document = if frame.kind == 4 { self.hooks.events.held_document() } else { None };
+            let held_document = if frame.kind == 4 {
+                self.hooks.events.held_document()
+            } else {
+                None
+            };
             let receipt = self
                 .executor
                 .lock
@@ -235,12 +239,27 @@ impl Daemon {
                                 payload: conn::tagged(255, &not_ready().fields()),
                             }));
                         }
-                        let before = held_document.as_ref().and_then(|_| cx.hooks.documents.text(frame.stream).ok());
+                        let before = held_document
+                            .as_ref()
+                            .and_then(|_| cx.hooks.documents.text(frame.stream).ok());
                         let response = rpc::dispatch_input(&frame, cx)?;
-                        if let (Some(hold), Some(before), Some(reply)) = (held_document, before, response.as_ref()) {
+                        if let (Some(hold), Some(before), Some(reply)) =
+                            (held_document, before, response.as_ref())
+                        {
                             if reply.payload.first() != Some(&255) {
-                                if let (Ok(input), Ok(after)) = (crate::document_payload::Document::decode_v2(&frame.payload), cx.hooks.documents.text(frame.stream)) {
-                                    if input.msg == 1 { cx.hooks.events.applied_held_document(hold, frame.stream, &input.actor, &before, &after); }
+                                if let (Ok(input), Ok(after)) = (
+                                    crate::document_payload::Document::decode_v2(&frame.payload),
+                                    cx.hooks.documents.text(frame.stream),
+                                ) {
+                                    if input.msg == 1 {
+                                        cx.hooks.events.applied_held_document(
+                                            hold,
+                                            frame.stream,
+                                            &input.actor,
+                                            &before,
+                                            &after,
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -482,6 +501,7 @@ fn run_connections(
     let serve = Arc::new(serve);
     let live = crate::link::Live::default();
     let mut backoff = crate::link::Backoff::default();
+    let mut refused: Option<String> = None;
     loop {
         // Authentication has bounded reads and writes. A silent candidate cannot
         // prevent the existing connection from processing controls.
@@ -500,7 +520,23 @@ fn run_connections(
                 continue;
             }
         };
-        ready()?;
+        // An unready provider refuses this link, never the process. Exiting
+        // here took the daemon down on a redial; its restarts then failed the
+        // same check and the machine kept its slot with no daemon (#3385).
+        if let Err(error) = ready() {
+            let reason = error.to_string();
+            if refused.as_ref() != Some(&reason) {
+                eprintln!(
+                    "{}",
+                    serde_json::json!({"event": "link_refused", "error": reason})
+                );
+                refused = Some(reason);
+            }
+            drop(auth);
+            std::thread::sleep(backoff.delay());
+            continue;
+        }
+        refused = None;
         live.replace(&auth)?;
         backoff.reset();
         let serve = serve.clone();
@@ -542,6 +578,104 @@ mod tests {
             .lock
             .run_blocking("local_rpc", move |_| admission());
         (result, started.elapsed())
+    }
+    fn host_handshake(stream: &mut std::net::TcpStream) -> bool {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let challenge = Frame::read(stream).unwrap();
+        let fields = conn::fields("challenge", &challenge.payload[1..]).unwrap();
+        let boot = fields[2].1.try_into().unwrap();
+        let nonce = fields[3].1.try_into().unwrap();
+        let reply = conn::tagged(
+            2,
+            &[
+                conn::field(1, conn::PROTOCOL.to_be_bytes()),
+                conn::field(2, conn::host_mac(&[9; 32], conn::PROTOCOL, &boot, &nonce)),
+            ],
+        );
+        Frame {
+            kind: 0,
+            stream: 0,
+            payload: reply,
+        }
+        .write(stream)
+        .unwrap();
+        assert_eq!(Frame::read(stream).unwrap().payload[0], 3);
+        Frame {
+            kind: 0,
+            stream: 0,
+            payload: conn::tagged(4, &[]),
+        }
+        .write(stream)
+        .unwrap();
+        // A refused link closes right after the handshake.
+        let mut byte = [0u8; 1];
+        !matches!(std::io::Read::read(stream, &mut byte), Ok(0))
+    }
+    /// #3385: a provider that is not ready when a host redials must refuse that
+    /// link, not end the daemon. The run 9 daemon exited here; its restarts
+    /// could not start, and the machine kept its slot without a daemon.
+    #[test]
+    fn an_unready_provider_refuses_the_link_and_the_daemon_keeps_accepting() {
+        use std::sync::atomic::AtomicUsize;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let boot = crate::boot::Boot {
+            identity: crate::link::Identity::new(
+                [4; 16],
+                [9; 32],
+                b"fixture-machine-token".to_vec(),
+            )
+            .unwrap(),
+            topology: crate::boot::Topology::Relay,
+            item: None,
+            moved_off: None,
+        };
+        let unready = Arc::new(AtomicUsize::new(2));
+        let served = Arc::new(AtomicUsize::new(0));
+        let (check, count) = (unready.clone(), served.clone());
+        std::thread::spawn(move || {
+            run_connections(
+                boot,
+                crate::link::RelayListener(listener),
+                || Ok(1),
+                Vec::new,
+                move || match check.load(Ordering::SeqCst) {
+                    0 => Ok(()),
+                    _ => {
+                        check.fetch_sub(1, Ordering::SeqCst);
+                        Err(io::Error::other("sessions not ready"))
+                    }
+                },
+                move |auth| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    // Hold the link open until the host has read past the handshake.
+                    std::thread::sleep(Duration::from_millis(200));
+                    drop(auth);
+                },
+            )
+        });
+        let mut open = vec![];
+        for _ in 0..3 {
+            let mut stream = std::net::TcpStream::connect(address).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_millis(100)))
+                .ok();
+            open.push(host_handshake(&mut stream));
+        }
+        assert_eq!(open, [false, false, true]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while served.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            (
+                served.load(Ordering::SeqCst),
+                unready.load(Ordering::SeqCst)
+            ),
+            (1, 0)
+        );
     }
     /// #3385: an agent write's job checked `Daemon::ready`, which waited on
     /// the queue that same job held. Every later host frame, roster push and

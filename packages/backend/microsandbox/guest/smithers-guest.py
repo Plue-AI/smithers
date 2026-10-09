@@ -1884,6 +1884,37 @@ def pump(source, sink):
         pass
 
 
+def daemon_log_tail(limit=8192):
+    # The broker's record of daemon exits and the daemon's stderr. The daemon
+    # owns its state directory, so the leaf is opened without following links
+    # and must be a single-link regular file. Bytes are printed, not parsed.
+    if os.geteuid() != ROOT_UID:
+        fail(3, "daemon log requires root")
+    state = protected_directory(("var", "lib"), create=False)
+    try:
+        try:
+            directory = os.open("smithers-machined", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=state)
+        except FileNotFoundError:
+            return
+        try:
+            try:
+                fd = os.open("daemon.log", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            except FileNotFoundError:
+                return
+            with os.fdopen(fd, "rb") as handle:
+                info = os.fstat(handle.fileno())
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid not in (ROOT_UID, 19998):
+                    fail(3, "untrusted daemon log")
+                handle.seek(max(0, info.st_size - limit))
+                data = handle.read(limit)
+        finally:
+            os.close(directory)
+    finally:
+        os.close(state)
+    sys.stdout.buffer.write(data)
+    sys.stdout.flush()
+
+
 def relay(port):
     if not 1 <= port <= 65535:
         fail(3, "invalid relay port")
@@ -2949,6 +2980,9 @@ def main(args):
         return
     if command == "relay" and len(args) == 2:
         relay(int(args[1]))
+        return
+    if command == "daemon-log" and len(args) == 1:
+        daemon_log_tail()
         return
     if command == "bridge" and len(args) == 3:
         bridge(int(args[1]), args[2])

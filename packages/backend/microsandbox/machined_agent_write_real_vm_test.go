@@ -2,9 +2,6 @@ package microsandbox
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
-	"io"
 	"os"
 	"strings"
 	"sync"
@@ -14,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -72,44 +68,12 @@ func TestRealMicroVMAgentWriteKeepsDaemonAnswering(t *testing.T) {
 
 	// An admitted coding run: its first edit through the local client, then
 	// quick checks that stream output, as the coding flow's T1 did.
-	actor := make([]byte, 16)
-	_, err = rand.Read(actor)
-	require.NoError(t, err)
-	actor[0] |= 1
-	// The coding host's admission, as startNativeHost plants it.
-	run := uuid.NewString()
-	token := []byte(strings.ReplaceAll(uuid.NewString(), "-", ""))
-	tokenPath, err := runtime.PutSessionToken(ctx, id, run, token, "")
-	require.NoError(t, err)
-	binding, err := json.Marshal(map[string]any{
-		"login": "agent", "uid": 19999, "session": run,
-		"token_sha256": workspaceapi.SessionCredentialIdentity(token),
-		"environment":  map[string]string{"SMITHERS_TOKEN_FILE": tokenPath, "SMITHERS_URL": "http://127.0.0.1:9"},
-	})
-	require.NoError(t, err)
-	_, err = runtime.guest(ctx, ws.Machine, binding, "put-session-binding", "agent", "19999")
-	require.NoError(t, err)
-	coding := machined.NewSessions(link.Connection, id, registry.Sessions(id)).WithActor(actor, run)
-	script := `read -r _
+	stdout, stderr := startAgentRun(t, ctx, runtime, id, `read -r _
 printf 'first edit\n' | timeout 40 /opt/smithers/bin/smithers-machined client write-file EDIT.md --base absent
 echo "write=$?"
 i=0
 while [ $i -lt 200 ]; do echo "check $i"; ls -la /workspace >/dev/null; sleep 0.02; i=$((i+1)); done
-echo checks=done`
-	e, err := coding.OpenExec(ctx, machined.SessionUser{Login: "agent", UID: 19999}, []string{"/bin/sh", "-c", script})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
-		defer stop()
-		_ = e.Kill(cleanup)
-	})
-	var stdout, stderr lockedBuffer
-	go func() { _, _ = io.Copy(&stdout, e.Stdout()) }()
-	go func() { _, _ = io.Copy(&stderr, e.Stderr()) }()
-	require.NoError(t, coding.RegisterRun(ctx, run, e.ID()))
-	_, err = e.Write([]byte("start\n"))
-	require.NoError(t, err)
-	require.NoError(t, e.CloseWrite())
+echo checks=done`)
 
 	// Its last output line proves the write's reply and the checks' output
 	// came back through the daemon. Like the coding host (native_host.go),

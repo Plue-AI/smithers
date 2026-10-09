@@ -4,6 +4,8 @@ pub mod cgroups;
 pub mod sessions;
 
 pub mod control;
+#[cfg(target_os = "linux")]
+pub mod daemon_log;
 pub mod lifecycle;
 #[cfg(target_os = "linux")]
 pub mod process;

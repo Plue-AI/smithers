@@ -312,6 +312,16 @@ pub fn run() -> io::Result<()> {
     if rustix::process::getuid().as_raw() != 19998 || rustix::process::geteuid().as_raw() != 19998 {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
+    // Only the installed identity names its failure. The broker keeps this
+    // stderr in daemon.log; a refused caller still sees the opaque error.
+    serve().inspect_err(|error| {
+        eprintln!(
+            "{}",
+            serde_json::json!({"event": "daemon_failed", "error": error.to_string(), "kind": format!("{:?}", error.kind())})
+        );
+    })
+}
+fn serve() -> io::Result<()> {
     let boot = crate::boot::Boot::open()?;
     // SAFETY: the shipped broker explicitly installs these three descriptors;
     // each is taken exactly once after verifying the fixed daemon identity.

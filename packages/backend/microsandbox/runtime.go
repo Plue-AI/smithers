@@ -159,6 +159,7 @@ type workspace struct {
 	daemonFailure           error
 	daemonRetryAt           time.Time
 	daemonBackoff           time.Duration
+	daemonReport            string
 	daemonReconnect         bool
 	daemonBoot              *machined.BootAuthority
 	secretEnvironmentDigest *[32]byte

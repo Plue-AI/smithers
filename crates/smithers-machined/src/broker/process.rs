@@ -201,6 +201,11 @@ impl Process for Installed {
         let mut procs = File::options()
             .write(true)
             .open(format!("{CGROUP}/daemon/cgroup.procs"))?;
+        // Without this log a daemon that exits leaves no reason anywhere: the
+        // broker itself runs with a null stderr. A log that cannot be opened
+        // never blocks the daemon's start.
+        let log = super::daemon_log::DaemonLog::open().ok();
+        let stderr = log.as_ref().and_then(|log| log.stderr().ok());
         let mut command = Command::new(EXECUTABLE);
         command
             .arg("daemon")
@@ -209,7 +214,8 @@ impl Process for Installed {
             .env("HOME", "/var/lib/smithers-machined")
             .current_dir("/")
             .stdin(Stdio::null())
-            .stdout(Stdio::null());
+            .stdout(Stdio::null())
+            .stderr(stderr.map_or_else(Stdio::null, Stdio::from));
         // SAFETY: the root supervisor is single-threaded; this closure uses only
         // fixed descriptors and syscalls before exec, never branch-derived data.
         unsafe {
@@ -254,12 +260,28 @@ impl Process for Installed {
             let _ = child.kill();
         }
         let status = child.wait()?;
-        Ok((status.code().unwrap_or(137), start.elapsed()))
+        let uptime = start.elapsed();
+        if let Some(log) = &log {
+            log.record(&super::daemon_log::exit_record(
+                &status,
+                uptime,
+                served.as_ref().err(),
+            ));
+        }
+        Ok((status.code().unwrap_or(137), uptime))
     }
     fn delay(&mut self, duration: Duration) {
         std::thread::sleep(duration);
     }
 }
 pub fn run() -> io::Result<()> {
-    lifecycle::supervise(&mut Installed::open()?)
+    // A refused start is reported by its opaque error only, before any IO.
+    let mut installed = Installed::open()?;
+    let result = lifecycle::supervise(&mut installed);
+    if let Err(error) = &result {
+        if let Ok(log) = super::daemon_log::DaemonLog::open() {
+            log.record(&serde_json::json!({"event": "broker_exit", "error": error.to_string()}));
+        }
+    }
+    result
 }

@@ -116,6 +116,9 @@ func (r *Runtime) ensureMachined(ctx context.Context, id string, ws *workspace) 
 		if result != nil {
 			// Only the shared attempt logs; callers rejected by backoff do not.
 			slog.Warn("EnsureMachined failed", "machine", ws.Machine, "step", step, "error", result)
+			if step == "dial" || step == "admission" {
+				go r.logDaemonReport(ws)
+			}
 		}
 	}()
 	ws.daemonMu.Lock()
@@ -299,6 +302,10 @@ func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.
 				}
 				continue
 			}
+			// The link also ends when its daemon exits: log the broker's record.
+			if current, err := r.runningWorkspace(id); err == nil && current == ws {
+				r.logDaemonReport(ws)
+			}
 			for {
 				if current, err := r.runningWorkspace(id); err != nil || current != ws {
 					return
@@ -320,4 +327,38 @@ func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.
 			}
 		}
 	}()
+}
+
+// logDaemonReport logs the newest lines of the guest's daemon.log: the
+// broker's record of each daemon exit and the daemon's last stderr. A failed
+// dial or admission usually means the daemon is gone, and its stderr reaches
+// no host log otherwise (#3385). Each distinct report is logged once.
+func (r *Runtime) logDaemonReport(ws *workspace) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output, err := r.guest(ctx, ws.Machine, nil, "daemon-log")
+	report := daemonReportTail(string(output), 12)
+	if err != nil || report == "" {
+		return
+	}
+	ws.daemonAttemptMu.Lock()
+	changed := ws.daemonReport != report
+	ws.daemonReport = report
+	ws.daemonAttemptMu.Unlock()
+	if changed {
+		slog.Warn("machine daemon report", "machine", ws.Machine, "report", report)
+	}
+}
+
+// daemonReportTail is the last n complete lines of a daemon.log tail.
+func daemonReportTail(text string, n int) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	// A full 8 KiB tail can start inside a line.
+	if len(text) >= 8192 && len(lines) > 1 {
+		lines = lines[1:]
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

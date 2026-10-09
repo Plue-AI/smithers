@@ -203,3 +203,12 @@ g.machined_boot_body(sys.stdin.buffer.read())`, filepath.Join("guest", "smithers
 		require.Contains(t, string(out), "invalid machined boot authority", fields)
 	}
 }
+
+func TestDaemonReportTailKeepsWholeNewestLines(t *testing.T) {
+	require.Equal(t, "", daemonReportTail("", 3))
+	require.Equal(t, "b\nc\nd", daemonReportTail("a\nb\nc\nd\n", 3))
+	exit := `{"event":"daemon_exit","code":1}`
+	full := strings.Repeat("x", 8192-len(exit)-1) + "\n" + exit
+	require.Equal(t, exit, daemonReportTail(full, 3))
+	require.Equal(t, "partial\n"+exit, daemonReportTail("partial\n"+exit+"\n", 3))
+}
