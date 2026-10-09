@@ -80,7 +80,7 @@ var structures = map[string][]field{
 	"transcript":      {{1, true, "u16"}, {2, true, "u32"}, {3, true, "id128"}, {4, true, "id128"}, {5, true, "str"}, {6, true, "u64"}, {7, true, "u64"}, {8, true, "u64"}, {9, true, "record"}, {10, false, "u64"}},
 	"snapshot":        {{1, true, "list:where"}, {2, false, "list:process_where"}},
 	"process_where":   {{1, true, "u32"}, {2, true, "id128"}, {3, true, "process_agent"}},
-	"where":           {{1, true, "u32"}, {2, false, "str"}},
+	"where":           {{1, true, "u32"}, {2, false, "str"}, {3, false, "str"}},
 }
 var unions = map[string]map[byte]string{
 	"local_control": {1: "local_request"},

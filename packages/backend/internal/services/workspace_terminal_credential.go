@@ -289,6 +289,10 @@ type signedInTerminal struct {
 	*terminalCredential
 }
 
+func (t *signedInTerminal) ForegroundCommand() string {
+	return workspaceapi.ForegroundCommand(t.Terminal)
+}
+
 func (t *signedInTerminal) Close() error {
 	err := t.Terminal.Close()
 	t.terminalCredential.Close()

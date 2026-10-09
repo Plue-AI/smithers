@@ -75,7 +75,7 @@ fn structure(name: &str) -> Option<&'static [(u8,bool,&'static str)]> { Some(mat
 "freeze_state" => &[(1,true,"bool")],
 "snapshot" => &[(1,true,"list:where"),(2,false,"list:process_where")],
 "process_where" => &[(1,true,"u32"),(2,true,"id128"),(3,true,"process_agent")],
-"where" => &[(1,true,"u32"),(2,false,"str")],
+"where" => &[(1,true,"u32"),(2,false,"str"),(3,false,"str")],
 _ => return None, }) }
 fn union(name: &str, variant: u8) -> Option<&'static str> { match (name,variant) {
 ("actor",1) => Some("principal"),

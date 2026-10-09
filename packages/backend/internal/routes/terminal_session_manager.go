@@ -440,19 +440,20 @@ func (m *TerminalSessionManager) Close() {
 }
 
 type terminalSession struct {
-	ownerSession bool
-	agentRun     string
-	agentTitle   string
-	id           string
-	client       terminalSSHClient
-	sshSess      terminalSSHSession
-	stdin        io.WriteCloser
-	stdout       io.Reader
-	stderr       io.Reader
-	ring         *terminalRingBuffer
-	idleAfter    time.Duration
-	keepalive    time.Duration
-	onDone       func()
+	ownerSession      bool
+	agentRun          string
+	agentTitle        string
+	foregroundCommand func() string
+	id                string
+	client            terminalSSHClient
+	sshSess           terminalSSHSession
+	stdin             io.WriteCloser
+	stdout            io.Reader
+	stderr            io.Reader
+	ring              *terminalRingBuffer
+	idleAfter         time.Duration
+	keepalive         time.Duration
+	onDone            func()
 	// principal is whose authorization the session rides on (user, token,
 	// repository, workspace, VM); RevokeMatching compares revocations to it.
 	principal revocation.Principal

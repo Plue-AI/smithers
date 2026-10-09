@@ -1,12 +1,16 @@
 package wire
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"unicode"
+)
 
 // PresenceLocation is bound to an authenticated broker session. Participant
 // identifies an external process, shared with transcript conversation records.
 type PresenceLocation struct {
 	Session     uint32
 	Path        string
+	Command     string
 	Participant [16]byte
 	Agent       string
 }
@@ -42,6 +46,17 @@ func (f Frame) PresenceSnapshot() ([]PresenceLocation, error) {
 		location := PresenceLocation{Session: session}
 		if path := fields[2]; path != nil {
 			location.Path = string(path[2:])
+		}
+		if command := fields[3]; command != nil {
+			location.Command = string(command[2:])
+			if len(location.Command) == 0 || len(location.Command) > 64 {
+				return nil, BadValue
+			}
+			for _, c := range location.Command {
+				if unicode.IsControl(c) {
+					return nil, BadValue
+				}
+			}
 		}
 		locations = append(locations, location)
 		b = b[4+size:]

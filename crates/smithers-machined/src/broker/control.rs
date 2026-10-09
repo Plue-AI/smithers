@@ -32,7 +32,9 @@ pub trait Controls {
 /// Operations with a raw body: session streams, the registry, and transcript
 /// sources (26 list, 27 start a reader, 28 release), admitted local input (29),
 /// and the process census (30).
-const RAW: std::ops::RangeInclusive<u8> = 17..=30;
+fn raw(op: u8) -> bool {
+    (17..=30).contains(&op) || op == 32
+}
 fn error(code: u8) -> Error {
     Error {
         code,
@@ -55,7 +57,7 @@ fn response(id: &[u8], variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>> {
-    if packet.len() >= 5 && RAW.contains(&packet[4]) && packet.len() <= 65560 {
+    if packet.len() >= 5 && raw(packet[4]) && packet.len() <= 65560 {
         let mut reply = packet[..5].to_vec();
         match controls.stream(packet[4], &packet[5..]) {
             Ok(body) => reply.extend(body),
@@ -213,7 +215,7 @@ impl SocketpairBroker {
         let mut request = id.to_be_bytes().to_vec();
         request.push(variant);
         request.extend_from_slice(body);
-        if request.len() > if RAW.contains(&variant) { 65560 } else { 65536 } {
+        if request.len() > if raw(variant) { 65560 } else { 65536 } {
             return Err(error(1));
         }
         let exchange = (|| -> io::Result<Vec<u8>> {
@@ -705,6 +707,21 @@ impl SocketpairBroker {
                 ),
             ]));
         }
+        let commands: std::collections::BTreeMap<u32, String> = match self.call_body(32, &[]) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| error(12))?,
+            Err(e) if e.code == 2 => std::collections::BTreeMap::new(),
+            Err(e) => return Err(e),
+        };
+        if commands.len() > super::sessions::MAX_SESSIONS
+            || commands.iter().any(|(id, command)| {
+                !ids.contains(id)
+                    || command.is_empty()
+                    || command.len() > 64
+                    || command.chars().any(char::is_control)
+            })
+        {
+            return Err(error(12));
+        }
         let mut presence = self.1.lock().map_err(|_| error(12))?;
         presence.paths.retain(|id, _| ids.contains(id));
         let mut items = (ids.len() as u16).to_be_bytes().to_vec();
@@ -714,6 +731,11 @@ impl SocketpairBroker {
                 let mut value = (path.len() as u16).to_be_bytes().to_vec();
                 value.extend(path.as_bytes());
                 fields.push(conn::field(2, value));
+            }
+            if let Some(command) = commands.get(&id) {
+                let mut value = (command.len() as u16).to_be_bytes().to_vec();
+                value.extend(command.as_bytes());
+                fields.push(conn::field(3, value));
             }
             items.extend(conn::structure_bytes(&fields));
         }

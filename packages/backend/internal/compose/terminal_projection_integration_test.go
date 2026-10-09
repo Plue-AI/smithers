@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,4 +114,52 @@ func TestAgentTerminalOwnerThroughComposedLiveSocket(t *testing.T) {
 	require.Equal(t, f.user.Username, entry.Owner.ForMember.Login)
 	manager.Destroy("agent-term")
 	require.Eventually(t, func() bool { return !manager.HasBranchTerminal(f.row.RepositoryID, f.row.ID) }, time.Second, time.Millisecond)
+}
+
+type commandProjectionTerminal struct {
+	projectionTerminal
+	command atomic.Pointer[string]
+}
+
+func (p *commandProjectionTerminal) ForegroundCommand() string {
+	if command := p.command.Load(); command != nil {
+		return *command
+	}
+	return ""
+}
+
+func TestForegroundTerminalCommandThroughComposedLiveSocket(t *testing.T) {
+	f := presenceInstall(t)
+	manager := routes.NewTerminalSessionManager(nil)
+	defer manager.Close()
+	f.p.terminalManager = manager
+	f.p.terminals = terminalProjection(f.pool, manager, nil)
+	terminal := &commandProjectionTerminal{projectionTerminal: projectionTerminal{done: make(chan struct{})}}
+	require.NoError(t, manager.OpenOwned(t.Context(), "term-ben", revocation.Principal{UserID: f.user.ID, RepositoryID: f.row.RepositoryID, WorkspaceID: f.row.ID}, func(context.Context) (workspaceapi.Terminal, error) {
+		return &receiptedOwnerTerminal{Terminal: terminal, closed: func() {}}, nil
+	}))
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	read := func() map[string]any {
+		for {
+			frame := readPresenceFrame(t, conn)
+			if len(frame.Data) == 0 {
+				continue
+			}
+			var model struct{ Terminals []map[string]any }
+			require.NoError(t, json.Unmarshal(frame.Data, &model))
+			require.Len(t, model.Terminals, 1)
+			require.Equal(t, "term-ben", model.Terminals[0]["id"])
+			return model.Terminals[0]
+		}
+	}
+	require.NotContains(t, read(), "command", "an unknown command stays absent")
+	sleep := "sleep"
+	terminal.command.Store(&sleep)
+	require.Equal(t, "sleep", read()["command"])
+	cat := "cat"
+	terminal.command.Store(&cat)
+	require.Equal(t, "cat", read()["command"])
+	terminal.command.Store(nil)
+	require.NotContains(t, read(), "command", "the live card clears completed foreground commands")
 }

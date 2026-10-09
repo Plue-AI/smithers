@@ -228,3 +228,35 @@ func TestTerminalSignalStatusesThroughBrokerTransport(t *testing.T) {
 		})
 	}
 }
+
+func TestTerminalForegroundCommandSnapshotsAndBootRetirement(t *testing.T) {
+	registry, link, peer := rpcFixture(t)
+	stream := newSessionStream(link, 17)
+	terminal := &Terminal{stream: stream}
+	require.Empty(t, terminal.ForegroundCommand())
+	report := func(items ...[]byte) {
+		list := wire.U16(uint16(len(items)))
+		for _, item := range items {
+			list = append(list, item...)
+		}
+		require.NoError(t, wire.Write(peer, wire.Frame{Kind: wire.Presence, Payload: wire.Union(1, wire.Field(1, list))}))
+		_, err := link.ReceivePresence(t.Context(), "a")
+		require.NoError(t, err)
+	}
+	report(wire.Struct(wire.Field(1, wire.U32(17)), wire.Field(3, wire.String("sleep"))))
+	require.Equal(t, "sleep", terminal.ForegroundCommand())
+	report(wire.Struct(wire.Field(1, wire.U32(18)), wire.Field(3, wire.String("bash"))))
+	require.Empty(t, terminal.ForegroundCommand(), "a complete snapshot clears absent sessions")
+	report(wire.Struct(wire.Field(1, wire.U32(17)), wire.Field(3, wire.String("cat"))))
+	require.Equal(t, "cat", terminal.ForegroundCommand())
+	stream.mu.Lock()
+	stream.closed = true
+	stream.mu.Unlock()
+	require.Empty(t, terminal.ForegroundCommand())
+	stream.mu.Lock()
+	stream.closed = false
+	stream.mu.Unlock()
+	_, err := registry.MintBoot("a", "replacement")
+	require.NoError(t, err)
+	require.Empty(t, terminal.ForegroundCommand(), "a retired boot supplies no command")
+}

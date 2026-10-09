@@ -61,3 +61,24 @@ func TestPresenceProcessCensus(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestPresenceForegroundCommandValidation(t *testing.T) {
+	for _, name := range []string{"presence_foreground_command", "presence_foreground_clear"} {
+		raw, err := os.ReadFile("../../compose/testdata/cocontracts/" + name + ".bin")
+		require.NoError(t, err)
+		frame, err := Decode(raw)
+		require.NoError(t, err)
+		rows, err := frame.PresenceSnapshot()
+		require.NoError(t, err)
+		want := "sleep"
+		if name == "presence_foreground_clear" {
+			want = ""
+		}
+		require.Equal(t, []PresenceLocation{{Session: 1, Command: want}}, rows)
+	}
+	for _, command := range []string{"", "\n", "\x1b[31m", string(make([]byte, 65))} {
+		frame := Frame{Kind: Presence, Payload: Union(1, Field(1, append(U16(1), Struct(Field(1, U32(1)), Field(3, String(command)))...)))}
+		_, err := frame.PresenceSnapshot()
+		require.Error(t, err)
+	}
+}

@@ -40,6 +40,10 @@ type receiptedOwnerTerminal struct {
 	closed func()
 }
 
+func (t *receiptedOwnerTerminal) ForegroundCommand() string {
+	return workspaceapi.ForegroundCommand(t.Terminal)
+}
+
 func (t *receiptedOwnerTerminal) Close() error {
 	err := t.Terminal.Close()
 	t.once.Do(t.closed)

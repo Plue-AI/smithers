@@ -237,3 +237,22 @@ func (t *Terminal) Close() error {
 	})
 	return t.closeErr
 }
+
+// ForegroundCommand is display metadata from this terminal's admitted boot.
+// A disconnected/replaced boot and a closed session supply no stale command.
+func (t *Terminal) ForegroundCommand() string {
+	t.stream.mu.Lock()
+	link, closed, branch, id := t.stream.link, t.stream.closed, t.stream.branch, t.stream.id
+	t.stream.mu.Unlock()
+	if closed || link == nil || link.RequireReady(branch) != nil {
+		return ""
+	}
+	select {
+	case <-link.done:
+		return ""
+	default:
+	}
+	link.mu.Lock()
+	defer link.mu.Unlock()
+	return link.terminalCommands[id]
+}

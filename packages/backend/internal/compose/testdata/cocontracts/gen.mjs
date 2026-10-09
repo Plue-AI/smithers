@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=15;
+const protocol=16;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'8665767612958dbb53d54357195d8bad4675554fb993e0f969d2d94f33577752'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'03c8980afe4d2241f4c98cd8b46eba1e0f68eb68f5edde8a040b90fba54f1ef7'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'635ebea94107b312035406106fa4a1f6e81290431ed862555f29182cc17fae9f'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'7fef4ceb4190febddef1acef98f5d10d560cfdc3a08fc66e8a15782051571076'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'0d2976718d75123e3e7051e3a2cdac2a13d4fd5956757221c5743691df396f75'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'3d7334c83906875c6e3edee9c74ef827b8dd6a7c2f3b7bfeb8c72a852737b46a'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -169,6 +169,8 @@ emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,
 // Live external processes share their transcript participant UUIDs. These
 // frames are independent literal inputs for both strict codecs.
 const processWhere=(participant,agent)=>st(f(1,num(1,4)),f(2,participant),f(3,[agent]));
+emit('presence_foreground_command',3,un(1,f(1,list(st(f(1,num(1,4)),f(3,str('sleep')))))),0,'ok','daemon-to-host');
+emit('presence_foreground_clear',3,un(1,f(1,list(st(f(1,num(1,4)))))),0,'ok','daemon-to-host');
 emit('presence_processes',3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list(processWhere(Buffer.alloc(16,0xb1),1),processWhere(Buffer.alloc(16,0xb2),2)))),0,'ok','daemon-to-host');
 emit('presence_processes_empty',3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list())),0,'ok','daemon-to-host');
 for(const agent of [0,3])emit('bad_value_presence_process_agent_'+agent,3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list(processWhere(id,agent)))),0,'bad_value','daemon-to-host');

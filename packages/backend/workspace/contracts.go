@@ -29,6 +29,15 @@ type Terminal interface {
 	Resize(ctx context.Context, columns, rows uint16) error
 }
 
+// ForegroundCommand reads optional terminal display metadata. Wrappers preserve
+// it without inventing a command for execution adapters that cannot observe one.
+func ForegroundCommand(terminal Terminal) string {
+	if provider, ok := terminal.(interface{ ForegroundCommand() string }); ok {
+		return provider.ForegroundCommand()
+	}
+	return ""
+}
+
 // ErrWorkspaceNotFound is returned when an execution adapter has no durable
 // workspace with the requested product-owned identifier, or confirms its
 // runtime is permanently gone. On inspection, join it with a typed host_lease_lost

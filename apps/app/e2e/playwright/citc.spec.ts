@@ -276,3 +276,38 @@ for (const scenario of ["completed", "scratch completed", "failed", "unacknowled
     await expect(running).toHaveCount(0)
   }
 })
+
+// Production slash/card/live seam; daemon kernel observation is covered by the
+// broker PTY test and composed socket campaign, rather than this transport fixture.
+test("T-APP-10: mounted terminal command updates and clears after reload", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  let command: string | undefined = "sleep", publish: (() => void) | undefined
+  await page.route("**/api/branches/smithers%2Fretry", route => route.fulfill({ json: { name: "smithers/retry", machine: { id: "b-command" } } }))
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    if (typeof raw !== "string") return
+    const frame = JSON.parse(raw)
+    if (frame.t !== "sub") return
+    let cursor = 0
+    const send = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: frame.topic === "branch:b-command" ? {
+      id: "b-command", name: "smithers/retry", machine: { state: "awake" },
+      item: { n: 2, title: "Retry", state: "working", place: 1 }, presence: [],
+      terminals: [{ id: "term-command", title: "Terminal", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1 }, agents: [], watchers: [], frozen: false, ...(command ? { command } : {}) }],
+      ssh_line: "ssh -p 2222 retry@localhost"
+    } : [] }))
+    if (frame.topic === "branch:b-command") publish = send
+    send()
+  }))
+  await page.goto("/")
+  await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+  await say(page, "/branch smithers/retry")
+  const card = page.getByTestId("card-branch:b-command")
+  await card.getByRole("tab", { name: /Terminals/ }).click()
+  await expect(card.locator(".branch-list li code")).toHaveText("sleep")
+  command = "cat"; publish!()
+  await expect(card.locator(".branch-list li code")).toHaveText("cat")
+  await page.reload()
+  await expect(card.locator(".branch-list li code")).toHaveText("cat", { timeout: 30_000 })
+  command = undefined; publish!()
+  await expect(card.locator(".branch-list li code")).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})

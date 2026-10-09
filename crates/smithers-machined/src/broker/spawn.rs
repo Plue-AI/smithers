@@ -256,6 +256,48 @@ fn reopen_binding(binding: &File) -> io::Result<File> {
     }
     Ok(file)
 }
+/// Read only a kernel-selected process directory. The foreground group must
+/// still belong to this PTY's session and installed uid. No argv is exposed.
+fn foreground_command(pid: u32, session: u32, uid: u32) -> io::Result<String> {
+    let dir = File::open(format!("/proc/{pid}"))?;
+    if dir.metadata()?.uid() != uid {
+        return Err(invalid());
+    }
+    let read = |name: &str, limit: u64| -> io::Result<String> {
+        let fd = rustix::fs::openat(
+            &dir,
+            name,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )?;
+        let mut text = String::new();
+        File::from(fd).take(limit + 1).read_to_string(&mut text)?;
+        if text.len() as u64 > limit {
+            return Err(invalid());
+        }
+        Ok(text)
+    };
+    let stat = read("stat", 4096)?;
+    let fields: Vec<_> = stat
+        .rsplit_once(") ")
+        .ok_or_else(invalid)?
+        .1
+        .split_whitespace()
+        .collect();
+    // Fields after comm start at state (3), ppid (4), pgrp (5), session (6).
+    if fields.get(2).and_then(|v| v.parse::<u32>().ok()) != Some(pid)
+        || fields.get(3).and_then(|v| v.parse::<u32>().ok()) != Some(session)
+    {
+        return Err(invalid());
+    }
+    let command = read("comm", 64)?;
+    let command = command.strip_suffix('\n').unwrap_or(&command);
+    if command.is_empty() || command.chars().any(char::is_control) {
+        return Err(invalid());
+    }
+    Ok(command.to_owned())
+}
+
 struct Process {
     child: Child,
     kind: Kind,
@@ -270,6 +312,20 @@ struct Process {
     identity: Option<super::sessions::ProcessIdentity>,
 }
 impl Process {
+    fn foreground_command(&self) -> io::Result<Option<String>> {
+        if self.exit_observed {
+            return Ok(None);
+        }
+        let (Some(master), Some(identity)) = (&self.master, &self.identity) else {
+            return Ok(None);
+        };
+        // tcgetpgrp reads the held PTY, not user-controlled terminal output.
+        let group = unsafe { libc::tcgetpgrp(master.as_raw_fd()) };
+        if group <= 0 {
+            return Ok(None);
+        }
+        foreground_command(group as u32, self.child.id(), identity.gid).map(Some)
+    }
     fn observe_exit(
         &mut self,
         cleanup: impl FnOnce() -> io::Result<()>,
@@ -729,6 +785,15 @@ impl<A: Admission> Kernel for Processes<A> {
         let sessions = self.transcript_sessions(sessions);
         Ok(self.transcripts.sources(&sessions, now))
     }
+    fn terminal_commands(&mut self) -> io::Result<BTreeMap<u32, String>> {
+        let mut commands = BTreeMap::new();
+        for (id, process) in &self.processes {
+            if let Ok(Some(command)) = process.foreground_command() {
+                commands.insert(*id, command);
+            }
+        }
+        Ok(commands)
+    }
     fn transcript_presence(
         &mut self,
         sessions: &[super::supervisor::TranscriptSession],
@@ -776,6 +841,178 @@ mod completion_tests {
     use super::*;
 
     #[test]
+    fn foreground_command_uses_a_real_pty_and_refuses_foreign_identity() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let master = rustix::pty::openpt(
+            rustix::pty::OpenptFlags::RDWR
+                | rustix::pty::OpenptFlags::NOCTTY
+                | rustix::pty::OpenptFlags::CLOEXEC,
+        )
+        .unwrap();
+        rustix::pty::grantpt(&master).unwrap();
+        rustix::pty::unlockpt(&master).unwrap();
+        let slave = unsafe {
+            libc::ioctl(
+                master.as_raw_fd(),
+                libc::TIOCGPTPEER,
+                libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+            )
+        };
+        assert!(slave >= 0);
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        let mut command = Command::new("/bin/sleep");
+        command.arg("60").stdin(Stdio::from(slave));
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = command.spawn().unwrap();
+        let pid = child.id();
+        let uid = unsafe { libc::geteuid() };
+        let group = unsafe { libc::tcgetpgrp(master.as_raw_fd()) };
+        assert_eq!(group as u32, pid);
+        assert_eq!(foreground_command(group as u32, pid, uid).unwrap(), "sleep");
+        assert!(foreground_command(group as u32, pid + 1, uid).is_err());
+        assert!(foreground_command(group as u32, pid, uid + 1).is_err());
+        let mut process = Process {
+            child,
+            kind: Kind::Pty,
+            master: Some(File::from(master)),
+            input: None,
+            output: None,
+            error: None,
+            exit_observed: false,
+            pending_exit: None,
+            cleanup_on_exit: false,
+            binding: None,
+            identity: Some(super::super::sessions::ProcessIdentity {
+                pid,
+                start_ticks: 1,
+                gid: uid,
+                groups: vec![],
+                home: String::new(),
+            }),
+        };
+        assert_eq!(
+            process.foreground_command().unwrap().as_deref(),
+            Some("sleep")
+        );
+        process.identity = None;
+        assert_eq!(
+            process.foreground_command().unwrap(),
+            None,
+            "unknown identity is omitted"
+        );
+        process.child.kill().unwrap();
+        process.child.wait().unwrap();
+        process.exit_observed = true;
+        assert_eq!(
+            process.foreground_command().unwrap(),
+            None,
+            "an observed exit clears metadata"
+        );
+        assert!(foreground_command(group as u32, pid, uid).is_err());
+    }
+
+    #[test]
+    fn foreground_command_follows_job_control_not_background_output() {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let master = rustix::pty::openpt(
+            rustix::pty::OpenptFlags::RDWR
+                | rustix::pty::OpenptFlags::NOCTTY
+                | rustix::pty::OpenptFlags::CLOEXEC,
+        )
+        .unwrap();
+        rustix::pty::grantpt(&master).unwrap();
+        rustix::pty::unlockpt(&master).unwrap();
+        let slave = unsafe {
+            libc::ioctl(
+                master.as_raw_fd(),
+                libc::TIOCGPTPEER,
+                libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC,
+            )
+        };
+        assert!(slave >= 0);
+        let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        let mut command = Command::new("/bin/bash");
+        command
+            .args(["--noprofile", "--norc", "-i"])
+            .stdout(Stdio::from(slave.try_clone().unwrap()))
+            .stderr(Stdio::from(slave.try_clone().unwrap()))
+            .stdin(Stdio::from(slave));
+        unsafe {
+            command.pre_exec(|| {
+                if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY, 0) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let child = command.spawn().unwrap();
+        let pid = child.id();
+        let mut process = Process {
+            child,
+            kind: Kind::Pty,
+            master: Some(File::from(master)),
+            input: None,
+            output: None,
+            error: None,
+            exit_observed: false,
+            pending_exit: None,
+            cleanup_on_exit: false,
+            binding: None,
+            identity: Some(super::super::sessions::ProcessIdentity {
+                pid,
+                start_ticks: 1,
+                gid: unsafe { libc::geteuid() },
+                groups: vec![],
+                home: String::new(),
+            }),
+        };
+        let await_command = |process: &Process, expected: &str| {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if process.foreground_command().ok().flatten().as_deref() == Some(expected) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "foreground did not become {expected}"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        await_command(&process, "bash");
+        process
+            .master
+            .as_mut()
+            .unwrap()
+            .write_all(b"sleep 60\n")
+            .unwrap();
+        await_command(&process, "sleep");
+        process.master.as_mut().unwrap().write_all(&[3]).unwrap();
+        await_command(&process, "bash");
+        // A short-lived background job must not replace the foreground shell.
+        process
+            .master
+            .as_mut()
+            .unwrap()
+            .write_all(b"sleep 0.1 &\n")
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(
+            process.foreground_command().unwrap().as_deref(),
+            Some("bash")
+        );
+        process.child.kill().unwrap();
+        process.child.wait().unwrap();
+    }
+
+    #[test]
     fn installed_account_records_validate_daemon_and_member_bindings() {
         let daemon = (
             "machined",
@@ -786,7 +1023,7 @@ mod completion_tests {
             false,
         );
         let member = ("ben", 20001, 20001, "/home/ben", "/bin/bash", true);
-        let passwd="machined:x:19998:20000::/nonexistent:/usr/sbin/nologin\nben:x:20001:20001::/home/ben:/bin/bash\n";
+        let passwd = "machined:x:19998:20000::/nonexistent:/usr/sbin/nologin\nben:x:20001:20001::/home/ben:/bin/bash\n";
         let groups = "team:x:20000:ben\n";
         assert!(validate_account_records(passwd, groups, daemon).is_ok());
         assert!(validate_account_records(passwd, groups, member).is_ok());

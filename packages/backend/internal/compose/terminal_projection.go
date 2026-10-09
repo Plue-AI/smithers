@@ -54,7 +54,11 @@ func terminalProjection(pool *pgxpool.Pool, manager *routes.TerminalSessionManag
 				title = entry.Title
 				actor = branchAgentActor("agent:"+entry.RunID, leaseParticipant{AgentKind: "coding", RunID: entry.RunID, SessionID: entry.ID, DisplayName: "Agent"}, &owner, colors[owner.Username])
 			}
-			result = append(result, map[string]any{"id": entry.ID, "title": title, "owner": actor, "watchers": watching, "agents": []any{}, "frozen": frozen || branch.Status != "running"})
+			row := map[string]any{"id": entry.ID, "title": title, "owner": actor, "watchers": watching, "agents": []any{}, "frozen": frozen || branch.Status != "running"}
+			if entry.Command != "" {
+				row["command"] = entry.Command
+			}
+			result = append(result, row)
 		}
 		return result, nil
 	}

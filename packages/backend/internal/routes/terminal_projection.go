@@ -17,6 +17,7 @@ type TerminalFact struct {
 	Owner      int64
 	RunID      string
 	Title      string
+	Command    string
 	ForMember  int64
 	Repository int64
 	Watchers   []int64
@@ -39,6 +40,9 @@ func (m *TerminalSessionManager) BranchTerminals(repository int64, branch string
 				fact.RunID = session.agentRun
 				fact.Title = session.agentTitle
 				fact.ForMember = p.UserID
+			}
+			if session.foregroundCommand != nil {
+				fact.Command = session.foregroundCommand()
 			}
 			seen := map[int64]bool{}
 			for sink := range session.sinks {
@@ -135,6 +139,9 @@ func (m *TerminalSessionManager) openRegistered(ctx context.Context, id string, 
 	}
 	var session *terminalSession
 	session = newTerminalSession(id, client, backend, stdin, stdout, stderr, m.ringBufferBytes, m.idleTimeout, 0, func() { m.removeSession(id, session) })
+	if metadata, ok := terminal.(interface{ ForegroundCommand() string }); ok {
+		session.foregroundCommand = metadata.ForegroundCommand
+	}
 	session.ownerSession = true
 	session.agentRun = run
 	session.agentTitle = title

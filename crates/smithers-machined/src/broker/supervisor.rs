@@ -19,6 +19,10 @@ use std::{
 /// Installed providers validate account, credential and environment availability
 /// before spawn. Test kernels are confined to tests; there is no host fallback.
 pub trait Kernel: Send {
+    /// Foreground command names from held PTYs only; no caller supplies a pid.
+    fn terminal_commands(&mut self) -> io::Result<std::collections::BTreeMap<u32, String>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn process_identity(&mut self, _id: u32) -> io::Result<Option<sessions::ProcessIdentity>> {
         Ok(None)
     }
@@ -541,6 +545,16 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 let sessions = self.transcript_sessions();
                 self.kernel
                     .with(|kernel| kernel.transcript_sources(&sessions, Instant::now()))
+            }
+            32 if body.is_empty() => {
+                let live: std::collections::BTreeSet<_> = self
+                    .entries()
+                    .filter(|e| !e.closed && !e.exited && e.kind == Kind::Pty)
+                    .map(|e| e.id)
+                    .collect();
+                let mut commands = self.kernel.with(Kernel::terminal_commands)?;
+                commands.retain(|id, _| live.contains(id));
+                serde_json::to_vec(&commands).map_err(io::Error::other)
             }
             30 if body.is_empty() => {
                 if !self.transcript_import {

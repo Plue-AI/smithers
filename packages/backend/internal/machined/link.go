@@ -236,6 +236,7 @@ type Link struct {
 	pending          map[uint32]chan wire.Frame
 	rebases          map[uint32]struct{}
 	frozen           atomic.Uint32
+	terminalCommands map[uint32]string
 	documents        map[uint32]*documentQueue
 	openingDocuments int
 	protocol         uint16
@@ -403,9 +404,19 @@ func (l *Link) read() {
 				}
 				continue
 			}
-			if _, err := f.PresenceSnapshot(); err != nil {
+			locations, err := f.PresenceSnapshot()
+			if err != nil {
 				return
 			}
+			commands := make(map[uint32]string)
+			for _, location := range locations {
+				if location.Participant == ([16]byte{}) && location.Command != "" {
+					commands[location.Session] = location.Command
+				}
+			}
+			l.mu.Lock()
+			l.terminalCommands = commands
+			l.mu.Unlock()
 			// Snapshots are complete and ephemeral. Retain the latest without
 			// blocking control replies or the durable outbox on a slow consumer.
 			select {

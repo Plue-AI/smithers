@@ -521,3 +521,14 @@ T-APP-10 requester privacy: the composed PostgreSQL/live-socket `TestRebaseWrite
 T-APP-10 live Rebase progress: the composed PostgreSQL/live-socket `TestRebaseWriterAttributionThroughInstall` now observes an admitted Rebase RPC through both authenticated Branch readers, retains Rebasing after caller cancellation, and returns both to pending after the daemon's busy reply, with the blocker private to its requester. Transport cases cover successful/error late replies, malformed calls and boot retirement. The ten Chromium `citc.spec.ts` cases also render Rebasing after reload and remove Rebase now while execution remains running. These are transport/projection and controlled browser-contract receipts. An RPC in flight does not prove a broker freeze; terminal freeze production facts and the physical C-J10-04 campaign remain unqualified.
 
 T-APP-10 freeze observation increment: mounted `citc.spec.ts` checks terminal Rebasing and thaw after execution/reload using controlled HTTP/socket contracts. PostgreSQL composed two-viewer coverage consumes authenticated daemon freeze/thaw frames; Rust covers broker replies and transport delivery while the mutation executor is held. These are not reference-kernel freeze latency or full C-J10-04 acceptance.
+
+
+T-APP-10 foreground metadata (fr30-app-10-r6): the production broker selects the
+foreground process group from its held PTY and verifies its installed UID and
+session before reading its executable name. Private operation 32 rejects any
+supplied fields. The existing authenticated presence snapshot carries the name,
+and the existing terminal manager projects it to `branch:<id>`. Targeted Linux
+PTY, broker, boot-retirement and PostgreSQL live-socket campaigns plus the mounted
+`citc.spec.ts` command/reload/clear case provide supplemental evidence. Command
+arguments are not projected; reference Mac/guest and full C-J3-01 acceptance
+remain unqualified. Protocol 16 delta review is pending, with no approval claimed.
