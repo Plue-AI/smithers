@@ -15,7 +15,7 @@ the release notes at
 
 <!-- commits:1.0.0-rc.1 -->
 
-10732 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
+10738 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
 
 ### ✨ Features
 
@@ -1314,6 +1314,12 @@ the release notes at
 
 ### 🐛 Bug fixes
 
+- **machined:** agent jj writes stay readable; the daemon survives an unready redial (#3385) ([8a6ac03825](https://github.com/smithersai/smithers/commit/8a6ac0382552160467018e344b4b767e88e954fa))
+- **todo:** keep outside writes from killing runs (#3385) ([4653cacd08](https://github.com/smithersai/smithers/commit/4653cacd086bd699681875f04db5b4ff5fb11ba6))
+- **tests:** assert the installed checks failure step (#3385) ([7ab24e9425](https://github.com/smithersai/smithers/commit/7ab24e9425323aae2b5076cc7ee70e3870dd5a66))
+- **workspace:** a TODO's candidate tree reads on a real machine (#3385) ([f4381cd226](https://github.com/smithersai/smithers/commit/f4381cd2263d11a56a28d2153948b129da4af896))
+- **tests:** retain working TODO expectations beside retries (#3385) ([cb7d16bf64](https://github.com/smithersai/smithers/commit/cb7d16bf645168344c0fccb000db7991b7ca1567))
+- **app:** show TODO and setup failure reasons (#3385) ([6983c36574](https://github.com/smithersai/smithers/commit/6983c36574776bade05c1c2a50d7a17d5d8f5698))
 - **machined:** agent writes no longer wedge the machine daemon (#3385) ([c471b306ae](https://github.com/smithersai/smithers/commit/c471b306aefd6b61d6d932f997c744581f19d3c8))
 - **microsandbox:** bound daemon reconnects and drain msb shutdown (#3385) ([5039aa9b94](https://github.com/smithersai/smithers/commit/5039aa9b94f4d8d830b2696add447f929463811b))
 - **github:** complete fetched issue deliveries on installs (#3515) ([24190c6705](https://github.com/smithersai/smithers/commit/24190c670598d25dde01150381bb523edfc83707))
