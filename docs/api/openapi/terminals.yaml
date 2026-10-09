@@ -89,7 +89,7 @@ paths:
                 command: {type: string, enum: [todo.new]}
                 payload:
                   allOf:
-                    - $ref: '#/paths/~1api~1todos/post/requestBody/content/application~1json/schema'
+                    - $ref: '#/components/schemas/PostAPITodosBody'
                     - type: object
                       required: [place]
                       properties:
@@ -99,7 +99,7 @@ paths:
                           properties:
                             mode: {type: string, enum: [append]}
       responses:
-        '202': {$ref: '#/paths/~1api~1todos/post/responses/202'}
+        '202': {$ref: '#/components/responses/TodoCreateAccepted'}
         '400': {description: Invalid terminal command or TODO payload}
         '401': {description: A live member session is required}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}

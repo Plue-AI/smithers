@@ -619,6 +619,9 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{SessionKey: hash, UserID: u.ID, Username: u.Username, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status)
+		VALUES ($1,$2,$3,'cut-route-box','cut-route-box','running')`, browserBoxID, repository.ID, u.ID)
+	require.NoError(t, err)
 	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
@@ -626,8 +629,8 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 			cfg.Server.PublicURL = "http://example.com"
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}})
 			dispatcher := &browserFlowRecordingDispatcher{}
-			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
-			mountBrowserFlow(router, cfg, q, &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher})
+			deps := &relayBoxes{Queries: q, t: t, pool: pool, owner: u.ID, login: u.Username, repo: repository, canWrite: true}
+			mountBrowserFlow(router, cfg, q, &browserFlowAPI{installTransactions: pool, repos: deps, queries: deps, dispatcher: dispatcher})
 			server := httptest.NewServer(router)
 			t.Cleanup(server.Close)
 			request := func(method, path, body string) (int, string) {

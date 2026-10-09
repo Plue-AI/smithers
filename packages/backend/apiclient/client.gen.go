@@ -1737,6 +1737,23 @@ type HomeBackgroundReceipt struct {
 // HomeBackgroundID — Numeric workflow run ID or durable Learning operation UUID.
 type HomeBackgroundID = json.RawMessage
 
+// PostAPITodosBody is generated from docs/api/openapi.yaml.
+type PostAPITodosBody struct {
+	Title       string                 `json:"title"`
+	Prompt      string                 `json:"prompt"`
+	Acceptance  []string               `json:"acceptance,omitempty"`
+	Place       *PostAPITodosBodyPlace `json:"place,omitempty"`
+	Issue       *int64                 `json:"issue,omitempty"`
+	IssueDigest *string                `json:"issue_digest,omitempty"`
+	Fixes       *bool                  `json:"fixes,omitempty"`
+}
+
+// PostAPITodosBodyPlace is generated from docs/api/openapi.yaml.
+type PostAPITodosBodyPlace struct {
+	Mode string `json:"mode"`
+	N    *int64 `json:"n,omitempty"`
+}
+
 // HomeCard — HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
 type HomeCard struct {
 	Repository           string                       `json:"repository"`
@@ -2201,19 +2218,12 @@ type GetAPIStatusResponseComponentsCanary struct {
 
 // GetAPIInstallMetricsResponse is generated from docs/api/openapi.yaml.
 type GetAPIInstallMetricsResponse struct {
-	CollectedAt          time.Time                                        `json:"collected_at"`
-	Clock                string                                           `json:"clock"`
-	Metrics              []map[string]json.RawMessage                     `json:"metrics"`
-	LiveConnections      *int64                                           `json:"live_connections,omitempty"`
-	MachineQualification GetAPIInstallMetricsResponseMachineQualification `json:"machine_qualification"`
-	Host                 map[string]json.RawMessage                       `json:"host,omitempty"`
-}
-
-// GetAPIInstallMetricsResponseMachineQualification is generated from docs/api/openapi.yaml.
-type GetAPIInstallMetricsResponseMachineQualification struct {
-	Version int64    `json:"version"`
-	Status  string   `json:"status"`
-	Missing []string `json:"missing"`
+	CollectedAt          time.Time                    `json:"collected_at"`
+	Clock                string                       `json:"clock"`
+	Metrics              []map[string]json.RawMessage `json:"metrics"`
+	LiveConnections      *int64                       `json:"live_connections,omitempty"`
+	MachineQualification json.RawMessage              `json:"machine_qualification"`
+	Host                 map[string]json.RawMessage   `json:"host,omitempty"`
 }
 
 // GetAPIInstallAckDelayParams is the query of GET /api/install/ack-delay.
@@ -2635,26 +2645,15 @@ type PostAPITerminalsResponse struct {
 	Status      string `json:"status"`
 }
 
+// PostAPITerminalsIDCommandsBody is generated from docs/api/openapi.yaml.
+type PostAPITerminalsIDCommandsBody struct {
+	Command string          `json:"command"`
+	Payload json.RawMessage `json:"payload"`
+}
+
 // PostAPIStackAttentionIDResponse is generated from docs/api/openapi.yaml.
 type PostAPIStackAttentionIDResponse struct {
 	State string `json:"state"`
-}
-
-// PostAPITodosBody is generated from docs/api/openapi.yaml.
-type PostAPITodosBody struct {
-	Title       string                 `json:"title"`
-	Prompt      string                 `json:"prompt"`
-	Acceptance  []string               `json:"acceptance,omitempty"`
-	Place       *PostAPITodosBodyPlace `json:"place,omitempty"`
-	Issue       *int64                 `json:"issue,omitempty"`
-	IssueDigest *string                `json:"issue_digest,omitempty"`
-	Fixes       *bool                  `json:"fixes,omitempty"`
-}
-
-// PostAPITodosBodyPlace is generated from docs/api/openapi.yaml.
-type PostAPITodosBodyPlace struct {
-	Mode string `json:"mode"`
-	N    *int64 `json:"n,omitempty"`
 }
 
 // GetAPITodosNEventsParams is the query of GET /api/todos/{n}/events.
@@ -6342,6 +6341,13 @@ func (c *Client) PostAPITelemetryErrors(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PostAPITerminals(ctx context.Context, idempotencyKey string, body PostAPITerminalsBody) (PostAPITerminalsResponse, error) {
 	var out PostAPITerminalsResponse
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/terminals", nil, body, &out)
+	return out, err
+}
+
+// PostAPITerminalsIDCommands calls POST /api/terminals/{id}/commands.
+func (c *Client) PostAPITerminalsIDCommands(ctx context.Context, id string, idempotencyKey string, body PostAPITerminalsIDCommandsBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/terminals/"+url.PathEscape(id)+"/commands", nil, body, &out)
 	return out, err
 }
 

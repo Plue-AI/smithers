@@ -21565,7 +21565,7 @@ paths:
                 command: {type: string, enum: [todo.new]}
                 payload:
                   allOf:
-                    - $ref: '#/paths/~1api~1todos/post/requestBody/content/application~1json/schema'
+                    - $ref: '#/components/schemas/PostAPITodosBody'
                     - type: object
                       required: [place]
                       properties:
@@ -21575,7 +21575,7 @@ paths:
                           properties:
                             mode: {type: string, enum: [append]}
       responses:
-        '202': {$ref: '#/paths/~1api~1todos/post/responses/202'}
+        '202': {$ref: '#/components/responses/TodoCreateAccepted'}
         '400': {description: Invalid terminal command or TODO payload}
         '401': {description: A live member session is required}
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
@@ -21694,40 +21694,9 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: false
-              required: [title, prompt]
-              properties:
-                title: {type: string, minLength: 1, maxLength: 256}
-                prompt: {type: string, minLength: 1, maxLength: 65536}
-                acceptance:
-                  type: array
-                  items: {type: string}
-                place:
-                  description: Where the TODO goes; absent appends. Before n takes TODO n's place, and n and every later TODO move one place later. Amend is refused with invalid_place until T-STK-06.
-                  type: object
-                  additionalProperties: false
-                  required: [mode]
-                  properties:
-                    mode: {type: string, enum: [append, before, amend]}
-                    n: {type: integer, minimum: 1}
-                issue:
-                  description: Make TODO. The GitHub issue number the Draft was made from; requires issue_digest. The TODO becomes the issue's, and an issue holds one unmerged TODO.
-                  type: integer
-                  minimum: 1
-                issue_digest:
-                  description: The server-issued issue_digest from GET /api/issues/{n}, bound to the drafting member and that exact issue discussion. Commit preserves the read snapshot after remote edits; unknown or another member's digest is refused with issue_snapshot_unknown.
-                  type: string
-                  pattern: '^[0-9a-f]{64}$'
-                fixes:
-                  description: Whether merging the TODO closes the issue; requires issue. Absent means true.
-                  type: boolean
+              $ref: '#/components/schemas/PostAPITodosBody'
       responses:
-        '202':
-          description: Persisted TODO creation; execution has not completed
-          content:
-            application/json:
-              schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}
+        '202': {$ref: '#/components/responses/TodoCreateAccepted'}
         '400':
           description: Invalid TODO, missing Idempotency-Key, invalid_place (amend, or Before a TODO that is not on the stack), or an issue reference that is incomplete or names a pull request
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
@@ -27241,6 +27210,35 @@ components:
       oneOf:
         - {type: integer, format: int64, minimum: 1}
         - {type: string, format: uuid}
+    PostAPITodosBody:
+      type: object
+      additionalProperties: false
+      required: [title, prompt]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 256}
+        prompt: {type: string, minLength: 1, maxLength: 65536}
+        acceptance:
+          type: array
+          items: {type: string}
+        place:
+          description: Where the TODO goes; absent appends. Before n takes TODO n's place, and n and every later TODO move one place later. Amend is refused with invalid_place until T-STK-06.
+          type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode: {type: string, enum: [append, before, amend]}
+            n: {type: integer, minimum: 1}
+        issue:
+          description: Make TODO. The GitHub issue number the Draft was made from; requires issue_digest. The TODO becomes the issue's, and an issue holds one unmerged TODO.
+          type: integer
+          minimum: 1
+        issue_digest:
+          description: The server-issued issue_digest from GET /api/issues/{n}, bound to the drafting member and that exact issue discussion. Commit preserves the read snapshot after remote edits; unknown or another member's digest is refused with issue_snapshot_unknown.
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        fixes:
+          description: Whether merging the TODO closes the issue; requires issue. Absent means true.
+          type: boolean
     HomeCard:
       description: HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved.
       type: object
@@ -27435,3 +27433,8 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    TodoCreateAccepted:
+      description: Persisted TODO creation; execution has not completed
+      content:
+        application/json:
+          schema: {"oneOf":[{"type":"object","required":["state","n","rev"],"properties":{"state":{"type":"string","enum":["accepted"]},"n":{"type":"integer","minimum":1},"rev":{"type":"integer","minimum":1}}},{"$ref":"#/components/schemas/ConfirmationReceipt"}]}

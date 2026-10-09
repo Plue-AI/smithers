@@ -1105,6 +1105,19 @@ export type HomeBackgroundReceipt = {
 /** Numeric workflow run ID or durable Learning operation UUID. */
 export type HomeBackgroundID = number | string
 
+export type PostAPITodosBody = {
+  title: string
+  prompt: string
+  acceptance?: Array<string>
+  place?: {
+    mode: "append" | "before" | "amend"
+    n?: number
+  }
+  issue?: number
+  issue_digest?: string
+  fixes?: boolean
+}
+
 /** HomeCardSchema in packages/rpc/src/HomeCard.ts is the full projection contract; members not listed here are preserved. */
 export type HomeCard = {
   repository: string
@@ -2366,9 +2379,9 @@ export type GetApiInstallMetricsResponse = {
   metrics: Array<Record<string, unknown>>
   live_connections?: number
   machine_qualification: {
-    version: 1
     status: "unavailable"
-    missing: Array<string>
+  } | {
+    status: "qualified"
   }
   host?: Record<string, unknown>
 }
@@ -6311,6 +6324,31 @@ export interface PostApiTerminalsInput {
 export const postApiTerminals = (transport: Transport, input: PostApiTerminalsInput): Promise<PostApiTerminalsResponse> =>
   transport.request("POST", `/api/terminals`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTerminalsResponse>
 
+export type PostApiTerminalsIdCommandsBody = {
+  command: "todo.new"
+  payload: PostAPITodosBody & {
+    place: {
+      mode: "append"
+    }
+  }
+}
+
+export type PostApiTerminalsIdCommandsResponse = {
+  state: "accepted"
+  n: number
+  rev: number
+} | ConfirmationReceipt
+
+export interface PostApiTerminalsIdCommandsInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiTerminalsIdCommandsBody
+}
+
+/** POST /api/terminals/{id}/commands: Append a TODO from the member's terminal */
+export const postApiTerminalsIdCommands = (transport: Transport, input: PostApiTerminalsIdCommandsInput): Promise<PostApiTerminalsIdCommandsResponse> =>
+  transport.request("POST", `/api/terminals/${segment(input.path.id)}/commands`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTerminalsIdCommandsResponse>
+
 export type GetApiStackResponse = HomeCard
 
 /** GET /api/stack: Read the install Home snapshot */
@@ -6343,18 +6381,7 @@ export type GetApiTodosResponse = Array<TodoCard>
 export const getApiTodos = (transport: Transport): Promise<GetApiTodosResponse> =>
   transport.request("GET", `/api/todos`) as Promise<GetApiTodosResponse>
 
-export type PostApiTodosBody = {
-  title: string
-  prompt: string
-  acceptance?: Array<string>
-  place?: {
-    mode: "append" | "before" | "amend"
-    n?: number
-  }
-  issue?: number
-  issue_digest?: string
-  fixes?: boolean
-}
+export type PostApiTodosBody = PostAPITodosBody
 
 export type PostApiTodosResponse = {
   state: "accepted"

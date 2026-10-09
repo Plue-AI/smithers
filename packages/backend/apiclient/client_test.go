@@ -43,6 +43,20 @@ func server(t *testing.T, status int, contentType, reply string) (*apiclient.Cli
 	return &apiclient.Client{BaseURL: srv.URL + "/", Header: http.Header{"Authorization": {"token smithers_test"}}}, requests
 }
 
+func TestTerminalCommandPreservesTodoPayloadAndAcceptance(t *testing.T) {
+	reply := `{"state":"accepted","n":7,"rev":2}`
+	client, requests := server(t, http.StatusAccepted, "application/json", reply)
+	payload := json.RawMessage(`{"title":"One","prompt":"Change README","place":{"mode":"append"}}`)
+	out, err := client.PostAPITerminalsIDCommands(context.Background(), "terminal-7", "command-7", apiclient.PostAPITerminalsIDCommandsBody{Command: "todo.new", Payload: payload})
+	require.NoError(t, err)
+	assert.JSONEq(t, reply, string(out))
+	require.Len(t, *requests, 1)
+	assert.Equal(t, "POST", (*requests)[0].Method)
+	assert.Equal(t, "/api/terminals/terminal-7/commands", (*requests)[0].RawPath)
+	assert.Equal(t, "command-7", (*requests)[0].IdempotencyKey)
+	assert.JSONEq(t, `{"command":"todo.new","payload":`+string(payload)+`}`, string((*requests)[0].Body))
+}
+
 func TestTypedResponseDecodesAndSendsHeaders(t *testing.T) {
 	client, requests := server(t, http.StatusOK, "application/json",
 		`{"status":"degraded","checked_at":"2026-09-29T10:00:00Z","components":{"canary":{"status":"error","detail":"stale"}}}`)
