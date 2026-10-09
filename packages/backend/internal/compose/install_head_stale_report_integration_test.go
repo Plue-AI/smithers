@@ -34,8 +34,8 @@ func (r *headObservationRuntime) ExecuteCommand(_ context.Context, _ string, c w
 	if len(c.Args) > 0 && c.Args[0] == "jj" {
 		return workspaceapi.CommandResult{Stdout: strings.Repeat("c", 40) + " " + strings.Repeat("l", 32)}, nil
 	}
-	if len(c.Args) == 4 && c.Args[0] == "git" && c.Args[1] == "rev-parse" {
-		switch c.Args[3] {
+	if len(c.Args) == 6 && c.Args[0] == "git" && c.Args[1] == "-c" && c.Args[2] == "safe.directory=/workspace" && c.Args[3] == "rev-parse" {
+		switch c.Args[5] {
 		case strings.Repeat("c", 40) + "^{tree}":
 			return workspaceapi.CommandResult{Stdout: strings.Repeat("d", 40)}, nil
 		case strings.Repeat("b", 40) + "^{tree}":

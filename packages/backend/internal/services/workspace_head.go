@@ -1152,10 +1152,7 @@ func (s *WorkspaceService) workspaceCommitTree(ctx context.Context, workspace db
 	if !codingCommitID.MatchString(head) {
 		return "", pkgerrors.Conflict("invalid candidate commit")
 	}
-	tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), workspaceapi.Command{
-		Args:        []string{"git", "rev-parse", "--verify", head + "^{tree}"},
-		Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
-	})
+	tree, err := s.runtimeRepositoryCommandOutput(ctx, workspace, workspace.UserID, "candidate-tree-"+uuid.NewString(), candidateTreeCommand(defaultWorkspaceClonePath, head))
 	if err != nil {
 		return "", err
 	}
@@ -1163,6 +1160,18 @@ func (s *WorkspaceService) workspaceCommitTree(ctx context.Context, workspace db
 		return "", pkgerrors.Conflict("live tree could not be verified")
 	}
 	return tree, nil
+}
+
+// candidateTreeCommand reads a commit's tree in the machine's repository at
+// root. The system and global config are nulled so no session config can
+// redirect the read. That also drops the machined user's own safe.directory
+// for the root-owned workspace, which git then refuses as dubious ownership
+// (real install run 9, 2026-10-09), so this one read-only command trusts root.
+func candidateTreeCommand(root, head string) workspaceapi.Command {
+	return workspaceapi.Command{
+		Args:        []string{"git", "-c", "safe.directory=" + root, "rev-parse", "--verify", head + "^{tree}"},
+		Environment: map[string]string{"GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+	}
 }
 
 // InstallWorkspaceHeadSubject binds a decoded report, including retained source
