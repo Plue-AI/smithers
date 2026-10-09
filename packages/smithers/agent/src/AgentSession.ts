@@ -49,6 +49,8 @@
  * @since 0.1.0
  */
 
+import { outsideChangeConsumerEnabled } from "./OutsideChangePolicy.ts"
+
 import * as Capability from "@smthrs/capability/Capability"
 import * as Permission from "@smthrs/capability/Permission"
 import { ControlFacts } from "@smthrs/control"
@@ -2507,9 +2509,11 @@ export const deliverSignal = (
     // question's token is not proof of those capabilities.
     const payload = input.signal.payload
     if (
-      input.signal.name === "outside_change" ||
-      (typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
-        (payload as Readonly<Record<string, unknown>>).kind === "outside_change")
+      !outsideChangeConsumerEnabled && (
+        input.signal.name === "outside_change" ||
+        (typeof payload === "object" && payload !== null && !Array.isArray(payload) &&
+          (payload as Readonly<Record<string, unknown>>).kind === "outside_change")
+      )
     ) return "refused" as const
     const state = yield* DurableEngineState.DurableEngineState
     const control = yield* Effect.serviceOption(ControlRuntime)

@@ -175,3 +175,27 @@ func qualifiedOutsideNoteHost(t *testing.T, f presenceInstallFixture, dispatcher
 	}))
 	return &machined.RegisteredCodingNoteHost{ArtifactDigest: artifact}
 }
+
+// The production dark policy retains authenticated daemon watcher facts and
+// the mounted live projection without enqueueing signals to the TODO host.
+func TestOutsideNotesDarkConsumerKeepsWatcherFacts(t *testing.T) {
+	testMachineEventsProductionLiveBinding(t, func(f presenceInstallFixture, boot [16]byte) *machined.OutsideChangeNotes {
+		var item string
+		require.NoError(t, f.pool.QueryRow(t.Context(), `INSERT INTO mythical_items(repository_id,source,state,workspace_id,owner_id,request_run_id,flow_digest,checks) VALUES($1,'todo','running',$2,$3,'pinned-notes-run',$4,$5) RETURNING id`, f.row.RepositoryID, f.row.ID, f.user.ID, strings.Repeat("a", 64), `{"flowSource":"`+strings.Repeat("b", 40)+`"}`).Scan(&item))
+		store, err := jobs.NewStore(f.pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+			t.Error("dark watcher must not contact a coding host")
+			return nil, machined.ErrNotReady
+		})})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			var facts, signals int
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_events WHERE event_type='branch.burst'`).Scan(&facts))
+			require.NoError(t, f.pool.QueryRow(context.Background(), `SELECT count(*) FROM product_job_requests WHERE operation=$1`, flowdispatch.OperationSignal).Scan(&signals))
+			require.Equal(t, 5, facts)
+			require.Zero(t, signals)
+		})
+		return machined.NewOutsideChangeNotes(&machined.PinnedCodingNoteRuns{Host: qualifiedOutsideNoteHost(t, f, dispatcher, item, boot)}, dispatcher)
+	})
+}

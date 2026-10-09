@@ -163,8 +163,8 @@ describe("machine evidence (§8.6.2)", () => {
     expect(machine({ "bun.lock": "lock", "bun.lockb": "lock" }).installs).toHaveLength(1)
   })
 
-  it("uses npm for a manifest without locks", () => {
-    expect(machine({ "package.json": "{}" }).installs[0]?.command).toEqual(["npm", "install"])
+  it("uses npm without generating a lockfile for a manifest without locks", () => {
+    expect(machine({ "package.json": "{}" }).installs[0]?.command).toEqual(["npm", "install", "--package-lock=false"])
   })
 
   it("has no tools or installs for absent or unsupported files", () => {

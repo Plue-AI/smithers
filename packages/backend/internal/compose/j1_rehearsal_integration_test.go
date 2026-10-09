@@ -252,6 +252,9 @@ func TestJ1Rehearsal(t *testing.T) {
 			todo, err := r.waitTodo(number, state)
 			if err == nil {
 				head, prNumber = todo.PR.Head, todo.PR.Number
+				if state == "working" {
+					err = r.outsideChangeKeepsTodoRunning(todo)
+				}
 			}
 			return err
 		}) {

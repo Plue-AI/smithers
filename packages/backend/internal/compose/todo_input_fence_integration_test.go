@@ -2,12 +2,14 @@ package compose
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -16,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -49,9 +52,9 @@ func TestTodoInputFenceIssueAndOwnerComposedProxy(t *testing.T) {
 		name, source, revisions, state, role, run, workspace, hostState string
 		status                                                          int
 	}{
-		{"owner TODO", "todo", "[]", "running", "implementer", run, workspace, "running", 204},
-		{"Make TODO from issue", "issue", `[{"text":"Greet visitors"}]`, "running", "implementer", run, workspace, "running", 204},
-		{"issue TODO in review", "issue", `[{"text":"Greet visitors"}]`, "proposed", "implementer", run, workspace, "running", 204},
+		{"owner TODO", "todo", "[]", "running", "implementer", run, workspace, "running", 200},
+		{"Make TODO from issue", "issue", `[{"text":"Greet visitors"}]`, "running", "implementer", run, workspace, "running", 200},
+		{"issue TODO in review", "issue", `[{"text":"Greet visitors"}]`, "proposed", "implementer", run, workspace, "running", 200},
 		{"unnumbered item", "todo", "[]", "running", "implementer", run, workspace, "running", 403},
 		{"legacy issue", "issue", "[]", "running", "implementer", run, workspace, "running", 403},
 		{"chat item", "chat", `[{"text":"Greet visitors"}]`, "running", "implementer", run, workspace, "running", 403},
@@ -85,6 +88,54 @@ func TestTodoInputFenceIssueAndOwnerComposedProxy(t *testing.T) {
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, req)
 			require.Equal(t, tc.status, response.Code, response.Body.String())
+		})
+	}
+	// These requests cross the mounted HTTP boundary with genuine host credentials.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET source='todo',revisions='[]',state='running',workspace_id=$2,repository_id=$3,number=1 WHERE id=$1`, item, workspace, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET state='running' WHERE id=$1::uuid`, binding)
+	require.NoError(t, err)
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name, operation, signal, projection, state string
+		status                                     int
+	}{
+		{"pending informational signal", "flow.runtime.signal", "outside_change", "{}", "accepted", 200},
+		{"refused informational signal", "flow.runtime.signal", "outside_change", "{}", "failed", 200},
+		{"uncertain informational signal", "flow.runtime.signal", "outside_change", "{}", "uncertain", 200},
+		{"refused person steer", "flow.runtime.steer", "", "{}", "failed", 503},
+		{"refused named steer", "flow.runtime.signal", "steer", "{}", "failed", 503},
+		{"refused person answer", "flow.runtime.signal", "coding-clarification", `{"kind":"mythical-answer"}`, "failed", 503},
+		{"cancelled person answer", "flow.runtime.signal", "choice", `{"kind":"mythical-answer"}`, "cancelled", 503},
+		{"completed person answer", "flow.runtime.signal", "choice", `{"kind":"mythical-answer"}`, "completed", 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{"runId": run, "name": tc.signal, "projection": json.RawMessage(tc.projection)})
+			require.NoError(t, err)
+			receipt, err := store.Admit(ctx, jobs.Admission{Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}, Operation: tc.operation, RequestID: uuid.NewString(), Payload: payload, EffectPolicy: jobs.EffectReconcile, EffectKey: uuid.NewString()})
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state=$2,terminal_receipt=CASE WHEN $2='accepted' THEN NULL ELSE '{}'::jsonb END WHERE id=$1::uuid`, receipt.OperationID, tc.state)
+			require.NoError(t, err)
+			// Reproduce a dark host refusing the note after the fence starts waiting.
+			done := make(chan error, 1)
+			if tc.state == "accepted" {
+				go func() {
+					time.Sleep(100 * time.Millisecond)
+					_, err := pool.Exec(ctx, `UPDATE product_job_requests SET state='failed',terminal_receipt='{}'::jsonb WHERE id=$1::uuid`, receipt.OperationID)
+					done <- err
+				}()
+			} else {
+				done <- nil
+			}
+			req := httptest.NewRequest(http.MethodGet, modelproxy.Path+"/input-fence?run="+url.QueryEscape(run), nil)
+			req.Header.Set("Authorization", "Bearer "+flowhost.RoleModelCredential(binding, secret, "implementer"))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			require.NoError(t, <-done)
+			require.Equal(t, tc.status, response.Code, response.Body.String())
+			_, err = pool.Exec(ctx, `UPDATE product_job_requests SET state='completed',terminal_receipt='{}'::jsonb WHERE id=$1::uuid`, receipt.OperationID)
+			require.NoError(t, err)
 		})
 	}
 }

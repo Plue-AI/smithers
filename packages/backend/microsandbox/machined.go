@@ -134,6 +134,19 @@ func (r *Runtime) ensureMachined(ctx context.Context, id string, ws *workspace) 
 		r.watchSecretEnvironment(ws, link)
 		return nil
 	}
+	// Dependency linking is machine preparation, not a person's edit. The
+	// repository receipt is written only after linking succeeds; do not start
+	// the watcher (or attribute changes to a run) before that boundary.
+	r.mu.Lock()
+	needsEnvironmentReceipt := len(ws.Link) > 0
+	r.mu.Unlock()
+	if needsEnvironmentReceipt {
+		step = "environment-receipt"
+		if _, err := r.ReadRepositoryReceipt(ctx, id); err != nil {
+			return fmt.Errorf("%w: workspace environment is not prepared: %v", ErrUnavailable, err)
+		}
+	}
+	step = "providers"
 	r.mu.Lock()
 	headReader := r.machinedHead
 	itemReader := r.machinedItem

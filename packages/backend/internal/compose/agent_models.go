@@ -280,7 +280,11 @@ func fenceTodoInputs(pool *pgxpool.Pool) func(context.Context, modelproxy.Caller
 		if !bound || run == "" {
 			return modelproxy.ErrForbidden
 		}
-		rows, err := pool.Query(ctx, `SELECT id::text FROM product_job_requests WHERE tenant_id=$1 AND payload->>'runId'=$2 AND operation IN ('flow.runtime.steer','flow.runtime.signal') AND state NOT IN ('completed','failed','cancelled','uncertain')`, fmt.Sprintf("repository:%d", caller.RepositoryID), run)
+		// Fence only person inputs: steers and answers to arbitrary named waits.
+		// Answer admission marks its projection; informational signals (including
+		// outside_change) are not input delivery and must never poison the run.
+		// Include settled refusals, which may precede this boundary.
+		rows, err := pool.Query(ctx, `SELECT id::text FROM product_job_requests WHERE tenant_id=$1 AND payload->>'runId'=$2 AND (operation='flow.runtime.steer' OR (operation='flow.runtime.signal' AND (payload->>'name'='steer' OR payload->'projection'->>'kind'='mythical-answer'))) AND state<>'completed'`, fmt.Sprintf("repository:%d", caller.RepositoryID), run)
 		if err != nil {
 			return err
 		}

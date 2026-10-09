@@ -2135,9 +2135,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			// ordinary watcher projection running without admitting notes.
 			if options.Machined != nil && options.FlowHostRegistry != nil {
 				host := &machined.RegisteredCodingNoteHost{ArtifactDigest: options.FlowHostRegistry.Coding.SHA256}
-				outsideNotes = &machined.OutsideChangeNotes{
-					Runs: &machined.PinnedCodingNoteRuns{Host: host}, Dispatcher: flow.dispatcher,
-				}
+				outsideNotes = machined.NewOutsideChangeNotes(&machined.PinnedCodingNoteRuns{Host: host}, flow.dispatcher)
 			}
 		}
 		// A member's own Claude Code or Codex session reaches the branch

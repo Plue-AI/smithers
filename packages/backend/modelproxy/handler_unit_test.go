@@ -185,7 +185,7 @@ func TestHandlerInputFenceRequiresBoundImplementingHost(t *testing.T) {
 		{"missing composition", SourceFlowHost, "implementer", true, nil, 503, 0},
 		{"wrong run", SourceFlowHost, "implementer", false, ErrForbidden, 403, 1},
 		{"delivery unavailable", SourceFlowHost, "implementer", false, errors.New("worker unavailable"), 503, 1},
-		{"delivered", SourceFlowHost, "implementer", false, nil, 204, 1},
+		{"delivered", SourceFlowHost, "implementer", false, nil, 200, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			caller := Caller{Source: c.source, FactoryRole: c.role, RepositoryID: 7, WorkspaceID: "w"}
@@ -203,7 +203,7 @@ func TestHandlerInputFenceRequiresBoundImplementingHost(t *testing.T) {
 			h.ServeHTTP(response, httptest.NewRequest("GET", Path+"/input-fence?run=run-1", nil))
 			require.Equal(t, c.status, response.Code)
 			require.Equal(t, c.calls, calls)
-			if c.status == 204 {
+			if c.status == 200 {
 				require.Empty(t, response.Body.String())
 				require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 			}

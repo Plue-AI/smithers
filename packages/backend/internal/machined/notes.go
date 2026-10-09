@@ -39,15 +39,26 @@ type NoteSignaler interface {
 
 // OutsideChangeNotes consumes only BurstIngest's authenticated, verified facts.
 // It adds no queue: admission and replay use the existing dispatcher intent.
-// Keep BurstIngest.OutsideChanges unbound while the pinned host lacks the
-// notification consumer or stale-write tool enforcement.
+// The explicit dark consumer policy retains ordinary watcher facts and live
+// projections; a missing dispatcher outside that policy remains a defect.
 type OutsideChangeNotes struct {
-	Runs       CodingNoteRuns
-	Dispatcher NoteSignaler
+	Runs         CodingNoteRuns
+	Dispatcher   NoteSignaler
+	consumerDark bool
+}
+
+// NewOutsideChangeNotes keeps recording watcher facts while the installed
+// consumer is dark. Only the shared consumer policy enables signal admission.
+func NewOutsideChangeNotes(runs CodingNoteRuns, dispatcher NoteSignaler) *OutsideChangeNotes {
+	notes := &OutsideChangeNotes{Runs: runs, consumerDark: !flowruntime.OutsideChangeConsumerEnabled()}
+	if !notes.consumerDark {
+		notes.Dispatcher = dispatcher
+	}
+	return notes
 }
 
 func (s *OutsideChangeNotes) Admit(ctx context.Context, tx pgx.Tx, branch, burst string, actor json.RawMessage, files []string) error {
-	if s == nil || s.Runs == nil || s.Dispatcher == nil || tx == nil {
+	if s == nil || s.Runs == nil || (s.Dispatcher == nil && !s.consumerDark) || tx == nil {
 		return ErrNotReady
 	}
 	var participant struct {
@@ -64,6 +75,13 @@ func (s *OutsideChangeNotes) Admit(ctx context.Context, tx pgx.Tx, branch, burst
 			return ErrUnauthorized
 		}
 	}
+	// BurstIngest already records the durable watcher fact in this transaction.
+	// A deliberately dark consumer retains the note without an undeliverable
+	// signal, and without requiring an active coding host for informational data.
+	if s.consumerDark {
+		return nil
+	}
+
 	run, err := s.Runs.ResolveCodingNoteRun(ctx, tx, branch)
 	if err != nil {
 		return err

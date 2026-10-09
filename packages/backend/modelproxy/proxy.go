@@ -99,7 +99,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusNoContent)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if r.URL.Path == Path+"/factory-seat" && r.Method == http.MethodGet {
