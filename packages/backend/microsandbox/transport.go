@@ -55,8 +55,14 @@ func (c *relayConn) SetWriteDeadline(t time.Time) error { return c.writer.SetWri
 func (c *relayConn) Close() error {
 	c.closeOnce.Do(func() {
 		_ = c.writer.Close()
-		killGroup(c.cmd)
-		<-c.done
+		// EOF permits startup reconciliation and lease cleanup to complete.
+		// Most relays exit normally without needing a signal at all.
+		select {
+		case <-c.done:
+		case <-time.After(2 * time.Second):
+			killGroup(c.cmd)
+			<-c.done
+		}
 		_ = c.reader.Close()
 	})
 	return nil

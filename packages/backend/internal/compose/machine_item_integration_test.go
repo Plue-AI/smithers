@@ -2,6 +2,11 @@ package compose
 
 import (
 	"encoding/json"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
@@ -53,10 +58,36 @@ func TestMachineItemBindingPinsLogicalChange(t *testing.T) {
 	restored, err := machineItemBinding(ctx, pool, branch)
 	require.NoError(t, err)
 	require.Equal(t, "1234567890abcdef1234567890abcdef12345678", restored.PreMoveCommit, "a new boot retains the pending return target")
+	// Exercise the installed composition's resolver with a real HTTP source.
+	// Retrying a pinned lane must not reread repo-host, but retirement must
+	// still revoke a cached binding.
+	commit := strings.Repeat("c", 40)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET source_commit=$2 WHERE id=$1`, branch, commit)
+	require.NoError(t, err)
+	var reads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		reads.Add(1)
+		require.Equal(t, "GET", req.Method)
+		require.True(t, strings.HasSuffix(req.URL.Path, "/changes/"+commit))
+		_ = json.NewEncoder(w).Encode(repohost.Change{CommitID: commit, ChangeID: "pinned-change"})
+	}))
+	defer server.Close()
+	source := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: server.URL}, "", nil)
+	cache := &machineSourceCache{}
+	for range 10 {
+		binding, e := machineItemBindingCached(ctx, pool, branch, cache, source)
+		require.NoError(t, e)
+		require.Equal(t, "pinned-change", binding.Change)
+		require.Equal(t, restored.PreMoveCommit, binding.PreMoveCommit)
+	}
+	require.EqualValues(t, 1, reads.Load())
 	_, err = pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=NOW() WHERE workspace_id=$1`, branch)
 	require.NoError(t, err)
 	_, err = machineItemBinding(ctx, pool, branch)
 	require.ErrorIs(t, err, machined.ErrUnauthorized)
+	_, err = machineItemBindingCached(ctx, pool, branch, cache, source)
+	require.ErrorIs(t, err, machined.ErrUnauthorized)
+	require.EqualValues(t, 1, reads.Load())
 }
 
 func TestMachineRetainedConflictRequiresCommittedAttemptBinding(t *testing.T) {

@@ -152,7 +152,14 @@ type metadata struct {
 }
 
 type workspace struct {
-	daemonMu                sync.Mutex
+	daemonMu sync.Mutex
+	// daemonAttemptMu owns the flight, failure backoff and workspace watcher.
+	daemonAttemptMu         sync.Mutex
+	daemonAttempt           *daemonAttempt
+	daemonFailure           error
+	daemonRetryAt           time.Time
+	daemonBackoff           time.Duration
+	daemonReconnect         bool
 	daemonBoot              *machined.BootAuthority
 	secretEnvironmentDigest *[32]byte
 	secretEnvironmentLink   *machined.Link

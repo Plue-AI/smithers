@@ -202,8 +202,20 @@ func killGroup(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}
+	// Give cooperative processes time to exit before escalating, including
+	// surviving children. msb 0.6.16 has no startup-lease SIGTERM handler;
+	// relays therefore first get an EOF grace period in relayConn.Close.
+	if syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) != nil {
+		return
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if syscall.Kill(-cmd.Process.Pid, 0) != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	_ = cmd.Process.Kill()
 }
 
 // sandboxRecord is one row of `msb list --format json`.

@@ -612,8 +612,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if runtime, ok := options.Workspace.(interface {
 			BindMachinedItem(func(context.Context, string) (machined.ItemBinding, error))
 		}); ok {
+			sourceCache := &machineSourceCache{}
 			runtime.BindMachinedItem(func(ctx context.Context, branch string) (machined.ItemBinding, error) {
-				return machineItemBinding(ctx, pool, branch, repoHostClient)
+				return machineItemBindingCached(ctx, pool, branch, sourceCache, repoHostClient)
 			})
 			defer runtime.BindMachinedItem(nil)
 		}

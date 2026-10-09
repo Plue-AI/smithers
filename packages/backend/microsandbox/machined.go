@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -58,6 +59,65 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	ws.daemonAttemptMu.Lock()
+	attempt := ws.daemonAttempt
+	if attempt == nil {
+		if time.Now().Before(ws.daemonRetryAt) {
+			err := ws.daemonFailure
+			ws.daemonAttemptMu.Unlock()
+			return err
+		}
+		attempt = &daemonAttempt{done: make(chan struct{})}
+		ws.daemonAttempt = attempt
+		go func() {
+			// The attempt belongs to the machine, not the first waiting caller.
+			attemptCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+			defer cancel()
+			err := r.ensureMachined(attemptCtx, id, ws)
+			ws.daemonAttemptMu.Lock()
+			attempt.err = err
+			ws.daemonFailure = err
+			if err != nil {
+				ws.daemonBackoff = nextDaemonBackoff(ws.daemonBackoff)
+				ws.daemonRetryAt = time.Now().Add(ws.daemonBackoff)
+			} else {
+				ws.daemonBackoff = 0
+				ws.daemonRetryAt = time.Time{}
+			}
+			ws.daemonAttempt = nil
+			close(attempt.done)
+			ws.daemonAttemptMu.Unlock()
+		}()
+	}
+	ws.daemonAttemptMu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-attempt.done:
+		return attempt.err
+	}
+}
+
+type daemonAttempt struct {
+	done chan struct{}
+	err  error
+}
+
+func nextDaemonBackoff(previous time.Duration) time.Duration {
+	if previous == 0 {
+		return time.Second
+	}
+	return min(previous*2, 30*time.Second)
+}
+
+func (r *Runtime) ensureMachined(ctx context.Context, id string, ws *workspace) (result error) {
+	step := "providers"
+	defer func() {
+		if result != nil {
+			// Only the shared attempt logs; callers rejected by backoff do not.
+			slog.Warn("EnsureMachined failed", "machine", ws.Machine, "step", step, "error", result)
+		}
+	}()
 	ws.daemonMu.Lock()
 	defer ws.daemonMu.Unlock()
 	if current, err := r.runningWorkspace(id); err != nil || current != ws {
@@ -67,6 +127,7 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		return ErrUnavailable
 	}
 	if link, err := r.machined.Current(id); err == nil && link.RequireReady(id) == nil {
+		step = "secrets"
 		if err := r.syncSecretEnvironment(ctx, ws, link); err != nil {
 			return err
 		}
@@ -89,6 +150,7 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	step = "head"
 	head, err := headReader(ctx, id)
 	if err != nil {
 		return err
@@ -96,10 +158,12 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	if !lowerHex(head, 40) {
 		return fmt.Errorf("%w: authoritative branch head unavailable", ErrUnavailable)
 	}
+	step = "item"
 	item, err := itemReader(ctx, id)
 	if err != nil {
 		return err
 	}
+	step = "managed-artifact-check"
 	currentSFTP, err := r.guest(ctx, ws.Machine, nil, "managed-artifact-check", sftpBundlePath, sftpDigest)
 	if err != nil {
 		return err
@@ -107,12 +171,14 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	switch strings.TrimSpace(string(currentSFTP)) {
 	case "current":
 	case "replace":
+		step = "managed-artifact"
 		if _, err = r.guest(ctx, ws.Machine, sftp, "managed-artifact", sftpBundlePath, sftpDigest); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf("%w: invalid SFTP artifact receipt", ErrUnavailable)
 	}
+	step = "machined-check"
 	current, err := r.guest(ctx, ws.Machine, nil, "machined-check", digest)
 	if err != nil {
 		return err
@@ -120,12 +186,14 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	switch strings.TrimSpace(string(current)) {
 	case "current":
 	case "replace":
+		step = "machined-install"
 		if _, err = r.guest(ctx, ws.Machine, data, "machined-install", digest); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf("%w: invalid machine artifact check", ErrUnavailable)
 	}
+	step = "boot-authority"
 	if ws.daemonBoot == nil {
 		authority, err := r.machined.MintBoot(id, ws.Machine)
 		if err != nil {
@@ -137,6 +205,7 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	step = "machined-start"
 	state, err := r.guest(ctx, ws.Machine, bootFile, "machined-start", digest)
 	if err != nil {
 		return err
@@ -145,11 +214,14 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: invalid machine startup receipt", ErrUnavailable)
 	}
 	var link *machined.Link
-	deadline := time.Now().Add(10 * time.Second)
+	step = "dial"
+	dialCtx, cancelDial := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelDial()
+	delay := 250 * time.Millisecond
 	for {
-		stream, dialErr := r.dial(ctx, ws.Machine, 970)
+		stream, dialErr := r.dial(dialCtx, ws.Machine, 970)
 		if dialErr == nil {
-			link, err = r.machined.Connect(ctx, id, stream)
+			link, err = r.machined.Connect(dialCtx, id, stream)
 		} else {
 			err = dialErr
 		}
@@ -159,46 +231,19 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if time.Now().After(deadline) {
+		if dialCtx.Err() != nil {
 			return err
 		}
-		timer := time.NewTimer(50 * time.Millisecond)
+		timer := time.NewTimer(delay)
+		delay = min(delay*2, 2*time.Second)
 		select {
-		case <-ctx.Done():
+		case <-dialCtx.Done():
 			timer.Stop()
-			return ctx.Err()
+			return err
 		case <-timer.C:
 		}
 	}
-	// The registry drains replay while reconciliation may await durable acks.
-	// This link is shared by all people; closing a terminal cannot cancel it.
-	go func() {
-		<-link.Done()
-		// A broken private link does not terminate its member processes or boot.
-		// The next authenticated connection replays outbox and stream receipts.
-		delay := time.Second
-		for {
-			if current, err := r.runningWorkspace(id); err != nil || current != ws {
-				return
-			}
-			time.Sleep(delay)
-			if current, err := r.runningWorkspace(id); err != nil || current != ws {
-				return
-			}
-			retry, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			err := r.EnsureMachined(retry, id)
-			cancel()
-			if err == nil {
-				return
-			}
-			if delay < 30*time.Second {
-				delay *= 2
-				if delay > 30*time.Second {
-					delay = 30 * time.Second
-				}
-			}
-		}
-	}()
+	step = "admission"
 	var retained *machined.RetainedConflict
 	if conflictReader != nil {
 		retained, err = conflictReader(ctx, id)
@@ -211,9 +256,55 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 		_ = link.Close()
 		return err
 	}
+	step = "secrets"
 	if err := r.syncSecretEnvironment(ctx, ws, link); err != nil {
+		_ = link.Close()
 		return err
 	}
 	r.watchSecretEnvironment(ws, link)
+	r.startDaemonReconnect(id, ws, link)
 	return nil
+}
+
+// One workspace owns the watcher across every replacement link and failed retry.
+func (r *Runtime) startDaemonReconnect(id string, ws *workspace, link *machined.Link) {
+	ws.daemonAttemptMu.Lock()
+	if ws.daemonReconnect {
+		ws.daemonAttemptMu.Unlock()
+		return
+	}
+	ws.daemonReconnect = true
+	ws.daemonAttemptMu.Unlock()
+	go func() {
+		defer func() { ws.daemonAttemptMu.Lock(); ws.daemonReconnect = false; ws.daemonAttemptMu.Unlock() }()
+		for {
+			select {
+			case <-link.Done():
+			case <-time.After(time.Second):
+				if current, err := r.runningWorkspace(id); err != nil || current != ws {
+					return
+				}
+				continue
+			}
+			for {
+				if current, err := r.runningWorkspace(id); err != nil || current != ws {
+					return
+				}
+				ws.daemonAttemptMu.Lock()
+				delay := max(time.Until(ws.daemonRetryAt), time.Second)
+				ws.daemonAttemptMu.Unlock()
+				time.Sleep(delay)
+				retry, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+				err := r.EnsureMachined(retry, id)
+				cancel()
+				if err != nil {
+					continue
+				}
+				link, err = r.machined.Current(id)
+				if err == nil {
+					break
+				}
+			}
+		}
+	}()
 }
