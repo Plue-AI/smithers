@@ -57,7 +57,7 @@ for (const source of ["issues", "github", "prs"] as const) {
       if (source === "github" && !String(input).includes("github-repos")) return Response.json([])
       return Response.json({ message: "Sign in to read this repository" }, { status: 401 })
     })
-    controller.runCommand(source === "prs" ? "prs.list" : "issues.list")
+    controller.runCommand(source === "prs" ? "pr" : "issues.list", source === "prs" ? JSON.stringify({ operation: "list" }) : undefined)
     await settle()
     expect([...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").sort((a, b) => a.ordinal - b.ordinal)).toHaveLength(1)
     expect([...store.collections.cards.values()].filter(card => card.kind === "issue-list" || card.kind === "pr-list")).toEqual([])
