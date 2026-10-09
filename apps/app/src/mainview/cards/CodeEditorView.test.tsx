@@ -135,7 +135,9 @@ test("keyboard diagnostics exposes the literal type error and its line", () => {
   const { host } = render({ ...model, diagnostics: [{ line: 5, col: 7, severity: "error", message: "Argument of type 'string' is not assignable to parameter of type 'number'." }] })
   const content = host.querySelector<HTMLElement>(".cm-content")!
   content.focus()
-  const key = new KeyboardEvent("keydown", { key: "M", code: "KeyM", ctrlKey: process.platform !== "darwin", metaKey: process.platform === "darwin", shiftKey: true, bubbles: true, cancelable: true })
+  // Mod is the modifier CodeMirror chose from the DOM's navigator, not the host running the test.
+  const mac = /Mac/.test(navigator.platform)
+  const key = new KeyboardEvent("keydown", { key: "M", code: "KeyM", ctrlKey: !mac, metaKey: mac, shiftKey: true, bubbles: true, cancelable: true })
   Object.defineProperty(key, "keyCode", { value: 77 })
   content.dispatchEvent(key)
   expect(host.querySelector(".cm-diagnosticText")?.textContent).toBe("Argument of type 'string' is not assignable to parameter of type 'number'.")
