@@ -28,7 +28,7 @@ fn main() -> std::io::Result<()> {
         }
         fn session(&mut self, request: Request) -> io::Result<Vec<u8>> {
             match request {
-                Request::Roster(_) => Ok(vec![0, 0, 0, 0]),
+                Request::Roster(_, _) => Ok(vec![0, 0, 0, 0]),
                 _ => Err(io::ErrorKind::Unsupported.into()),
             }
         }

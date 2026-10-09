@@ -164,7 +164,7 @@ fn daemon() {
                         }
                     })
                     .collect();
-                match hooks::Broker::set_roster(&*broker, &members) {
+                match hooks::Broker::set_roster_for_import(&*broker, &members, true) {
                     Ok(()) => writeln!(out, "ok").unwrap(),
                     Err(error) => writeln!(out, "error {}", error.code).unwrap(),
                 }

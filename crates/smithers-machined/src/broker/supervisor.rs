@@ -63,6 +63,7 @@ pub trait Kernel: Send {
     /// supplies a session, an owner, a pid or a path. A kernel without the
     /// import refuses it, and nothing is discovered or read.
     fn transcript_tick(&mut self, _live: &mut dyn FnMut(u32) -> bool, _now: Instant) {}
+    fn transcript_pause(&mut self, _live: &mut dyn FnMut(u32) -> bool) {}
     fn transcript_sources(
         &mut self,
         _sessions: &[TranscriptSession],
@@ -162,6 +163,7 @@ pub struct Supervisor<K> {
     /// A transcript reader's socket, on its way to the daemon with the reply
     /// to the request that started the reader.
     descriptor: Option<std::os::fd::OwnedFd>,
+    transcript_import: bool,
 }
 impl<K: Kernel> Supervisor<K> {
     pub fn new(kernel: K) -> Self {
@@ -173,6 +175,7 @@ impl<K: Kernel> Supervisor<K> {
             next: 1,
             cursor: 0,
             descriptor: None,
+            transcript_import: false,
         }
     }
     fn transcript_sessions(&self) -> Vec<TranscriptSession> {
@@ -292,6 +295,12 @@ impl<K: Kernel> Supervisor<K> {
         self.streams.retain(|id, _| ids.contains(id));
     }
     pub fn disconnected(&mut self, now: Instant) {
+        self.transcript_import = false;
+        let registry = &self.registry;
+        let _ = self.kernel.with(|kernel| {
+            kernel.transcript_pause(&mut |id| registry.transcript_owner(id).is_some());
+            Ok(())
+        });
         self.registry.disconnected(now);
     }
     pub fn frame(&mut self, frame: &Frame) -> io::Result<()> {
@@ -466,7 +475,11 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
         // transcript readers here, before the next request is read.
         let registry = &self.registry;
         self.kernel.with(|kernel| {
-            kernel.transcript_tick(&mut |id| registry.transcript_owner(id).is_some(), now);
+            if self.transcript_import {
+                kernel.transcript_tick(&mut |id| registry.transcript_owner(id).is_some(), now);
+            } else {
+                kernel.transcript_pause(&mut |id| registry.transcript_owner(id).is_some());
+            }
             Ok(())
         })
     }
@@ -522,16 +535,25 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
             }
             24 if body.is_empty() => Ok(self.allocate_stream()?.to_be_bytes().to_vec()),
             26 if body.is_empty() => {
+                if !self.transcript_import {
+                    return Err(io::ErrorKind::PermissionDenied.into());
+                }
                 let sessions = self.transcript_sessions();
                 self.kernel
                     .with(|kernel| kernel.transcript_sources(&sessions, Instant::now()))
             }
             30 if body.is_empty() => {
+                if !self.transcript_import {
+                    return Ok(vec![]);
+                }
                 let sessions = self.transcript_sessions();
                 self.kernel
                     .with(|kernel| kernel.transcript_presence(&sessions))
             }
             27 if body.len() == 16 => {
+                if !self.transcript_import {
+                    return Err(io::ErrorKind::PermissionDenied.into());
+                }
                 let sessions = self.transcript_sessions();
                 let (startup, socket) = self
                     .kernel
@@ -612,10 +634,27 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 self.registry.register_run(session, &run)?;
                 vec![]
             }
-            Request::Roster(users) => {
+            Request::Roster(users, enabled) => {
+                if !enabled {
+                    self.transcript_import = false;
+                    let registry = &self.registry;
+                    self.kernel.with(|kernel| {
+                        kernel.transcript_pause(&mut |id| registry.transcript_owner(id).is_some());
+                        Ok(())
+                    })?;
+                }
                 let result = self.registry.set_roster(&users, now);
                 self.retain();
-                result?;
+                if let Err(error) = result {
+                    self.transcript_import = false;
+                    let registry = &self.registry;
+                    self.kernel.with(|kernel| {
+                        kernel.transcript_pause(&mut |id| registry.transcript_owner(id).is_some());
+                        Ok(())
+                    })?;
+                    return Err(error);
+                }
+                self.transcript_import = enabled;
                 vec![]
             }
             Request::Attach { session, received } => {

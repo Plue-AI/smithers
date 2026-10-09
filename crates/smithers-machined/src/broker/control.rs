@@ -334,7 +334,14 @@ impl crate::hooks::Broker for SocketpairBroker {
         Ok(())
     }
     fn set_roster(&self, members: &[super::sessions::User]) -> crate::hooks::Result<()> {
-        let body = super::request::roster_bytes(members).map_err(map_io)?;
+        self.set_roster_for_import(members, false)
+    }
+    fn set_roster_for_import(
+        &self,
+        members: &[super::sessions::User],
+        enabled: bool,
+    ) -> crate::hooks::Result<()> {
+        let body = super::request::roster_bytes_for_import(members, enabled).map_err(map_io)?;
         let result = self.call_body(16, &body)?;
         conn::fields("result16", &result).map_err(|_| error(12))?;
         Ok(())

@@ -34,12 +34,40 @@ struct State {
     fail_spawn: bool,
     fail_before_fork: bool,
     ready_calls: usize,
+    transcript_calls: usize,
+    transcript_pauses: usize,
     local_ready_calls: Vec<u32>,
     running: BTreeSet<u32>,
     identity: Option<smithers_machined::broker::sessions::ProcessIdentity>,
 }
 struct OS(Arc<Mutex<State>>);
 impl Kernel for OS {
+    fn transcript_sources(
+        &mut self,
+        _: &[smithers_machined::broker::supervisor::TranscriptSession],
+        _: Instant,
+    ) -> io::Result<Vec<u8>> {
+        self.0.lock().unwrap().transcript_calls += 1;
+        Ok(vec![])
+    }
+    fn transcript_reader(
+        &mut self,
+        _: &[smithers_machined::broker::supervisor::TranscriptSession],
+        _: [u8; 16],
+    ) -> io::Result<(Vec<u8>, std::os::fd::OwnedFd)> {
+        self.0.lock().unwrap().transcript_calls += 1;
+        Err(io::ErrorKind::Unsupported.into())
+    }
+    fn transcript_presence(
+        &mut self,
+        _: &[smithers_machined::broker::supervisor::TranscriptSession],
+    ) -> io::Result<Vec<u8>> {
+        self.0.lock().unwrap().transcript_calls += 1;
+        Ok(vec![])
+    }
+    fn transcript_pause(&mut self, _: &mut dyn FnMut(u32) -> bool) {
+        self.0.lock().unwrap().transcript_pauses += 1;
+    }
     fn process_identity(
         &mut self,
         _: u32,
@@ -155,7 +183,7 @@ fn user() -> User {
     }
 }
 fn roster(s: &mut Supervisor<OS>) {
-    s.session(Request::Roster(vec![user()])).unwrap();
+    s.session(Request::Roster(vec![user()], false)).unwrap();
 }
 fn open(s: &mut Supervisor<OS>, u: User, k: Kind) -> u32 {
     let run = (u.uid == 19999).then_some("run");
@@ -414,7 +442,7 @@ fn revocation_retains_failed_cleanup_and_restart_retries() {
     roster(&mut s);
     let id = open(&mut s, user(), Kind::Pty);
     state.lock().unwrap().fail_kill = Some(id);
-    assert!(s.session(Request::Roster(vec![])).is_err());
+    assert!(s.session(Request::Roster(vec![], false)).is_err());
     assert_eq!(s.entries().count(), 1);
     assert!(s.frame(&frame(id, vec![1, 0, b'x'])).is_err());
     assert!(state.lock().unwrap().inputs.is_empty());
@@ -714,11 +742,11 @@ fn failed_spawn_cleanup_retains_owner_without_breaking_other_streams() {
     let output = poll(&mut s, 0).unwrap();
     assert_eq!(output.stream, healthy);
     assert_eq!(&output.payload[2..], b"still usable");
-    assert!(s.session(Request::Roster(vec![])).is_err());
+    assert!(s.session(Request::Roster(vec![], false)).is_err());
     assert_eq!(s.entries().count(), 1);
     assert_eq!(s.entries().next().unwrap().id, 2);
     state.lock().unwrap().fail_kill = None;
-    s.session(Request::Roster(vec![])).unwrap();
+    s.session(Request::Roster(vec![], false)).unwrap();
     assert!(s.entries().next().is_none());
     assert!(state.lock().unwrap().running.is_empty());
 }
@@ -1580,4 +1608,44 @@ fn agent_local_output_without_host_admission_remains_local_and_does_not_block() 
         })
         .is_err());
     assert_eq!(poll(&mut s, id).unwrap().payload, [5, 0, 0, 0, 0, 0]);
+}
+
+#[test]
+fn import_unavailable_refuses_before_entering_any_kernel_reader_or_discovery() {
+    let (mut supervisor, state) = setup();
+    for roster in [None, Some(false), Some(true), Some(false)] {
+        if let Some(enabled) = roster {
+            supervisor
+                .session(Request::Roster(vec![user()], enabled))
+                .unwrap();
+        }
+        if roster == Some(true) {
+            assert!(supervisor.stream(26, &[]).unwrap().is_empty());
+            assert!(supervisor.stream(30, &[]).unwrap().is_empty());
+            assert_eq!(state.lock().unwrap().transcript_calls, 2);
+        } else {
+            let before = state.lock().unwrap().transcript_calls;
+            assert_eq!(
+                supervisor.stream(26, &[]).unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert_eq!(
+                supervisor.stream(27, &[7; 16]).unwrap_err().kind(),
+                io::ErrorKind::PermissionDenied
+            );
+            assert!(supervisor.stream(30, &[]).unwrap().is_empty());
+            supervisor.tick().unwrap();
+            assert_eq!(state.lock().unwrap().transcript_calls, before);
+        }
+    }
+    assert!(state.lock().unwrap().transcript_pauses > 0);
+    // A disconnected link loses import authority even during session grace.
+    supervisor
+        .session(Request::Roster(vec![user()], true))
+        .unwrap();
+    supervisor.disconnected(Instant::now());
+    assert_eq!(
+        supervisor.stream(26, &[]).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
 }

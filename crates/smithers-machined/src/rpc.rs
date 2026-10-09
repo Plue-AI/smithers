@@ -85,7 +85,13 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
             6..=10 | 15 => hooks.sessions.call(method, args),
             16 => hooks
                 .broker
-                .set_roster(&conn::roster_args(args)?)
+                .set_roster_for_import(
+                    &conn::roster_args(args)?,
+                    conn::fields("args16", args)?
+                        .iter()
+                        .find(|(tag, _)| *tag == 2)
+                        .is_some_and(|(_, value)| *value == [1]),
+                )
                 .map(|()| conn::structure_bytes(&[])),
             _ => hooks.core.call(cx, method, args),
         }

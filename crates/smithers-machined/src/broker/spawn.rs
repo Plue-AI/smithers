@@ -709,7 +709,14 @@ impl<A: Admission> Kernel for Processes<A> {
         super::control::Controls::thaw(&mut self.groups)
     }
     fn transcript_tick(&mut self, live: &mut dyn FnMut(u32) -> bool, now: Instant) {
+        if self.admission.available().is_err() {
+            self.transcripts.pause(live);
+            return;
+        }
         self.transcripts.tick(live, now)
+    }
+    fn transcript_pause(&mut self, live: &mut dyn FnMut(u32) -> bool) {
+        self.transcripts.pause(live)
     }
     fn transcript_sources(
         &mut self,

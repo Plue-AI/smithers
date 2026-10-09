@@ -361,6 +361,26 @@ func (l *Link) wakeReconcile(ctx context.Context, branch, head string) (Reconcil
 		return ReconcileResult{}, wire.BadValue
 	}
 }
+
+// BindTranscriptImport is install composition, never a member-selected option.
+// Before binding and after teardown, roster updates refuse transcript discovery.
+func (r *Registry) BindTranscriptImport(available bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcriptImport.Store(available)
+}
+
+// TranscriptImportEnabled can be checked inside the event commit fence without
+// recursively taking the registry lock. Binding changes take that same fence.
+func (r *Registry) TranscriptImportEnabled() bool { return r.transcriptImport.Load() }
+
+// TranscriptImportReady fences queued records as well as new discovery.
+func (r *Registry) TranscriptImportReady() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.transcriptImport.Load() && r.identities != nil && !r.closed && r.EventConsumerReady()
+}
+
 func (r *Registry) SetRoster(ctx context.Context, branch string, members []SessionUser) error {
 	l, err := r.Current(branch)
 	if err != nil {
@@ -376,7 +396,12 @@ func (r *Registry) SetRoster(ctx context.Context, branch string, members []Sessi
 		}
 		list = append(list, wire.Struct(wire.Field(1, wire.String(member.Login)), wire.Field(2, wire.U32(member.UID)))...)
 	}
-	_, err = l.call(ctx, branch, wire.SetRoster, wire.Field(1, list))
+	available := r.TranscriptImportReady()
+	fields := [][]byte{wire.Field(1, list)}
+	if available {
+		fields = append(fields, wire.Field(2, []byte{1}))
+	}
+	_, err = l.call(ctx, branch, wire.SetRoster, fields...)
 	return err
 }
 func (r *Registry) Rebase(ctx context.Context, branch string, actor []byte, onto string) (RewriteResult, error) {

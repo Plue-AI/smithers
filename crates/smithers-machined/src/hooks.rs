@@ -244,6 +244,18 @@ pub trait Broker: Send + Sync {
     fn set_roster(&self, _members: &[crate::broker::sessions::User]) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Import is enabled only by the authenticated host after its providers
+    /// are composed. Legacy brokers cannot accept that additional authority.
+    fn set_roster_for_import(
+        &self,
+        members: &[crate::broker::sessions::User],
+        enabled: bool,
+    ) -> Result<()> {
+        if enabled {
+            return Err(Error::unsupported());
+        }
+        self.set_roster(members)
+    }
     fn freeze(&self, _timeout: Duration) -> Result<Option<u32>> {
         Err(Error::unsupported())
     }
@@ -258,8 +270,18 @@ pub trait EventSink: Send + Sync {
     /// Diagnostic observations use the production mutation/outbox boundaries.
     fn rebase_started(&self, _onto: Oid, _request: u32) {}
     fn rebase_finished(&self, _failed: bool) {}
-    fn held_document(&self) -> Option<serde_json::Value> { None }
-    fn applied_held_document(&self, _hold: serde_json::Value, _stream: u32, _actor: &[u8], _before: &str, _after: &str) {}
+    fn held_document(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn applied_held_document(
+        &self,
+        _hold: serde_json::Value,
+        _stream: u32,
+        _actor: &[u8],
+        _before: &str,
+        _after: &str,
+    ) {
+    }
     /// Fault builds observe completed socket writes, never queued frames.
     #[cfg(all(feature = "killpoints", debug_assertions))]
     fn sent(&self, _frame: &Frame) {}

@@ -99,6 +99,7 @@ func (f presenceTodoFixture) Todos(context.Context, int64) ([]map[string]any, er
 
 type presenceInstallFixture struct {
 	p           *branchPresence
+	liveHandler *routes.LiveHandler
 	todos       *services.MythicalService
 	topics      *liveTopics
 	row         db.Workspace
@@ -182,7 +183,7 @@ func presenceInstallWithTodos(t *testing.T, realTodos bool, withBroker ...bool) 
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, extras)
 	server.Start()
 	t.Cleanup(server.Close)
-	return presenceInstallFixture{p: p, todos: todoService, topics: topics, row: row, user: user, url: "ws" + strings.TrimPrefix(origin, "http") + "/api/live", origin: origin, bus: bus, publish: revocation.NewDBPublisher(q, bus), cookie: cookie, pool: pool}
+	return presenceInstallFixture{p: p, liveHandler: handler, todos: todoService, topics: topics, row: row, user: user, url: "ws" + strings.TrimPrefix(origin, "http") + "/api/live", origin: origin, bus: bus, publish: revocation.NewDBPublisher(q, bus), cookie: cookie, pool: pool}
 }
 func (f presenceInstallFixture) dial(t *testing.T) *websocket.Conn {
 	t.Helper()

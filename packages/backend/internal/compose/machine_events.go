@@ -131,7 +131,7 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 				})(ctx, tx, branch, event, commit)
 			}
 			if len(event.Payload) > 0 && event.Payload[0] == 5 {
-				if m.Transcripts == nil {
+				if m.Transcripts == nil || !registry.TranscriptImportReady() {
 					return commit(settledTranscript(nil))
 				}
 				// Each record's owner comes from this link's own boot: the
@@ -151,7 +151,12 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 				if err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&workspace); err != nil {
 					return ack, err
 				}
-				return commit(settledTranscript(transcripts.Write))
+				return commit(settledTranscript(func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
+					if !registry.TranscriptImportEnabled() {
+						return machined.Acknowledgement{Seq: event.Seq, Outcome: machined.AckRejected}, nil
+					}
+					return transcripts.Write(ctx, tx, branch, event)
+				}))
 			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
 				return ack, machined.ErrNotReady

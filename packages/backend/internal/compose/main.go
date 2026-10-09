@@ -2223,6 +2223,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer topics.wikiDocuments.Close()
 		installQuiesce.Barriers = map[string]services.QuiesceBarrier{"T-COL-09": topics.wikiDocuments}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
+		(transcriptImportProviders{ReceiptStore: pool, Ingest: transcripts, Presence: presence,
+			Live: liveHandler, Revocation: revocationBus, History: topics.conversation}).bind(options.Machined)
+		if options.Machined != nil {
+			defer options.Machined.BindTranscriptImport(false)
+		}
+
 		authService.TerminalCatalogReady = terminalCatalogContracts(workspaceTerminalHandler, presence, options.Machined, approvalsService)
 	}
 	if config.IsSingleOwner(cfg.Auth) {

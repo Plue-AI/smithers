@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -21,17 +22,18 @@ var (
 // cannot authenticate a boot or fence an old connection's reconciliation.
 // The zero value is usable; host restart requires fresh boot registration.
 type Registry struct {
-	ackDelayMu     sync.Mutex
-	ackDelays      map[string]*ackDelay
-	identities     SessionIdentities
-	mu             sync.Mutex
-	closed         bool
-	branches       map[string]*boot
-	boots          map[[16]byte]*boot
-	rosterSync     func(context.Context, string) error
-	objects        ObjectImporter
-	objectExporter ObjectExporter
-	hostHeadReader func(context.Context, string) (string, error)
+	ackDelayMu       sync.Mutex
+	ackDelays        map[string]*ackDelay
+	identities       SessionIdentities
+	mu               sync.Mutex
+	closed           bool
+	branches         map[string]*boot
+	boots            map[[16]byte]*boot
+	rosterSync       func(context.Context, string) error
+	transcriptImport atomic.Bool
+	objects          ObjectImporter
+	objectExporter   ObjectExporter
+	hostHeadReader   func(context.Context, string) (string, error)
 	// Consumer cancellation cannot wait for mu: an in-flight writer holds
 	// that fence until its cancelled transaction rolls back.
 	eventsMu      sync.Mutex

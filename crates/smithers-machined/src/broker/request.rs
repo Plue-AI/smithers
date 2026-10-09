@@ -27,7 +27,7 @@ pub enum Request {
         session: u32,
         received: u64,
     },
-    Roster(Vec<User>),
+    Roster(Vec<User>, bool),
 }
 fn invalid() -> io::Error {
     io::ErrorKind::InvalidInput.into()
@@ -173,7 +173,13 @@ impl Request {
                         return Err(invalid());
                     }
                 }
-                Self::Roster(members)
+                Self::Roster(
+                    members,
+                    fields
+                        .iter()
+                        .find(|(tag, _)| *tag == 2)
+                        .is_some_and(|(_, value)| *value == [1]),
+                )
             }
             _ => unreachable!(),
         })
@@ -181,6 +187,9 @@ impl Request {
 }
 
 pub fn roster_bytes(members: &[User]) -> io::Result<Vec<u8>> {
+    roster_bytes_for_import(members, false)
+}
+pub fn roster_bytes_for_import(members: &[User], enabled: bool) -> io::Result<Vec<u8>> {
     let count = u16::try_from(members.len()).map_err(|_| invalid())?;
     let mut list = count.to_be_bytes().to_vec();
     for member in members {
@@ -197,7 +206,11 @@ pub fn roster_bytes(members: &[User]) -> io::Result<Vec<u8>> {
             conn::field(2, member.uid.to_be_bytes()),
         ]));
     }
-    let bytes = conn::structure_bytes(&[conn::field(1, list)]);
+    let mut fields = vec![conn::field(1, list)];
+    if enabled {
+        fields.push(conn::field(2, [1]));
+    }
+    let bytes = conn::structure_bytes(&fields);
     Request::decode(16, &bytes)?;
     Ok(bytes)
 }

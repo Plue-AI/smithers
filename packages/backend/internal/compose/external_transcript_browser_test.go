@@ -236,7 +236,14 @@ func TestExternalTranscriptBrowserPostgres(t *testing.T) {
 	// production machine admission still requires a sandboxed runtime.
 	workspaceRuntime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
-	api := startSplitProcess(t, Options{ChatHost: installModelHost(t, &resolved), Machined: registry,
+	node, err := exec.LookPath("node")
+	require.NoError(t, err)
+	_, source, _, ok := goruntime.Caller(0)
+	require.True(t, ok)
+	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
+	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", rehearsalJJExport(t, root))
+	flowRegistry := buildRehearsalCodingHost(t, node, root)
+	api := startSplitProcess(t, Options{FlowHostRegistry: &flowRegistry, ChatHost: installModelHost(t, &resolved), Machined: registry,
 		Workspace: workspaceRuntime, FlowHostProductAPIURL: origin,
 		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 

@@ -164,6 +164,7 @@ struct Tracked {
 
 /// One agent process lifetime: (session, pid, start time) names it.
 struct Process {
+    reconciled: bool,
     pid: u32,
     owner: Owner,
     participant: [u8; 16],
@@ -386,17 +387,41 @@ impl Transcripts {
         });
     }
 
+    /// The host cannot import now. Release every owner child without losing
+    /// process/source identities or checkpoints. Revoked sessions are removed.
+    pub fn pause(&mut self, live: &mut dyn FnMut(u32) -> bool) {
+        self.scanned = None;
+        self.agents.retain(|key, process| {
+            process.shutdown();
+            process.reconciled = false;
+            process.due = None;
+            live(key.0)
+        });
+    }
+
     fn scan(&mut self, session: &Session, now: Instant) {
         // A list that cannot be read now is read again at the next scan; what
         // is tracked stays as it is until then.
         let Ok(found) = discovery::scan(&session.procs, session.owner.uid, &session.home) else {
             return;
         };
+        for (key, process) in &mut self.agents {
+            if key.0 == session.id { process.reconciled = true; }
+        }
         let mut seen = BTreeSet::new();
         for agent in found {
             let key = (session.id, agent.pid, agent.start_ticks);
             seen.insert(key);
             if let Some(process) = self.agents.get_mut(&key) {
+                // Pausing cancels a resolver. Resume only after this fresh
+                // kernel scan confirms its process lifetime and linkage.
+                if process.due.is_none()
+                    && process.resolving.is_none()
+                    && (process.sources.is_empty() || process.agent == Agent::ClaudeCode)
+                    && !process.gone
+                {
+                    process.due = Some(now);
+                }
                 if process.root != agent.root || process.link != agent.link {
                     process.end(now);
                     process.root = agent.root;
@@ -414,6 +439,7 @@ impl Transcripts {
             self.agents.insert(
                 key,
                 Process {
+                    reconciled: true,
                     pid: key.1,
                     owner: session.owner.clone(),
                     participant,
@@ -454,6 +480,7 @@ impl Transcripts {
         }
         let mut listing = Vec::new();
         for (key, process) in &mut self.agents {
+            if !process.reconciled { continue; }
             process.progress(&self.executable, now);
             for source in &process.sources {
                 if !source.stopped {
@@ -476,7 +503,7 @@ impl Transcripts {
     pub fn presence(&self, sessions: &[Session]) -> Vec<u8> {
         let mut bytes = Vec::new();
         for (key, process) in &self.agents {
-            if !process.gone && sessions.iter().any(|session| session.id == key.0) {
+            if process.reconciled && !process.gone && sessions.iter().any(|session| session.id == key.0) {
                 // Reuse the bounded broker list codec; the participant is the
                 // process identity, rather than any one file's source lifetime.
                 Listed {
@@ -501,11 +528,17 @@ impl Transcripts {
         sessions: &[Session],
         lifetime: [u8; 16],
     ) -> io::Result<(Vec<u8>, OwnedFd)> {
+        // Re-enabling cannot reopen a cached source before the broker has
+        // reconciled process lifetimes and linkage from the kernel again.
+        if self.scanned.is_none() {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
         let (key, process) = self
             .agents
             .iter_mut()
             .find(|(_, process)| process.sources.iter().any(|s| s.lifetime == lifetime))
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        if !process.reconciled { return Err(io::ErrorKind::PermissionDenied.into()); }
         if !sessions
             .iter()
             .any(|session| session.id == key.0 && session.owner == process.owner)
@@ -635,6 +668,7 @@ mod tests {
 
     fn process(agent: Agent) -> Process {
         Process {
+            reconciled: true,
             pid: 4242,
             owner: Owner {
                 uid: 20001,
@@ -692,6 +726,40 @@ mod tests {
         let rows = Listed::decode(&transcripts.presence(&[session])).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].participant, [8; 16]);
+    }
+
+    #[test]
+    fn unavailable_import_preserves_lifetimes_without_resolving_and_revocation_removes_them() {
+        let mut transcripts = Transcripts::default();
+        let mut process = process(Agent::Codex);
+        process
+            .resolved(
+                Resolved {
+                    path: "sessions/test.jsonl".into(),
+                    release: "0.160.0".into(),
+                },
+                Instant::now(),
+            )
+            .unwrap();
+        let source = process.sources[0].lifetime;
+        transcripts.agents.insert((1, 4242, 10), process);
+        transcripts.scanned = Some(Instant::now());
+        transcripts.pause(&mut |_| true);
+        let process = transcripts.agents.get(&(1, 4242, 10)).unwrap();
+        assert_eq!(process.participant, [7; 16]);
+        assert_eq!(process.sources[0].lifetime, source);
+        assert!(process.resolving.is_none());
+        assert!(process.due.is_none());
+        assert!(!process.reconciled);
+        assert!(transcripts.scanned.is_none());
+        assert_eq!(
+            transcripts.reader(&[], source).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        transcripts.scanned=Some(Instant::now());
+        assert_eq!(transcripts.reader(&[],source).unwrap_err().kind(),io::ErrorKind::PermissionDenied);
+        transcripts.pause(&mut |_| false);
+        assert!(transcripts.agents.is_empty());
     }
 
     fn named(path: &str) -> Resolved {

@@ -23,8 +23,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
@@ -42,6 +44,7 @@ type transcriptImportFixture struct {
 	benCookie, aliceCookie string
 	// host records any app-agent turn an import wrongly launched.
 	host      revokedAuthorHost
+	providers transcriptImportProviders
 	store     *chat.Store
 	registry  *machined.Registry
 	authority machined.BootAuthority
@@ -95,7 +98,35 @@ func newTranscriptImportFixture(t *testing.T) *transcriptImportFixture {
 	cfg.Auth.SessionCookieName = "smithers_session"
 	cfg.Server.PublicURL = "http://127.0.0.1:4000"
 	cfg.Server.AllowedOrigins = []string{"http://127.0.0.1:4000"}
-	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}).(chi.Router)
+	var machineOwner int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM users WHERE username='smithers-machines'`).Scan(&machineOwner))
+	fixture.branch, err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: "external", TargetBookmark: "feature", Kind: "vm", Status: "stopped"})
+	require.NoError(t, err)
+	fixture.store, err = chat.NewStore(pool)
+	require.NoError(t, err)
+	fixture.registry = new(machined.Registry)
+	fixture.authority, err = fixture.registry.MintBoot(fixture.branch.ID, "vm-external")
+	require.NoError(t, err)
+	fixture.registry.BindSessionIdentities(newMachineHost(pool, nil))
+	_, err = pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, fixture.branch.ID, machineOwner, owner.ID)
+	require.NoError(t, err)
+	hosts, _ := presenceHostBinding(t, pool, fixture.branch, owner.ID)
+	presence := &branchPresence{hosts: hosts, queries: q, branches: branches, dispatcher: presenceBridgeFixture{realPresenceBridge(t)}, members: &services.Members{Pool: pool}, visits: &presenceVisits{audit: services.NewAuditService(q), now: time.Now}}
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	presence.sourcesReady = presence.sourceCensus(bus, fixture.registry)
+	history := func(ctx context.Context, member int64, branch string) (json.RawMessage, error) {
+		entries, err := fixture.store.SharedEntries(ctx, chat.Scope{RepositoryID: repo.ID, UserID: member}, branch)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(entries)
+	}
+	topics := &liveTopics{queries: q, changePool: pool, presence: presence, conversation: history}
+	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return cfg.Server.AllowedOrigins }, Topics: topics.resolver, Presence: presence.session}
+	fixture.providers = transcriptImportProviders{ReceiptStore: pool, Presence: presence, Live: liveHandler, Revocation: bus, History: history}
+
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{Live: liveHandler}).(chi.Router)
 	mountChatPublic(router, runtime, q, cfg)
 	// The dispatcher runs throughout, so an import that queued a turn would be launched and seen.
 	runCtx, cancel := context.WithCancel(ctx)
@@ -122,15 +153,6 @@ func newTranscriptImportFixture(t *testing.T) *transcriptImportFixture {
 		return string(raw)
 	}
 
-	var machineOwner int64
-	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM users WHERE username='smithers-machines'`).Scan(&machineOwner))
-	fixture.branch, err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, Name: "external", TargetBookmark: "feature", Kind: "vm", Status: "stopped"})
-	require.NoError(t, err)
-	fixture.store, err = chat.NewStore(pool)
-	require.NoError(t, err)
-	fixture.registry = new(machined.Registry)
-	fixture.authority, err = fixture.registry.MintBoot(fixture.branch.ID, "vm-external")
-	require.NoError(t, err)
 	return fixture
 }
 
@@ -197,4 +219,10 @@ func (f *transcriptImportFixture) history(t *testing.T, cookie string) []externa
 	}
 	require.NoError(t, json.Unmarshal([]byte(f.call("GET", "/api/conversations/"+f.branch.ID, "", cookie, 200)), &conversation))
 	return conversation.Entries
+}
+
+func (f *transcriptImportFixture) bindTranscripts(ingest *TranscriptIngest) {
+	p := f.providers
+	p.Ingest = ingest
+	p.bind(f.registry)
 }
