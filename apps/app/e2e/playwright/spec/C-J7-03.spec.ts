@@ -5,7 +5,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 // Real install and retained native conflict after backend/daemon restart.
 // The backend fixture checks the same attempt, zero repair launches and a
 // fresh review. Physical guest isolation still requires the mini.
-test("C-J7-03: unresolved Done refuses and a clean human edit resumes the retained attempt", async ({ page }) => {
+test("C-J7-03: unresolved Done refuses and a clean human edit resumes the retained attempt", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(600_000)
   await withGitHubInstall(page, "TestRebaseZeroConflictAttemptsRehearsal", "SMITHERS_REBASE_REHEARSAL", async fixture => {
     const conflict = await fixture.phase("conflict") as Awaited<ReturnType<typeof fixture.phase>> & { branchId: string }

@@ -2,7 +2,7 @@ import { expect, test } from "../browserTest"
 import { say } from "./j1-fixtures"
 import { withGitHubInstall } from "./github-install-fixture"
 
-test("Scratch Rebase now follows its TODO source through the installed Branch card", async ({ page }) => {
+test("Scratch Rebase now follows its TODO source through the installed Branch card", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(600_000)
   await withGitHubInstall(page, "TestScratchRebaseFromTodoRehearsal", "SMITHERS_SCRATCH_REBASE_REHEARSAL", async fixture => {
     const pending = await fixture.phase("scratch_pending") as Awaited<ReturnType<typeof fixture.phase>> & { scratchName: string }

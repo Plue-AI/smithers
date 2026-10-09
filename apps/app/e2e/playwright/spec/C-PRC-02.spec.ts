@@ -9,7 +9,7 @@ import { join, resolve } from "node:path"
 
 // Browser projection through the production terminal seam. The isolated Go
 // fixture executes for real; bundle/UID and publication proofs run separately.
-test("C-PRC-02: DB-free migration failures remain visible in terminal output", async ({ page }) => {
+test("C-PRC-02: DB-free migration failures remain visible in terminal output", { tag: "@install" }, async ({ page }) => {
   const fixture = mkdtempSync(join(tmpdir(), "prc02-browser-"))
   try {
     const product = join(fixture, "packages/backend/db/product")

@@ -4,7 +4,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 
 // Packaged candidate/propose, hostile host Git, PostgreSQL and served diff.
 // Linux namespaces exercise the path; Mac microVM qualification remains separate.
-test("C-J10-01: published TODOs retain drafts and show only their own diff", async ({ page }) => {
+test("C-J10-01: published TODOs retain drafts and show only their own diff", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(600_000)
   await withGitHubInstall(page, "TestMythicalPRShapeHostileProductionDispatch", "SMITHERS_GH03_REHEARSAL", async fixture => {
     const host = await fixture.phase("shape")

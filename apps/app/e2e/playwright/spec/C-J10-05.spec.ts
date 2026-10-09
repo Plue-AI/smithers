@@ -4,7 +4,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 
 // Installed cards read production polling and keyed completion effects.
 // Accepted trees are fixture input; guest qualification remains separate.
-test("C-J10-05: GitHub merges update TODOs and only close fixed issues", async ({ page }) => {
+test("C-J10-05: GitHub merges update TODOs and only close fixed issues", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestTODOGitHubOrderAndShapeComposedInstall", "SMITHERS_GH03_ORDER_REHEARSAL", async fixture => {
     const host = await fixture.phase("issue_merge")

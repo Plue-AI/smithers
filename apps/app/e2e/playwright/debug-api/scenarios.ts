@@ -41,7 +41,7 @@ export function debugApiScenarios(prefix: string) {
 
     // Browser cases use the real local-own backend; delegated cases below
     // cross the composed install router and PostgreSQL without route mocks.
-    test("slash and Advanced reach CardRenderers on a real install; literal operations and secret fields; selection sends nothing", async () => {
+    test("slash and Advanced reach CardRenderers on a real install; literal operations and secret fields; selection sends nothing", { tag: "@install" }, async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-browser-"))
       try {
@@ -57,7 +57,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", async () => {
+    test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", { tag: "@install" }, async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-read-"))
       try {
@@ -73,7 +73,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("Ben PUT /api/secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
+    test("Ben PUT /api/secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", { tag: "@install" }, async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-write-"))
       try {
@@ -89,7 +89,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash", async () => {
+    test("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash", { tag: "@install" }, async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-signout-"))
       try {
@@ -105,7 +105,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("delegated app-agent and compiled CLI preserve scope and role failures before person-only refusal with zero API/SQL effects", async () => {
+    test("delegated app-agent and compiled CLI preserve scope and role failures before person-only refusal with zero API/SQL effects", { tag: "@install" }, async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIDelegatedDispatchBoundariesPostgres$", "-count=1", "-v"], {
         cwd: resolve("../../packages/backend"), env: process.env,
@@ -114,7 +114,7 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestDebugAPIDelegatedDispatchBoundariesPostgres")
       await test.info().attach("delegated-dispatch-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
-    test("viewer-only API response stays out of the live host model context", async () => {
+    test("viewer-only API response stays out of the live host model context", { tag: "@install" }, async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestLocalSharedPreflightUsesFastRoleThenCodingFallback$", "-count=1", "-v"], {
         cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_REQUIRE_DATABASE_TESTS: "1" },
@@ -123,7 +123,7 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestLocalSharedPreflightUsesFastRoleThenCodingFallback")
       await test.info().attach("viewer-only-model-context", { body: result.stdout, contentType: "text/plain" })
     })
-    test("repository-flow execution with isolation unavailable refuses before execution with no host process", async () => {
+    test("repository-flow execution with isolation unavailable refuses before execution with no host process", { tag: "@install" }, async () => {
       test.setTimeout(300_000)
       const result = await promisify(execFile)("go", ["test", "./internal/compose", "-run", "^TestDebugAPIInvokeWithoutIsolationPostgres$", "-count=1", "-v"], {
         cwd: resolve("../../packages/backend"), env: process.env,
@@ -132,7 +132,7 @@ export function debugApiScenarios(prefix: string) {
       expect(result.stdout).toContain("--- PASS: TestDebugAPIInvokeWithoutIsolationPostgres")
       await test.info().attach("missing-isolation-http-sql", { body: result.stdout, contentType: "text/plain" })
     })
-    test("available repository-flow execution runs only in a branch machine", async () => {
+    test("available repository-flow execution runs only in a branch machine", { tag: "@install" }, async () => {
       test.fixme(!process.env.SMITHERS_CHECK_BUNDLE,
         "Requires the qualified Apple Silicon install bundle and real microVM; trusted-process local-own cannot qualify this case.")
       test.setTimeout(3_600_000)
@@ -145,7 +145,7 @@ export function debugApiScenarios(prefix: string) {
       await test.info().attach("qualified-debug-api-invoke", { body: result.stdout, contentType: "text/plain" })
     })
     for (const missing of ["catalog", "authorizer", "view"] as const) {
-      test(`production app with only ${missing} guard unavailable produces zero real-install API/SQL effects`, async () => {
+      test(`production app with only ${missing} guard unavailable produces zero real-install API/SQL effects`, { tag: "@install" }, async () => {
         test.setTimeout(900_000)
         const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-guard-"))
         try {

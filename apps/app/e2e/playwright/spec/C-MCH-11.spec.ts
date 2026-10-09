@@ -1,7 +1,7 @@
 import { expect, test } from "../browserTest"
 import { runLiveInstall } from "./live-install"
 
-test("C-MCH-11: missing machine authorities refuse terminal grants through install HTTP", async () => {
+test("C-MCH-11: missing machine authorities refuse terminal grants through install HTTP", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestTerminalAdmissionMissingProvidersInstallBoundary$")
   expect(output).toContain("--- PASS: TestTerminalAdmissionMissingProvidersInstallBoundary")
@@ -12,7 +12,7 @@ test("C-MCH-11: missing machine authorities refuse terminal grants through insta
 
 // Chromium mounts production views against the authenticated install router.
 // Runtime boot/stop observations are injected; no live frames are intercepted.
-test("C-MCH-11: concurrent terminals share the real branch queue and grant cursor", async () => {
+test("C-MCH-11: concurrent terminals share the real branch queue and grant cursor", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^Test(ParallelAdmissionInstallBoundary|TenBranchTerminalAdmissionInstallBoundary|SuccessfulTerminalAdmissionComposedInstall|SuccessfulTerminalFIFOInstallBoundary|SuccessfulFiftyTerminalInstallBoundary|PerfWarmWakeObservationComposedInstall|InstallReviewHTTPAdmissionWithoutRuntime|TodoStopResumeComposedInstall|TodoHeldReviewStopResumeComposedInstall|TodoOrderedRecovery)$")
   expect(output).toContain("--- PASS: TestTenBranchTerminalAdmissionInstallBoundary")
@@ -28,7 +28,7 @@ test("C-MCH-11: concurrent terminals share the real branch queue and grant curso
 })
 
 
-test("C-MCH-11: released TODO controls and Learning use production machine admission", async () => {
+test("C-MCH-11: released TODO controls and Learning use production machine admission", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^Test(ReleasedTodoResumeAdmissionComposedInstall|ReleasedTodoSteerAnswerAdmissionComposedInstall|LearningMergeDispatchComposedInstall)$")
   expect(output).toContain("--- PASS: TestReleasedTodoResumeAdmissionComposedInstall")
@@ -37,14 +37,14 @@ test("C-MCH-11: released TODO controls and Learning use production machine admis
 })
 
 
-test("C-MCH-11: grant publication rollback fences a second free slot", async () => {
+test("C-MCH-11: grant publication rollback fences a second free slot", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestSuccessfulTerminalPublicationBarrierInstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalPublicationBarrierInstallBoundary")
 })
 
 
-test("C-MCH-11: successful terminals obey changing disk and owner capacity", async () => {
+test("C-MCH-11: successful terminals obey changing disk and owner capacity", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestSuccessfulTerminal(DiskRecheck|OwnerCapacity)InstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalDiskRecheckInstallBoundary")
@@ -52,7 +52,7 @@ test("C-MCH-11: successful terminals obey changing disk and owner capacity", asy
 })
 
 
-test("C-MCH-11: cancelled boot and forced stop retain capacity until observation", async () => {
+test("C-MCH-11: cancelled boot and forced stop retain capacity until observation", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestTerminal(CancelledBootConfirmedStop|ForceStopConfirmedObservation)InstallBoundary$")
   expect(output).toContain("--- PASS: TestTerminalCancelledBootConfirmedStopInstallBoundary")
@@ -60,28 +60,28 @@ test("C-MCH-11: cancelled boot and forced stop retain capacity until observation
 })
 
 
-test("C-MCH-11: restart settles lost terminal requests and confirmed orphan stop", async () => {
+test("C-MCH-11: restart settles lost terminal requests and confirmed orphan stop", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestTerminalRestartOrphanInstallBoundary$")
   expect(output).toContain("--- PASS: TestTerminalRestartOrphanInstallBoundary")
 })
 
 
-test("C-MCH-11: successful scratch wakes replay from a disconnected cursor through a fresh hub", async () => {
+test("C-MCH-11: successful scratch wakes replay from a disconnected cursor through a fresh hub", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestSuccessfulScratchReplayInstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulScratchReplayInstallBoundary")
 })
 
 
-test("C-MCH-11: a successful person terminal holds background review until confirmed stop", async () => {
+test("C-MCH-11: a successful person terminal holds background review until confirmed stop", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestSuccessfulTerminalBeforeReviewInstallBoundary$")
   expect(output).toContain("--- PASS: TestSuccessfulTerminalBeforeReviewInstallBoundary")
 })
 
 
-test("C-MCH-11: cold preparation and TODO promotion keep one successful slot", async () => {
+test("C-MCH-11: cold preparation and TODO promotion keep one successful slot", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^Test(ColdTerminalPrepareHandoff|TodoPersonPromotion|TodoPersonConcurrentPromotion)InstallBoundary$")
   expect(output).toContain("--- PASS: TestColdTerminalPrepareHandoffInstallBoundary")
@@ -92,7 +92,7 @@ test("C-MCH-11: cold preparation and TODO promotion keep one successful slot", a
 
 // A compiled host is killed; the independent VM transport preserves inventory.
 // This is a Linux process fault, not physical microVM/root qualification.
-test("C-MCH-11: host death retains boot capacity until confirmed orphan stop", async () => {
+test("C-MCH-11: host death retains boot capacity until confirmed orphan stop", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestAdmissionKilledHostInstallBoundary$")
   expect(output).toContain("--- PASS: TestAdmissionKilledHostInstallBoundary")

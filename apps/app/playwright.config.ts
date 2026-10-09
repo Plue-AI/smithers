@@ -18,6 +18,10 @@ const CHAT_STUB = process.env.SMITHERS_CHAT_STUB === "0" ? "0" : "1"
 export default defineConfig({
   testDir: "e2e/playwright",
   testIgnore: ["**/native/**", ...(process.env.SMITHERS_VIEW_STORIES === "1" ? [] : ["**/view-stories.spec.ts"])],
+  // A test that starts a real install (the Go backend, PostgreSQL 18, a test
+  // database) is tagged @install and runs in the install tier
+  // (playwright.install.config.ts, //apps/app:installE2e), not in T1.
+  grepInvert: /@install/,
   fullyParallel: false,
   workers: 1,
   retries: 0,

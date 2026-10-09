@@ -7,7 +7,7 @@ import { resolve, join } from "node:path"
 
 // UI projection of .specs/engineering/checks/C-ACC-01.md.
 // PostgreSQL, the full install composition, session auth and live transport are real.
-test("C-ACC-01: a Member can read people and secret names but cannot merge or administer", async ({ page, baseURL }) => {
+test("C-ACC-01: a Member can read people and secret names but cannot merge or administer", { tag: "@install" }, async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for C-ACC-01")
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-browser-"))

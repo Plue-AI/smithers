@@ -7,7 +7,7 @@ import { installCloudFixture } from "../cloudFixture"
 // journey uses the real dispatcher, card seams and LiveChannel; only network
 // delivery is interrupted. The fault test also covers retained cursors,
 // rollback, source ordering and the 2 MiB budget through the upgrade route.
-test("C-COL-02: composed install replays committed cards without gaps or duplicates", async () => {
+test("C-COL-02: composed install replays committed cards without gaps or duplicates", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const stdout = await runLiveInstall("^(TestLiveTodoBrowserPostgres|TestLiveChannelComposedUpgradePostgres|TestLiveTodoCommittedCardsRollbackAndReplay)$")
   expect(stdout).toContain("PASS live install: production commands, committed TODO cards, ten-second outage and cursor replay")

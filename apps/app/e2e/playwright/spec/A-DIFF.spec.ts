@@ -14,7 +14,7 @@ test("A-DIFF: mounted controls", async ({ page }) => {
 
 
 // Accepted trees are fixture inputs; the composed reader and browser are real.
-test("A-DIFF: shows only the branch change", async ({ page }) => {
+test("A-DIFF: shows only the branch change", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestTODOGitHubOrderAndShapeComposedInstall", "SMITHERS_GH03_ORDER_REHEARSAL", async fixture => {
     const host = await fixture.phase("shape")

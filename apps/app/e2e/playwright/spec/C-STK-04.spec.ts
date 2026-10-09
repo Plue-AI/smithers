@@ -4,7 +4,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 
 // Production publication and fetched containment feed the real Home and TODO
 // cards. The Go boundary independently proves the fence and revision-bound OK.
-test("C-STK-04: an outside out-of-order merge retains the note and owner OK", async ({ page }) => {
+test("C-STK-04: an outside out-of-order merge retains the note and owner OK", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestTODOGitHubOrderAndShapeComposedInstall", "SMITHERS_GH03_ORDER_REHEARSAL", async fixture => {
     const host = await fixture.phase("order")

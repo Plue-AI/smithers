@@ -10,7 +10,7 @@ type ParallelAdmissionWindow = Window & { parallelAdmission: { seeded(): boolean
 // Real PostgreSQL, composed install router, engine/scheduler, live projections
 // and mounted Settings dispatch. Guest/clock injection is Linux conformance;
 // C-SEC-02 and physical-machine qualification remain separate receipts.
-test("C-STK-02: admission follows stack order and capacity", async ({ page }) => {
+test("C-STK-02: admission follows stack order and capacity", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for C-STK-02")
   const directory = await mkdtemp(join(tmpdir(), "smithers-parallel-browser-"))

@@ -5,7 +5,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 // Real presence holds the original PR for multiple worker passes. The backend
 // checks publication, verification and equivalent-review retention.
 // Physical guest freeze timing and writer attribution require the mini.
-test("C-J10-04: a person presses Rebase now on the installed Branch card", async ({ page }) => {
+test("C-J10-04: a person presses Rebase now on the installed Branch card", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(600_000)
   await withGitHubInstall(page, "TestRebaseNowExplicitRehearsal", "SMITHERS_REBASE_REHEARSAL", async fixture => {
     const pending = await fixture.phase("pending")

@@ -5,7 +5,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 // Production cleaner, host objects, GitHub reopen and reconstruction; native
 // capture inputs use the process fixture. Real microVM/security receipts remain
 // required on the reference host.
-test("C-MCH-05: dropped cleanup preserves captured files through reopen and reload", async ({ page }) => {
+test("C-MCH-05: dropped cleanup preserves captured files through reopen and reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestCleanupReopenComposedInstall", "SMITHERS_GH03_REHEARSAL", async fixture => {
     for (const phase of ["dropped", "cleaned", "in_review"] as const) {

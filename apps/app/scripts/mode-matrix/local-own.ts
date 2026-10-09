@@ -20,7 +20,7 @@ const output = (command: string, args: readonly string[] = []): string | undefin
   } catch { return undefined }
 }
 
-const postgres18Bin = (): string => {
+export const postgres18Bin = (): string => {
   const configured = process.env.SMITHERS_POSTGRES_TEST_BIN?.trim()
   const candidates = [
     configured,

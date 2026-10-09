@@ -6,7 +6,7 @@ import { resolve, join } from "node:path"
 
 // Real terminal lifecycle mint, source CLI, composed install, PostgreSQL and
 // private Confirm card. The PTY/file fixture does not qualify guest isolation.
-test("C-SEC-05: terminal append waits for its member's private Confirm", async ({ page }) => {
+test("C-SEC-05: terminal append waits for its member's private Confirm", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(240_000)
   if (!process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("PostgreSQL is required for C-SEC-05")
   const directory = await mkdtemp(join(tmpdir(), "smithers-terminal-confirm-"))

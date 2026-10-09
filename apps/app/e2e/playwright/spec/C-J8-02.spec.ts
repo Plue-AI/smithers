@@ -10,7 +10,7 @@ import * as Y from "yjs"
 
 // Two real browser editors over the composed install router, PostgreSQL and
 // native Yrs. The UI identity/model fixture does not own document data.
-test("C-J8-02: wiki edits converge across members and survive offline reload", async ({ page }) => {
+test("C-J8-02: wiki edits converge across members and survive offline reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(240_000)
   if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for the wiki tracer")
   const dir = await mkdtemp(join(tmpdir(), "smithers-wiki-browser-")), config = join(dir, "host.json")

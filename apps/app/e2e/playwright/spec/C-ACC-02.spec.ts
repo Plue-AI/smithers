@@ -12,7 +12,7 @@ import { resolve, join } from "node:path"
 
 // Real install composition, native repository, PostgreSQL, source CLI and GitHub fake.
 // This proves stale refusal and current admission; completion belongs to the merge worker.
-test("C-ACC-02: a changed generation expires the merge approval and requires a fresh person press", async ({ page }) => {
+test("C-ACC-02: a changed generation expires the merge approval and requires a fresh person press", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(240_000)
   if (!process.env.SMITHERS_FFI_LIBRARY_PATH || !process.env.SMITHERS_TEST_DATABASE_URL) throw new Error("Native FFI and PostgreSQL are required for C-ACC-02")
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-merge-"))
@@ -133,7 +133,7 @@ test("C-ACC-02: a person reviews the current revision and merge survives reload"
 })
 
 // Real composed install, browser session, private live feed and shared worker.
-test("C-ACC-02: issue comment confirmation waits for delivery across reload", async ({ page }) => {
+test("C-ACC-02: issue comment confirmation waits for delivery across reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-comment-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestInstallIssueCommentComposed$", "-count=1", "-v", "-timeout", "4m"], {
@@ -182,7 +182,7 @@ test("C-ACC-02: issue comment confirmation waits for delivery across reload", as
 })
 
 // Real page editor, private card, keyboard approval and revision-bound delete.
-test("C-ACC-02: wiki delete uses the private installed card across reload", async ({ page }) => {
+test("C-ACC-02: wiki delete uses the private installed card across reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-wiki-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessWikiDeleteProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
@@ -220,7 +220,7 @@ test("C-ACC-02: wiki delete uses the private installed card across reload", asyn
 })
 
 // Real page creation from a private card after reload and keyboard approval.
-test("C-ACC-02: wiki create uses the private installed card across reload", async ({ page }) => {
+test("C-ACC-02: wiki create uses the private installed card across reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-wiki-create-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessWikiCreateProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
@@ -260,7 +260,7 @@ test("C-ACC-02: wiki create uses the private installed card across reload", asyn
 })
 
 // Real page creation from a private card after reload and keyboard approval.
-test("C-ACC-02: issue create uses the private installed card across reload", async ({ page }) => {
+test("C-ACC-02: issue create uses the private installed card across reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-issue-create-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessIssueCreateProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
@@ -301,7 +301,7 @@ test("C-ACC-02: issue create uses the private installed card across reload", asy
   }
 })
 
-test("C-ACC-02: Learning approval makes one attributed TODO after card reload", async ({ page }) => {
+test("C-ACC-02: Learning approval makes one attributed TODO after card reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-learning-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessLearningProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
@@ -337,7 +337,7 @@ test("C-ACC-02: Learning approval makes one attributed TODO after card reload", 
 
 
 // Real paused TODO, issued delegation, private card and stored prompt revisions.
-for (const verb of ["Amend", "Drop"] as const) test(`C-ACC-02: ${verb} approves the stored change after private card reload`, async ({ page }) => {
+for (const verb of ["Amend", "Drop"] as const) test(`C-ACC-02: ${verb} approves the stored change after private card reload`, { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   const directory = await mkdtemp(join(tmpdir(), "smithers-access-amend-"))
   const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", `^TestAccess${verb}ConfirmationWriteOrderComposedPostgres/queued/identity$`, "-count=1", "-v", "-timeout", "4m"], {

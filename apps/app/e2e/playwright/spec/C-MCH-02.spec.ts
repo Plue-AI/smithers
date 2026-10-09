@@ -3,7 +3,7 @@ import { runLiveInstall } from "./live-install"
 
 // Linux conformance: real install HTTP and PostgreSQL, runtime observations are
 // fixtures. Native microVM timing and root qualification still require the mini.
-test("C-MCH-02: install demand retains working machines and failed captures", async () => {
+test("C-MCH-02: install demand retains working machines and failed captures", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^(TestFrTMCH06BranchWaitPositionProductionHTTPPostgres|TestBranchSleepAuthenticatedCaptureInstallHTTP|TestBranchSleepCaptureFailureKeepsRunning|TestAdmissionIdleCaptureInstallHTTP)$")
   for (const name of ["TestFrTMCH06BranchWaitPositionProductionHTTPPostgres", "TestBranchSleepAuthenticatedCaptureInstallHTTP", "TestBranchSleepCaptureFailureKeepsRunning", "TestAdmissionIdleCaptureInstallHTTP"]) expect(output).toContain(`--- PASS: ${name}`)
@@ -11,7 +11,7 @@ test("C-MCH-02: install demand retains working machines and failed captures", as
 
 // Observe the production event/tick loop, retained checkout validation and live
 // branch card. Guest observations and elapsed time are Linux conformance ports.
-test("C-MCH-02: a working TODO survives two hours before confirmed safe-idle release", async () => {
+test("C-MCH-02: a working TODO survives two hours before confirmed safe-idle release", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestParallelAdmissionInstallBoundary$")
   expect(output).toContain("--- PASS: TestParallelAdmissionInstallBoundary")
@@ -21,7 +21,7 @@ test("C-MCH-02: a working TODO survives two hours before confirmed safe-idle rel
 
 // One shared queue crosses HTTP terminals/TODOs, the installed SSH gateway,
 // Learning dispatch, authenticated live positions and the mounted Home/Branch.
-test("C-MCH-02: Alice, Ben SSH, TODOs and Learning share literal positions and FIFO grants", async () => {
+test("C-MCH-02: Alice, Ben SSH, TODOs and Learning share literal positions and FIFO grants", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^(TestMixedClassAdmissionInstallBoundary|TestMixedConcurrentClassAdmissionInstallBoundary)$")
   expect(output).toContain("--- PASS: TestMixedClassAdmissionInstallBoundary")
@@ -30,7 +30,7 @@ test("C-MCH-02: Alice, Ben SSH, TODOs and Learning share literal positions and F
   expect(output).toContain("PASS C-MCH-02 mixed queue mounted Home Learning position and reload")
 })
 
-test("C-MCH-02: retained Resume shows Starting until the current run attaches", async () => {
+test("C-MCH-02: retained Resume shows Starting until the current run attaches", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const output = await runLiveInstall("^TestMixedResumedClassAdmissionInstallBoundary$")
   expect(output).toContain("--- PASS: TestMixedResumedClassAdmissionInstallBoundary")

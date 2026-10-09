@@ -33,7 +33,7 @@ test("A-PR: mounted controls", async ({ page }) => {
 })
 
 // Accepted publication trees are fixture inputs; every browser read uses the composed install.
-test("A-PR: canonical PR list and detail read the installed GitHub source", async ({ page }) => {
+test("A-PR: canonical PR list and detail read the installed GitHub source", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestTODOGitHubOrderAndShapeComposedInstall", "SMITHERS_GH03_ORDER_REHEARSAL", async fixture => {
     const host = await fixture.phase("shape")

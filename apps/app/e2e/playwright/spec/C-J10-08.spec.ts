@@ -4,7 +4,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 
 // Real composed install, PostgreSQL, native repository and production pulls
 // worker. Guest qualification and seven-day boundaries have separate receipts.
-test("C-J10-08: GitHub close and reopen survive the mounted card and reload", async ({ page }) => {
+test("C-J10-08: GitHub close and reopen survive the mounted card and reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(300_000)
   await withGitHubInstall(page, "TestTODOGitHubCloseReopenComposedInstall/day_6", "SMITHERS_GH03_REHEARSAL", async fixture => {
     for (const phase of ["dropped", "in_review", "merged"] as const) {

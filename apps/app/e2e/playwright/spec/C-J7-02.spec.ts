@@ -7,7 +7,7 @@ import { withGitHubInstall } from "./github-install-fixture"
 // in e2e/real/fork-add-to-stack.spec.ts; it does not qualify guest isolation.
 test.use({ trace: "on", video: "on" })
 
-test("C-J7-02: mounted live Drop preserves an adopted fork across reload", async ({ page }) => {
+test("C-J7-02: mounted live Drop preserves an adopted fork across reload", { tag: "@install" }, async ({ page }) => {
   test.setTimeout(600_000)
   await withGitHubInstall(page, "TestForkAddLiveDropComposedInstall", "SMITHERS_TODO_DROP_REHEARSAL", async fixture => {
     const forked = await fixture.phase("forked") as Awaited<ReturnType<typeof fixture.phase>> & { scratchName: string }

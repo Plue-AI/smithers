@@ -57,6 +57,12 @@ failed suite does not stop the later ones, and the wrapper exits with the first
 failure's code. Each step prints its duration. The run takes ~22 min on
 ubuntu-latest under the target's 30m timeout. TestInventory admits a CI
 browser tier only from that runner's argv, never from a `package.json` alias.
+T1 leaves out every Playwright test tagged `@install`: it starts a real install
+through the Go backend harness. The `installE2e` target runs those tests through
+`run-install-e2e.ts` and `playwright.install.config.ts`. The runner refuses unless
+it has Go at the root `go.mod` version, PostgreSQL 18, `SMITHERS_TEST_DATABASE_URL`
+and the native smithers-ffi (it builds that once when `SMITHERS_FFI_LIBRARY_PATH`
+is unset). `e2e/contracts/InstallTier.test.ts` keeps the tag on every such test.
 
 ## Launch checklist (`launch-checklist.ts`)
 

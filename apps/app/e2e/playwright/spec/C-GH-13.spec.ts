@@ -12,7 +12,7 @@ test("C-GH-13: GitHub facts use one pure decision seam", async ({ page, baseURL 
   await factsBrowser(page, baseURL, false)
 })
 
-test("C-GH-13: synced GitHub approvals appear on the PR and survive reload", async ({ page, baseURL }) => {
+test("C-GH-13: synced GitHub approvals appear on the PR and survive reload", { tag: "@install" }, async ({ page, baseURL }) => {
   test.setTimeout(240_000)
   await factsBrowser(page, baseURL, true)
 })

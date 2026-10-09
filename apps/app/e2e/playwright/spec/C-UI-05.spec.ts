@@ -117,7 +117,7 @@ test("C-UI-05: held admission leaves chat usable, and retry follows committed li
 
 // The control path runs on Linux without executing repository code. Full
 // machine failure/retry and stale-write qualification remains above.
-test("C-UI-05: composed admission stays pending while chat answers", async () => {
+test("C-UI-05: composed admission stays pending while chat answers", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const stdout = await runLiveInstall("^TestLiveTodoBrowserPostgres$")
   expect(stdout).toContain("PASS live install: held admission keeps chat responsive and shows no uncommitted TODO")

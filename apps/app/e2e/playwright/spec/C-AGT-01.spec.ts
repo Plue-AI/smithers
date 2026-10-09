@@ -13,7 +13,7 @@ import recorded from "../../../src/mainview/state/testdata/external-recorded-con
 // imports the recorded Codex and Claude Code captures through the packaged adapters, and two signed-in members'
 // Chromium browsers read it. Nothing the browsers ask is intercepted: identity, history and Live frames are the
 // install's own. Only the daemon's side of the machine link is scripted; no machine boots.
-test("C-AGT-01: a composed install shows both external formats ordered and read-only to two members", async () => {
+test("C-AGT-01: a composed install shows both external formats ordered and read-only to two members", { tag: "@install" }, async () => {
   test.setTimeout(300_000)
   const stdout = await runLiveInstall("^TestExternalTranscriptBrowserPostgres$")
   for (const line of [

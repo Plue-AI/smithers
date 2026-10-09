@@ -5,7 +5,7 @@ import { expect, test } from "../browserTest"
 
 // The owner reads JSON; there is no scorecard card. Exercise the composed
 // install router against real PostgreSQL, never a seeded terminal's output.
-test("C-REL-04: Owner scorecard reads lifecycle receipts and refuses missing sources", async () => {
+test("C-REL-04: Owner scorecard reads lifecycle receipts and refuses missing sources", { tag: "@install" }, async () => {
   test.setTimeout(180_000)
   const database = process.env.SMITHERS_TEST_DATABASE_URL
   expect(database, "C-REL-04 requires real PostgreSQL").toBeTruthy()
