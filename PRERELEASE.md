@@ -1,34 +1,40 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 16:59 PDT
-main          4556117406 when written
+Updated       2026-10-08 17:47 PDT
+main          2d1f60faf0 when written
 
-Publish       CANNOT PUBLISH YET. Dry run #6 decides; smoke test about 17:10 PDT.
-Real install  RUNNING on this MacBook since 16:18 PDT: production launcher, bundle
-              built here from 3fc44ee1e8. Done: start, address, GitHub App, owner
-              sign-in, repository connected (16:49 PDT). Model access reached,
-              no key entered. Pending: models, source, machine. Next: restart
-              under the test launcher with the scripted model, then a TODO.
-              TODO to merged PR: NOT YET PROVEN.
-Broken        On the install, each with a lane:
-              1. The setup card's Model access line reads "Not signed incoding model".
-              2. `GET /setup` shows raw JSON to a signed-in owner.
-              3. The bundle README's setup-link format differs from what start prints.
-Fixed on main Not yet proven on a real install; needs a bundle built after
-              9a218b7f68: the missing setup card (c5120a5856), the sign-in path
-              404 and the stale-cookie 401 (9a218b7f68).
+Publish       CANNOT PUBLISH YET. Dry run #7 failed in the smoke. Fix and #8 pending.
+Real install  RUNNING on this MacBook, bundle built here from 3fc44ee1e8.
+              All seven setup steps done 16:55 PDT. TODO T1 created 16:57 PDT.
+              T1 never got a machine: every first machine start blocked itself
+              in PostgreSQL for 15 minutes. Fixed on main, 2d1f60faf0 (17:37
+              PDT). Not yet proven: the fix is going into the local bundle now.
+              No TODO has reached a pull request on a real install.
+Broken        1. A stalled machine start shows "Starting" on Home with no Retry
+                 until its 15-minute deadline.
+              2. During a machine start, a chat view save can answer 503 and a
+                 sign-in can wait (#3759).
+              3. A machine start misses a workspace deleted while it is being
+                 admitted (#3759).
+              4. The bundle README's setup-link format differs from what
+                 `host start` prints.
+Fixed on main Unverified on a real install until a rebuilt bundle runs: the
+              setup card hidden through the first four steps (c5120a5856), the
+              stale sign-in cookie (9a218b7f68), the joined words in Model
+              access and raw JSON on reopening /setup (88b768b019).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
 Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
-              Linux fixtures. That pass's J10 Retry row was red.
-              Lane fr18 reruns: J10 36/0/4, J7 19/0/2, J4 23/0/2; Retry green.
-              Pass running on c5120a5856: J1 to J4 so far, no failed row.
+              Linux fixtures. Red: J10 row 6. On c5120a5856: J1 to J6 have no
+              failed row; J7 failed rows 16, 18, 19, 20, then passed 19/0/2 on
+              its second attempt. J7 and J10 are rerunning on current main
+              since 17:44 PDT.
 Doneish       No. It needs the install run to take a TODO to a merged PR, and
               all 11 journeys passing on one commit.
-Dry runs      Version 1.0.0-rc.1. None is green. #6 37860903519 runs on
-              06209aa7b1 since 16:42 PDT. #5 failed the installed-package smoke
-              on a stale fixture; the fix also repairs `smithers-build`, which
-              could not start in any installed project.
+Dry runs      Version 1.0.0-rc.1. None is green. #7 37862357655 on 4556117406
+              failed in the smoke at the CLI containment check, on the Linux
+              runner only; every earlier check passed. Being reproduced on
+              Linux. The four installed-CLI jobs have not run in any Release run.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
