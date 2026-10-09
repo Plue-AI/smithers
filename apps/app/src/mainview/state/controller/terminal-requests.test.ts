@@ -4,6 +4,7 @@ import { silentAgent } from "../TestFixtures"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
 import { createTerminalRequests } from "./terminal-requests"
+import { TerminalUnavailable } from "../CloudTerminalClient"
 import type { StorageApi } from "@tanstack/db"
 
 const cleanups: Array<() => void> = []
@@ -159,7 +160,8 @@ test("metadata and real stream readiness keep the request running",async()=>{
  await new Promise(resolve=>setTimeout(resolve,30));expect(opened).toBe(0)
  metadata=true;await until(()=>opened===1)
  expect(f.store.session().terminalRequests?.[0]?.state).toBe("running")
- ready.reject(new Error("broker admission refused"))
+ // The real readiness wait (awaitTerminalReady) rejects with the socket's note.
+ ready.reject(new TerminalUnavailable({ sentence: "broker admission refused" }))
  await until(()=>f.store.session().terminalRequests?.[0]?.state==="failed")
  expect(f.store.session().terminalRequests?.[0]?.error).toBe("broker admission refused")
 })

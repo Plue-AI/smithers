@@ -1,4 +1,6 @@
-import { addImagePackage, MACHINE_JSON_PATH } from "@smthrs/rpc/MachineJson"
+import { addImagePackage, MACHINE_JSON_PATH, type MachineJsonRejected } from "@smthrs/rpc/MachineJson"
+import { presentUserFailure } from "@smthrs/rpc/UserFailure"
+import type { IssueDraftRefused } from "./IssueTodoDraft"
 import { resolveTargetRepo } from "../RepoContext"
 import { canonicalize } from "@smthrs/canonical"
 import { serviceFailureSentence } from "../ServiceFailureCopy"
@@ -19,9 +21,29 @@ import { randomUuid } from "../../runtime/RandomUuid"
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 /** main's .smithers/machine.json could not be read or decoded for a machine image draft. */
-class MachineJsonUnreadable extends Data.TaggedError("MachineJsonUnreadable") { readonly message = "Could not read machine.json." }
+class MachineJsonUnreadable extends Data.TaggedError("MachineJsonUnreadable") {
+  readonly sentence = "Could not read machine.json."
+  override get message() { return this.sentence }
+}
 /** The issue read answered with a failure sentence instead of the issue. */
-class IssueReadRefused extends Data.TaggedError("IssueReadRefused")<{ readonly message: string }> {}
+class IssueReadRefused extends Data.TaggedError("IssueReadRefused")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
+
+/**
+ * A failed image or issue preparation: a refusal reads its own sentence (MachineJson's
+ * rejections are authored copy), and anything else reads the step's line and is reported.
+ */
+const preparationLine = (error: unknown, line: string, report: (error: unknown) => void): string =>
+  presentUserFailure<MachineJsonUnreadable | MachineJsonRejected | IssueDraftRefused | IssueReadRefused>({
+    MachineJsonUnreadable: unreadable => ({ fault: "infra", sentence: unreadable.sentence, actions: [] }),
+    MachineJsonRejected: rejected => ({ fault: "user", sentence: rejected.message, actions: [] }),
+    IssueDraftRefused: refused => ({ fault: "infra", sentence: refused.sentence, actions: [] }),
+    IssueReadRefused: refused => ({ fault: "user", sentence: refused.sentence, actions: [] })
+  }, error, { unknown: { fault: "infra", sentence: line, actions: [] }, onUnknown: report }).sentence
+
+/* A projection's failure line is the server's authored sentence (mythical_failure.go, mythical_todo_pause.go), never thrown text. */
+const projectedLine = (line: { readonly message: string }): string => line.message
 
 export type { DraftEntry, TodoEntry }
 type Request = TodoEntry["payload"]["requests"][number]
@@ -261,10 +283,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // the durable pause projection, rather than only the state word, settles Stop.
       if (request.operation === "stop" || request.operation === "resume") {
         if (["failed", "dropped", "merged"].includes(model.state)) return [{ key: request.key,
-          outcome: { status: "failed" as const, detail: model.failure?.message ?? (model.state === "merged" ? "Merged" : model.state === "failed" ? "Failed" : "Dropped") } }]
+          outcome: { status: "failed" as const, detail: model.failure ? projectedLine(model.failure) : model.state === "merged" ? "Merged" : model.state === "failed" ? "Failed" : "Dropped" } }]
         if (request.attempt === undefined || model.run?.attempt !== request.attempt) return []
         if (model.control_failure?.op === request.operation) return [{ key: request.key,
-          outcome: { status: "failed" as const, detail: model.control_failure.message } }]
+          outcome: { status: "failed" as const, detail: projectedLine(model.control_failure) } }]
         const completed = request.operation === "stop" ? model.pause?.reason === "person"
           : model.pause === undefined && model.state !== "paused"
         return completed ? [{ key: request.key, outcome: { status: "ok" as const,
@@ -613,7 +635,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         loadDraftPlaces(id)
       } catch (error) {
         if (!live()) return
-        const message = error instanceof Error ? error.message : "Could not draft machine image change."
+        const message = preparationLine(error, "Could not draft machine image change.", unknown => ctx.report?.("image.add", unknown))
         const latest = draft(id)!
         await write({ ...latest, payload: { ...latest.payload, imagePreparation: { ...preparation, state: "failed", error: message } } })
         finishNotice(id, row.title, { status: "failed", detail: message })
@@ -657,7 +679,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         loadDraftPlaces(id)
       } catch (error) {
         if (!live()) return
-        const message = error instanceof Error ? error.message : "Could not draft this issue."
+        const message = preparationLine(error, "Could not draft this issue.", unknown => ctx.report?.("todo.from-issue", unknown))
         const latest = draft(id)!
         await write({ ...latest, payload: { ...latest.payload, issuePreparation: { ...preparation, state: "failed", error: message } } })
         finishNotice(id, row.title, { status: "failed", detail: message })
@@ -703,7 +725,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       try {
         const source = await options.readIssue!(request.number, request.repo)
         if (!live()) return
-        if (typeof source === "string") throw new IssueReadRefused({ message: source })
+        if (typeof source === "string") throw new IssueReadRefused({ sentence: source })
         // Retire only this read's in-flight marker before the same identity
         // becomes the model preparation. The model keeps its toast running.
         shared.sending.delete(request.id)
@@ -713,7 +735,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         if (!options.draftIssue) finishNotice(request.id, title, { status: "ok", detail: "Drafted" })
       } catch (error) {
         if (!live()) return
-        const message = error instanceof Error ? error.message : "Could not read this issue."
+        const message = preparationLine(error, "Could not read this issue.", unknown => ctx.report?.("todo.from-issue", unknown))
         await saveIssueRequest({ ...request, state: "failed", error: message })
         finishNotice(request.id, title, { status: "failed", detail: message })
       }

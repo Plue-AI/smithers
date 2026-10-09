@@ -5,8 +5,13 @@ import type { CommandResult } from "../../flows/entries/Declare"
 import { activeRepositoryId } from "../RepoContext"
 import type { Session } from "../AppState"
 import type { SeamContext } from "./SeamContext"
+import { Data } from "effect"
 
-class BranchControlFailure extends Error {}
+/** The install refused a Branch control, or its receipt settled it as failed; `sentence` is a person's words. */
+class BranchControlFailure extends Data.TaggedError("BranchControlFailure")<{ readonly sentence: string }> {
+  constructor(sentence: string) { super({ sentence }) }
+  override get message() { return this.sentence }
+}
 
 export type BranchControl = "sleep" | "wake" | "rebase"
 export interface BranchControlOptions {
@@ -104,7 +109,7 @@ export function createBranchControlsSeam(ctx: SeamContext, options: BranchContro
         }
       } catch (error) {
         if (!current()) return
-        const message = error instanceof BranchControlFailure ? error.message : "Branch unavailable"
+        const message = error instanceof BranchControlFailure ? error.sentence : "Branch unavailable"
         await save({ ...request, state: "failed", error: message })
         return message
       }

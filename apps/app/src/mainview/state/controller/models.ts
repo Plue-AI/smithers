@@ -28,23 +28,37 @@ export const seatBinding = (store: Pick<AppStore, "collections">, seat: SeatId):
 
 import { ModelBindingSchema } from "@smthrs/rpc/ConfiguredModel"
 import type { ControllerContext } from "./context"
+import { Data } from "effect"
+import { failureDetail } from "@smthrs/rpc/UserFailure"
+
+/** The install refused an agents or model act, or answered it unusably; `sentence` is already a person's words. */
+export class AgentsRefusal extends Data.TaggedError("AgentsRefusal")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
+
+/**
+ * A failed agents or model act: the toast reads a refusal's sentence or the act's own line;
+ * the Agents card shows its own sentence and keeps this detail behind Details.
+ */
+export const agentsFailure = (error: unknown, fallback: string): { readonly sentence: string; readonly detail: string } =>
+  error instanceof AgentsRefusal ? { sentence: error.sentence, detail: error.sentence } : { sentence: fallback, detail: failureDetail(error) }
 
 /** Owner assignments reuse the sealed install store, never browser-only seats. */
 export const assignInstallAgentModel = async (ctx: ControllerContext, role: string, model: string): Promise<unknown> => {
  const epoch = ctx.accountEpoch
- if (ctx.commandActor !== "user") throw new Error("Owner access required")
+ if (ctx.commandActor !== "user") throw new AgentsRefusal({ sentence: "Owner access required" })
  const url = `${ctx.baseUrl.replace(/\/$/, "")}/api/agents`
  const read = await ctx.http(url, { credentials: "same-origin" })
- if (!read.ok) throw new Error(await ctx.errorMessageOf(read, "Could not read agents"))
+ if (!read.ok) throw new AgentsRefusal({ sentence: await ctx.errorMessageOf(read, "Could not read agents") })
  const body = await read.json() as { canAssign?: boolean; roleBindings?: Record<string, unknown>; agents?: Array<{ id: string; binding?: unknown }> }
- if (!body.canAssign || epoch !== ctx.accountEpoch) throw new Error("Owner access required")
+ if (!body.canAssign || epoch !== ctx.accountEpoch) throw new AgentsRefusal({ sentence: "Owner access required" })
  const record = ctx.store.collections.models.get(model)
  const parsed = ModelBindingSchema.safeParse(record ? bindingOf(record) : body.roleBindings?.[role] ?? body.agents?.find(row => row.id === role)?.binding)
- if (!parsed.success) throw new Error("Choose model access first")
+ if (!parsed.success) throw new AgentsRefusal({ sentence: "Choose model access first" })
  const response = await ctx.http(`${url}/${encodeURIComponent(role)}/model`, {
   method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model: { ...parsed.data, modelId: record?.modelId ?? model } })
  })
- if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not save model"))
+ if (!response.ok) throw new AgentsRefusal({ sentence: await ctx.errorMessageOf(response, "Could not save model") })
  return response.json()
 }
 
@@ -115,30 +129,30 @@ export const createModelsController = (ctx: ControllerContext, deps: { readonly 
     await deps.listAgents()
     if (ctx.disposed || epoch !== ctx.accountEpoch) return true
     await markTest(id, true, undefined, request)
-    if (!await authorize() || epoch !== ctx.accountEpoch) throw new Error("Owner access required")
+    if (!await authorize() || epoch !== ctx.accountEpoch) throw new AgentsRefusal({ sentence: "Owner access required" })
     const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: request.requestId, model: request.model }) })
-    if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not test model"))
+    if (!response.ok) throw new AgentsRefusal({ sentence: await ctx.errorMessageOf(response, "Could not test model") })
     let result: unknown = await response.json()
     if (response.status === 202) {
      while (!ctx.disposed && epoch === ctx.accountEpoch) {
       const receipt = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/test/receipt?requestId=${encodeURIComponent(request.requestId)}`, { credentials: "same-origin" })
-      if (!receipt.ok) throw new Error(await ctx.errorMessageOf(receipt, "Could not read model test"))
+      if (!receipt.ok) throw new AgentsRefusal({ sentence: await ctx.errorMessageOf(receipt, "Could not read model test") })
       const status = await receipt.json() as { state?: string; result?: unknown }
       if (status.state === "completed" || status.state === "failed") { result = status.result; break }
-      if (status.state === "uncertain" || status.state === "cancelled") { finished = true; throw new Error("Model test interrupted") }
+      if (status.state === "uncertain" || status.state === "cancelled") { finished = true; throw new AgentsRefusal({ sentence: "Model test interrupted" }) }
       await new Promise<void>(resolve => setTimeout(resolve, 500))
      }
      if (ctx.disposed || epoch !== ctx.accountEpoch) return true
     }
     const parsed = ModelTestResultSchema.safeParse(result)
-    if (!parsed.success) throw new Error("Invalid model test")
+    if (!parsed.success) throw new AgentsRefusal({ sentence: "Invalid model test" })
     finished = true
     if (ctx.disposed || epoch !== ctx.accountEpoch) return true
     const current = ctx.store.collections.models.get(id)
     if (current && JSON.stringify(recordOf(current)) === JSON.stringify(recordOf(model)))
      await ctx.store.dispatch({ type: "model.tested", actor: "system", test: { id, testedAt: Date.now(), result: parsed.data } }).isPersisted.promise
     return parsed.data.ok ? true : "Model test failed"
-   } catch (failure) { error = failure instanceof Error ? failure.message : "Could not test model"; return error }
+   } catch (failure) { const shown = agentsFailure(failure, "Could not test model"); error = shown.detail; return shown.sentence }
    finally { if (shared.pending.get(id) === epoch) shared.pending.delete(id); if (!ctx.disposed && epoch === ctx.accountEpoch) markTest(id, false, error, undefined, !finished) }
   }, false, () => !ctx.disposed && epoch === ctx.accountEpoch, "agents")
  }

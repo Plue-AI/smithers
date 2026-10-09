@@ -4,8 +4,13 @@ import type { SharedPrompt } from "../AppState"
 import type { ControllerContext } from "./context"
 import { SharedConversationSchema, type SharedConversationSeam } from "../seams/SharedConversationSeam"
 import { z } from "zod"
+import { Data } from "effect"
 
 const Admission = z.object({ turnId: z.string().min(1), terminal: z.boolean() })
+/** A prompt the conversation refused, stopped or failed; `sentence` is already a person's words. */
+class PromptRefusal extends Data.TaggedError("PromptRefusal")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
 
 /** Browser owns only admission receipts. The existing host dispatcher owns execution. */
 export function createSharedPrompts(ctx: ControllerContext, source: SharedConversationSeam) {
@@ -22,7 +27,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
   })
   const request = async (path: string, method: string, body?: unknown) => {
     const response = await ctx.boundedFetch(path, { method, credentials: "same-origin", headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-    if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Prompt unavailable"))
+    if (!response.ok) throw new PromptRefusal({ sentence: await ctx.errorMessageOf(response, "Prompt unavailable") })
     return response
   }
   const launch = (saved: SharedPrompt) => {
@@ -39,7 +44,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
         while (current()) {
           const local = ctx.store.session().sharedPrompts?.find(item => item.id === row.id)
           if (local?.state === "cancelled") return TOAST_SUPERSEDED
-          if (local?.state === "failed") throw new Error(local.error ?? "Prompt stopped")
+          if (local?.state === "failed") throw new PromptRefusal({ sentence: local.error ?? "Prompt stopped" })
           if (local?.state === "requested") row = local
         if (row.state === "requested") {
           const response = row.turnId
@@ -58,7 +63,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
           const turn = conversation.entries.find(entry => entry.id === row.turnId)
           if (ctx.store.session().sharedPrompts?.find(item => item.id === row.id)?.state === "requested") continue
           if (turn && "state" in turn && ["completed", "failed", "cancelled", "uncertain"].includes(turn.state)) {
-            if (turn.state !== "completed") throw new Error(turn.state === "cancelled" ? "Prompt stopped" : "Prompt failed")
+            if (turn.state !== "completed") throw new PromptRefusal({ sentence: turn.state === "cancelled" ? "Prompt stopped" : "Prompt failed" })
             await save({ ...row, state: "completed" })
             return
           }
@@ -67,9 +72,9 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
       } catch (error) {
         if (!current()) return
         if (ctx.store.session().sharedPrompts?.find(item => item.id === row.id)?.state === "cancelled") return TOAST_SUPERSEDED
-        const message = error instanceof Error ? error.message : "Prompt unavailable"
-        await save({ ...row, state: "failed", error: message })
-        throw new Error(message)
+        await save({ ...row, state: "failed", error: error instanceof PromptRefusal ? error.sentence : "Prompt unavailable" })
+        // The toast fails and the reporter receives what was thrown; the row keeps only the sentence.
+        throw error
       }
     }, false, current).catch(error => ctx.failures.report("prompt.queue", error)).finally(() => pending.delete(saved.id))
   }

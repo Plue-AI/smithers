@@ -6,8 +6,10 @@ import { Data } from "effect"
 
 type Request = NonNullable<Session["branchRequests"]>[number]
 
-/** The server refused a fork or add-to-stack request, or answered with no usable branch; `message` is the request's failure line. */
-class BranchRequestFailure extends Data.TaggedError("BranchRequestFailure")<{ readonly message: string }> {}
+/** The server refused a fork or add-to-stack request, or answered with no usable branch; `sentence` is the request's failure line. */
+class BranchRequestFailure extends Data.TaggedError("BranchRequestFailure")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
 
 /** Request metadata stays durable while the server writes the branch history. */
 export const createBranchMutations = (ctx: SeamContext) => {
@@ -36,12 +38,12 @@ export const createBranchMutations = (ctx: SeamContext) => {
             headers: { "Content-Type": "application/json", "Idempotency-Key": row.id }, body: JSON.stringify(row.operation === "fork" ? row.input : add) })
           const body = await response.json().catch(() => undefined) as { name?: string; state?: string; n?: number; message?: string } | undefined
           if (!current()) return
-          if (!response.ok) throw new BranchRequestFailure({ message: body?.message ?? "Branch unavailable" })
+          if (!response.ok) throw new BranchRequestFailure({ sentence: body?.message ?? "Branch unavailable" })
           if (row.operation === "add") {
-            if (response.status !== 202 || !Number.isInteger(body?.n) || body!.n! < 1) throw new BranchRequestFailure({ message: "Branch unavailable" })
+            if (response.status !== 202 || !Number.isInteger(body?.n) || body!.n! < 1) throw new BranchRequestFailure({ sentence: "Branch unavailable" })
             await save({ ...row, state: "completed", n: body!.n }); return
           }
-          if (response.status !== 201 || typeof body?.name !== "string") throw new BranchRequestFailure({ message: "Branch unavailable" })
+          if (response.status !== 201 || typeof body?.name !== "string") throw new BranchRequestFailure({ sentence: "Branch unavailable" })
           row = { ...row, branch: body.name, state: "provisioning" }
           await save(row)
         }
@@ -49,9 +51,9 @@ export const createBranchMutations = (ctx: SeamContext) => {
           const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(row.branch!)}`, { credentials: "same-origin", signal: abort.signal })
           const body = await response.json().catch(() => undefined) as { state?: string; message?: string } | undefined
           if (!current()) return
-          if (!response.ok || body?.state === "failed" || body?.state === "closed") throw new BranchRequestFailure({ message: body?.message ?? "Branch unavailable" })
+          if (!response.ok || body?.state === "failed" || body?.state === "closed") throw new BranchRequestFailure({ sentence: body?.message ?? "Branch unavailable" })
           if (body?.state === "awake" || body?.state === "asleep") { await save({ ...row, state: "completed" }); return }
-          if (body?.state !== "provisioning" && body?.state !== "waking") throw new BranchRequestFailure({ message: "Branch unavailable" })
+          if (body?.state !== "provisioning" && body?.state !== "waking") throw new BranchRequestFailure({ sentence: "Branch unavailable" })
           await new Promise<void>(resolve => {
             const timer = setTimeout(done, 300)
             function done() { clearTimeout(timer); abort.signal.removeEventListener("abort", done); resolve() }
@@ -60,7 +62,9 @@ export const createBranchMutations = (ctx: SeamContext) => {
         }
       } catch (error) {
         if (!current()) return
-        const message = error instanceof Error ? error.message : "Branch unavailable"
+        // A thrown request reads as unavailable; its text goes to the reporter, never the toast.
+        if (!(error instanceof BranchRequestFailure)) ctx.report?.("branch.request", error)
+        const message = error instanceof BranchRequestFailure ? error.sentence : "Branch unavailable"
         await save({ ...row, state: "failed", error: message })
         ctx.resolveToast?.(row.id, { status: "failed", detail: message, action: { label: "Retry", flow: row.operation === "fork" ? "branch.fork" : "branch.add-to-stack", args: JSON.stringify(row.input) } })
         return message

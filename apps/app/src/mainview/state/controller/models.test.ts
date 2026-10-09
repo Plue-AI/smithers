@@ -124,9 +124,10 @@ test("a lost admission response remains retryable with the same persisted probe 
   return http(...args)
  }
  await h.controller.testModel("probe")
- await h.finish()
+ // The toast says the act's own line; the thrown text stays on the card, behind its Details.
+ expect(await h.finish()).toBe("Could not test model")
  const request = h.cards.get("agents").payload.testRequests.probe
- expect(h.cards.get("agents").payload.error).toBe("Connection lost")
+ expect(h.cards.get("agents").payload.error).toContain("Connection lost")
  expect(h.cards.get("agents").payload.testing).toEqual([])
  reject = false
  await h.controller.testModel("probe")
@@ -169,12 +170,22 @@ test("probe acknowledgment does not await the Agent card refresh; duplicates sha
  expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(1)
 })
 
+test("a refused probe says the install's sentence on the toast and the card", async () => {
+ const h = probeHarness()
+ const http = h.ctx.http
+ h.ctx.http = async (...args) => String(args[0]).endsWith("/api/model/test") ? Response.json({ class: "infra" }, { status: 503 }) : http(...args)
+ await h.controller.testModel("probe")
+ expect(await h.finish()).toBe("Refused")
+ expect(h.cards.get("agents").payload.error).toBe("Refused")
+ expect(h.events.filter(event => event.type === "model.tested")).toHaveLength(0)
+})
+
 test("a failed Agent card refresh releases the probe for retry", async () => {
  let fail = true
  const h = probeHarness(undefined, async () => { if (fail) throw new Error("Refresh failed") })
  await h.controller.testModel("probe")
- await h.finish()
- expect(h.cards.get("agents").payload.error).toBe("Refresh failed")
+ expect(await h.finish()).toBe("Could not test model")
+ expect(h.cards.get("agents").payload.error).toContain("Refresh failed")
  expect(h.posts).toHaveLength(0)
  fail = false
  await h.controller.testModel("probe")

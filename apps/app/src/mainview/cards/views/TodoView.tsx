@@ -52,6 +52,8 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
       return <span>{item.label}</span>;
   }
 }
+/* A check_configuration failure has one meaning: the repository declares no checks (mythical_failure.go). */
+const NO_CHECKS = "No checks found";
 export function TodoView({ model: todo, actions, onAction, conflictTerminal }: TodoViewProps) {
   const { message: todoDiagnostic } = todo.failure ?? {};
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -214,7 +216,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
       {todo.failure && (
         <div className="todo-failure">
           <b>{todo.failure.label ?? todo.failure.step} failed</b>
-          {todo.failure.check_configuration ? <span>{todo.failure.message}</span> : <FailureDetails detail={failureDetail(todoDiagnostic)} />}
+          {todo.failure.check_configuration ? <span>{NO_CHECKS}</span> : <FailureDetails detail={failureDetail(todoDiagnostic)} />}
           {todo.failure.missing_tool && (
             <code>
               {todo.failure.missing_tool.name} · {todo.failure.missing_tool.file}

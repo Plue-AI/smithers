@@ -10,6 +10,13 @@
  * closes the socket for good, and a refusal never redials.
  */
 
+import { Data } from "effect"
+
+/** A terminal that did not open; `sentence` is the client's own words: its socket note, a timeout or the request ending. */
+export class TerminalUnavailable extends Data.TaggedError("TerminalUnavailable")<{ readonly sentence: string }> {
+  override get message() { return this.sentence }
+}
+
 export interface CloudTerminalAttachment {
   readonly onOutput: (data: string) => void
   readonly onReady?: () => void
@@ -466,7 +473,7 @@ export const createCloudTerminalClient = (options: CloudTerminalClientOptions): 
 export function awaitTerminalReady(client: CloudTerminalClient, repo: string, id: string, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     let detach = () => {}, settled = false
-    const finish = (error?: Error) => {
+    const finish = (error?: TerminalUnavailable) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
@@ -474,10 +481,10 @@ export function awaitTerminalReady(client: CloudTerminalClient, repo: string, id
       queueMicrotask(() => detach())
       if (error) reject(error); else resolve()
     }
-    const abort = () => finish(new Error("Terminal request ended"))
-    const timer = setTimeout(() => finish(new Error("Terminal unavailable")), 60_000)
+    const abort = () => finish(new TerminalUnavailable({ sentence: "Terminal request ended" }))
+    const timer = setTimeout(() => finish(new TerminalUnavailable({ sentence: "Terminal unavailable" })), 60_000)
     signal.addEventListener("abort", abort, { once: true })
     if (signal.aborted) { abort(); return }
-    detach = client.attach(repo, id, { onOutput: () => {}, onReady: () => finish(), onUnavailable: message => finish(new Error(message)) })
+    detach = client.attach(repo, id, { onOutput: () => {}, onReady: () => finish(), onUnavailable: note => finish(new TerminalUnavailable({ sentence: note })) })
   })
 }

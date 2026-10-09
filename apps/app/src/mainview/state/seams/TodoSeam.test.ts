@@ -8,6 +8,7 @@ import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
+import { IssueDraftRefused } from "./IssueTodoDraft"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { fixtures as confirms } from "@smthrs/rpc/fixtures/Confirm"
@@ -1536,7 +1537,8 @@ test("failed issue model preparation is visible and retry uses the admitted snap
   let calls = 0
   const h = await harness(async () => json([]), memoryStorage(), undefined, true, undefined, async snapshot => {
     expect(snapshot).toEqual(source)
-    if (++calls === 1) throw Error("Model unavailable")
+    // The shipped drafter (draftIssueTodo) refuses with the server's sentence.
+    if (++calls === 1) throw new IssueDraftRefused({ sentence: "Model unavailable" })
     return { title: "Ready", prompt: "Prompt", acceptance: [] }
   })
   try {

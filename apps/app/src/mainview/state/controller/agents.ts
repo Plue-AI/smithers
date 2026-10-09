@@ -1,6 +1,6 @@
 import { actorSharedState } from "../ActorBindings"
 import { randomUuid } from "../../runtime/RandomUuid"
-import { assignInstallAgentModel } from "./models"
+import { agentsFailure, AgentsRefusal, assignInstallAgentModel } from "./models"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import type { LiveChannel } from "../../runtime/LiveChannel"
 import {
@@ -175,7 +175,7 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
     void (async () => {
       try {
         const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/agents`, { credentials: "same-origin" })
-        if (!response.ok) throw new Error(await ctx.errorMessageOf(response, "Could not read agents"))
+        if (!response.ok) throw new AgentsRefusal({ sentence: await ctx.errorMessageOf(response, "Could not read agents") })
         const body: unknown = await response.json()
         if (ctx.disposed || epoch !== ctx.accountEpoch || request !== shared.generation) return
         const assignment = shared.served && "agents" in shared.served ? shared.served.assignment : undefined
@@ -187,7 +187,7 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
             try { accept({ ...snapshot.data as object, ...(shared.served && "agents" in shared.served && shared.served.assignment ? { assignment: shared.served.assignment } : {}), canAssign: shared.served && "canAssign" in shared.served ? shared.served.canAssign : false }, false) } catch { renderAgentsCard(false, "Could not read agents") }
           }
         })
-      } catch (error) { if (!ctx.disposed && request === shared.generation) renderAgentsCard(false, error instanceof Error ? error.message : "Could not read agents") }
+      } catch (error) { if (!ctx.disposed && request === shared.generation) renderAgentsCard(false, agentsFailure(error, "Could not read agents").detail) }
     })()
   }
   const launchAssignment = (request: { id: string; role: string; model: string; state: "requested" | "failed" }, reserved = false) => {
@@ -207,12 +207,12 @@ export const createAgentsController = (ctx: ControllerContext, deps: AgentsContr
         if (!ctx.disposed && epoch === ctx.accountEpoch) void deps.refreshSettings?.()
         return true
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not save model"
+        const failure = agentsFailure(error, "Could not save model")
         if (!ctx.disposed && epoch === ctx.accountEpoch && shared.served && "agents" in shared.served && shared.served.assignment?.id === request.id) {
           shared.served = { ...shared.served, assignment: { ...request, state: "failed" } }
-          renderAgentsCard(false, message)
+          renderAgentsCard(false, failure.detail)
         }
-        return message
+        return failure.sentence
       } finally { shared.pending.delete(key); release() }
     }, false, () => !ctx.disposed, AGENTS_CARD_ID)
   }

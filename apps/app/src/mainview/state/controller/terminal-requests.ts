@@ -3,6 +3,7 @@ import type { ControllerContext } from "./context"
 import { randomUuid } from "../../runtime/RandomUuid"
 import type { Session } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
+import { TerminalUnavailable } from "../CloudTerminalClient"
 
 type Request = NonNullable<Session["terminalRequests"]>[number]
 
@@ -34,8 +35,8 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
     requests: [...(ctx.store.session().terminalRequests ?? []).filter(row => row.id !== request.id), request]
   }).isPersisted.promise
   const sleep = (signal: AbortSignal, ms = ctx.workflowPollMs) => new Promise<void>((resolve, reject) => {
-    if (signal.aborted) { reject(new Error("Terminal request ended")); return }
-    const end = () => { clearTimeout(timer); reject(new Error("Terminal request ended")) }
+    if (signal.aborted) { reject(new TerminalUnavailable({ sentence: "Terminal request ended" })); return }
+    const end = () => { clearTimeout(timer); reject(new TerminalUnavailable({ sentence: "Terminal request ended" })) }
     const timer = setTimeout(() => { signal.removeEventListener("abort", end); resolve() }, ms)
     signal.addEventListener("abort", end, { once: true })
   })
@@ -62,20 +63,20 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
           })
           if (!response.ok) {
             acknowledged ||= response.status >= 400 && response.status < 500
-            throw new Error(await ctx.errorMessageOf(response, "Terminal unavailable"))
+            throw new TerminalUnavailable({ sentence: await ctx.errorMessageOf(response, "Terminal unavailable") })
           }
           const receipt = Receipt.safeParse(await response.json())
-          if (!receipt.success) throw new Error("Terminal unavailable")
+          if (!receipt.success) throw new TerminalUnavailable({ sentence: "Terminal unavailable" })
           acknowledged = true
           // A receipt for another session means the server lost this request: retrying it can never settle.
-          if (request.session !== undefined && receipt.data.id !== request.session) { terminalFailed = true; throw new Error("Terminal unavailable") }
+          if (request.session !== undefined && receipt.data.id !== request.session) { terminalFailed = true; throw new TerminalUnavailable({ sentence: "Terminal unavailable" }) }
           if (!current()) return
           if (request.session === undefined) {
             request = { ...request, session: receipt.data.id, branchId: receipt.data.workspace_id, state: "running" }
             await save(request)
           }
           if (receipt.data.status === "running") break
-          if (receipt.data.status === "failed" || receipt.data.status === "closed") { terminalFailed = true; throw new Error("Terminal unavailable") }
+          if (receipt.data.status === "failed" || receipt.data.status === "closed") { terminalFailed = true; throw new TerminalUnavailable({ sentence: "Terminal unavailable" }) }
           await sleep(requestLifetime.signal, wait)
           wait = Math.min(wait * 2, MAX_STATUS_MS)
         }
@@ -83,7 +84,7 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
         options.observe(request.branchId!)
         const metadataDeadline = Date.now() + 30_000
         while (current() && options.available && !options.available(request.session!)) {
-          if (Date.now() >= metadataDeadline) throw new Error("Terminal unavailable")
+          if (Date.now() >= metadataDeadline) throw new TerminalUnavailable({ sentence: "Terminal unavailable" })
           await sleep(requestLifetime.signal)
         }
         if (!current()) return
@@ -94,7 +95,9 @@ export function createTerminalRequests(ctx: ControllerContext, options: {
         await save({ ...request, state: "completed" })
       } catch (error) {
         if (!current()) return
-        const message = error instanceof Error ? error.message : "Terminal unavailable"
+        // A thrown request (offline, a reset) reads as unavailable; its text goes to the reporter, never the card.
+        if (!(error instanceof TerminalUnavailable)) ctx.failures.report("seam.failure", error, "terminal.open")
+        const message = error instanceof TerminalUnavailable ? error.sentence : "Terminal unavailable"
         await save({ ...request, state: "failed", error: message, uncertain: !acknowledged || (Boolean(request.session) && !terminalFailed) })
         return message
       }
