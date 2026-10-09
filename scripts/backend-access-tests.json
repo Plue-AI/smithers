@@ -73,6 +73,20 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_retry_authorization_integration_test.go",
+    "tests": [
+      "TestAccessRetryProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "access_wiki_delete_authorization_integration_test.go",
+    "tests": [
+      "TestAccessWikiDeleteProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "admin_person_credential_integration_test.go",
     "tests": [
       "TestAdminRoutesRequirePersonCredentialComposedMultitenantPostgres"
@@ -519,7 +533,9 @@
       "TestParallelAdmissionInstallBoundary",
       "TestTodoBeforeAdmittedWhenCapacityFrees",
       "TestTodoBeforeAdmittedWhenHolderStops",
-      "TestTenBranchTerminalAdmissionInstallBoundary"
+      "TestTenBranchTerminalAdmissionInstallBoundary",
+      "TestMixedClassAdmissionInstallBoundary",
+      "TestMixedConcurrentClassAdmissionInstallBoundary"
     ]
   },
   {

@@ -5819,7 +5819,7 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 // Install retries consume the already resolved command decision. The legacy
 // repository path retains its person-only typed-stop rule.
 func requireTodoRetryAuthority(ctx context.Context, action string) error {
-	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok && (bound.command == "todo.retry" || bound.command == "todo.steer") {
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok && (bound.command == "todo.retry" || bound.command == "todo.retry-current-flow" || bound.command == "todo.steer") {
 		_, err := Authorize(ctx, nil, bound.command)
 		return err
 	}

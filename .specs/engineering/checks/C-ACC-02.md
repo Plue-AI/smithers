@@ -86,3 +86,15 @@ Written to `.artifacts/checks/C-ACC-02/<UTC timestamp>/`:
 - the final `approvals` rows;
 - `go test -json` output;
 - the commit SHA.
+
+
+T-ACC-03 profile increments (`fr30-acc-03-r3`): the composed install issue-comment
+campaign proves 27 local GitHub writes across Owner/Maintainer/Member, session,
+CLI/Codex/Claude Code/App agent and implicit/explicit doors, with 15 scope or
+session-create refusals. The wiki-delete campaign proves 36 deletes, 132
+scope/actor/session-create refusals and 24 stale-revision expiries across public
+and private pages and own/other-member authors. Pages are created and edited
+through production HTTP, credentials through production issuers, and cards
+through the installed consumer. C-ACC-02's wiki browser case reloads the private
+card, presses Delete by keyboard and reads the real page's 404. These increments
+do not declare the full confirmation matrix or reference-host recovery complete.

@@ -63,8 +63,10 @@ func TodoControlCommand(op string) (string, bool) {
 	switch op {
 	case "":
 		return "todo.steer", true
-	case "retry", "retry-current-flow":
+	case "retry":
 		return "todo.retry", true
+	case "retry-current-flow":
+		return "todo.retry-current-flow", true
 	case "drop":
 		return "todo.drop", true
 	case "move":

@@ -117,7 +117,11 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		person, credential, err := lockTodoRequest(ctx, tx, q, "todo.retry", input)
+		command, known := TodoControlCommand(input.Op)
+		if !known {
+			return todoControlUnavailable()
+		}
+		person, credential, err := lockTodoRequest(ctx, tx, q, command, input)
 		if err != nil {
 			return err
 		}
