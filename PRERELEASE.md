@@ -1,45 +1,32 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 12:15 PDT
-main          f40e0f76bd when written
+Updated       2026-10-09 13:50 PDT
+main          after f40e0f76bd when written
 
-Publish       NOTHING PUBLISHED. The v1.0.0-rc.1 tag run (37963844319) stopped
-              in the npm publish preflight before any package: pnpm 11 answers
-              a missing version of an existing name without a 404, and the
-              preflight treated it as fatal. Fixed in 1618f9d9ce. The rc.1 tag
-              stays as a failed attempt; npm never had 1.0.0-rc.1.
-Next          1.0.0-rc.2, re-cut f40e0f76bd (106 commits after rc.1). The first
-              rc.2 cut 5ea0bf5b8f passed dry run #12 and install run 11 (PR
-              canary-sandbox#152 merged), but J10 row 9 failed both tries:
-              every /review hung, because a review machine never wrote the
-              initialization receipt flow host starts need since aac3bf4993.
-              Fixed in 9fdb1884d6. Running on the re-cut: dry run #13
-              (37978357489), J1 to J11, then install run 12 on #13's bundle.
-              The tag follows when all three pass.
-Doneish       YES on 8ab73f0c82 (rc.1). rc.2 is being proven.
-Real install  Run 10 PASS on the rc.1 cut's own bundle (dry run #11), no patch: setup
-              on the card, TODO T1 to PR canary-sandbox#151, merged with the
-              TODO card's Merge at 07:13:10 PDT, squash 815abef03b.
-              Runs 6 to 9 found these stops; all are fixed in the cut:
-              6  setup card Sign in did nothing          e5a5b0fa87
-              6  daemon wedged on the agent's first edit  c471b306ae
-              6  msb lease stranded by a reconnect storm  5039aa9b94
-              7  a repository with no check (by spec)     test repo got a check
-              8  any outside write killed the TODO run    4653cacd08
-              9  candidate tree read refused by git       f4381cd226
-              8,9 daemon exited after agent jj in bwrap   8a6ac03825
-Journeys      8ab73f0c82 (rc.1): no failed row. J5 passed on its second try.
+Doneish       YES on f40e0f76bd, the 1.0.0-rc.2 re-cut.
+Publish       TAG PUSHED 13:42 PDT on Will's ask: v1.0.0-rc.2 → f40e0f76bd,
+              Release run 37988746485. npm `next` after its publish step.
+              rc.1 published nothing (publish preflight bug, fixed 1618f9d9ce).
+Real install  Run 12 PASS on dry run #13's bundle (37978357489), no patch:
+              card setup, T1 to PR canary-sandbox#153, merged with the card's
+              Merge 13:25:50 PDT, squash a65c505aa2. Run 11 passed on the
+              first rc.2 cut (PR #152).
+Journeys      f40e0f76bd: no failed row. J10 passed on its second try (first
+              try: 0b Members timed out at 30 s, #3759).
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
               J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
-Dry run       #11 37934773000 on 8ab73f0c82: every blocking job green. Its
-              gates lane is still running and reports only.
-Broken in     A flow host bound during workspace initialization pins the wrong
-the cut       revision and retries forever, holding one of two machine slots
-              (wiki g2 on run 10). Fixed on main by aac3bf4993, after the cut.
-Fixed, after  0b2667305e: a machine whose daemon is gone releases its slot.
-the cut       aac3bf4993: the flow host waits for initialization. Both ship in
-              the next prerelease.
+Dry run       #13 37978357489 on f40e0f76bd: every blocking job green.
+Broken in     1. After a merge, the learning machine never initializes and
+rc.2             holds its machine slot forever. With one slot (under ~72 GiB
+                 free) no machine starts after the first merge: the next TODO,
+                 /review and wiki refresh wait. Cause: LearningSource.Restore
+                 writes no initialization receipt (same class as 9fdb1884d6).
+              2. The composer's /review sends conversation "branch-main" and
+                 gets 503 "Review unavailable". The API with "main" works.
+              3. After a merge, the TODO card shows Plan "failed" beside
+                 Verify "done"; nothing failed.
+              1 and 2 are being fixed for rc.3 today.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
@@ -51,15 +38,13 @@ To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
               (refused at 39.19, started at 44.77). Commands: section 6.
 No mini/Cloud The Mac mini is offline (Will, 10-08). Cloud cannot run a TODO.
 
-Needs Will    Nothing. Will asked for the publish (10-09 10:00); the rc.2 tag
-              is pushed once its proof passes. Optional: say yes to using your
-              model keys if an install run should also run a TODO with a real
-              model.
+Needs Will    Nothing. Optional: say yes to using your model keys if an install
+              run should also run a TODO with a real model.
 ```
 
 ## 1. What works
 
-**On a real install, at the cut.** Run 10, this MacBook, the bundle from dry run #11 (37934773000) for 8ab73f0c824c94c08de47f9e6c4c560fb0b2af9a, 0 digest mismatches, no file patched. Source: `~/smithers-lanes/release/REAL-RUN.md`, run 10.
+**On a real install, at the rc.1 cut.** Runs 11 and 12 repeat this on the rc.2 cuts (status block). Run 10, this MacBook, the bundle from dry run #11 (37934773000) for 8ab73f0c824c94c08de47f9e6c4c560fb0b2af9a, 0 digest mismatches, no file patched. Source: `~/smithers-lanes/release/REAL-RUN.md`, run 10.
 
 ```
 07:04:25 host start (production launcher) . 07:04:42 ready, buildSha 8ab73f0c82
@@ -76,7 +61,7 @@ Needs Will    Nothing. Will asked for the publish (10-09 10:00); the rc.2 tag
 - The first machines take 79 s once per install: the toolchain layer is built and cached. T1's machine then started in 9 s.
 - The catalog machine retired; wiki g1 retired on its second try.
 
-**On Linux fixtures, at the cut.** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey: Detail A.
+**On Linux fixtures, at the rc.1 cut.** Each journey suite walks one install through its public routes with real PostgreSQL, a GitHub fake, a scripted coding model, and the coding agent as a host process. No microVM. Pending means the row is written and not run. One line per journey: Detail A.
 
 ```
       pass fail pending  a person can
