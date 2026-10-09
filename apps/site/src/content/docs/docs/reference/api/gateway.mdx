@@ -71,6 +71,14 @@ stamps `NodeGateway.scopedPrincipal` (`gateway/scoped`), which no delegation to
 alone, and a ticket issued against a scoped token opens only what the token
 could open.
 
+### Runtime completion
+
+`RuntimeBridge.LifecycleCommand.operation` also accepts `complete` (since
+1.0.0). `RuntimeBridge.Config.requestComplete?:
+ControlExecutor.Service["requestComplete"]` (since 1.0.0) supplies the host port;
+when absent, the bridge uses the installed executor's port. A host without
+either refuses completion as unavailable.
+
 ### Runtime observation cursors
 
 `POST /runtime/v1/observe` returns `nextCursor`; pass it back unchanged as
@@ -558,7 +566,6 @@ evidence do not acquire invented phases, successful checks, or file changes.
   its kind, label, optional code or output, model tokens, duration, and tone.
   `TraceBuilder` is the mutable draft used while folding, never a
   persisted graph or a second execution model.
-
 
 The install monitor folds `flows.run.presentation` records from the machine's
 native journal. A machine declares its custom view with `{ "kind": "text", "text":

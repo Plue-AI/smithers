@@ -1,11 +1,13 @@
-smthrs diff — Show a branch's changes
+smthrs debug api — Call the documented API
 
-Usage: smthrs diff [options]
+Usage: smthrs debug api [options]
 
 Options:
-  --branch <value>
-  --entry <value>
-  --verbose         Show redacted diagnostic details
+  --operation-id <value>
+  --intent <value>
+  --values <value>
+  --confirmation <value>
+  --verbose               Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

@@ -1,4 +1,4 @@
-smthrs@1.0.0-rc.1 — Build workspace targets and operate durable agent flows
+smthrs@1.0.0-rc.2 — Build workspace targets and operate durable agent flows
 
 Usage: smthrs <command>
 
@@ -9,6 +9,7 @@ Commands:
   branch     Branches and machines
   branches   List branches with presence
   cp         Copy files or directories between the local machine and a workspace
+  debug      Advanced
   diff       Show a branch's changes
   exec       Run a workspace command with a durable receipt and bounded output
   file       Open and co-edit a file

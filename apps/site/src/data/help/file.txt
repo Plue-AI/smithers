@@ -7,7 +7,6 @@ Arguments:
 
 Options:
   --branch <value>
-  --line <value>
   --revision <value>
   --verbose           Show redacted diagnostic details
 

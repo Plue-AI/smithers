@@ -392,12 +392,6 @@
         "options": {
           "type": "object",
           "properties": {
-            "repo": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
@@ -477,19 +471,7 @@
         "options": {
           "type": "object",
           "properties": {
-            "subject": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "branch": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "path": {
               "type": [
                 "string",
                 "null"
@@ -609,28 +591,6 @@
                 "null"
               ]
             },
-            "line": {
-              "anyOf": [
-                {
-                  "anyOf": [
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "string",
-                      "enum": [
-                        "Infinity",
-                        "-Infinity",
-                        "NaN"
-                      ]
-                    }
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "revision": {
               "type": [
                 "string",
@@ -662,6 +622,12 @@
         "options": {
           "type": "object",
           "properties": {
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "branch": {
               "type": [
                 "string",
@@ -1502,19 +1468,9 @@
           "type": "object",
           "properties": {
             "number": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
             }
           },
           "required": [
@@ -1525,6 +1481,12 @@
         "options": {
           "type": "object",
           "properties": {
+            "repo": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",

@@ -3,6 +3,7 @@ smthrs files — Browse a branch's files
 Usage: smthrs files [options]
 
 Options:
+  --path <value>
   --branch <value>
   --verbose         Show redacted diagnostic details
 

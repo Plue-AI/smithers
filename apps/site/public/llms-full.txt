@@ -9,7 +9,7 @@ Smithers maintains your codebase. It turns issues into reviewed, tested changes 
 
 **Planned.** The Homebrew package is not released. Prepare:
 
-- An Apple Silicon Mac running macOS 15 or later and Homebrew.
+- An Apple Silicon Mac running macOS 15 or later, Homebrew, and at least 44 GiB free on the state volume.
 - A GitHub repository with squash merging enabled.
 - A coding-model provider key or ChatGPT sign-in, and an AI Gateway key for Decisions.
 
@@ -4473,6 +4473,11 @@ loads.
 
 ### AgentSession.Options
 
+`reentryCheckpoint?: (runId, flowId) => Effect<void, unknown, ControlRuntime |
+FlowRuntime | FlowInstance>` (since 1.0.0) runs host controls before entering or
+resuming a module named in `reenterModules`, including a child still waiting
+for an answer. Its failure prevents entry.
+
 `abandonedParkAfter?: Duration.Duration` sets how long a foreign host's resume
 delegation must stand before adoption. The default is
 `Ownership.heartbeatStaleAfter` (30 seconds); adoption starts at the cutoff.
@@ -4544,10 +4549,10 @@ containing outcome and transition retain their tags.
 
 Two records hold what a step was asked, so a reader can reopen one step:
 
-| Event type                       | Payload                                                                                                                                                                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Event type                       | Payload                                                                                                                                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `control.agent.model-requested`  | `scope`, `frame`, `attempt`, `purpose`, `seat`, `modelId`, `routeId?`, `protocolId?`, `system?`, `task?`, `systemDigest`, `messages`, `messagesDigest`, `prefixCount`, `prefixDigest?`, `params`, `paramsDigest`, `toolCount`, `truncated?` |
-| `control.agent.decision-settled` | `scope`, `frame`, `classifier`, `digest`, `state`, `stateDigest`, `questions`, `questionsDigest`, `answers`, `answersDigest`, `latencyMs`, `acted`, `decidedBy`, `truncated?`                                                      |
+| `control.agent.decision-settled` | `scope`, `frame`, `classifier`, `digest`, `state`, `stateDigest`, `questions`, `questionsDigest`, `answers`, `answersDigest`, `latencyMs`, `acted`, `decidedBy`, `truncated?`                                                               |
 
 `scope` and `frame` join either record to its turn; position never does.
 `system` is the system text, part by part, and `messages` is `{ role, text }`
@@ -11590,13 +11595,14 @@ engine observations. Mutation methods remain refused.
 
 ### Service
 
-| Method                | Signature                                                          |
-| --------------------- | ------------------------------------------------------------------ |
-| `launch`              | `(input: Launch) => Effect<Acceptance, LaunchFailed>`              |
-| `requestCancel`       | `(input: CancelRequest) => Effect<CancelRecord, PersistenceError>` |
-| `deliverSignal`       | `(input: Signal) => Effect<SignalDelivery, PersistenceError>`      |
-| `resumeRun`           | `(input: ResumeRequest) => Effect<ResumeUptake, PersistenceError>` |
-| `settleCancelledPark` | `(input: CancelRequest) => Effect<void, PersistenceError>`         |
+| Method                | Signature                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`              | `(input: Launch) => Effect<Acceptance, LaunchFailed>`                                                                                                         |
+| `requestComplete`     | Optional `(input: { runId: RunId; receiptId: string }) => Effect<Receipt, PersistenceError>`. Host close after the last native module completes. Since 1.0.0. |
+| `requestCancel`       | `(input: CancelRequest) => Effect<CancelRecord, PersistenceError>`                                                                                            |
+| `deliverSignal`       | `(input: Signal) => Effect<SignalDelivery, PersistenceError>`                                                                                                 |
+| `resumeRun`           | `(input: ResumeRequest) => Effect<ResumeUptake, PersistenceError>`                                                                                            |
+| `settleCancelledPark` | `(input: CancelRequest) => Effect<void, PersistenceError>`                                                                                                    |
 
 ### Models
 
@@ -17207,6 +17213,14 @@ stamps `NodeGateway.scopedPrincipal` (`gateway/scoped`), which no delegation to
 `gateway/bearer` covers. Journal sync and the runtime bridge accept the bearer
 alone, and a ticket issued against a scoped token opens only what the token
 could open.
+
+### Runtime completion
+
+`RuntimeBridge.LifecycleCommand.operation` also accepts `complete` (since
+1.0.0). `RuntimeBridge.Config.requestComplete?:
+ControlExecutor.Service["requestComplete"]` (since 1.0.0) supplies the host port;
+when absent, the bridge uses the installed executor's port. A host without
+either refuses completion as unavailable.
 
 ### Runtime observation cursors
 

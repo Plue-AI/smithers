@@ -3,8 +3,7 @@ smthrs branches — List branches with presence
 Usage: smthrs branches [options]
 
 Options:
-  --repo <value>
-  --verbose       Show redacted diagnostic details
+  --verbose  Show redacted diagnostic details
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)
