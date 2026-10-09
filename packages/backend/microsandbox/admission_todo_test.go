@@ -331,3 +331,65 @@ func TestAdmissionPublicationRetryRetainsReservation(t *testing.T) {
 	require.True(t, r.admissionGranted("Ben", "Ben"))
 	require.Equal(t, 2, r.InUse())
 }
+
+func TestBackgroundCannotSpendPendingTodoCapacity(t *testing.T) {
+	for _, mode := range []string{"handoff", "cancelled", "parallel zero"} {
+		t.Run(mode, func(t *testing.T) {
+			r, p := admissionFixture()
+			r.config.MaxRunningVMs = 1
+			r.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+			require.NoError(t, r.SyncTodoAdmission("repo", []string{"todo:5"}, 1))
+			_, err := r.Request("background", "learning", "learning", "learning")
+			require.NoError(t, err)
+			blocked, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.Empty(t, blocked.Holder, "Learning cannot pass an eligible unbound TODO at capacity one")
+			require.Zero(t, r.InUse(), "a pending binding is demand, not a fabricated held VM")
+			_, err = r.Request("person", "alice", "Alice", "terminal")
+			require.NoError(t, err)
+			person, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.Equal(t, "alice", person.Holder, "pending TODOs never block a person")
+			r.ConfirmAdmissionStop("alice", false)
+			switch mode {
+			case "handoff":
+				require.NoError(t, r.TransferTodoAdmission("todo:5", "workspace:5"))
+				next, err := r.GrantNext(t.Context(), p)
+				require.NoError(t, err)
+				require.Equal(t, "workspace:5", next.Holder)
+				r.ConfirmAdmissionStop("workspace:5", false)
+				require.NoError(t, r.SyncTodoAdmission("repo", nil, 1))
+			case "cancelled":
+				require.NoError(t, r.SyncTodoAdmission("repo", nil, 1))
+			case "parallel zero":
+				r.SetTodoParallelReader(func(context.Context) (int, error) { return 0, nil })
+			}
+			next, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.Equal(t, "learning", next.Holder, "only eligible pending TODOs reserve capacity")
+			require.Equal(t, 1, r.InUse())
+		})
+	}
+}
+
+func TestPendingTodoCapacityRecheckedAfterProviderRead(t *testing.T) {
+	r, p := admissionFixture()
+	r.config.MaxRunningVMs = 1
+	r.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	require.NoError(t, r.SyncTodoAdmission("repo", []string{"todo:5"}, 0))
+	parallel := 0
+	r.SetTodoParallelReader(func(context.Context) (int, error) { return parallel, nil })
+	_, err := r.Request("background", "learning", "learning", "learning")
+	require.NoError(t, err)
+	disk := p.FreeDisk
+	p.FreeDisk = func(ctx context.Context) (int64, error) { parallel = 1; return disk(ctx) }
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder, "the final grant must see the now-eligible pending TODO")
+	require.Zero(t, r.InUse())
+	p.FreeDisk = disk
+	parallel = 0
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "learning", grant.Holder)
+}

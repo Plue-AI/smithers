@@ -18,3 +18,14 @@ test("C-MCH-02: a working TODO survives two hours before confirmed safe-idle rel
   expect(output).toContain("PASS C-MCH-02 two-hour working retention, final capture and confirmed safe-idle stop")
   expect(output).toContain("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
 })
+
+// One shared queue crosses HTTP terminals/TODOs, the installed SSH gateway,
+// Learning dispatch, authenticated live positions and the mounted Home/Branch.
+test("C-MCH-02: Alice, Ben SSH, TODOs and Learning share literal positions and FIFO grants", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestMixed.*ClassAdmissionInstallBoundary$")
+  expect(output).toContain("--- PASS: TestMixedClassAdmissionInstallBoundary")
+  expect(output).toContain("--- PASS: TestMixedConcurrentClassAdmissionInstallBoundary")
+  expect(output).toContain("PASS C-MCH-02 literal Alice, Ben SSH, T5, T6, Learning positions and grant order")
+  expect(output).toContain("PASS C-MCH-02 mixed queue mounted Home Learning position and reload")
+})

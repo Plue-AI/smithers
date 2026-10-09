@@ -53,7 +53,10 @@ import (
 // machine, then accepts the pinned todo launch and keeps the run going. It
 // grants, orders and counts nothing; the runtime queue does. Pause reports the
 // guest resume wait so the production projector can retain a parked machine.
-type parallelFlowHost struct{ paused *sync.Map }
+type parallelFlowHost struct {
+	paused *sync.Map
+	ended  *sync.Map
+}
 
 func (parallelFlowHost) Identity(context.Context) (flowruntime.Identity, error) {
 	return flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1}, nil
@@ -72,6 +75,11 @@ func (h parallelFlowHost) Observe(_ context.Context, run, _ string, _ int) (flow
 		if _, ok := h.paused.Load(run); ok {
 			observed.Status = "parked"
 			observed.PendingWaits = []flowruntime.PendingWait{{RunID: run, FlowID: "todo", Reason: "approval", Token: "pause-token", Name: "resume#1", Attempt: 1, Request: json.RawMessage(`{"kind":"pause"}`)}}
+		}
+	}
+	if h.ended != nil {
+		if _, ok := h.ended.Load(run); ok {
+			observed.Status = "cancelled"
 		}
 	}
 	return flowruntime.Observation{Run: observed, Events: []flowruntime.Event{}}, nil
@@ -151,7 +159,14 @@ func TestTenBranchTerminalAdmissionInstallBoundary(t *testing.T) {
 	testParallelAdmissionInstallBoundary(t, false, false, true)
 }
 
-func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops, matrix bool) {
+func TestMixedClassAdmissionInstallBoundary(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, false, false, true, true)
+}
+func TestMixedConcurrentClassAdmissionInstallBoundary(t *testing.T) {
+	testParallelAdmissionInstallBoundary(t, false, false, true, true, true)
+}
+
+func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, holderStops, matrix bool, mixed ...bool) {
 	scratch, err := os.MkdirTemp("/tmp", "stk03")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
@@ -302,10 +317,19 @@ esac
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	guest := parallelFlowHost{paused: new(sync.Map)}
+	if len(mixed) > 0 && mixed[0] {
+		guest.ended = new(sync.Map)
+	}
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: stack, SteerAuthorizer: stack, ObservationDelay: 20 * time.Millisecond, MaxObservationDelay: 200 * time.Millisecond,
-		Resolver: flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+		Resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
 			if !runtime.AdmissionHeld("workspace:" + target.WorkspaceID) {
 				return nil, nil
+			}
+			if len(mixed) > 0 && mixed[0] {
+				row, err := q.GetWorkspace(ctx, target.WorkspaceID)
+				if err != nil || row.Status != "running" {
+					return nil, nil
+				}
 			}
 			return guest, nil
 		})})
@@ -359,7 +383,9 @@ esac
 		defer stop()
 		_ = dispatcher.RunWorker(worker, jobs.WorkerConfig{WorkerID: "c-stk-02", Capacity: 8, Lease: 5 * time.Second, PollInterval: 20 * time.Millisecond, RetryDelay: 50 * time.Millisecond})
 	}()
-	go stack.Start(liveContext)
+	if len(mixed) == 0 || !mixed[0] {
+		go stack.Start(liveContext)
+	}
 
 	callKey := func(method, path, body, cookie, key string) (int, []byte) {
 		t.Helper()
@@ -389,6 +415,10 @@ esac
 			byNumber[card.N] = card
 		}
 		return byNumber
+	}
+	if len(mixed) > 0 && mixed[0] {
+		exerciseMixedClassAdmission(t, pool, stack, workspaces, runtime, host, store, cfg, server, repo.ID, maya.ID, ben.ID, mayaCookie, call, branches, &freeDisk, stopPending, stopAcknowledged, firstBoot, guest.ended, len(mixed) > 1 && mixed[1])
+		return
 	}
 	if matrix {
 		freeDisk.Store(microsandbox.MinFreeDiskBytes + microsandbox.MachineDiskBytes) // exactly one slot
@@ -1496,4 +1526,343 @@ func queuedSSHProbe(t *testing.T, pool *pgxpool.Pool, service *services.Workspac
 			}
 		}, func() { session.Close(); client.Close() }
 	}
+}
+
+// One production queue contains every class. A confirmed merged item is history;
+// its Learning admission is consumed by the real dispatcher. TODOs and terminals
+// enter HTTP, SSH enters the installed gateway, and snapshots enter /api/live.
+// Guest responses, stop inventory, disk and elapsed time remain Linux test ports.
+func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *services.MythicalService, workspaces *services.WorkspaceService, runtime *parallelIdleRuntime, host *pollingGitHost, store *jobs.Store, cfg *config.Config, server *httptest.Server, repo, alice, ben int64, cookie string, call func(string, string, string, string) (int, []byte), branches []db.Workspace, disk *atomic.Int64, pending, acknowledged, firstBoot string, finished *sync.Map, concurrent bool) {
+	t.Helper()
+	ctx := t.Context()
+	q := db.New(pool)
+	stack.EnableLearningAdmission(store)
+	source := &learningSourceContract{}
+	guest := &learningRuntimeContract{queue: runtime.Runtime, source: source}
+	source.runtime = guest
+	require.True(t, bindLearningMachines(stack, cfg, pool, guest, source))
+	background := &services.HomeBackground{Pool: pool, Billing: services.NewUnlimitedBillingPolicy()}
+	stack.SetHomeBackground(background)
+
+	engineCtx, stopEngine := context.WithCancel(ctx)
+	defer stopEngine()
+	go stack.Start(engineCtx)
+
+	disk.Store(72 << 30) // capacity one
+	var peak atomic.Int64
+	sampleCtx, stopSample := context.WithCancel(ctx)
+	sampled := make(chan struct{})
+	go func() {
+		defer close(sampled)
+		ticker := time.NewTicker(time.Millisecond)
+		defer ticker.Stop()
+		for {
+			count := int64(runtime.InUse())
+			for prior := peak.Load(); count > prior && !peak.CompareAndSwap(prior, count); prior = peak.Load() {
+			}
+			select {
+			case <-sampleCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	defer func() {
+		stopSample()
+		<-sampled
+		require.EqualValues(t, 1, peak.Load(), "every provisioning, waking, awake and releasing holder shares capacity one")
+	}()
+
+	code, body := call("PUT", "/api/install", `{"parallel":1}`, cookie)
+	require.Equal(t, 200, code, string(body))
+	code, body = call("POST", "/api/todos", `{"title":"T1","prompt":"Keep working","place":{"mode":"append"}}`, cookie)
+	require.Equal(t, 202, code, string(body))
+	readTodo := func(n int64) parallelCard {
+		code, body := call("GET", fmt.Sprintf("/api/todos/%d", n), "", cookie)
+		require.Equal(t, 200, code, string(body))
+		var card parallelCard
+		require.NoError(t, json.Unmarshal(body, &card))
+		return card
+	}
+	require.Eventually(t, func() bool { return readTodo(1).State == "starting" && runtime.InUse() == 1 }, 15*time.Second, 20*time.Millisecond)
+	// Historical completed items fix the literal next TODO numbers at five/six.
+	var head strings.Builder
+	require.NoError(t, host.git(ctx, nil, &head, "rev-parse", "refs/heads/main"))
+	commit := strings.TrimSpace(head.String())
+	first, err := q.GetMythicalItemByNumber(ctx, repo, 1)
+	require.NoError(t, err)
+	firstRow, err := q.GetWorkspace(ctx, first.WorkspaceID)
+	require.NoError(t, err)
+	runtime.retainedSources.Store(firstRow.ID, parallelRetainedSource{row: firstRow, head: commit})
+	sum := sha256.Sum256([]byte(firstRow.ID))
+	require.NoError(t, os.WriteFile(firstBoot, []byte("smthrs-ws-01234567-"+hex.EncodeToString(sum[:])[:20]), 0600))
+	require.Eventually(t, func() bool {
+		row, err := q.GetWorkspace(ctx, firstRow.ID)
+		return err == nil && row.Status == "running"
+	}, 10*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool { return readTodo(1).State == "working" }, 5*time.Second, 20*time.Millisecond)
+	for n := 2; n <= 4; n++ {
+		_, err := pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,number,owner_id,title,pr_state,pr_merge_commit,checks) VALUES($1,'todo','landed',$2,$3,'History','merged',$4,'{}')`, repo, n, alice, commit)
+		require.NoError(t, err)
+	}
+	var learningItem db.MythicalItem
+	learningItem, err = q.GetMythicalItemByNumber(ctx, repo, 2)
+	require.NoError(t, err)
+	digest := strings.Repeat("b", 64)
+	_, err = q.InsertFlowVersion(ctx, repo, "learning", "flows/learning/flow.ts", commit, digest, "loaded", "", json.RawMessage(`{}`))
+	require.NoError(t, err)
+	_, err = q.ActivateFlowVersion(ctx, repo, "learning", digest)
+	require.NoError(t, err)
+	itemID := uuid.UUID(learningItem.ID.Bytes).String()
+	payload, _ := json.Marshal(map[string]any{"item": itemID, "todo": 2, "repository": repo, "actor": alice, "commit": commit})
+	admission, err := store.Admit(ctx, jobs.Admission{Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", alice)}, Operation: services.LearningAdmissionOperation, RequestID: "learning:" + itemID, Payload: payload, AuthorizationContext: json.RawMessage(`{"source":"confirmed-github-merge","class":"background"}`), EffectPolicy: jobs.EffectIdempotent, EffectKey: "learning:" + itemID})
+	require.NoError(t, err)
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "mixed-learning", Capacity: 1, Lease: time.Second, PollInterval: 10 * time.Millisecond, Operations: []string{services.LearningAdmissionOperation}}, stack.HandleLearningAdmission)
+	}()
+	defer func() { stopWorker(); require.NoError(t, <-done) }()
+	position := func(class string, place int) bool {
+		for _, row := range runtime.AdmissionSnapshot() {
+			if row.Class == class && row.State == "waiting" && row.Position == place {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventually(t, func() bool { return position("background", 1) }, 5*time.Second, 10*time.Millisecond)
+	for _, title := range []string{"T5", "T6"} {
+		code, body = call("POST", "/api/todos", fmt.Sprintf(`{"title":%q,"prompt":"Add a line","place":{"mode":"append"}}`, title), cookie)
+		require.Equal(t, 202, code, string(body))
+		n := int64(5)
+		if title == "T6" {
+			n = 6
+		}
+		require.Eventually(t, func() bool { card := readTodo(n); return card.Queue != nil && card.Queue.Position == int(n-4) }, 5*time.Second, 10*time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
+	}
+	aliceBranch, benBranch := branches[0], branches[1]
+	code, body = call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, aliceBranch.ID), cookie)
+	require.Equal(t, 202, code, string(body))
+	var terminal services.WorkspaceSessionResponse
+	require.NoError(t, json.Unmarshal(body, &terminal))
+	require.Eventually(t, func() bool { return position("person", 1) }, 5*time.Second, 10*time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	sshPosition, closeSSH := queuedSSHProbe(t, pool, workspaces, cfg, ben)(benBranch)
+	defer closeSSH()
+	sshPosition(2)
+	require.Eventually(t, func() bool { return position("background", 5) }, 5*time.Second, 10*time.Millisecond)
+	type pendingTerminal struct{ branch, id string }
+	var extra []pendingTerminal
+	if concurrent {
+		type response struct {
+			branch string
+			code   int
+			body   []byte
+		}
+		results := make(chan response, 10)
+		for i := 0; i < 10; i++ {
+			branch := aliceBranch.ID
+			if i%2 == 1 {
+				branch = benBranch.ID
+			}
+			go func(id string) {
+				code, body := call("POST", "/api/terminals", fmt.Sprintf(`{"branch":%q}`, id), cookie)
+				results <- response{id, code, body}
+			}(branch)
+		}
+		for i := 0; i < 10; i++ {
+			result := <-results
+			require.Equal(t, 202, result.code, string(result.body))
+			var session services.WorkspaceSessionResponse
+			require.NoError(t, json.Unmarshal(result.body, &session))
+			extra = append(extra, pendingTerminal{result.branch, session.ID})
+		}
+		require.Equal(t, 1, runtime.InUse())
+		require.Eventually(t, func() bool { return position("background", 5) }, 5*time.Second, 10*time.Millisecond)
+	}
+
+	// Positions come from authenticated live snapshots, not allocator constants.
+	snapshot := func(topic string) json.RawMessage {
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, Host: "127.0.0.1:4000", HTTPHeader: http.Header{"Origin": {cfg.Server.PublicURL}, "Cookie": {"smithers_session=" + cookie}}})
+		require.NoError(t, err)
+		defer conn.CloseNow()
+		sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":%q}`, topic))
+		for {
+			frame := readPresenceFrame(t, conn)
+			require.NotEqual(t, "err", frame.T)
+			if frame.T == "snap" {
+				return frame.Data
+			}
+		}
+	}
+	for _, fixture := range []struct {
+		topic string
+		place int
+	}{{"branch:" + aliceBranch.ID, 1}, {"branch:" + benBranch.ID, 2}, {"todo:5", 3}, {"todo:6", 4}} {
+		require.Eventually(t, func() bool {
+			data := snapshot(fixture.topic)
+			var card struct {
+				Machine struct{ Position int }
+				Queue   *struct {
+					Reason   string
+					Position int
+				}
+			}
+			require.NoError(t, json.Unmarshal(data, &card))
+			if strings.HasPrefix(fixture.topic, "todo:") {
+				return card.Queue != nil && card.Queue.Reason == "machine" && card.Queue.Position == fixture.place
+			}
+			return card.Machine.Position == fixture.place
+		}, 5*time.Second, 100*time.Millisecond)
+
+	}
+	var home struct {
+		Runs []struct {
+			ID     string `json:"id"`
+			Detail string `json:"detail"`
+		} `json:"background_runs"`
+	}
+	require.NoError(t, json.Unmarshal(snapshot("home"), &home))
+	require.Len(t, home.Runs, 1)
+	require.Equal(t, "waiting for a machine #5", home.Runs[0].Detail)
+	require.Equal(t, learningCounts{}, guest.counts())
+	var browser *exec.Cmd
+	var browserErrors bytes.Buffer
+	var browserOutput *bufio.Scanner
+	if os.Getenv("SMITHERS_LIVE_BROWSER") == "1" {
+		browserCtx, stop := context.WithTimeout(ctx, 2*time.Minute)
+		defer stop()
+		browser = exec.CommandContext(browserCtx, "bun", "e2e/real/admission-branch.browser.ts")
+		browser.Dir = "../../../../apps/app"
+		browser.Env = append(os.Environ(), "SMITHERS_ADMISSION_ORIGIN="+server.URL, "SMITHERS_ADMISSION_PUBLIC_URL="+cfg.Server.PublicURL, "SMITHERS_ADMISSION_BRANCH="+aliceBranch.ID, "SMITHERS_ADMISSION_COOKIE="+cookie, "SMITHERS_ADMISSION_MIXED=1")
+		output, err := browser.StdoutPipe()
+		require.NoError(t, err)
+		browser.Stderr = &browserErrors
+		require.NoError(t, browser.Start())
+		defer func() {
+			stop()
+			if browser.ProcessState == nil {
+				_ = browser.Wait()
+			}
+		}()
+		browserOutput = bufio.NewScanner(output)
+		waiting := false
+		for browserOutput.Scan() {
+			t.Log(browserOutput.Text())
+			if browserOutput.Text() == "ADMISSION_BROWSER_WAITING" {
+				waiting = true
+				break
+			}
+		}
+		require.True(t, waiting, browserErrors.String())
+	}
+	readDisk := func(context.Context) (int64, error) { return disk.Load(), nil }
+	parallelAutomaticIdleRelease(t, pool, workspaces, stack, runtime, host, repo, alice, pending, acknowledged, firstBoot, readDisk, func() {
+		require.Equal(t, 1, runtime.InUse())
+		require.False(t, runtime.AdmissionHeld("workspace:"+aliceBranch.ID))
+		require.Equal(t, 3, readTodo(5).Queue.Position)
+		require.Equal(t, 4, readTodo(6).Queue.Position)
+		require.Equal(t, learningCounts{}, guest.counts())
+	})
+	require.Eventually(t, func() bool { return runtime.AdmissionHeld("workspace:" + aliceBranch.ID) }, 2*time.Second, 10*time.Millisecond)
+	require.False(t, runtime.AdmissionHeld("workspace:"+benBranch.ID))
+	require.Equal(t, 1, runtime.InUse())
+	if browser != nil {
+		for browserOutput.Scan() {
+			t.Log(browserOutput.Text())
+		}
+		require.NoError(t, browserOutput.Err())
+		require.NoError(t, browser.Wait(), browserErrors.String())
+	}
+	for _, session := range extra {
+		code, body = call("POST", "/api/repos/maya/app/workspace/sessions/"+session.id+"/destroy", "", cookie)
+		require.Equal(t, 204, code, string(body))
+	}
+	// Close Alice's pending terminal through its production ownership door.
+	code, body = call("POST", "/api/repos/maya/app/workspace/sessions/"+terminal.ID+"/destroy", "", cookie)
+	require.Equal(t, 204, code, string(body))
+	require.Eventually(t, func() bool {
+		return runtime.AdmissionHeld("workspace:"+benBranch.ID) && !runtime.AdmissionHeld("workspace:"+aliceBranch.ID)
+	}, 2*time.Second, 10*time.Millisecond)
+	require.Equal(t, 1, runtime.InUse())
+	closeSSH()
+	require.Eventually(t, func() bool { return readTodo(5).State == "starting" }, 15*time.Second, 20*time.Millisecond)
+	require.Equal(t, "queued", readTodo(6).State)
+	require.Equal(t, learningCounts{}, guest.counts())
+	todoBranches := map[int64]string{}
+	for _, n := range []int64{5, 6} {
+		require.Eventually(t, func() bool { return readTodo(n).State == "starting" }, 15*time.Second, 20*time.Millisecond)
+		item, err := q.GetMythicalItemByNumber(ctx, repo, n)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			item, err = q.GetMythicalItemByNumber(ctx, repo, n)
+			return err == nil && item.WorkspaceID != "" && runtime.AdmissionHeld("workspace:"+item.WorkspaceID)
+		}, 5*time.Second, 10*time.Millisecond)
+		require.Equal(t, 1, runtime.InUse())
+		todoBranches[n] = item.WorkspaceID
+		row, err := q.GetWorkspace(ctx, item.WorkspaceID)
+		require.NoError(t, err)
+		runtime.retainedSources.Store(row.ID, parallelRetainedSource{row: row, head: commit})
+		sum := sha256.Sum256([]byte(row.ID))
+		require.NoError(t, os.WriteFile(firstBoot, []byte("smthrs-ws-01234567-"+hex.EncodeToString(sum[:])[:20]), 0600))
+		require.Eventually(t, func() bool {
+			current, err := q.GetWorkspace(ctx, row.ID)
+			return err == nil && current.Status == "running"
+		}, 10*time.Second, 20*time.Millisecond)
+		require.Eventually(t, func() bool { return readTodo(n).State == "working" }, 5*time.Second, 20*time.Millisecond)
+		attached, err := q.GetMythicalItemByNumber(ctx, repo, n)
+		require.NoError(t, err)
+		require.Equal(t, item.Attempt, attached.Attempt)
+		require.NotEmpty(t, attached.RequestRunID)
+		var attachment struct {
+			Attached bool `json:"run_attached"`
+		}
+		require.NoError(t, json.Unmarshal(attached.Checks, &attachment))
+		require.True(t, attachment.Attached)
+		item = attached
+
+		// The committed start fact precedes the attached run, and every attach
+		// belongs to this attempt's pinned dispatcher launch.
+		var starts int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE principal_id=$1 AND data->'card'->>'state'='starting'`, "todo:"+uuid.UUID(item.ID.Bytes).String()).Scan(&starts))
+		require.Positive(t, starts)
+		require.NotNil(t, runtime.captureGuest)
+		runtime.captureGuest(row.ID)
+		// Inject the observed guest run ending before a person drops it.
+		// A running Drop's independent final-capture campaign is elsewhere.
+		finished.Store(item.RequestRunID, true)
+		require.Eventually(t, func() bool {
+			current, err := q.GetMythicalItemByNumber(ctx, repo, n)
+			return err == nil && current.RequestOutcome != ""
+		}, 5*time.Second, 20*time.Millisecond)
+		code, body = call("POST", fmt.Sprintf("/api/todos/%d", n), `{"op":"drop"}`, cookie)
+		require.Equal(t, 202, code, string(body))
+		require.Eventually(t, func() bool { return !runtime.AdmissionHeld("workspace:" + item.WorkspaceID) }, 15*time.Second, 20*time.Millisecond)
+	}
+	require.Eventually(t, func() bool {
+		op, err := store.Get(ctx, jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", alice)}, admission.OperationID)
+		return err == nil && op.State == jobs.StateCompleted
+	}, 15*time.Second, 20*time.Millisecond)
+	require.Equal(t, learningCounts{creates: 1, restores: 1}, guest.counts())
+	require.Equal(t, 1, runtime.InUse())
+	// The production publisher commits a branch delta before the following
+	// slot can grant. This durable list is the literal observed grant order.
+	rows, err := pool.Query(ctx, `SELECT data->'branch'->>'id' FROM product_job_events WHERE event_type='branch.machine.granted' ORDER BY recorded_at,sequence`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var order []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		order = append(order, id)
+	}
+	require.NoError(t, rows.Err())
+	t1, err := q.GetMythicalItemByNumber(ctx, repo, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{t1.WorkspaceID, aliceBranch.ID, benBranch.ID, todoBranches[5], todoBranches[6], learningWorkspaceID(itemID)}, order)
+	require.NoError(t, guest.DeleteWorkspace(ctx, learningWorkspaceID(itemID)))
+	require.Zero(t, runtime.InUse())
+	t.Log("PASS C-MCH-02 literal Alice, Ben SSH, T5, T6, Learning positions and grant order")
 }

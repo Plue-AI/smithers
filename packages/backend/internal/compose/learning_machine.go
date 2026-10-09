@@ -203,3 +203,21 @@ func (m *learningMachine) RetireLearningMachine(ctx context.Context, target flow
 }
 
 var _ services.LearningMachines = (*learningMachine)(nil)
+
+// QueuePosition reads Learning's existing holder; Home reads never enqueue it.
+func (m *learningMachine) QueuePosition(item string) int {
+	if m == nil || item == "" {
+		return 0
+	}
+	if _, err := uuid.Parse(item); err != nil {
+		return 0
+	}
+	if queue, ok := m.workspace.(reviewMachineAdmission); ok {
+		for _, row := range queue.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+learningWorkspaceID(item) && row.Actor == learningAdmissionActor(item) && row.Class == "background" && row.State == "waiting" {
+				return row.Position
+			}
+		}
+	}
+	return 0
+}

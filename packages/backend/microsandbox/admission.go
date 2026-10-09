@@ -397,6 +397,12 @@ func (r *Runtime) grantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if h.held || h.idlePreparing || r.inUseLocked() >= maximum {
 		return AdmissionRequest{}, nil
 	}
+	// Binding an eligible TODO's branch happens before its VM can ask for
+	// admission. Background work may use spare capacity, but must leave room
+	// for that higher-priority demand while the binding is being committed.
+	if candidate.Class == "background" && maximum-r.inUseLocked() <= r.unboundTodoDemandLocked() {
+		return AdmissionRequest{}, nil
+	}
 	h.held = true
 	r.notifyAdmissionOwnershipLocked()
 	for _, row := range h.rows {

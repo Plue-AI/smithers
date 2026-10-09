@@ -46,7 +46,24 @@ func (s *MythicalService) LearningBackgroundRuns(ctx context.Context, repository
 			}
 			actions = append(actions, map[string]any{"tag": "background.dismiss", "label": "Dismiss"})
 		}
-		runs = append(runs, map[string]any{"id": id, "title": fmt.Sprintf("Learning · T%d", todo), "state": state, "actions": actions})
+		run := map[string]any{"id": id, "title": fmt.Sprintf("Learning · T%d", todo), "state": state, "actions": actions}
+		if queue, ok := s.learningMachines.(interface{ QueuePosition(string) int }); ok {
+			var input struct {
+				Item   string             `json:"item"`
+				Target flowruntime.Target `json:"target"`
+			}
+			if json.Unmarshal(payload, &input) == nil {
+				item := input.Item
+				if operation == "flow.runtime.launch" {
+					item = input.Target.BindingID
+				}
+				if position := queue.QueuePosition(item); position > 0 {
+					run["state"] = "waiting"
+					run["detail"] = fmt.Sprintf("waiting for a machine #%d", position)
+				}
+			}
+		}
+		runs = append(runs, run)
 	}
 	return runs, rows.Err()
 }

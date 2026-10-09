@@ -175,3 +175,18 @@ func (r *Runtime) refreshTodoEligibilityLocked(scope string, limit int) {
 		}
 	}
 }
+
+// Count holders, rather than rows: unresolved eligible TODOs have no authority
+// to boot yet, but lower-priority work cannot spend their available capacity.
+func (r *Runtime) unboundTodoDemandLocked() int {
+	pending := 0
+	for holder, h := range r.admission {
+		if !strings.HasPrefix(holder, "todo:") || h.held || !h.todoEligible {
+			continue
+		}
+		if row := h.rows[holder]; row != nil && row.Class == "todo" && row.State == "waiting" {
+			pending++
+		}
+	}
+	return pending
+}

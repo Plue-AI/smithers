@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,7 @@ type parallelIdleRuntime struct {
 	retainedSources sync.Map // successful guest checkout observations, keyed by branch
 	idleError       atomic.Value
 	safetySeen      atomic.Value
+	captureGuest    func(string)
 }
 
 func (r *parallelIdleRuntime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
@@ -197,66 +199,14 @@ func parallelAutomaticIdleRelease(t *testing.T, pool *pgxpool.Pool, branches *se
 	t.Cleanup(stop)
 	services.WithBranchHeads(client)(branches)
 	services.WithBranchCapture(registry)(branches)
-	link, peer := presenceTestLink(t, registry, row.ID)
-	require.NoError(t, link.Reconciled())
 	rawHead, err := hex.DecodeString(head)
 	require.NoError(t, err)
 	var treeText strings.Builder
 	require.NoError(t, gitHost.git(ctx, nil, &treeText, "rev-parse", head+"^{tree}"))
 	rawTree, err := hex.DecodeString(strings.TrimSpace(treeText.String()))
 	require.NoError(t, err)
-	var captures atomic.Int32
-	var drained atomic.Bool
-	go func() {
-		for {
-			frame, err := wire.Read(peer)
-			if err != nil {
-				return
-			}
-			if frame.Kind == wire.Events {
-				fields, err := wire.Fields("ack", frame.Payload[1:])
-				if err != nil || !bytes.Equal(fields[2], []byte{byte(machined.AckApplied)}) {
-					return
-				}
-				drained.Store(true)
-				continue
-			}
-			request, method, _, err := frame.Request()
-			if err != nil {
-				return
-			}
-			var fields [][]byte
-			switch wire.Method(method) {
-			case wire.Capture:
-				captures.Add(1)
-				drained.Store(false)
-				fields = [][]byte{wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, wire.U16(0))}
-			case wire.Status:
-				depth := uint32(0)
-				if captures.Load() > 0 && !drained.Load() {
-					depth = 1
-				}
-				fields = [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(depth)), wire.Field(5, rawHead), wire.Field(6, wire.U16(0)), wire.Field(7, []byte{1}), wire.Field(8, []byte{1})}
-			case wire.SetRoster:
-			default:
-				return
-			}
-			if wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(method, fields...)))}) != nil {
-				return
-			}
-			if wire.Method(method) == wire.Status {
-				if wire.Write(peer, emptyPresenceSnapshot) != nil {
-					return
-				}
-			}
-			if wire.Method(method) == wire.Capture {
-				event := machined.Event{Seq: 1, EventID: [16]byte{1}, Payload: wire.Union(2, wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, rawHead))}
-				if wire.Write(peer, transcriptEventFrame(event)) != nil {
-					return
-				}
-			}
-		}
-	}()
+	peer, captures, drained := parallelCaptureObservation(t, registry, row.ID, rawHead, rawTree, rawHead)
+	runtime.captureGuest = func(id string) { parallelCaptureObservation(t, registry, id, rawHead, rawTree, make([]byte, 20)) }
 	hosts, _ := presenceHostBinding(t, pool, row, ownerID)
 	bridge := realPresenceBridge(t)
 	presence := &branchPresence{queries: q, branches: branches, hosts: hosts, dispatcher: presenceBridgeFixture{bridge}, terminalManager: routes.NewTerminalSessionManager(nil), members: &services.Members{Pool: pool}}
@@ -326,4 +276,66 @@ func parallelBrowserCheckpoint(t *testing.T, step string) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(directory, step+".ready"), nil, 0600))
 	require.True(t, assertEventually(time.Minute, func() bool { _, err := os.Stat(filepath.Join(directory, step+".done")); return err == nil }), "browser did not observe %s", step)
+}
+
+// Only guest status/capture frames are injected; the installed event binder
+// records and acknowledges their capture through the native repository.
+func parallelCaptureObservation(t *testing.T, registry *machined.Registry, id string, rawHead, rawTree, base []byte) (net.Conn, *atomic.Int32, *atomic.Bool) {
+	t.Helper()
+	link, peer := presenceTestLink(t, registry, id)
+	require.NoError(t, link.Reconciled())
+	t.Cleanup(func() { _ = peer.Close() })
+	captures := new(atomic.Int32)
+	drained := new(atomic.Bool)
+	go func() {
+		for {
+			frame, err := wire.Read(peer)
+			if err != nil {
+				return
+			}
+			if frame.Kind == wire.Events {
+				fields, err := wire.Fields("ack", frame.Payload[1:])
+				if err != nil || !bytes.Equal(fields[2], []byte{byte(machined.AckApplied)}) {
+					return
+				}
+				drained.Store(true)
+				continue
+			}
+			request, method, _, err := frame.Request()
+			if err != nil {
+				return
+			}
+			var fields [][]byte
+			switch wire.Method(method) {
+			case wire.Capture:
+				captures.Add(1)
+				drained.Store(false)
+				fields = [][]byte{wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, wire.U16(0))}
+			case wire.Status:
+				depth := uint32(0)
+				if captures.Load() > 0 && !drained.Load() {
+					depth = 1
+				}
+				fields = [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(depth)), wire.Field(5, rawHead), wire.Field(6, wire.U16(0)), wire.Field(7, []byte{1}), wire.Field(8, []byte{1})}
+			case wire.SetRoster:
+			default:
+				return
+			}
+			if wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(method, fields...)))}) != nil {
+				return
+			}
+			if wire.Method(method) == wire.Status {
+				if wire.Write(peer, emptyPresenceSnapshot) != nil {
+					return
+				}
+			}
+			if wire.Method(method) == wire.Capture {
+				event := machined.Event{Seq: 1, EventID: [16]byte{1}, Payload: wire.Union(2, wire.Field(1, rawHead), wire.Field(2, rawTree), wire.Field(3, base))}
+				if wire.Write(peer, transcriptEventFrame(event)) != nil {
+					return
+				}
+			}
+		}
+	}()
+	return peer, captures, drained
 }

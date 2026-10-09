@@ -7,6 +7,7 @@ import { resolve } from "node:path"
 const origin = process.env.SMITHERS_ADMISSION_ORIGIN!
 const branch = process.env.SMITHERS_ADMISSION_BRANCH!
 const cookie = process.env.SMITHERS_ADMISSION_COOKIE!
+const mixed = process.env.SMITHERS_ADMISSION_MIXED === "1"
 const successful = process.env.SMITHERS_ADMISSION_SUCCESSFUL === "1"
 const publicURL = process.env.SMITHERS_ADMISSION_PUBLIC_URL ?? "http://127.0.0.1:4000"
 if (!origin || !branch || !cookie) throw new Error("An owned composed install is required")
@@ -42,11 +43,23 @@ try {
   const cursor = await page.evaluate(() => (window as unknown as { admission: { cursor(): number } }).admission.cursor())
   expect(cursor).toBeGreaterThan(0)
   const stack = page.getByRole("list", { name: "Stack", exact: true })
-  if (!successful) await expect(stack).toContainText("waiting for a machine #2")
+  if (mixed) {
+    await expect(stack.locator('li').filter({ hasText: "T5" })).toContainText("waiting for a machine #3")
+    await expect(stack.locator('li').filter({ hasText: "T6" })).toContainText("waiting for a machine #4")
+    await expect(page.getByRole("list", { name: "Background runs" })).toContainText("Learning · T2")
+    await expect(page.getByRole("list", { name: "Background runs" })).toContainText("waiting for a machine #5")
+    await page.reload()
+    await expect(card).toContainText("Waiting for a machine · #1")
+    await expect(page.getByRole("list", { name: "Background runs" })).toContainText("waiting for a machine #5")
+  } else if (!successful) await expect(stack).toContainText("waiting for a machine #2")
   console.log("ADMISSION_BROWSER_WAITING")
   await expect(card).toContainText(successful ? "Awake" : "Waking", { timeout: 60000 })
   await expect(card).not.toContainText("Waiting for a machine")
-  if (!successful) {
+  if (mixed) {
+    await expect(stack.locator('li').filter({ hasText: "T5" })).toContainText("waiting for a machine #2")
+    await expect(page.getByRole("list", { name: "Background runs" })).toContainText("waiting for a machine #4")
+  }
+  if (!successful && !mixed) {
     await expect(stack.locator('li[data-state="starting"]')).toContainText("T4")
     await expect(stack).toContainText("waiting for a machine #1")
   }
@@ -55,8 +68,10 @@ try {
   await page.reload()
   await expect(card).toContainText(successful ? "Awake" : "Waking", { timeout: 30000 })
   await expect(card).not.toContainText("Waiting for a machine")
+  if (mixed) await expect(page.getByRole("list", { name: "Background runs" })).toContainText("waiting for a machine #4")
   expect(errors).toEqual([])
   console.log("PASS C-MCH-11 production Branch/Home live mount, grant cursor and reload")
+  if (mixed) console.log("PASS C-MCH-02 mixed queue mounted Home Learning position and reload")
 } finally {
   await browser.close()
   await vite.close()

@@ -154,6 +154,17 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, _, place := position()
 	require.Equal(t, 2, place, "a later person goes ahead of learning")
+	projection := &learningMachine{pool: pool, workspace: runtime, source: source}
+	require.Equal(t, 2, projection.QueuePosition(item))
+	for _, invalid := range []string{"", "invalid", "00000000-0000-4000-8000-000000000001"} {
+		require.Zero(t, projection.QueuePosition(invalid))
+	}
+	runs, err := service.LearningBackgroundRuns(ctx, repository)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, "waiting", runs[0]["state"])
+	require.Equal(t, "waiting for a machine #2", runs[0]["detail"])
+	require.Zero(t, runtime.counts().creates, "reading a position cannot create a machine")
 	queue.ConfirmAdmissionStop("held", false)
 	_, err = queue.WaitAdmission(ctx, person, "person", "next-person", "Ben", "terminal")
 	require.NoError(t, err)
@@ -167,6 +178,7 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 		return err == nil && op.State == jobs.StateCompleted
 	}, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, learningCounts{creates: 1, restores: 1}, runtime.counts())
+	require.Zero(t, projection.QueuePosition(item), "a granted run has no waiting position")
 	require.Equal(t, 1, queue.InUse())
 	workspaceID := learningWorkspaceID(item)
 	var status, vm string
