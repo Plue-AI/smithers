@@ -13,7 +13,7 @@ import { createRoot } from "react-dom/client"
 import App from "../App"
 import { ControllerTestProvider } from "../ControllerContext"
 import { createAppStore } from "./AppStore"
-import { createAppController, type AppController } from "./AppController"
+import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, silentAgent, waitFor } from "./TestFixtures"
 import { branchTree } from "./seams/BranchNavigationSeam"
 
@@ -28,10 +28,10 @@ const serverFetch = async (input: Parameters<typeof fetch>[0], init?: Parameters
   finally { init?.signal?.removeEventListener("abort", cancel) }
 }
 GlobalRegistrator.register()
-const controllers: AppController[] = []
-const controllerFor: typeof createAppController = (...args) => { const controller = createAppController(...args); controllers.push(controller); return controller }
 const cleanups: Array<() => void> = []
-afterEach(async () => { for (const cleanup of cleanups.splice(0)) cleanup(); for (const controller of controllers.splice(0)) await controller.dispose() })
+// Registered first so each mount unmounts before scopedControllers() disposes its controller.
+afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
+const controllerFor = scopedControllers()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await GlobalRegistrator.unregister() })
 const row = (name: string, from = "main", state = "awake") => ({ name, kind: "scratch", state, machine: { id: name }, forked_from: { ref: from } })
 

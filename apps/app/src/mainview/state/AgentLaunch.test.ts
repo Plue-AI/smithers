@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import type { StorageApi } from "@tanstack/db"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { EXTERNAL_LAUNCH_PATH } from "@smthrs/rpc/AgentApiRoutes"
-import { createAppController } from "./AppController"
+import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import { shownInTranscript } from "./ApprovalDeciders"
 import { memoryStorage, unavailableAgent } from "./TestFixtures"
@@ -13,6 +13,7 @@ const SESSION = "0199e2e0-0000-7000-8000-00000000a11c"
 const bootstrap = (capabilities: AppBootstrap["capabilities"]): AppBootstrap =>
   ({ apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities, authFlow: "none", sandbox: null })
 const LAUNCHER = bootstrap(["launch.codex", "launch.claude-code"])
+const createAppController = scopedControllers()
 
 const until = async (done: () => boolean): Promise<void> => {
   for (let i = 0; i < 200 && !done(); i++) await new Promise(resolve => setTimeout(resolve, 1))

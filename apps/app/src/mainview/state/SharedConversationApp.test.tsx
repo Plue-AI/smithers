@@ -6,11 +6,12 @@ import { createRoot } from "react-dom/client"
 import App from "../App"
 import { ControllerTestProvider } from "../ControllerContext"
 import { createAppStore } from "./AppStore"
-import { createAppController } from "./AppController"
+import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, silentAgent, waitFor, writeLegacyCollection } from "./TestFixtures"
 
 GlobalRegistrator.register()
 afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 20)); await GlobalRegistrator.unregister() })
+const createAppController = scopedControllers()
 test("private diagnostic scope survives the actual storage boundary", async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
