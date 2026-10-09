@@ -15,7 +15,7 @@ the release notes at
 
 <!-- commits:1.0.0-rc.1 -->
 
-10726 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
+10732 commits since [v1.0.0-rc.0](https://github.com/smithersai/smithers/commit/f10b681620).
 
 ### ✨ Features
 
@@ -1314,6 +1314,10 @@ the release notes at
 
 ### 🐛 Bug fixes
 
+- **machined:** agent writes no longer wedge the machine daemon (#3385) ([c471b306ae](https://github.com/smithersai/smithers/commit/c471b306aefd6b61d6d932f997c744581f19d3c8))
+- **microsandbox:** bound daemon reconnects and drain msb shutdown (#3385) ([5039aa9b94](https://github.com/smithersai/smithers/commit/5039aa9b94f4d8d830b2696add447f929463811b))
+- **github:** complete fetched issue deliveries on installs (#3515) ([24190c6705](https://github.com/smithersai/smithers/commit/24190c670598d25dde01150381bb523edfc83707))
+- **install:** the setup card's Sign in reaches GitHub (#3385) ([e5a5b0fa87](https://github.com/smithersai/smithers/commit/e5a5b0fa87f899573b919c8bed692c1e2e7e1267))
 - **rebase:** order capture locks before the boot fence (#3532) ([25cb01da69](https://github.com/smithersai/smithers/commit/25cb01da69a7d69f0734d21fad4d875d0519e986))
 - **rebase:** retain Done authority across repair failure (#3532) ([b096080ac1](https://github.com/smithersai/smithers/commit/b096080ac19ccefa2ffcc1b07fd48ff4dd380e67))
 - **machine:** keep capture control processes outside the writer fence (#3385) ([1ff8afef7e](https://github.com/smithersai/smithers/commit/1ff8afef7e9957a0cfb878d97af17c6fe9607064))
@@ -7273,6 +7277,8 @@ the release notes at
 
 ### 📝 Documentation
 
+- **release:** PRERELEASE.md after install run 6, 02:39 PDT ([ed5f286ee3](https://github.com/smithersai/smithers/commit/ed5f286ee3600274eda987e4f556ea02001f4734))
+- **release:** PRERELEASE.md status after the crash, 01:25 PDT ([e23de288d2](https://github.com/smithersai/smithers/commit/e23de288d251caaffafafa12343bb9e7f9f2d21f))
 - **release:** record landed retire fence fix (#3385) ([6bac0f6e17](https://github.com/smithersai/smithers/commit/6bac0f6e17c1cd6e0f0e614b6be9aa1af0a5cd56))
 - **release:** refresh PRERELEASE.md body, 19:04 PDT ([933b9ecbda](https://github.com/smithersai/smithers/commit/933b9ecbdae0df6a3c143f777931f8a5b0b555b3))
 - **release:** PRERELEASE.md status block, 19:03 PDT ([98fefa1e84](https://github.com/smithersai/smithers/commit/98fefa1e84606d6ddbbea6c87ef6d2741c4239c6))
