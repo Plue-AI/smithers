@@ -1,18 +1,22 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 10:45 PDT
-main          5ea0bf5b8f when written
+Updated       2026-10-09 12:15 PDT
+main          f40e0f76bd when written
 
 Publish       NOTHING PUBLISHED. The v1.0.0-rc.1 tag run (37963844319) stopped
               in the npm publish preflight before any package: pnpm 11 answers
               a missing version of an existing name without a 404, and the
               preflight treated it as fatal. Fixed in 1618f9d9ce. The rc.1 tag
               stays as a failed attempt; npm never had 1.0.0-rc.1.
-Next          1.0.0-rc.2, cut 5ea0bf5b8f (66 commits after rc.1, including the
-              fix). Running on it: dry run #12 (37967228802), J1 to J11, then
-              real install run 11 on #12's bundle. The tag follows when all
-              three pass.
+Next          1.0.0-rc.2, re-cut f40e0f76bd (106 commits after rc.1). The first
+              rc.2 cut 5ea0bf5b8f passed dry run #12 and install run 11 (PR
+              canary-sandbox#152 merged), but J10 row 9 failed both tries:
+              every /review hung, because a review machine never wrote the
+              initialization receipt flow host starts need since aac3bf4993.
+              Fixed in 9fdb1884d6. Running on the re-cut: dry run #13
+              (37978357489), J1 to J11, then install run 12 on #13's bundle.
+              The tag follows when all three pass.
 Doneish       YES on 8ab73f0c82 (rc.1). rc.2 is being proven.
 Real install  Run 10 PASS on the rc.1 cut's own bundle (dry run #11), no patch: setup
               on the card, TODO T1 to PR canary-sandbox#151, merged with the
@@ -173,7 +177,7 @@ Confirmed by run 10 on the cut, built with no local patch: 1 (the catalog machin
 
 ## 6. Publish
 
-**Not published.** The v1.0.0-rc.1 tag (on 8ab73f0c82) ran Release 37963844319 at 10:05 PDT. Its candidate passed build, pack and smoke, then the publish preflight stopped on `@smthrs/errors` before any upload: `pnpm view` answers `ERR_PNPM_PACKAGE_NOT_FOUND` with no 404 for a missing version of an existing name. 1618f9d9ce fixes it with the run's exact output as the regression test. A resume would check out the rc.1 tag and run the old script, so the next publish is 1.0.0-rc.2, cut 5ea0bf5b8fd3e45bd7c14c0cbb59ee21b0682ee2.
+**Not published.** The v1.0.0-rc.1 tag (on 8ab73f0c82) ran Release 37963844319 at 10:05 PDT. Its candidate passed build, pack and smoke, then the publish preflight stopped on `@smthrs/errors` before any upload: `pnpm view` answers `ERR_PNPM_PACKAGE_NOT_FOUND` with no 404 for a missing version of an existing name. 1618f9d9ce fixes it with the run's exact output as the regression test. A resume would check out the rc.1 tag and run the old script, so the next publish is 1.0.0-rc.2, re-cut at f40e0f76bde74a933195f8d20d408c235c18ac35 after the first rc.2 cut failed J10 row 9.
 
 The rc.1 proof, kept for the record. On that commit: run 10 took a TODO to a merged PR, J1 to J11 have no failed row, and dry run #11 (37934773000) passed every blocking job: native helpers, build, pack, the installed-package smoke, the four installed-CLI jobs and the Mac bundle. The plan it printed: 1.0.0-rc.1 on the `next` dist-tag; publication skipped.
 
@@ -210,7 +214,7 @@ Publish 1.0.0-rc.2:
 ```sh
 cd ~/smithers
 gh auth refresh -h github.com -s workflow   # once, 1 minute
-SHA=5ea0bf5b8fd3e45bd7c14c0cbb59ee21b0682ee2   # the rc.2 cut, once its proof passes
+SHA=f40e0f76bde74a933195f8d20d408c235c18ac35   # the rc.2 re-cut, once its proof passes
 git fetch origin main
 git tag -a v1.0.0-rc.2 -m "🔖 release: 1.0.0-rc.2" "$SHA"
 git push origin v1.0.0-rc.2                 # this publishes to npm under `next`, about 45 minutes later
