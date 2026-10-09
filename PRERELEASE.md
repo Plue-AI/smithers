@@ -1,41 +1,44 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 18:33 PDT
-main          4ed515face when written
+Updated       2026-10-08 19:02 PDT
+main          00cea70baa when written
 
-Publish       CANNOT PUBLISH YET. Dry run #8 is running, no result. And a
-              released bundle cannot run a TODO until the fix below is on main.
-Real install  RUNNING on this MacBook. Setup done, TODO T1 created. The first
-              machine now runs 6.7 to 6.9 s after the request (2d1f60faf0).
-              With a local-only patch the flow's host started on a real machine
-              at 18:21:42 PDT, a first.
+Publish       NOT PUBLISHED. The release path is green: dry run #8 passed every
+              blocking job. Left: the final cut and one last dry run.
+              A released bundle still cannot run a TODO (Broken 1).
+Real install  RUNNING on this MacBook. Setup done, TODO T1 created. Stops found
+              on a real machine tonight:
+              - A machine start blocked itself for 15 minutes. Fixed,
+                2d1f60faf0: 6.7 to 6.9 s now.
+              - No agent could be admitted to a machine. Fixed, 1b4f32941e
+                (security owner accepted, 18:55 PDT). Not yet run on a real
+                machine at that commit.
+              - The first machine cannot be retired. Fix in progress.
               No TODO has reached a pull request on a real install.
-Broken        1. NOT FIXED ON MAIN: no agent, member terminal or actor can be
-                 admitted to a branch machine, so a TODO cannot run on a real
-                 install. Tests and journeys passed because their fixtures set
-                 the fields by hand. Fix in progress.
-              2. J7 is intermittent on current main: "a person resolves the
-                 retained conflict" failed on 3 of 4 attempts. Cause found,
-                 fix written, not landed.
-              3. Six more on the install, none fixed on main: section 3.
-Fixed on main Unverified on a real install until a rebuilt bundle runs: the
-              setup card hidden through the first four steps (c5120a5856), the
-              stale sign-in cookie (9a218b7f68), the joined words in Model
-              access and raw JSON on reopening /setup (88b768b019).
+Broken        1. NOT FIXED ON MAIN: the first machine loads the catalog, then
+                 cannot be retired: a process stays alive in it and the final
+                 capture check refuses. It keeps the install's only machine,
+                 and the TODO waits for a machine forever.
+              2. J7 is intermittent on main: red on both attempts at
+                 2d1f60faf0, green at 5e83665567. Two product defects found;
+                 neither fix is on main.
+              3. Six more on the install: section 3.
+Fixed on main Unverified until a fresh install built from main runs: agent
+              admission (1b4f32941e), the hidden setup card (c5120a5856), the
+              stale sign-in cookie (9a218b7f68), Model access wording and raw
+              JSON on reopening /setup (88b768b019).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
-Journeys      First full board pass with no failed row: c5120a5856, on Linux
-              fixtures, 188 pass, 0 fail, 33 pending. J7 passed on its second
-              attempt. J10 row 6 is green. Running on 5e83665567: J1 to J4 so
-              far, no failed row.
+Journeys      Last full pass, no failed row: c5120a5856, on Linux fixtures,
+              188 pass, 0 fail, 33 pending. On 5e83665567 so far: J1 to J9, no
+              failed row.
 Doneish       No. It needs the install run to take a TODO to a merged PR.
-Dry runs      Version 1.0.0-rc.1. None is green. #8 37867965100 on 5e83665567
-              since 18:04 PDT: helpers green, build, pack and smoke running.
-              #7 failed on a test bug, fixed in 5e83665567; with it the whole
-              smoke passed on Linux outside CI.
+Dry runs      Version 1.0.0-rc.1. #8 37867965100 on 5e83665567: build, pack,
+              smoke, the Mac bundle and the four installed-CLI jobs (their
+              first run ever) are green. Its report-only gates still run.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
-              skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
+              skipped. No GitHub Release.
 
 Ships         npm packages under `next`. The Apple Silicon server bundle is an
               artifact of the tag's Release run. No Homebrew. No public download.
@@ -46,7 +49,8 @@ No mini/Cloud The Mac mini is offline (Will, today). Cloud cannot run a TODO.
 
 Needs Will    Now: nothing required. Optional: say yes to using your model keys
               if the install run should also run a TODO with a real model.
-              When a dry run is green on the final cut: the tag push, section 6.
+              When the last dry run is green on the final cut: the tag push,
+              section 6.
 ```
 
 ## 1. What works
