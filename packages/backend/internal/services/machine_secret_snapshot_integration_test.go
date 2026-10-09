@@ -74,10 +74,10 @@ func TestMachineSecretScanDeliverySnapshotPostgres(t *testing.T) {
 	require.Equal(t, unbound, old.Env["CANARY_TOKEN"], "existing consumers retain their snapshot")
 	require.NotContains(t, RedactSecretValues(current.Secrets, "probe="+rotated), rotated)
 	// Scope changes and host binding changes must remove previously injected names.
-	_, err = service.UpdateSecret(ctx, &owner, owner.Username, repo.Name, "CANARY_TOKEN", boolPtr(true), nil, nil)
+	_, err = service.UpdateSecret(ctx, &owner, owner.Username, repo.Name, "CANARY_TOKEN", boolPtr(true), nil)
 	require.NoError(t, err)
 	snapshot(map[string]string{}, relay)
-	_, err = service.UpdateSecret(ctx, &owner, owner.Username, repo.Name, "CANARY_TOKEN", boolPtr(false), nil, nil)
+	_, err = service.UpdateSecret(ctx, &owner, owner.Username, repo.Name, "CANARY_TOKEN", boolPtr(false), nil)
 	require.NoError(t, err)
 	_, err = service.SetSecretBinding(ctx, &owner, owner.Username, repo.Name, "CANARY_TOKEN", SecretBinding{Hosts: []string{"api.example.com"}, MatchHeaders: []string{"authorization"}})
 	require.NoError(t, err)
