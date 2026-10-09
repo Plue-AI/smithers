@@ -13,7 +13,7 @@ import { modelFailureLine, sealedMessages, sealedTurn } from "./ConfiguredModelH
 import { planOnLocal } from "@smthrs/model-host/LocalModel"
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { homedir, userInfo } from "node:os"
+import { homedir } from "node:os"
 import { join, normalize, resolve } from "node:path"
 import {
   AUTH_CALLBACK_PATH,
@@ -61,8 +61,7 @@ import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
-import { decodePath, invalidPath, json, jsonError, jsonErrorWithStatus, readJson, refuse, Router } from "./routes"
-import { externalSessions } from "./ExternalSessions"
+import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
 import type { AgentLauncher } from "./AgentLaunch"
 
 /** The deployed identity seam the sign-in device flow talks to. */
@@ -155,10 +154,6 @@ export interface LocalServerOptions {
   readonly identityUpstream?: string | null
   /** Self-hosted product backend for the live channel; independent of cloud mode. */
   readonly backendApi?: string | null
-  /** Codex and Claude Code sessions on this machine (M-38); tests pass their own agent homes. */
-  readonly externalSessions?: ReturnType<typeof externalSessions>
-  /** Test compositions only: the person their fixture sessions name. The preview otherwise names the OS user. */
-  readonly externalOwner?: { readonly login: string; readonly name: string }
   /** Starts agent CLIs on this machine (#3730); absent, this host has no launch door. The server stops it. */
   readonly agentLauncher?: AgentLauncher
   /**
@@ -650,12 +645,6 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
-/** The OS user whose own Codex and Claude Code homes the local preview reads. */
-const machineOwner = (): { readonly login: string; readonly name: string } => {
-  const login = userInfo().username
-  return { login, name: login }
-}
-
 /** Both the request target and its actual peer must be loopback. */
 export const localPreviewLoopback = (hostname: string, address: string | undefined): boolean =>
   hostname === "127.0.0.1" && (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1")
@@ -750,32 +739,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       home
     }))
 
-  /**
-   * Local-mode preview only (M-38): the OS owner's local-session capability
-   * reads their own Codex or Claude Code home on the loopback listener, as
-   * raw JSONL from a byte offset, the contract the install's backend serves;
-   * the app decodes it. Never mount on an install listener.
-   */
+  // Host CLI launches remain local preview only. Shared conversation history
+  // comes from normalized branch ingestion; no router reads raw agent homes.
   const localPreview = !remoteEnabled && !(options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi)
-  const readSession = options.externalSessions ?? externalSessions()
-  const owner = options.externalOwner ?? machineOwner()
-  if (localPreview) router.add("GET", EXTERNAL_SESSIONS_PATH, async ({ url }) => {
-    const agent = url.searchParams.get("agent")
-    if (agent !== "codex" && agent !== "claude-code") return jsonError("invalid_request", "agent must be codex or claude-code.")
-    const offset = url.searchParams.get("offset") ?? "0"
-    if (!/^(0|[1-9]\d{0,15})$/.test(offset)) return jsonError("invalid_request", "offset must be a byte offset the previous read answered as next.")
-    const read = await readSession(agent, url.searchParams.get("session") ?? "", Number(offset))
-    if ("refusal" in read) {
-      const { status, message } = read.refusal
-      return jsonErrorWithStatus(status, status === 404 ? "source_not_found" : "invalid_request", message)
-    }
-    return json({ ...read, owner })
-  })
-
-  /*
-   * #3730: start Codex or Claude Code here and answer the session it wrote; the conversation reads it through the route above.
-   * The same local preview only, on the same loopback listener: an install never starts a CLI on its host.
-   */
   const launcher = localPreview ? options.agentLauncher : undefined
   if (launcher !== undefined) router.add("POST", EXTERNAL_LAUNCH_PATH, async ({ request }) => {
     const generation = launcher.admission()

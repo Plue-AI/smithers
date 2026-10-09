@@ -1,64 +1,21 @@
-/*
- * The local preview's Codex and Claude Code sessions, served as raw JSONL for
- * the conversation (mvp.md M-38): this host's side of GET
- * /api/external/sessions, the contract packages/backend/internal/externalsessions
- * serves on an install. A session is found by id or unique prefix under the
- * running user's own agent home only (CODEX_HOME else ~/.codex, CLAUDE_CONFIG_DIR
- * else ~/.claude), never by path. A root may link only inside the running user's
- * real home, excluding <home>/.smithers/accounts; links beneath it are refused.
- * The root is re-resolved on every lookup and read. A read
- * answers the file's complete lines from a byte offset. The app decodes them,
- * so nothing here parses a record. Every failed check answers no-session.
- */
-import { constants } from "node:fs"
-import { lstat, open, readdir, realpath } from "node:fs/promises"
+// Fixture-only raw session lookup; production history uses normalized branch ingestion.
+import { lstat, readdir } from "node:fs/promises"
 import { homedir } from "node:os"
-import { join, relative, resolve, sep } from "node:path"
+import { join } from "node:path"
 
 export type ExternalAgent = "codex" | "claude-code"
 export const agentName = (agent: ExternalAgent): string => agent === "codex" ? "Codex" : "Claude Code"
 
 /** A session id or a prefix of at least four characters. */
 export const SESSION_ID = /^[0-9a-f-]{4,36}$/
-/** One read: whole lines up to 4 MiB. */
-export const CHUNK_LIMIT = 4 << 20
-/** The one line a read returns when that line alone is longer than a chunk. */
-export const LINE_LIMIT = 64 << 20
-
-/** Why a session was not found or read, with the status the host answers. */
-export interface Refusal { readonly status: number; readonly code: string; readonly message: string }
+import { regularPath, readChunk, type Chunk, type Identity, type Refusal } from "../AgentLaunchFiles"
+export { regularPath, readChunk, CHUNK_LIMIT, LINE_LIMIT } from "../AgentLaunchFiles"
 const refusal = (status: number, code: string, message: string): { readonly refusal: Refusal } => ({ refusal: { status, code, message } })
 const unknown = (agent: ExternalAgent, prefix: string) => refusal(404, "source_not_found", `No ${agentName(agent)} session ${prefix} on this machine.`)
 
 /** The running user's own sessions directory for `agent`: its configured home, else the default one. */
 export async function sessionRoots(agent: ExternalAgent, home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env): Promise<string[]> {
   return agent === "codex" ? [join(env.CODEX_HOME || join(home, ".codex"), "sessions")] : [join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "projects")]
-}
-
-const within = (root: string, path: string): boolean => {
-  const below = relative(root, path)
-  return below !== ".." && !below.startsWith(`..${sep}`) && !below.startsWith(sep)
-}
-
-/** Resolve root links afresh, allowing only the user's real home outside other seats; never follow a link beneath it. */
-export async function regularPath(path: string, root: string, home = homedir()) {
-  const absolute = resolve(path)
-  const lexicalRoot = resolve(root)
-  if (!within(lexicalRoot, absolute)) throw new Error("Outside transcript root")
-  const resolvedRoot = await realpath(lexicalRoot)
-  if (resolvedRoot !== lexicalRoot) {
-    const resolvedHome = await realpath(home)
-    if (!within(resolvedHome, resolvedRoot) || within(join(resolvedHome, ".smithers", "accounts"), resolvedRoot)) {
-      throw new Error("Unsafe transcript root link")
-    }
-  }
-  let component = lexicalRoot
-  for (const name of relative(lexicalRoot, absolute).split(sep).filter(Boolean)) {
-    component = join(component, name)
-    if ((await lstat(component)).isSymbolicLink()) throw new Error("Symlink transcript path")
-  }
-  if (!within(resolvedRoot, await realpath(absolute))) throw new Error("Outside transcript root")
-  return lstat(absolute === lexicalRoot ? resolvedRoot : absolute)
 }
 
 const ROLLOUT = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]+)\.jsonl$/
@@ -93,61 +50,6 @@ export async function findSession(agent: ExternalAgent, prefix: string, roots: r
   if (ids.length > 1) return refusal(409, "ambiguous_session", `${prefix} matches ${ids.length} ${agentName(agent)} sessions: ${ids.join(", ")}.`)
   const { modified: _, ...newest } = matches.reduce((best, each) => each.modified > best.modified ? each : best)
   return newest
-}
-
-/** Complete lines from `offset`: `text` ends at a line boundary, `next` is the offset after it, `eof` says the read reached the file's end. */
-export interface Chunk { readonly offset: number; readonly next: number; readonly text: string; readonly eof: boolean }
-
-const NEWLINE = 0x0a
-
-/** A file's identity: the one found must be the one read. */
-export interface Identity { readonly dev: number; readonly ino: number }
-
-/**
- * The file's complete lines from `offset`, at most CHUNK_LIMIT bytes of them; a longer first line alone, up to
- * LINE_LIMIT. The file is opened without following a link and must be the one `root` holds at `path` now and, when
- * `found` is given, the one found there.
- */
-export async function readChunk(path: string, root: string, offset: number, found?: Identity, home = homedir()): Promise<Chunk | { readonly refusal: Refusal }> {
-  const gone = refusal(404, "source_not_found", "The session file is gone.")
-  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined)
-  if (file === undefined) return gone
-  try {
-    const opened = await file.stat()
-    const current = await regularPath(path, root, home).catch(() => undefined)
-    const same = (other: Identity | undefined) => other !== undefined && opened.dev === other.dev && opened.ino === other.ino
-    if (!opened.isFile() || !same(current) || (found !== undefined && !same(found))) return gone
-    const size = opened.size
-    if (offset > size) return refusal(409, "offset_out_of_range", `The session file is ${size} bytes, shorter than offset ${offset}: it was replaced.`)
-    const read = async (at: number, length: number): Promise<Uint8Array> => {
-      const bytes = new Uint8Array(length)
-      const { bytesRead } = await file.read(bytes, 0, length, at)
-      return bytes.subarray(0, bytesRead)
-    }
-    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
-    const first = await read(offset, Math.min(CHUNK_LIMIT, size - offset))
-    const end = offset + first.length
-    const last = first.lastIndexOf(NEWLINE)
-    if (last >= 0) return { offset, next: offset + last + 1, text: decode(first.subarray(0, last + 1)), eof: end >= size }
-    // One line longer than a chunk: read on to its newline.
-    const parts = [first]
-    let length = first.length
-    for (let at = end; at < size && length < LINE_LIMIT;) {
-      const more = await read(at, Math.min(CHUNK_LIMIT, size - at, LINE_LIMIT - length))
-      if (more.length === 0) break
-      const newline = more.indexOf(NEWLINE)
-      if (newline >= 0) {
-        parts.push(more.subarray(0, newline + 1))
-        const next = offset + length + newline + 1
-        return { offset, next, text: decode(Buffer.concat(parts)), eof: next >= size }
-      }
-      parts.push(more)
-      length += more.length
-      at += more.length
-    }
-    if (offset + length >= size) return { offset, next: offset, text: "", eof: true }
-    return refusal(422, "line_too_long", `The line at byte ${offset} is longer than ${LINE_LIMIT >> 20} MiB.`)
-  } finally { await file.close() }
 }
 
 export interface SessionRead extends Chunk {

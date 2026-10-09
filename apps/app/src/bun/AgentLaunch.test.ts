@@ -11,7 +11,7 @@ import {
   agentLauncher, claudeSessionStart, codexSessionStart, launchArguments, launchEnvironment, launchedSession, sessionStartsSince, START_SKEW_MS,
   type LaunchAgent, type LaunchedChild, type SessionStart
 } from "./AgentLaunch"
-import { externalSessions } from "./ExternalSessions"
+import { externalSessions } from "./test-support/ExternalSessions"
 import { startLocalServer, type LocalServer } from "./server"
 
 const FIXTURE_CLI: Record<LaunchAgent, string> = {
@@ -512,8 +512,7 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
   const serve = async (options: { launcher?: ReturnType<typeof agentLauncher>; roots?: (agent: LaunchAgent) => Promise<readonly string[]>; cloud?: boolean } = {}) => {
     const server = await startLocalServer({ port: 0, distDir: dist, home: "/fake/home", log: () => {},
       ...(options.cloud ? { cloudMode: "hybrid" as const, cloudApi: "http://127.0.0.1:9" } : {}),
-      ...(options.launcher ? { agentLauncher: options.launcher } : {}),
-      ...(options.roots ? { externalSessions: externalSessions(options.roots), externalOwner: { login: "ben", name: "Ben Ito" } } : {}) })
+      ...(options.launcher ? { agentLauncher: options.launcher } : {}) })
     servers.push(server)
     return server
   }
@@ -529,7 +528,7 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
   const capabilities = async (server: LocalServer) =>
     ((await (await fetch(`${server.origin}/api/bootstrap`, { headers: { [LOCAL_SESSION_HEADER]: server.sessionToken } })).json()) as { capabilities: string[] }).capabilities
 
-  test("a host with a launcher says which agents it starts, starts one and answers the session the conversation then reads", async () => {
+  test("a host with a launcher starts one and never exposes its raw session", async () => {
     const { roots, launcher } = await fixtureLauncher("route")
     const server = await serve({ launcher, roots })
     expect(await capabilities(server)).toEqual(expect.arrayContaining(["launch.codex", "launch.claude-code"]))
@@ -539,9 +538,8 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
       const launched = await response.json() as { agent: string; session: string }
       expect(launched.agent).toBe(agent)
       const read = await fetch(`${server.origin}${EXTERNAL_SESSIONS_PATH}?agent=${agent}&session=${launched.session}&offset=0`, { headers: { [LOCAL_SESSION_HEADER]: server.sessionToken } })
-      const body = await read.json() as { session_id: string; text: string }
-      expect(body.session_id).toBe(launched.session)
-      expect(body.text).toContain("Add a retry")
+      expect(read.status).toBe(404)
+      expect(await read.json()).toMatchObject({ error: { code: "not_found" } })
     }
   })
 

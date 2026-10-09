@@ -2,14 +2,14 @@
  * Starting an agent CLI on this machine (#3730, mvp.md M-38). The host runs
  * Codex or Claude Code headless in its working directory, then finds the
  * session the CLI wrote: the earliest one whose working directory is the
- * launch's and which began at or after the launch. The conversation reads that
- * session through /api/external/sessions. Launches run one at a time, so two
+ * launch's and which began at or after the launch. It returns that
+ * session identity for the preview. Launches run one at a time, so two
  * launches in one directory never trade sessions.
  */
 import { lstat, readdir, realpath } from "node:fs/promises"
 import { homedir, userInfo } from "node:os"
 import { spawn as spawnProcess } from "node:child_process"
-import { readChunk, regularPath } from "./ExternalSessions"
+import { readChunk, regularPath } from "./AgentLaunchFiles"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
 export type LaunchAgent = "codex" | "claude-code"

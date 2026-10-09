@@ -4,7 +4,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
 import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
-import { externalSessions } from "../src/bun/ExternalSessions"
 import { agentLauncher, type LaunchAgent } from "../src/bun/AgentLaunch"
 import type { LocalServerOptions } from "../src/bun/server"
 
@@ -43,19 +42,6 @@ export const browserTestOptions = (
     env: modelEnv,
     home: root,
     stateDir: join(root, "state"),
-    // M-38: Codex and Claude Code sessions from SMITHERS_E2E_CODEX_HOME and SMITHERS_E2E_CLAUDE_HOME, and from the
-    // launch homes, only, as a fixed owner; this machine's own sessions stay out.
-    ...(env.SMITHERS_E2E_CODEX_HOME === undefined && env.SMITHERS_E2E_CLAUDE_HOME === undefined ? {} : {
-      externalSessions: externalSessions(async agent => {
-        const home = agent === "codex" ? env.SMITHERS_E2E_CODEX_HOME : env.SMITHERS_E2E_CLAUDE_HOME
-        const launched = launch[agent]
-        return [
-          ...(home === undefined ? [] : [join(home, sessionsDirectory[agent])]),
-          ...(launched === undefined ? [] : [join(launched.home, sessionsDirectory[agent])])
-        ]
-      }),
-      externalOwner: { login: "ben", name: "Ben Ito" }
-    }),
     ...(launch.codex === undefined && launch["claude-code"] === undefined ? {} : { agentLauncher: agentLauncher({
       cwd: launchDirectory(root), home: root,
       agents: Object.fromEntries((Object.keys(launch) as LaunchAgent[]).map(agent => [agent, {

@@ -69,6 +69,7 @@ test("app source never constructs a host launcher outside the local composition"
   expect(references).toEqual([])
   const composition = await readFile(join(root, "bun/server.ts"), "utf8")
   expect(composition).toContain("const launcher = localPreview ? options.agentLauncher : undefined")
+  expect(composition).not.toMatch(/externalSessions|externalOwner|router\.add\("GET", EXTERNAL_SESSIONS_PATH/)
 })
 
 test("install network composition registers no host launch route or bootstrap capability", async () => {

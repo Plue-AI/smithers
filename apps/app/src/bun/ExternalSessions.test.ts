@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { appendFile, lstat, mkdir, mkdtemp, realpath, rename, rm, symlink, utimes, writeFile } from "node:fs/promises"
-import { tmpdir, userInfo } from "node:os"
+import { appendFile, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, utimes, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { EXTERNAL_SESSIONS_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
-import { CHUNK_LIMIT, LINE_LIMIT, externalSessions, findSession, readChunk, sessionRoots } from "./ExternalSessions"
-import { localPreviewLoopback, startLocalServer, type LocalServer } from "./server"
+import { CHUNK_LIMIT, LINE_LIMIT, externalSessions, findSession, readChunk, sessionRoots } from "./test-support/ExternalSessions"
+import { startLocalServer } from "./server"
 
 const ID = "0199aaaa-1111-7222-8333-444455556666"
 const OTHER = "0199bbbb-1111-7222-8333-444455556666"
@@ -219,59 +219,32 @@ describe("reading a session", () => {
   })
 })
 
-describe(`GET ${EXTERNAL_SESSIONS_PATH}`, () => {
-  let server: LocalServer
-  let dist: string
-  beforeAll(async () => {
-    dist = await mkdtemp(join(tmpdir(), "smithers-dist-"))
-    await writeFile(join(dist, "index.html"), "<!doctype html><div id=\"root\"></div>")
-    server = await startLocalServer({ port: 0, distDir: dist, home: "/fake/home", log: () => {}, externalSessions: externalSessions(agent => sessionRoots(agent, home, {})) })
-  })
-  afterAll(async () => { await server.stop(); await rm(dist, { recursive: true, force: true }) })
-  const get = (query: string, session = true) =>
-    fetch(`${server.origin}${EXTERNAL_SESSIONS_PATH}${query}`, { headers: session ? { [LOCAL_SESSION_HEADER]: server.sessionToken } : {} })
-  const os = { login: userInfo().username, name: userInfo().username }
-
-  test("answers the session's lines from the offset, named for the OS user", async () => {
-    const response = await get("?agent=codex&session=0199bbbb")
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ agent: "codex", session_id: OTHER, owner: os, offset: 0, next: 6, text: "other\n", eof: true })
-    expect(await (await get("?agent=codex&session=0199bbbb&offset=6")).json()).toMatchObject({ offset: 6, next: 6, text: "", eof: true })
-    expect(await (await get("?agent=claude-code&session=5b2c")).json()).toMatchObject({ agent: "claude-code", session_id: CLAUDE, text: "own claude\n" })
-  })
-
-  test("refuses a bad agent, id or offset, an unknown id, an ambiguous prefix and a request without the local session", async () => {
-    for (const query of ["", "?agent=codex", "?agent=gemini&session=0199bbbb", "?agent=codex&session=../../etc", "?agent=codex&session=0199bbbb&offset=-1",
-      "?agent=codex&session=0199bbbb&offset=01", "?agent=codex&session=0199bbbb&offset=x"]) expect((await get(query)).status, query).toBe(400)
-    const unknown = await get("?agent=codex&session=ffffffff")
-    expect(unknown.status).toBe(404)
-    expect(await unknown.json()).toMatchObject({ message: "No Codex session ffffffff on this machine." })
-    expect((await get("?agent=codex&session=0199")).status).toBe(409)
-    expect((await get("?agent=codex&session=0199bbbb&offset=99")).status).toBe(409)
-    expect((await get("?agent=codex&session=0199bbbb", false)).status).toBe(401)
-  })
-
-  test("refuses non-loopback targets and peers", async () => {
-    expect(localPreviewLoopback("127.0.0.1", "192.168.1.2")).toBe(false)
-    expect(localPreviewLoopback("192.168.1.2", "127.0.0.1")).toBe(false)
-    expect(localPreviewLoopback("127.0.0.1", undefined)).toBe(false)
-    expect(localPreviewLoopback("127.0.0.1", "127.0.0.1")).toBe(true)
-    const response = await fetch(`${server.origin}${EXTERNAL_SESSIONS_PATH}?agent=codex&session=${ID}`, {
-      headers: { host: "192.168.1.2", [LOCAL_SESSION_HEADER]: server.sessionToken }
-    })
-    expect(response.status).toBe(421)
-  })
-
-  test("install-connected and hybrid routers never mount the preview", async () => {
-    for (const mode of [{ backendApi: "http://127.0.0.1:1" }, { cloudMode: "hybrid" as const }]) {
-      let reads = 0
-      const host = await startLocalServer({ port: 0, distDir: dist, log: () => {}, ...mode,
-        externalSessions: async () => { reads++; throw new Error("must not read a home") } })
-      try {
-        const response = await fetch(`${host.origin}${EXTERNAL_SESSIONS_PATH}?agent=codex&session=${ID}`, { headers: { [LOCAL_SESSION_HEADER]: host.sessionToken } })
-        expect(response.status).toBe(404)
-        expect(reads).toBe(0)
-      } finally { await host.stop() }
-    }
+describe(`retired GET ${EXTERNAL_SESSIONS_PATH}`, () => {
+  test("every composition refuses raw session and legacy Codex reads", async () => {
+    const dist = await mkdtemp(join(tmpdir(), "smithers-retired-transcript-"))
+    await writeFile(join(dist, "index.html"), "<!doctype html><div id=root></div>")
+    const sentinel = join(dist, "history.jsonl")
+    await writeFile(sentinel, "unrelated private history\n")
+    try {
+      for (const mode of [
+        { backendApi: null, cloudMode: "offline" as const },
+        { backendApi: "http://127.0.0.1:1", cloudMode: "offline" as const },
+        { backendApi: null, cloudMode: "hybrid" as const }
+      ]) {
+        const host = await startLocalServer({ port: 0, distDir: dist, stateDir: dist, log: () => {}, ...mode })
+        try {
+          for (const path of [EXTERNAL_SESSIONS_PATH, "/api/external/codex"]) {
+            for (const agent of ["codex", "claude-code"]) {
+              const response = await fetch(`${host.origin}${path}?agent=${agent}&session=${ID}&offset=0`, {
+                headers: { [LOCAL_SESSION_HEADER]: host.sessionToken }
+              })
+              expect(response.status).toBe(404)
+              expect(await response.json()).toMatchObject({ error: { code: "not_found" } })
+            }
+          }
+          expect(await readFile(sentinel, "utf8")).toBe("unrelated private history\n")
+        } finally { await host.stop() }
+      }
+    } finally { await rm(dist, { recursive: true, force: true }) }
   })
 })
