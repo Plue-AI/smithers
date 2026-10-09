@@ -95,6 +95,9 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 					return todoControlConflict("A GitHub write on this TODO is settling; drop it again in a moment")
 				}
 			}
+			if _, err := forkFoldChildren(ctx, tx, item); err != nil {
+				return err
+			}
 			checks := mythicalChecksOf(item)
 			if item.FlowDigest.Valid && checks.RunLaunched && item.RequestOutcome == "" {
 				capture, ok := s.lanes.(todoDropCapture)

@@ -7,28 +7,49 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// FoldIntoForks retains a dropped source's change in every adopted descendant
-// before vacating its place. A moved-before-source descendant keeps its tree;
-// a later descendant takes source edits made since the fork with a three-way
-// merge. Conflict or unavailable capture refuses the whole Drop transaction.
-func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, source db.MythicalItem) error {
+// forkFoldChildren validates every adopted descendant before Drop cancels the
+// source. The folding transaction repeats this check after capture, since a
+// descendant may have started while the source was being retired.
+func forkFoldChildren(ctx context.Context, tx pgx.Tx, source db.MythicalItem) ([]db.MythicalItem, error) {
 	q := db.New(tx)
 	order, err := q.LockMythicalStackOrder(ctx, source.RepositoryID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	children := []db.MythicalItem{}
 	for _, child := range order {
 		if child.ID == source.ID || child.WorkspaceID == "" {
 			continue
 		}
-		workspace, err := q.GetWorkspace(ctx, child.WorkspaceID)
-		if err != nil {
-			return err
+		var forked bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces WHERE id::text=$1 AND forked_from_item=$2)`, child.WorkspaceID, source.ID).Scan(&forked); err != nil {
+			return nil, err
 		}
-		if workspace.ForkedFromItem == source.ID {
+		if forked {
 			children = append(children, child)
 		}
+	}
+	for _, child := range children {
+		checks := mythicalChecksOf(child)
+		if checks.RunLaunched && child.RequestOutcome == "" {
+			return nil, todoControlConflict("Forked TODO is still working")
+		}
+		if checks.Seed == nil || !mythicalSHA.MatchString(checks.Seed.ForkCommit) || mythicalMergeFenced(child) {
+			return nil, todoControlUnavailable()
+		}
+	}
+	return children, nil
+}
+
+// FoldIntoForks retains a dropped source's change in every adopted descendant
+// before vacating its place. A moved-before-source descendant keeps its tree;
+// a later descendant takes source edits made since the fork with a three-way
+// merge. Conflict or unavailable capture refuses the whole Drop transaction.
+func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, source db.MythicalItem) error {
+	q := db.New(tx)
+	children, err := forkFoldChildren(ctx, tx, source)
+	if err != nil {
+		return err
 	}
 	if len(children) == 0 {
 		return nil
@@ -78,9 +99,6 @@ func (s *MythicalService) FoldIntoForks(ctx context.Context, tx pgx.Tx, stack db
 	run := &mythicalRun{row: stack, g: g, bridge: bridge, owner: owner, repo: repo.Name}
 	for _, child := range children {
 		checks := mythicalChecksOf(child)
-		if checks.Seed == nil || !mythicalSHA.MatchString(checks.Seed.ForkCommit) || mythicalMergeFenced(child) || checks.RunLaunched && child.RequestOutcome == "" {
-			return todoControlUnavailable()
-		}
 		head := child.CandidateHead
 		if head == "" {
 			head, err = reader.CapturedHead(ctx, child.WorkspaceID, source.RepositoryID, stack.ActorUserID.Int64)

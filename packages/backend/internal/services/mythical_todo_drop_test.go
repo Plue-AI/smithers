@@ -381,3 +381,47 @@ func TestTodoDropCaptureFailureRecovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "accepted", receipt.State)
 }
+
+type dropForkCaptureFixture struct {
+	*dropCaptureFault
+	head string
+}
+
+func (f dropForkCaptureFixture) CapturedHead(context.Context, string, int64, int64) (string, error) {
+	return f.head, nil
+}
+
+// A refused fold must leave the live source running even when its capture
+// provider is ready. Cancellation admission itself would make it stop later.
+func TestTodoDropRunningForkRefusesBeforeSourceCancellation(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "live source with running fork")
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 1)
+	o.projectTodo(launches[0], jobs.StateWaiting, "drop-source-run", todoPinOne, "")
+	item = o.byID(uuidString(item.ID))
+	q := db.New(o.pool)
+	workspace, err := q.CreateWorkspace(session, db.CreateWorkspaceParams{RepositoryID: o.repoID, UserID: o.userID, TargetBookmark: "smithers/running-fork", Status: "running", ForkedFromItem: item.ID})
+	require.NoError(t, err)
+	child, _, err := q.InsertMythicalItem(session, db.MythicalItem{RepositoryID: o.repoID, State: "running", WorkspaceID: workspace.ID, Checks: []byte(`{"run_launched":true}`)})
+	require.NoError(t, err)
+	_, err = o.pool.Exec(session, `UPDATE mythical_items SET stack_position=2,workspace_id=$2 WHERE id=$1`, child.ID, workspace.ID)
+	require.NoError(t, err)
+	child, err = q.GetMythicalItem(session, child.ID)
+	require.NoError(t, err)
+	fault := &dropCaptureFault{fakeMythicalLanes: o.lanes}
+	o.service.lanes = dropForkCaptureFixture{dropCaptureFault: fault, head: item.BaseCommit}
+	press := TodoControlInput{Op: "drop", Repository: o.repoID, Actor: o.userID, Request: "drop-running-fork"}
+	for range 2 {
+		_, err := o.service.ControlTodo(session, item.Number.Int64, press)
+		require.Equal(t, todoControlConflict("Forked TODO is still working"), err)
+	}
+	require.Equal(t, item, o.byID(uuidString(item.ID)))
+	require.Equal(t, child, o.byID(uuidString(child.ID)))
+	require.Empty(t, o.launcher.cancelled)
+	require.Zero(t, fault.captures)
+	require.Empty(t, o.facts(item, "todo.drop-requested"))
+	require.Empty(t, o.facts(item, "todo.dropped"))
+}

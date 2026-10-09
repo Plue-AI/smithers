@@ -39,6 +39,10 @@ func TestBranchAddComposedInstall(t *testing.T) {
 		t.Run("provider-"+remove, func(t *testing.T) { runBranchAddComposed(t, remove) })
 	}
 }
+func TestBranchDropRunningForkComposedInstall(t *testing.T) {
+	runBranchAddComposed(t, "running-fork-drop")
+}
+
 func TestBranchScratchForkCardComposedInstall(t *testing.T) { runBranchAddComposed(t, "app-card-fork") }
 
 func TestBranchTerminalCardComposedInstall(t *testing.T) {
@@ -65,6 +69,10 @@ func TestBranchFirstCaptureComposedInstall(t *testing.T) {
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	configureNativeInstallFixture(t)
+	runningForkDrop := remove == "running-fork-drop"
+	if runningForkDrop {
+		remove = ""
+	}
 	placement := "before"
 	captureLock := remove == "capture-lock"
 	if captureLock {
@@ -737,6 +745,53 @@ func runBranchAddComposed(t *testing.T, remove string) {
 	item.CandidateBase, item.CandidateHead, item.CandidateVerified, item.State = base, sourceHead, true, "proposed"
 	_, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
+	if runningForkDrop {
+		// The source has a live pinned attempt, and its adopted child launched.
+		// Refuse before cancellation/capture instead of accepting an obligation
+		// that stops the source and then cannot fold the child.
+		originalSource, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		originalChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks || '{"run_launched":true}'::jsonb, request_outcome='' WHERE id IN ($1,$2)`, item.ID, confirmedItem.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2 WHERE id=$1`, item.ID, strings.Repeat("b", 64))
+		require.NoError(t, err)
+		beforeSource, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		beforeChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
+		require.NoError(t, err)
+		var requestsBefore, eventsBefore int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsBefore))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsBefore))
+		for range 2 {
+			drop := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/todos/1", strings.NewReader(`{"op":"drop"}`))
+			drop.RemoteAddr = "127.0.0.1:12345"
+			drop.Header = press.Header.Clone()
+			drop.Header.Set("Idempotency-Key", "drop-running-fork")
+			result := httptest.NewRecorder()
+			handler.ServeHTTP(result, drop)
+			require.Equal(t, 409, result.Code, result.Body.String())
+			require.Contains(t, result.Body.String(), "Forked TODO is still working")
+		}
+		afterSource, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		afterChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
+		require.NoError(t, err)
+		require.Equal(t, beforeSource, afterSource)
+		require.Equal(t, beforeChild, afterChild)
+		var requestsAfter, eventsAfter int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfter))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
+		require.Equal(t, requestsBefore, requestsAfter, "no cancellation admitted")
+		require.Equal(t, eventsBefore, eventsAfter, "no Drop or capture obligation recorded")
+		// Restore ended attempts; the same composed Drop below is a positive
+		// control for folding the retained source and scratch bytes.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3,flow_digest=$4 WHERE id=$1`, originalSource.ID, originalSource.Checks, originalSource.RequestOutcome, originalSource.FlowDigest)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3 WHERE id=$1`, originalChild.ID, originalChild.Checks, originalChild.RequestOutcome)
+		require.NoError(t, err)
+	}
 	for range 2 {
 		drop := httptest.NewRequest("POST", "http://127.0.0.1:4000/api/todos/1", strings.NewReader(`{"op":"drop"}`))
 		drop.RemoteAddr = "127.0.0.1:12345"
