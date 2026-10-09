@@ -745,10 +745,6 @@ const KNOWN_ORPHANS: ReadonlyArray<Excuse> = [
   {
     literal: "repo-import", file: "e2e/real/issues/cloud.ts",
     reason: "e2e/real/issues/cloud.ts: RepoImportSeam retains import records but no live wire repo-import card/renderer exists; the job scenario needs an owner decision."
-  },
-  {
-    literal: "branches", file: "e2e/showcase/cases/repo-home.case.ts",
-    reason: "e2e/showcase/cases/repo-home.case.ts: branches now opens live Branch cards; the old repository-wide branches listing scenario needs a full rewrite."
   }
 ]
 
