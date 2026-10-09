@@ -1097,7 +1097,7 @@
     "name": "debug-api",
     "summary": "Try any call in the open API",
     "slash": "/debug-api",
-    "cli": null,
+    "cli": ["debug", "api"],
     "journey": [],
     "group": "Advanced",
     "visibility": "advanced",

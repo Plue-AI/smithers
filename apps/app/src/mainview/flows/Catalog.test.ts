@@ -20,6 +20,15 @@ describe("C-CAT-01 literal Appendix A contract", () => {
   test("the owner-required email login door remains person-only", () => {
     expect(rows.find(row => row.name === "auth.email")).toMatchObject({ actors: ["person"], agent: "never", visibility: "in-card" })
   })
+  test("the retained raw API CLI door grants no agent authority", () => {
+    const playground = rows.find(row => row.name === "debug-api")!
+    expect(playground).toMatchObject({
+      cli: ["debug", "api"], actors: ["person"], agent: "never",
+      http: { method: "GET", path: "/api/commands/debug-api", body: {} }
+    })
+    expect(disclosedToAgent(playground)).toBe(false)
+    expect(generateSkill(rows)).not.toContain("smthrs debug api")
+  })
   test("declared core doors remain visible to an eligible person despite legacy hidden hints", () => {
     const state = { viewerRole: "owner", surface: "chat", typing: false, hasConnectors: true, admin: true, signedOut: false } as CommandState
     const entry = { name: "branch", summary: "Open a branch", group: "Branches and machines", visibility: "core" as const,
