@@ -133,9 +133,15 @@ func (s *WorkspaceService) captureAndSleepLocked(ctx context.Context, row db.Wor
 		if err := s.runtime.StopService(operationCtx, row.ID, workspaceHeadReporterService); err != nil {
 			return err
 		}
-		return fence.WithCaptureWritersExcluded(ctx, row.ID, func(ctx context.Context) error {
+		err = fence.WithCaptureWritersExcluded(ctx, row.ID, func(ctx context.Context) error {
 			return s.captureAndSleepExcluded(context.WithValue(ctx, branchWriterExclusionKey{}, true), row, sessionless)
 		})
+		if errors.Is(err, workspaceapi.ErrCaptureWritersActive) {
+			refusal := pkgerrors.Conflict("active writer blocks final capture; close the branch's terminals and retry")
+			refusal.Details = map[string]string{"reason": "active_writer_blocks_final_capture", "branch_id": row.ID}
+			return refusal.WithCause(err)
+		}
+		return err
 	}
 	return s.captureAndSleepExcluded(ctx, row, sessionless)
 }

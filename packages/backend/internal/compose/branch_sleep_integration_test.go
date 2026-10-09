@@ -281,6 +281,12 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		registry = new(machined.Registry)
 	}
 	var installRuntime workspace.WorkspaceRuntime = counted
+	var writerFence *retireFenceRuntime
+	if scenario == "writer_fence" {
+		writerFence = &retireFenceRuntime{sleepCountRuntime: counted}
+		writerFence.alive.Store(true)
+		installRuntime = writerFence
+	}
 	var cleanupInterval time.Duration
 	if strings.HasPrefix(scenario, "cleanup") {
 		installRuntime, cleanupInterval = runtime, 20*time.Millisecond
@@ -349,6 +355,39 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		raw, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
 		require.Equal(t, want, res.StatusCode, string(raw))
+		if scenario == "writer_fence" && want == http.StatusConflict {
+			require.Contains(t, string(raw), "active_writer_blocks_final_capture")
+			require.Contains(t, string(raw), "close the branch's terminals")
+		}
+	}
+	if writerFence != nil {
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state)
+ VALUES(gen_random_uuid(),'retire','retire','mythical-item',$1,$2,$3,$4,'coding','retire-host',$5,$6,1,'fixture',decode(repeat('00',32),'hex'),'running')`, fmt.Sprint(item.ID), repo.ID, machineOwner, id, strings.Repeat("d", 64), base)
+		require.NoError(t, err)
+		capture = func(context.Context, string) (machined.CaptureResult, error) {
+			require.False(t, writerFence.alive.Load())
+			require.False(t, writerFence.unknown.Load())
+			return machined.CaptureResult{Head: head, Tree: git("-C", seed, "rev-parse", head+"^{tree}")}, nil
+		}
+		// A stop request without the daemon's receipt cannot reach the fence.
+		sleep(500)
+		require.Zero(t, writerFence.fences.Load())
+		require.Zero(t, counted.stops.Load())
+		writerFence.confirm.Store(true)
+		writerFence.unknown.Store(true)
+		sleep(409)
+		require.False(t, writerFence.alive.Load(), "only the owned host stops")
+		require.True(t, writerFence.unknown.Load(), "capture never kills a member terminal")
+		require.Zero(t, counted.stops.Load())
+		writerFence.unknown.Store(false) // the person closes their terminal
+		sleep(200)
+		require.Equal(t, int32(1), counted.stops.Load())
+		row, err := q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, "suspended", row.Status)
+		return
 	}
 	if scenario == "reclaimed" {
 		// A replacement machine has no working copy. Main has moved to retry=99;

@@ -3,7 +3,9 @@ package microsandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -38,12 +40,12 @@ func (r *Runtime) WithCaptureWritersExcluded(ctx context.Context, id string, vis
 			}
 			if !command.finished() {
 				r.mu.Unlock()
-				return errors.New("active command blocks final capture")
+				return fmt.Errorf("%w: active command", workspaceapi.ErrCaptureWritersActive)
 			}
 		}
 		if r.terminalHold != nil && r.terminalHold("workspace:"+id) {
 			r.mu.Unlock()
-			return errors.New("active terminal blocks final capture")
+			return fmt.Errorf("%w: active terminal", workspaceapi.ErrCaptureWritersActive)
 		}
 		r.mu.Unlock()
 		if stopped {
@@ -117,15 +119,35 @@ func (r *Runtime) WithCaptureWritersExcluded(ctx context.Context, id string, vis
 			case <-done:
 			}
 		}()
-		defer func() { _ = stdin.Close(); _ = command.Wait(); close(done) }()
+		fenced := false
+		defer func() {
+			_ = stdin.Close()
+			_ = command.Wait()
+			close(done)
+			// Wait drains stderr before reading it; EOF alone loses the guest's
+			// actual refusal. Never report a busy writer as missing isolation.
+			if !fenced && resultErr != nil {
+				diagnostic, _ := stderr.text()
+				diagnostic = strings.Join(strings.Fields(diagnostic), " ")
+				if strings.Contains(diagnostic, "active writer blocks final capture") {
+					resultErr = fmt.Errorf("%w: %s", workspaceapi.ErrCaptureWritersActive, diagnostic)
+				} else if diagnostic != "" {
+					resultErr = fmt.Errorf("final capture fence refused: %s: %w", diagnostic, resultErr)
+				}
+			}
+		}()
 		select {
 		case err := <-ready:
 			if err != nil {
-				return errors.Join(ErrUnavailable, err)
+				if callCtx.Err() != nil {
+					return callCtx.Err()
+				}
+				return fmt.Errorf("final capture fence unconfirmed: %w", err)
 			}
 		case <-callCtx.Done():
 			return callCtx.Err()
 		}
+		fenced = true
 		err = visit(callCtx)
 		// A successful sleep stops the VM while the helper still holds the
 		// freeze. Otherwise release explicitly, leaving the original disk.

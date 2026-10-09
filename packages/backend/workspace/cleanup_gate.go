@@ -12,6 +12,9 @@ type CleanupCapture func(context.Context, CleanupWorkspace, func(DiskReclaimCapt
 
 var ErrCleanupBusy = errors.New("workspace capture excludes writers")
 
+// ErrCaptureWritersActive retains the machine until its remaining sessions end.
+var ErrCaptureWritersActive = errors.New("active writer blocks final capture")
+
 // CleanupGate is shared by runtime mutation and lifecycle entry points. Its
 // context permit allows only the fenced lifecycle to stop and remove a machine.
 // Zero value refuses final capture until the install binds its authority.

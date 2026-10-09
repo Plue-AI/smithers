@@ -1010,9 +1010,53 @@ def mutation_freeze(writers, frozen):
         time.sleep(0.01)
 
 
+def capture_cgroup_read(directory, name):
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    with os.fdopen(fd, "r", encoding="ascii") as handle:
+        body = handle.read(4097)
+    if len(body) > 4096:
+        fail(125, "final capture cgroup inventory exceeds limit")
+    return body
+
+
+def capture_cgroup_children(directory):
+    children = {}
+    with os.scandir(directory) as entries:
+        for entry in entries:
+            info = entry.stat(follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                fail(125, "untrusted final capture cgroup")
+            if stat.S_ISDIR(info.st_mode):
+                if info.st_uid != ROOT_UID or info.st_mode & 0o022:
+                    fail(125, "untrusted final capture cgroup")
+                children[entry.name] = (info.st_dev, info.st_ino)
+                if len(children) > 4096:
+                    fail(125, "final capture cgroup inventory exceeds limit")
+    return children
+
+
+def capture_control_identity(directory, uid):
+    # Exemption is only for the installed control processes, never a subtree
+    # into which an unobserved writer can hide. PID paths come from the kernel.
+    if capture_cgroup_children(directory):
+        fail(125, "unexpected child in final capture control group")
+    for pid in capture_cgroup_read(directory, "cgroup.procs").splitlines():
+        if not re.fullmatch(r"[1-9][0-9]{0,9}", pid):
+            fail(125, "invalid final capture control identity")
+        process = os.open("/proc/" + pid, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            status = capture_cgroup_read(process, "status")
+            identities = [line.split()[1:] for line in status.splitlines() if line.startswith("Uid:")]
+            if (identities != [[str(uid)] * 4]
+                    or os.readlink("exe", dir_fd=process) != "/opt/smithers/bin/smithers-machined"):
+                fail(125, "active writer blocks final capture: unexpected control identity")
+        finally:
+            os.close(process)
+
+
 def final_capture_fence():
-    # Root consumes only a fixed operation and one release byte. Repository
-    # work stays in the unprivileged daemon, outside this aggregate cgroup.
+    # Root consumes only a fixed operation and one release byte. The broker
+    # and daemon must stay runnable to capture and deliver objects and ACKs.
     if os.geteuid() != ROOT_UID:
         fail(125, "final capture fence requires broker")
     with writer_coordinator(exclusive=True) as store:
@@ -1023,22 +1067,59 @@ def final_capture_fence():
         else:
             fail(125, "workspace mutation recovery required")
         writers = safe_directory(CGROUP_ROOT, trusted=True, create=False)
+        frozen = []
         try:
-            mutation_freeze(writers, True)
+            if capture_cgroup_read(writers, "cgroup.procs").strip():
+                fail(125, "active writer blocks final capture: process in writer root")
+            children = capture_cgroup_children(writers)
+            if "sessions" not in children:
+                fail(125, "final capture session inventory unavailable")
+            # The broker creates sessions only below sessions/, so freeze that
+            # parent first: newly admitted descendants inherit its freeze. The
+            # exclusive coordinator blocks helper admission of top-level groups.
+            for name in sorted(children, key=lambda name: (name != "sessions", name)):
+                group = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=writers)
+                info = os.fstat(group)
+                if (info.st_dev, info.st_ino) != children[name]:
+                    os.close(group)
+                    fail(125, "final capture cgroup inventory changed")
+                if name in ("broker", "daemon"):
+                    try:
+                        capture_control_identity(group, 0 if name == "broker" else 19998)
+                    finally:
+                        os.close(group)
+                    continue
+                # Retain before freezing so even a partial freeze is thawed.
+                frozen.append((name, group))
+                mutation_freeze(group, True)
             # Unknown live sessions are never terminated by capture. The host
             # must stop known services and confirm them before this operation.
-            events = os.open("cgroup.events", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=writers)
-            with os.fdopen(events, "r") as handle:
-                if "populated 0" not in handle.read(4096).splitlines():
-                    fail(125, "active writer blocks final capture")
+            for name, group in frozen:
+                populated = [line for line in capture_cgroup_read(group, "cgroup.events").splitlines()
+                             if line.startswith("populated ")]
+                if populated != ["populated 0"]:
+                    fail(125, "active writer blocks final capture: " + name)
+            if capture_cgroup_children(writers) != children:
+                fail(125, "final capture cgroup inventory changed")
+            if capture_cgroup_read(writers, "cgroup.procs").strip():
+                fail(125, "active writer blocks final capture: process in writer root")
             os.sync()
             sys.stdout.write("FENCED\n")
             sys.stdout.flush()
             if not select.select([0], [], [], 120)[0] or os.read(0, 1) != b"R":
                 fail(125, "final capture fence disconnected")
         finally:
-            mutation_freeze(writers, False)
+            thaw_error = None
+            for _, group in reversed(frozen):
+                try:
+                    mutation_freeze(group, False)
+                except BaseException as error:
+                    thaw_error = error
+                finally:
+                    os.close(group)
             os.close(writers)
+            if thaw_error is not None:
+                raise thaw_error
 
 
 def mutation_pending(store, entry, gid):
