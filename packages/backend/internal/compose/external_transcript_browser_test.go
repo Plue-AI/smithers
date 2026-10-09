@@ -336,19 +336,23 @@ func TestExternalTranscriptBrowserPostgres(t *testing.T) {
 	require.NoError(t, scanner.Err())
 	require.NoError(t, command.Wait())
 
-	// The journey imported 83 entries and two live ones, launched no turn and
-	// left nothing unfinished.
+	// The imports and refused mutations leave all external entries terminal.
+	// Only the ordinary prompt explicitly sent through the mounted composer
+	// admits a Smithers turn.
 	var entries, open int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE NOT terminal) FROM chat_turns WHERE request_payload->>'origin'='external'`).Scan(&entries, &open))
 	require.Equal(t, 85, entries)
 	require.Zero(t, open)
 	var ordinary int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE request_payload->>'origin' IS DISTINCT FROM 'external'`).Scan(&ordinary))
-	require.Zero(t, ordinary, "importing a transcript queued an app-agent turn")
-	// The only model requests of the journey are the two browsers' own: the
-	// timeline asks the fast model to title the stretches it folds (#3732),
-	// with no tools, and on an install without a model each settles untitled.
-	t.Logf("the members' browsers asked the fast model for %d timeline titles while reading", resolved.Load())
+	require.Equal(t, 1, ordinary, "only the ordinary composer prompt may queue an app-agent turn")
+	var prompt string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT request_payload->'messages'->0->>'content' FROM chat_turns WHERE request_payload->>'origin' IS DISTINCT FROM 'external'`).Scan(&prompt))
+	require.Equal(t, "Hello Smithers after reading external sessions", prompt)
+	// The timeline requests titles and the person's ordinary prompt requests
+	// a model. Both fail visibly on this install with no configured credential;
+	// importing the recorded entries itself requested none (asserted above).
+	t.Logf("browser title requests and the ordinary prompt made %d model resolutions", resolved.Load())
 }
 
 func TestScriptedDaemonReplaysOriginalEventAndIgnoresItsLateDuplicateAck(t *testing.T) {

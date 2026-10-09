@@ -3326,7 +3326,8 @@ button.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-o
 	.edge .tl-edge { display: none; }
 	.edge-pill { position: fixed; z-index: 61; display: inline-flex; align-items: center; }
 	.edge[data-edge="above"] .edge-pill { top: 9px; right: 132px; }
-	.edge[data-edge="below"] .edge-pill { bottom: 14px; left: 16px; }
+	/* Clear the 52px Chat footer so imported live entries cannot cover its button. */
+	.edge[data-edge="below"] .edge-pill { bottom: 66px; left: 16px; }
 	.notify { position: fixed; bottom: 64px; left: 12px; z-index: 40; width: min(300px, calc(100vw - 24px)); }
 }
 

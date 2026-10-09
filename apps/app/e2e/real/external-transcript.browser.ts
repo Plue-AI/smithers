@@ -77,10 +77,15 @@ try {
 
   // Ben's agent writes two more records while both watch. Each browser shows them without a reload, within the
   // 5 s the spec allows from the moment the install committed them.
+  // Maya misses the live delivery entirely. Recovery must come from the
+  // production reconnect snapshot, including the entries committed offline.
+  await maya.context.setOffline(true)
   const committed = Date.now()
   const appended = await ben.page.request.post(`${origin}/__agt_test/append`)
   expect(appended.status(), await appended.text()).toBe(204)
   const acknowledged = Date.now()
+  await expect(importedRows(maya.page)).toHaveCount(RECORDED_ENTRIES)
+  await maya.context.setOffline(false)
   for (const [member, { page }] of [["ben", ben], ["maya", maya]] as const) {
     const rows = importedRows(page)
     await expect(rows).toHaveCount(RECORDED_ENTRIES + 2, { timeout: 5_000 - Math.min(4_000, Date.now() - acknowledged) })
@@ -96,12 +101,22 @@ try {
   expect(history.entries.filter(entry => entry.origin === "external")).toHaveLength(RECORDED_ENTRIES + 2)
   const identities = new Map(history.entries.filter(entry => entry.origin === "external").map(entry => [entry.participant_id, entry.id]))
   expect(identities.size).toBe(4)
-  const headers = { Origin: origin, "Content-Type": "application/json", "X-CSRF-Token": "csrf" }
-  for (const { page } of [ben, maya]) for (const id of identities.values()) {
+  const mutationHeaders = async (context: BrowserContext) => {
+    const csrf = (await context.cookies(origin)).find(cookie => cookie.name === "__csrf")
+    expect(csrf).toBeDefined()
+    return { Origin: origin, "Content-Type": "application/json", "X-CSRF-Token": csrf!.value }
+  }
+  for (const { context, page } of [ben, maya]) for (const id of identities.values()) {
+    const headers = await mutationHeaders(context)
     const turn = `${origin}/api/conversations/main/turns/${id}`
-    expect((await page.request.patch(turn, { headers, data: { prompt: "run it again" } })).status()).toBe(403)
-    expect((await page.request.post(`${turn}/stop`, { headers, data: {} })).status()).toBe(403)
-    expect((await page.request.delete(turn, { headers })).status()).toBe(403)
+    for (const refused of [
+      await page.request.patch(turn, { headers, data: { prompt: "run it again" } }),
+      await page.request.post(`${turn}/stop`, { headers, data: {} }),
+      await page.request.delete(turn, { headers })
+    ]) {
+      expect(refused.status()).toBe(403)
+      expect(await refused.json()).toMatchObject({ code: "permission" })
+    }
   }
   console.log("PASS composed install: both members' edit, stop and delete of an imported entry are refused")
 
@@ -114,6 +129,25 @@ try {
   console.log("PASS composed install: the imported conversation survives a reload unchanged")
 
   expect(writes).toEqual([])
+
+  // Imported participant identities cannot be smuggled into the ordinary
+  // prompt dispatcher. Its strict request schema rejects them before admission.
+  for (const { context, page } of [ben, maya]) for (const [participant, id] of identities) {
+    const headers = await mutationHeaders(context)
+    const refused = await page.request.post(`${origin}/api/conversations/main/prompt`, {
+      headers, data: { prompt: "Resend imported prompt", idempotencyKey: `forged-${participant}`, participant_id: participant, turnId: id }
+    })
+    expect(refused.status(), await refused.text()).toBe(400)
+  }
+  console.log("PASS composed install: forged imported identities cannot enter the ordinary prompt dispatcher")
+
+  // The same mounted composer still admits a person's ordinary Smithers prompt.
+  const admission = ben.page.waitForResponse(response =>
+    response.url() === `${origin}/api/conversations/main/prompt` && response.request().method() === "POST")
+  await say(ben.page, "Hello Smithers after reading external sessions")
+  expect((await admission).status()).toBe(202)
+  await expectRecordedConversation(ben.page, expect, [MEMBER_MACHINE_CODEX, MEMBER_MACHINE_CODEX])
+  console.log("PASS composed install: the ordinary composer admits one Smithers turn and preserves imported history")
   expect(errors).toEqual([])
 } finally {
   await browser.close()
