@@ -67,6 +67,18 @@ T-ACC-04 proves real OAuth/token minting and the missing-consumer guard. T-APP-0
 - A retried approve causes a second merge.
 
 ## Evidence
+`TestDelegatedMergeSettlementNativeInstall` in
+`packages/backend/internal/compose/delegated_merge_settlement_test.go` creates
+the TODO through HTTP and waits for production coding, verification and review.
+The packaged CLI requests the private confirmation twice; a real browser
+refuses forged delegated approval and a stale generation, then approves the
+fresh confirmation by keyboard. The test asserts one SHA-bound squash, one
+approved confirmation, GitHub-sync mirror advancement and the receipt after
+reload. Run with `SMITHERS_CONFIRMATION_SETTLEMENT=1`, the PostgreSQL test URL
+and `go test ./internal/compose -run '^TestDelegatedMergeSettlementNativeInstall$' -count=1 -v`.
+Its Linux native-process evidence under `.artifacts/checks/C-ACC-02/rehearsal/`
+does not qualify a reference Mac or microVM acceptance receipt.
+
 - isolated-cases.jsonl records literal create/list/decision/replay results, credential-scope identity, current confirmation state, Authorize counts, write ordering and effects; merge calls remain exactly once per admitted operation.
 Written to `.artifacts/checks/C-ACC-02/<UTC timestamp>/`:
 - `requests.jsonl`: credential kind, route, status, body keys and request id for each request;
