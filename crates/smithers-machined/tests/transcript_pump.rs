@@ -155,6 +155,7 @@ struct OutboxState {
     queued: AtomicU32,
     refused: Mutex<Vec<[u8; 16]>>,
     failing: AtomicBool,
+    count_depth: AtomicBool,
 }
 #[derive(Clone, Default)]
 struct TestOutbox(Arc<OutboxState>);
@@ -195,6 +196,9 @@ impl Outbox for TestOutbox {
             return Err(io::Error::other("disk full"));
         }
         self.0.events.lock().unwrap().push(event.to_vec());
+        if self.0.count_depth.load(Ordering::SeqCst) {
+            self.0.queued.fetch_add(1, Ordering::SeqCst);
+        }
         Ok(())
     }
     fn refused(&self) -> io::Result<Vec<[u8; 16]>> {
@@ -716,4 +720,25 @@ fn an_ended_source_drains_a_long_line_before_release() {
         fixture.outbox.texts(CODEX),
         ["Skipped oversized transcript line.", "{}"]
     );
+}
+
+#[test]
+fn a_busy_source_does_not_starve_another_members_agent() {
+    let fixture = Fixture::new();
+    // Each Codex poll can fill the outbox again even after delivery drains it.
+    fixture.append(CODEX, &b"{\"n\":1}\n".repeat(100_000));
+    fixture.append(CLAUDE, b"{\"c\":1}\n");
+    fixture.broker.list(CODEX, false);
+    fixture.broker.list(CLAUDE, false);
+    fixture.outbox.0.count_depth.store(true, Ordering::SeqCst);
+    let mut pump = fixture.pump();
+    pump.pass(Instant::now()).unwrap();
+    assert!(fixture.outbox.texts(CODEX).len() >= QUEUED as usize);
+    assert!(fixture.outbox.texts(CLAUDE).is_empty());
+    // The host delivers the queued batch. The next pass must give Claude its
+    // turn before reading another full batch from Codex.
+    fixture.outbox.0.queued.store(0, Ordering::SeqCst);
+    pump.pass(Instant::now()).unwrap();
+    assert_eq!(fixture.outbox.texts(CLAUDE), ["{\"c\":1}"]);
+    assert_eq!(fixture.broker.started(), [CODEX, CLAUDE]);
 }

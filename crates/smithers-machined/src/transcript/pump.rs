@@ -64,6 +64,8 @@ pub struct Pump<B, O> {
     /// Stopped for good, until the broker has taken the release.
     stopped: BTreeSet<[u8; 16]>,
     swept: Option<BTreeSet<[u8; 16]>>,
+    /// Last source attempted, so a busy source cannot monopolize the outbox.
+    last: Option<[u8; 16]>,
 }
 impl<B: Broker, O: Outbox> Pump<B, O> {
     /// `directory` is the daemon's own checkpoint directory: its, mode 0700.
@@ -78,6 +80,7 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
             failing: BTreeMap::new(),
             stopped: BTreeSet::new(),
             swept: None,
+            last: None,
         })
     }
 
@@ -149,7 +152,12 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
         for lifetime in self.outbox.refused()? {
             self.stop(lifetime);
         }
-        let listed = self.broker.sources()?;
+        let mut listed = self.broker.sources()?;
+        listed.sort_by_key(|source| source.lifetime);
+        if let Some(last) = self.last {
+            let next = listed.partition_point(|source| source.lifetime <= last);
+            listed.rotate_left(next);
+        }
         let names: BTreeSet<_> = listed.iter().map(|source| source.lifetime).collect();
         // A source the broker no longer lists is over: its session ended, its
         // member left, or it was released. Its reader is already killed.
@@ -176,6 +184,7 @@ impl<B: Broker, O: Outbox> Pump<B, O> {
             {
                 continue;
             }
+            self.last = Some(lifetime);
             match self.read(source) {
                 Ok(progressed) => {
                     self.failing.remove(&lifetime);
