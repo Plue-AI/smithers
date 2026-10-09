@@ -14,6 +14,7 @@
  */
 import { describe, expect, it } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
+import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const canaryDir = fileURLToPath(new URL(".", import.meta.url))
@@ -200,7 +201,9 @@ describe("canary probes are wired into a gate", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow & { readonly permissions: unknown }
     const steps = deploy.jobs.gate.steps
     const unit = steps.find(step => step.name === "UI unit tests")!
-    expect(unit.run).toBe("pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output")
+    // Bun writes the JUnit report but does not create its directory, so the
+    // step creates it first (asserted against bunfig.toml below).
+    expect(unit.run).toBe("mkdir -p apps/app/test-results\npnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output\n")
     expect(steps.filter(step => step.run?.includes("--full-output"))).toEqual([unit])
     const upload = steps.find(step => step.name === "Upload UI unit-test report")!
     expect(steps.indexOf(upload)).toBe(steps.indexOf(unit) + 1)
@@ -216,6 +219,7 @@ describe("canary probes are wired into a gate", () => {
       test: { reporter: { junit: string } }
     }
     expect(upload.with?.path).toBe(`apps/app/${config.test.reporter.junit}`)
+    expect(unit.run?.split("\n")[0]).toBe(`mkdir -p apps/app/${dirname(config.test.reporter.junit)}`)
     expect(deploy.permissions).toEqual({ contents: "read", actions: "read" })
     expect(unit.env).toBeUndefined()
     expect(upload.env).toBeUndefined()

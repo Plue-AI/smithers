@@ -5,9 +5,10 @@
  * pure test cannot reach: argument parsing, the real `fetch`, the JSON report
  * on disk, the exit codes, and the GITHUB_OUTPUT lines the scheduled workflow
  * reads. The deployment is replaced by a local Bun.serve that answers the same
- * shapes canary.smithers.sh answers — including the signed-out 401 from the
- * turn seam and the NDJSON stream a signed-in turn produces — so the network
- * path is exercised without a credential and without spending model credit.
+ * shapes canary.smithers.sh answers — including the signed-out 401 from prompt
+ * admission and the conversation entry a signed-in prompt produces — so the
+ * network path is exercised without a credential and without spending model
+ * credit.
  */
 import type { Server } from "bun"
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
@@ -33,6 +34,7 @@ const SCOPED_LOGIN = "smithers-canary"
 
 let server: Server<undefined>
 const requestedPaths: Array<string> = []
+const admittedTurns: Array<{ readonly turnId: string; readonly runId: string }> = []
 
 beforeAll(() => {
   server = Bun.serve({
@@ -50,23 +52,27 @@ beforeAll(() => {
         if (request.headers.get("cookie") === null) return new Response("{\"status\":\"signed-out\"}", { status: 200 })
         return Response.json({ username: SCOPED_LOGIN, is_admin: mode === "admin-session" })
       }
-      if (url.pathname === "/api/agent/turn") {
+      // Prompt admission answers 202 with the host turn; the shared
+      // conversation read then carries that turn's frames.
+      if (url.pathname === "/api/conversations/main/prompt") {
         if (mode === "turn-open") return new Response("streaming to anyone", { status: 200 })
         if (request.headers.get("cookie") === null) return new Response("Unauthorized", { status: 401 })
-        const body = await request.json() as { runId: string }
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(
-                new TextEncoder().encode(
-                  `${JSON.stringify({ runId: body.runId, type: "delta", kind: "text", text: "ok" })}\n`
-                )
-              )
-              controller.close()
-            }
-          }),
-          { status: 200, headers: { "content-type": "application/x-ndjson" } }
-        )
+        const body = await request.json() as { idempotencyKey: string }
+        const turn = { turnId: `turn-${body.idempotencyKey}`, runId: `host-${body.idempotencyKey}` }
+        admittedTurns.push(turn)
+        return Response.json(turn, { status: 202 })
+      }
+      if (url.pathname === "/api/conversations/main") {
+        if (request.headers.get("cookie") === null) return new Response("Unauthorized", { status: 401 })
+        return Response.json({
+          id: "main",
+          entries: admittedTurns.map(({ turnId, runId }) => ({
+            id: turnId,
+            runId,
+            state: "completed",
+            frames: [{ runId, type: "delta", kind: "text", text: "ok" }]
+          }))
+        })
       }
       return new Response("Not found", { status: 404 })
     }

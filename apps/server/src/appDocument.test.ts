@@ -13,7 +13,7 @@ describe("repository path ownership", () => {
   test("the reserved constant covers every first segment in Astro pages and Starlight content", () => {
     const pages = sourceSegments(resolve(import.meta.dir, "../../site/src/pages"))
     const docs = sourceSegments(resolve(import.meta.dir, "../../site/src/content/docs"))
-    expect(pages).toContain("pricing")
+    expect(pages).toContain("privacy")
     expect(docs).toContain("docs")
     expect([...new Set([...pages, ...docs])].filter((segment) => !RESERVED_SITE_SEGMENTS.includes(segment))).toEqual([])
   })
