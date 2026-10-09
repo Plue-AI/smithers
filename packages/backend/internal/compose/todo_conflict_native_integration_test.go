@@ -275,6 +275,20 @@ func conflictDoneAwakeNativeComposedInstall(t *testing.T, terminal bool, pairAcc
 	call(202, "")
 	call(202, "")
 	require.Equal(t, 1, signals())
+	var retainedDone struct {
+		Done struct {
+			User       int64
+			Generation int64
+			Credential struct{ SessionHash, TokenHash string }
+		}
+		Command string `json:"done_command"`
+	}
+	var authority []byte
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT checks->'conflictReservation' FROM mythical_items WHERE id=$1`, item.ID).Scan(&authority))
+	require.NoError(t, json.Unmarshal(authority, &retainedDone))
+	require.Equal(t, f.user.ID, retainedDone.Done.User, "a live repair's Done retains capture authority if the repair later fails")
+	require.Equal(t, "todo.answer", retainedDone.Command)
+	require.NotEmpty(t, retainedDone.Done.Credential.SessionHash+retainedDone.Done.Credential.TokenHash)
 	if len(pairAccounting) > 0 && pairAccounting[0] {
 		var event []byte
 		var facts int

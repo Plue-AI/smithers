@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -134,6 +137,57 @@ func TestTodoConflictDoneRetainsBinding(t *testing.T) {
 	facts := o.facts(item, "todo.answered")
 	require.Len(t, facts, 1)
 	require.Equal(t, "conflict-1", facts[0]["wait"])
+}
+
+// Done can reach a live repair just before its failed terminal checkpoint.
+// Native validation has already succeeded; that later failure must preserve
+// the person's authority to finish capture without asking them to press again.
+func TestConflictDoneBeforeRepairFailureRetainsCaptureAuthority(t *testing.T) {
+	o, session, launcher, item, launch := newAskingTodo(t)
+	onto := o.hostRef("refs/heads/main")
+	checks := mythicalChecksOf(item)
+	checks.Rebase = &mythicalRebase{Onto: onto, Native: &machined.RewriteResult{Head: "change", Paths: []string{"a.txt"}, Inspected: true}}
+	checks.ConflictReservation = &todoConflictReservation{Run: item.RequestRunID, Change: "change", Onto: onto, Dispatched: true, ResolutionRun: "repair", Limit: 1, Reserved: 1}
+	item.State, item.Reason = "integrating", "rebase_conflict_pending"
+	item.Integration = []byte(fmt.Sprintf(`{"conflict":{"head":"change","onto":"%s","paths":["a.txt"]}}`, onto))
+	item.Checks = checks.encode()
+	// The stable wait identity is shared by live and terminal repair views.
+	checks.ConflictReservation.Outcome = "failed: repair"
+	item.Checks = checks.encode()
+	wait, ok := manualConflictWait(item, o.service.now())
+	require.True(t, ok)
+	checks.ConflictReservation.Outcome = ""
+	wait.Signal = &TodoWaitSignal{Scope: launch.Scope, Target: launch.Target, Flow: "coding/rebase-conflict", Run: "repair", Name: "conflict"}
+	checks.Waits = []TodoWait{wait}
+	item.Checks = checks.encode()
+	var err error
+	item, err = o.service.queries().SaveMythicalItem(session, item)
+	require.NoError(t, err)
+	o.service.SetConflictValidator(&conflictValidationFake{})
+	input := TodoAnswerInput{Wait: wait.ID, Answer: "done"}
+	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64, input))
+	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64, input))
+	require.Len(t, launcher.sent(), 1)
+	answered := o.byID(uuidString(item.ID))
+	done := mythicalChecksOf(answered).ConflictReservation.Done
+	require.NotNil(t, done)
+	require.Equal(t, item.CandidateHead, done.Head)
+	require.Equal(t, item.Generation, done.Generation)
+	require.Equal(t, o.userID, done.User)
+	next := answered
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Scope: launch.Scope, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/rebase-conflict", Target: launch.Target, FailureCode: "runtime_catalog_unavailable"}}
+	require.True(t, mythicalProjectRun(&next, answered, mythicalProjection{Phase: "conflict"}, update, "repair", true))
+	for range 10 {
+		projectManualConflictWait(&next, o.service.now())
+	}
+	retained := mythicalChecksOf(next)
+	require.Equal(t, done, retained.ConflictReservation.Done)
+	require.Equal(t, "todo.answer", retained.ConflictReservation.DoneCommand)
+	require.NotNil(t, retained.Waits[0].SettledAt)
+	require.Nil(t, retained.Waits[0].Signal)
+	require.Equal(t, "done", retained.Waits[0].Answer)
+	require.Equal(t, 1, retained.ConflictReservation.Reserved)
+	require.Empty(t, todoOpenWaits(next))
 }
 
 // Native startup is mocked only for transaction ordering; the composed

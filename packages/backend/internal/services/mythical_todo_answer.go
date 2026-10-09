@@ -390,7 +390,10 @@ func (s *MythicalService) answerTodo(ctx context.Context, repositoryID, userID, 
 			}
 			now := s.now().UTC()
 			wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
-			if manualConflictWaitBound(item, *wait) {
+			// Native validation above binds Done to this retained reservation.
+			// Keep its authority even while the repair can still accept a signal:
+			// a later repair failure must not reopen a person's resolved conflict.
+			if wait.Kind == "conflict" && checks.ConflictReservation != nil {
 				info := middleware.AuthInfoFromContext(ctx)
 				if info == nil {
 					return todoControlUnavailable()
