@@ -236,7 +236,10 @@ const installE2e = Smithers.NodeTest({
     Smithers.file("playwright.config.ts"), Smithers.file("playwright.install.config.ts"), Smithers.file("package.json"),
     Smithers.file("//pnpm-lock.yaml"), Smithers.file("//go.mod")],
   deps: [],
-  env: { SMITHERS_CHAT_STUB: "1" },
+  // The executor passes no host database URL, so the target names the same
+  // test server the backend Go suite uses (root PACKAGE.ts backendGo). A lane
+  // host with another server runs scripts/run-install-e2e.ts directly.
+  env: { SMITHERS_CHAT_STUB: "1", SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-backend-test@127.0.0.1:55435/postgres?sslmode=disable" },
   exclusive: true,
   cache: false,
   cwd
