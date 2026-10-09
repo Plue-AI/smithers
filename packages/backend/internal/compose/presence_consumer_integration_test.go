@@ -165,3 +165,118 @@ func TestPresenceProductionSessionConsumerThroughInstall(t *testing.T) {
 	_, err = f.p.queries.PresenceSessionMember(t.Context(), f.row.RepositoryID, "maya", 20001)
 	require.Error(t, err)
 }
+
+func TestExternalProcessPresenceThroughInstall(t *testing.T) {
+	f := presenceInstall(t)
+	_, err := f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid)
+ VALUES($1,$2,'admin','maya',20001) ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET unix_login='maya',unix_uid=20001`, f.row.RepositoryID, f.user.ID)
+	require.NoError(t, err)
+	reader := f.dial(t)
+	sendPresenceFrame(t, reader, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	readPresenceFrame(t, reader)
+	registry := new(machined.Registry)
+	link, guest := presenceTestLink(t, registry, f.row.ID)
+	require.NoError(t, link.Reconciled())
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "").WithPresenceVia("ssh")
+	opened := make(chan error, 1)
+	go func() {
+		id, err := sessions.OpenSession(t.Context(), machined.SessionUser{Login: "maya", UID: 20001}, machined.SessionPTY, nil, nil)
+		if err == nil && id != 1 {
+			err = fmt.Errorf("session %d", id)
+		}
+		opened <- err
+	}()
+	request, err := wire.Read(guest)
+	require.NoError(t, err)
+	id, method, _, err := request.Request()
+	require.NoError(t, err)
+	require.Equal(t, byte(wire.OpenSession), method)
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.OpenSession), wire.Field(1, wire.U32(1)))))}))
+	require.NoError(t, <-opened)
+
+	stop := f.p.consumeDaemons(t.Context(), registry)
+	defer stop()
+	process := func(id byte, agent byte) []byte {
+		participant := make([]byte, 16)
+		participant[0] = id
+		return wire.Struct(wire.Field(1, wire.U32(1)), wire.Field(2, participant), wire.Field(3, []byte{agent}))
+	}
+	snapshot := func(items ...[]byte) wire.Frame {
+		census := wire.U16(uint16(len(items)))
+		for _, item := range items {
+			census = append(census, item...)
+		}
+		return wire.Frame{Kind: wire.Presence, Payload: wire.Union(1,
+			wire.Field(1, append(wire.U16(1), wire.Struct(wire.Field(1, wire.U32(1)))...)), wire.Field(2, census))}
+	}
+	wait := func(count int) []map[string]any {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			frame := readPresenceFrame(t, reader)
+			var card struct{ Presence []map[string]any }
+			require.NoError(t, json.Unmarshal(frame.Data, &card))
+			if len(card.Presence) == count {
+				return card.Presence
+			}
+			require.True(t, time.Now().Before(deadline), "process lifecycle must reach live subscribers")
+		}
+	}
+	require.NoError(t, wire.Write(guest, snapshot(process(0xb1, 1), process(0xb2, 2))))
+	rows := wait(3)
+	agents := map[string]string{}
+	for _, row := range rows {
+		actor := row["actor"].(map[string]any)
+		if actor["kind"] == "person" {
+			continue
+		}
+		require.Equal(t, "presence-owner", actor["for_member"].(map[string]any)["login"])
+		require.Equal(t, map[string]any{"kind": "terminal", "id": "1"}, row["where"])
+		agents[actor["id"].(string)] = actor["agent"].(string)
+	}
+	require.Equal(t, map[string]string{"b1000000-0000-0000-0000-000000000000": "codex", "b2000000-0000-0000-0000-000000000000": "claude-code"}, agents)
+	// Ending one process leaves the other and its owner, immediately; a later
+	// empty census leaves only the member terminal. History is not touched.
+	require.NoError(t, wire.Write(guest, snapshot(process(0xb2, 2))))
+	wait(2)
+	require.NoError(t, wire.Write(guest, snapshot()))
+	wait(1)
+}
+
+func TestExternalProcessPresenceRefusesFactoryParent(t *testing.T) {
+	f := presenceInstall(t)
+	_, err := f.pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid)
+ VALUES($1,$2,'admin','maya',20001) ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET unix_login='maya',unix_uid=20001`, f.row.RepositoryID, f.user.ID)
+	require.NoError(t, err)
+	reader := f.dial(t)
+	sendPresenceFrame(t, reader, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	readPresenceFrame(t, reader)
+	registry := new(machined.Registry)
+	link, guest := presenceTestLink(t, registry, f.row.ID)
+	require.NoError(t, link.Reconciled())
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), "factory-run").WithPresenceVia("ssh")
+	opened := make(chan error, 1)
+	go func() {
+		id, err := sessions.OpenSession(t.Context(), machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionPTY, nil, nil)
+		if err == nil && id != 1 {
+			err = fmt.Errorf("session %d", id)
+		}
+		opened <- err
+	}()
+	request, err := wire.Read(guest)
+	require.NoError(t, err)
+	id, method, _, err := request.Request()
+	require.NoError(t, err)
+	require.Equal(t, byte(wire.OpenSession), method)
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.OpenSession), wire.Field(1, wire.U32(1)))))}))
+	require.NoError(t, <-opened)
+
+	participant := [16]byte{0xb1}
+	frame := wire.Frame{Kind: wire.Presence, Payload: wire.Union(1,
+		wire.Field(1, append(wire.U16(1), wire.Struct(wire.Field(1, wire.U32(1)))...)),
+		wire.Field(2, append(wire.U16(1), wire.Struct(wire.Field(1, wire.U32(1)), wire.Field(2, participant[:]), wire.Field(3, []byte{1}))...)))}
+	require.NoError(t, wire.Write(guest, frame))
+	received, err := link.ReceivePresence(t.Context(), f.row.ID)
+	require.NoError(t, err)
+	require.ErrorIs(t, f.p.daemonSnapshot(t.Context(), link.Connection, f.row.ID, received, f.p.sessionResolver(link)), machined.ErrUnauthorized)
+	require.Empty(t, f.roster(t), "refusal must not announce even the valid factory session")
+}

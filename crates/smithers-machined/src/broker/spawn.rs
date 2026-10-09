@@ -719,6 +719,14 @@ impl<A: Admission> Kernel for Processes<A> {
         let sessions = self.transcript_sessions(sessions);
         Ok(self.transcripts.sources(&sessions, now))
     }
+    fn transcript_presence(
+        &mut self,
+        sessions: &[super::supervisor::TranscriptSession],
+    ) -> io::Result<Vec<u8>> {
+        self.admission.available()?;
+        let sessions = self.transcript_sessions(sessions);
+        Ok(self.transcripts.presence(&sessions))
+    }
     fn transcript_reader(
         &mut self,
         sessions: &[super::supervisor::TranscriptSession],

@@ -26,8 +26,9 @@ pub trait Controls {
     }
 }
 /// Operations with a raw body: session streams, the registry, and transcript
-/// sources (26 list, 27 start a reader, 28 release), and admitted local input (29).
-const RAW: std::ops::RangeInclusive<u8> = 17..=29;
+/// sources (26 list, 27 start a reader, 28 release), admitted local input (29),
+/// and the process census (30).
+const RAW: std::ops::RangeInclusive<u8> = 17..=30;
 fn error(code: u8) -> Error {
     Error {
         code,
@@ -616,6 +617,38 @@ impl SocketpairBroker {
         now: std::time::Instant,
     ) -> crate::hooks::Result<Option<conn::Frame>> {
         let ids = self.live_sessions()?;
+        // A broker without transcript support still publishes ordinary sessions.
+        // Any other refusal must not turn an unavailable census into departures.
+        let agents = match self.call_body(30, &[]) {
+            Ok(bytes) => super::transcripts::Listed::decode(&bytes).map_err(|_| error(12))?,
+            Err(e) if e.code == 2 => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        if agents.len() > super::transcripts::MAX_AGENTS {
+            return Err(error(12));
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut census = (agents.len() as u16).to_be_bytes().to_vec();
+        for agent in agents {
+            if agent.ended
+                || agent.lifetime != agent.participant
+                || !ids.contains(&agent.session)
+                || !seen.insert(agent.participant)
+            {
+                return Err(error(12));
+            }
+            census.extend(conn::structure_bytes(&[
+                conn::field(1, agent.session.to_be_bytes()),
+                conn::field(2, agent.participant),
+                conn::field(
+                    3,
+                    [match agent.agent {
+                        crate::transcript::discovery::Agent::Codex => 1,
+                        crate::transcript::discovery::Agent::ClaudeCode => 2,
+                    }],
+                ),
+            ]));
+        }
         let mut presence = self.1.lock().map_err(|_| error(12))?;
         presence.paths.retain(|id, _| ids.contains(id));
         let mut items = (ids.len() as u16).to_be_bytes().to_vec();
@@ -628,7 +661,11 @@ impl SocketpairBroker {
             }
             items.extend(conn::structure_bytes(&fields));
         }
-        let payload = conn::tagged(1, &[conn::field(1, items)]);
+        let mut fields = vec![conn::field(1, items)];
+        if census.len() > 2 {
+            fields.push(conn::field(2, census));
+        }
+        let payload = conn::tagged(1, &fields);
         if presence
             .sent
             .is_some_and(|sent| now.saturating_duration_since(sent) < Duration::from_millis(250))

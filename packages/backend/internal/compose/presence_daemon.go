@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"strconv"
 	"strings"
 
@@ -48,6 +49,20 @@ func (p *branchPresence) daemonSnapshot(ctx context.Context, connection *machine
 		if err != nil {
 			return err
 		}
+		if location.Participant != ([16]byte{}) {
+			// External processes belong only to a member's own terminal; a
+			// factory run cannot claim an imported participant's identity.
+			if binding.Skip || binding.Kind != "person" || binding.Member <= 0 {
+				return machined.ErrUnauthorized
+			}
+			binding.Participant = uuid.UUID(location.Participant).String()
+			binding.Kind, binding.AgentKind = "agent", location.Agent
+			binding.Name = "Codex"
+			if location.Agent == "claude-code" {
+				binding.Name = "Claude Code"
+			}
+			binding.Terminal = strconv.FormatUint(uint64(location.Session), 10)
+		}
 		if binding.Skip {
 			bindings[i] = binding
 			continue
@@ -83,6 +98,9 @@ func (p *branchPresence) daemonSnapshot(ctx context.Context, connection *machine
 			continue
 		}
 		session := prefix + strconv.FormatUint(uint64(location.Session), 10)
+		if location.Participant != ([16]byte{}) {
+			session += ":" + binding.Participant
+		}
 		keep[session] = true
 		if err := connection.RequireReady(branch); err != nil {
 			return err

@@ -4,7 +4,7 @@ import {createHash,createHmac} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 const dir=fileURLToPath(new URL('.',import.meta.url));
 const check=process.argv.includes('--check');
-const protocol=12;
+const protocol=13;
 // ADR 0004 §handshake: one protocol value in four places, changed in one
 // commit. This reads the other three as text (it imports no codec) and fails
 // both --check and generation when any differs.
@@ -38,10 +38,10 @@ const err=(code,...fields)=>res(255,f(1,[code]),...fields);
 const MAC_LABEL='smithers-machined host';
 const range=(a,b)=>Buffer.from(Array.from({length:b-a},(_,i)=>a+i));
 const vectors={
-  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'b6b140d2fbddd25d6e8b4380e2b0e49fd9b9576b2696275a455c087166c2562e'},
-  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'26f6283c339ef56e3003716681364ff9097156607baa556be3ce704f8500efec'},
+  a:{secret:range(0x00,0x20),boot_id:range(0xa0,0xb0),nonce:range(0x20,0x40),mac:'c6565e5bd79b58eb97f098269f78cd9f61be1454761500ee2834c04096baa62f'},
+  b:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x60,0x80),mac:'83aad95b3b5f0484f60799acda8b92ad535bf95f2604d8e44147b8caee483622'},
   // c: b's boot and secret, a fresh nonce (seq_newer_boot's third connection).
-  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'c1c223ce1128cd68b9ad7fec2f8a8a53b9e81e9eb8ed15e181a303e79867825f'},
+  c:{secret:range(0x40,0x60),boot_id:range(0xb0,0xc0),nonce:range(0x80,0xa0),mac:'9a6ca874761960b396582c5fa38f49232ef4cb7d165fc7596c32b10512badaa5'},
 };
 const macInput=v=>cat(Buffer.from(MAC_LABEL),num(protocol,2),v.boot_id,v.nonce);
 for(const [name,v] of Object.entries(vectors))if(createHmac('sha256',v.secret).update(macInput(v)).digest('hex')!==v.mac)throw Error('HMAC vector '+name+' disagrees with node:crypto');
@@ -160,6 +160,14 @@ emit('bad_value_transcript_record_over_1mib',2,durable(12,transcript({record:Buf
 emit('ev_transcript_bad_utf8_nul',2,durable(12,transcript({record:Buffer.from('a\0b')}),eid(0xd3)),0,'bad_utf8','daemon-to-host');
 emit('hint_file_written',2,un(2,f(1,un(1,f(1,str('a')),f(2,actor),f(3,digest)))),0,'ok','daemon-to-host');
 emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,num(2,4)))))),0,'ok','daemon-to-host');
+// Live external processes share their transcript participant UUIDs. These
+// frames are independent literal inputs for both strict codecs.
+const processWhere=(participant,agent)=>st(f(1,num(1,4)),f(2,participant),f(3,[agent]));
+emit('presence_processes',3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list(processWhere(Buffer.alloc(16,0xb1),1),processWhere(Buffer.alloc(16,0xb2),2)))),0,'ok','daemon-to-host');
+emit('presence_processes_empty',3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list())),0,'ok','daemon-to-host');
+for(const agent of [0,3])emit('bad_value_presence_process_agent_'+agent,3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list(processWhere(id,agent)))),0,'bad_value','daemon-to-host');
+emit('missing_field_presence_process_participant',3,un(1,f(1,list(st(f(1,num(1,4))))),f(2,list(st(f(1,num(1,4)),f(3,[1]))))),0,'missing_field','daemon-to-host');
+
 for(const [v,name,fs]of [[1,'applied',[]],[2,'duplicate',[]],[3,'missing_objects',[f(3,list(oid)),f(5,list(oid2))]],[4,'rejected',[f(4,st(f(1,[11])))]],[5,'stale_base',[]]])emit('ack_'+name,2,un(3,f(1,num(7,8)),f(2,[v]),...fs));
 // Stream 1 is the daemon's bundle; the host returns its credit (window).
 for(const [name,p] of [['obj_data',cat([1,0],Buffer.from('git bundle fixture'))],['obj_eof',[2,0]],['obj_close',[7]],['obj_window',cat([6],num(65536,4))]])emit(name,6,Buffer.from(p),1,'ok',name==='obj_window'?'host-to-daemon':'daemon-to-host');

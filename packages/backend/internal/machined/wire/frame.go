@@ -15,7 +15,7 @@ import (
 
 // Protocol is the sole live connection version. Decoding a historical frame
 // does not admit an older peer; link admission requires this exact version.
-const Protocol = 12
+const Protocol = 13
 const MaxWorkspaceFileBytes = 1048576
 const InitialCredit = 262144
 const (
@@ -349,7 +349,7 @@ func (c *cursor) value(typ string) error {
 	case "change":
 		min = 1
 		max = 4
-	case "reconcile_outcome":
+	case "process_agent", "reconcile_outcome":
 		min = 1
 		max = 2
 	case "ack_outcome":

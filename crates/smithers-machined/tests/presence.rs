@@ -492,3 +492,102 @@ fn malformed_registry_packet_lengths_and_identities_poison_the_private_connectio
         worker.join().unwrap();
     }
 }
+
+struct ProcessHost {
+    sessions: Host,
+    census: Arc<Mutex<Vec<u8>>>,
+}
+impl Controls for ProcessHost {
+    fn stream(&mut self, op: u8, body: &[u8]) -> io::Result<Vec<u8>> {
+        if op == 30 {
+            return Ok(self.census.lock().unwrap().clone());
+        }
+        self.sessions.stream(op, body)
+    }
+    fn freeze(&mut self, t: Duration) -> io::Result<Option<u32>> {
+        self.sessions.freeze(t)
+    }
+    fn thaw(&mut self) -> io::Result<()> {
+        self.sessions.thaw()
+    }
+    fn kill(&mut self) -> io::Result<u16> {
+        self.sessions.kill()
+    }
+}
+#[test]
+fn broker_process_census_is_bound_and_departures_are_published() {
+    use smithers_machined::conn;
+    let (parent, child) = socketpair(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let listed = |id: u8, agent: u8| {
+        let mut bytes = vec![id; 16];
+        bytes.extend([id; 16]);
+        bytes.extend(1u32.to_be_bytes());
+        bytes.extend([agent, 1]);
+        bytes
+    };
+    let mut initial = listed(7, 1);
+    initial.extend(listed(8, 2));
+    let census = Arc::new(Mutex::new(initial));
+    let host = census.clone();
+    let worker = std::thread::spawn(move || {
+        control::serve(
+            &parent,
+            &mut ProcessHost {
+                sessions: Host(Arc::new(Mutex::new(vec![1]))),
+                census: host,
+            },
+        )
+        .unwrap()
+    });
+    let broker = SocketpairBroker::new(child).unwrap();
+    let now = Instant::now();
+    let frame = broker.poll_presence(now).unwrap().unwrap();
+    let fields = conn::fields("snapshot", &frame.payload[1..]).unwrap();
+    assert_eq!(
+        hex(fields.iter().find(|(tag, _)| *tag == 2).unwrap().1),
+        "00020000001801000000010207070707070707070707070707070707030100000018010000000102080808080808080808080808080808080302"
+    );
+    *census.lock().unwrap() = listed(8, 2);
+    let frame = broker
+        .poll_presence(now + Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    let fields = conn::fields("snapshot", &frame.payload[1..]).unwrap();
+    assert_eq!(
+        &fields.iter().find(|(tag, _)| *tag == 2).unwrap().1[..2],
+        &[0, 1]
+    );
+    let mut foreign = listed(8, 2);
+    foreign[32..36].copy_from_slice(&2u32.to_be_bytes());
+    *census.lock().unwrap() = foreign;
+    assert_eq!(
+        broker
+            .poll_presence(now + Duration::from_secs(2))
+            .unwrap_err()
+            .code,
+        12
+    );
+    let mut duplicate = listed(8, 2); duplicate.extend(listed(8, 2));
+    let mut ended = listed(8, 2); ended[37] = 2;
+    let mut foreign_lifetime = listed(8, 2); foreign_lifetime[0] = 9;
+    let mut too_many = Vec::new();
+    for id in 1..=65 { too_many.extend(listed(id, 1)); }
+    for bad in [duplicate, ended, foreign_lifetime, too_many, vec![0]] {
+        *census.lock().unwrap() = bad;
+        assert_eq!(broker.poll_presence(now+Duration::from_secs(2)).unwrap_err().code,12);
+    }
+    census.lock().unwrap().clear();
+    let frame = broker
+        .poll_presence(now + Duration::from_secs(3))
+        .unwrap()
+        .unwrap();
+    assert_eq!(hex(&frame.payload), "010000000c010001000000050100000001");
+    drop(broker);
+    worker.join().unwrap();
+}

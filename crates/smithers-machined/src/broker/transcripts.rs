@@ -471,6 +471,27 @@ impl Transcripts {
         listing
     }
 
+    /// Census of live process participants, independent of transcript setup or
+    /// draining older files. Reads only the broker's discovered process state.
+    pub fn presence(&self, sessions: &[Session]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for (key, process) in &self.agents {
+            if !process.gone && sessions.iter().any(|session| session.id == key.0) {
+                // Reuse the bounded broker list codec; the participant is the
+                // process identity, rather than any one file's source lifetime.
+                Listed {
+                    lifetime: process.participant,
+                    participant: process.participant,
+                    session: key.0,
+                    agent: process.agent,
+                    ended: false,
+                }
+                .encode(&mut bytes);
+            }
+        }
+        bytes
+    }
+
     /// Start the owner's reader for one listed source and bind it. Returns the
     /// startup the daemon must repeat (with its checkpoint) and the reader's
     /// socket. `sessions` is the registry's current answer: a source whose
@@ -631,6 +652,48 @@ mod tests {
             failures: 0,
         }
     }
+    #[test]
+    fn process_census_precedes_files_and_ends_before_drain() {
+        let mut transcripts = Transcripts::default();
+        transcripts
+            .agents
+            .insert((1, 4242, 10), process(Agent::Codex));
+        let mut second = process(Agent::ClaudeCode);
+        second.participant = [8; 16];
+        transcripts.agents.insert((1, 4243, 11), second);
+        let session = Session {
+            id: 1,
+            owner: Owner {
+                uid: 20001,
+                gid: 20001,
+                groups: vec![20000],
+            },
+            home: "/home/ben".into(),
+            procs: "/unused".into(),
+        };
+        let rows = Listed::decode(&transcripts.presence(&[session.clone()])).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].participant, [7; 16]);
+        assert_eq!(rows[1].participant, [8; 16]);
+        assert!(transcripts.presence(&[]).is_empty());
+        let first = transcripts.agents.get_mut(&(1, 4242, 10)).unwrap();
+        first
+            .resolved(
+                Resolved {
+                    path: "sessions/test.jsonl".into(),
+                    release: "0.160.0".into(),
+                },
+                Instant::now(),
+            )
+            .unwrap();
+        first.gone = true;
+        first.end(Instant::now());
+        assert_eq!(first.sources.len(), 1);
+        let rows = Listed::decode(&transcripts.presence(&[session])).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].participant, [8; 16]);
+    }
+
     fn named(path: &str) -> Resolved {
         Resolved {
             path: path.into(),

@@ -1,7 +1,7 @@
 //! ADR 0004 framing and canonical tagged payload validation.
 use std::io::{Read, Write};
 include!("schema.rs");
-pub const PROTOCOL: u16 = 12;
+pub const PROTOCOL: u16 = 13;
 pub const MAX_FILE_BYTES: usize = 1_048_576;
 pub const INITIAL_CREDIT: usize = 262_144;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,6 +345,7 @@ impl<'a> Cursor<'a> {
             "version" => (2, 1, PROTOCOL as u64),
             "state" | "session_kind" => (1, 1, 3),
             "change" => (1, 1, 4),
+            "process_agent" => (1, 1, 2),
             "reconcile_outcome" => (1, 1, 2),
             "ack_outcome" => (1, 1, 5),
             "error_code" => (1, 1, 12),

@@ -67,6 +67,9 @@ pub trait Kernel: Send {
     ) -> io::Result<Vec<u8>> {
         Err(io::ErrorKind::Unsupported.into())
     }
+    fn transcript_presence(&mut self, _sessions: &[TranscriptSession]) -> io::Result<Vec<u8>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn transcript_reader(
         &mut self,
         _sessions: &[TranscriptSession],
@@ -519,6 +522,11 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 let sessions = self.transcript_sessions();
                 self.kernel
                     .with(|kernel| kernel.transcript_sources(&sessions, Instant::now()))
+            }
+            30 if body.is_empty() => {
+                let sessions = self.transcript_sessions();
+                self.kernel
+                    .with(|kernel| kernel.transcript_presence(&sessions))
             }
             27 if body.len() == 16 => {
                 let sessions = self.transcript_sessions();
