@@ -54,6 +54,8 @@ interface Counted {
   readonly renders: () => number
   /** How many commits the shell's tree has made since mount, whoever rendered in them. */
   readonly commits: () => number
+  /** The registry reads each commit made, in commit order. */
+  readonly readsPerCommit: () => ReadonlyArray<number>
   readonly host: HTMLElement
   readonly act: (change: () => unknown) => Promise<void>
 }
@@ -76,13 +78,19 @@ const mountCounted = async (): Promise<Counted> => {
     }
   }
   let commits = 0
+  let readsAtLastCommit = 0
+  const readsPerCommit: number[] = []
   const host = document.createElement("div")
   document.body.append(host)
   const root = createRoot(host)
   flushSync(() =>
     root.render(
       <ControllerTestProvider controller={controller}>
-        <Profiler id="shell" onRender={() => { commits += 1 }}>
+        <Profiler id="shell" onRender={() => {
+          commits += 1
+          readsPerCommit.push(count - readsAtLastCommit)
+          readsAtLastCommit = count
+        }}>
           <App />
         </Profiler>
       </ControllerTestProvider>
@@ -101,7 +109,7 @@ const mountCounted = async (): Promise<Counted> => {
     flushSync(() => {})
   }
   await act(() => {})
-  return { controller, renders: () => count, commits: () => commits, host, act }
+  return { controller, renders: () => count, commits: () => commits, readsPerCommit: () => readsPerCommit, host, act }
 }
 
 const textarea = (host: HTMLElement): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>("textarea")
@@ -160,12 +168,15 @@ describe("the composer hot path: typing never re-renders the transcript", () => 
 
   test("typing leaves the transcript's rendered messages untouched", async () => {
     const view = await mountCounted()
+    // A prompt and its failed answer: the rows a turn that could not run leaves.
+    // The browser no longer runs turns (90ef5aaccb), so the dispatcher writes them.
     await view.act(async () => {
-      await view.controller.commands.run("chat.send", "a message worth keeping")
-      await waitFor(() => [...view.controller.store.collections.transitions.values()]
-        .some(record => record.type === "message.response.failed"))
-      await view.controller.store.settled?.()
+      const { store } = view.controller
+      await store.dispatch({ type: "message.submitted", actor: "user", turnId: "kept", text: "a message worth keeping" }).isPersisted.promise
+      await store.dispatch({ type: "message.response.failed", actor: "system", turnId: "kept", message: "Try again." }).isPersisted.promise
+      await store.settled?.()
     })
+    expect(view.host.querySelector(".smithers-transcript")?.textContent).toContain("a message worth keeping")
     const before = view.host.querySelector(".smithers-transcript")?.innerHTML
     const renders = view.renders()
 
@@ -201,7 +212,12 @@ describe("the streaming hot path: a message delta re-derives only what the trans
 
     expect(view.host.querySelector(".smithers-transcript")?.textContent).toContain("one delta")
     expect(view.commits()).toBeGreaterThan(commits)
-    expect(view.renders() - reads).toBe(view.commits() - commits)
+    // A commit is App's render, which reads the registry once, or a child's
+    // own update, which reads it not at all. No commit reads it twice.
+    const delta = view.readsPerCommit().slice(commits)
+    expect(delta).toContain(1)
+    expect(delta.every(read => read <= 1)).toBe(true)
+    expect(view.renders() - reads).toBe(delta.reduce((sum, read) => sum + read, 0))
   })
 
   test("with the Wiki closed a delta resolves no note links; with it open, only a note change does", async () => {

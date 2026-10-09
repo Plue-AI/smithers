@@ -1,12 +1,24 @@
-import { describe, expect, test } from "bun:test"
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
+import { afterAll, describe, expect, test } from "bun:test"
+import { flushSync } from "react-dom"
+import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
 import { CardSchema, type Card } from "@smthrs/rpc/Cards"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
+import App from "../App"
 import { CardView } from "../ChatCards"
+import { ControllerTestProvider } from "../ControllerContext"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
-import { memoryStorage, settled } from "./TestFixtures"
+import { memoryStorage, settled, unavailableAgent, waitFor } from "./TestFixtures"
+
+GlobalRegistrator.register()
+afterAll(async () => {
+  // React's scheduler drains unmount work on a macrotask that reads `window`.
+  for (let tick = 0; tick < 3; tick += 1) await new Promise((resolve) => setTimeout(resolve, 0))
+  await GlobalRegistrator.unregister()
+})
 
 const createAppController = scopedControllers()
 
@@ -84,36 +96,53 @@ const balanceCard: Card = {
 }
 
 describe("server-emitted card frames", () => {
+  /*
+   * The host runs the turn (90ef5aaccb); its card frames reach the browser in
+   * the shared conversation the install serves. A card's later frame is its
+   * latest record, the turn's cards never enter the browser's own journal,
+   * and a runtime approval the browser holds still shows beside them.
+   */
   test("model presentation and runtime approvals land as plan, approval, and status cards", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(
-      store,
-      scriptedAgent([
-        { runId: "turn", type: "card", card: planCard },
-        { runId: "turn", type: "card", card: statusCard },
-        { runId: "turn", type: "card.update", id: "card-status", patch: { kind: "status", payload: { progress: 1 } } },
-        { runId: "turn", type: "delta", kind: "text", text: "Cards are live." },
-        { runId: "turn", type: "done" }
-      ])
-    )
-
+    const frames: ReadonlyArray<AgentTurnFrame> = [
+      { runId: "run-turn", type: "card", card: planCard },
+      { runId: "run-turn", type: "card", card: statusCard },
+      { runId: "run-turn", type: "card", card: { ...statusCard, payload: { progress: 1, note: "Analysis complete" } } },
+      { runId: "run-turn", type: "delta", kind: "text", text: "Cards are live." },
+      { runId: "run-turn", type: "done" }
+    ]
+    const turn = { id: "turn", author: 1, authorLogin: "will", runId: "run-turn", prompt: "show me the state of things", state: "completed", frames }
+    const controller = createAppController(store, unavailableAgent, {
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null },
+      fetchImpl: async (input) => {
+        if (String(input) === "/api/conversations/main") return Response.json({ id: "main", entries: [turn] })
+        if (String(input).endsWith("/view-state")) return Response.json({})
+        return Response.json({}, { status: 404 })
+      }
+    })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "card.upsert", actor: "system", card: approvalCard }).isPersisted.promise
-    controller.send("show me the state of things")
-    await settled()
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    try {
+      flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+      await waitFor(() => host.querySelector('[data-shared-turn="turn"]') !== null)
+      expect(host.querySelectorAll('[data-testid="card-card-plan"][data-kind="plan"]')).toHaveLength(1)
+      expect(host.querySelectorAll('[data-testid="card-card-approval"][data-kind="approval"]')).toHaveLength(1)
+      const status = host.querySelectorAll('[data-testid="card-card-status"][data-kind="status"]')
+      expect(status).toHaveLength(1)
+      expect(status[0]?.textContent).toContain("Analysis complete")
+      expect(status[0]?.textContent).not.toContain("Halfway there")
+      expect(host.textContent).toContain("Cards are live.")
 
-    const cards = [...store.collections.cards.values()].sort(
-      (left, right) => left.ordinal - right.ordinal
-    )
-    expect(cards.map((card) => card.kind)).toEqual(["plan", "approval", "status"])
-    const status = cards.find((card) => card.id === "card-status")
-    expect(status?.kind === "status" ? status.payload.progress : undefined).toBe(1)
-
-    const upserts = [...store.collections.transitions.values()].filter(
-      (record) => record.type === "card.upsert"
-    )
-    expect(upserts).toHaveLength(3)
-    expect(upserts.filter((record) => record.actor === "smithers")).toHaveLength(2)
-    expect(upserts.filter((record) => record.actor === "system")).toHaveLength(1)
+      expect([...store.collections.cards.keys()]).toEqual(["card-approval"])
+      const upserts = [...store.collections.transitions.values()].filter((record) => record.type === "card.upsert")
+      expect(upserts.map((record) => record.actor)).toEqual(["system"])
+    } finally {
+      flushSync(() => root.unmount())
+      host.remove()
+    }
   })
 
   test("render plans and status while legacy approval payloads stay dark without actor authority", () => {
@@ -297,9 +326,11 @@ describe("server-emitted card frames", () => {
     expect(quiet).toContain("No recent progress")
     expect(quiet).not.toContain("Running")
     expect(quiet).toContain("Quiet")
-    // The two acts are on the card, and both are registered commands.
-    expect(quiet).toContain("data-flow=\"flow.run.retry\"")
-    expect(quiet).toContain("data-flow=\"flow.run.stop\"")
+    // The two acts are on the card: the one `flow.run` flow with its operation (c89fb48890).
+    const runAct = (operation: string) =>
+      `data-flow="flow.run" data-flow-args="${JSON.stringify({ cardId: "flow-run-run-1", operation }).replaceAll("\"", "&quot;")}"`
+    expect(quiet).toContain(runAct("retry"))
+    expect(quiet).toContain(runAct("stop"))
 
     const stopped = renderToStaticMarkup(<CardView card={runCard("stopped")} {...cardViewHandlers} />)
     expect(stopped).toContain("Stopped watching")
