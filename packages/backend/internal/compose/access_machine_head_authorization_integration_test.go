@@ -1,12 +1,14 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -51,10 +53,19 @@ func TestAccessMachineHeadGrantsComposedPostgres(t *testing.T) {
 			hash := hex.EncodeToString(digest[:])
 			stored, err := q.GetAuthInfoByTokenHash(ctx, hash)
 			require.NoError(t, err)
-			body := fmt.Sprintf(`{"change_id":%q,"commit_id":%q,"ahead":2,"behind":1}`, strings.Repeat("k", 32), strings.Repeat("a", 40))
-			call := func(t *testing.T, workspace string, status int) {
-				t.Helper()
-				req := httptest.NewRequest("POST", r.origin+"/api/repos/rehearsal-owner/app/workspaces/"+workspace+"/head", strings.NewReader(body))
+			sample := 0
+			initialBody := fmt.Sprintf(`{"change_id":%q,"commit_id":%q,"ahead":2,"behind":1}`, strings.Repeat("k", 32), strings.Repeat("a", 40))
+			type response struct {
+				out       *httptest.ResponseRecorder
+				decisions []string
+			}
+			send := func(callCtx context.Context, workspace string) response {
+				sample++
+				body := initialBody
+				if sample > 1 {
+					body = fmt.Sprintf(`{"change_id":%q,"commit_id":%q,"ahead":2,"behind":1}`, strings.Repeat("k", 32), fmt.Sprintf("%040x", sample))
+				}
+				req := httptest.NewRequest("POST", r.origin+"/api/repos/rehearsal-owner/app/workspaces/"+workspace+"/head", strings.NewReader(body)).WithContext(callCtx)
 				req.RemoteAddr = "127.0.0.1:50999"
 				req.Header.Set("Authorization", "Bearer "+token)
 				req.Header.Set("Content-Type", "application/json")
@@ -64,6 +75,12 @@ func TestAccessMachineHeadGrantsComposedPostgres(t *testing.T) {
 				req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(c string) { decisions = append(decisions, c) }))
 				out := httptest.NewRecorder()
 				r.server.Config.Handler.ServeHTTP(out, req)
+				return response{out, decisions}
+			}
+			call := func(t *testing.T, workspace string, status int) {
+				t.Helper()
+				result := send(ctx, workspace)
+				out, decisions := result.out, result.decisions
 				require.Equal(t, status, out.Code, out.Body.String())
 				if status == 401 {
 					require.Empty(t, decisions)
@@ -121,6 +138,79 @@ func TestAccessMachineHeadGrantsComposedPostgres(t *testing.T) {
 			after, err := q.GetWorkspace(ctx, foreign.ID)
 			require.NoError(t, err)
 			require.Equal(t, before, after)
+			// Admission is already bound when the report waits for the real write
+			// fence. Committed death or publisher replacement must win that wait.
+			transitions := []struct {
+				name, change, restore string
+				status                int
+			}{
+				{"expiry", `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE id=$1`, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE id=$1`, 401},
+				{"publisher-replacement", `UPDATE workspaces SET head_push_token_id=NULL WHERE id=$1`, `UPDATE workspaces SET head_push_token_id=$2 WHERE id=$1`, 403},
+				{"workspace-deletion", `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, `UPDATE workspaces SET deleted_at=NULL WHERE id=$1`, 403},
+			}
+			if user.ID != repo.UserID.Int64 {
+				permission := "write"
+				if login == "ben" {
+					permission = "admin"
+				}
+				transitions = append(transitions,
+					struct {
+						name, change, restore string
+						status                int
+					}{"member-suspension", fmt.Sprintf(`UPDATE collaborators SET suspended_at=now() WHERE repository_id=%d AND user_id=$1`, repo.ID), fmt.Sprintf(`UPDATE collaborators SET suspended_at=NULL WHERE repository_id=%d AND user_id=$1`, repo.ID), 401},
+					struct {
+						name, change, restore string
+						status                int
+					}{"member-removal", fmt.Sprintf(`DELETE FROM collaborators WHERE repository_id=%d AND user_id=$1`, repo.ID), fmt.Sprintf(`INSERT INTO collaborators(repository_id,user_id,permission) VALUES(%d,$1,'%s')`, repo.ID, permission), 401})
+			}
+			for _, transition := range transitions {
+				t.Run("write-fence/"+transition.name, func(t *testing.T) {
+					key := any(stored.TokenID)
+					if strings.HasPrefix(transition.name, "member-") {
+						key = user.ID
+					}
+					if transition.name == "publisher-replacement" || transition.name == "workspace-deletion" {
+						key = own.ID
+					}
+					defer func() {
+						var err error
+						if transition.name == "publisher-replacement" {
+							_, err = r.pool.Exec(ctx, transition.restore, key, stored.TokenID)
+						} else {
+							_, err = r.pool.Exec(ctx, transition.restore, key)
+						}
+						require.NoError(t, err)
+					}()
+					lock, err := r.pool.Begin(ctx)
+					require.NoError(t, err)
+					defer lock.Rollback(context.Background())
+					_, err = lock.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repo.ID)
+					require.NoError(t, err)
+					requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+					defer cancel()
+					done := make(chan response, 1)
+					go func() { done <- send(requestCtx, own.ID) }()
+					require.Eventually(t, func() bool {
+						var n int
+						err := r.pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query='SELECT pg_advisory_xact_lock($1)'`).Scan(&n)
+						return err == nil && n > 0
+					}, 5*time.Second, 10*time.Millisecond)
+					_, err = r.pool.Exec(ctx, transition.change, key)
+					require.NoError(t, err)
+					snapshot := func() string {
+						var raw string
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT to_jsonb(w)::text FROM workspaces w WHERE id=$1`, own.ID).Scan(&raw))
+						return raw
+					}
+					before := snapshot()
+					require.NoError(t, lock.Commit(ctx))
+					result := <-done
+					require.Equal(t, transition.status, result.out.Code, result.out.Body.String())
+					require.Equal(t, []string{"workspace.head"}, result.decisions, "the captured admission is evaluated once")
+					require.Contains(t, result.out.Body.String(), `"code":"`+map[bool]string{true: "unauthenticated", false: "permission"}[transition.status == 401]+`"`)
+					require.Equal(t, before, snapshot(), "queued report cannot replace the head after a committed authority transition")
+				})
+			}
 			call(t, own.ID, 200)
 		})
 	}

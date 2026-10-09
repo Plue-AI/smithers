@@ -153,3 +153,15 @@ An expired original bearer returns 401 before any decision or saved id disclosur
 even with the requester's live cookie; its replacement still reconnects its own
 pending card. Each live request evaluates exactly its resolved command once.
 This supplements, rather than completes, the confirmation target/scope matrix.
+
+
+T-ACC-03 settled replay increment (`fr30-acc-03-r6`): the five-target identity
+campaign now proves canonical object-order and explicit-default replay,
+valid subject mismatch for wiki/Flow/agent edits, and rejected/approved create
+replay across 22 Maintainer/Member profile pairs. Denial has no target effect;
+approval and duplicate presses produce exactly one durable page, TODO or
+outbound issue intent. Suspension refuses both delegated create replay and the
+saved requester-session press before disclosure. These are composed HTTP and
+production-issuer checks; issue intent does not qualify delivery. The installed
+wiki/issue creation browser cases pass. Full C-ACC-02 and reference recovery
+remain unqualified.

@@ -170,6 +170,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 			for _, role := range []string{"admin", "write"} {
 				t.Run(via+"/"+role+"/immutable-credential", func(t *testing.T) {
 					a := actor(t, role, via)
+					beforeEffects := effects(t)
 					issuer := services.NewAuthService(q, config.AuthConfig{Mode: "selfhost"}, nil, nil)
 					issuer.Members = &services.Members{Pool: r.pool}
 					b := a
@@ -191,6 +192,47 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.Equal(t, 202, replay.status, replay.body)
 					require.Equal(t, []string{command}, replay.decisions)
 					require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"pending"}`, left), replay.body)
+					// Object order and whitespace do not change the canonical request.
+					var canonical map[string]any
+					require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &canonical))
+					reordered, err := json.MarshalIndent(canonical, "", "  ")
+					require.NoError(t, err)
+					equivalent := call(ctx, a, true, "/api/confirmations", string(reordered), "identity-key")
+					require.Equal(t, 202, equivalent.status, equivalent.body)
+					require.Equal(t, []string{command}, equivalent.decisions)
+					require.JSONEq(t, replay.body, equivalent.body)
+					// Explicit defaults and inferred subject/name fields canonicalize to
+					// the same action, rather than becoming an idempotency conflict.
+					switch command {
+					case "todo.new":
+						canonical["subject"] = map[string]string{"kind": "todo", "ref": "new"}
+						canonical["payload"].(map[string]any)["place"] = map[string]string{"mode": "append"}
+					case "wiki.create":
+						canonical["payload"].(map[string]any)["visibility"] = "public"
+					case "flow.edit", "agent.edit":
+						canonical["payload"].(map[string]any)["name"] = canonical["subject"].(map[string]any)["ref"]
+					}
+					normalized, err := json.Marshal(canonical)
+					require.NoError(t, err)
+					equivalent = call(ctx, a, true, "/api/confirmations", string(normalized), "identity-key")
+					require.Equal(t, 202, equivalent.status, equivalent.body)
+					require.Equal(t, []string{command}, equivalent.decisions)
+					require.JSONEq(t, replay.body, equivalent.body)
+					if command == "wiki.create" || command == "flow.edit" || command == "agent.edit" {
+						var changedSubject map[string]any
+						require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &changedSubject))
+						ref := map[string]string{"wiki.create": fmt.Sprintf("another-%d", a.user), "flow.edit": "review", "agent.edit": "planner"}[command]
+						changedSubject["subject"].(map[string]any)["ref"] = ref
+						if command == "wiki.create" {
+							changedSubject["payload"].(map[string]any)["page"].(map[string]any)["slug"] = ref
+						}
+						raw, err := json.Marshal(changedSubject)
+						require.NoError(t, err)
+						mismatch := call(ctx, a, true, "/api/confirmations", string(raw), "identity-key")
+						require.Equal(t, 409, mismatch.status, mismatch.body)
+						require.Contains(t, mismatch.body, `"code":"idempotency_mismatch"`)
+						require.Equal(t, []string{command}, mismatch.decisions)
+					}
 					var payload map[string]any
 					require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &payload))
 					input := payload["payload"].(map[string]any)
@@ -220,6 +262,31 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.Equal(t, 409, mismatch.status, mismatch.body)
 					require.Contains(t, mismatch.body, `"code":"idempotency_mismatch"`)
 					require.Equal(t, []string{otherCommand}, mismatch.decisions)
+					// A denial settles only this credential's card. Reusing its create
+					// key must report rejected, without leaking or settling the other card.
+					denied := call(ctx, a, false, "/api/confirmations/"+left+"/deny", `{}`, "identity-deny")
+					require.Equal(t, 200, denied.status, denied.body)
+					require.Equal(t, []string{command}, denied.decisions)
+					replay = call(ctx, a, true, "/api/confirmations", bodyFor(a), "identity-key")
+					require.Equal(t, 202, replay.status, replay.body)
+					require.Equal(t, []string{command}, replay.decisions)
+					require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"rejected"}`, left), replay.body)
+					for _, press := range []struct {
+						verb, key string
+						status    int
+					}{
+						{"deny", "identity-deny", 200},
+						{"deny", "another-deny", 409},
+						{"approve", "identity-deny", 409},
+						{"approve", "another-approve", 409},
+					} {
+						out := call(ctx, a, false, "/api/confirmations/"+left+"/"+press.verb, `{}`, press.key)
+						require.Equal(t, press.status, out.status, out.body)
+						require.Equal(t, []string{command}, out.decisions)
+						if press.status == 200 {
+							require.JSONEq(t, denied.body, out.body)
+						}
+					}
 					digest := sha256.Sum256([]byte(a.token))
 					changed, err := r.pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(digest[:]))
 					require.NoError(t, err)
@@ -235,8 +302,46 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"pending"}`, right), replay.body)
 					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
 					require.Equal(t, beforeCards+2, afterCards)
-					require.Zero(t, effects(t), "identity isolation and canonical mismatches cannot execute any target")
-					identities = append(identities, map[string]any{"profile": via, "role": role, "command": command, "distinct_cards": 2, "payload_mismatch": 409, "command_mismatch": 409, "dead_bearer_live_cookie_replay": 401, "replacement_replay": 202, "durable_effects": 0})
+					require.Equal(t, beforeEffects, effects(t), "identity isolation, mismatches and denial cannot execute any target")
+					approved := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, "identity-approve")
+					require.Equal(t, 200, approved.status, approved.body)
+					require.Equal(t, []string{command}, approved.decisions)
+					for range 2 {
+						replay = call(ctx, b, true, "/api/confirmations", bodyFor(b), "identity-key")
+						require.Equal(t, 202, replay.status, replay.body)
+						require.Equal(t, []string{command}, replay.decisions)
+						require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"approved"}`, right), replay.body)
+						duplicate := call(ctx, b, false, "/api/confirmations/"+right+"/approve", `{}`, "identity-approve")
+						require.Equal(t, 200, duplicate.status, duplicate.body)
+						require.Equal(t, []string{command}, duplicate.decisions)
+						require.JSONEq(t, approved.body, duplicate.body)
+					}
+					require.Equal(t, beforeEffects+1, effects(t), "resolved replay creates exactly one durable target effect")
+					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
+					require.Equal(t, beforeCards+2, afterCards, "resolved create replay must not create a new card")
+					if command != "wiki.create" && command != "issue.new" {
+						var number int64
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE created_by=$1`, b.user).Scan(&number))
+						_, err := r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"drop"}`, 202)
+						require.NoError(t, err)
+					}
+					// Even a saved approved result remains behind current membership.
+					_, err = r.pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, b.user)
+					require.NoError(t, err)
+					before := snapshot(t)
+					for _, delegated := range []bool{true, false} {
+						path, body, key := "/api/confirmations", bodyFor(b), "identity-key"
+						if !delegated {
+							path, body, key = "/api/confirmations/"+right+"/approve", `{}`, "identity-approve"
+						}
+						dead := call(ctx, b, delegated, path, body, key)
+						require.Equal(t, 401, dead.status, dead.body)
+						require.Contains(t, dead.body, `"code":"unauthenticated"`)
+						require.Empty(t, dead.decisions)
+						require.NotContains(t, dead.body, right)
+					}
+					require.Equal(t, before, snapshot(t))
+					identities = append(identities, map[string]any{"profile": via, "role": role, "command": command, "distinct_cards": 2, "payload_mismatch": 409, "command_mismatch": 409, "dead_bearer_live_cookie_replay": 401, "replacement_replay": 202, "canonical_equivalent_replay": 202, "normalized_default_replay": 202, "subject_mismatch_qualified": command == "wiki.create" || command == "flow.edit" || command == "agent.edit", "rejected_replay": 202, "approved_replay": 202, "suspended_resolved_replay": 401, "durable_effects": 1})
 				})
 			}
 		}
