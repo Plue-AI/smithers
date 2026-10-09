@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -174,6 +175,22 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.NoError(t, err)
 		sourceItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
 		require.NoError(t, err)
+		// An item fork has a retained source lane on an install. The Branch
+		// projection also reads that lane to offer a pending source rebase.
+		// Keep this fixture on that real contract rather than an item with
+		// no workspace, which refuses before the mounted Add press.
+		sourceWorkspace, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner.ID, TargetBookmark: "smithers/source", Status: "stopped"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2,vm_id='source-fixture' WHERE id=$1`, sourceWorkspace.ID, base)
+		require.NoError(t, err)
+		_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: sourceWorkspace.ID, RepositoryID: repo.ID, ItemID: sourceItem.ID, Name: "smithers/source"})
+		require.NoError(t, err)
+		sourceItem.WorkspaceID = sourceWorkspace.ID
+		sourceItem.CandidateBase, sourceItem.CandidateHead, sourceItem.CandidateVerified = base, base, true
+		_, err = q.SaveMythicalItem(ctx, sourceItem)
+		require.NoError(t, err)
+		git("-C", store, "update-ref", repohost.BranchHeadRef(sourceWorkspace.ID), base)
+		require.NoError(t, local.Client().ImportRefs(ctx, "ben", "demo"))
 		_, err = pool.Exec(ctx, `UPDATE workspaces SET forked_from_item=$2 WHERE id=$1`, workspace.ID, sourceItem.ID)
 		require.NoError(t, err)
 		addedNumber = 2
@@ -196,7 +213,9 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		origin = "http://" + server.Listener.Addr().String()
 		t.Setenv("SMITHERS_PUBLIC_URL", origin)
 	}
-	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: origin})
+	handler := startSplitProcess(t, Options{Repository: local.Client(), ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: providers, Machined: registry, FlowHostProductAPIURL: origin,
+		// The daemon peer below supplies capture wire data, not a microVM.
+		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 	if server != nil {
 		server.Config.Handler = handler
 		server.Start()
@@ -239,6 +258,19 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.Equal(t, "stopped", current.Status)
 		require.Equal(t, "asleep-fixture", current.VmID)
 		require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+		if remove == "app-card-item" {
+			sourceItem, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
+			require.NoError(t, err)
+			sourceWorkspace, err := q.GetWorkspace(ctx, sourceItem.WorkspaceID)
+			require.NoError(t, err)
+			require.Equal(t, "stopped", sourceWorkspace.Status, "Add never wakes its source")
+			require.Equal(t, "source-fixture", sourceWorkspace.VmID)
+			require.Equal(t, base, sourceWorkspace.HeadCommitID)
+			require.Equal(t, base, git("-C", store, "rev-parse", repohost.BranchHeadRef(sourceWorkspace.ID)))
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces`).Scan(&count))
+			require.Equal(t, 2, count, "Add adopts the scratch workspace beside its source")
+		}
 		return
 	}
 	call := func(body, key, session string) *httptest.ResponseRecorder {
