@@ -28,7 +28,7 @@ func TestAccessConfirmationWriteOrderComposedPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("composed confirmation write-order matrix requires PostgreSQL")
 	}
-	testAccessConfirmationWriteOrder(t, "todo.new")
+	testAccessConfirmationWriteOrder(t, "todo.new", false)
 }
 
 func TestAccessConfirmationConsumerWriteOrderComposedPostgres(t *testing.T) {
@@ -36,11 +36,20 @@ func TestAccessConfirmationConsumerWriteOrderComposedPostgres(t *testing.T) {
 		t.Skip("composed confirmation write-order matrix requires PostgreSQL")
 	}
 	for _, command := range []string{"issue.new", "wiki.create", "flow.edit", "agent.edit"} {
-		t.Run(command, func(t *testing.T) { testAccessConfirmationWriteOrder(t, command) })
+		t.Run(command, func(t *testing.T) { testAccessConfirmationWriteOrder(t, command, false) })
 	}
 }
 
-func testAccessConfirmationWriteOrder(t *testing.T, command string) {
+func TestAccessConfirmationConsumerIdentityComposedPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("composed confirmation identity matrix requires PostgreSQL")
+	}
+	for _, command := range []string{"todo.new", "issue.new", "wiki.create", "flow.edit", "agent.edit"} {
+		t.Run(command, func(t *testing.T) { testAccessConfirmationWriteOrder(t, command, true) })
+	}
+}
+
+func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly bool) {
 	t.Setenv("SMITHERS_ACCESS_CONFIRMATION_ORDER", "1")
 	r := newRehearsal(t, "SMITHERS_ACCESS_CONFIRMATION_ORDER", "C-ACC-02", "confirmation-order-")
 	require.True(t, r.install("Confirmation write ordering"))
@@ -154,6 +163,86 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string) {
 	vias := []string{"cli", "codex", "claude-code", "smithers"}
 	if command == "wiki.create" || command == "flow.edit" || command == "agent.edit" {
 		vias = []string{"smithers"}
+	}
+	if identityOnly {
+		var identities []map[string]any
+		for _, via := range vias {
+			for _, role := range []string{"admin", "write"} {
+				t.Run(via+"/"+role+"/immutable-credential", func(t *testing.T) {
+					a := actor(t, role, via)
+					issuer := services.NewAuthService(q, config.AuthConfig{Mode: "selfhost"}, nil, nil)
+					issuer.Members = &services.Members{Pool: r.pool}
+					b := a
+					if via == "smithers" {
+						token, err := issuer.MintForTurn(ctx, a.user, liveAppTurnCredentialFixture(t, r.pool, a.user), 1)
+						require.NoError(t, err)
+						b.token = token.Token
+					} else {
+						token, err := issuer.CreateToken(ctx, a.user, services.CreateTokenRequest{Name: "identity-replacement", Via: via, Scopes: []string{"repo", "user"}})
+						require.NoError(t, err)
+						b.token = token.Token
+					}
+					require.NotEqual(t, a.token, b.token)
+					var beforeCards, afterCards int
+					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&beforeCards))
+					left, right := create(t, a, "identity-key"), create(t, b, "identity-key")
+					require.NotEqual(t, left, right, "same member and key still belong to immutable credential identities")
+					replay := call(ctx, a, true, "/api/confirmations", bodyFor(a), "identity-key")
+					require.Equal(t, 202, replay.status, replay.body)
+					require.Equal(t, []string{command}, replay.decisions)
+					require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"pending"}`, left), replay.body)
+					var payload map[string]any
+					require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &payload))
+					input := payload["payload"].(map[string]any)
+					switch command {
+					case "wiki.create":
+						input["page"].(map[string]any)["body"] = "Changed private bytes"
+					case "issue.new":
+						input["body"] = "Changed private bytes"
+					case "flow.edit", "agent.edit":
+						input["request"] = "[HOLD access-order] Changed request"
+					default:
+						input["prompt"] = "[HOLD access-order] Changed prompt"
+					}
+					mismatchBody, err := json.Marshal(payload)
+					require.NoError(t, err)
+					mismatch := call(ctx, a, true, "/api/confirmations", string(mismatchBody), "identity-key")
+					require.Equal(t, 409, mismatch.status, mismatch.body)
+					require.Contains(t, mismatch.body, `"code":"idempotency_mismatch"`)
+					require.Equal(t, []string{command}, mismatch.decisions)
+					otherCommand := "todo.new"
+					otherBody := `{"command":"todo.new","payload":{"prompt":"[HOLD access-order] Different command"}}`
+					if command == "todo.new" {
+						otherCommand = "issue.new"
+						otherBody = `{"command":"issue.new","subject":{"kind":"issue","ref":"new"},"payload":{"title":"Different command","body":"Private bytes"}}`
+					}
+					mismatch = call(ctx, a, true, "/api/confirmations", otherBody, "identity-key")
+					require.Equal(t, 409, mismatch.status, mismatch.body)
+					require.Contains(t, mismatch.body, `"code":"idempotency_mismatch"`)
+					require.Equal(t, []string{otherCommand}, mismatch.decisions)
+					digest := sha256.Sum256([]byte(a.token))
+					changed, err := r.pool.Exec(ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(digest[:]))
+					require.NoError(t, err)
+					require.EqualValues(t, 1, changed.RowsAffected())
+					dead := call(ctx, a, true, "/api/confirmations", bodyFor(a), "identity-key")
+					require.Equal(t, 401, dead.status, dead.body)
+					require.Contains(t, dead.body, `"code":"unauthenticated"`)
+					require.Empty(t, dead.decisions)
+					require.NotContains(t, dead.body, left)
+					replay = call(ctx, b, true, "/api/confirmations", bodyFor(b), "identity-key")
+					require.Equal(t, 202, replay.status, replay.body)
+					require.Equal(t, []string{command}, replay.decisions)
+					require.JSONEq(t, fmt.Sprintf(`{"confirmation":%q,"state":"pending"}`, right), replay.body)
+					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
+					require.Equal(t, beforeCards+2, afterCards)
+					require.Zero(t, effects(t), "identity isolation and canonical mismatches cannot execute any target")
+					identities = append(identities, map[string]any{"profile": via, "role": role, "command": command, "distinct_cards": 2, "payload_mismatch": 409, "command_mismatch": 409, "dead_bearer_live_cookie_replay": 401, "replacement_replay": 202, "durable_effects": 0})
+				})
+			}
+		}
+		require.Len(t, identities, 2*len(vias))
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "confirmation-consumer-identity.json"), accessProfilesJSON(t, map[string]any{"boundary": "composed HTTP and production credential issuers", "cells": identities, "full_C_ACC_02_complete": false}), 0600))
+		return
 	}
 	var receipts []map[string]any
 	for _, via := range vias {

@@ -143,3 +143,13 @@ page, TODO or outbound issue intent; denial commits none. Outbound intent is
 not proof of GitHub delivery. The existing 168 todo.new ordering cells remain.
 These tests do not qualify the full permission/effect matrix, guest execution
 or reference-host acceptance.
+
+T-ACC-03 immutable replay increment (`fr30-acc-03-r5`): 22 role/profile pairs
+cover todo.new, issue.new, wiki.create, flow.edit and agent.edit. Two production
+credentials for the same member/key create distinct private cards. Same-identity
+replay reconnects only its own card; changed canonical payload and a different
+eligible command return 409 idempotency_mismatch without a new card or effect.
+An expired original bearer returns 401 before any decision or saved id disclosure,
+even with the requester's live cookie; its replacement still reconnects its own
+pending card. Each live request evaluates exactly its resolved command once.
+This supplements, rather than completes, the confirmation target/scope matrix.

@@ -18,7 +18,8 @@
     "file": "access_confirmation_write_order_authorization_integration_test.go",
     "tests": [
       "TestAccessConfirmationWriteOrderComposedPostgres",
-      "TestAccessConfirmationConsumerWriteOrderComposedPostgres"
+      "TestAccessConfirmationConsumerWriteOrderComposedPostgres",
+      "TestAccessConfirmationConsumerIdentityComposedPostgres"
     ]
   },
   {
