@@ -1,6 +1,15 @@
 import { expect, test } from "../browserTest"
 import { runLiveInstall } from "./live-install"
 
+test("C-MCH-11: missing machine authorities refuse terminal grants through install HTTP", async () => {
+  test.setTimeout(300_000)
+  const output = await runLiveInstall("^TestTerminalAdmissionMissingProvidersInstallBoundary$")
+  expect(output).toContain("--- PASS: TestTerminalAdmissionMissingProvidersInstallBoundary")
+  for (const provider of ["disk", "owner", "profile", "binding", "microvm", "identity", "membership", "authorization"]) {
+    expect(output).toContain(`--- PASS: TestTerminalAdmissionMissingProvidersInstallBoundary/missing_${provider}`)
+  }
+})
+
 // Chromium mounts production views against the authenticated install router.
 // Runtime boot/stop observations are injected; no live frames are intercepted.
 test("C-MCH-11: concurrent terminals share the real branch queue and grant cursor", async () => {

@@ -54,6 +54,7 @@ type perfWakeRuntime struct {
 	head             string
 	entered, release chan struct{}
 	once             sync.Once
+	bootCalls        atomic.Int32
 	registry         machined.Registry
 	owner            *terminalMemberRuntime
 }
@@ -121,6 +122,7 @@ func (r *perfWakeRuntime) InspectWorkspace(context.Context, string) (workspaceap
 	return workspaceapi.Workspace{ID: r.row.ID, Root: "/workspace", Home: "/home/member", State: r.state}, nil
 }
 func (r *perfWakeRuntime) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+	r.bootCalls.Add(1)
 	if err := ctx.Err(); err != nil {
 		return workspaceapi.Workspace{}, err
 	}
@@ -188,8 +190,17 @@ func TestSuccessfulTerminalAdmissionComposedInstall(t *testing.T) {
 	testPerfWarmWakeObservationComposedInstall(t, true)
 }
 
-func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
-	for _, mode := range []string{"warm", "missing head", "failed boot"} {
+func TestTerminalAdmissionMissingProvidersInstallBoundary(t *testing.T) {
+	testPerfWarmWakeObservationComposedInstall(t, true,
+		"missing disk", "missing owner", "missing profile", "missing binding",
+		"missing microvm", "missing identity", "missing membership", "missing authorization")
+}
+
+func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool, modes ...string) {
+	if len(modes) == 0 {
+		modes = []string{"warm", "missing head", "failed boot"}
+	}
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			f := presenceInstall(t)
 			q := db.New(f.pool)
@@ -202,10 +213,17 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 				root := t.TempDir()
 				binary := filepath.Join(root, "msb")
 				require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0700))
-				queue, err := microsandbox.New(t.Context(), microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
+				profile := &microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, DiskFreeBytes: 140 << 30}
+				if mode == "missing profile" {
+					profile = nil
+				}
+				queue, err := microsandbox.New(t.Context(), microsandbox.Config{Root: filepath.Join(root, "runtime"), Binary: binary, SkipQualification: true, HostProfile: profile, MaxRunningVMs: 1, CPUs: 2, MemoryMiB: 8192, DiskMiB: 32768})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, queue.Close()) })
 				queue.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+				if mode == "missing owner" {
+					queue.SetCapacityReader(nil)
+				}
 				runtime.queue = queue
 			}
 			reader, writer := io.Pipe()
@@ -223,7 +241,20 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 			auth := services.NewAuthService(q, authConfig, nil, nil)
 			auth.Members = &services.Members{Pool: f.pool}
 			auth.TerminalSubject = manager.OwnsSubject
-			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
+			providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)
+			switch mode {
+			case "missing binding":
+				providers.LaneBinding = nil
+			case "missing microvm":
+				providers.MicroVM = nil
+			case "missing identity":
+				providers.SessionIdentity = nil
+			case "missing membership":
+				providers.Membership = nil
+			case "missing authorization":
+				providers.Authorize = nil
+			}
+			service := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool), services.WithBranchMachineProviders(providers), services.WithWorkspaceCredentialIssuer(auth), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"), services.WithWorkspaceBillingPolicy(services.NewMachineAdmissionPolicy(services.NewUnlimitedBillingPolicy())))
 			service.EnableMachineAdmission(func(context.Context) (int64, error) {
 				if scheduled {
 					select {
@@ -234,6 +265,9 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 				}
 				return 140 << 30, nil
 			})
+			if mode == "missing disk" {
+				service.EnableMachineAdmission(nil)
+			}
 			service.BindBranchTerminalHost(func(context.Context, db.Workspace, int64) error { return nil })
 			provider := &installOwnerTerminals{queries: q, branches: service, registry: &runtime.registry}
 			provider.Bind(manager)
@@ -290,8 +324,17 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 					}
 				}
 			}
-			asleepFrame := readMachine("asleep")
-			require.Equal(t, "snap", asleepFrame.T)
+			capacityMissing := mode == "missing disk" || mode == "missing owner" || mode == "missing profile"
+			branchAuthorityMissing := strings.HasPrefix(mode, "missing ") && mode != "missing head" && !capacityMissing
+			var asleepFrame liveFrame
+			if branchAuthorityMissing {
+				// The live reader shares branch authority with the terminal door.
+				// It must refuse rather than invent a machine snapshot.
+				require.Equal(t, "err", readPresenceFrame(t, conn).T)
+			} else {
+				asleepFrame = readMachine("asleep")
+				require.Equal(t, "snap", asleepFrame.T)
+			}
 			requestID := uuid.NewString()
 			call := func(authenticated bool) *httptest.ResponseRecorder {
 				req := httptest.NewRequest(http.MethodPost, cfg.Server.PublicURL+"/api/terminals", strings.NewReader(`{"branch":"`+branch.ID+`"}`))
@@ -310,6 +353,34 @@ func testPerfWarmWakeObservationComposedInstall(t *testing.T, scheduled bool) {
 			}
 			require.Equal(t, 401, call(false).Code)
 			first := call(true)
+			if strings.HasPrefix(mode, "missing ") && mode != "missing head" {
+				// Missing branch authority refuses synchronously. Missing capacity
+				// readers settle the accepted background request as a visible failure.
+				if mode == "missing owner" || mode == "missing profile" {
+					require.Equal(t, 202, first.Code, first.Body.String())
+					finish()
+					var settled services.WorkspaceSessionResponse
+					replayed := call(true)
+					require.Equal(t, 202, replayed.Code, replayed.Body.String())
+					require.NoError(t, json.Unmarshal(replayed.Body.Bytes(), &settled))
+					require.Equal(t, "failed", settled.Status)
+					sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s"}`, branch.ID))
+					readMachine("asleep")
+				} else {
+					require.Equal(t, 503, first.Code, first.Body.String())
+					require.Equal(t, 503, call(true).Code)
+				}
+				require.Zero(t, runtime.bootCalls.Load(), "missing authority must never enter guest boot")
+				require.Zero(t, runtime.queue.InUse())
+				for _, request := range runtime.queue.AdmissionSnapshot() {
+					require.NotEqual(t, "granted", request.State)
+				}
+				stored, err := q.GetWorkspace(t.Context(), branch.ID)
+				require.NoError(t, err)
+				require.NotEqual(t, "running", stored.Status)
+				require.Empty(t, stored.VmID)
+				return
+			}
 			require.Equal(t, 202, first.Code, first.Body.String())
 			var accepted services.WorkspaceSessionResponse
 			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &accepted))
