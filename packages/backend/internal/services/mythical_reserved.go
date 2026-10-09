@@ -147,7 +147,7 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 		return result, 200, tx.Commit(live)
 	}
 	if mythicalSettledStates[item.State] {
-		s.logger.Warn("source_refused: reserved_todo_closed", "workspace", workspace, "run", subject.RunID)
+		s.logger.Warn("source_refused: reserved_todo_closed", "workspace", workspace, "run", subject.RunID, "state", item.State)
 		return empty, 0, pkgerrors.Conflict("source_refused: reserved_todo_closed")
 	}
 	if mythicalMergeFenced(item) || item.PausedAt.Valid {
@@ -159,7 +159,14 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			return empty, 0, err
 		}
 		if pending.RequestID == input.RequestID && !same {
-			s.logger.Warn("source_refused: reserved_request_changed", "workspace", workspace, "run", subject.RunID)
+			values := []any{"workspace", workspace, "run", subject.RunID, "request", input.RequestID,
+				"actual_plan_sha", fmt.Sprintf("%x", sha256.Sum256(input.Plan)), "expected_plan_sha", fmt.Sprintf("%x", sha256.Sum256(pending.Plan))}
+			if pending.Source != nil {
+				values = append(values, "actual_head", input.Source.CommitID, "expected_head", pending.Source.CommitID,
+					"actual_tree", input.Source.TreeID, "expected_tree", pending.Source.TreeID,
+					"actual_parents", input.Source.ParentCommitIDs, "expected_parents", pending.Source.ParentCommitIDs)
+			}
+			s.logger.Warn("source_refused: reserved_request_changed", values...)
 			return empty, 0, pkgerrors.Conflict("source_refused: reserved_request_changed")
 		}
 		if same && mythicalChecksOf(item).ProposalRun == item.RequestRunID && mythicalChecksOf(item).ProposalHead == input.Source.CommitID && item.State == "integrating" {
@@ -373,8 +380,8 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 			if err := tx.Commit(live); err != nil {
 				return empty, 0, err
 			}
-			s.logger.Warn("source_refused: reserved_candidate_changed", "actual_generation", input.Generation, "expected_generation", item.Generation, "actual_base", item.CandidateBase, "expected_base", prefix)
-			return empty, 0, pkgerrors.Conflict("source_refused: reserved_candidate_changed")
+			s.logger.Warn("source_refused: reserved_candidate_tree_changed", "actual_tree", tree, "expected_tree", candidateTree, "candidate_head", item.CandidateHead)
+			return empty, 0, pkgerrors.Conflict("source_refused: reserved_candidate_tree_changed")
 		}
 		if item.State == "proposed" && item.PRHead != "" && len(item.PendingOp) == 0 {
 			// The run saw its acceptance; review may now take its machine.

@@ -166,6 +166,27 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		_, err = f.pool.Exec(f.ctx, `UPDATE mythical_items SET request_run_id='current-run' WHERE id=$1`, itemID)
 		require.NoError(t, err)
 	})
+	t.Run("closed TODO and stale prefix name separate refusal sites", func(t *testing.T) {
+		before, reads := runtime.calls, objects.reads
+		for _, scenario := range []struct{ sql, restore, reason string }{
+			{"UPDATE mythical_items SET state='cancelled' WHERE id=$1", "UPDATE mythical_items SET state='proposed' WHERE id=$1", "reserved_todo_closed"},
+			{"UPDATE mythical_items SET candidate_base=repeat('e',40) WHERE id=$1", "UPDATE mythical_items SET candidate_base=base_commit WHERE id=$1", "reserved_prefix_mismatch"},
+		} {
+			_, err := f.pool.Exec(f.ctx, scenario.sql, itemID)
+			require.NoError(t, err)
+			out := call(t, token, "candidate", request, 409)
+			require.Contains(t, out.Body.String(), "source_refused: "+scenario.reason)
+			_, err = f.pool.Exec(f.ctx, scenario.restore, itemID)
+			require.NoError(t, err)
+		}
+		require.Equal(t, before, runtime.calls)
+		require.Equal(t, reads, objects.reads)
+	})
+	t.Run("posted source names its live tree mismatch", func(t *testing.T) {
+		changed := strings.Replace(string(raw), tree, strings.Repeat("e", 40), 1)
+		out := call(t, token, "candidate", changed, 409)
+		require.Contains(t, out.Body.String(), "source_refused: reserved_live_tree_mismatch")
+	})
 	t.Run("one decision cannot authorize substituted work", func(t *testing.T) {
 		digest := sha256.Sum256([]byte(token))
 		hash := hex.EncodeToString(digest[:])
@@ -451,7 +472,12 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			}
 			raw, err := json.Marshal(input)
 			require.NoError(t, err)
-			call(t, token, "candidate", string(raw), 409)
+			out := call(t, token, "candidate", string(raw), 409)
+			reason := "reserved_capture_tree_mismatch"
+			if altered == "live" {
+				reason = "reserved_candidate_prefix_mismatch"
+			}
+			require.Contains(t, out.Body.String(), "source_refused: "+reason)
 		}
 	})
 
@@ -617,14 +643,17 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 	})
 	t.Run("stale generation refuses before observation", func(t *testing.T) {
 		before := runtime.calls
-		call(t, token, "propose", strings.Replace(proposal, ":7", ":6", 1), 409)
+		fresh := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", uuid.NewString(), 1)
+		out := call(t, token, "propose", strings.Replace(fresh, ":7", ":6", 1), 409)
+		require.Contains(t, out.Body.String(), "source_refused: reserved_candidate_changed")
 		require.Equal(t, before, runtime.calls)
 	})
 	t.Run("changed tree invalidates publication", func(t *testing.T) {
 		freshProposal := strings.Replace(proposal, "22222222-2222-4222-8222-222222222222", "66666666-6666-4666-8666-666666666666", 1)
 		runtime.head = strings.Repeat("e", 40)
 		runtime.tree = strings.Repeat("f", 40)
-		call(t, token, "propose", freshProposal, 409)
+		out := call(t, token, "propose", freshProposal, 409)
+		require.Contains(t, out.Body.String(), "source_refused: reserved_candidate_tree_changed")
 		item, err := f.q.GetMythicalItemByNumber(f.ctx, f.repoID, 1)
 		require.NoError(t, err)
 		require.False(t, item.CandidateVerified)
@@ -632,7 +661,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 		runtime.head = head
 		runtime.tree = tree
 		before := runtime.calls
-		call(t, token, "propose", freshProposal, 409)
+		out = call(t, token, "propose", freshProposal, 409)
+		require.Contains(t, out.Body.String(), "source_refused: reserved_candidate_changed")
 		require.Equal(t, before, runtime.calls)
 	})
 
@@ -733,7 +763,8 @@ func TestInstallReservedStackOperationsPostgres(t *testing.T) {
 			}
 			mutated, err := json.Marshal(request)
 			require.NoError(t, err)
-			call(t, token, "candidate", string(mutated), 409)
+			out := call(t, token, "candidate", string(mutated), 409)
+			require.Contains(t, out.Body.String(), "source_refused: reserved_request_changed")
 		}
 		require.Equal(t, beforeReads, objects.reads)
 		require.Equal(t, beforeCalls, runtime.calls)
