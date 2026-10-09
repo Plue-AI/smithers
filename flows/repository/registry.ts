@@ -215,6 +215,13 @@ export const provisionBuiltins = (
     const root = path.join(stateRoot, "builtin-flows", policy)
     // A reused host state must not rediscover the retired registration door.
     yield* fs.remove(path.join(root, "register-repository"), { recursive: true, force: true })
+    // TODOs replace CI, Feature and Chores. Remove their old packaged doors
+    // from reused policy roots as well as fresh installs. Their names remain
+    // install-owned; retained issue/review execution and saved history keep
+    // the shared RunJob implementation.
+    for (const job of ["ci", "feature", "chores"]) {
+      yield* fs.remove(path.join(root, "repository-jobs", job), { recursive: true, force: true })
+    }
     for (const check of checks) {
       if (
         !builtinCheckName.test(check.flow) || (check.argv.length === 0 && check.flow !== "checks/build-only") ||
@@ -250,7 +257,7 @@ export const provisionBuiltins = (
         delegate: "repository/RunTrigger",
         description: "Register one repository flow to run on a reviewed schedule."
       },
-      ...(["issues", "review", "ci", "feature", "chores"] as const).map((job) => ({
+      ...(["issues", "review"] as const).map((job) => ({
         name: `repository-jobs/${job}`,
         delegate: "repository/RunJob",
         description: `Run the reviewed ${job} responsibility with recorded evidence.`

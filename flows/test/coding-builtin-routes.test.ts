@@ -10,11 +10,13 @@
  * are the functions `flows/coding/host.ts` calls at startup.
  */
 import { NodeServices } from "@effect/platform-node"
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
 import { Flow, FlowRuntime, Graph } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Option, Schema } from "effect"
 import assert from "node:assert/strict"
@@ -57,7 +59,7 @@ const project = {
     id: "overview",
     title: "Overview",
     purpose: "Describe the repository",
-    kind: "current",
+    kind: "current" as const,
     document: "overview.md",
     inputs: ["README.md"],
     related: []
@@ -99,6 +101,79 @@ const startup = (repositoryPath: string, stateRoot: string, provision: "host" | 
 test("a coding project with no flows/coding tree serves every configured coding route", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   assert.deepEqual((await startup(repositoryPath, stateRoot, "host")).missing, [])
+})
+
+test("fresh and reused hosts retire CI, Feature and Chores command doors", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const root = join(stateRoot, "builtin-flows", policy)
+  for (const reused of [false, true]) {
+    if (reused) {
+      for (const job of ["ci", "feature", "chores"]) {
+        const directory = join(root, "repository-jobs", job)
+        await mkdir(directory, { recursive: true })
+        await writeFile(join(directory, "flow.ts"), "throw new Error('Retired job must not import')")
+      }
+    }
+    const started = await startup(repositoryPath, stateRoot, "host")
+    assert.deepEqual(started.missing, [])
+    for (const job of ["ci", "feature", "chores"]) {
+      assert.equal(started.listed.includes(`repository-jobs/${job}`), false)
+      await assert.rejects(access(join(root, "repository-jobs", job)), { code: "ENOENT" })
+    }
+    for (const job of ["issues", "review"]) {
+      assert.equal(started.listed.includes(`repository-jobs/${job}`), true)
+    }
+    await Effect.gen(function*() {
+      const { routes } = yield* FileRouter.scan({ root })
+      const commands = yield* Command.make(routes)
+      for (const job of ["ci", "feature", "chores"]) {
+        assert.equal(routes.some(route => route.name === `repository-jobs/${job}`), false)
+        const result = yield* commands.execute(`repository-jobs ${job}`).pipe(Effect.result)
+        assert.equal(result._tag, "Failure", job)
+      }
+    }).pipe(
+      Effect.provideService(FlowInvoker.FlowInvoker, FlowInvoker.make({ invoke: () => Effect.die("Retired jobs must not dispatch") })),
+      Effect.provide(platform), Effect.runPromise
+    )
+  }
+})
+
+test("retiring packaged job doors preserves pinned source for existing history", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const root = join(stateRoot, "builtin-flows", policy)
+  const directory = join(root, "repository-jobs", "ci")
+  await mkdir(directory, { recursive: true })
+  const body = `import type * as FlowBinding from "@smthrs/harness/FlowBinding"
+import { Schema } from "effect"
+export default ({ name: "repository-jobs/ci", description: "Run the reviewed ci responsibility with recorded evidence.", capabilities: ["*"], flows: ["repository/RunJob"], effects: undefined, input: Schema.Unknown, output: Schema.Unknown } satisfies FlowBinding.Declared)
+`
+  await writeFile(join(directory, "flow.ts"), body)
+  await Effect.gen(function*() {
+    const registry = yield* Registry.make({ sources: [{ root, source: "repository-host", naming: "path", system: true }] })
+    const descriptor = yield* registry.get("repository-jobs/ci")
+    const executable = yield* Executable.fromDescriptor(descriptor, {
+      delegates: [RunJob],
+      // The packaged host loads its compiled declaration after exact-byte
+      // admission; this temporary root has no package installation.
+      load: (_file, source) => {
+        assert.equal(new TextDecoder().decode(source.bytes), body)
+        return Effect.succeed({ default: {
+          name: "repository-jobs/ci", description: "Run the reviewed ci responsibility with recorded evidence.",
+          capabilities: ["*"], flows: [RunJob._tag], effects: undefined, input: Schema.Unknown, output: Schema.Unknown
+        } })
+      }
+    })
+    const digest = Descriptor.executionDigest(executable.descriptor)!
+    const snapshots = yield* ExecutionSnapshot.makeFileSystem({ root: repositoryPath })
+    yield* snapshots.pin(executable)
+    yield* provisionHostBuiltins(stateRoot, policy, { planning: { ...project, implementation: "coding/implementation" }, landing })
+    const restored = yield* snapshots.restore(digest)
+    assert.equal(restored.descriptor.name, "repository-jobs/ci")
+    assert.equal(Descriptor.executionDigest(restored.descriptor), digest)
+    assert.equal(restored.descriptor.body._tag, "Module")
+    assert.equal(new TextDecoder().decode(restored.bytes), body)
+  }).pipe(Effect.provide(Discovery.layer), Effect.provide(NodeCrypto.layer), Effect.provide(platform), Effect.runPromise)
+  await assert.rejects(access(directory), { code: "ENOENT" })
 })
 
 test("a repository with no flows of its own serves the stack's review on the coding/review role", async (t) => {
@@ -277,7 +352,10 @@ for (
     "stack.candidate",
     "todo.preapprove",
     "todo.unapprove",
-    "todo.retry-current-flow"
+    "todo.retry-current-flow",
+    "repository-jobs/ci",
+    "repository-jobs/feature",
+    "repository-jobs/chores"
   ]
 ) {
   test(`install-owned ${name} is refused before import without a packaged default`, async (t) => {
