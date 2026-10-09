@@ -80,9 +80,9 @@ export const SETUP_REFUSAL_COPY: ReadonlyMap<string, string> = new Map([
  * {@link receiptFault} fails to compile until it is.
  */
 export const RECEIPT_CODES = [
-  "invalid_plan", "invalid_request", "fast_gate", "check_infra", "stale_revision", "invalid_receipt", "unavailable",
-  "execution", "source_missing", "source_changed", "source_refused", "source_unavailable", "declined",
-  "stalled", "evicted", "isolation_required"
+  "invalid_plan", "invalid_request", "fast_gate", "check_infra", "check_configuration", "check_modified_tree",
+  "stale_revision", "invalid_receipt", "unavailable", "execution", "source_missing", "source_changed", "source_refused",
+  "not_a_todo_run", "source_unavailable", "declined", "stalled", "evicted", "isolation_required"
 ] as const
 
 /** One member of {@link RECEIPT_CODES}. */
@@ -109,6 +109,11 @@ const receiptFault = (code: ReceiptCode, sentence: string): PlueFault => {
     case "source_missing":
     case "source_changed":
     case "source_refused":
+    /* The repository declares no executable check, or a check wrote to the tree it was measuring: the repository's to fix before Retry. */
+    case "check_configuration":
+    case "check_modified_tree":
+    /* A draft version is not a TODO run, so it has no stack to publish to. */
+    case "not_a_todo_run":
     /* The planner judged the request not actionable as a code change. */
     case "declined":
     /* Correction rounds stopped changing anything; the request needs a person. */
