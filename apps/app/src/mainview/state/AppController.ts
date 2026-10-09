@@ -24,7 +24,8 @@ import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
 import { createDebugApiSeam, debugApiFailureCopy, presentDebugApiFailure, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
-import type { Refusal } from "@smthrs/rpc/Refusal"
+import { refusalOf, type Refusal } from "@smthrs/rpc/Refusal"
+import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import { openRequestedRepo } from "../RepoLink"
 import { createRepositoryReadiness } from "./controller/repositoryAdmission"
 
@@ -145,7 +146,7 @@ import { createRepoTreeSeam } from "./seams/RepoTreeSeam"
 import type { RepositoriesSeam } from "./seams/RepositoriesSeam"
 import { createRepositoriesSeam } from "./seams/RepositoriesSeam"
 import { createRepositoryFlowsSeam } from "./seams/RepositoryFlowsSeam"
-import type { SeamContext } from "./seams/SeamContext"
+import { refusalWords, type SeamContext } from "./seams/SeamContext"
 import type { PaletteAnswer,SearchSeam } from "./seams/SearchSeam"
 import { createSearchSeam } from "./seams/SearchSeam"
 import type { SecretsSeam } from "./seams/SecretsSeam"
@@ -2670,10 +2671,12 @@ export const createAppController = (
         [UNRECORDED_NET]: true
       } as UnrecordedInit)
       if (response.status === 204) return undefined
-      const failure = await response.json() as { code?: string; message?: string }
+      const body = await response.json() as { code?: string }
       // The local person-only refusal supplies the declaration's reason.
-      if (failure.code === "never") return undefined
-      return { status: "failed", error: typeof failure.message === "string" ? failure.message : "Debug API is unavailable" }
+      if (body.code === "never") return undefined
+      // A refusal the person can act on (scope, sign-in) keeps its words; anything else reads as unavailable.
+      const unavailable = "Debug API is unavailable"
+      return { status: "failed", error: refusalLine(refusalOf({ body, status: response.status, message: refusalWords(body, unavailable, response.status) }), unavailable) }
     } catch {
       return { status: "failed", error: "Debug API is unavailable" }
     }

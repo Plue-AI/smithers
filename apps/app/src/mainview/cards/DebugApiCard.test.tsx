@@ -270,3 +270,22 @@ test("the shipped install bootstrap activates slash, Advanced and Send without t
   expect(calls.slice(before)).toEqual(["http://mini.local/api/stack"])
   expect(controller.debugApi.get().model.exchange?.response?.status).toBe(200)
 })
+
+test("the install's Debug API door keeps a refusal the person can act on and never a server failure's words", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const doors: string[] = []
+  let answer = (): Response => Response.json({ code: "permission", class: "permission", message: "Insufficient credential scope" }, { status: 403 })
+  const controller = createController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "debug.api"], authFlow: "redirect", sandbox: null },
+    openApi: async () => apiFixture, debugApiOrigin: "http://mini.local",
+    fetchImpl: async url => { doors.push(new URL(String(url)).pathname); return answer() }
+  })
+  const refused = await controller.commands.runForAgent("debug-api", "getStack")
+  expect(refused.status === "failed" && refused.error).toContain("Insufficient credential scope")
+  answer = () => Response.json({ message: "pq: relation \"grants\" does not exist" }, { status: 500 })
+  const broken = await controller.commands.runForAgent("debug-api", "getStack")
+  expect(broken.status === "failed" && broken.error).toContain("Debug API is unavailable.")
+  expect(JSON.stringify(broken)).not.toContain("grants")
+  expect(doors).toEqual(["/api/commands/debug-api", "/api/commands/debug-api"])
+  expect(store.collections.cards.has("debug-api")).toBe(false)
+})
