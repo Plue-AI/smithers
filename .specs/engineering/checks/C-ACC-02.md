@@ -188,3 +188,12 @@ stored revisions on the same TODO. Initial paused subjects are stored fixture
 input; authorization, confirmation consumption and revision writes use the
 production composition. Full target/state/scope coverage and reference-host
 qualification remain incomplete.
+
+The fr30-acc-03-r6 Drop extension adds queued/retrying ordering and settled
+identity replay across the same 336 ordering cells and 16 delegated identity
+pairs. Approval cancels only the bound TODO, preserves its original revision,
+and leaves the alternate subject unchanged. A valid alternate subject refuses
+with 409; an invalid Drop payload refuses with 400 and is not counted as a
+valid payload-mismatch qualification. The installed browser reloads the private
+card, approves by keyboard and reads the cancelled TODO. Full command/state
+and reference-host qualification remain incomplete.

@@ -20,7 +20,8 @@
       "TestAccessConfirmationWriteOrderComposedPostgres",
       "TestAccessConfirmationConsumerWriteOrderComposedPostgres",
       "TestAccessConfirmationConsumerIdentityComposedPostgres",
-      "TestAccessAmendConfirmationWriteOrderComposedPostgres"
+      "TestAccessAmendConfirmationWriteOrderComposedPostgres",
+      "TestAccessDropConfirmationWriteOrderComposedPostgres"
     ]
   },
   {

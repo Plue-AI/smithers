@@ -61,6 +61,18 @@ func TestAccessAmendConfirmationWriteOrderComposedPostgres(t *testing.T) {
 	}
 }
 
+func TestAccessDropConfirmationWriteOrderComposedPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("composed drop ordering requires PostgreSQL")
+	}
+	for _, state := range []string{"queued", "retrying"} {
+		t.Run(state, func(t *testing.T) {
+			t.Run("ordering", func(t *testing.T) { testAccessConfirmationWriteOrder(t, "todo.drop", false, state) })
+			t.Run("identity", func(t *testing.T) { testAccessConfirmationWriteOrder(t, "todo.drop", true, state) })
+		})
+	}
+}
+
 func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly bool, initialState ...string) {
 	subjectState := "queued"
 	if len(initialState) > 0 {
@@ -80,7 +92,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 		user                      int64
 	}
 	next := int64(300)
-	numbers := map[int64]int64{}
+	numbers, otherNumbers := map[int64]int64{}, map[int64]int64{}
 	actor := func(t *testing.T, role, via string) identity {
 		t.Helper()
 		// Each cell models a fresh browser; clear only this isolated database's OAuth limiter between unrelated sign-ins.
@@ -111,11 +123,21 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 			require.NoError(t, err)
 			a.token = token.Token
 		}
-		if command == "todo.amend" {
-			var number int64
-			require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
- VALUES($1,'todo',$2,'Ordered amendment','Ordered amendment',$3,$3,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number`, repo.ID, subjectState, a.user).Scan(&number))
-			numbers[a.user] = number
+		if command == "todo.amend" || command == "todo.drop" {
+			seed := func(title string) int64 {
+				var number int64
+				require.NoError(t, r.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,owner_id,created_by,revisions,checks,paused_at,attempt)
+ VALUES($1,'todo',$2,$4,$4,$3,$3,'[{"text":"Original prompt","acceptance":[]}]','{}',now(),1) RETURNING number`, repo.ID, subjectState, a.user, title).Scan(&number))
+				return number
+			}
+			title := "Ordered amendment"
+			if command == "todo.drop" {
+				title = "Ordered drop"
+			}
+			numbers[a.user] = seed(title)
+			if command == "todo.drop" {
+				otherNumbers[a.user] = seed("Other drop subject")
+			}
 		}
 		return a
 	}
@@ -154,6 +176,8 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 	}
 	bodyFor := func(a identity) string {
 		switch command {
+		case "todo.drop":
+			return fmt.Sprintf(`{"command":"todo.drop","subject":{"kind":"todo","ref":%q},"payload":{"op":"drop"}}`, fmt.Sprintf("T%d", numbers[a.user]))
 		case "todo.amend":
 			return fmt.Sprintf(`{"command":"todo.amend","subject":{"kind":"todo","ref":%q},"payload":{"prompt":"Confirmed ordered amendment","acceptance":["Exactly one revision"]}}`, fmt.Sprintf("T%d", numbers[a.user]))
 		case "issue.comment":
@@ -190,6 +214,10 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 	effects := func(t *testing.T) int {
 		t.Helper()
 		var n int
+		if command == "todo.drop" {
+			require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE state='cancelled'`).Scan(&n))
+			return n
+		}
 		if command == "todo.amend" {
 			require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE jsonb_array_length(revisions)>1`).Scan(&n))
 			return n
@@ -255,10 +283,10 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.Equal(t, 202, equivalent.status, equivalent.body)
 					require.Equal(t, []string{command}, equivalent.decisions)
 					require.JSONEq(t, replay.body, equivalent.body)
-					if command == "wiki.create" || command == "flow.edit" || command == "agent.edit" || command == "issue.comment" {
+					if command == "wiki.create" || command == "flow.edit" || command == "agent.edit" || command == "issue.comment" || command == "todo.drop" {
 						var changedSubject map[string]any
 						require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &changedSubject))
-						ref := map[string]string{"wiki.create": fmt.Sprintf("another-%d", a.user), "flow.edit": "review", "agent.edit": "planner", "issue.comment": fmt.Sprint(otherIssueNumber)}[command]
+						ref := map[string]string{"wiki.create": fmt.Sprintf("another-%d", a.user), "flow.edit": "review", "agent.edit": "planner", "issue.comment": fmt.Sprint(otherIssueNumber), "todo.drop": fmt.Sprintf("T%d", otherNumbers[a.user])}[command]
 						changedSubject["subject"].(map[string]any)["ref"] = ref
 						if command == "wiki.create" {
 							changedSubject["payload"].(map[string]any)["page"].(map[string]any)["slug"] = ref
@@ -274,6 +302,8 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.NoError(t, json.Unmarshal([]byte(bodyFor(a)), &payload))
 					input := payload["payload"].(map[string]any)
 					switch command {
+					case "todo.drop":
+						input["op"] = "archive"
 					case "wiki.create":
 						input["page"].(map[string]any)["body"] = "Changed private bytes"
 					case "issue.new", "issue.comment":
@@ -286,8 +316,12 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					mismatchBody, err := json.Marshal(payload)
 					require.NoError(t, err)
 					mismatch := call(ctx, a, true, "/api/confirmations", string(mismatchBody), "identity-key")
-					require.Equal(t, 409, mismatch.status, mismatch.body)
-					require.Contains(t, mismatch.body, `"code":"idempotency_mismatch"`)
+					payloadStatus, payloadCode := 409, "idempotency_mismatch"
+					if command == "todo.drop" {
+						payloadStatus, payloadCode = 400, "invalid_confirmation"
+					}
+					require.Equal(t, payloadStatus, mismatch.status, mismatch.body)
+					require.Contains(t, mismatch.body, `"code":"`+payloadCode+`"`)
 					require.Equal(t, []string{command}, mismatch.decisions)
 					otherCommand := "todo.new"
 					otherBody := `{"command":"todo.new","payload":{"prompt":"[HOLD access-order] Different command"}}`
@@ -341,8 +375,8 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					require.Equal(t, beforeCards+2, afterCards)
 					require.Equal(t, beforeEffects, effects(t), "identity isolation, mismatches and denial cannot execute any target")
 					approveKey := "identity-approve"
-					if directory := os.Getenv("SMITHERS_ACCESS_AMEND_PHASE_DIR"); directory != "" && command == "todo.amend" && subjectState == "queued" && via == "cli" && role == "admin" {
-						t.Logf("AMEND_CONFIRM_READY %s %s %s %d", r.origin, right, b.cookie, numbers[b.user])
+					if directory := os.Getenv("SMITHERS_ACCESS_CONTROL_PHASE_DIR"); directory != "" && (command == "todo.amend" || command == "todo.drop") && subjectState == "queued" && via == "cli" && role == "admin" {
+						t.Logf("CONTROL_CONFIRM_READY %s %s %s %d", r.origin, right, b.cookie, numbers[b.user])
 						phase := filepath.Join(directory, "approved")
 						require.Eventually(t, func() bool { _, err := os.Stat(phase); return err == nil }, 90*time.Second, 20*time.Millisecond)
 						raw, err := os.ReadFile(phase)
@@ -366,6 +400,16 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						require.JSONEq(t, approved.body, duplicate.body)
 					}
 					require.Equal(t, beforeEffects+1, effects(t), "resolved replay creates exactly one durable target effect")
+					if command == "todo.drop" {
+						var state string
+						var revisions []byte
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT state,revisions FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, numbers[b.user]).Scan(&state, &revisions))
+						require.Equal(t, "cancelled", state)
+						require.JSONEq(t, `[{"text":"Original prompt","acceptance":[]}]`, string(revisions))
+						var untouched string
+						require.NoError(t, r.pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, otherNumbers[b.user]).Scan(&untouched))
+						require.Equal(t, subjectState, untouched, "subject mismatch cannot drop the other stored TODO")
+					}
 					if command == "todo.amend" {
 						var revisions []byte
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT revisions FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, numbers[b.user]).Scan(&revisions))
@@ -392,7 +436,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 					}
 					require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterCards))
 					require.Equal(t, beforeCards+2, afterCards, "resolved create replay must not create a new card")
-					if command != "wiki.create" && command != "issue.new" && command != "issue.comment" {
+					if command != "wiki.create" && command != "issue.new" && command != "issue.comment" && command != "todo.drop" {
 						var number int64
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE created_by=$1`, b.user).Scan(&number))
 						_, err := r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"drop"}`, 202)
@@ -414,7 +458,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						require.NotContains(t, dead.body, right)
 					}
 					require.Equal(t, before, snapshot(t))
-					identities = append(identities, map[string]any{"profile": via, "role": role, "command": command, "distinct_cards": 2, "payload_mismatch": 409, "command_mismatch": 409, "dead_bearer_live_cookie_replay": 401, "replacement_replay": 202, "canonical_equivalent_replay": 202, "normalized_default_replay": 202, "subject_mismatch_qualified": command == "wiki.create" || command == "flow.edit" || command == "agent.edit" || command == "issue.comment", "rejected_replay": 202, "approved_replay": 202, "suspended_resolved_replay": 401, "durable_effects": 1})
+					identities = append(identities, map[string]any{"profile": via, "role": role, "command": command, "distinct_cards": 2, "payload_mismatch": payloadStatus, "payload_mismatch_qualified": command != "todo.drop", "command_mismatch": 409, "dead_bearer_live_cookie_replay": 401, "replacement_replay": 202, "canonical_equivalent_replay": 202, "normalized_default_replay": 202, "subject_mismatch_qualified": command == "wiki.create" || command == "flow.edit" || command == "agent.edit" || command == "issue.comment" || command == "todo.drop", "rejected_replay": 202, "approved_replay": 202, "suspended_resolved_replay": 401, "durable_effects": 1})
 				})
 			}
 		}
@@ -524,8 +568,8 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						}
 						var n int
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items`).Scan(&n))
-						if command == "todo.amend" {
-							require.Equal(t, len(numbers), n, "only seeded paused subjects remain")
+						if command == "todo.amend" || command == "todo.drop" {
+							require.Equal(t, len(numbers)+len(otherNumbers), n, "only seeded paused subjects remain")
 						} else {
 							require.Zero(t, n)
 						}
@@ -583,7 +627,7 @@ func testAccessConfirmationWriteOrder(t *testing.T, command string, identityOnly
 						}
 						require.Equal(t, want, revisions, "concurrent presses append no duplicate revision")
 					}
-					if operation == "approve" && command != "wiki.create" && command != "issue.new" && command != "issue.comment" {
+					if operation == "approve" && command != "wiki.create" && command != "issue.new" && command != "issue.comment" && command != "todo.drop" {
 						var number int64
 						require.NoError(t, r.pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE created_by=$1`, a.user).Scan(&number))
 						_, err := r.expect("POST", fmt.Sprintf("/api/todos/%d", number), `{"op":"drop"}`, 202)
