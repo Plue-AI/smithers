@@ -253,7 +253,7 @@ func (r *machineRoster) commitMemberActor(ctx context.Context, branch, machine s
 			return machined.ActorIdentity{}, err
 		}
 		var repository int64
-		if err := tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND vm_id=$2 AND deleted_at IS NULL`, branch, machine).Scan(&repository); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT repository_id FROM workspaces WHERE id=$1 AND vm_id=$2 AND kind IN ('vm','container') AND deleted_at IS NULL`, branch, machine).Scan(&repository); err != nil {
 			return machined.ActorIdentity{}, err
 		}
 		user, err := db.New(tx).PresenceSessionMember(ctx, repository, member.Login, uint32(member.UID))

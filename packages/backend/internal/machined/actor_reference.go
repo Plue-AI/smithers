@@ -106,7 +106,7 @@ func RecordActorInTx(ctx context.Context, tx pgx.Tx, branch, machine string, act
 		return nil, err
 	}
 	var present int
-	if err = tx.QueryRow(ctx, `SELECT 1 FROM workspaces WHERE id=$1 AND vm_id=$2 AND deleted_at IS NULL FOR SHARE`, branch, machine).Scan(&present); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT 1 FROM workspaces WHERE id=$1 AND vm_id=$2 AND kind IN ('vm','container') AND deleted_at IS NULL FOR SHARE`, branch, machine).Scan(&present); err != nil {
 		return nil, err
 	}
 	digest := sha256.Sum256(raw)

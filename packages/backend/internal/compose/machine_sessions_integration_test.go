@@ -77,7 +77,9 @@ func TestNativeAgentAdmissionHoldsOwnerThroughSpawnSupplemental(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, machined.ActorIdentity{Kind: "agent", MemberID: f.user.ID, Run: binding, AgentKind: "coding", Via: "agent"}, committedActor)
 	require.NoError(t, actorTx.Rollback(ctx))
-	boot := [16]byte{9}
+	host.registry = new(machined.Registry)
+	link, _ := presenceTestLink(t, host.registry, f.row.ID)
+	boot := link.BootID()
 	revoked := make(chan error, 1)
 	require.NoError(t, host.admitAgent(ctx, f.row.ID, binding, func(spawnCtx context.Context) error {
 		go func() {

@@ -330,6 +330,18 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if len(args) > 0 && args[0] == "migrate" {
 		return runMigrate(ctx, args[1:], stdout, stderr)
 	}
+	// Resolve the install's registry before binding any machine admission door.
+	// This also refuses terminals and attribution when no flow host is enabled.
+	if options.Machined == nil {
+		if host, ok := options.Workspace.(interface{ MachinedRegistry() *machined.Registry }); ok {
+			options.Machined = host.MachinedRegistry()
+		}
+	}
+	if options.Machined != nil {
+		if err := requireMachineAdmissionIsolation(options); err != nil {
+			return err
+		}
+	}
 	fs := flag.NewFlagSet("smithers-server", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	configPath := fs.String("config", "", "Path to config file")
@@ -552,16 +564,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	revocationPublisher := revocation.NewDBPublisher(queries, revocationBus)
 	routes.SetRevocationSource(revocationBus)
 	revocationChecker = revocationBus
-	// The install runtime owns the registry used by all guest links. Resolve
-	// it from that runtime rather than creating an isolated second registry.
+	// The install runtime and the admission doors share one authenticated registry.
 	if config.IsSingleOwner(cfg.Auth) {
 		if err := registerInstallMachineMetrics(smithersMetrics, options.Workspace); err != nil {
 			return fmt.Errorf("register install machine metrics: %w", err)
-		}
-	}
-	if options.Machined == nil {
-		if host, ok := options.Workspace.(interface{ MachinedRegistry() *machined.Registry }); ok {
-			options.Machined = host.MachinedRegistry()
 		}
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.Machined != nil {
@@ -612,6 +618,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			defer runtime.BindMachinedItem(nil)
 		}
 		host := newMachineHost(pool, repoHostClient)
+		host.registry = options.Machined
 		stopObjects := bindMachineObjects(ctx, options.Machined, pool, repoHostClient)
 		defer stopObjects()
 		if runtime, ok := options.Workspace.(interface {

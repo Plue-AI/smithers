@@ -49,7 +49,7 @@ func (h *RegisteredCodingNoteHost) CodingNoteParticipant(ctx context.Context, tx
  JOIN collaborators c ON c.repository_id=h.repository_id AND c.user_id=h.user_id
  JOIN product_job_requests r ON r.tenant_id=h.tenant_id AND r.principal_id=h.principal_id
  JOIN product_job_dispatches d ON d.operation_id=r.id
- WHERE w.id=$1 AND w.vm_id=$2 AND w.kind='vm' AND w.status='running' AND w.deleted_at IS NULL
+ WHERE w.id=$1 AND w.vm_id=$2 AND w.kind IN ('vm','container') AND w.status='running' AND w.deleted_at IS NULL
  AND i.state='running' AND i.request_run_id=$3 AND i.request_outcome=''
  AND h.binding_kind='mythical-item' AND h.binding_id=i.id::text
  AND h.tenant_id='repository:' || i.repository_id::text AND h.principal_id='user:' || i.owner_id::text

@@ -464,13 +464,17 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		return row, err
 	}
 
+	machine, err := s.runtimeMachineIdentity(ctx, row.ID, observed)
+	if err != nil {
+		return row, err
+	}
 	if _, installed := s.runtime.(interface {
 		EnsureMachined(context.Context, string) error
 	}); installed {
 		// The authenticated registry resolves this binding during reconciliation.
 		// Store starting, never running, until the daemon admits the boot.
-		if row.VmID == "" {
-			updated, err := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: observed.ID, Status: "starting"})
+		if row.VmID != machine {
+			updated, err := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: machine, Status: "starting"})
 			if err != nil {
 				return row, err
 			}
@@ -482,14 +486,10 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		}
 	}
 
-	if row.Status != "running" || row.VmID == "" {
+	if row.Status != "running" || row.VmID != machine {
 		// Persist the verified runtime binding only after start and repository
 		// materialization succeed. Sleep and capture fence on this identity.
-		runtimeID := row.VmID
-		if runtimeID == "" {
-			runtimeID = observed.ID
-		}
-		updated, updateErr := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: runtimeID, Status: "running"})
+		updated, updateErr := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: machine, Status: "running"})
 		if updateErr != nil {
 			return row, pkgerrors.Internal("update workspace status: " + updateErr.Error())
 		}
@@ -505,6 +505,28 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
+}
+
+// runtimeMachineIdentity names a daemon-capable runtime's machine as the
+// runtime does. The daemon's registry boots under that name, and session
+// admission and actor references compare workspaces.vm_id with it. A row
+// holding the workspace id instead refuses every agent and member session as
+// unauthorized. A runtime with no name of its own keeps the workspace id.
+func (s *WorkspaceService) runtimeMachineIdentity(ctx context.Context, id string, observed workspaceapi.Workspace) (string, error) {
+	machines, ok := s.runtime.(interface {
+		WorkspaceMachineIdentity(context.Context, string) (string, error)
+	})
+	if !ok {
+		return observed.ID, nil
+	}
+	machine, err := machines.WorkspaceMachineIdentity(ctx, id)
+	if err != nil {
+		return "", runtimeOperationError("resolve workspace machine identity", err)
+	}
+	if strings.TrimSpace(machine) == "" {
+		return "", pkgerrors.Internal("workspace runtime returned no machine identity")
+	}
+	return machine, nil
 }
 
 func (s *WorkspaceService) stopRuntimeWorkspace(ctx context.Context, row db.Workspace, requesterID int64, action string) error {

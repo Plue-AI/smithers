@@ -90,6 +90,35 @@ func TestRegisteredCodingNotesAuthenticatedIngest(t *testing.T) {
 	fact(uuid.NewString(), "branch.session_opened", opened)
 	require.ErrorIs(t, apply(1), ErrNotReady, "spawn alone cannot qualify daemon tools")
 	fact(uuid.NewString(), "branch.run_registered", map[string]any{"boot": opened["boot"], "session": 7, "run": host})
+	// Qualify the six-site admission contract directly under the authenticated
+	// boot connection; the burst path below exercises committed delivery.
+	for _, tc := range []struct {
+		kind, machine string
+		allowed       bool
+	}{
+		{"container", "vm", true}, {"vm", "vm", true}, {"container", branch, false}, {"desktop", "vm", false}, {"agent", "vm", false},
+	} {
+		t.Run("admission/"+tc.kind+"/"+tc.machine, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE workspaces SET kind=$2,vm_id=$3 WHERE id=$1`, branch, tc.kind, tc.machine)
+			require.NoError(t, err)
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			host := &RegisteredCodingNoteHost{ArtifactDigest: artifact}
+			participant, run, err := host.CodingNoteParticipant(context.WithValue(ctx, noteConnectionKey{}, link.Connection), tx, branch, "notes-run", pin)
+			if tc.allowed {
+				require.NoError(t, err)
+				require.NotEmpty(t, participant)
+				require.Equal(t, "notes-run", run)
+			} else {
+				require.Error(t, err)
+				require.Empty(t, participant)
+			}
+			require.NoError(t, tx.Rollback(ctx))
+		})
+	}
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET kind='container',vm_id='vm' WHERE id=$1`, branch)
+	require.NoError(t, err)
+
 	require.NoError(t, apply(1))
 	require.Equal(t, 1, count())
 	require.NoError(t, apply(1))
