@@ -1,0 +1,191 @@
+package microsandbox
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/json"
+	"io"
+	"os"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
+)
+
+// A coding run's first edit goes through the installed local client, then its
+// quick checks stream output. Neither may stop the machine daemon: the backend
+// pushes the roster every second with a 3 s budget (compose/machine_roster.go)
+// and fails the run once those pushes stop answering.
+func TestRealMicroVMAgentWriteKeepsDaemonAnswering(t *testing.T) {
+	runtime := realRuntime(t, t.TempDir())
+	if runtime.config.Bundle == nil {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_CHECK_BUNDLE is required: agent writes reach only the bundle's daemon")
+		}
+		t.Skip("SMITHERS_CHECK_BUNDLE is not set: agent writes reach only the bundle's daemon")
+	}
+	id := uuid.NewString()
+	ctx, cancel := context.WithTimeout(operation("agent-write"), 5*time.Minute)
+	defer cancel()
+	_, err := preparedRuntime{runtime}.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+	require.NoError(t, err)
+	defer func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete-agent-write"), id)) }()
+	ws, err := runtime.runningWorkspace(id)
+	require.NoError(t, err)
+	require.NoError(t, runtime.EnsureMachined(ctx, id))
+	registry := runtime.MachinedRegistry()
+	link, err := registry.Current(id)
+	require.NoError(t, err)
+	require.NoError(t, link.RequireReady(id))
+
+	// The backend's roster reconciliation: one push per second, 3 s each.
+	type push struct {
+		latency time.Duration
+		err     error
+	}
+	var pushesMu sync.Mutex
+	var pushes []push
+	rosterCtx, stopRoster := context.WithCancel(ctx)
+	rosterDone := make(chan struct{})
+	go func() {
+		defer close(rosterDone)
+		for rosterCtx.Err() == nil {
+			call, stop := context.WithTimeout(rosterCtx, 3*time.Second)
+			start := time.Now()
+			err := registry.SetRoster(call, id, nil)
+			stop()
+			pushesMu.Lock()
+			pushes = append(pushes, push{time.Since(start), err})
+			pushesMu.Unlock()
+			select {
+			case <-rosterCtx.Done():
+			case <-time.After(time.Second):
+			}
+		}
+	}()
+
+	// An admitted coding run: its first edit through the local client, then
+	// quick checks that stream output, as the coding flow's T1 did.
+	actor := make([]byte, 16)
+	_, err = rand.Read(actor)
+	require.NoError(t, err)
+	actor[0] |= 1
+	// The coding host's admission, as startNativeHost plants it.
+	run := uuid.NewString()
+	token := []byte(strings.ReplaceAll(uuid.NewString(), "-", ""))
+	tokenPath, err := runtime.PutSessionToken(ctx, id, run, token, "")
+	require.NoError(t, err)
+	binding, err := json.Marshal(map[string]any{
+		"login": "agent", "uid": 19999, "session": run,
+		"token_sha256": workspaceapi.SessionCredentialIdentity(token),
+		"environment":  map[string]string{"SMITHERS_TOKEN_FILE": tokenPath, "SMITHERS_URL": "http://127.0.0.1:9"},
+	})
+	require.NoError(t, err)
+	_, err = runtime.guest(ctx, ws.Machine, binding, "put-session-binding", "agent", "19999")
+	require.NoError(t, err)
+	coding := machined.NewSessions(link.Connection, id, registry.Sessions(id)).WithActor(actor, run)
+	script := `read -r _
+printf 'first edit\n' | timeout 40 /opt/smithers/bin/smithers-machined client write-file EDIT.md --base absent
+echo "write=$?"
+i=0
+while [ $i -lt 200 ]; do echo "check $i"; ls -la /workspace >/dev/null; sleep 0.02; i=$((i+1)); done
+echo checks=done`
+	e, err := coding.OpenExec(ctx, machined.SessionUser{Login: "agent", UID: 19999}, []string{"/bin/sh", "-c", script})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		_ = e.Kill(cleanup)
+	})
+	var stdout, stderr lockedBuffer
+	go func() { _, _ = io.Copy(&stdout, e.Stdout()) }()
+	go func() { _, _ = io.Copy(&stderr, e.Stderr()) }()
+	require.NoError(t, coding.RegisterRun(ctx, run, e.ID()))
+	_, err = e.Write([]byte("start\n"))
+	require.NoError(t, err)
+	require.NoError(t, e.CloseWrite())
+
+	// Its last output line proves the write's reply and the checks' output
+	// came back through the daemon. Like the coding host (native_host.go),
+	// this reads output rather than waiting for the run's stream to close.
+	deadline := time.Now().Add(90 * time.Second)
+	for !strings.Contains(stdout.String(), "checks=done") && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(stdout.String(), "checks=done") {
+		err = context.DeadlineExceeded
+	}
+	// Two more pushes after the run, so a wedge left behind is also caught.
+	time.Sleep(2500 * time.Millisecond)
+	stopRoster()
+	<-rosterDone
+
+	stalls, _ := runtime.cli.run(context.Background(), nil, "exec", ws.Machine, "--", "timeout", "20",
+		"cat", "/var/lib/smithers-machined/executor-stalls.jsonl")
+	t.Logf("executor stalls:\n%s", stalls)
+	pushesMu.Lock()
+	defer pushesMu.Unlock()
+	var failed []push
+	var slowest time.Duration
+	for _, p := range pushes {
+		slowest = max(slowest, p.latency)
+		if p.err != nil {
+			failed = append(failed, p)
+		}
+	}
+	t.Logf("roster pushes: %d, failed: %d, slowest: %s", len(pushes), len(failed), slowest)
+	if len(failed) > 0 || err != nil {
+		view, _ := runtime.cli.run(context.Background(), nil, "exec", ws.Machine, "--", "timeout", "20",
+			"/usr/bin/python3", "-I", "-S", "-c", daemonThreadView)
+		t.Logf("daemon threads:\n%s", view)
+	}
+	require.NoError(t, err, "agent run did not finish; stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	require.Contains(t, stdout.String(), "write=0", "stderr:\n%s", stderr.String())
+	require.Contains(t, stdout.String(), "checks=done")
+	require.Empty(t, failed, "roster pushes failed during or after the agent run")
+	require.Less(t, slowest, 3*time.Second)
+	require.GreaterOrEqual(t, len(pushes), 3)
+}
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+// daemonThreadView prints the machine daemon's threads as the kernel sees
+// them, and the kernel stack of its mutation executor ("machined-lock").
+const daemonThreadView = `import os
+for pid in os.listdir('/proc'):
+    if not pid.isdigit(): continue
+    try: argv=open('/proc/%s/cmdline'%pid,'rb').read().split(b'\0')
+    except OSError: continue
+    if len(argv)<2 or not argv[0].endswith(b'smithers-machined') or argv[1]!=b'daemon': continue
+    tasks=sorted(os.listdir('/proc/%s/task'%pid),key=int)
+    print('daemon pid',pid,'threads',len(tasks))
+    for tid in tasks:
+        base='/proc/%s/task/%s/'%(pid,tid)
+        read=lambda name: open(base+name).read().strip()
+        try: print(tid,read('comm'),read('wchan'),read('syscall').split(' ')[0])
+        except OSError as e: print(tid,e)
+        if read('comm')=='machined-lock':
+            try: print(read('stack'))
+            except OSError as e: print('stack',e)
+`

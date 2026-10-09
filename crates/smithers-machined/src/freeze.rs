@@ -152,7 +152,7 @@ pub(crate) fn record_hold(operation: &'static str, start: std::time::Instant, en
 
 // This runs only as the daemon, in its private state directory. Opening a leaf
 // must not follow links or block on a special file; refusals preserve its bytes.
-fn append_hold(path: &std::path::Path, record: &str) -> std::io::Result<()> {
+pub(crate) fn append_hold(path: &std::path::Path, record: &str) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let mut file = std::fs::OpenOptions::new().append(true).create(true)

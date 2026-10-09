@@ -103,6 +103,8 @@ fn unified_cgroup(groups: &str) -> Option<&str> {
     }
     Some(path)
 }
+/// `ready` runs inside this request's mutation job, so it must never wait on
+/// the mutation queue. The job applies the rewrite barrier per method.
 pub fn serve(
     socket: UnixStream,
     ready: Arc<dyn Fn() -> bool + Send + Sync>,

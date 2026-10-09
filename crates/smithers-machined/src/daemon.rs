@@ -30,14 +30,24 @@ impl Daemon {
         })
     }
     pub fn ready(&self) -> bool {
-        self.reconciled.load(Ordering::Acquire)
-            && self.roster.load(Ordering::Acquire)
-            && crate::wiring::ready(&self.hooks).is_ok()
+        self.admitting()
             && self
                 .executor
                 .lock
                 .run_blocking("readiness", |cx| !cx.rewrite_pending)
                 .unwrap_or(false)
+    }
+    fn admitting(&self) -> bool {
+        self.reconciled.load(Ordering::Acquire)
+            && self.roster.load(Ordering::Acquire)
+            && crate::wiring::ready(&self.hooks).is_ok()
+    }
+    /// The admission check local clients and session streams run inside their
+    /// own mutation jobs (`local.rs`). It never waits on the queue those jobs
+    /// hold; each job applies the rewrite barrier itself, per method.
+    pub fn local_admission(self: &Arc<Self>) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        let daemon = self.clone();
+        Arc::new(move || daemon.admitting())
     }
     /// Entry requires a completed mutual handshake. The caller fences replaced
     /// connections before entering here. No network IO occurs on the lock thread.
@@ -390,10 +400,9 @@ pub fn run_with_local(
                 let daemon = daemon.clone();
                 let files = files.clone();
                 std::thread::spawn(move || {
-                    let check = daemon.clone();
                     let _ = crate::local::serve(
                         socket,
-                        Arc::new(move || check.ready()),
+                        daemon.local_admission(),
                         &*daemon.hooks.sessions,
                         &daemon.executor.lock,
                         files,
@@ -502,5 +511,73 @@ fn run_connections(
             let _ = connection.join();
             std::thread::sleep(backoff.delay());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    struct Ready;
+    macro_rules! ready {
+        ($name:ident) => {
+            impl crate::hooks::$name for Ready {
+                fn ready(&self) -> crate::hooks::Result<()> {
+                    Ok(())
+                }
+            }
+        };
+    }
+    ready!(Watcher);
+    ready!(Documents);
+    ready!(Sessions);
+    ready!(Broker);
+    ready!(EventSink);
+    ready!(Core);
+    fn admitted_in_a_job(daemon: &Arc<Daemon>) -> (Result<bool, crate::lock::LockError>, Duration) {
+        let admission = daemon.local_admission();
+        let started = Instant::now();
+        let result = daemon
+            .executor
+            .lock
+            .run_blocking("local_rpc", move |_| admission());
+        (result, started.elapsed())
+    }
+    /// #3385: an agent write's job checked `Daemon::ready`, which waited on
+    /// the queue that same job held. Every later host frame, roster push and
+    /// local client then waited behind it.
+    #[test]
+    fn local_admission_answers_inside_a_job_and_leaves_the_rewrite_barrier_to_it() {
+        let ready = Arc::new(Ready);
+        let daemon = Arc::new(
+            Daemon::new(Hooks {
+                watcher: ready.clone(),
+                documents: ready.clone(),
+                sessions: ready.clone(),
+                broker: ready.clone(),
+                events: ready.clone(),
+                core: ready,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        assert_eq!(admitted_in_a_job(&daemon).0, Ok(false));
+        daemon.reconciled.store(true, Ordering::Release);
+        daemon.roster.store(true, Ordering::Release);
+        assert!(daemon.ready());
+        let (admitted, took) = admitted_in_a_job(&daemon);
+        assert_eq!(admitted, Ok(true));
+        assert!(took < Duration::from_secs(1), "{took:?}");
+        // A pending rewrite closes readiness. Local admission still answers,
+        // so a queued agent write gets the job's moved_off or pending reply.
+        daemon
+            .executor
+            .lock
+            .run_blocking("rewrite", |cx| cx.rewrite_pending = true)
+            .unwrap();
+        assert!(!daemon.ready());
+        assert_eq!(admitted_in_a_job(&daemon).0, Ok(true));
+        daemon.roster.store(false, Ordering::Release);
+        assert_eq!(admitted_in_a_job(&daemon).0, Ok(false));
     }
 }
