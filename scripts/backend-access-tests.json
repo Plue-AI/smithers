@@ -36,6 +36,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_issue_create_authorization_integration_test.go",
+    "tests": [
+      "TestAccessIssueCreateProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_machine_head_authorization_integration_test.go",
     "tests": [
       "TestAccessMachineHeadGrantsComposedPostgres"
@@ -97,6 +104,14 @@
     "file": "admin_person_credential_integration_test.go",
     "tests": [
       "TestAdminRoutesRequirePersonCredentialComposedMultitenantPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
+    "file": "admission_host_kill_integration_test.go",
+    "tests": [
+      "TestAdmissionKilledHostInstallBoundary",
+      "TestAdmissionKilledHostChild"
     ]
   },
   {
@@ -542,7 +557,8 @@
       "TestTodoBeforeAdmittedWhenHolderStops",
       "TestTenBranchTerminalAdmissionInstallBoundary",
       "TestMixedClassAdmissionInstallBoundary",
-      "TestMixedConcurrentClassAdmissionInstallBoundary"
+      "TestMixedConcurrentClassAdmissionInstallBoundary",
+      "TestMixedResumedClassAdmissionInstallBoundary"
     ]
   },
   {

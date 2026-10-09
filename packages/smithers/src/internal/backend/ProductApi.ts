@@ -2614,6 +2614,41 @@ export interface GetApiIssuesInput {
 export const getApiIssues = (transport: Transport, input?: GetApiIssuesInput): Promise<GetApiIssuesResponse> =>
   transport.request("GET", `/api/issues${search({ state: input?.query?.state, page: input?.query?.page })}`) as Promise<GetApiIssuesResponse>
 
+export type PostApiIssuesBody = {
+  title: string
+  body: string
+}
+
+export type PostApiIssuesResponse = ConfirmationReceipt | {
+  operationId: string
+  requestId: string
+  kind: string
+  state: "accepted" | "dispatching" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "uncertain"
+  acceptedAt: string
+}
+
+export interface PostApiIssuesInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PostApiIssuesBody
+}
+
+/** POST /api/issues: Request a GitHub issue */
+export const postApiIssues = (transport: Transport, input: PostApiIssuesInput): Promise<PostApiIssuesResponse> =>
+  transport.request("POST", `/api/issues`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiIssuesResponse>
+
+export type GetApiIssuesRequestsIdResponse = {
+  state: "accepted" | "dispatching" | "running" | "waiting" | "completed" | "failed" | "cancelled" | "uncertain"
+  number?: number
+}
+
+export interface GetApiIssuesRequestsIdInput {
+  readonly path: { readonly id: string }
+}
+
+/** GET /api/issues/requests/{id}: Read an issue creation request */
+export const getApiIssuesRequestsId = (transport: Transport, input: GetApiIssuesRequestsIdInput): Promise<GetApiIssuesRequestsIdResponse> =>
+  transport.request("GET", `/api/issues/requests/${segment(input.path.id)}`) as Promise<GetApiIssuesRequestsIdResponse>
+
 export type GetApiIssuesNResponse = InstallIssueThread
 
 export interface GetApiIssuesNInput {

@@ -767,7 +767,7 @@
       "method": "POST",
       "path": "/api/issues",
       "body": {},
-      "door": "pending:T-CAT-01"
+      "door": "http"
     },
     {
       "command": "issue.poc",

@@ -1124,6 +1124,8 @@ func buildRouter(
 			issueService, _ := extras.Mythical.Service.(routes.InstallIssueRouteService)
 			issues := &routes.InstallIssuesHandler{Queries: queries, Service: issueService}
 			r.Get("/issues", issues.List)
+			r.Post("/issues", issues.Create)
+			r.Get("/issues/requests/{id}", issues.CreateStatus)
 			r.Get("/issues/{n}", issues.Get)
 			r.Post("/issues/{number}/comments", issues.Comment)
 			reviewService, _ := extras.Mythical.Service.(routes.InstallReviewRouteService)

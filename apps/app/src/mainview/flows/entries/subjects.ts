@@ -68,7 +68,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     flow({ name: "issue.new",   slash: "/issue.new", cli: ["issue","new"], journey: [], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/issues"}, summary: "Open a GitHub issue", args: "<title>", discloseToAgent: true,
       grammar: positional("title"), agent: "confirm", input: Schema.Struct({ title: Schema.NonEmptyString, body: Schema.String }),
       form: { submitLabel: "Open on GitHub", fields: { title: { label: "Title" }, body: { label: "Body" } }, args: json },
-      handler: ({ title, body }) => ({ value: `Opened #${newIssue(design, title, body, design.viewer())} on GitHub` }) }),
+      handler: ({ title, body }) => install() ? actions.requestIssueCreate(title, body) : ({ value: `Opened #${newIssue(design, title, body, design.viewer())} on GitHub` }) }),
     flow({ name: "issue.comment",   slash: "/issue.comment", cli: ["issue","comment"], journey: ["J2"], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/issues/{number}/comments"}, summary: "Comment on an issue", args: "#n <text>", discloseToAgent: true,
       grammar: numbered("body"), agent: "confirm", input: Schema.Struct({ number: Schema.Number, body: Schema.NonEmptyString }),
       form: { submitLabel: "Comment", fields: { number: { label: "Issue" }, body: { label: "Comment" } }, args: json },

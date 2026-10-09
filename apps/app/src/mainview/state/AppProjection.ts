@@ -236,6 +236,7 @@ export const APP_TRANSITION_TYPES = {
   "order.requests.changed": true,
   "flow.inventory.changed": true,
   "review.requests.changed": true,
+  "issue.create.requests.changed": true,
   "install.requests.changed": true,
   "repository.imports.changed": true,
   "secret.requests.changed": true,
@@ -2157,6 +2158,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "flow.inventory.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.flowInventoryRequest = transition.request })
+          break
+        }
+        case "issue.create.requests.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.issueCreateRequests = transition.requests })
           break
         }
         case "review.requests.changed": {

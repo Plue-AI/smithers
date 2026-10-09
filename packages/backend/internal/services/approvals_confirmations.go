@@ -368,7 +368,7 @@ type preparedConfirmation struct {
 	review          *ReviewAdmission
 	mergeHead       string
 	editTodo        *MythicalTodoInput
-	comment         *installIssueCommentJob
+	comment         *installIssueWriteJob
 	wiki            *wikiDeleteConfirmation
 	wikiCreate      *wikiCreateConfirmation
 }
@@ -394,6 +394,8 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 	switch input.Command {
 	case "flow.edit", "agent.edit":
 		return s.prepareRepositoryEditConfirmation(ctx, tx, repository, input, inspect)
+	case "issue.new":
+		return s.prepareIssueCreateConfirmation(ctx, tx, repository, input, inspect)
 	case "issue.comment":
 		return s.prepareIssueCommentConfirmation(ctx, tx, repository, input, inspect)
 	case "wiki.create":
@@ -840,12 +842,16 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				var item MythicalItemView
 				item, err = consumer.fileTodoCommand(bound, repository, info.User.ID, *prepared.editTodo, command)
 				number = item.Number
-			case "issue.comment":
+			case "issue.comment", "issue.new":
 				if prepared.comment == nil {
 					return confirmationUnavailable()
 				}
 				var admitted jobs.RequestReceipt
-				admitted, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
+				if command == "issue.new" {
+					admitted, err = consumer.admitIssueWrite(bound, tx, repository, *prepared.comment, "confirmation:"+id, command, InstallIssueCreateOperation)
+				} else {
+					admitted, err = consumer.admitIssueComment(bound, tx, repository, prepared.comment.Number, prepared.comment.Body, "confirmation:"+id)
+				}
 				commentOperationID = admitted.OperationID
 			case "wiki.create":
 				afterCommit, err = consumer.createConfirmedWiki(bound, tx, prepared.wikiCreate)
@@ -952,7 +958,11 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			if number > 0 || reviewOperationID != "" || commentOperationID != "" {
 				effectInput := map[string]any{"request": input.Key}
 				if commentOperationID != "" {
-					effectInput["issue_comment"] = commentOperationID
+					if command == "issue.new" {
+						effectInput["issue_create"] = commentOperationID
+					} else {
+						effectInput["issue_comment"] = commentOperationID
+					}
 				} else if reviewOperationID != "" {
 					effectInput["review"] = reviewOperationID
 				} else {

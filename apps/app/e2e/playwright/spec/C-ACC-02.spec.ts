@@ -3,6 +3,7 @@ import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { expect, test } from "../browserTest"
 import { fixtures as confirms } from "../../../../../packages/rpc/test/fixtures/Confirm"
+import { say } from "./j1-fixtures"
 import { fixture, open, roster } from "./confirmation-fixtures"
 import { spawn } from "node:child_process"
 import { mkdtemp, writeFile, rm } from "node:fs/promises"
@@ -251,6 +252,48 @@ test("C-ACC-02: wiki create uses the private installed card across reload", asyn
     complete = true
   } finally {
     await writeFile(join(directory, "approved"), "done")
+    const status = await exited
+    if (status !== 0) console.error(logs)
+    await rm(directory, { recursive: true, force: true })
+    if (complete) expect(status, logs).toBe(0)
+  }
+})
+
+// Real page creation from a private card after reload and keyboard approval.
+test("C-ACC-02: issue create uses the private installed card across reload", async ({ page }) => {
+  test.setTimeout(300_000)
+  const directory = await mkdtemp(join(tmpdir(), "smithers-access-issue-create-"))
+  const backend = spawn("go", ["test", "-p", "4", "./internal/compose", "-run", "^TestAccessIssueCreateProfilesComposedPostgres$", "-count=1", "-v", "-timeout", "4m"], {
+    cwd: resolve("../../packages/backend"), env: { ...process.env, SMITHERS_ACCESS_ISSUE_CREATE_PHASE_DIR: directory, SMITHERS_REHEARSAL_SPA_DIR: resolve("dist") }, stdio: ["pipe", "pipe", "pipe"]
+  })
+  let logs = "", complete = false
+  backend.stdout.on("data", bytes => { logs += String(bytes) })
+  backend.stderr.on("data", bytes => { logs += String(bytes) })
+  const exited = new Promise<number | null>((done, reject) => { backend.on("exit", done); backend.on("error", reject) })
+  try {
+    await expect.poll(() => { if (backend.exitCode !== null) throw new Error(logs); return /ISSUE_CREATE_READY (http:\/\/\S+) (\S+) (\S+)/.test(logs) }, { timeout: 120_000 }).toBe(true)
+    const [, origin, id, cookie] = logs.match(/ISSUE_CREATE_READY (http:\/\/\S+) (\S+) (\S+)/)!
+    await page.context().addCookies([{ name: "smithers_session", value: cookie!, url: origin! }])
+    await page.goto(origin!)
+    const card = page.locator('[data-kind="confirm"]').filter({ hasText: "Profile issue rehearsal-owner/app_agent/implicit" })
+    await expect(card).toContainText("Profile issue rehearsal-owner/app_agent/implicit", { timeout: 60_000 })
+    await page.reload()
+    await expect(card.getByRole("button", { name: "Create", exact: true })).toBeVisible({ timeout: 60_000 })
+    const response = page.waitForResponse(value => value.url().endsWith(`/api/confirmations/${id}/approve`) && value.request().method() === "POST")
+    await card.getByRole("button", { name: "Create", exact: true }).press("Enter")
+    expect((await response).status()).toBe(200)
+    await expect(card.getByRole("button", { name: "Create", exact: true })).toHaveCount(0)
+    await writeFile(join(directory, "approved"), "approved")
+    await expect.poll(() => /ISSUE_CREATE_MATRIX_DONE/.test(logs), { timeout: 120_000 }).toBe(true)
+    await say(page, '/issue.new {"title":"Browser-created issue","body":"Exact browser bytes"}')
+    await expect.poll(async () => (await (await page.request.get(origin! + "/api/issues")).json()).some((issue: { title: string }) => issue.title === "Browser-created issue"), { timeout: 60_000 }).toBe(true)
+    await expect(page.locator('[data-kind="issue"]').filter({ hasText: "Browser-created issue" }).last()).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId("composer-input")).toBeEnabled()
+    await writeFile(join(directory, "person-created"), "created")
+    complete = true
+  } finally {
+    await writeFile(join(directory, "approved"), "done")
+    await writeFile(join(directory, "person-created"), "done")
     const status = await exited
     if (status !== 0) console.error(logs)
     await rm(directory, { recursive: true, force: true })

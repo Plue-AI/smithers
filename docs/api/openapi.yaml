@@ -5302,6 +5302,98 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessError'
+    post:
+      x-composition: install
+      summary: Request a GitHub issue
+      description: Queues the attributed issue without waiting on GitHub. Delegated callers receive a private confirmation; no issue is admitted before the requester approves from their app session. An ambiguous GitHub reply leaves the background operation uncertain and is never blindly retried.
+      operationId: post_api_issues
+      tags:
+        - Issues
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, body]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 256}
+                body: {type: string, maxLength: 65536}
+      responses:
+        '202':
+          description: Durable background admission or private confirmation
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ConfirmationReceipt'
+                  - type: object
+                    required: [operationId, requestId, kind, state, acceptedAt]
+                    properties:
+                      operationId: {type: string}
+                      requestId: {type: string}
+                      kind: {type: string}
+                      state: {type: string, enum: [accepted, dispatching, running, waiting, completed, failed, cancelled, uncertain]}
+                      acceptedAt: {type: string, format: date-time}
+        '400':
+          description: Invalid comment
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '401':
+          description: Sign in again
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: idempotency_mismatch
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+        '503':
+          description: github_unavailable or confirmation_unavailable, before admission
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AccessError'}
+  /api/issues/requests/{id}:
+    get:
+      x-composition: install
+      summary: Read an issue creation request
+      operationId: get_api_issues_requests_id
+      tags:
+        - Issues
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: The caller credential's durable issue delivery state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: {type: string, enum: [accepted, dispatching, running, waiting, completed, failed, cancelled, uncertain]}
+                  number: {type: integer, minimum: 1}
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {$ref: '#/components/responses/InternalServerError'}
   /api/issues/{n}:
     get:
       x-composition: install

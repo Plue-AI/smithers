@@ -33,6 +33,13 @@ CASE WHEN command='issue.comment' AND payload->'effect' ? 'issue_comment' THEN
  AND j.operation='install.issue.comment'
  AND j.payload->>'requester'=approvals.member_id::text
  AND j.payload->>'repository'=approvals.repository_id::text),'failed')))
+
+ WHEN command='issue.new' AND payload->'effect' ? 'issue_create' THEN
+ jsonb_set(payload,'{effect,state}',to_jsonb(COALESCE((SELECT j.state FROM product_job_requests j
+ WHERE j.id::text=approvals.payload->'effect'->>'issue_create'
+ AND j.operation='install.issue.create'
+ AND j.payload->>'requester'=approvals.member_id::text
+ AND j.payload->>'repository'=approvals.repository_id::text),'failed')))
  ELSE payload END, expires_at, decided_at`
 
 func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]Confirmation, error) {

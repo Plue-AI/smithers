@@ -135,6 +135,7 @@ import { createFilesSeam, resolveFileTarget } from "./seams/FilesSeam"
 import type { GitHubSeam } from "./seams/GitHubSeam"
 import { createGitHubSeam } from "./seams/GitHubSeam"
 import type { IssuesSeam } from "./seams/IssuesSeam"
+import { createIssueCreateSeam } from "./seams/IssueCreateSeam"
 import { createIssuesSeam } from "./seams/IssuesSeam"
 import type { LandingsSeam } from "./seams/LandingsSeam"
 import { createLandingsSeam } from "./seams/LandingsSeam"
@@ -501,6 +502,7 @@ export interface AppController extends IssueFlowsController {
   readonly listIssues: IssuesSeam["listIssues"]
   readonly viewIssue: IssuesSeam["viewIssue"]
   readonly issueWriteTarget: IssuesSeam["issueWriteTarget"]
+  readonly requestIssueCreate: ReturnType<typeof createIssueCreateSeam>["request"]
   readonly createIssue: IssuesSeam["createIssue"]
   readonly setIssueState: IssuesSeam["setIssueState"]
   readonly draftIssueComment: IssuesSeam["draftIssueComment"]
@@ -1422,6 +1424,7 @@ export const createAppController = (
   /* An install reads its repository's GitHub issues at /api/issues (T-STK-09, J2 1 and 2). */
   const issuesSeam = actors.pair(seamCtx, (context, select) => createIssuesSeam(context, request => select(renderFlowForm)(request), undefined, { install: installHost,
     repository: () => { const repository = installSeam.snapshots.get().model?.repository; return repository && `${repository.owner}/${repository.name}` } }))
+  const issueCreateSeam = actors.pair(seamCtx, (context, select) => createIssueCreateSeam(context, number => select(issuesSeam).viewIssue(number, undefined, "github")))
   /* The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6). */
   const landingsSeam = actors.pair(seamCtx, (context, select) => createLandingsSeam(context, request => select(renderFlowForm)(request)))
   const repositoriesSeam = actors.pair(seamCtx, (context) => createRepositoriesSeam(context))
@@ -2466,6 +2469,7 @@ export const createAppController = (
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
     issueWriteTarget: issuesSeam.issueWriteTarget,
+    requestIssueCreate: issueCreateSeam.request,
     createIssue: issuesSeam.createIssue,
     setIssueState: issuesSeam.setIssueState,
     commentOnIssue: issuesSeam.commentOnIssue,

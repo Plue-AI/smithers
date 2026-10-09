@@ -2309,6 +2309,18 @@ type GetAPIIssuesParams struct {
 	Page  *int64
 }
 
+// PostAPIIssuesBody is generated from docs/api/openapi.yaml.
+type PostAPIIssuesBody struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// GetAPIIssuesRequestsIDResponse is generated from docs/api/openapi.yaml.
+type GetAPIIssuesRequestsIDResponse struct {
+	State  string `json:"state"`
+	Number *int64 `json:"number,omitempty"`
+}
+
 // PostAPIIssuesNumberCommentsBody is generated from docs/api/openapi.yaml.
 type PostAPIIssuesNumberCommentsBody struct {
 	Body string `json:"body"`
@@ -3825,6 +3837,20 @@ func (c *Client) GetAPIIssues(ctx context.Context, params GetAPIIssuesParams) ([
 	}
 	var out []InstallIssue
 	err := c.do(ctx, "GET", "/api/issues", query, nil, &out)
+	return out, err
+}
+
+// PostAPIIssues calls POST /api/issues.
+func (c *Client) PostAPIIssues(ctx context.Context, idempotencyKey string, body PostAPIIssuesBody) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/issues", nil, body, &out)
+	return out, err
+}
+
+// GetAPIIssuesRequestsID calls GET /api/issues/requests/{id}.
+func (c *Client) GetAPIIssuesRequestsID(ctx context.Context, id string) (GetAPIIssuesRequestsIDResponse, error) {
+	var out GetAPIIssuesRequestsIDResponse
+	err := c.do(ctx, "GET", "/api/issues/requests/"+url.PathEscape(id), nil, nil, &out)
 	return out, err
 }
 

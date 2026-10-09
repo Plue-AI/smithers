@@ -47,7 +47,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
             ctx.resolveToast?.(notice, row.state === "rejected" ? { status: "cancelled", detail: "Cancelled" } : { status: "failed", detail: "Expired" })
           }
         }
-        if (row.state === "approved" && row.payload.effect?.issue_comment) {
+        if (row.state === "approved" && (row.payload.effect?.issue_comment || row.payload.effect?.issue_create)) {
           const notice = `todo.request.confirmation:${row.id}`
           const state = row.payload.effect.state
           if (settledComments.has(row.id)) continue
@@ -55,7 +55,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
           if (state === "completed") ctx.resolveToast?.(notice, { status: "ok", detail: "" })
           else if (["failed", "cancelled", "uncertain"].includes(state ?? "")) {
             ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
-            ctx.resolveToast?.(notice, { status: state === "cancelled" ? "cancelled" : "failed", detail: "Comment failed" })
+            ctx.resolveToast?.(notice, { status: state === "cancelled" ? "cancelled" : "failed", detail: row.command === "issue.new" ? "Issue failed" : "Comment failed" })
           } else if (ctx.store.collections.toasts.get(`toast-${notice}`)?.status !== "running") {
             ctx.dispatch({ type: "toast.shown", actor: "system", key: notice, title: row.payload.card.summary })
           }

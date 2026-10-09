@@ -638,6 +638,9 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/flows/"), "/edit")
 		input.Subject, _ = json.Marshal(map[string]string{"kind": "flow", "ref": name})
 	}
+	if command == "issue.new" {
+		input.Subject = json.RawMessage(`{"kind":"issue","ref":"new"}`)
+	}
 	if command == "wiki.create" {
 		parts := strings.Split(r.URL.EscapedPath(), "/")
 		var page services.CreateWikiPageInput

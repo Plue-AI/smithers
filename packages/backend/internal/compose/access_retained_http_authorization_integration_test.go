@@ -55,6 +55,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 			appCommandsWithoutHTTPDoor++
 		}
 	}
+	fixture.Commands = append(fixture.Commands, retainedHTTPCase{Command: "issue.read", Method: "GET", Path: "/api/issues/requests/10000000-0000-4000-8000-000000000001", Door: "app-http", Body: map[string]any{}})
 	t.Setenv("SMITHERS_RETAINED_ACCESS_CAMPAIGN", "1")
 	r := newRehearsal(t, "SMITHERS_RETAINED_ACCESS_CAMPAIGN", "C-ACC-01", "retained-")
 	require.True(t, r.install("Retained commands"))
@@ -1058,8 +1059,8 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2*(httpCommands+len(dispatchCases)), runDeathCells)
-	require.Equal(t, 142, httpCommands)
-	require.Equal(t, 2113+3*21+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts)-todoEffectCells-managementEffectCells-36-terminalProfileCells, "HTTP policy and separate dispatch-binding cells must pass")
+	require.Equal(t, 144, httpCommands)
+	require.Equal(t, 2113+2*11+3*21+44+132+111+8+24*len(dispatchCases)+runDeathCells+runSystemRefusalCells, len(receipts)-todoEffectCells-managementEffectCells-36-terminalProfileCells, "HTTP policy and separate dispatch-binding cells must pass")
 	require.Equal(t, 14*len(dispatchCases), dispatchActiveCells)
 	httpPolicyRefusalCells := 0
 	for _, receipt := range receipts {
@@ -1068,7 +1069,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 		}
 	}
 	if dir := os.Getenv("SMITHERS_ACCESS_LEDGER_DIR"); dir != "" {
-		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "todo_control_effect_cells": todoEffectCells, "management_profile_effect_cells": managementEffectCells, "terminal_profile_effect_cells": terminalProfileCells, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": httpPolicyRefusalCells, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{"issue.new (T-CAT-01)"}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": appCommandsWithoutHTTPDoor, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
+		data, err := json.MarshalIndent(map[string]any{"boundary": "production composed install HTTP role/profile/state campaign", "admitted_writes": 11, "todo_control_effect_cells": todoEffectCells, "management_profile_effect_cells": managementEffectCells, "terminal_profile_effect_cells": terminalProfileCells, "admitted_reads": 193, "admitted_confirmations": 18, "confirmation_replays": 18, "confirmation_refusal_cells": 21, "trusted_process_run_refusal_cells": 6, "engine_issued_run_death_cells": runDeathCells, "engine_issued_run_foreign_system_cells": runSystemRefusalCells, "real_guest_run_qualified": false, "http_policy_refusal_cells": httpPolicyRefusalCells, "dispatch_binding_refusal_cells": 24 * len(dispatchCases), "http_commands": httpCommands, "pending_http_commands": []string{}, "public_http_commands": []string{"telemetry.report"}, "app_commands_without_http_door": appCommandsWithoutHTTPDoor, "dispatch_binding_commands": len(fixture.Commands) - 1, "dispatch_binding_cells": 24 * len(dispatchCases), "cells": receipts, "full_live_effect_matrix_complete": false}, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(dir, 0700))
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "retained-http-effects.json"), append(data, '\n'), 0600))

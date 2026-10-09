@@ -126,9 +126,9 @@ type MythicalService struct {
 	// reached (mythicalSweepInterval); it is only the safety net.
 	sweepEvery time.Duration
 	// flowLoad runs flow-load after every main move (SetFlowLoad, flow_load.go).
-	flowLoad    bool
-	commentJobs *jobs.Store
-	reviews     *ReviewBackground
+	flowLoad  bool
+	issueJobs *jobs.Store
+	reviews   *ReviewBackground
 }
 
 // SetMainFollower registers the GitHub sync's request for an immediate read

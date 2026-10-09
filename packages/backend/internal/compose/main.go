@@ -1573,7 +1573,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// handler returns 404 without calling into the service.
 	// Ticket 0134: wire the AuditService into ApprovalsService so every
 	// create/decide transition emits an immutable audit row.
-	mythicalService.SetInstallIssueCommentJobs(commandJobs)
+	mythicalService.SetInstallIssueJobs(commandJobs)
 	approvalsService := services.NewApprovalsServiceWithAudit(queries, auditService, services.WithConfirmationTodos(pool, mythicalService))
 	approvalsHandler := &routes.ApprovalsHandler{
 		Service: approvalsService,
@@ -2500,7 +2500,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) && options.topology.workers() {
 		launchWorker(func() {
-			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "issue-comment-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: []string{services.InstallIssueCommentOperation}}, mythicalService.HandleInstallIssueComment); err != nil && workerCtx.Err() == nil {
+			if err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "issue-write-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, PollInterval: 250 * time.Millisecond, Operations: []string{services.InstallIssueCommentOperation, services.InstallIssueCreateOperation}}, mythicalService.HandleInstallIssueWrite); err != nil && workerCtx.Err() == nil {
 				slog.Error("Issue comment worker stopped", "error", err)
 			}
 		})

@@ -407,13 +407,18 @@ func (g *mythicalGitHubAPI) CreateIssue(ctx context.Context, gh mythicalGitHubRe
 		return mythicalIssue{}, err
 	}
 	var created mythicalGitHubIssue
-	status, err := g.api.request(ctx, token, http.MethodPost, landingGitHubRepoPath(gh.Owner, gh.Name)+"/issues",
-		map[string]string{"title": title, "body": body}, &created)
+	err = sendGitHubIssueWrite(ctx, func(sendContext context.Context) error {
+		status, err := g.api.request(sendContext, token, http.MethodPost, landingGitHubRepoPath(gh.Owner, gh.Name)+"/issues", map[string]string{"title": title, "body": body}, &created)
+		if err != nil {
+			return err
+		}
+		if status != http.StatusCreated {
+			return landingGitHubStatusError(status, gh.Owner, gh.Name, "open issues")
+		}
+		return nil
+	})
 	if err != nil {
 		return mythicalIssue{}, err
-	}
-	if status != http.StatusCreated {
-		return mythicalIssue{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "open issues")
 	}
 	// The answer is the App's own write: it names no maintainer text.
 	created.TextByMaintainer = false

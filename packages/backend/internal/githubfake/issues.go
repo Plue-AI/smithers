@@ -17,6 +17,7 @@ import (
 // (Server.labels); every App write still passes the token boundary and the
 // permanent write log.
 type issue struct {
+	ViaApp                      bool
 	ID                          int64
 	Number                      int64
 	Title, Body                 string
@@ -237,8 +238,8 @@ func (s *Server) issueJSON(repo string, i *issue) map[string]any {
 	}
 	key := issueKey(repo, i.Number)
 	return map[string]any{"id": i.ID, "number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
-		"html_url": fmt.Sprintf("https://github.com/%s/issues/%d", repo, i.Number), "user": s.actor(i.Author, false),
-		"labels": labelsOf(s.labels[key]), "comments": len(s.comments[key]), "performed_via_github_app": nil,
+		"html_url": fmt.Sprintf("https://github.com/%s/issues/%d", repo, i.Number), "user": s.actor(i.Author, i.ViaApp),
+		"labels": labelsOf(s.labels[key]), "comments": len(s.comments[key]), "performed_via_github_app": s.viaApp(i.ViaApp),
 		"created_at": i.CreatedAt, "updated_at": i.UpdatedAt}
 }
 
@@ -308,6 +309,20 @@ func (s *Server) SetIssueUpdatedAt(repo string, number int64, at time.Time) {
 // events and its comments, and an edit of a comment. handled is false for
 // any other path.
 func (s *Server) issueRequest(r *http.Request, repo string, path []string, body []byte) (int, any, bool) {
+	if len(path) == 1 && path[0] == "issues" && r.Method == http.MethodPost {
+		if status, response, ok := s.accessible(r, "issues", "write"); !ok {
+			return status, response, true
+		}
+		var input struct{ Title, Body string }
+		if json.Unmarshal(body, &input) != nil || strings.TrimSpace(input.Title) == "" {
+			status, response := failure(422, "title required")
+			return status, response, true
+		}
+		number := s.openIssue(repo, s.appLogin(), input.Title, input.Body)
+		created := s.opened[issueKey(repo, number)]
+		created.ViaApp = true
+		return 201, s.issueJSON(repo, created), true
+	}
 	if len(path) == 1 && path[0] == "issues" && r.Method == http.MethodGet {
 		return 200, s.issueList(r, repo), true
 	}

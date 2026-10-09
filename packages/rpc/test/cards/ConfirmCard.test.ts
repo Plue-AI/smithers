@@ -177,3 +177,16 @@ test("wiki create confirmation preserves its command without granting a button d
   expect(CatalogTagSchema.safeParse("wiki.create").success).toBe(false)
   expect(ConfirmCardSchema.safeParse({ ...card, action: { tag: "unknown-command", verb: "Create" } }).success).toBe(false)
 })
+
+
+test("issue creation decodes its durable delivery identity and refuses a second effect", () => {
+  const row = { id: "10000000-0000-4000-8000-000000000001", command: "issue.new", state: "approved", revision: "1:new",
+    expires_at: "2099-01-01T00:00:00Z", payload: { input: { title: "Title", body: "Exact bytes" },
+      card: { ...fixtures.one_click.model, action: { tag: "issue.new", verb: "Create" } },
+      effect: { issue_create: "20000000-0000-4000-8000-000000000001", request: "confirmation:1", state: "uncertain" } } }
+  expect(MemberConfirmationSchema.parse(row)).toEqual(row)
+  for (const effect of [{ ...row.payload.effect, issue_comment: row.payload.effect.issue_create },
+    { ...row.payload.effect, todo: 7 }, { ...row.payload.effect, issue_create: "not-a-uuid" }]) {
+    expect(MemberConfirmationSchema.safeParse({ ...row, payload: { ...row.payload, effect } }).success).toBe(false)
+  }
+})

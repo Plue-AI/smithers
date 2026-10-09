@@ -121,3 +121,51 @@ func (h *InstallIssuesHandler) Comment(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	errors.WriteJSON(w, http.StatusAccepted, receipt)
 }
+
+// Create requests the issue.new write without waiting for GitHub.
+func (h *InstallIssuesHandler) Create(w http.ResponseWriter, r *http.Request) {
+	repository, _, ok := authorizeInstallRepository(w, r, h.Queries, "issue.new")
+	if !ok {
+		return
+	}
+	writer, ok := h.Service.(interface {
+		RequestInstallIssueCreate(context.Context, int64, services.InstallIssueCreateInput, string) (jobs.RequestReceipt, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	var input services.InstallIssueCreateInput
+	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	receipt, err := writer.RequestInstallIssueCreate(r.Context(), repository, input, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	errors.WriteJSON(w, http.StatusAccepted, receipt)
+}
+
+func (h *InstallIssuesHandler) CreateStatus(w http.ResponseWriter, r *http.Request) {
+	repository, _, ok := authorizeInstallRepository(w, r, h.Queries, "issue.read")
+	if !ok {
+		return
+	}
+	reader, ok := h.Service.(interface {
+		InstallIssueCreateStatus(context.Context, int64, string) (map[string]any, error)
+	})
+	if !ok {
+		todoRouteError(w, nil)
+		return
+	}
+	result, err := reader.InstallIssueCreateStatus(r.Context(), repository, chi.URLParam(r, "id"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	errors.WriteJSON(w, http.StatusOK, result)
+}

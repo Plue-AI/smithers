@@ -460,3 +460,33 @@ func TestIssueConversationSnapshotPaginationEditAndDeletion(t *testing.T) {
 		require.NotEqualValues(t, first, c["id"])
 	}
 }
+
+func TestAppIssueCreationRequiresIssueWriteAndKeepsAppProvenance(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), []byte(`{"permissions":{"issues":"read"}}`))
+	require.Equal(t, 201, status)
+	var access struct{ Token string }
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues", access.Token, []byte(`{"title":"Refused","body":"Exact"}`))
+	require.Equal(t, 403, status)
+	status, body = request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), []byte(`{"permissions":{"issues":"write"}}`))
+	require.Equal(t, 201, status)
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, _ = request(t, server, "POST", "/repos/acme/app/issues", access.Token, []byte(`{"body":"Exact"}`))
+	require.Equal(t, 422, status)
+	status, body = request(t, server, "POST", "/repos/acme/app/issues", access.Token, []byte(`{"title":"Created","body":"Exact"}`))
+	require.Equal(t, 201, status)
+	var issue struct {
+		Number      int64
+		Title, Body string
+		User        struct{ Login, Type string }
+		App         struct{ ID int64 } `json:"performed_via_github_app"`
+	}
+	require.NoError(t, json.Unmarshal(body, &issue))
+	require.Equal(t, "Exact", issue.Body)
+	require.Equal(t, "Bot", issue.User.Type)
+	require.Equal(t, cfg.AppID, issue.App.ID)
+	status, body = request(t, server, "GET", "/repos/acme/app/issues", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.Contains(t, string(body), "Created")
+}

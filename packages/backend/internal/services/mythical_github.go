@@ -841,7 +841,7 @@ func (g *mythicalGitHubAPI) Comment(ctx context.Context, gh mythicalGitHubRepo, 
 	if err != nil {
 		return err
 	}
-	return sendGitHubComment(ctx, func(ctx context.Context) error {
+	return sendGitHubIssueWrite(ctx, func(ctx context.Context) error {
 		if existing != 0 {
 			path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/comments/" + strconv.FormatInt(existing, 10)
 			status, err := g.api.request(ctx, token, http.MethodPatch, path, payload, nil)

@@ -550,6 +550,8 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "search", regexp.MustCompile(`^/api/search/(repositories|issues|users|code)$`)},
 	// The issue list card and the issue card (J2 1 and 2).
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues$`)},
+	{http.MethodPost, "issue.new", regexp.MustCompile(`^/api/issues$`)},
+	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues/requests/[^/]+$`)},
 	{http.MethodPost, "review", regexp.MustCompile(`^/api/reviews$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/reviews/[^/]+$`)},
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues/[0-9]+$`)},

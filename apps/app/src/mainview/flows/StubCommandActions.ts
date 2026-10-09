@@ -167,6 +167,7 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   reloadApp: unexpected,
   listIssues: unexpected,
   viewIssue: unexpected,
+  requestIssueCreate: async () => ({ value: "Requested" }),
   createIssue: unexpected,
   setIssueState: unexpected,
   draftIssueComment: unexpected,

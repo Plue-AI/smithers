@@ -108,3 +108,11 @@ installed browser reloads the private card and presses Create by keyboard, then
 reads the stored page. No page exists before approval. Confirmation presentation
 accepts registered operation names without extending executable button tags.
 Full confirmation/effect matrices and reference-host recovery remain unqualified.
+
+T-ACC-03 issue-create increment (`fr30-acc-03-r4`): 27 local GitHub issue
+creations and 15 profile/session-create refusals through composed HTTP. Private
+confirmation approves once, delivery uses the shared durable unsafe-write worker,
+and requester-scoped status exposes only state and the created number. The
+installed browser reloads and approves the card, then runs ordinary `/issue.new`
+and opens the delivered issue while chat remains usable. Full matrices and
+reference-host qualification remain incomplete.
