@@ -1,32 +1,35 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 13:50 PDT
-main          after f40e0f76bd when written
+Updated       2026-10-09 16:50 PDT
+main          after 71acddc881 when written
 
-Doneish       YES on f40e0f76bd, the 1.0.0-rc.2 re-cut.
-Publish       TAG PUSHED 13:42 PDT on Will's ask: v1.0.0-rc.2 → f40e0f76bd,
-              Release run 37988746485. npm `next` after its publish step.
-              rc.1 published nothing (publish preflight bug, fixed 1618f9d9ce).
-Real install  Run 12 PASS on dry run #13's bundle (37978357489), no patch:
-              card setup, T1 to PR canary-sandbox#153, merged with the card's
-              Merge 13:25:50 PDT, squash a65c505aa2. Run 11 passed on the
-              first rc.2 cut (PR #152).
-Journeys      f40e0f76bd: no failed row. J10 passed on its second try (first
-              try: 0b Members timed out at 30 s, #3759).
+Published     1.0.0-rc.3 on npm `next`, 16:47 PDT. Release run 37995491765,
+              tag v1.0.0-rc.3 → 71acddc881. 48 of 48 packages. `latest` stays
+              0.35.0, except @smthrs/canonical: its first-ever publish (rc.2)
+              set latest=next=1.0.0-rc.2 (npm does this for a new name).
+              `npm i smthrs@next` installs and reports 1.0.0-rc.3.
+              rc.1 and rc.2 tag runs failed in publishing (pnpm 404 read as
+              fatal, fixed 1618f9d9ce; new name served late, fixed 3c8b53afd1).
+Journeys      71acddc881: no failed row, every suite on try 1.
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
               J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
-Dry run       #13 37978357489 on f40e0f76bd: every blocking job green.
-Broken in     1. After a merge, the learning machine never initializes and
-rc.2             holds its machine slot forever. With one slot (under ~72 GiB
-                 free) no machine starts after the first merge: the next TODO,
-                 /review and wiki refresh wait. Cause: LearningSource.Restore
-                 writes no initialization receipt (same class as 9fdb1884d6).
-              2. The composer's /review sends conversation "branch-main" and
-                 gets 503 "Review unavailable". The API with "main" works.
-              3. After a merge, the TODO card shows Plan "failed" beside
+Real install  Run 13 on the rc.3 tag run's bundle, 0 mismatches, no patch.
+              T1 PASS: canary-sandbox#154, merged with the card's Merge
+              16:11:20, squash f0bc030c99. T2 PASS: PR #155 opened 16:17:07.
+              The composer's /review now gets 202 (fixed in rc.3).
+Broken in     1. The learning machine passes initialization, then fails
+rc.3             EnsureMachined step=head not_ready 3 times and stops without
+                 running: its workspace row has no source commit.
+              2. After a TODO opens its PR, that VM's msb agent hits "max
+                 clients reached" (up to ~880 relays): one `msb exec` relay
+                 per connection, no cap, re-probe twice a second. T1's
+                 publish got a 500 and Merge stayed disabled 7 min; T2's
+                 machine held the only slot 22+ min, so /review, T2's review
+                 and the last wiki refresh never got a machine.
+              3. After a merge, the TODO card may show Plan "failed" beside
                  Verify "done"; nothing failed.
-              1 and 2 are being fixed for rc.3 today.
+              1 and 2 are being fixed for rc.4.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
