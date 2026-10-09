@@ -1139,6 +1139,25 @@ func testTodoMergeProfileComposedRouteBoundaryPostgres(t *testing.T, confirmatio
 			response.Body.Close()
 			require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 			require.Equal(t, int64(2), logs.reads.Load(), "unauthenticated requests never retrieve blob bytes")
+			// A previously authorized browser loses log access immediately when
+			// membership is suspended, before the storage adapter is invoked.
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+			require.NoError(t, err)
+			defer func() {
+				_, err := pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+				require.NoError(t, err)
+			}()
+			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/attempts/1/logs/"+digest, nil)
+			require.NoError(t, err)
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "member-browser-session"})
+			response, err = http.DefaultClient.Do(request)
+			require.NoError(t, err)
+			raw, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			response.Body.Close()
+			require.Equal(t, http.StatusUnauthorized, response.StatusCode, string(raw))
+			require.NotContains(t, string(raw), payload)
+			require.Equal(t, int64(2), logs.reads.Load(), "revoked membership never retrieves blob bytes")
 		})
 	}
 	itemID := uuid.UUID(before.ID.Bytes).String()
