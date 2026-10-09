@@ -25,25 +25,17 @@ const harness = async (bootstrap?: AppBootstrap, install: () => Promise<Response
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; method: string; body?: string | null }> = []
   const cards: string[] = []
-  // c5120a5856: an anonymous install boot probes for a setup session once.
-  // Keep that HTTP response separate from the Settings response (a body is consumed once).
-  let setupProbe = bootstrap?.capabilities.includes("install") === true
   const controller = createAppController(store, agent, {
     ...(bootstrap === undefined ? {} : { bootstrap }),
     presentInstallCard: kind => { cards.push(kind) },
     fetchImpl: async (input, init) => {
       const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, "http://localhost:4000").pathname
       requests.push({ path, method: init?.method ?? "GET", body: init?.body?.toString() })
-      if (path === "/api/install" && setupProbe) {
-        setupProbe = false
-        return Response.json({ code: "owner_required", class: "permission", message: "Owner access required" }, { status: 403 })
-      }
       return path === "/api/install" ? install()
         : path === "/api/model/credential" ? Response.json(credentialReceipt(JSON.parse(init!.body!.toString()).name))
         : Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 })
     }
   })
-  if (bootstrap?.capabilities.includes("install")) await tick()
   return { store, controller, requests, cards }
 }
 describe("T-APP-03 settings command doors", () => {
@@ -149,7 +141,7 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await tick()
-      expect(h.requests).toEqual([{ path: "/api/install", method: "GET", body: undefined }])
+      expect(h.requests).toEqual([])
       expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo[field]
@@ -208,7 +200,7 @@ describe("T-APP-03 settings command doors", () => {
     const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await tick()
-      expect(h.requests).toEqual([{ path: "/api/install", method: "GET", body: undefined }])
+      expect(h.requests).toEqual([])
       expect((await h.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
       const seeded = h.controller.design.world().repo.setup.addresses
@@ -223,14 +215,14 @@ describe("T-APP-03 settings command doors", () => {
     const missing = await harness(local, () => new Response("Not found", { status: 404 }))
     try {
       await tick()
-      expect(missing.requests).toEqual([{ path: "/api/install", method: "GET", body: undefined }])
+      expect(missing.requests).toEqual([])
       expect((await missing.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect([...missing.store.collections.toasts.values()].filter(toast => toast.status === "failed")).toEqual([])
     } finally { await missing.controller.dispose() }
     const offline = await harness(local, () => { throw new Error("offline") })
     try {
       await tick()
-      expect(offline.requests).toEqual([{ path: "/api/install", method: "GET", body: undefined }])
+      expect(offline.requests).toEqual([])
       expect((await offline.controller.commands.run("settings")).status).toBe("executed"); await tick()
       expect([...offline.store.collections.toasts.values()].map(toast => [toast.title, toast.status, toast.detail])).toEqual([["Settings", "failed", "Could not reach this install"]])
     } finally { await offline.controller.dispose() }
