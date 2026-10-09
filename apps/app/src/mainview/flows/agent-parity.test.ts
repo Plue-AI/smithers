@@ -131,7 +131,6 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "files", args: '{"operation":"tree","copy":"shared:will/smithers"}', confirm: false },
   { name: "diff", args: savedDiffArgs("change.pins", "c1 parent current"), confirm: false },
   { name: "diff", args: savedDiffArgs("change.checks", "c1 1"), confirm: false },
-  { name: "box.facet", args: "ws-1 files", confirm: false },
   { name: "change.facet", args: "c1 diff", confirm: false },
   { name: "flow.run", args: JSON.stringify({ cardId: "card-1", operation: "retry" }), confirm: true },
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
@@ -321,6 +320,17 @@ describe("the three-door law", () => {
       expect([...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.flowId === "review")).toBe(true)
       expect((await controller.commands.run("triggers.list", "will/smithers", "automatic")).status).toBe("executed")
       expect(store.collections.cards.get("trigger-list-will/smithers")?.kind).toBe("trigger-list")
+    } finally { controller.dispose() }
+  })
+
+  test("the deferred Machine control remains hidden and refuses agent execution", async () => {
+    const { store, controller } = await boot()
+    try {
+      expect(controller.commands.find("box.facet")?.metadata.hidden).toBe(true)
+      expect(agentVisibleCatalog(controller.commands.callable()).some(row => row.name === "box.facet")).toBe(false)
+      const before = messages(store).length
+      expect(await execute(controller, "box.facet", "ws-1 files")).toContain("is user-only")
+      expect(messages(store).length).toBe(before)
     } finally { controller.dispose() }
   })
 

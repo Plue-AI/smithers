@@ -453,7 +453,12 @@
     },
     {
       "command": "debug-api",
-      "door": "app"
+      "method": "GET",
+      "path": "/api/commands/debug-api",
+      "body": {},
+      "delegated": "never",
+      "maintainerDelegated": "never",
+      "memberDelegated": "never"
     },
     {
       "command": "debug.backend",
@@ -520,7 +525,11 @@
     },
     {
       "command": "diff",
-      "door": "app"
+      "method": "GET",
+      "path": "/api/branches/{branch}/diff",
+      "body": {
+        "branch": "main"
+      }
     },
     {
       "command": "docs",

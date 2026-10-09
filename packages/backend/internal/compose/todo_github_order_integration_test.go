@@ -110,6 +110,22 @@ func TestTODOGitHubOrderAndShapeComposedInstall(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &diff))
 	require.Len(t, diff.Files, 1)
 	require.Equal(t, "SECOND.txt", diff.Files[0].Path)
+	// C-CAT-02: the installed source CLI reads the same item-only evidence,
+	// through its descriptor and the production install router.
+	readToken, err := r.token("read:repository")
+	require.NoError(t, err)
+	cli := catalogCLIInvoker(t, r.ctx, r.origin, readToken)
+	exit, value := cli("diff", "--branch", "smithers/second")
+	require.Equal(t, 0, exit, value)
+	encoded, err := json.Marshal(value)
+	require.NoError(t, err)
+	var cliDiff services.BranchDiff
+	require.NoError(t, json.Unmarshal(encoded, &cliDiff))
+	require.Equal(t, diff, cliDiff)
+	exit, refusal := cli("diff", "--branch", "smithers/second", "--path", "SECOND.txt")
+	require.NotEqual(t, 0, exit, refusal)
+	require.NotContains(t, refusal, "files")
+
 	githubLifecycleBrowserPhase(t, r, items[1].number, "shape")
 	if os.Getenv("SMITHERS_GH03_BROWSER_PHASE") == "shape" {
 		return // Publication and diff have their own browser check; order runs separately.

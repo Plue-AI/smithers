@@ -3046,6 +3046,34 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/commands/debug-api:
+    x-composition: install
+    get:
+      summary: Authorize the Debug API card
+      description: Person-only admission for the installed Debug API card. Performs no API operation.
+      operationId: get_api_commands_debug_api
+      tags:
+        - Commands
+      security:
+        - tokenAuth: []
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        '204':
+          description: Authorized
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/confirmations:
     get:
       x-composition: install

@@ -728,12 +728,36 @@
       ],
       "method": "GET",
       "path": "/api/repos/ben/demo/wiki/terminal-scope"
+    },
+    {
+      "argv": [
+        "diff"
+      ],
+      "method": "GET",
+      "path": "/api/branches/main/diff"
+    },
+    {
+      "argv": [
+        "diff",
+        "--branch",
+        "smithers/second"
+      ],
+      "method": "GET",
+      "path": "/api/branches/smithers%2Fsecond/diff"
+    },
+    {
+      "argv": [
+        "diff",
+        "--branch",
+        "scratch/maya/work",
+        "--entry",
+        "00000000-0000-0000-0000-000000000001"
+      ],
+      "method": "GET",
+      "path": "/api/branches/scratch%2Fmaya%2Fwork/diff?entry=00000000-0000-0000-0000-000000000001"
     }
   ],
   "unavailable": [
-    [
-      "diff"
-    ],
     [
       "flow",
       "plan",

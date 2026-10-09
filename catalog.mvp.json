@@ -3937,7 +3937,16 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a branch's changes",
-      "http": null,
+      "http": {
+        "method": "GET",
+        "path": "/api/branches/{branch}/diff",
+        "defaults": {
+          "branch": "main"
+        },
+        "query": {
+          "entry": "entry"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

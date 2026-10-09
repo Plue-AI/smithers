@@ -1984,6 +1984,10 @@ export interface PostApiCommandsSelectInput {
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
 
+/** GET /api/commands/debug-api: Authorize the Debug API card */
+export const getApiCommandsDebugApi = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/commands/debug-api`).then(() => undefined)
+
 /** GET /api/confirmations: List your confirmations */
 export const getApiConfirmations = (transport: Transport): Promise<void> =>
   transport.request("GET", `/api/confirmations`).then(() => undefined)

@@ -95,6 +95,9 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
     } finally { await f.close() }
   })
   it.each([
+    ["diff", "--path", "SECOND.txt"],
+    ["diff", "--subject", "smithers/second"],
+    ["diff", "--operation", "change-diff", "--changeId", "change-1"],
     ["file", "README.md", "--operation", "workspace"],
     ["files", "--operation", "tree", "--copy", "copy-1"],
     ["file", "README.md", "--repo", "another/repo"],

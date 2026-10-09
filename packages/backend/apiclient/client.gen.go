@@ -3452,6 +3452,11 @@ func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, 
 	return out, err
 }
 
+// GetAPICommandsDebugAPI calls GET /api/commands/debug-api.
+func (c *Client) GetAPICommandsDebugAPI(ctx context.Context) error {
+	return c.do(ctx, "GET", "/api/commands/debug-api", nil, nil, nil)
+}
+
 // GetAPIConfirmations calls GET /api/confirmations.
 func (c *Client) GetAPIConfirmations(ctx context.Context) error {
 	return c.do(ctx, "GET", "/api/confirmations", nil, nil, nil)

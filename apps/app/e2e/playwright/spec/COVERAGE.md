@@ -311,7 +311,7 @@ Cycle 28: six branch and terminal command scenarios await live providers and dur
 | --- | --- | --- | --- |
 | A-FILE | [A-FILE.spec.ts](A-FILE.spec.ts) | fixme-before-implementation | T-COL-08, T-APP-14 |
 | A-FILES | [A-FILES.spec.ts](A-FILES.spec.ts) | fixme-before-implementation | T-APP-10, T-COL-04 |
-| A-DIFF | [A-DIFF.spec.ts](A-DIFF.spec.ts) | Composed accepted-prefix reader, branch isolation and reload; seeded controls. Accepted trees are fixture inputs, not guest execution. | T-STK-01, T-COL-04 |
+| A-DIFF | [A-DIFF.spec.ts](A-DIFF.spec.ts) | Composed accepted-prefix reader, source catalog CLI parity, branch isolation and reload; seeded controls. Accepted trees are fixture inputs, not guest execution. | T-STK-01, T-COL-04, T-CAT-01 |
 | A-REVIEW | [A-REVIEW.spec.ts](A-REVIEW.spec.ts) | fixme-before-implementation | T-FLW-13, T-APP-16 |
 | A-PR | [A-PR.spec.ts](A-PR.spec.ts) | Real composed GitHub list/detail/link/reload passes; seeded controls retained; full check/review/TODO evidence journey remains fixme | T-STK-01, T-GH-03 |
 | A-ISSUES | [A-ISSUES.spec.ts](A-ISSUES.spec.ts) | fixme-before-implementation | T-STK-09, T-GH-02 |

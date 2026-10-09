@@ -120,7 +120,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         if (repositoryFile({ path, branch, repo, operation })) return actions.listFiles(path ?? "", repo)
         return install() ? actions.listFiles(path ?? "", branch) : realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(designRepo(), findBranch(design.world(), branch ?? path ?? "")?.id ?? "main"))
       } }),
-    flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
+    flow({ name: "diff",   slash: "/diff", cli: ["diff"], journey: ["J2","J3"], group: "Files and code", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: { method: "GET", path: "/api/branches/{branch}/diff", defaults: { branch: "main" }, query: { entry: "entry" } }, summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       form: {
         fields: { operation: { hidden: true }, cardId: { hidden: true } },
