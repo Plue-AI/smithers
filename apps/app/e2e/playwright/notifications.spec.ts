@@ -10,6 +10,8 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
 // Playwright's normal Chromium connection forces document.hidden=false in every tab.
 // Attach to a fresh browser without those overrides so the test uses native tab visibility.
+// Keep Playwright's own storage switches: without them macOS Chrome reads "Chrome Safe
+// Storage" from the login keychain and blocks on a SecurityAgent prompt before it navigates.
 const expect = baseExpect.configure({ timeout: 20_000 })
 const test = base.extend({
   context: async ({ browserName, playwright, headless }, use) => {
@@ -25,7 +27,7 @@ const test = base.extend({
     }
     const child = spawn(playwright.chromium.executablePath(), [
       "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-sandbox", "--disable-dev-shm-usage", "--no-first-run",
-      ...(headless ? ["--headless=new"] : []), "about:blank"
+      "--use-mock-keychain", "--password-store=basic", ...(headless ? ["--headless=new"] : []), "about:blank"
     ], { stdio: "ignore" })
     let browser: Awaited<ReturnType<typeof playwright.chromium.connectOverCDP>> | undefined
     try {
