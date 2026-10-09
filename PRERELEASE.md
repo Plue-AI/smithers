@@ -1,37 +1,38 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 17:50 PDT
-main          dd4042aeeb when written
+Updated       2026-10-08 18:32 PDT
+main          5e83665567 when written
 
-Publish       CANNOT PUBLISH YET. Dry run #7 failed in the smoke. Fix and #8 pending.
-Real install  RUNNING on this MacBook, bundle built here from 3fc44ee1e8.
-              All seven setup steps done 16:55 PDT. TODO T1 created 16:57 PDT.
-              T1 never got a machine: every first machine start blocked itself
-              in PostgreSQL for 15 minutes. Fixed on main, 2d1f60faf0 (17:37
-              PDT). Not yet proven: the fix is going into the local bundle now.
+Publish       CANNOT PUBLISH YET. Dry run #8 is running, no result. And a
+              released bundle cannot run a TODO until the fix below is on main.
+Real install  RUNNING on this MacBook. Setup done, TODO T1 created. The first
+              machine now runs 6.7 to 6.9 s after the request (2d1f60faf0).
+              With a local-only patch the flow's host started on a real machine
+              at 18:21:42 PDT, a first.
               No TODO has reached a pull request on a real install.
-Broken        1. A stalled machine start shows "Starting" on Home, with no Retry
-                 for 15 minutes.
-              2. During a machine start a chat view save can answer 503 and a
-                 sign-in can wait (#3759).
-              3. A machine start misses a workspace deleted meanwhile (#3759).
-              4. The bundle README's setup-link format differs from start's output.
+Broken        1. NOT FIXED ON MAIN: no agent, member terminal or actor can be
+                 admitted to a branch machine, so a TODO cannot run on a real
+                 install. Tests and journeys passed because their fixtures set
+                 the fields by hand. Fix in progress.
+              2. J7 is intermittent on current main: "a person resolves the
+                 retained conflict" failed on 3 of 4 attempts. Cause found,
+                 fix written, not landed.
+              3. Six more on the install, none fixed on main: section 3.
 Fixed on main Unverified on a real install until a rebuilt bundle runs: the
               setup card hidden through the first four steps (c5120a5856), the
               stale sign-in cookie (9a218b7f68), the joined words in Model
               access and raw JSON on reopening /setup (88b768b019).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
-Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
-              Linux fixtures. Red: J10 row 6. On c5120a5856, J1 to J6 have no
-              failed row; J7 failed four rows, then passed its second attempt.
-              J7 and J10 are rerunning on current main since 17:44 PDT.
-Doneish       No. It needs the install run to take a TODO to a merged PR, and
-              all 11 journeys passing on one commit.
-Dry runs      Version 1.0.0-rc.1. None is green. #7 37862357655 on 4556117406
-              failed in the smoke at the CLI containment check, on the Linux
-              runner only; every earlier check passed. The four installed-CLI
-              jobs have not run in any Release run.
+Journeys      First full board pass with no failed row: c5120a5856, on Linux
+              fixtures, 188 pass, 0 fail, 33 pending. J7 passed on its second
+              attempt. J10 row 6 is green. Running on 5e83665567: J1 to J4 so
+              far, no failed row.
+Doneish       No. It needs the install run to take a TODO to a merged PR.
+Dry runs      Version 1.0.0-rc.1. None is green. #8 37867965100 on 5e83665567
+              since 18:04 PDT: helpers green, build, pack and smoke running.
+              #7 failed on a test bug, fixed in 5e83665567; with it the whole
+              smoke passed on Linux outside CI.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
