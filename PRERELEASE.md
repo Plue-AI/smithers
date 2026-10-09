@@ -1,41 +1,31 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 19:03 PDT
-main          98fefa1e84 when written
+Updated       2026-10-09 01:25 PDT
+main          8598789b91 when written (the 1.0.0-rc.1 cut)
 
-Publish       NOT PUBLISHED. The release path is green: dry run #8 passed every
-              blocking job. Left: the final cut and one last dry run.
-              A released bundle still cannot run a TODO (Broken 1).
-Real install  RUNNING on this MacBook. Setup done, TODO T1 created. Stops found
-              on a real machine tonight:
-              - A machine start blocked itself for 15 minutes. Fixed,
-                2d1f60faf0: 6.7 to 6.9 s now.
-              - No agent could be admitted to a machine. Fixed, 1b4f32941e
-                (security owner accepted, 18:55 PDT). Not yet run on a real
-                machine at that commit.
-              - The first machine cannot be retired. Fix in progress.
-              No TODO has reached a pull request on a real install.
-Broken        1. NOT FIXED ON MAIN: the first machine loads the catalog, then
-                 cannot be retired: a process stays alive in it and the final
-                 capture check refuses. It keeps the install's only machine,
-                 and the TODO waits for a machine forever.
-              2. J7 is intermittent on main: red on both attempts at
-                 2d1f60faf0, green at 5e83665567. Two product defects found;
-                 neither fix is on main.
-              3. Six more on the install: section 3.
-Fixed on main Unverified until a fresh install built from main runs: agent
-              admission (1b4f32941e), the hidden setup card (c5120a5856), the
-              stale sign-in cookie (9a218b7f68), Model access wording and raw
-              JSON on reopening /setup (88b768b019).
-Real machine  The machine daemon works in a real VM on main (99a4356a1a).
-Journeys      Last full pass, no failed row: c5120a5856, on Linux fixtures,
-              188 pass, 0 fail, 33 pending. On 5e83665567 so far: J1 to J9, no
-              failed row.
-Doneish       No. It needs the install run to take a TODO to a merged PR.
-Dry runs      Version 1.0.0-rc.1. #8 37867965100 on 5e83665567: build, pack,
-              smoke, the Mac bundle and the four installed-CLI jobs (their
-              first run ever) are green. Its report-only gates still run.
+Publish       NOT PUBLISHED. Cut 8598789b91 (re-cut of 1.0.0-rc.1 on
+              25cb01da69). Its dry run #9 37904154080 is running.
+Real install  Run 6 starting on this MacBook with dry run #9's own bundle, no
+              local patch. Run 5 (19:06 PDT) retired its first machine and
+              gave TODO T1 a machine for the first time, then the network
+              dropped for hours and the run never finished. No TODO has
+              reached a pull request on a real install yet.
+Broken        On main, nothing known that stops a TODO. Every stop the install
+              runs found tonight is fixed on main: the 15-minute start lock
+              (2d1f60faf0), agent admission (1b4f32941e, proven on a real
+              machine), the first machine that could not retire (1ff8afef7e,
+              59566c2cb3, 4b5fe4405e). The last fix is unproven on a real
+              machine with no patch: run 6 proves it. Four more defects on
+              the install: section 3.
+Journeys      25cb01da69: three full passes and a fourth through J9, no failed
+              row. J10 (pass 3) and J7 (pass 4) each passed on a retry.
+              J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
+              J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
+Doneish       No. It needs run 6 to take a TODO to a merged PR.
+Dry runs      #8 37867965100 (5e83665567) finished SUCCESS at 4 h 24 m: every
+              blocking job green and the gates lane ended inside its budget.
+              #9 on the cut: running.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
@@ -122,7 +112,7 @@ Fixed on main, unverified until a fresh install built from main, with no local p
 
 ### Journey rows
 
-- **J7 is intermittent on main.** Red on both attempts at 2d1f60faf0; 19/0/2 at 5e83665567. Two product defects found, neither fix on main: (1) Branch Done answered while the agent's repair is live is dropped when that repair fails (fixed in the lane, the scenario then passed 6 of 6); (2) a lock-order deadlock between machine capture and burst ingest in row 16 (fix in progress).
+- **J7 and J10 pass, with a retry now and then.** Both J7 defects are fixed on main: Branch Done kept across a failed repair (b096080ac1) and the capture/ingest lock order (25cb01da69). On 25cb01da69, J10 needed a retry in pass 3 and J7 in pass 4; every other attempt passed first time.
 - J10 row 6 is green on the board: 36/0/4 at c5120a5856 and at 2d1f60faf0. Rows fixed today: Detail G.
 
 ### Real VM
