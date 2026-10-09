@@ -24,7 +24,12 @@ for (const spec of ["home", "todo-from-issue", "todo-needs-you", "todo-evidence"
     const result = list(spec, host)
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
-    expect(result.stdout).toContain("Total: 1 test in 1 file")
+    // c5120a5856 adds the local setup-token continuation to this same spec.
+    const count = spec === "install-origins" && host === "local" ? 2 : 1
+    expect(result.stdout).toContain(`Total: ${count} ${count === 1 ? "test" : "tests"} in 1 file`)
+    const listedSpecs = [...result.stdout.matchAll(/^\s+(\S+\.spec\.ts):\d+:\d+ ›/gm)].map(match => match[1])
+    expect(listedSpecs).toEqual(Array.from({ length: count }, () => `${spec}.spec.ts`))
+    if (count === 2) expect(result.stdout).toContain("setup token redirects to the unfinished Setup card at /")
     expect(result.stdout).toContain(`${spec}.spec.ts`)
     expect(result.stderr).not.toContain("No tests found")
   }, 35_000)
