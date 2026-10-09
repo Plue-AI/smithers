@@ -346,8 +346,10 @@ func (s *MythicalService) todoCardAtQueuePosition(ctx context.Context, item db.M
 	if checks := mythicalChecksOf(item); !mythicalSettledStates[item.State] {
 		if rebase := checks.Rebase; rebase != nil && !rebase.Rebased {
 			pending := map[string]any{"onto": rebase.Name, "onto_revision": rebase.Onto}
-			if writer := rebaseWaitingFor(ctx, s.rebaseBlocker, item.WorkspaceID, rebase.BlockingBoot, rebase.BlockingSession); writer != nil {
-				pending["waiting_for"] = writer
+			if rebaseRequestedByViewer(ctx, rebase.Request) {
+				if writer := rebaseWaitingFor(ctx, s.rebaseBlocker, item.WorkspaceID, rebase.BlockingBoot, rebase.BlockingSession); writer != nil {
+					pending["waiting_for"] = writer
+				}
 			}
 			card["rebase_pending"] = pending
 		}

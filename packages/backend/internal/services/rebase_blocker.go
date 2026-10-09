@@ -1,6 +1,9 @@
 package services
 
-import "context"
+import (
+	"context"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+)
 
 // RebaseBlockerReader resolves only a host-admitted session on its exact boot.
 // Missing, replaced or revoked sessions never acquire an invented actor label.
@@ -18,4 +21,11 @@ func rebaseWaitingFor(ctx context.Context, read RebaseBlockerReader, workspace, 
 		return nil
 	}
 	return writer
+}
+
+// Writer details belong to the person who requested this rebase. Background
+// facts carry no viewer identity and must never broadcast the private blocker.
+func rebaseRequestedByViewer(ctx context.Context, request *mythicalRebaseRequest) bool {
+	viewer := middleware.UserFromContext(ctx)
+	return viewer != nil && request != nil && request.User > 0 && viewer.ID == request.User && !InstallExecutionCredential(ctx)
 }

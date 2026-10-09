@@ -44,8 +44,8 @@ type liveSync interface {
 }
 
 // liveTopics resolves the install's shared topics (spec §7.2) for one
-// person: home, todo:<n>, flows and members. Every topic serves shared facts only,
-// so one stream serves every member byte for byte.
+// person: home, todo:<n>, flows and members. Shared facts reuse streams;
+// member-specific projections keep their viewer bound to each refresh.
 type liveTopics struct {
 	changePool    *pgxpool.Pool
 	summaries     *services.ConversationSummaries
@@ -123,8 +123,28 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 				return t.branchChanges(ctx, topic, repository, member)
 			}
 			source, refusal := t.presence.source(r.Context(), strings.TrimPrefix(topic, "branch:"), repository, member, slug)
-			if refusal != "" || t.todos == nil {
+			if refusal != "" {
 				return source, refusal
+			}
+			// Branch snapshots contain requester-only writer details. Keep each
+			// member's stream separate and retain the authenticated viewer when
+			// the hub refreshes it on its background context.
+			bindViewer := func(source live.Source) live.Source {
+				build := source.Build
+				info := middleware.AuthInfoFromContext(r.Context())
+				source.Key += ":member:" + strconv.FormatInt(member, 10)
+				source.Build = func(ctx context.Context) (json.RawMessage, error) {
+					return build(middleware.ContextWithAuthInfo(ctx, info))
+				}
+				if snapshot := source.Snapshot; snapshot != nil {
+					source.Snapshot = func(ctx context.Context) (int64, json.RawMessage, error) {
+						return snapshot(middleware.ContextWithAuthInfo(ctx, info))
+					}
+				}
+				return source
+			}
+			if t.todos == nil {
+				return bindViewer(source), ""
 			}
 			build := source.Build
 			source.Build = func(ctx context.Context) (json.RawMessage, error) {
@@ -189,7 +209,7 @@ func (t *liveTopics) resolver(r *http.Request) (live.Resolver, int64) {
 					return live.Source{}, live.Unsupported
 				}
 			}
-			return source, ""
+			return bindViewer(source), ""
 		}
 		return t.resolve(ctx, topic, repository, slug, member)
 	}, repository
@@ -625,6 +645,39 @@ func liveJobSource(source live.Source, store *jobs.Store, scope jobs.Scope) live
 			}
 			result := sse.DurablePage{Cursor: page.Cursor, More: page.More}
 			for _, event := range page.Events {
+				// Older facts may retain writer details from before private
+				// Branch reads. Replay public history without that transient field.
+				var fact map[string]json.RawMessage
+				if err := json.Unmarshal(event.Data, &fact); err != nil {
+					return sse.DurablePage{}, err
+				}
+				if raw, ok := fact["card"]; ok {
+					var card map[string]json.RawMessage
+					if err := json.Unmarshal(raw, &card); err != nil {
+						return sse.DurablePage{}, err
+					}
+					if raw, ok := card["rebase_pending"]; ok {
+						var pending map[string]json.RawMessage
+						if err := json.Unmarshal(raw, &pending); err != nil {
+							return sse.DurablePage{}, err
+						}
+						if _, private := pending["waiting_for"]; private {
+							delete(pending, "waiting_for")
+							card["rebase_pending"], err = json.Marshal(pending)
+							if err != nil {
+								return sse.DurablePage{}, err
+							}
+							fact["card"], err = json.Marshal(card)
+							if err != nil {
+								return sse.DurablePage{}, err
+							}
+							event.Data, err = json.Marshal(fact)
+							if err != nil {
+								return sse.DurablePage{}, err
+							}
+						}
+					}
+				}
 				data, err := json.Marshal(event)
 				if err != nil {
 					return sse.DurablePage{}, err

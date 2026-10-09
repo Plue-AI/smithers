@@ -34,6 +34,11 @@ func (s *MythicalService) recordTodoFact(ctx context.Context, tx pgx.Tx, item db
 	if err != nil {
 		return jobs.Event{}, err
 	}
+	// Source facts are shared and replayed to every viewer. The blocking
+	// writer is read privately from the current request, never broadcast.
+	if pending, ok := card["rebase_pending"].(map[string]any); ok {
+		delete(pending, "waiting_for")
+	}
 	if card["state"] != state {
 		return jobs.Event{}, fmt.Errorf("TODO source state differs from its card")
 	}

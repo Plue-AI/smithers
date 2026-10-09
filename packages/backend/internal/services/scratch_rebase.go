@@ -457,7 +457,7 @@ func (s *WorkspaceService) BranchRebaseState(ctx context.Context, row db.Workspa
 		state = "rebasing"
 	}
 	projection := map[string]any{"state": state, "onto": name}
-	if state == "pending" {
+	if state == "pending" && rebaseRequestedByViewer(ctx, in.Authority) {
 		if writer := rebaseWaitingFor(ctx, s.rebaseBlocker, row.ID, in.BlockingBoot, in.BlockingSession); writer != nil {
 			projection["waiting_for"] = writer
 		}
