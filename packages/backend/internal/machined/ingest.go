@@ -21,10 +21,14 @@ import (
 // return AckMissingObjects and leave no receipt so the same event can retry.
 type EventWriter func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error)
 
-// EventPreparation acquires projection locks and returns this transaction's
-// writer before the receipt INSERT takes foreign-key locks. It must only read
-// and lock: a duplicate delivery does not execute the returned writer.
-type EventPreparation func(context.Context, pgx.Tx, string, Event) (EventWriter, error)
+// EventCommit fences the current boot through receipt publication and commit.
+// Its writer is not called for a duplicate delivery.
+type EventCommit func(EventWriter) (Acknowledgement, error)
+
+// EventPreparation acquires database and repository locks before invoking
+// commit, and retains them until commit returns. Never acquire a repository
+// lock inside the writer: burst ingestion takes it before the registry fence.
+type EventPreparation func(context.Context, pgx.Tx, string, Event, EventCommit) (Acknowledgement, error)
 
 // Ingestor is the authenticated dispatcher's commit-before-ack boundary. An
 // absent writer refuses admission rather than recording a receipt for lost work.
@@ -93,17 +97,21 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 		defer cancel()
 		_ = tx.Rollback(cleanup)
 	}()
-	writer := i.Write
-	if i.Prepare != nil {
-		writer, err = i.Prepare(ctx, tx, branch, event)
-		if err != nil {
-			return ack, err
-		}
+	commit := func(writer EventWriter) (Acknowledgement, error) {
 		if writer == nil {
 			return ack, ErrNotReady
 		}
+		return commitPreparedEvent(ctx, tx, connection, branch, event, writer, id, digest, capture)
 	}
-	// Acquire database authority before the registry fence. A stack worker may
+	if i.Prepare != nil {
+		return i.Prepare(ctx, tx, branch, event, commit)
+	}
+	return commit(i.Write)
+}
+
+func commitPreparedEvent(ctx context.Context, tx pgx.Tx, connection *Connection, branch string, event Event, writer EventWriter, id [16]byte, digest [32]byte, capture []byte) (Acknowledgement, error) {
+	ack := Acknowledgement{Seq: event.Seq}
+	// Acquire database and repository authority before the registry fence. A stack worker may
 	// hold these rows while opening this daemon; holding the registry mutex
 	// while waiting for those rows would deadlock both. Fence replacement
 	// through persistent effects and commit after preparation completes.
@@ -166,7 +174,7 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 			return ack, err
 		}
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return Acknowledgement{Seq: event.Seq}, err
 	}
 	return ack, nil

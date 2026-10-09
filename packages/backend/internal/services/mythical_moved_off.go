@@ -24,19 +24,20 @@ type workspaceMovedOff struct {
 // PrepareMovedOffEvent runs inside the authenticated event dispatcher. Attribution
 // is resolved by its host session provider, never by a guest-supplied display name.
 func (s *MythicalService) PrepareMovedOffEvent(resolve func(context.Context, string, wire.Actor) (json.RawMessage, error)) machined.EventPreparation {
-	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.EventWriter, error) {
+	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event, commit machined.EventCommit) (machined.Acknowledgement, error) {
+		ack := machined.Acknowledgement{Seq: event.Seq}
 		if s == nil || resolve == nil {
-			return nil, machined.ErrNotReady
+			return ack, machined.ErrNotReady
 		}
 		if _, err := wire.DecodeMovedOff(event.Payload); err != nil {
-			return nil, err
+			return ack, err
 		}
 		if _, err := PrepareMachineCaptureTx(ctx, tx, branch); err != nil {
-			return nil, err
+			return ack, err
 		}
-		return s.movedOffWriter(func(ctx context.Context, _ pgx.Tx, branch string, actor wire.Actor) (json.RawMessage, error) {
+		return commit(s.movedOffWriter(func(ctx context.Context, _ pgx.Tx, branch string, actor wire.Actor) (json.RawMessage, error) {
 			return resolve(ctx, branch, actor)
-		}), nil
+		}))
 	}
 }
 func (s *MythicalService) movedOffWriter(resolve func(context.Context, pgx.Tx, string, wire.Actor) (json.RawMessage, error)) machined.EventWriter {
@@ -185,14 +186,15 @@ func (s *MythicalService) movedOffWriter(resolve func(context.Context, pgx.Tx, s
 
 // PrepareStoredMovedOffEvent uses the same immutable host references as bursts.
 func (s *MythicalService) PrepareStoredMovedOffEvent(machine string, render func(context.Context, pgx.Tx, json.RawMessage) (json.RawMessage, error)) machined.EventPreparation {
-	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.EventWriter, error) {
+	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event, commit machined.EventCommit) (machined.Acknowledgement, error) {
+		ack := machined.Acknowledgement{Seq: event.Seq}
 		if _, err := wire.DecodeMovedOff(event.Payload); err != nil {
-			return nil, err
+			return ack, err
 		}
 		if _, err := PrepareMachineCaptureTx(ctx, tx, branch); err != nil {
-			return nil, err
+			return ack, err
 		}
-		return s.movedOffWriter(func(ctx context.Context, tx pgx.Tx, branch string, actor wire.Actor) (json.RawMessage, error) {
+		return commit(s.movedOffWriter(func(ctx context.Context, tx pgx.Tx, branch string, actor wire.Actor) (json.RawMessage, error) {
 			raw, err := machined.ResolveStoredEventActor(ctx, tx, branch, machine, actor)
 			if err != nil {
 				return nil, err
@@ -201,6 +203,6 @@ func (s *MythicalService) PrepareStoredMovedOffEvent(machine string, render func
 				return nil, machined.ErrNotReady
 			}
 			return render(ctx, tx, raw)
-		}), nil
+		}))
 	}
 }

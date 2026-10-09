@@ -72,35 +72,35 @@ func withMachineRepositoryAuthorityTx(ctx context.Context, tx pgx.Tx, branch str
 // prepareMachineCaptureWriter locks stack/items before the workspace or receipt
 // FK, then binds capture publication or wake settlement to this transaction.
 func prepareMachineCaptureWriter(host *repohost.Client) machined.EventPreparation {
-	return func(ctx context.Context, tx pgx.Tx, branch string, _ machined.Event) (machined.EventWriter, error) {
+	return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event, commit machined.EventCommit) (machined.Acknowledgement, error) {
+		ack := machined.Acknowledgement{Seq: event.Seq}
 		if host == nil {
-			return nil, machined.ErrNotReady
+			return ack, machined.ErrNotReady
 		}
 		projection, err := services.PrepareMachineCaptureTx(ctx, tx, branch)
 		if err != nil {
-			return nil, err
+			return ack, err
 		}
-		return func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
-			ack := machined.Acknowledgement{Seq: event.Seq}
-			if err := projection.ValidatePublication(); err != nil {
-				return ack, err
-			}
-			err := withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+		// Burst ingestion owns this exclusion before taking the boot fence.
+		// Acquire it here too, before commit takes the registry mutex.
+		err = withMachineRepositoryTx(ctx, tx, branch, host, func(path string) error {
+			var err error
+			ack, err = commit(func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
+				if err := projection.ValidatePublication(); err != nil {
+					return machined.Acknowledgement{Seq: event.Seq}, err
+				}
 				objects := machined.GitCaptureObjects{InitialBase: projection.InitialCaptureBase(), Resolve: func(context.Context, string) (string, error) { return path, nil }}
 				if len(event.Payload) > 0 && event.Payload[0] == 3 {
 					writer := &machined.ReconcileIngest{Objects: objects, Apply: projection.Reconcile}
-					var err error
-					ack, err = writer.Write(ctx, tx, branch, event)
-					return err
+					return writer.Write(ctx, tx, branch, event)
 				}
 				writer := &machined.CaptureIngest{Objects: objects, Reconcile: func(ctx context.Context, _ pgx.Tx, _ string, capture wire.Captured, applied bool) error {
 					return projection.Apply(ctx, capture, applied, objects)
 				}}
-				var err error
-				ack, err = writer.Write(ctx, tx, branch, event)
-				return err
+				return writer.Write(ctx, tx, branch, event)
 			})
-			return ack, err
-		}, nil
+			return err
+		})
+		return ack, err
 	}
 }

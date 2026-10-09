@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +38,12 @@ func TestMachineCaptureTransactionBinding(t *testing.T) { testMachineCaptureProj
 // The remote wire peer is scripted; real-VM qualification remains separate.
 func TestMachinedCapturePendingWorkReplay(t *testing.T) { testMachineCaptureProjection(t, true) }
 
-func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
+func TestMachineCaptureRepositoryWaitDoesNotHoldBootFence(t *testing.T) {
+	t.Run("capture completes", func(t *testing.T) { testMachineCaptureProjection(t, false, false) })
+	t.Run("replacement refuses old capture", func(t *testing.T) { testMachineCaptureProjection(t, false, true) })
+}
+
+func testMachineCaptureProjection(t *testing.T, pendingOnly bool, repositoryFence ...bool) {
 	isolated, _ := postgresfixture.NewProductDatabase(t)
 	b := newRelayBoxesIn(t, isolated)
 	branch := b.box(b.repo, b.machines, "running", b.owner)
@@ -167,6 +173,65 @@ func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
 		require.NoError(t, json.Unmarshal(raw, &got))
 		require.Equal(t, *want, got)
 	}
+	if len(repositoryFence) > 0 {
+		_, err = pool.Exec(t.Context(), `ALTER TABLE product_job_events DROP CONSTRAINT reject_capture`)
+		require.NoError(t, err)
+		_, peer := presenceTestLink(t, registry, branch)
+		// A burst on another branch can own this repository while needing
+		// the registry fence. Queue capture behind that real exclusion and
+		// prove registry access (and boot replacement) remain available.
+		held, release, entered := make(chan struct{}), make(chan struct{}), make(chan struct{})
+		holder := make(chan error, 1)
+		var once sync.Once
+		unlock := func() { once.Do(func() { close(release) }) }
+		defer unlock()
+		go func() {
+			holder <- server.WithMachineRepository(t.Context(), b.login, "repo", func(string) error {
+				close(held)
+				<-release
+				return nil
+			})
+		}()
+		<-held
+		client.BindMachineRepository(func(ctx context.Context, owner, repo string, visit func(string) error) error {
+			close(entered)
+			return server.WithMachineRepository(ctx, owner, repo, visit)
+		})
+		send(peer, event(1, 31, first))
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("capture did not reach repository exclusion")
+		}
+		available := make(chan error, 1)
+		go func() {
+			_, err := registry.Current(branch)
+			if err == nil && repositoryFence[0] {
+				_, err = registry.MintBoot(branch, "replacement")
+			}
+			available <- err
+		}()
+		select {
+		case err := <-available:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("capture held the registry while waiting for the repository; a burst cannot release it")
+		}
+		unlock()
+		require.NoError(t, <-holder)
+		if repositoryFence[0] {
+			_, err := wire.Read(peer)
+			require.Error(t, err)
+			count("machine_event_receipts", 0)
+			head(base)
+			require.Equal(t, base, git("", "rev-parse", ref))
+		} else {
+			ack(peer, 1, machined.AckApplied)
+			count("machine_event_receipts", 1)
+			head(first.Head)
+		}
+		return
+	}
 	// Sleep enters releasing before the final RPC. Object delivery and capture
 	// verification must retain the same host-store capability until stop.
 	_, err = pool.Exec(t.Context(), `UPDATE workspaces SET status='releasing' WHERE id=$1`, branch)
@@ -219,7 +284,7 @@ func testMachineCaptureProjection(t *testing.T, pendingOnly bool) {
 	// store and connection. The single pool connection is the caller's transaction.
 	tx, err := pool.Begin(t.Context())
 	require.NoError(t, err)
-	_, err = prepareMachineCaptureWriter(nil)(t.Context(), tx, branch, event(11, 4, first))
+	_, err = prepareMachineCaptureWriter(nil)(t.Context(), tx, branch, event(11, 4, first), nil)
 	require.ErrorIs(t, err, machined.ErrNotReady)
 	require.NoError(t, tx.Rollback(t.Context()))
 	require.Equal(t, first.Head, git("", "rev-parse", ref))

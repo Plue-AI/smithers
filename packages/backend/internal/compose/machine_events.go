@@ -123,15 +123,16 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 			}
 		}
 
-		ingest := &machined.Ingestor{Pool: pool, Bursts: burst, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.EventWriter, error) {
+		ingest := &machined.Ingestor{Pool: pool, Bursts: burst, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event machined.Event, commit machined.EventCommit) (machined.Acknowledgement, error) {
+			ack := machined.Acknowledgement{Seq: event.Seq}
 			if len(event.Payload) > 0 && event.Payload[0] == 4 && len(moved) > 0 && moved[0] != nil {
 				return moved[0].PrepareStoredMovedOffEvent(link.Machine(), func(ctx context.Context, tx pgx.Tx, raw json.RawMessage) (json.RawMessage, error) {
 					return machineMovedActor(ctx, tx, raw, colors)
-				})(ctx, tx, branch, event)
+				})(ctx, tx, branch, event, commit)
 			}
 			if len(event.Payload) > 0 && event.Payload[0] == 5 {
 				if m.Transcripts == nil {
-					return settledTranscript(nil), nil
+					return commit(settledTranscript(nil))
 				}
 				// Each record's owner comes from this link's own boot: the
 				// session receipts of another boot never answer for it.
@@ -142,20 +143,20 @@ func (m machineEvents) bind(ctx context.Context, registry *machined.Registry, po
 				// and before Ingestor takes the registry fence, so whoever
 				// needs either is not held while this record waits.
 				if err := awaitTranscriptSession(ctx, tx, branch, link, event); err != nil {
-					return nil, err
+					return ack, err
 				}
 				// A workspace owner may consult the registry while holding
 				// this row. Acquire it before Ingestor takes the registry fence.
 				var workspace string
 				if err := tx.QueryRow(ctx, `SELECT id FROM workspaces WHERE id=$1 FOR UPDATE`, branch).Scan(&workspace); err != nil {
-					return nil, err
+					return ack, err
 				}
-				return settledTranscript(transcripts.Write), nil
+				return commit(settledTranscript(transcripts.Write))
 			}
 			if len(event.Payload) == 0 || (event.Payload[0] != 2 && event.Payload[0] != 3) {
-				return nil, machined.ErrNotReady
+				return ack, machined.ErrNotReady
 			}
-			return prepareMachineCaptureWriter(host)(ctx, tx, branch, event)
+			return prepareMachineCaptureWriter(host)(ctx, tx, branch, event, commit)
 		}}
 		ack, err := ingest.Commit(ctx, link.Connection, branch, event)
 		if err != nil {

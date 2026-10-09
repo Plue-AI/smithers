@@ -256,11 +256,15 @@ func TestMachineEventPreparationRefusals(t *testing.T) {
 		prepare EventPreparation
 		direct  EventWriter
 	}{
-		{"preparation failed", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) {
-			return nil, errors.New("projection unavailable")
+		{"preparation failed", func(context.Context, pgx.Tx, string, Event, EventCommit) (Acknowledgement, error) {
+			return Acknowledgement{}, errors.New("projection unavailable")
 		}, nil},
-		{"preparation absent writer", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) { return nil, nil }, nil},
-		{"ambiguous writers", func(context.Context, pgx.Tx, string, Event) (EventWriter, error) { return writer, nil }, writer},
+		{"preparation absent writer", func(_ context.Context, _ pgx.Tx, _ string, _ Event, commit EventCommit) (Acknowledgement, error) {
+			return commit(nil)
+		}, nil},
+		{"ambiguous writers", func(_ context.Context, _ pgx.Tx, _ string, _ Event, commit EventCommit) (Acknowledgement, error) {
+			return commit(writer)
+		}, writer},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ingestor := &Ingestor{Pool: pool, Prepare: test.prepare, Write: test.direct}
@@ -291,17 +295,17 @@ func TestCapturePreparationDoesNotHoldRegistry(t *testing.T) {
 			close(release)
 		}
 	}()
-	ingestor := &Ingestor{Pool: pool, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event Event) (EventWriter, error) {
+	ingestor := &Ingestor{Pool: pool, Prepare: func(ctx context.Context, tx pgx.Tx, branch string, event Event, commit EventCommit) (Acknowledgement, error) {
 		close(entered)
 		select {
 		case <-release:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return Acknowledgement{}, ctx.Err()
 		}
-		return func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
+		return commit(func(context.Context, pgx.Tx, string, Event) (Acknowledgement, error) {
 			t.Error("stale boot projected capture")
 			return Acknowledgement{}, nil
-		}, nil
+		})
 	}}
 	done := make(chan error, 1)
 	go func() {
