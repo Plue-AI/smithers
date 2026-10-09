@@ -6,7 +6,6 @@ import { defineConfig, fontProviders } from "astro/config"
 import { fileURLToPath } from "node:url"
 import { openApiChunk } from "../app/scripts/openapi-chunk.ts"
 import { buildStamp } from "./scripts/build-stamp-integration.ts"
-import { openApiChunk } from "../app/scripts/openapi-chunk.ts"
 import project from "./src/data/project.json" with { type: "json" }
 
 /**

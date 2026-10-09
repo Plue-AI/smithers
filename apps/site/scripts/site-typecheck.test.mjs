@@ -10,8 +10,9 @@ const require = createRequire(join(site, "package.json"))
 const tsc = require.resolve("typescript/bin/tsc")
 
 // #2288: the site's typecheck must reach the app code its island imports. The
-// native bridge left with the native app in the MVP cut (#3385); the island's
-// web agent transport is the native-directory module it still imports.
+// native bridge left with the native app in the MVP cut (#3385), and the
+// browser turn driver (WebAgent.ts) left when model turns moved to the host;
+// the island's agent transport is now shared prompt admission.
 test("site tsc includes the island's agent transport", () => {
   const result = spawnSync(process.execPath, [tsc, "--noEmit", "--listFiles", "--pretty", "false"], {
     cwd: site,
@@ -21,6 +22,6 @@ test("site tsc includes the island's agent transport", () => {
   assert.equal(result.status, 0,
     `site tsc --noEmit failed${result.error ? `: ${result.error.message}` : ""}\n${result.stdout.slice(0, 16000)}\n${result.stderr.slice(0, 16000)}`)
   const files = result.stdout.replaceAll("\\", "/").split(/\r?\n/)
-  assert.ok(files.some((file) => file.endsWith("/apps/app/src/mainview/native/WebAgent.ts")),
-    "site tsc did not include apps/app/src/mainview/native/WebAgent.ts")
+  assert.ok(files.some((file) => file.endsWith("/apps/app/src/mainview/state/controller/sharedPrompts.ts")),
+    "site tsc did not include apps/app/src/mainview/state/controller/sharedPrompts.ts")
 })

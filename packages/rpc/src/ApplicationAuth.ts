@@ -20,7 +20,7 @@ export const AUTHENTICATED_USER_PATH = "/api/user"
  * @since 1.0.0
  * @category constants
  */
-export { AUTH_SIGN_IN_PATH as APPLICATION_SIGN_IN_PATH } from "./AgentApiRoutes.js"
+export { AUTH_SIGN_IN_PATH as APPLICATION_SIGN_IN_PATH } from "./AgentApiRoutes.ts"
 /** Double-submit CSRF cookie name.
  * @since 1.0.0
  * @category constants
