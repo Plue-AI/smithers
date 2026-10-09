@@ -1,34 +1,36 @@
-import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { describe, expect, test } from "bun:test"
-import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "./AppController"
 import { createAppStore } from "./AppStore"
 import { createControllerContext } from "./controller/context"
 import { createFailureController } from "./controller/failures"
 import { ENVELOPE_STORAGE_KEY } from "../chain/TransactionalStorage"
-import { memoryStorage } from "./TestFixtures"
+import { memoryStorage, unavailableAgent as agent } from "./TestFixtures"
+import type { LiveTopics } from "./useTopic"
 
 /*
  * Ruling B (docs/persistence.md): everything a controller opens is released
  * when its scope closes. Before the disposal scope the agent subscription's
  * unsubscribe was discarded, and the cross-tab identity listeners and
- * BroadcastChannel leaked for the page lifetime.
+ * BroadcastChannel leaked for the page lifetime. The browser no longer
+ * subscribes to agent frames (90ef5aaccb moved turns to the host); the
+ * `/api/live` topic subscriptions are the channel resource it still opens.
  */
 
-const countingAgent = (): { agent: AgentPort; listeners: Set<(frame: AgentTurnFrame) => void> } => {
-  const listeners = new Set<(frame: AgentTurnFrame) => void>()
+/** A live channel that counts its open topic subscriptions. */
+const countingLive = (): { live: LiveTopics; open: Set<string> } => {
+  const open = new Set<string>()
+  let next = 0
   return {
-    listeners,
-    agent: {
-      available: true,
-      startTurn: async () => ({ status: "error", message: "unused" }),
-      cancelTurn: async () => {},
-      subscribe: (listener) => {
-        listeners.add(listener)
+    open,
+    live: {
+      subscribe: (topic) => {
+        const subscription = `${topic}#${next++}`
+        open.add(subscription)
         return () => {
-          listeners.delete(listener)
+          open.delete(subscription)
         }
-      }
+      },
+      getSnapshot: () => undefined
     }
   }
 }
@@ -37,7 +39,6 @@ describe("disposing a controller releases what it opened", () => {
   test("toast timers and late work cannot write after their owner closes", async () => {
     const storage = memoryStorage()
     const store = await createAppStore({ kind: "localStorage", storage })
-    const { agent } = countingAgent()
     const context = createControllerContext(store, agent, { toastDebounceMs: 20, toastAutoDismissMs: 20 })
     const failures = createFailureController(context)
     await store.dispatch({ type: "toast.shown", actor: "system", key: "done", title: "Finished" }).isPersisted.promise
@@ -55,7 +56,6 @@ describe("disposing a controller releases what it opened", () => {
 
   test("scope finalizers release in reverse acquisition order and a failure cannot skip later releases", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const { agent } = countingAgent()
     const context = createControllerContext(store, agent, {})
     const released: string[] = []
     const original = new Error("second resource close failed")
@@ -86,7 +86,7 @@ describe("disposing a controller releases what it opened", () => {
     expect(released).toEqual(["third", "second", "first", "late"])
   })
 
-  test("a failing agent unsubscribe cannot strand persistence and both failures are reported", async () => {
+  test("a failing live unsubscribe cannot strand persistence and both failures are reported", async () => {
     const released: string[] = []
     const store = {
       ...(await createAppStore({ kind: "localStorage", storage: memoryStorage() })),
@@ -95,22 +95,25 @@ describe("disposing a controller releases what it opened", () => {
         throw new Error("store close failed")
       }
     }
-    const { agent, listeners } = countingAgent()
-    const controller = createAppController(store, {
-      ...agent,
-      subscribe: (listener) => {
-        const unsubscribe = agent.subscribe(listener)
-        return () => {
-          unsubscribe?.()
-          released.push("agent")
-          throw new Error("agent unsubscribe failed")
+    const { live, open } = countingLive()
+    const controller = createAppController(store, agent, {
+      live: {
+        ...live,
+        subscribe: (topic, listener) => {
+          const unsubscribe = live.subscribe(topic, listener)
+          if (topic !== "members") return unsubscribe
+          return () => {
+            unsubscribe()
+            released.push("live")
+            throw new Error("live unsubscribe failed")
+          }
         }
       }
     })
-    expect(listeners.size).toBe(1)
+    expect([...open].some((subscription) => subscription.startsWith("members#"))).toBe(true)
     await expect(controller.dispose()).rejects.toThrow(AggregateError)
-    expect(released).toEqual(["agent", "store"])
-    expect(listeners.size).toBe(0)
+    expect(released).toEqual(["live", "store"])
+    expect(open.size).toBe(0)
     await expect(controller.dispose()).rejects.toThrow(AggregateError)
   })
 
@@ -122,33 +125,34 @@ describe("disposing a controller releases what it opened", () => {
         releases += 1
       }
     }
-    const { agent } = countingAgent()
     const controller = createAppController(store, agent)
     await controller.dispose()
     await controller.dispose()
     expect(releases).toBe(1)
   })
 
-  test("the agent subscription is unsubscribed", async () => {
-    const { agent, listeners } = countingAgent()
+  test("the live topic subscriptions are unsubscribed", async () => {
+    const { live, open } = countingLive()
     const controller = createAppController(
       await createAppStore({ kind: "localStorage", storage: memoryStorage() }),
-      agent
+      agent,
+      { live }
     )
-    expect(listeners.size).toBe(1)
+    expect(open.size).toBeGreaterThan(0)
     await controller.dispose()
-    expect(listeners.size).toBe(0)
+    expect(open.size).toBe(0)
   })
 
   test("dispose is idempotent", async () => {
-    const { agent, listeners } = countingAgent()
+    const { live, open } = countingLive()
     const controller = createAppController(
       await createAppStore({ kind: "localStorage", storage: memoryStorage() }),
-      agent
+      agent,
+      { live }
     )
     await controller.dispose()
     await controller.dispose()
-    expect(listeners.size).toBe(0)
+    expect(open.size).toBe(0)
   })
 
   test("the cross-tab identity listeners are released", async () => {
@@ -158,7 +162,6 @@ describe("disposing a controller releases what it opened", () => {
     GlobalRegistrator.register()
     try {
       let sessionReads = 0
-      const { agent } = countingAgent()
       const controller = createAppController(
         await createAppStore({ kind: "localStorage", storage: memoryStorage() }),
         agent,
