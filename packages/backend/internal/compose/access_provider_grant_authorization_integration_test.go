@@ -110,7 +110,8 @@ func TestAccessProviderGrantMatrixComposedPostgres(t *testing.T) {
 			_, err = f.pool.Exec(f.ctx, `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, hex.EncodeToString(sum[:]))
 			require.NoError(t, err)
 			actors = append(actors, actor{"expired", expired, 401, 0})
-			for _, a := range actors {
+			var afterRequest func()
+			runActor := func(t *testing.T, a actor) {
 				for _, door := range []struct{ method, path string }{{"GET", "/provider-pool/routes"}, {"POST", "/provider-pool/anthropic/v1/messages"}} {
 					t.Run(a.name+"/"+door.method, func(t *testing.T) {
 						beforeSends := sends.Load()
@@ -129,6 +130,9 @@ func TestAccessProviderGrantMatrixComposedPostgres(t *testing.T) {
 						req = req.WithContext(services.WithAuthorizationObserver(req.Context(), func(command string) { decisions = append(decisions, command) }))
 						out := httptest.NewRecorder()
 						router.ServeHTTP(out, req)
+						if afterRequest != nil {
+							afterRequest()
+						}
 						require.Equal(t, a.status, out.Code, out.Body.String())
 						require.Len(t, decisions, a.decisions)
 						if a.decisions == 1 {
@@ -159,9 +163,58 @@ func TestAccessProviderGrantMatrixComposedPostgres(t *testing.T) {
 					})
 				}
 			}
+			for _, a := range actors {
+				runActor(t, a)
+			}
+			sum = sha256.Sum256([]byte(machine))
+			hash := hex.EncodeToString(sum[:])
+			type transition struct {
+				name, change, restore string
+				key                   any
+				status                int
+			}
+			changes := []transition{
+				{"expiry", `UPDATE access_tokens SET expires_at=now()-interval '1 second' WHERE token_hash=$1`, `UPDATE access_tokens SET expires_at=now()+interval '1 hour' WHERE token_hash=$1`, hash, 401},
+				{"suspension", `UPDATE users SET prohibit_login=true WHERE id=$1`, `UPDATE users SET prohibit_login=false WHERE id=$1`, user.ID, 401},
+				{"workspace-deletion", `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, `UPDATE workspaces SET deleted_at=NULL WHERE id=$1`, workspace.ID, 403},
+			}
+			if user.ID != f.owner.ID {
+				permission := "write"
+				if user.ID == maintainer.ID {
+					permission = "admin"
+				}
+				changes = append(changes, transition{"member-removal", fmt.Sprintf(`DELETE FROM collaborators WHERE repository_id=%d AND user_id=$1`, f.repoID), fmt.Sprintf(`INSERT INTO collaborators(repository_id,user_id,permission) VALUES(%d,$1,'%s') ON CONFLICT DO NOTHING`, f.repoID, permission), user.ID, 401})
+			}
+			for _, change := range changes {
+				for _, order := range []string{"before-admission", "after-authorization"} {
+					t.Run(change.name+"/"+order, func(t *testing.T) {
+						original := handler.Pool.Scopes
+						defer func() {
+							handler.Pool.Scopes = original
+							afterRequest = nil
+							_, err := f.pool.Exec(f.ctx, change.restore, change.key)
+							require.NoError(t, err)
+						}()
+						mutate := func() { _, err := f.pool.Exec(f.ctx, change.change, change.key); require.NoError(t, err) }
+						decisions := 1
+						if order == "before-admission" {
+							mutate()
+							if change.status == 401 {
+								decisions = 0
+							}
+						} else {
+							real, ok := original.(*services.ProviderPoolScopes)
+							require.True(t, ok)
+							handler.Pool.Scopes = &poolAfterAuthorization{ProviderPoolScopes: real, after: mutate}
+							afterRequest = func() { _, err := f.pool.Exec(f.ctx, change.restore, change.key); require.NoError(t, err) }
+						}
+						runActor(t, actor{change.name, machine, change.status, decisions})
+					})
+				}
+			}
 		})
 	}
-	require.Equal(t, 84, cells)
+	require.Equal(t, 128, cells)
 	require.EqualValues(t, 3, sends.Load())
 	t.Logf("provider grants: %d composed HTTP cells, three real local outbound effects; guest publication unqualified", cells)
 }

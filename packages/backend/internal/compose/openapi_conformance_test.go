@@ -259,14 +259,18 @@ func servedCompositionRoutes(t *testing.T, modes ...string) map[string]servedRou
 	return served
 }
 
-func loadOpenAPIPaths(t *testing.T) *yaml.Node {
+func loadOpenAPIDocument(t *testing.T) *yaml.Node {
 	t.Helper()
 	data, err := os.ReadFile(openAPIPath)
 	require.NoError(t, err)
 	var document yaml.Node
 	require.NoError(t, yaml.Unmarshal(data, &document))
-	root := document.Content[0]
-	paths := mappingValue(root, "paths")
+	return document.Content[0]
+}
+
+func loadOpenAPIPaths(t *testing.T) *yaml.Node {
+	t.Helper()
+	paths := mappingValue(loadOpenAPIDocument(t), "paths")
 	require.NotNil(t, paths, "OpenAPI document has no paths")
 	return paths
 }
@@ -808,7 +812,9 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 
 // These are literal command doors; schema checks do not generate policy.
 func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
-	paths := loadOpenAPIPaths(t)
+	document := loadOpenAPIDocument(t)
+	paths := mappingValue(document, "paths")
+	require.NotNil(t, paths)
 	for _, door := range []struct{ method, path string }{
 		{"post", "/api/todos"}, {"patch", "/api/todos/{n}"}, {"post", "/api/todos/{n}"},
 		{"post", "/api/todos/{n}/merge"}, {"post", "/api/branches/{b}"},
@@ -821,6 +827,17 @@ func TestInstallAuthorizationOpenAPIResponses(t *testing.T) {
 		require.Equal(t, "#/components/responses/AuthorizationForbidden", mappingValue(mappingValue(responses, "403"), "$ref").Value, door.path)
 		accepted := mappingValue(responses, "202")
 		require.NotNil(t, accepted, door.path)
+		// Response components carry the same contract as inline responses.
+		// Resolve only local response refs and refuse missing or cyclic refs.
+		seen := map[string]bool{}
+		for ref := mappingValue(accepted, "$ref"); ref != nil; ref = mappingValue(accepted, "$ref") {
+			const prefix = "#/components/responses/"
+			require.True(t, strings.HasPrefix(ref.Value, prefix), door.path)
+			require.False(t, seen[ref.Value], "cyclic response reference for %s", door.path)
+			seen[ref.Value] = true
+			accepted = mappingValue(mappingValue(mappingValue(document, "components"), "responses"), strings.TrimPrefix(ref.Value, prefix))
+			require.NotNil(t, accepted, door.path)
+		}
 		content := mappingValue(accepted, "content")
 		require.NotNil(t, content, door.path)
 		media := mappingValue(content, "application/json")
