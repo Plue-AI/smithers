@@ -90,6 +90,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		readyTimeout = 2 * time.Minute
 	}
 	environment["SMITHERS_URL"] = productAPIURL
+	environment["SMITHERS_PRODUCT_API_URL"] = productAPIURL
 	catalogs := []flowhost.Catalog{
 		{
 			Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding,

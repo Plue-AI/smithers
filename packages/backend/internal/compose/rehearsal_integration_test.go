@@ -396,7 +396,7 @@ path = "lib.rs"
 			if isolated {
 				tools = newRehearsalReviewRuntime(t, admittedRuntime, node, helper, "", r.evidence, "", processDaemons).tools
 			}
-			workspace = bindingProcessRuntime{sandboxed: isolated, node: node, helper: helper, tools: tools, rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, daemonStops: new(sync.Map), pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials}
+			workspace = bindingProcessRuntime{sandboxed: isolated, node: node, helper: helper, tools: tools, rehearsalAdmissionRuntime: admittedRuntime, evidence: r.evidence, t: t, daemons: processDaemons, daemonStops: new(sync.Map), pool: pool, daemonBinary: buildRehearsalMachined(t, r.root), repository: engine.Client(), failNextTodoStart: startFault, hostCredentials: &r.hostCredentials, productAPIURL: r.origin}
 		} else {
 			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
 		}
@@ -1897,6 +1897,7 @@ func (r *rehearsalAdmissionRuntime) releaseTodoAdmission(holder string) {
 // credential is the head publisher's Git cache, as in a guest.
 // A host that exits before it is ready leaves both output streams in the evidence.
 type bindingProcessRuntime struct {
+	productAPIURL       string
 	sandboxed           bool
 	node, helper, tools string
 	hostCredentials     *sync.Map
@@ -2297,6 +2298,11 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 		command, err := build.BuildManagedHost(ctx, placement)
 		if err != nil {
 			return command, err
+		}
+		// The installed guest Learning binding reads this origin, rather than
+		// the CLI URL. Qualify the catalog handed off by real composition.
+		if r.productAPIURL != "" && command.Environment["SMITHERS_PRODUCT_API_URL"] != r.productAPIURL {
+			return command, fmt.Errorf("guest Learning evidence origin = %q, want install %q", command.Environment["SMITHERS_PRODUCT_API_URL"], r.productAPIURL)
 		}
 		environment := make(map[string]string, len(command.Environment)+1)
 		for name, value := range command.Environment {

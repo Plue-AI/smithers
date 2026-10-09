@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,11 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 						wiki["actions"] = []any{map[string]any{"tag": "background.dismiss", "label": "Dismiss"}}
 					}
 					expected = append(expected, wiki)
+				}
+				// A shared snapshot can precede the committed projection. Require
+				// convergence within readCtx, including replay after reload.
+				if !reflect.DeepEqual(expected, home.Runs) {
+					continue
 				}
 				require.Equal(t, expected, home.Runs)
 				break
