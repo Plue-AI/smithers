@@ -63,6 +63,11 @@ type Actor = "user" | "smithers"
 type DocumentInput = Omit<WorldDocument, "updatedAt" | "updatedBy" | "revision">
 type CloudDocument = WorldDocument & { cloud: CloudWikiState }
 const cloudDocument = (value: WorldDocument | undefined): value is CloudDocument => value?.cloud !== undefined
+/** JSON with object keys sorted: a saved row can read back with its keys in another order. */
+const canonicalJson = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) =>
+  item !== null && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))
+    : item)
 
 /** A controller scope owns handles and fibers; all document bytes and pending edits belong to TanStack DB. */
 export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: () => number) => {
@@ -199,10 +204,15 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
             // Persistence may trail rapid admitted keystrokes. Render the current
             // replica and locally staged edits, never an earlier save snapshot.
             const merged = mergeWikiState(encodeWikiState(Y.encodeStateAsUpdate(provider.doc)), ...(prepared.get(id) ?? latest.cloud.pending).map(item => item.update))
-            await Effect.runPromise(persist({ ...latest, body: merged.body,
+            const next: DocumentInput = { ...latest, body: merged.body,
               links: [...new Set(parseWikilinks(merged.body).map(link => link.target).filter(Boolean))],
               cloud: { ...latest.cloud, state, phase: provider.available ? "live" : "cached",
-                live: { clientId: value.clientId, ...(value.epoch ? { epoch: value.epoch } : {}), pending: value.pending.map(encodeWikiState) } } }))
+                live: { clientId: value.clientId, ...(value.epoch ? { epoch: value.epoch } : {}), pending: value.pending.map(encodeWikiState) } } }
+            // The provider saves on every channel event, so each reconnect and
+            // repeated assignment re-saves an unchanged replica. Writing it
+            // would add a journal event per reconnect (JournalGrowth.test.ts).
+            if (canonicalJson(next) === canonicalJson(latest)) return
+            await Effect.runPromise(persist(next))
           }
         })
       documents.set(id, provider)

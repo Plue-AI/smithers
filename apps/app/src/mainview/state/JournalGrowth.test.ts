@@ -18,8 +18,10 @@ import { unavailableAgent } from "./TestFixtures"
 import * as Y from "yjs"
 import { encodeWikiState, wikiDocumentId } from "../wiki/CloudWiki"
 import { createCloudWikiController } from "./controller/cloud-wiki"
-import { refusalOf } from "@smthrs/rpc/Refusal"
-import { refusalLead } from "@smthrs/rpc/RefusalCopy"
+import { encodeLiveDocBinary } from "@smthrs/rpc/LiveDoc"
+import * as sync from "y-protocols/sync"
+import * as encoding from "lib0/encoding"
+import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 
 // Accepted commands remain immutable facts. Idle transport reads must never
 // manufacture those facts; diagnostic truncation cannot bound the event stream.
@@ -354,63 +356,90 @@ test("identical repository-import polls do not grow the committed journal or SQL
   }
 })
 
-test.each(["eof", "unavailable"] as const)("Wiki reconnects after %s retain their failure without growing SQLite", async (failure) => {
+/** A live socket the test drives: it opens, drops and answers frames by hand. */
+class WikiSocket implements LiveSocket {
+  readyState = 0
+  binaryType = "arraybuffer"
+  onopen: (() => void) | null = null
+  onclose: (() => void) | null = null
+  onmessage: ((event: { data: unknown }) => void) | null = null
+  readonly frames: Array<{ readonly t?: string; readonly id?: number; readonly topic?: string }> = []
+  send(raw: string | Uint8Array) { if (typeof raw === "string") this.frames.push(JSON.parse(raw)) }
+  close() {}
+  open() { this.readyState = 1; this.onopen?.() }
+  drop() { this.readyState = 3; this.onclose?.() }
+  receive(frame: unknown) { this.onmessage?.({ data: frame instanceof Uint8Array ? frame : JSON.stringify(frame) }) }
+}
+
+/*
+ * The Wiki's live replica (LiveDocProvider over the live channel; 263c41d3d8
+ * retired the SSE revision stream) saves on every channel event. A dropped
+ * socket that keeps failing to reconnect, or a document the host keeps
+ * refusing, must not add a journal event or SQLite bytes per attempt.
+ */
+test.each(["closed", "refused"] as const)("Wiki live reconnects after a %s document channel keep the page without growing SQLite", async (failure) => {
   const fixture = await open(), { store } = fixture
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null })
   const doc = new Y.Doc(), id = wikiDocumentId("owner/repo", 42)
   doc.getText("markdown").insert(0, "# Page")
-  let revision = 1
-  const streams: ReturnType<typeof Promise.withResolvers<Response>>[] = []
-  const ctx = createControllerContext(store, unavailableAgent, { fetchImpl: async (input) => {
-    if (String(input).includes("/stream?")) {
-      const stream = Promise.withResolvers<Response>(); streams.push(stream); return stream.promise
-    }
-    return Response.json({ page: { id: 42, slug: "home", title: "Page", body: doc.getText("markdown").toString(), revision,
+  const sockets: WikiSocket[] = [], timers: Array<() => void> = []
+  const live = new LiveChannel({ documentFrames: true, random: () => 1,
+    socket: () => { const socket = new WikiSocket(); sockets.push(socket); return socket },
+    schedule: run => { timers.push(run); return run }, cancel: () => {} })
+  const ctx = createControllerContext(store, unavailableAgent, { live, fetchImpl: async () =>
+    Response.json({ page: { id: 42, slug: "home", title: "Page", body: "# Page", revision: 1,
       author: { id: 1, login: "will" }, created_at: "2026-09-08T00:00:00Z", updated_at: "2026-09-08T00:00:00Z" },
-      state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) })
-  } })
+      state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) }) })
   contexts.push(ctx)
-  const until = async (condition: () => boolean) => {
-    const deadline = Date.now() + 4_000
-    while (!condition()) {
-      if (Date.now() > deadline) throw new Error("Wiki reconnect did not settle")
-      await new Promise(resolve => setTimeout(resolve, 5))
-    }
+  const settle = async () => {
+    for (let tick = 0; tick < 5; tick++) { await store.settled?.(); await new Promise(resolve => setTimeout(resolve, 5)) }
   }
-  const failed = () => failure === "eof"
-    ? new Response("", { headers: { "content-type": "text/event-stream" } })
-    : Response.json({ message: "Wiki maintenance" }, { status: 503 })
+  const subscription = () => {
+    const sub = sockets.at(-1)?.frames.find(frame => frame.t === "sub" && frame.topic === "doc:wiki:42")
+    if (sub?.id === undefined) throw new Error("The Wiki page never subscribed to its live document")
+    return sub.id
+  }
+  /** The host admits the page: an assignment, then its replica as sync step 2. */
+  const admit = async () => {
+    const socket = sockets.at(-1)!, sub = subscription()
+    socket.receive({ t: "snap", id: sub, cursor: 0, data: { epoch: "00112233445566778899aabbccddeeff", client_id: 7 } })
+    const step = encoding.createEncoder()
+    sync.writeSyncStep2(step, doc)
+    socket.receive(encodeLiveDocBinary({ kind: 1, id: sub, payload: encoding.toUint8Array(step) }))
+    await settle()
+  }
+  /** One failed attempt: the socket drops and its reconnect opens unanswered, or the host refuses the retried document. */
+  const fail = async () => {
+    if (failure === "closed") sockets.at(-1)!.drop()
+    else sockets.at(-1)!.receive({ t: "err", id: subscription(), code: "unsupported" })
+    for (const run of timers.splice(0)) run()
+    if (failure === "closed") sockets.at(-1)!.open()
+    await settle()
+  }
   try {
     const wiki = createCloudWikiController(ctx, () => 1)
     await wiki.openCloudWiki("owner/repo", "home")
-    await until(() => streams.length === 1)
-    streams[0]!.resolve(failed())
-    await until(() => streams.length === 2)
+    sockets[0]!.open()
+    await admit()
+    expect(store.collections.worldDocuments.get(id)?.cloud?.phase).toBe("live")
+    // A refusal records once that the page is no longer live; nothing after it is news.
+    await fail()
     const before = await store.eventHistory(), physical = fixture.footprint()
-    for (let index = 1; index <= 2; index++) {
-      streams[index]!.resolve(failed())
-      await until(() => streams.length === index + 2)
-    }
+    for (let index = 0; index < 3; index++) await fail()
+    expect(sockets.length).toBe(failure === "closed" ? 5 : 1)
     expect((await store.eventHistory()).head).toEqual(before.head)
     expect(fixture.footprint()).toEqual(physical)
-    expect(store.collections.worldDocuments.get(id)?.cloud).toMatchObject({ phase: "offline",
-      error: failure === "eof" ? "Reconnecting to Wiki revisions…"
-        : `Reading or saving this Wiki page failed (503). ${refusalLead(refusalOf({ body: { message: "Wiki maintenance" }, status: 503, message: "" }))}` })
-    expect(store.collections.worldDocuments.get(id)?.cloud?.error).not.toContain("Wiki maintenance")
-    let channel!: ReadableStreamDefaultController<Uint8Array>
-    streams[3]!.resolve(new Response(new ReadableStream({ start(value) { channel = value } }), { headers: { "content-type": "text/event-stream" } }))
+    expect(store.collections.worldDocuments.get(id)?.body).toBe("# Page")
+    // The host comes back with a newer replica: the page records it once it is live again.
     doc.getText("markdown").insert(6, "\n\nRecovered")
-    revision = 2
-    channel.enqueue(new TextEncoder().encode(`event: wiki.update\nid: 2\ndata: ${JSON.stringify({ id: 2, page_id: 42, revision: 2, deleted: false, slug: "home" })}\n\n`))
-    await until(() => store.collections.worldDocuments.get(id)?.cloud?.remoteRevision === 2)
-    await store.settled?.()
-    expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
+    await admit()
+    expect((await store.eventHistory()).head.sequence).toBeGreaterThan(before.head.sequence)
     const reopened = await open(fixture.path)
-    expect(reopened.store.collections.worldDocuments.get(id)).toMatchObject({ body: "# Page\n\nRecovered", cloud: { remoteRevision: 2, phase: "live", error: null } })
+    expect(reopened.store.collections.worldDocuments.get(id)).toMatchObject({ body: "# Page\n\nRecovered", cloud: { phase: "live" } })
     expect((await reopened.store.verifyState()).valid).toBe(true)
   } finally {
     await ctx.dispose()
-    for (const stream of streams) stream.resolve(failed())
+    live.dispose()
     doc.destroy()
   }
 }, 15_000)
