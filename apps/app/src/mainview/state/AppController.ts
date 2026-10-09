@@ -956,9 +956,6 @@ export const createAppController = (
   const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   const installSignedIn = () => store.collections.identitySessions.get("identity")?.state === "signed-in"
   if (installHost && setupEntry) void installSeam.showSetup()
-  // The setup token exchange redirects to /. Probe once without opening a card
-  // on refusal; a setup session's unfinished steps are presented by the subscriber.
-  else if (installHost && !installSignedIn()) void installSeam.readInstall()
   const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
   const runMonitorSeam = createRunMonitorSeam({ owner: () => `${ctx.accountOwner()}:${ctx.accountEpoch}`, view: id => {
     const card = store.collections.cards.get(`run:${id}`)
@@ -2743,10 +2740,24 @@ export const createAppController = (
     return identity ? `${identity.state}:${identity.login}:${identity.ownerRevision ?? identity.revision}:${identity.admin}:${identity.scopesPlain}` : undefined
   }
   let setupIdentityOwner: string | undefined
+  /*
+   * The setup token exchange redirects to /. This boot's first identity answer
+   * decides the probe: anyone but a signed-in member reads the install once,
+   * opening no card on refusal; a setup session's unfinished steps are presented
+   * by the subscriber. A signed-in answer reads it through showSetup instead.
+   */
+  let setupProbeAnswered = false
+  const probeSetupOnce = () => {
+    const state = store.collections.identitySessions.get("identity")?.state
+    if (setupProbeAnswered || state === undefined || state === "unknown") return
+    setupProbeAnswered = true
+    if (installHost && !setupEntry && state !== "signed-in") queueMicrotask(() => { if (!ctx.disposed) void installSeam.readInstall() })
+  }
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     const owner = setupOwner()
     if (owner === setupIdentityOwner) return
     setupIdentityOwner = owner
+    probeSetupOnce()
     if (installHost && installSignedIn() && !setupEntry) queueMicrotask(() => { if (!ctx.disposed) void installSeam.showSetup() })
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals(); orderSeam.resumeOrderRequests() } })

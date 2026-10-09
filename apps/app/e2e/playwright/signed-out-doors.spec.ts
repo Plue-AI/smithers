@@ -41,7 +41,9 @@ test("an explicit repository sign-in prompt keeps return_to", async ({ page }) =
   expect(new URL((await request).url()).searchParams.get("return_to")).toBe("/smithersai/smithers/")
 })
 
-test("signed-out install paints its sign-in action without reading protected setup", async ({ page }) => {
+// A setup session arrives at / signed out (the setup token exchange redirects there), so the signed-out answer
+// probes the install once. Its refusal opens nothing, and nothing reads protected setup again.
+test("signed-out install paints its sign-in action and probes protected setup once", async ({ page }) => {
   await signedOutVisitor(page)
   await page.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null } }))
   await page.route("**/api/auth/session", identityRoute(null))
@@ -49,8 +51,9 @@ test("signed-out install paints its sign-in action without reading protected set
   await page.route("**/api/install", route => { reads++; return route.fulfill({ status: 401, json: { message: "authentication required" } }) })
   await page.goto("/")
   await expect(page.getByTestId("transcript").getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible()
-  expect(reads).toBe(0)
+  await expect.poll(() => reads).toBe(1)
   await fillComposer(page, "a draft while setup is protected")
   await expect(page.getByTestId("composer-input")).toHaveValue("a draft while setup is protected")
-  expect(reads).toBe(0)
+  await expect(page.locator('[data-kind="setup"]')).toHaveCount(0)
+  expect(reads).toBe(1)
 })
