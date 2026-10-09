@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -28,14 +29,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Inject only the idle clock; admission and automatic reconciliation remain the
-// production runtime. This does not qualify the reference host or its guests.
+// Inject the idle clock and successful retained-guest observations; admission
+// and automatic reconciliation remain the production runtime. This does not
+// qualify the reference host or its guests.
 type parallelIdleRuntime struct {
 	*microsandbox.Runtime
-	now        atomic.Int64
-	boots      sync.Map
-	idleError  atomic.Value
-	safetySeen atomic.Value
+	now             atomic.Int64
+	boots           sync.Map
+	retainedSources sync.Map // successful guest checkout observations, keyed by branch
+	idleError       atomic.Value
+	safetySeen      atomic.Value
 }
 
 func (r *parallelIdleRuntime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
@@ -43,6 +46,82 @@ func (r *parallelIdleRuntime) CreateWorkspace(ctx context.Context, spec workspac
 	r.boots.Store(spec.ID, true)
 	return result, err
 }
+
+// Only the branch whose boot is allowed to finish has a retained checkout.
+// Other branches keep the unresolved guest transport used by the capacity test.
+type parallelRetainedSource struct {
+	row  db.Workspace
+	head string
+}
+
+func (r *parallelIdleRuntime) ListFiles(ctx context.Context, id, path string) ([]workspaceapi.FileEntry, error) {
+	if _, ok := r.retainedSources.Load(id); !ok {
+		return r.Runtime.ListFiles(ctx, id, path)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	switch path {
+	case "":
+		return []workspaceapi.FileEntry{{Name: ".git", IsDir: true}, {Name: ".jj", IsDir: true}}, nil
+	case ".git":
+		return []workspaceapi.FileEntry{{Name: "smithers-workspace-initialization.json"}}, nil
+	default:
+		return nil, fmt.Errorf("unexpected retained guest directory %q", path)
+	}
+}
+func (r *parallelIdleRuntime) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
+	value, ok := r.retainedSources.Load(id)
+	if !ok {
+		return r.Runtime.ReadFile(ctx, id, path)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if path != ".git/smithers-workspace-initialization.json" {
+		return nil, fmt.Errorf("unexpected retained guest file %q", path)
+	}
+	source := value.(parallelRetainedSource)
+	return json.Marshal(map[string]any{"version": 1, "workspace_id": id, "repository_id": source.row.RepositoryID, "clone_url": "http://127.0.0.1:4000/maya/app.git", "source_bookmark": source.row.TargetBookmark, "source_revision": source.head, "source_commit": source.row.SourceCommit, "initialized_at": "2026-10-09T00:00:00Z"})
+}
+func (r *parallelIdleRuntime) ReadRepositoryReceipt(ctx context.Context, id string) ([]byte, error) {
+	if _, ok := r.retainedSources.Load(id); ok {
+		return r.ReadFile(ctx, id, ".git/smithers-workspace-initialization.json")
+	}
+	return r.Runtime.ReadRepositoryReceipt(ctx, id)
+}
+
+func (r *parallelIdleRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	value, ok := r.retainedSources.Load(id)
+	if !ok {
+		return r.Runtime.ExecuteCommand(ctx, id, command)
+	}
+	if err := ctx.Err(); err != nil {
+		return workspaceapi.CommandResult{}, err
+	}
+	source := value.(parallelRetainedSource)
+	switch strings.Join(command.Args, " ") {
+	case "git remote get-url origin":
+		return workspaceapi.CommandResult{Stdout: "http://127.0.0.1:4000/maya/app.git\n"}, nil
+	case "git cat-file -e " + source.head + "^{commit}":
+		return workspaceapi.CommandResult{}, nil
+	default:
+		return workspaceapi.CommandResult{}, fmt.Errorf("unexpected retained guest command %q", command.Args)
+	}
+}
+func (r *parallelIdleRuntime) EnsureMachined(ctx context.Context, id string) error {
+	if _, ok := r.retainedSources.Load(id); ok {
+		return ctx.Err()
+	}
+	return r.Runtime.EnsureMachined(ctx, id)
+}
+func (r *parallelIdleRuntime) StopService(ctx context.Context, id, name string) error {
+	if _, ok := r.retainedSources.Load(id); ok && name == "smithers-workspace-head" {
+		return ctx.Err()
+	}
+	return r.Runtime.StopService(ctx, id, name)
+}
+
 func (r *parallelIdleRuntime) SetAdmissionIdleProviders(p microsandbox.AdmissionIdleProviders) error {
 	safety := p.Safety
 	if safety != nil {
@@ -82,17 +161,19 @@ func parallelAutomaticIdleRelease(t *testing.T, pool *pgxpool.Pool, branches *se
 	sum := sha256.Sum256([]byte(row.ID))
 	machine := "smthrs-ws-01234567-" + hex.EncodeToString(sum[:])[:20]
 	require.NoError(t, os.WriteFile(pending, []byte(machine), 0600))
-	require.NoError(t, os.WriteFile(firstBoot, []byte(machine), 0600))
-	// Let the injected boot response settle before exercising sleep's lifecycle
-	// barrier. Repository initialization is outside this conformance guest;
-	// a running machine keeps its reservation even if that preparation refuses.
-	require.True(t, assertEventually(10*time.Second, func() bool { _, done := runtime.boots.Load(row.ID); return done }), "boot response did not settle")
-	require.True(t, runtime.AdmissionHeld(holder), "a running machine retains its reservation")
-	// Retained guest boot/candidate input. No machine qualification is enabled in
-	// product code, and no real GitHub credential or repository is used here.
 	var headBytes strings.Builder
 	require.NoError(t, gitHost.git(ctx, nil, &headBytes, "rev-parse", "refs/heads/main"))
 	head := strings.TrimSpace(headBytes.String())
+	runtime.retainedSources.Store(row.ID, parallelRetainedSource{row: row, head: head})
+	require.NoError(t, os.WriteFile(firstBoot, []byte(machine), 0600))
+	// Let the injected boot response settle before exercising sleep's lifecycle
+	// barrier. The production provisioner validates the retained guest receipt
+	// before this test can claim a successfully running machine.
+	require.True(t, assertEventually(10*time.Second, func() bool { _, done := runtime.boots.Load(row.ID); return done }), "boot response did not settle")
+	require.True(t, assertEventually(10*time.Second, func() bool { current, e := q.GetWorkspace(ctx, row.ID); return e == nil && current.Status == "running" }), "successful guest initialization must finish before the working interval")
+	require.True(t, runtime.AdmissionHeld(holder), "a running machine retains its reservation")
+	// Retained guest boot/candidate input. No machine qualification is enabled in
+	// product code, and no real GitHub credential or repository is used here.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=id,head_commit_id=$2 WHERE id=$1`, row.ID, head)
 	require.NoError(t, err)
 
@@ -233,6 +314,7 @@ func parallelAutomaticIdleRelease(t *testing.T, pool *pgxpool.Pool, branches *se
 		return err == nil && current.Status == "suspended" && !runtime.AdmissionHeld(holder)
 	}), "observed stop must publish sleep and release admission")
 	require.NoError(t, peer.Close())
+	t.Log("PASS C-MCH-02 two-hour working retention, final capture and confirmed safe-idle stop")
 }
 
 // The browser controls only observation checkpoints, never scheduler state.
