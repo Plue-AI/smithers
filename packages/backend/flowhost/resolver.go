@@ -268,6 +268,14 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 		}
 		lease, err = resolver.store.Acquire(ctx, authority, catalog)
 	}
+	var initializing initializationRefused
+	if errors.As(err, &initializing) {
+		logFailure(ctx, failure{code: initializing.binding.LastErrorCode}, initializing.cause, initializing.binding)
+		if initializing.binding.StartFailures >= MaxStartFailures {
+			return nil, resolver.releaseFailedMachine(ctx, initializing.binding)
+		}
+		return nil, failure{code: WorkspaceInitializingCode, retryable: true, cause: err}
+	}
 	if err != nil {
 		return nil, refuse(ctx, "runtime_binding_unavailable", err, Binding{WorkspaceID: authority.WorkspaceID, CatalogKey: authority.CatalogKey})
 	}

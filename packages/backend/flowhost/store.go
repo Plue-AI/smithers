@@ -118,17 +118,26 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 		return nil, errors.New("flow host catalog does not match authority")
 	}
 	var terminal bool
+	var initializing error
 	if store.workspaceInitialized != nil {
 		var exists, needsInitialization bool
 		if err := store.pool.QueryRow(ctx, `SELECT
             EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2),
-            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND last_error_code IN ('source_revision_mismatch','runtime_source_revision_mismatch')),
-            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND (start_failures >= $3 OR last_error_code IN ('runtime_start_exhausted','runtime_source_revision_mismatch_terminal')))`, authority.WorkspaceID, validated.Key, MaxStartFailures).Scan(&exists, &needsInitialization, &terminal); err != nil {
+            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND last_error_code IN ('source_revision_mismatch','runtime_source_revision_mismatch',$4)),
+            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND (start_failures >= $3 OR last_error_code IN ('runtime_start_exhausted','runtime_source_revision_mismatch_terminal')))`, authority.WorkspaceID, validated.Key, MaxStartFailures, WorkspaceInitializingCode).Scan(&exists, &needsInitialization, &terminal); err != nil {
 			return nil, err
 		}
 		if !existingOnly && (!exists || needsInitialization) {
 			if err := store.workspaceInitialized(ctx, authority); err != nil {
-				return nil, err
+				// A machine whose setup never writes its receipt must not hold
+				// its slot forever. An authority that names its source pins
+				// nothing from the partial checkout, so the refusal becomes a
+				// failed start on its binding and the start bound ends the wait
+				// (initializationRefused). Without a named source nothing binds.
+				if !workspaceInitializingRefusal(err) || !lowerHex(authority.SourceRevision, 40) {
+					return nil, err
+				}
+				initializing = err
 			}
 		}
 	}
@@ -142,7 +151,7 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 		if !authorized {
 			return nil, failure{code: "runtime_target_forbidden"}
 		}
-		if native && !terminal {
+		if native && !terminal && initializing == nil {
 			if err := store.protectedBranchHost(ctx, authority.WorkspaceID); err != nil {
 				return nil, err
 			}
@@ -170,7 +179,43 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 		_ = result.Close()
 		return nil, err
 	}
+	if initializing != nil {
+		defer result.Close()
+		return nil, result.initializationFailed(ctx, initializing)
+	}
 	return result, nil
+}
+
+func workspaceInitializingRefusal(err error) bool {
+	var known flowruntime.Failure
+	return errors.As(err, &known) && known.FlowRuntimeCode() == WorkspaceInitializingCode
+}
+
+// initializationRefused is a start refused because the workspace never wrote
+// its initialization receipt, recorded as a failed start on binding. At
+// MaxStartFailures the resolver releases the machine and the start is final.
+type initializationRefused struct {
+	binding Binding
+	cause   error
+}
+
+func (value initializationRefused) Error() string { return "flow host: " + WorkspaceInitializingCode }
+func (value initializationRefused) Unwrap() error { return value.cause }
+
+// initializationFailed counts the refusal like any failed start. A binding
+// another caller started meanwhile is left alone: its refusal is stale.
+func (value *lease) initializationFailed(ctx context.Context, cause error) error {
+	if value.binding.State != "pending" && value.binding.State != "failed" {
+		return cause
+	}
+	code := WorkspaceInitializingCode
+	if value.binding.StartFailures+1 >= MaxStartFailures {
+		code = "runtime_start_exhausted"
+	}
+	if err := value.MarkFailed(context.WithoutCancel(ctx), code); err != nil {
+		return err
+	}
+	return initializationRefused{binding: value.binding, cause: cause}
 }
 
 func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catalog Catalog, existingOnly bool) error {
