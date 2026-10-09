@@ -370,6 +370,30 @@ func (r *rehearsal) landedMain() (string, error) {
 	return stack.LandedMain, json.Unmarshal(data, &stack)
 }
 
+// mirroredMain observes the install's actual main bookmark. The stack's fold
+// checkpoint may still lag after GitHub sync has imported a person's merge.
+func (r *rehearsal) mirroredMain() (string, error) {
+	data, err := r.expect("GET", "/api/repos/rehearsal-owner/app/bookmarks", "", 200)
+	if err != nil {
+		return "", err
+	}
+	var bookmarks struct {
+		Items []struct {
+			Name string `json:"name"`
+			Head string `json:"target_commit_id"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(data, &bookmarks); err != nil {
+		return "", err
+	}
+	for _, bookmark := range bookmarks.Items {
+		if bookmark.Name == "main" && len(bookmark.Head) == 40 {
+			return bookmark.Head, nil
+		}
+	}
+	return "", fmt.Errorf("install main bookmark missing: %s", data)
+}
+
 // appMergeWrites counts the App's merge calls for pull request number.
 func (r *rehearsal) appMergeWrites(number int64) int {
 	merges := 0
@@ -1042,7 +1066,7 @@ func TestJ10Rehearsal(t *testing.T) {
 	}
 
 	// J10.5: the lead merges on GitHub instead of in Smithers.
-	r.step("5 Merge on GitHub turns T1 Merged", "GitHub fake: the owner merges T1's PR → GET /api/todos/{T1}; GET /api/repos/{o}/{r}/mythical; GitHub write log",
+	r.step("5 Merge on GitHub turns T1 Merged", "GitHub fake: the owner merges T1's PR → GET /api/todos/{T1}; GET /api/repos/{o}/{r}/bookmarks; GitHub write log",
 		"T1 merged within 60 s, never before the install's main holds the merge commit; no checks.Land; no App merge call", "T-GH-03", func() error {
 			if pr1 <= 0 {
 				return fmt.Errorf("blocked by T1's PR")
@@ -1081,7 +1105,7 @@ func TestJ10Rehearsal(t *testing.T) {
 				}
 				if card.State == "merged" {
 					took := time.Since(began)
-					landed, err := r.landedMain()
+					landed, err := r.mirroredMain()
 					if err != nil {
 						return err
 					}
