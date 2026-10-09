@@ -5,6 +5,8 @@
 import { chromium, expect, type BrowserContext, type Page } from "@playwright/test"
 import { createServer } from "vite"
 import { expectRecordedConversation, importedRows, MEMBER_MACHINE_CODEX, RECORDED_ENTRIES } from "./external-transcript.checks"
+import { say } from "../playwright/spec/j1-fixtures"
+import { fillComposer } from "../playwright/composer"
 
 const origin = process.env.SMITHERS_LIVE_ORIGIN!
 if (!origin) throw new Error("The owned PostgreSQL install is required")
@@ -42,6 +44,30 @@ try {
   for (const { page } of [ben, maya]) await expectRecordedConversation(page, expect)
   console.log(`PASS composed install: both members read ${RECORDED_ENTRIES} imported entries of four agent processes, ordered and read-only`)
 
+  for (const { context, page } of [ben, maya]) {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
+    const copy = importedRows(page).first().getByRole("button", { name: "Copy message", exact: true })
+    await copy.focus()
+    await expect(copy).toBeFocused()
+    await copy.press("Enter")
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("How do I use ultrafast")
+  }
+  console.log("PASS composed install: both members can copy the imported owner's prompt")
+
+  // Exercise the real theme flow and responsive shell against the authenticated
+  // install, rather than limiting this matrix to the intercepted app-tier spec.
+  for (const [member, { page }] of [["ben", ben], ["maya", maya]] as const) {
+    for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
+      await page.setViewportSize({ width, height: 900 })
+      await say(page, `/theme ${theme}`)
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+      await expectRecordedConversation(page, expect)
+      await fillComposer(page, "")
+      await expect(page.getByTestId("composer-input")).toBeVisible()
+      console.log(`PASS composed install: ${member} reads imported conversation ${theme} ${width}`)
+    }
+  }
+
   // The install answered each member as themselves.
   for (const [member, { page }] of [["ben", ben], ["maya", maya]] as const) {
     const session = await page.request.get(`${origin}/api/auth/session`)
@@ -66,11 +92,13 @@ try {
   }
 
   // Maya cannot change what Ben's agent said, through the same routes the app would use.
-  const history = await (await maya.page.request.get(`${origin}/api/conversations/main`)).json() as { entries: Array<{ id: string; origin?: string }> }
+  const history = await (await maya.page.request.get(`${origin}/api/conversations/main`)).json() as { entries: Array<{ id: string; origin?: string; participant_id?: string }> }
   expect(history.entries.filter(entry => entry.origin === "external")).toHaveLength(RECORDED_ENTRIES + 2)
+  const identities = new Map(history.entries.filter(entry => entry.origin === "external").map(entry => [entry.participant_id, entry.id]))
+  expect(identities.size).toBe(4)
   const headers = { Origin: origin, "Content-Type": "application/json", "X-CSRF-Token": "csrf" }
-  for (const { page } of [ben, maya]) {
-    const turn = `${origin}/api/conversations/main/turns/${history.entries[10]!.id}`
+  for (const { page } of [ben, maya]) for (const id of identities.values()) {
+    const turn = `${origin}/api/conversations/main/turns/${id}`
     expect((await page.request.patch(turn, { headers, data: { prompt: "run it again" } })).status()).toBe(403)
     expect((await page.request.post(`${turn}/stop`, { headers, data: {} })).status()).toBe(403)
     expect((await page.request.delete(turn, { headers })).status()).toBe(403)

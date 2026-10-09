@@ -29,6 +29,12 @@ export async function expectRecordedConversation(page: Page, expect: typeof Expe
   }
   // The owner's prompts are the owner's.
   const prompts = page.locator('article[data-origin="external"][data-role="user"]')
+  for (const prompt of await prompts.all()) {
+    expect(await prompt.locator("header .author").evaluate(author =>
+      [...author.childNodes].filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join("")
+    )).toBe("Ben")
+    await expect(prompt.getByRole("img", { name: "Ben", exact: true })).toBeAttached()
+  }
   await expect(prompts.first()).toContainText("How do I use ultrafast")
   await expect(prompts.filter({ hasText: "Instead of html just answer my questions concisely in this chat" })).toHaveCount(1)
   await expect(prompts.filter({ hasText: "Second capture turn." })).toHaveCount(1)

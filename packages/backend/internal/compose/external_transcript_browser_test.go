@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
@@ -230,7 +231,14 @@ func TestExternalTranscriptBrowserPostgres(t *testing.T) {
 	t.Setenv("SMITHERS_SERVER_ALLOWED_ORIGINS", origin)
 	registry := new(machined.Registry)
 	var resolved atomic.Int32
-	api := startSplitProcess(t, Options{ChatHost: installModelHost(t, &resolved), Machined: registry})
+	// This recorded-daemon journey never launches repository code. Supply the
+	// same explicit test-only process runtime as the conversation router tests;
+	// production machine admission still requires a sandboxed runtime.
+	workspaceRuntime, err := process.New(process.Config{Root: t.TempDir()})
+	require.NoError(t, err)
+	api := startSplitProcess(t, Options{ChatHost: installModelHost(t, &resolved), Machined: registry,
+		Workspace: workspaceRuntime, FlowHostProductAPIURL: origin,
+		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 
 	// The machine on main, its boot, and the terminal session the host opened
 	// there for Ben: the facts a transcript record is placed by.
