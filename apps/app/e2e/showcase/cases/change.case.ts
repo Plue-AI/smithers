@@ -134,7 +134,7 @@ export default showcase({
     await backend.json("/api/orgs/smithersai/changesets", { changesets: [] })
 
     await app.open("/")
-    await app.slash("/change.view qupxosqw")
+    await app.slash('/diff {"operation":"change","changeId":"qupxosqw"}')
     const card = page.getByTestId(`card-change-${REPO}-qupxosqw`)
     await expect(card).toContainText("Add the split flow", { timeout: 15_000 })
     await app.closeComposer()
