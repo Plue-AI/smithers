@@ -764,6 +764,9 @@ type FlowRuntimeHostBinding struct {
 	CreatedAt             time.Time `json:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at"`
 	ServiceIdentity       string    `json:"service_identity"`
+	StartFailures         int32     `json:"start_failures"`
+	EverStarted           bool      `json:"ever_started"`
+	SourceRefreshed       bool      `json:"source_refreshed"`
 }
 
 type GithubApp struct {

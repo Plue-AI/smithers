@@ -169,6 +169,10 @@ type Binding struct {
 	SourceRevision        string
 	OwnerGeneration       int64
 	State                 string
+	StartFailures         int
+	EverStarted           bool
+	SourceRefreshed       bool
+	LastErrorCode         string
 	// ServiceIdentity is the configuration fingerprint of the host last
 	// verified running for this owner. A deferred upgrade reaches the host
 	// by it once the catalog that started the host is gone.
@@ -258,6 +262,7 @@ type BindingLease interface {
 	// Rebind installs the current identity on the same row with a new owner
 	// generation, fencing any late host of the superseded identity.
 	Rebind(context.Context) (Binding, error)
+	RefreshSource(context.Context, string) (Binding, error)
 	PrepareStart(context.Context, bool) (Binding, error)
 	// MarkRunning records the verified host and its service identity.
 	MarkRunning(ctx context.Context, serviceIdentity string) error

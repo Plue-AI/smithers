@@ -112,6 +112,14 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}); ok {
 		bindings.BindProtectedBranchHost(native.ProtectedManagedHostReady)
 	}
+	initialized, ok := boxes.(interface {
+		FlowHostWorkspaceInitialized(context.Context, flowhost.Authority) error
+	})
+	if !ok {
+		return nil, errors.New("Flow hosts require workspace initialization authority")
+	}
+	bindings.BindWorkspaceInitialized(initialized.FlowHostWorkspaceInitialized)
+
 	agentTargets, err := services.NewAgentFlowHostTargetResolver(agents)
 	if err != nil {
 		return nil, fmt.Errorf("agent Flow host targets: %w", err)

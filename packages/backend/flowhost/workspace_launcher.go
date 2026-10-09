@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
@@ -85,6 +86,21 @@ func (launcher *workspaceLauncher) StartFlowHost(ctx context.Context, launch Hos
 		return Connection{}, err
 	}
 	connection, err := launcher.hosts.StartManagedHost(hostOperation(ctx, launch.Binding.UserID, launch.Binding.ID, "start", launch.Binding.OwnerGeneration), launch.Binding.WorkspaceID, spec)
+	if err != nil {
+		// Startup errors otherwise contain only the exit status. Read the
+		// retained diagnostic before the box adapter stops/revokes the start.
+		diagnosticCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		observation, inspectErr := launcher.runtime.InspectService(hostOperation(diagnosticCtx, launch.Binding.UserID, launch.Binding.ID, "start-failure", launch.Binding.OwnerGeneration), launch.Binding.WorkspaceID, launch.Binding.ServiceName)
+		diagnostic := observation.Stdout + "\n" + observation.Stderr
+		// Effect's default logger renders Refused.message without its code.
+		// Recognize that exact source refusal from existing installed hosts too.
+		mismatch := strings.Contains(diagnostic, "source_revision_mismatch") ||
+			strings.Contains(diagnostic, "/cli/Refused:") && strings.Contains(diagnostic, "Flow host source revision does not match its authorized workspace binding")
+		if inspectErr == nil && mismatch {
+			err = failure{code: "source_revision_mismatch", retryable: true, cause: err}
+		}
+	}
 	return Connection{Endpoint: connection.Endpoint, HTTPClient: connection.HTTPClient}, err
 }
 
@@ -112,7 +128,7 @@ func (launcher *workspaceLauncher) StopFlowHost(ctx context.Context, binding Bin
 	// Use the retained workspace owner, without querying a deleted product row.
 	// Runtime NotFound means the actual execution workspace is absent.
 	err := launcher.runtime.StopService(hostOperation(ctx, binding.UserID, binding.ID, "retire", binding.OwnerGeneration), binding.WorkspaceID, binding.ServiceName)
-	if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+	if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) || errors.Is(err, workspaceapi.ErrWorkspaceStopped) {
 		return nil
 	}
 	return err

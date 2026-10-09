@@ -196,6 +196,7 @@ var migrationRegistry = []migrationSpec{
 	{158, "migrations/0158_factory_issue_review_lane.sql"},
 	{159, "migrations/0159_factory_issue_sponsor.sql"},
 	{160, "migrations/0160_run_inspection.sql"},
+	{161, "migrations/0161_flow_host_start_bound.sql"},
 }
 
 type migration struct {

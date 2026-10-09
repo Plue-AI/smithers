@@ -161,6 +161,7 @@ func (lease *memoryBindingLease) PrepareStart(_ context.Context, replace bool) (
 func (lease *memoryBindingLease) MarkRunning(_ context.Context, serviceIdentity string) error {
 	lease.store.mu.Lock()
 	defer lease.store.mu.Unlock()
+	lease.binding.EverStarted = true
 	lease.binding.State = "running"
 	lease.binding.ServiceIdentity = serviceIdentity
 	lease.store.binding = lease.binding
@@ -169,6 +170,8 @@ func (lease *memoryBindingLease) MarkRunning(_ context.Context, serviceIdentity 
 func (lease *memoryBindingLease) MarkFailed(_ context.Context, code string) error {
 	lease.store.mu.Lock()
 	defer lease.store.mu.Unlock()
+	lease.binding.StartFailures++
+	lease.binding.LastErrorCode = code
 	lease.binding.State = "failed"
 	lease.store.binding = lease.binding
 	lease.store.lastErrorCode = code
@@ -1102,4 +1105,139 @@ func TestResolverPinsProjectAndReconfiguresOnlyIdleHost(t *testing.T) {
 	require.Equal(t, int64(3), recovered.OwnerGeneration)
 	require.Len(t, base.starts, 3)
 	require.Equal(t, base.starts[1].ProjectConfig, base.starts[2].ProjectConfig)
+}
+
+func (lease *memoryBindingLease) RefreshSource(_ context.Context, revision string) (Binding, error) {
+	lease.store.mu.Lock()
+	defer lease.store.mu.Unlock()
+	if lease.binding.EverStarted || lease.binding.SourceRefreshed {
+		return Binding{}, errors.New("source refresh refused")
+	}
+	lease.binding.SourceRevision = revision
+	lease.binding.SourceRefreshed = true
+	lease.store.binding = lease.binding
+	return lease.binding, nil
+}
+
+type boundedStartLauncher struct {
+	*snapshotLauncher
+	releases   int
+	releaseErr error
+}
+
+func (l *boundedStartLauncher) ReleaseFailedFlowHostMachine(context.Context, Binding) error {
+	l.releases++
+	return l.releaseErr
+}
+func TestResolverFailedStartsAreBoundedAndReleaseRetries(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		t.Run(fmt.Sprint(mismatch), func(t *testing.T) {
+			resolver, store, base, target := testResolver(t)
+			original := resolver.targets
+			resolver.targets = TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (Authority, error) {
+				a, e := original.ResolveFlowHostTarget(ctx, target)
+				a.SourceRevision = ""
+				return a, e
+			})
+			l := &boundedStartLauncher{snapshotLauncher: &snapshotLauncher{memoryLauncher: base, revision: strings.Repeat("d", 40)}}
+			resolver.launcher = l
+			base.startErr = errors.New("launch failed")
+			limit := MaxStartFailures
+			code := "runtime_start_exhausted"
+			if mismatch {
+				base.startErr = failure{code: "source_revision_mismatch"}
+				limit = 2
+				code = "runtime_source_revision_mismatch_terminal"
+			}
+			for i := 0; i < limit; i++ {
+				_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+				require.Error(t, err)
+				if i == limit-1 {
+					require.ErrorContains(t, err, code)
+				} else {
+					var f flowruntime.Failure
+					require.ErrorAs(t, err, &f)
+					require.True(t, f.FlowRuntimeRetryable())
+				}
+			}
+			require.Len(t, base.starts, limit)
+			require.Equal(t, limit, store.binding.StartFailures)
+			require.Equal(t, 1, l.releases)
+			if mismatch {
+				require.True(t, store.binding.SourceRefreshed)
+				require.Equal(t, 2, l.captures)
+			}
+			// A failed physical stop must remain retryable without launching again.
+			l.releaseErr = failure{code: "stop_refused"}
+			_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+			var f flowruntime.Failure
+			require.ErrorAs(t, err, &f)
+			require.True(t, f.FlowRuntimeRetryable())
+			require.Equal(t, "runtime_failed_machine_release_failed", f.FlowRuntimeCode())
+			require.Len(t, base.starts, limit)
+			// Read-only reconnect cannot stop a machine or refresh its source.
+			released := l.releases
+			_, err = resolver.ResolveExistingFlowRuntime(t.Context(), target)
+			require.ErrorContains(t, err, code)
+			require.Equal(t, released, l.releases)
+		})
+	}
+}
+func TestResolverSourceRefreshRecoversBeforeFirstSuccess(t *testing.T) {
+	resolver, store, base, target := testResolver(t)
+	original := resolver.targets
+	resolver.targets = TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (Authority, error) {
+		a, e := original.ResolveFlowHostTarget(ctx, target)
+		a.SourceRevision = ""
+		return a, e
+	})
+	l := &boundedStartLauncher{snapshotLauncher: &snapshotLauncher{memoryLauncher: base, revision: strings.Repeat("d", 40)}}
+	resolver.launcher = l
+	base.startErr = failure{code: "source_revision_mismatch"}
+	_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+	require.Error(t, err)
+	l.revision = strings.Repeat("e", 40)
+	base.startErr = nil
+	_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+	require.NoError(t, err)
+	require.Equal(t, l.revision, store.binding.SourceRevision)
+	require.True(t, store.binding.EverStarted)
+	require.Equal(t, 0, l.releases)
+	// A later mismatch may never repin a binding that has successfully run.
+	base.running = false
+	base.startErr = failure{code: "source_revision_mismatch"}
+	l.revision = strings.Repeat("f", 40)
+	_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+	require.ErrorContains(t, err, "runtime_source_revision_mismatch_terminal")
+	require.Equal(t, strings.Repeat("e", 40), store.binding.SourceRevision)
+	require.Equal(t, 2, l.captures)
+	require.Equal(t, 1, l.releases)
+}
+
+type unreadableSourceLauncher struct{ *boundedStartLauncher }
+
+func (*unreadableSourceLauncher) ResolveFlowHostSource(context.Context, Authority) (string, error) {
+	return "", errors.New("snapshot unavailable")
+}
+func TestResolverMismatchNeverChangesAnAttemptPin(t *testing.T) {
+	for _, unreadable := range []bool{false, true} {
+		t.Run(fmt.Sprint(unreadable), func(t *testing.T) {
+			resolver, store, base, target := testResolver(t)
+			l := &boundedStartLauncher{snapshotLauncher: &snapshotLauncher{memoryLauncher: base, revision: strings.Repeat("f", 40)}}
+			resolver.launcher = l
+			base.startErr = failure{code: "source_revision_mismatch"}
+			_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+			require.Error(t, err)
+			original := store.binding.SourceRevision
+			if unreadable {
+				resolver.launcher = &unreadableSourceLauncher{l}
+			}
+			_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+			require.ErrorContains(t, err, "runtime_source_revision_mismatch_terminal")
+			require.Equal(t, original, store.binding.SourceRevision)
+			require.False(t, store.binding.SourceRefreshed)
+			require.Len(t, base.starts, 1)
+			require.Equal(t, 1, l.releases)
+		})
+	}
 }

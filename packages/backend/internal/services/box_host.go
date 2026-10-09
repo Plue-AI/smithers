@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -445,5 +446,48 @@ func bindInitialTodoHostCredential(ctx context.Context, tx pgx.Tx, item db.Mythi
  AND b.source_revision=$7 AND b.binding_kind=$8 AND b.binding_id=$9`,
 		runScope, item.OwnerID.Int64, boxHostLandingTokenScopes(item.RepositoryID, item.WorkspaceID), item.LaneStartedAt.Time,
 		item.WorkspaceID, item.RepositoryID, mythicalChecksOf(item).FlowSource, target.BindingKind, target.BindingID)
+	return err
+}
+
+// FlowHostWorkspaceInitialized refuses a partial clone before source capture or
+// binding. The receipt is written only after repository and environment setup.
+func (s *WorkspaceService) FlowHostWorkspaceInitialized(ctx context.Context, authority flowhost.Authority) error {
+	row, err := s.loadOwnedWorkspace(ctx, authority.WorkspaceID, authority.RepositoryID, authority.UserID)
+	if err != nil {
+		return err
+	}
+	data, err := s.readRuntimeRepositoryFile(ctx, row, authority.UserID, "flow-host-init", workspaceRepositoryReceiptPath)
+	if err != nil {
+		return workspaceInitializing{}
+	}
+	var receipt workspaceRepositoryReceipt
+	if json.Unmarshal(data, &receipt) != nil || receipt.Version != workspaceRepositoryReceiptVersion || receipt.WorkspaceID != row.ID || receipt.RepositoryID != row.RepositoryID || receipt.InitializedAt.IsZero() || !isLowerHexRevision(receipt.SourceRevision) {
+		return workspaceInitializing{}
+	}
+	return nil
+}
+
+type workspaceInitializing struct{}
+
+func (workspaceInitializing) Error() string              { return "workspace_initializing" }
+func (workspaceInitializing) FlowRuntimeCode() string    { return "workspace_initializing" }
+func (workspaceInitializing) FlowRuntimeRetryable() bool { return true }
+
+// ReleaseFailedFlowHostMachine retains the checkout and disk. The runtime's
+// confirmed stop releases admission exactly as its idle stop does.
+func (s *WorkspaceService) ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error {
+	row, err := s.loadOwnedWorkspace(ctx, binding.WorkspaceID, binding.RepositoryID, binding.UserID)
+	if err != nil {
+		return err
+	}
+	unlock := s.lockRuntimeWorkspace(row.ID)
+	defer unlock()
+	if err := s.stopRuntimeWorkspaceLocked(ctx, row, binding.UserID, "flow-host-failed"); err != nil {
+		return err
+	}
+	_, err = s.q.UpdateWorkspaceStatus(ctx, db.UpdateWorkspaceStatusParams{ID: row.ID, Status: "stopped"})
+	if err == nil {
+		s.notifyWorkspace(ctx, row.ID, "stopped")
+	}
 	return err
 }

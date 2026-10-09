@@ -274,6 +274,47 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 	defer lease.Close() // best effort: caller error takes precedence over unlock diagnostics.
 
 	binding := lease.Binding()
+	if binding.StartFailures >= MaxStartFailures || binding.LastErrorCode == "runtime_source_revision_mismatch_terminal" || binding.LastErrorCode == "runtime_start_exhausted" {
+		if existingOnly {
+			return nil, failure{code: binding.LastErrorCode}
+		}
+		return nil, resolver.releaseFailedMachine(ctx, binding)
+	}
+	if !existingOnly && binding.State == "failed" && sourceMismatchCode(binding.LastErrorCode) {
+		if binding.EverStarted || binding.SourceRefreshed {
+			if err := lease.MarkFailed(ctx, "runtime_source_revision_mismatch_terminal"); err != nil {
+				return nil, refuse(ctx, "runtime_binding_checkpoint_failed", err, binding)
+			}
+			binding = lease.Binding()
+			return nil, resolver.releaseFailedMachine(ctx, binding)
+		}
+		source, ok := resolver.launcher.(SourceResolver)
+		if !ok {
+			if err := lease.MarkFailed(ctx, "runtime_source_revision_mismatch_terminal"); err != nil {
+				return nil, refuse(ctx, "runtime_binding_checkpoint_failed", err, binding)
+			}
+			return nil, resolver.releaseFailedMachine(ctx, lease.Binding())
+		}
+		revision, resolveErr := source.ResolveFlowHostSource(ctx, authority)
+		if resolveErr != nil {
+			if err := lease.MarkFailed(ctx, "runtime_source_revision_mismatch_terminal"); err != nil {
+				return nil, refuse(ctx, "runtime_binding_checkpoint_failed", err, binding)
+			}
+			logFailure(ctx, failure{code: "runtime_source_revision_mismatch_terminal"}, resolveErr, binding)
+			return nil, resolver.releaseFailedMachine(ctx, lease.Binding())
+		}
+		if authority.SourceRevision != "" && authority.SourceRevision != revision {
+			if err := lease.MarkFailed(ctx, "runtime_source_revision_mismatch_terminal"); err != nil {
+				return nil, refuse(ctx, "runtime_binding_checkpoint_failed", err, binding)
+			}
+			return nil, resolver.releaseFailedMachine(ctx, lease.Binding())
+		}
+		binding, err = lease.RefreshSource(ctx, revision)
+		if err != nil {
+			return nil, refuse(ctx, "runtime_binding_checkpoint_failed", err, binding)
+		}
+		authority.SourceRevision = revision
+	}
 	if superseded, ok := lease.Supersedes(); ok {
 		client, kept, err := resolver.keepSuperseded(ctx, lease, superseded, authority, catalog)
 		if kept || err != nil {
@@ -354,23 +395,23 @@ func (resolver *Resolver) resolve(ctx context.Context, target flowruntime.Target
 	if resolver.journals != nil {
 		// The workspace's database and role exist before its host opens them.
 		if launch.Journal, err = resolver.journals.Provision(ctx, binding.WorkspaceID); err != nil {
-			return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_journal_unavailable", err, binding))
+			return nil, resolver.startFailed(ctx, lease, binding, refuse(ctx, "runtime_journal_unavailable", err, binding))
 		}
 	}
 	if configured, ok := resolver.launcher.(LaunchConfigurer); ok {
 		launch, err = configured.ConfigureFlowHost(ctx, launch)
 		if err != nil {
-			return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_configuration_unavailable", err, binding))
+			return nil, resolver.startFailed(ctx, lease, binding, refuse(ctx, "runtime_configuration_unavailable", err, binding))
 		}
 	}
 	connection, err = resolver.launcher.StartFlowHost(ctx, launch)
 	if err != nil {
-		return nil, startFailed(ctx, lease, binding, refuse(ctx, "runtime_start_failed", err, binding))
+		return nil, resolver.startFailed(ctx, lease, binding, refuse(ctx, "runtime_start_failed", err, binding))
 	}
 	client, err := resolver.verifiedClient(ctx, connection, lease.Credential(), binding)
 	if err != nil {
 		resolver.abandon(ctx, binding)
-		return nil, startFailed(ctx, lease, binding, err)
+		return nil, resolver.startFailed(ctx, lease, binding, err)
 	}
 	if err := lease.MarkRunning(ctx, hostServiceIdentity(launch)); err != nil {
 		resolver.abandon(ctx, binding)
@@ -487,17 +528,62 @@ func (resolver *Resolver) verifiedClient(ctx context.Context, connection Connect
 
 // startFailed durably records a failed start so the next start bumps the
 // owner generation and fences any host that comes up late.
-func startFailed(ctx context.Context, lease BindingLease, binding Binding, result error) error {
+func (resolver *Resolver) startFailed(ctx context.Context, lease BindingLease, binding Binding, result error) error {
 	code := "runtime_start_failed"
 	var known flowruntime.Failure
 	if errors.As(result, &known) {
 		code = known.FlowRuntimeCode()
 	}
+	if sourceMismatchCode(code) && (binding.EverStarted || binding.SourceRefreshed) {
+		code = "runtime_source_revision_mismatch_terminal"
+	}
+	if binding.StartFailures+1 >= MaxStartFailures && code != "runtime_source_revision_mismatch_terminal" {
+		code = "runtime_start_exhausted"
+	}
 	if err := lease.MarkFailed(context.WithoutCancel(ctx), code); err != nil {
 		slog.ErrorContext(ctx, "flow host failure checkpoint failed", "binding_id", binding.ID,
 			"workspace_id", binding.WorkspaceID, "owner_generation", binding.OwnerGeneration, "error", err)
+		return failure{code: "runtime_binding_checkpoint_failed", retryable: true, cause: err}
+	}
+	binding = lease.Binding()
+	if binding.StartFailures >= MaxStartFailures || code == "runtime_source_revision_mismatch_terminal" {
+		return resolver.releaseFailedMachine(ctx, binding)
+	}
+	if sourceMismatchCode(code) {
+		return failure{code: code, retryable: true, cause: result}
 	}
 	return result
+}
+
+const MaxStartFailures = 3
+
+func sourceMismatchCode(code string) bool {
+	return code == "source_revision_mismatch" || code == "runtime_source_revision_mismatch"
+}
+
+// FailedMachineReleaser confirms a disk-preserving machine stop before a
+// terminal failure is returned. Failed stops remain retryable on the same row.
+type FailedMachineReleaser interface {
+	ReleaseFailedFlowHostMachine(context.Context, Binding) error
+}
+
+func (resolver *Resolver) releaseFailedMachine(ctx context.Context, binding Binding) error {
+	releaser, ok := resolver.launcher.(FailedMachineReleaser)
+	if !ok {
+		return failure{code: "runtime_failed_machine_release_unavailable", retryable: true}
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if err := releaser.ReleaseFailedFlowHostMachine(cleanup, binding); err != nil {
+		result := failure{code: "runtime_failed_machine_release_failed", retryable: true, cause: err}
+		logFailure(ctx, result, err, binding)
+		return result
+	}
+	code := "runtime_start_exhausted"
+	if sourceMismatchCode(binding.LastErrorCode) || binding.LastErrorCode == "runtime_source_revision_mismatch_terminal" {
+		code = "runtime_source_revision_mismatch_terminal"
+	}
+	return failure{code: code}
 }
 
 // logFailure keeps the server-side cause that sanitizeFailure hides from

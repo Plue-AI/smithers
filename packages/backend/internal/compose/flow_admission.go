@@ -330,3 +330,21 @@ func (l *boxHostLauncher) StopFlowHost(ctx context.Context, binding flowhost.Bin
 func (l *boxHostLauncher) AbandonFlowHostStart(ctx context.Context, binding flowhost.Binding) {
 	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
 }
+
+func (l *admittedFlowLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error {
+	releaser, ok := l.Launcher.(flowhost.FailedMachineReleaser)
+	if !ok {
+		return errors.New("failed machine release unavailable")
+	}
+	return releaser.ReleaseFailedFlowHostMachine(ctx, binding)
+}
+func (l *boxHostLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error {
+	releaser, ok := l.boxes.(flowhost.FailedMachineReleaser)
+	if !ok {
+		return errors.New("failed machine release unavailable")
+	}
+	if err := l.StopFlowHost(ctx, binding); err != nil {
+		return err
+	}
+	return releaser.ReleaseFailedFlowHostMachine(ctx, binding)
+}

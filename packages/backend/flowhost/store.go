@@ -20,10 +20,11 @@ import (
 )
 
 type Store struct {
-	pool                *pgxpool.Pool
-	codec               SecretCodec
-	newCredential       func() (string, error)
-	protectedBranchHost func(context.Context, string) error
+	pool                 *pgxpool.Pool
+	codec                SecretCodec
+	newCredential        func() (string, error)
+	protectedBranchHost  func(context.Context, string) error
+	workspaceInitialized func(context.Context, Authority) error
 }
 
 func NewStore(pool *pgxpool.Pool, codec SecretCodec) (*Store, error) {
@@ -116,6 +117,22 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 	if validated.Key != authority.CatalogKey {
 		return nil, errors.New("flow host catalog does not match authority")
 	}
+	var terminal bool
+	if store.workspaceInitialized != nil {
+		var exists, needsInitialization bool
+		if err := store.pool.QueryRow(ctx, `SELECT
+            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2),
+            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND last_error_code IN ('source_revision_mismatch','runtime_source_revision_mismatch')),
+            EXISTS(SELECT 1 FROM flow_runtime_host_bindings WHERE workspace_id=$1 AND catalog_key=$2 AND (start_failures >= $3 OR last_error_code IN ('runtime_start_exhausted','runtime_source_revision_mismatch_terminal')))`, authority.WorkspaceID, validated.Key, MaxStartFailures).Scan(&exists, &needsInitialization, &terminal); err != nil {
+			return nil, err
+		}
+		if !existingOnly && (!exists || needsInitialization) {
+			if err := store.workspaceInitialized(ctx, authority); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	if store.protectedBranchHost != nil {
 		var native, authorized bool
 		err := store.pool.QueryRow(ctx, `SELECT w.kind='vm',w.user_id=$3 OR EXISTS(SELECT 1 FROM workspace_shares s JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=s.grantee_user_id JOIN users u ON u.id=c.user_id WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id=$3 AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login) FROM workspaces w WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&native, &authorized)
@@ -125,7 +142,7 @@ func (store *Store) acquire(ctx context.Context, authority Authority, catalog Ca
 		if !authorized {
 			return nil, failure{code: "runtime_target_forbidden"}
 		}
-		if native {
+		if native && !terminal {
 			if err := store.protectedBranchHost(ctx, authority.WorkspaceID); err != nil {
 				return nil, err
 			}
@@ -257,7 +274,7 @@ func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catal
 
 const bindingSelect = `SELECT id::text, tenant_id, principal_id, binding_kind, binding_id,
 		repository_id, user_id, workspace_id, catalog_key, service_name,
-		runtime_artifact_digest, source_revision, owner_generation, state, service_identity,
+		runtime_artifact_digest, source_revision, owner_generation, state, service_identity, start_failures, ever_started, source_refreshed, last_error_code,
 		credential_ciphertext, credential_hash
 	FROM flow_runtime_host_bindings`
 
@@ -268,7 +285,7 @@ func scanBinding(row pgx.Row) (Binding, string, []byte, error) {
 	err := row.Scan(&binding.ID, &binding.TenantID, &binding.PrincipalID, &binding.BindingKind, &binding.BindingID,
 		&binding.RepositoryID, &binding.UserID, &binding.WorkspaceID, &binding.CatalogKey, &binding.ServiceName,
 		&binding.RuntimeArtifactDigest, &binding.SourceRevision, &binding.OwnerGeneration, &binding.State,
-		&binding.ServiceIdentity, &encrypted, &credentialHash)
+		&binding.ServiceIdentity, &binding.StartFailures, &binding.EverStarted, &binding.SourceRefreshed, &binding.LastErrorCode, &encrypted, &credentialHash)
 	return binding, encrypted, credentialHash, err
 }
 
@@ -414,7 +431,7 @@ func (value *lease) MarkRunning(ctx context.Context, serviceIdentity string) err
 		return errors.New("flow host binding lease is closed")
 	}
 	tag, err := value.connection.Exec(ctx, `UPDATE flow_runtime_host_bindings
-		SET state='running', last_error_code='', service_identity=$3, updated_at=clock_timestamp()
+		SET state='running', ever_started=true, last_error_code='', service_identity=$3, updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'`, value.binding.ID, value.binding.OwnerGeneration, serviceIdentity)
 	if err != nil {
 		return err
@@ -422,6 +439,7 @@ func (value *lease) MarkRunning(ctx context.Context, serviceIdentity string) err
 	if tag.RowsAffected() != 1 {
 		return errors.New("flow host running checkpoint lost its owner fence")
 	}
+	value.binding.EverStarted = true
 	value.binding.State = "running"
 	value.binding.ServiceIdentity = serviceIdentity
 	return nil
@@ -432,7 +450,7 @@ func (value *lease) MarkFailed(ctx context.Context, code string) error {
 		return errors.New("flow host binding lease is closed")
 	}
 	tag, err := value.connection.Exec(ctx, `UPDATE flow_runtime_host_bindings
-		SET state='failed', last_error_code=$3, updated_at=clock_timestamp()
+		SET state='failed', start_failures=start_failures+1, last_error_code=$3, updated_at=clock_timestamp()
 		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'`, value.binding.ID, value.binding.OwnerGeneration, code)
 	if err != nil {
 		return err
@@ -440,6 +458,8 @@ func (value *lease) MarkFailed(ctx context.Context, code string) error {
 	if tag.RowsAffected() != 1 {
 		return errors.New("flow host failure checkpoint lost its owner fence")
 	}
+	value.binding.StartFailures++
+	value.binding.LastErrorCode = code
 	value.binding.State = "failed"
 	return nil
 }
@@ -502,4 +522,28 @@ func tryAdvisoryLock(ctx context.Context, connection *pgxpool.Conn, lockKey stri
 // BindProtectedBranchHost composes the installed native admission provider.
 func (s *Store) BindProtectedBranchHost(admit func(context.Context, string) error) {
 	s.protectedBranchHost = admit
+}
+
+// BindWorkspaceInitialized gates creation and the source capture preceding it.
+func (store *Store) BindWorkspaceInitialized(check func(context.Context, Authority) error) {
+	store.workspaceInitialized = check
+}
+
+func (value *lease) RefreshSource(ctx context.Context, revision string) (Binding, error) {
+	if value == nil || value.closed || value.connection == nil {
+		return Binding{}, errors.New("flow host binding lease is closed")
+	}
+	if !lowerHex(revision, 40) {
+		return Binding{}, ErrSourceRevisionRequired
+	}
+	tag, err := value.connection.Exec(ctx, `UPDATE flow_runtime_host_bindings SET source_revision=$3, source_refreshed=true, updated_at=clock_timestamp() WHERE id=$1 AND owner_generation=$2 AND NOT ever_started AND NOT source_refreshed AND state='failed'`, value.binding.ID, value.binding.OwnerGeneration, revision)
+	if err != nil {
+		return Binding{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return Binding{}, errors.New("flow host source refresh lost its owner fence")
+	}
+	value.binding.SourceRevision = revision
+	value.binding.SourceRefreshed = true
+	return value.binding, nil
 }
