@@ -93,9 +93,10 @@ describe("a failed flow reaches the model as a failure", () => {
     expect(result).toContain("99")
   })
 
+  // env.set retired into the owner-only Settings door (5b03dc7736).
   test("a malformed argument reaches the model as a failure, not as a run", async () => {
     const { controller } = await ready()
-    const result = await execute(controller, "env.set", "NOT_AN_ASSIGNMENT will/nope")
+    const result = await execute(controller, "settings", "{NOT_AN_ASSIGNMENT")
     expect(result).toStartWith("failed:")
     expect(result).toContain("user-only")
   })
