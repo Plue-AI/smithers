@@ -123,7 +123,7 @@ export default showcase({
     })
 
     await app.open("/")
-    await app.slash(`/flow.list ${REPO}`)
+    await app.slash(`/flows ${REPO}`)
     await app.closeComposer()
     const list = page.locator('[data-kind="workflow-list"]').last()
     await expect(list).toContainText(FLOW)
@@ -249,7 +249,8 @@ export default showcase({
     await app.beat(500)
     const authorToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Creating a flow" })
     await expect(authorToast).toHaveCount(1)
-    await expect(authorToast.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
+    // A live run's Stop is on its card (06efaa113d retired the worker controls on notices).
+    await expect(authoring.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
 
     await app.slash(`/triggers.list ${REPO}`)
     const dispatcher = page.locator('[data-kind="trigger-list"]').last()
@@ -267,7 +268,8 @@ export default showcase({
       await route.fallback()
     })
     const dispatched = page.locator('[data-kind="run-trace"]').filter({ hasText: "Run nightly-review" })
-    const dispatchToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Run nightly-review" })
+    // The launch owns its card's notice and names the work as it runs (state/controller/workflow-launch.ts).
+    const dispatchToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Running nightly-review on smithersai/smithers" })
     try {
       await app.click(dispatcher.getByTestId("trigger-run-nightly-review"))
       await expect.poll(() => reading).toBe(true)
@@ -284,7 +286,7 @@ export default showcase({
     await app.show(dispatched)
     await app.beat(500)
     await expect(dispatchToast).toHaveCount(1)
-    await expect(dispatchToast.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
+    await expect(dispatched.getByRole("button", { name: "Stop", exact: true })).toBeVisible()
     await app.show(dispatcher)
     await dispatcher.getByTestId("trigger-pause-nightly-review").focus()
     await page.keyboard.press("Enter")
@@ -317,7 +319,7 @@ export default showcase({
     await resume.focus()
     await page.keyboard.press("Enter")
     await expect(resumeCard).toHaveCount(1)
-    const resumeToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Resume nightly-review" })
+    const resumeToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Resuming nightly-review on smithersai/smithers" })
     await expect(resumeToast).toHaveCount(1)
     resumed = true
     await expect(resumeCard).toContainText("Done", { timeout: 15_000 })
@@ -352,7 +354,7 @@ export default showcase({
     await expect(approveSchedule).toBeFocused()
     await expect(page.locator('.notice[data-tone="live"]').filter({ hasText: "Preparing review-schedule" })).toHaveCount(0)
     const registrationCard = page.locator('[data-kind="run-trace"]').filter({ hasText: "Register review-schedule" })
-    const registrationToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Register review-schedule" })
+    const registrationToast = page.locator('.notice[data-tone="live"]').filter({ hasText: "Registering review-schedule on smithersai/smithers" })
     await page.keyboard.press("Enter")
     try {
       await expect.poll(() => registrationRuns).toBe(1)

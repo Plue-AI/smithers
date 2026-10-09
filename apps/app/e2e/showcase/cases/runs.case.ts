@@ -221,14 +221,14 @@ export default showcase({
     await expect.poll(() => summaries.get(CODING) ?? 0).toBeGreaterThan(reads)
     await app.beat(500)
 
-    // A live run stops from its toast.
+    // A live run stops from its card, through the shared Stop flow; its notice stays live until then.
     await app.show(inbox)
     await app.click(inbox.getByTestId(`runs-open-${REVIEW}`))
     const review = page.getByTestId(`card-${boxRunCardId(REPO, REVIEW)}`)
     await expect(review).toContainText("Running")
     await app.show(review)
-    const toast = page.locator('.notify .notice[data-tone="live"]').filter({ hasText: "review-pr" })
-    await app.click(toast.getByRole("button", { name: "Stop" }))
+    await expect(page.locator('.notify .notice[data-tone="live"]').filter({ hasText: "review-pr" })).toHaveCount(1)
+    await app.click(review.getByRole("button", { name: "Stop", exact: true }))
     await expect(review.getByTestId(`run-outcome-${REVIEW}`)).toHaveAttribute("data-phase", "cancelled")
     // A stop the human asked for settles as a stop, not a failure (#1863).
     await expect(review).toContainText("Stopped")
