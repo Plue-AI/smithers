@@ -282,8 +282,17 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	}
 	var installRuntime workspace.WorkspaceRuntime = counted
 	var writerFence *retireFenceRuntime
+	var fenceAdmission microsandbox.AdmissionProviders
 	if scenario == "writer_fence" {
 		writerFence = &retireFenceRuntime{sleepCountRuntime: counted}
+		writerFence.admission, fenceAdmission = retireFenceAdmission(t)
+		_, err = writerFence.admission.Request("todo", id, "T1", "run")
+		require.NoError(t, err)
+		grant, err := writerFence.admission.GrantNext(ctx, fenceAdmission)
+		require.NoError(t, err)
+		require.Equal(t, id, grant.Holder)
+		_, err = writerFence.admission.Request("todo", "next-todo", "T2", "run")
+		require.NoError(t, err)
 		writerFence.alive.Store(true)
 		installRuntime = writerFence
 	}
@@ -372,12 +381,20 @@ func branchSleepInstall(t *testing.T, scenario string) {
 			return machined.CaptureResult{Head: head, Tree: git("-C", seed, "rev-parse", head+"^{tree}")}, nil
 		}
 		// A stop request without the daemon's receipt cannot reach the fence.
+		assertWaiting := func() {
+			require.Equal(t, 1, writerFence.admission.InUse())
+			grant, err := writerFence.admission.GrantNext(ctx, fenceAdmission)
+			require.NoError(t, err)
+			require.Empty(t, grant.Holder)
+		}
 		sleep(500)
+		assertWaiting()
 		require.Zero(t, writerFence.fences.Load())
 		require.Zero(t, counted.stops.Load())
 		writerFence.confirm.Store(true)
 		writerFence.unknown.Store(true)
 		sleep(409)
+		assertWaiting()
 		require.False(t, writerFence.alive.Load(), "only the owned host stops")
 		require.True(t, writerFence.unknown.Load(), "capture never kills a member terminal")
 		require.Zero(t, counted.stops.Load())
@@ -387,6 +404,15 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		row, err := q.GetWorkspace(ctx, id)
 		require.NoError(t, err)
 		require.Equal(t, "suspended", row.Status)
+		require.Zero(t, writerFence.admission.InUse())
+		grant, err := writerFence.admission.GrantNext(ctx, fenceAdmission)
+		require.NoError(t, err)
+		require.Equal(t, "next-todo", grant.Holder)
+		_, err = runtime.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: grant.Holder})
+		require.NoError(t, err)
+		next, err := runtime.StartWorkspace(ctx, grant.Holder)
+		require.NoError(t, err)
+		require.Equal(t, workspace.WorkspaceRunning, next.State)
 		return
 	}
 	if scenario == "reclaimed" {
