@@ -38,6 +38,20 @@ func forkFoldChildren(ctx context.Context, tx pgx.Tx, source db.MythicalItem) ([
 		}
 	}
 	for _, child := range children {
+		// A retained candidate does not exclude member terminal/file writers.
+		// Pin workspace state through folding. Awake seed-only children use
+		// the existing prepared capture; a candidate bypasses that reader and
+		// must remain asleep until live-candidate folding has a daemon contract.
+		var status string
+		if err := tx.QueryRow(ctx, `SELECT status FROM workspaces WHERE id=$1 AND repository_id=$2 AND deleted_at IS NULL FOR NO KEY UPDATE`, child.WorkspaceID, source.RepositoryID).Scan(&status); err != nil {
+			return nil, err
+		}
+		if status == "running" && child.CandidateHead != "" {
+			return nil, todoControlConflict("Forked TODO is still working")
+		}
+		if status != "stopped" && status != "suspended" && status != "running" {
+			return nil, todoControlUnavailable()
+		}
 		checks := mythicalChecksOf(child)
 		// Delivery, verification and review still own the child revision after
 		// coding has settled; folding must wait for those launches as well.

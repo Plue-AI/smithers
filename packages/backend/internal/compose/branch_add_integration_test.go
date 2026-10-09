@@ -40,7 +40,7 @@ func TestBranchAddComposedInstall(t *testing.T) {
 	}
 }
 func TestBranchDropRunningForkComposedInstall(t *testing.T) {
-	for _, phase := range []string{"running", "delivering", "verifying", "proposed"} {
+	for _, phase := range []string{"running", "delivering", "verifying", "proposed", "member-candidate"} {
 		t.Run(phase, func(t *testing.T) { runBranchAddComposed(t, "running-fork-drop-"+phase) })
 	}
 }
@@ -776,19 +776,35 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.NoError(t, err)
 		originalChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
 		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks || '{"run_launched":true}'::jsonb, request_outcome='' WHERE id IN ($1,$2)`, item.ID, confirmedItem.ID)
-		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2 WHERE id=$1`, item.ID, strings.Repeat("b", 64))
-		require.NoError(t, err)
-		phase := runningForkPhase
-		if phase != "running" {
-			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,request_outcome='validated',vibe_outcome='',verify_outcome='' WHERE id=$1`, confirmedItem.ID, phase)
+		if strings.HasPrefix(runningForkPhase, "member") {
+			// No agent is launched, but a member can still write through the
+			// awake workspace. A data-only fold cannot exclude those writers.
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, confirmed.ID)
 			require.NoError(t, err)
-		}
-		if phase == "proposed" {
-			_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2,candidate_head=$2,candidate_base=$3,checks=checks || jsonb_build_object('review',jsonb_build_object('head',$2::text,'candidate',$2::text,'runId','fork-review')) WHERE id=$1`, confirmedItem.ID, seed.Seed.Head, base)
+			if runningForkPhase == "member-candidate" {
+				// A retained candidate bypasses CapturedHead. It must not bypass
+				// the awake workspace's writer guard.
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_head=$2,candidate_base=$3 WHERE id=$1`, confirmedItem.ID, seed.Seed.Head, base)
+				require.NoError(t, err)
+			}
+		} else {
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=checks || '{"run_launched":true}'::jsonb, request_outcome='' WHERE id IN ($1,$2)`, item.ID, confirmedItem.ID)
 			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2 WHERE id=$1`, item.ID, strings.Repeat("b", 64))
+			require.NoError(t, err)
+			phase := runningForkPhase
+			if phase != "running" {
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,request_outcome='validated',vibe_outcome='',verify_outcome='' WHERE id=$1`, confirmedItem.ID, phase)
+				require.NoError(t, err)
+			}
+			if phase == "proposed" {
+				_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2,candidate_head=$2,candidate_base=$3,checks=checks || jsonb_build_object('review',jsonb_build_object('head',$2::text,'candidate',$2::text,'runId','fork-review')) WHERE id=$1`, confirmedItem.ID, seed.Seed.Head, base)
+				require.NoError(t, err)
+			}
 		}
+		beforeWorkspace, err := q.GetWorkspace(ctx, confirmed.ID)
+		require.NoError(t, err)
+		beforeRef := git("-C", store, "rev-parse", repohost.BranchHeadRef(confirmed.ID))
 		beforeSource, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
 		beforeChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
@@ -812,11 +828,19 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.NoError(t, err)
 		require.Equal(t, beforeSource, afterSource)
 		require.Equal(t, beforeChild, afterChild)
+		afterWorkspace, err := q.GetWorkspace(ctx, confirmed.ID)
+		require.NoError(t, err)
+		require.Equal(t, beforeWorkspace, afterWorkspace)
+		require.Equal(t, beforeRef, git("-C", store, "rev-parse", repohost.BranchHeadRef(confirmed.ID)))
 		var requestsAfter, eventsAfter int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests`).Scan(&requestsAfter))
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
 		require.Equal(t, requestsBefore, requestsAfter, "no cancellation admitted")
 		require.Equal(t, eventsBefore, eventsAfter, "no Drop or capture obligation recorded")
+		if strings.HasPrefix(runningForkPhase, "member") {
+			_, err = pool.Exec(ctx, `UPDATE workspaces SET status='stopped' WHERE id=$1`, confirmed.ID)
+			require.NoError(t, err)
+		}
 		// Restore ended attempts; the same composed Drop below is a positive
 		// control for folding the retained source and scratch bytes.
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3,flow_digest=$4 WHERE id=$1`, originalSource.ID, originalSource.Checks, originalSource.RequestOutcome, originalSource.FlowDigest)

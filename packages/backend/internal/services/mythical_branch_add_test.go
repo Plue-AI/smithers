@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -162,6 +163,31 @@ func TestDropFoldsSourceIntoAdoptedScratch(t *testing.T) {
 				require.EqualValues(t, 1, child.StackPosition.Int64)
 			} else {
 				require.EqualValues(t, 2, child.StackPosition.Int64)
+			}
+			if scenario == "unchanged" {
+				// The fold's row fence must keep a concurrent wake from publishing
+				// running state until this asleep rewrite transaction finishes.
+				tx, err := pool.Begin(ctx)
+				require.NoError(t, err)
+				defer tx.Rollback(context.WithoutCancel(ctx))
+				children, err := forkFoldChildren(ctx, tx, source)
+				require.NoError(t, err)
+				require.Len(t, children, 1)
+				wake, err := pool.Begin(ctx)
+				require.NoError(t, err)
+				defer wake.Rollback(context.WithoutCancel(ctx))
+				_, err = wake.Exec(ctx, "SET LOCAL lock_timeout='100ms'")
+				require.NoError(t, err)
+				_, err = wake.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
+				var locked *pgconn.PgError
+				require.ErrorAs(t, err, &locked)
+				require.Equal(t, "55P03", locked.Code)
+				require.NoError(t, wake.Rollback(ctx))
+				require.NoError(t, tx.Rollback(ctx))
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, workspace.ID)
+				require.NoError(t, err, "wake proceeds after the fold fence is released")
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, workspace.ID)
+				require.NoError(t, err)
 			}
 			if scenario == "steered" {
 				f.commit("Steer", "source.txt", "source latest\n")
