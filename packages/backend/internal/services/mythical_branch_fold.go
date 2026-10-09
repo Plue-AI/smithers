@@ -31,7 +31,9 @@ func forkFoldChildren(ctx context.Context, tx pgx.Tx, source db.MythicalItem) ([
 	}
 	for _, child := range children {
 		checks := mythicalChecksOf(child)
-		if checks.RunLaunched && child.RequestOutcome == "" {
+		// Delivery, verification and review still own the child revision after
+		// coding has settled; folding must wait for those launches as well.
+		if (checks.RunLaunched && child.RequestOutcome == "") || mythicalRunInFlight(child) {
 			return nil, todoControlConflict("Forked TODO is still working")
 		}
 		if checks.Seed == nil || !mythicalSHA.MatchString(checks.Seed.ForkCommit) || mythicalMergeFenced(child) {

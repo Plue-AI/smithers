@@ -40,7 +40,9 @@ func TestBranchAddComposedInstall(t *testing.T) {
 	}
 }
 func TestBranchDropRunningForkComposedInstall(t *testing.T) {
-	runBranchAddComposed(t, "running-fork-drop")
+	for _, phase := range []string{"running", "delivering", "verifying", "proposed"} {
+		t.Run(phase, func(t *testing.T) { runBranchAddComposed(t, "running-fork-drop-"+phase) })
+	}
 }
 
 func TestBranchScratchForkCardComposedInstall(t *testing.T) { runBranchAddComposed(t, "app-card-fork") }
@@ -69,7 +71,8 @@ func TestBranchFirstCaptureComposedInstall(t *testing.T) {
 func TestFreshForkCreatedThroughInstall(t *testing.T) { runBranchAddComposed(t, "fresh-fork") }
 func runBranchAddComposed(t *testing.T, remove string) {
 	configureNativeInstallFixture(t)
-	runningForkDrop := remove == "running-fork-drop"
+	runningForkPhase := strings.TrimPrefix(remove, "running-fork-drop-")
+	runningForkDrop := strings.HasPrefix(remove, "running-fork-drop-")
 	if runningForkDrop {
 		remove = ""
 	}
@@ -757,6 +760,15 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET flow_digest=$2 WHERE id=$1`, item.ID, strings.Repeat("b", 64))
 		require.NoError(t, err)
+		phase := runningForkPhase
+		if phase != "running" {
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,request_outcome='validated',vibe_outcome='',verify_outcome='' WHERE id=$1`, confirmedItem.ID, phase)
+			require.NoError(t, err)
+		}
+		if phase == "proposed" {
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET pr_head=$2,candidate_head=$2,candidate_base=$3,checks=checks || jsonb_build_object('review',jsonb_build_object('head',$2::text,'candidate',$2::text,'runId','fork-review')) WHERE id=$1`, confirmedItem.ID, seed.Seed.Head, base)
+			require.NoError(t, err)
+		}
 		beforeSource, err := q.GetMythicalItem(ctx, item.ID)
 		require.NoError(t, err)
 		beforeChild, err := q.GetMythicalItem(ctx, confirmedItem.ID)
@@ -789,7 +801,7 @@ func runBranchAddComposed(t *testing.T, remove string) {
 		// control for folding the retained source and scratch bytes.
 		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3,flow_digest=$4 WHERE id=$1`, originalSource.ID, originalSource.Checks, originalSource.RequestOutcome, originalSource.FlowDigest)
 		require.NoError(t, err)
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3 WHERE id=$1`, originalChild.ID, originalChild.Checks, originalChild.RequestOutcome)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=$2,request_outcome=$3,state=$4,pr_head=$5,candidate_head=$6,candidate_base=$7 WHERE id=$1`, originalChild.ID, originalChild.Checks, originalChild.RequestOutcome, originalChild.State, originalChild.PRHead, originalChild.CandidateHead, originalChild.CandidateBase)
 		require.NoError(t, err)
 	}
 	for range 2 {
