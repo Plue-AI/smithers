@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test"
+import { installConversationFixture } from "../../playwright/conversationFixture"
 import { showcase } from "../showcase"
 
 export default showcase({
@@ -7,16 +8,12 @@ export default showcase({
   title: "Chat",
   summary: "Ask in Chat; ⌥↵ queues a follow-up that sends when the turn ends.",
   flows: ["chat.send", "chat.queue"],
-  run: async ({ page, app, backend }) => {
-    // Hold the first turn open so the queue has something to wait behind.
+  run: async ({ page, app }) => {
+    // The install's shared conversation answers each prompt (the T1 Chat fixture); the first turn
+    // stays open so the queue has something to wait behind.
     let release = () => {}
     const held = new Promise<void>(resolve => { release = resolve })
-    let turns = 0
-    await backend.cloud()
-    await backend.route(url => /^\/api\/(?:agent|chat)\/turn$/.test(url.pathname), async route => {
-      if (turns++ === 0) await held
-      await route.continue()
-    })
+    await installConversationFixture(page, { holdFirstTurn: held })
     await app.open("/")
     await app.say("What does this repository do?")
     const user = page.locator('.smithers-chat-message[data-role="user"]')

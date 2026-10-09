@@ -52,7 +52,7 @@ export default showcase({
     await app.show(home)
     await app.beat(1500)
 
-    await app.slash(`/files.list / ${REPO}`)
+    await app.slash(`/files / ${REPO}`)
     const list = page.locator('[data-kind="file-list"]').last()
     await expect(list).toContainText("README.md")
     await app.closeComposer()
@@ -66,7 +66,7 @@ export default showcase({
     await app.beat(1500)
 
     await app.slash(`/branches ${REPO}`)
-    const branches = page.locator('[data-kind="branches"]').last()
+    const branches = page.getByRole("navigation", { name: "Branches", exact: true })
     await expect(branches).toContainText("main")
     await app.closeComposer()
     await app.show(branches)

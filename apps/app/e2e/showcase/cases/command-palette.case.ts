@@ -19,7 +19,7 @@ export default showcase({
     await expect(palette.locator('[role="option"]').nth(8)).toBeAttached()
     await app.beat(800)
     for (let step = 0; step < 5; step++) await app.press("ArrowDown")
-    await app.type(input, "/agent.li")
+    await app.type(input, "/agents")
     await app.beat(900)
     await app.press("Enter")
     const card = page.getByTestId("transcript").locator('.smithers-card[data-kind="agents"]')
