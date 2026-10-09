@@ -14,23 +14,30 @@ import { memoryStorage, silentAgent } from "./TestFixtures"
 const createAppController = scopedControllers()
 /* The Wiki (D-09b) and the mythical history (D-09 superseded) are core: no flag and no build variable hides them. */
 const wiki = ["wiki", "wiki.create", "wiki.open", "wiki.graph", "wiki.new-note", "search.wiki"]
-const core = ["history.show", "history.bootstrap", "search.history"]
+/* history.show went with the Stack card (40685f5ef3; flows/entries/home.test.ts pins its absence). */
+const core = ["history.bootstrap", "search.history"]
 
 describe("the Wiki is core", () => {
   test("every Wiki door registers with no feature and no environment flag", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const controller = createAppController(store, silentAgent, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "cloud"], authFlow: "credentials", sandbox: null } })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+    const controller = createAppController(store, silentAgent, {
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "cloud"], authFlow: "credentials", sandbox: null },
+      fetchImpl: async input => String(input).includes("/wiki?page=") ? Response.json([]) : Response.json({}, { status: 404 })
+    })
     expect(Object.keys(controller.features)).not.toContain("wiki")
     for (const name of core) expect(controller.commands.find(name)).toBeDefined()
-    expect(controller.commands.find("history.backfill")).toBeUndefined()
+    for (const name of ["history.show", "history.backfill"]) expect(controller.commands.find(name)).toBeUndefined()
     const callable = controller.commands.callable().map(entry => entry.binding.descriptor.name)
     for (const name of wiki) expect(controller.commands.find(name)).toBeDefined()
     for (const name of ["wiki", "wiki.open", "search.wiki"]) expect(callable).toContain(name)
     expect(recommendedNames(controller.commands.state())).toContain("wiki")
     expect(controller.searchPalette("wiki:").flow).toBe("search.wiki")
     expect(controller.searchPalette("?").help?.map(row => row.prefix)).toContain("wiki:")
+    // On an install the Wiki door lists the repository's Wiki (263c41d3d8), so it needs one loaded.
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "owner/repo", org: "owner", ownerKind: "user", name: "repo", head: null }] }).isPersisted.promise
     expect((await controller.commands.run("wiki")).status).toBe("executed")
-    expect(store.collections.cards.get("world-embedded")?.kind).toBe("world")
+    expect(store.collections.cards.get("wiki-index-owner/repo-public")?.kind).toBe("world")
   })
 
   test("runtime Wiki flows reach the identity guard, and Wiki refresh asks the stack, never a workspace flow", async () => {
@@ -130,9 +137,15 @@ describe("the copy the slash menu and the prompt carry", () => {
     expect(searchNamespace.summary).not.toMatch(/wiki|history/i)
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const controller = createAppController(store, silentAgent)
+    // mvp.md Appendix A names the Wiki in /search's copy, and the all-search reads Wiki pages, so the claim holds.
     const open = controller.commands.all().find(item => item.name === "search")
-    expect(open?.summary).toBeDefined()
-    expect(open?.summary).not.toMatch(/wiki|history/i)
+    expect(open?.summary).toBe("Search code, wiki and runs")
+    await store.dispatch({ type: "world.document.upserted", actor: "user", document: {
+      id: "release-notes", path: "Release notes.md", title: "Release notes", body: "", links: [], tags: [], sources: [], confidence: 1
+    } }).isPersisted.promise
+    const found = await controller.commands.run("search", "Release notes")
+    expect(found.status).toBe("executed")
+    expect(found.status === "executed" ? found.value : undefined).toContain("release-notes")
   })
 })
 

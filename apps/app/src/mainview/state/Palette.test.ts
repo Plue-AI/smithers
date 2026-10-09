@@ -97,7 +97,8 @@ describe("the retained Paper palette", () => {
       expect(store.session().palette).toBe("paper")
     }
     expect(controller.commands.find("code.hover")).toBeUndefined()
-    for (const name of ["wiki", "history.show", "browser.open", "chat.send"]) {
+    // `/stack` replaced the hidden history.show door (40685f5ef3).
+    for (const name of ["wiki", "stack", "browser.open", "chat.send"]) {
       expect(controller.commands.find(name)).toBeDefined()
     }
   })

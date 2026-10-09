@@ -94,12 +94,12 @@ describe("the slash menu is a tree", () => {
   test("Enter or ArrowRight on a namespace opens the branch; ArrowLeft returns to the top", async () => {
     const view = await mount()
     const recent = view.controller.store.session().recentCommands ?? []
-    await view.act(() => view.controller.changeDraft("/bro"))
-    // `/bro` offers the namespace row first.
-    expect(rows(view.host)[0]).toBe("browser/")
+    await view.act(() => view.controller.changeDraft("/sta"))
+    // `/sta` offers the namespace row first.
+    expect(rows(view.host)[0]).toBe("stack/")
     await press(view, "Enter")
-    expect(view.controller.store.session().draft).toBe("/browser.")
-    expect(rows(view.host)).toEqual(["browser.open"])
+    expect(view.controller.store.session().draft).toBe("/stack.")
+    expect(rows(view.host)).toEqual(["stack.move"])
     // Nothing ran: opening a branch is a draft edit.
     expect(view.controller.store.session().recentCommands ?? []).toEqual(recent)
     await press(view, "ArrowLeft")

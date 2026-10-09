@@ -87,7 +87,9 @@ test("a refused Chat action keeps its notice through cleanup and background work
     const notice = t.controller.privacyNotices.get("toast-privacy-write")
     expect(notice?.title).toBe("Not saved")
     t.release.resolve(); await t.changing
-    expect((await t.controller.commands.runAsAgent("account.show")).status).toBe("executed")
+    // Background work: the agent's own durable act (account.show became person-only in 263c41d3d8).
+    expect((await t.controller.commands.runAsAgent("help")).status).toBe("executed")
+    expect(t.store.collections.cards.get("commands")?.kind).toBe("commands")
     expect(t.controller.privacyNotices.get("toast-privacy-write")).toEqual(notice)
     expect(t.store.session().paletteOpen).not.toBe(true)
     expect((await t.controller.commands.run("chat.open")).status).toBe("executed")
