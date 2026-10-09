@@ -29,6 +29,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "access_issue_comment_authorization_integration_test.go",
+    "tests": [
+      "TestAccessIssueCommentProfilesComposedPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "access_machine_head_authorization_integration_test.go",
     "tests": [
       "TestAccessMachineHeadGrantsComposedPostgres"

@@ -156,9 +156,34 @@ func TestAccessChildrenGrantMatrixComposedPostgres(t *testing.T) {
 					call(t, actor{"machine", machine}, "POST", parent.ID+"/children/"+target.ID+"/stop", "workspace.children.stop", 403)
 				})
 			}
+
+			// An exact named grant is insufficient when stored ancestry or
+			// sponsorship changes. Mutate one fact at a time and restore it;
+			// refused stops must preserve both receipt and workspace state.
+			foreignUser := f.owner.ID
+			if foreignUser == user.ID {
+				foreignUser = f.other.ID
+			}
+			for _, cell := range []struct {
+				name, mutate, restore string
+				args, restoreArgs     []any
+			}{
+				{"child-other-sponsor", `UPDATE workspaces SET user_id=$2 WHERE id=$1`, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, []any{child.ID, foreignUser}, []any{child.ID, user.ID}},
+				{"child-without-parent", `UPDATE workspaces SET parent_workspace_id=NULL WHERE id=$1`, `UPDATE workspaces SET parent_workspace_id=$2 WHERE id=$1`, []any{child.ID}, []any{child.ID, parent.ID}},
+				{"child-other-parent", `UPDATE workspaces SET parent_workspace_id=$2 WHERE id=$1`, `UPDATE workspaces SET parent_workspace_id=$2 WHERE id=$1`, []any{child.ID, other.ID}, []any{child.ID, parent.ID}},
+				{"parent-other-sponsor", `UPDATE workspaces SET user_id=$2 WHERE id=$1`, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, []any{parent.ID, foreignUser}, []any{parent.ID, user.ID}},
+				{"parent-deleted", `UPDATE workspaces SET deleted_at=now() WHERE id=$1`, `UPDATE workspaces SET deleted_at=NULL WHERE id=$1`, []any{parent.ID}, []any{parent.ID}},
+			} {
+				t.Run("stored-binding/"+cell.name, func(t *testing.T) {
+					_, err = f.pool.Exec(f.ctx, cell.mutate, cell.args...)
+					require.NoError(t, err)
+					defer func() { _, err := f.pool.Exec(f.ctx, cell.restore, cell.restoreArgs...); require.NoError(t, err) }()
+					call(t, actor{"machine", machine}, "POST", parent.ID+"/children/"+child.ID+"/stop", "workspace.children.stop", 403)
+				})
+			}
 			call(t, actor{"machine", machine}, "GET", other.ID+"/children", "workspace.children.list", 403)
 		})
 	}
-	require.Equal(t, 105, cells)
+	require.Equal(t, 120, cells)
 	t.Logf("hidden children grants: %d composed HTTP cells; guest execution remains unqualified", cells)
 }
