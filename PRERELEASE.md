@@ -1,8 +1,8 @@
 # Prerelease status
 
 ```
-Updated       2026-10-08 17:47 PDT
-main          2d1f60faf0 when written
+Updated       2026-10-08 17:50 PDT
+main          dd4042aeeb when written
 
 Publish       CANNOT PUBLISH YET. Dry run #7 failed in the smoke. Fix and #8 pending.
 Real install  RUNNING on this MacBook, bundle built here from 3fc44ee1e8.
@@ -11,30 +11,27 @@ Real install  RUNNING on this MacBook, bundle built here from 3fc44ee1e8.
               in PostgreSQL for 15 minutes. Fixed on main, 2d1f60faf0 (17:37
               PDT). Not yet proven: the fix is going into the local bundle now.
               No TODO has reached a pull request on a real install.
-Broken        1. A stalled machine start shows "Starting" on Home with no Retry
-                 until its 15-minute deadline.
-              2. During a machine start, a chat view save can answer 503 and a
+Broken        1. A stalled machine start shows "Starting" on Home, with no Retry
+                 for 15 minutes.
+              2. During a machine start a chat view save can answer 503 and a
                  sign-in can wait (#3759).
-              3. A machine start misses a workspace deleted while it is being
-                 admitted (#3759).
-              4. The bundle README's setup-link format differs from what
-                 `host start` prints.
+              3. A machine start misses a workspace deleted meanwhile (#3759).
+              4. The bundle README's setup-link format differs from start's output.
 Fixed on main Unverified on a real install until a rebuilt bundle runs: the
               setup card hidden through the first four steps (c5120a5856), the
               stale sign-in cookie (9a218b7f68), the joined words in Model
               access and raw JSON on reopening /setup (88b768b019).
 Real machine  The machine daemon works in a real VM on main (99a4356a1a).
 Journeys      Last full pass, main 70d75088ef: 10 of 11 have no failed row, on
-              Linux fixtures. Red: J10 row 6. On c5120a5856: J1 to J6 have no
-              failed row; J7 failed rows 16, 18, 19, 20, then passed 19/0/2 on
-              its second attempt. J7 and J10 are rerunning on current main
-              since 17:44 PDT.
+              Linux fixtures. Red: J10 row 6. On c5120a5856, J1 to J6 have no
+              failed row; J7 failed four rows, then passed its second attempt.
+              J7 and J10 are rerunning on current main since 17:44 PDT.
 Doneish       No. It needs the install run to take a TODO to a merged PR, and
               all 11 journeys passing on one commit.
 Dry runs      Version 1.0.0-rc.1. None is green. #7 37862357655 on 4556117406
               failed in the smoke at the CLI containment check, on the Linux
-              runner only; every earlier check passed. Being reproduced on
-              Linux. The four installed-CLI jobs have not run in any Release run.
+              runner only; every earlier check passed. The four installed-CLI
+              jobs have not run in any Release run.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release. (smithers-8a read it at 86881fe0d0.)
@@ -53,13 +50,12 @@ Needs Will    Now: nothing required. Optional: say yes to using your model keys
 
 ## 1. What works
 
-**On a real install.** This MacBook, production launcher, bundle built here from 3fc44ee1e8. Source: the install run's reports at 16:37 and 16:57 PDT.
+**On a real install.** This MacBook, bundle built here from 3fc44ee1e8. Source: the install run's reports through 17:46 PDT.
 
 - With 39.19 GiB free, `./bin/smthrs host start --bundle .` refuses once: `host_capacity_zero ... 44 GiB required`. No restart loop.
 - With 44.77 GiB free it starts (16:18 PDT). `host status` reads ready and `/readyz` answers 200.
-- Setup steps done: address, GitHub App on the test account, owner sign-in (16:34 PDT), repository (16:49 PDT; the App is on `codeplanesmithers/canary-sandbox` only).
-- Model access is reached (16:50 PDT) with no key entered. Steps pending: models, source, machine.
-- The setup card appears from Model access on. The first four steps were sent as the card's requests from the browser, because the card stayed hidden until an owner session existed.
+- All seven setup steps are done (16:55 PDT): address, GitHub App, owner sign-in, repository, models, source, machine.
+- A TODO can be created (T1, 16:57 PDT). It did not get a machine (section 3).
 
 **In a real VM.** At 99a4356a1a the machine daemon starts, admits its session and lands reads and writes, and the agent's git and jj work afterwards. A development run on this MacBook, no workarounds (Detail B).
 
@@ -81,6 +77,8 @@ J11    19    0     0     inspect a merged TODO's run
 All   187    1    33
 ```
 
+On c5120a5856 the board has J1 to J6 with the same counts. J7's first attempt failed rows 16, 18, 19 and 20: a rebase stayed pending after `main` moved. Its second attempt passed 19/0/2. J7 and J10 are rerunning on current main since 17:44 PDT.
+
 ## 2. Off
 
 Two features ship switched off because of a known hole (ruled by smithers-8a).
@@ -94,27 +92,28 @@ Two features ship switched off because of a known hole (ruled by smithers-8a).
 
 ### Real install
 
-Found by the install run on this MacBook. Still broken, each with a lane:
+| | Defect | State |
+|---|---|---|
+| 1 | A machine start that stalls shows "Starting" on Home with no Retry until its 15-minute deadline. The queued "Refresh wiki" row has no button unless it has failed. | Open |
+| 2 | During a machine start, a chat view save can answer 503 and a sign-in can wait. Member rows stay locked for the whole start. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
+| 3 | A machine start does not notice a workspace deleted while it is being admitted. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
+| 4 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | Open |
 
-| | Defect |
-|---|---|
-| 1 | The setup card's Model access line reads "Not signed incoding model". |
-| 2 | `GET /setup` shows raw JSON to a signed-in owner. |
-| 3 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. |
-
-Fixed on main, not yet proven on a real install. Each needs a bundle built after 9a218b7f68; the running install's bundle predates them.
+Fixed on main, unverified on a real install until a rebuilt bundle runs:
 
 | | Defect | Fix |
 |---|---|---|
-| 4 | A fresh install's setup link showed no setup card. A regression from c818f8df41. | c5120a5856 (16:31 PDT). Passes a Linux browser test. |
-| 5 | The app's sign-in path `/api/auth/github/start` answered 404 on an install. `/api/auth/github` works. | 9a218b7f68 (16:43 PDT): app, setup and CLI use `/api/auth/github`. Passes on a Linux install. |
-| 6 | A `smithers_session` cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68: token exchange clears the member cookie. Passes on a Linux install. |
+| 5 | Every first machine start blocked itself in PostgreSQL for 15 minutes, so T1 never got a machine. | 2d1f60faf0 (17:37 PDT). Going into the local bundle now. |
+| 6 | The setup card stayed hidden through the first four setup steps. | c5120a5856 |
+| 7 | The app's sign-in path answered 404 on an install. | 9a218b7f68 |
+| 8 | A sign-in cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68 |
+| 9 | Model access read "Not signed incoding model". Reopening `/setup` after setup closed showed raw JSON. | 88b768b019 |
 
 ### Journey rows
 
-Lane fr18's Linux reruns pass: J10 36/0/4, J7 19/0/2 and J4 23/0/2. J10's next TODO follows a person's merge, keeps its PR, becomes ready with only its own change, and the person merges it. Retry recovers after the outage. The runs used ed7fc41f3a plus the journey correction landed in 50a1a5eb91: the merge assertion reads actual mirrored main through the bookmark API; the stack's fold checkpoint can lag it. The composed browser Rebase now proof also passes. Pending rows and real Mac/microVM acceptance remain unverified.
-
-A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so far. `source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal now names its reason (7a2c228bfa, a64960b9c3). The rows fixed today: Detail G.
+- **J10 row 6** was red on the last full board pass (70d75088ef): sync stayed stale 10 s after Retry. Lane fr18's Linux reruns pass J10 36/0/4 with be293254c0, 5e1bc3c020 and 50a1a5eb91. The board has not rerun J10 on current main yet.
+- **J7** failed rows 16, 18, 19 and 20 on its first attempt at c5120a5856 and passed its second. Rerunning on current main.
+- `source_refused` is fixed (f9d3b72e29, ba1a27bc91), and each refusal names its reason (7a2c228bfa, a64960b9c3). Rows fixed today: Detail G.
 
 ### Real VM
 
@@ -122,22 +121,23 @@ A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so f
 
 ### Release
 
-- No Release run has passed the installed-package smoke. That script could not load from 10-01 until today, so its fixed expectations went stale. Dry runs #3, #4 and #5 each failed on one (fixed in 0489b1c08c, a3e6ac767e and 06209aa7b1). The release agent now runs build, pack and smoke locally, in about 7 minutes, to find the rest before CI does.
+- No Release run has passed the installed-package smoke. Dry runs #3, #4 and #5 each failed on one stale fixture. Dry run #7 passed install, 49 imports, public API and history, then failed at the CLI containment check on the Linux runner: "Invalid fixture PID: 1", then a kill of PID 2 refused. Reading: the test records a process ID from inside the tool's own process namespace and treats it as a host ID. It is being reproduced on Linux.
 - The smoke found a product bug: `smithers-build` (`@smthrs/build-cli`) could not start in any installed project since #3093. Fixed in 06209aa7b1.
 
 ## 4. Unverified
 
-- **TODO to merged PR on the real install: not yet run.** The install has reached Model access. Remaining:
-  1. Restart the same bundle and state under the test launcher with the scripted model, then take a TODO to a merged PR. The production launcher cannot reach the scripted model, by design.
+- **TODO to merged PR on the real install: not yet run.** No TODO has reached a pull request on a real install. Remaining:
+  1. Run the install on a bundle rebuilt with 2d1f60faf0, then take a TODO to a merged PR with the scripted model.
   2. A TODO with a real model under the production launcher, only if Will says yes to using his keys. Not received.
-- **Three install fixes on main** (the setup card, the sign-in path, the stale cookie) have not run on a Mac. They need a bundle built after 9a218b7f68.
-- **Not yet exercised in a real VM:** the coding agent started as a daemon session, member terminals, capture, sleep and wake. 3fc44ee1e8 landed after the proof at 99a4356a1a.
-- **The real-machine fixes** await smithers-3f's review (Detail B). For `/run` on tmpfs (88e7f6521c), the 64 MiB size is not verified and machines created earlier keep the old flags.
-- **Disk per machine.** Measured in a real VM: one running machine holding the Smithers repository uses 0.74 GiB of host disk, and a TODO-sized commit adds 7.4 MiB. A working machine with dependencies installed is estimated at about 15 GiB; not measured.
-- **Waiting on smithers-3f** (Detail E): three questions on guest helper change b596ce787b; learning machine isolation (T-FLW-06), which also has no real-machine run; delta reviews of machine daemon wire protocols 7 to 12.
-- **Mac mini and Cloud.** Nothing has run on the Mac mini. Smithers Cloud admits no TODO (`packages/backend/internal/compose/main.go:1370-1377`) and its Smithers pin is about 2,000 commits behind main.
+- **API baseline drift on `@smthrs/cli`** is unreviewed. The Release run reports it and does not block on it.
+- **The four installed-CLI jobs** have not run in any Release run.
+- **Not yet exercised in a real VM:** the coding agent as a daemon session, member terminals, capture, sleep and wake.
+- **The eight real-machine fixes** await smithers-3f's review (Detail B).
+- **Disk per machine.** Measured: 0.74 GiB for a running machine holding the Smithers repository. A working machine with dependencies installed is estimated at about 15 GiB; not measured.
+- **Waiting on smithers-3f** (Detail E): three guest-helper questions, learning machine isolation (T-FLW-06), and wire protocols 7 to 12.
+- **Mac mini and Cloud.** Nothing has run on the Mac mini. Smithers Cloud admits no TODO (`packages/backend/internal/compose/main.go:1370-1377`).
 - **80 tickets** have code on main and no real-machine run (Detail C). 33 journey rows are pending (Detail A).
-- **Sign-offs and the Mac mini schedule** serve Done, not this prerelease. No sign-off is done: Will (T-DOC-02, T-DOC-03), smithers-06, smithers-3f, smithers-22, smithers-8a, smithers-38. The schedule (192 runs, about 117 hours) is stopped.
+- **Sign-offs and the Mac mini schedule** serve Done, not this prerelease. No sign-off is done and the schedule is stopped.
 
 ## 5. Not in this prerelease
 
@@ -149,22 +149,13 @@ A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so f
 
 ## 6. Publish
 
-**Cannot publish yet.** No dry run is green. Dry run #6 reaches the smoke test about 17:10 PDT. Source: `~/smithers-lanes/release/STATE.md`, updated 16:20 PDT.
+**Cannot publish yet.** No dry run is green. The fix for #7 and dry run #8 are pending. Sources: `~/smithers-lanes/release/STATE.md` (updated 17:02 PDT) and the lead's report at 17:46 PDT.
 
-### Dry runs
-
-| # | Run | Result |
-|---|---|---|
-| 1 | 37837413419 | Failed. Stale changelog section. The Mac bundle built, then the upload found no files (hidden directory, fixed in 86881fe0d0). |
-| 2 | 37842512795 | Old workflow. The bundle upload failed the same way. |
-| 3 | 37843714479 | Build and pack passed. The installed-package smoke failed on a removed import (fixed in 0489b1c08c). Delivered the first Mac bundle artifact. |
-| 4 | 37846701537 | Build and pack passed. The smoke failed one fixture further, on a stale migration list (fixed in a3e6ac767e). Delivered a Mac bundle artifact. |
-| 5 | 37858229125 | The smoke failed at 16:39 PDT: a fixture imported `@effect/platform-node`, which installed projects no longer have (fixed in 06209aa7b1). |
-| 6 | 37860903519 | Running on 06209aa7b1 since 16:42 PDT. Smoke test about 17:10 PDT. |
+Every dry run and why it failed: Detail H.
 
 ### Before the tag
 
-1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #6 is the next that can be.
+1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #8 is the next that can be.
 2. A final cut lands tonight on top of the real-machine, disk floor and install-run fixes. Every commit after a cut makes its changelog section stale.
 3. One last dry run passes on that commit.
 4. The tag goes on that commit.
@@ -173,10 +164,9 @@ A pass is running on c5120a5856: J1 21/0/0, J2 14/0/0, J3 14/0/5, J4 23/0/2 so f
 
 1. The publish step runs for the first time on the tag. No dry run can run it.
 2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (run 37840712277). Whether it may create the 37 new `@smthrs/*` names could not be determined (run 37844231677). If it may not, the publish stops at the first package, `@smthrs/canonical`, and nothing reaches `next`. The fix takes minutes and needs Will: Detail F.
-3. The four installed-CLI jobs have never run in a dry run. They run after the build, pack and smoke lane, which has not passed yet.
-4. `host start --bundle` works on this MacBook with a bundle built here. The download commands below have not been run against a Release run's artifact.
-5. This MacBook's `gh` token cannot push workflow files; the lead pushes those from a server. Whether it can push the tag: not checked. `gh auth refresh -h github.com -s workflow` removes the doubt.
-6. 104 release script tests fail on main (pack-release, release-gates, installer-release). Cause: not checked.
+3. The four installed-CLI jobs have not run in any Release run. Since 184c226a80 they start when the build, pack and smoke lane ends, about 55 minutes into a run, instead of after the report-only gates, which take hours.
+4. The download commands below have not been run against a tag run's artifact.
+5. This MacBook's `gh` token cannot push workflow files. Whether it can push the tag: not checked. `gh auth refresh -h github.com -s workflow` removes the doubt.
 
 ### Commands
 
@@ -314,3 +304,13 @@ Earlier rows are green on the full pass at 70d75088ef. The newer lane fr18 rerun
 | J10 | 6 Retry after an outage | Sync stayed stale after Retry. | be293254c0, 5e1bc3c020; fresh 0 s after Retry in the lane rerun. |
 | J7 | 15 Drop T2 | A dropped TODO kept its machine after 60 s. | 09e889efce |
 | J4 | 17 T2 ready after T1 merges | T2's PR still contained T1's file. | Green on the board. Fix commit: not checked. |
+
+### H. Dry runs
+
+| # | Run | Result |
+|---|---|---|
+| 1, 2 | 37837413419, 37842512795 | Old workflow. Stale changelog section; the Mac bundle upload found no files (fixed in 86881fe0d0). |
+| 3, 4, 5 | 37843714479, 37846701537, 37858229125 | Build and pack passed. Each failed the installed-package smoke on one stale fixture (fixed in 0489b1c08c, a3e6ac767e, 06209aa7b1). #3 and #4 delivered the first Mac bundle artifacts. |
+| 6 | 37860903519 | Cancelled before its smoke; superseded. |
+| 7 | 37862357655 | On 4556117406. Mac bundle and native helpers passed. The smoke failed at the CLI containment check, on the Linux runner only. |
+| 8 | pending | Waits for the containment fix. |
