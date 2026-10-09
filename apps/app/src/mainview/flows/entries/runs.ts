@@ -152,7 +152,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, sourceCard }) => actions.rerunRun(runId, sourceCard)
   }),
   flow({
-    name: "runs.signal", visibility: "in-card", hidden: true, discloseToAgent: false,
+    name: "runs.signal", visibility: "hidden", hidden: true, discloseToAgent: false,
     confirm: "release the run's wait with a signal",
     summary: "Deliver a named signal to a waiting run",
     runtime: ["cloud"],

@@ -156,7 +156,7 @@ C-COL-05 also has a passing projection for the mounted Branch Files panel:
 no changed rows before a write, and Alice's presence opens readable file content
 by keyboard and retains it across reload. Watcher faults remain fixme.
 
-| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); Appendix B Cut registry/catalog regression passes | T-CUT-01, T-CUT-03 |
+| C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts), [deferred doors](../../real/mvp-deferred-doors.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); authenticated composed-install Chromium deferred-door journey passes on Linux (2026-10-09; real PostgreSQL, native repository and production model host with loopback GitHub/provider); 39 registry/generated-catalog parity tests pass; packaged Mac qualification pending | T-CUT-01, T-CUT-03 |
 | C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts), [authenticated journey](../../real/cut-history.spec.ts) | passing on Linux (2026-10-07): composed install, real authentication/PostgreSQL/native repository, Chromium reload, seven cut titles beside File/Run, member isolation and actual packaged-host model endpoint capture; browser-only archives remain covered | T-CUT-04 |
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | install REST/live seam: question and completed evidence survive reload, keyed Answer; host/database crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | install REST/live seam: explicit TODO and Run Retry, reload retains interrupted evidence; reference microVM crash receipt separate | T-FLW-09, T-REL-04 |

@@ -54,8 +54,8 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     handler: ({ workspaceId, confirmName }) => actions.deleteWorkspace(workspaceId, confirmName)
   }),
   flow({
-    /* The card's body tab: showing a facet is how the agent answers "show me the files" too (.specs/engineering/spec.md §6.1). */
-    name: "box.facet", visibility: "in-card", hidden: true, discloseToAgent: false,
+    /* Retained Machine card navigation is deferred with the card. */
+    name: "box.facet", visibility: "hidden", hidden: true, discloseToAgent: false,
     form: { fields: { workspaceId: { optionsFrom: "workspaces" } } },
     summary: "Switch a box card's facet",
     runtime: ["cloud"],

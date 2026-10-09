@@ -1741,6 +1741,12 @@ test("deferred surfaces are absent from slash, palette/help and agent discovery"
     "box.facet", "box.egress", "box.services", "box.images", "egress.allow", "egress.session", "runs.signal",
     "prs.review", "review.request", "review.unrequest", "review.since-mine", "review.done", "review.ack",
     "review.reopen", "issue.repro", "issue.poc", "issue.add-flow", "issue.flows"]
+  // The install model host consumes generated metadata, not the browser registry.
+  const { generateCatalog } = await import("../../../../../scripts/catalog-mvp")
+  const generated = generateCatalog()
+  expect(generated.filter(entry => forbidden.includes(entry.name) && entry.visibility !== "hidden").map(entry => entry.name)).toEqual([])
+  for (const name of ["box.facet", "runs.signal"])
+    expect(generated.find(entry => entry.name === name)?.visibility, name).toBe("hidden")
   for (const bootstrap of [undefined, { apiVersion: 1 as const, host: "cloud" as const, version: "test", buildSha: "test",
     capabilities: [...RuntimeCapabilitySchema.options], authFlow: "both" as const, sandbox: null }]) {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
