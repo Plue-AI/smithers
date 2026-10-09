@@ -651,7 +651,9 @@ const ci = Smithers.GithubCiGen({
             ".github/workflows/native-windows.yml",
             ".github/workflows/mirror-sync.yml",
             ".github/workflows/drift.yml",
-            ".github/workflows/reference-host.yml"
+            ".github/workflows/reference-host.yml",
+            ".github/workflows/trusted-drift.yml",
+            ".github/workflows/trusted-setup-validation.yml"
           ]
         })
       }),
