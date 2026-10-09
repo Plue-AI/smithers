@@ -127,8 +127,11 @@ Fixed on main, unverified on a real install until a rebuilt bundle runs:
 
 ### Release
 
-- No Release run has passed the installed-package smoke yet. Dry run #7's failure was a test bug: the smoke fixture read a process ID from inside a PID namespace. Fixed in 5e83665567. With it the whole smoke passed on Linux outside CI: 49 tarballs, both MCP handshakes, 20 consumer profiles, 0 failures.
+- Nothing that can block the release is red. Dry run #8 passed every blocking job: build, pack, the installed-package smoke, the Mac bundle and the four installed-CLI jobs.
+- Its gates report red and do not block a prerelease: workspace targets, script gates, repository flows and their lint, public export JSDoc, script lint, UI unit tests and conformance, the TUI suites, the mode matrix, server, site, factory projection drift, native FFI, the fault matrix, the flows_jj.wasm rebuild, the shared backend suite, and the API baseline for `@smthrs/cli`. Run 37843714479 lists them.
+- The gates take more than 330 minutes on a hosted runner, the job's limit. Since aab381def5 the gates lane ends its gates at 290 minutes and reports the rest as failed. Step timeouts or parallel gates come after the prerelease.
 - The smoke found a product bug: `smithers-build` (`@smthrs/build-cli`) could not start in any installed project since #3093. Fixed in 06209aa7b1.
+- Fault tests case03 and case31 read a process ID from inside a PID namespace, as the smoke fixture did before 5e83665567. They cannot pass on Linux until changed the same way.
 
 ## 4. Unverified
 
@@ -156,50 +159,70 @@ Fixed on main, unverified on a real install until a rebuilt bundle runs:
 
 ## 6. Publish
 
-**Cannot publish yet.** No dry run is green, and a released bundle cannot run a TODO until the machine admission fix is on main (section 3). Dry run #8 is running on 5e83665567 since 18:04 PDT: native helpers green; build, pack and smoke running. No result yet.
+**Cannot publish yet.** Every job that can block is green on dry run #8 (37867965100, commit 5e83665567). Two things remain: a released bundle cannot run a TODO until the machine admission fix is on main (section 3), and the final cut with its own dry run.
 
 Every dry run and why it failed: Detail H.
 
 ### Before the tag
 
-1. A dry run is green: build, pack, smoke, the bundle upload and the four installed-CLI jobs. #8 is the next that can be.
-2. A final cut lands tonight on top of the real-machine, disk floor and install-run fixes. Every commit after a cut makes its changelog section stale.
-3. One last dry run passes on that commit.
-4. The tag goes on that commit.
+1. The fixes in section 3 land. Then the final cut: `~/smithers-lanes/release/final-cut.sh 1.0.0-rc.1`. Every commit after a cut makes its changelog section stale, so the cut is the last commit before the tag.
+2. One last dry run passes its blocking jobs on that commit. About 55 minutes.
+3. The tag goes on that commit.
+
+### What a tag push runs
+
+| Job | On `v1.0.0-rc.1` | Proven by |
+|---|---|---|
+| Mac server bundle | Runs. Uploads `server-bundle-darwin-arm64`. | Dry runs #3, #4, #7, #8 |
+| Native helpers, 4 platforms | Run. | Every dry run |
+| Build, pack, smoke, publish | Runs. Publishes 49 packages to npm under `next`. `latest` stays 0.35.0. | Build, pack and smoke: #8. The publish step runs first on the tag. |
+| Gates | Run for hours, report red, cannot fail the run. | #3 to #8 show the lane red beside a live run. A finished run: not seen yet. |
+| Installed CLI, 4 platforms | Run when the build, pack and smoke lane is green. | #8, all four |
+| Installer signing | Does not run for a suffixed version. | The job's condition |
+| Homebrew bottle and tap | Does not run for a suffixed version. | The job's condition |
+
+No GitHub Release is created. The bundle has no public download: it is the run's artifact.
 
 ### Known risks
 
 1. The publish step runs for the first time on the tag. No dry run can run it.
-2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (run 37840712277). Whether it may create the 37 new `@smthrs/*` names could not be determined (run 37844231677). If it may not, the publish stops at the first package, `@smthrs/canonical`, and nothing reaches `next`. The fix takes minutes and needs Will: Detail F.
-3. The four installed-CLI jobs have not run in any Release run. Since 184c226a80 they start when the build, pack and smoke lane ends, about 55 minutes into a run, instead of after the report-only gates, which take hours.
-4. The download commands below have not been run against a tag run's artifact.
-5. This MacBook's `gh` token cannot push workflow files. Whether it can push the tag: not checked. `gh auth refresh -h github.com -s workflow` removes the doubt.
+2. 37 of the 49 npm names are new to npm. The `NPM_TOKEN` login is valid today (runs 37840712277, 37844231677). Whether it may create new `@smthrs/*` names could not be determined. If it may not, the publish stops at the first package, `@smthrs/canonical`, which is new, and nothing is published. Fix and resume: Detail F.
+3. No finished run has yet ended green with a red gates lane. #8 shows it when its gates end.
+4. This MacBook's `gh` token cannot push workflow files. Whether it can push the tag: not checked. The first command below removes the doubt.
 
 ### Commands
 
-Publish, after the last dry run is green:
+Last dry run, after the final cut prints its commit:
+
+```sh
+GH_SHIM=off env -u GH_TOKEN -u GITHUB_TOKEN gh workflow run release.yml --repo smithersai/smithers \
+  --ref main -f releaseTag=v1.0.0-rc.1 -f sourceRef="$SHA" -F dryRun=true
+```
+
+Publish, after that dry run's blocking jobs are green:
 
 ```sh
 cd ~/smithers
-SHA=<full SHA of the final cut>   # STATE.md names it
+gh auth refresh -h github.com -s workflow   # once, 1 minute
+SHA=<full SHA of the final cut>             # STATE.md names it
 git fetch origin main
 git tag -a v1.0.0-rc.1 -m "🔖 release: 1.0.0-rc.1" "$SHA"
-git push origin v1.0.0-rc.1       # this publishes to npm under `next`
-npm view smthrs dist-tags         # expect next = 1.0.0-rc.1, latest = 0.35.0
+git push origin v1.0.0-rc.1                 # this publishes to npm under `next`, about 45 minutes later
+npm view smthrs dist-tags                   # expect next = 1.0.0-rc.1, latest = 0.35.0
 ```
 
 Try it, on a Mac with 44 GiB free. Use a macOS account with no Smithers state. Have GitHub repository admin access, a provider key and an AI Gateway key ready.
 
 ```sh
 npm install -g smthrs@next                     # after the tag run publishes
-RUN=<the tag's Release run id>                # today: 37846701537, dry run #4's bundle
+RUN=<the tag's Release run id>                # today: 37867965100, dry run #8's bundle
 gh run download "$RUN" --repo smithersai/smithers -n server-bundle-darwin-arm64 -D ~/smithers-bundle/download
 mkdir -p ~/smithers-bundle/1.0.0-rc.1
 tar -xzf ~/smithers-bundle/download/smithers-server.tar.gz -C ~/smithers-bundle/1.0.0-rc.1
-smthrs host start --bundle ~/smithers-bundle/1.0.0-rc.1   # prints the setup link
+smthrs host start --bundle ~/smithers-bundle/1.0.0-rc.1   # prints the setup links, one per line
 ```
 
-Keep the unpacked directory in place: the service runs from it. If the Release run fails after some packages published, do not re-run it. Resume it: Detail F.
+Keep the unpacked directory in place: the service runs from it. The bundle carries its own CLI, so `./bin/smthrs host start --bundle .` inside it works without npm. If the Release run fails after some packages published, do not re-run it. Resume it: Detail F.
 
 ## Detail
 
@@ -320,4 +343,4 @@ All are green on the full board pass at c5120a5856.
 | 3, 4, 5 | 37843714479, 37846701537, 37858229125 | Build and pack passed. Each failed the installed-package smoke on one stale fixture (fixed in 0489b1c08c, a3e6ac767e, 06209aa7b1). #3 and #4 delivered the first Mac bundle artifacts. |
 | 6 | 37860903519 | Cancelled before its smoke; superseded. |
 | 7 | 37862357655 | On 4556117406. Mac bundle and native helpers passed. The smoke failed at the CLI containment check on the Linux runner: a test bug, fixed in 5e83665567. |
-| 8 | 37867965100 | On 5e83665567, dispatched 18:04 PDT. Native helpers green. Build, pack and smoke running. The first run that can show the four installed-CLI jobs. |
+| 8 | 37867965100 | On 5e83665567. Every blocking job green by 18:51 PDT: native helpers, build, pack ("clean"), the whole smoke ("49 tarballs install, import, and typecheck"), the four installed-CLI jobs, the Mac bundle (artifact 11590976234, 778 MB). Gates lane still running, red, report-only. |
