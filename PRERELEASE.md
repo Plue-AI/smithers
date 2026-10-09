@@ -103,7 +103,6 @@ None of these is fixed on main.
 
 | | Defect | State |
 |---|---|---|
-| 1 | **A TODO cannot run on a real install.** The first machine finishes loading the catalog and then cannot be retired: a process stays alive in its writers group and the final capture check refuses. It keeps the install's only machine, and the TODO waits for a machine forever. The log shows only "microVM isolation is unavailable … EOF". Found 18:58 PDT. | Fix in progress. Until it lands, a released bundle cannot run a TODO. |
 | 2 | The queued "Refresh wiki" row has no button unless it has failed. | Open |
 | 5 | During a machine start, a chat view save can answer 503 and a sign-in can wait. Member rows stay locked for the whole start. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
 | 6 | A machine start does not notice a workspace deleted while it is being admitted. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
@@ -113,6 +112,7 @@ Fixed on main, unverified until a fresh install built from main, with no local p
 
 | | Defect | Fix |
 |---|---|---|
+| 1 | The catalog machine could not retire, holding the only slot while a TODO waited. Final capture counted the permanently running broker and daemon as writers; logs lost the helper's refusal. | 1ff8afef7e keeps verified control processes runnable while fencing writers, preserves the helper diagnostic, and names unknown-writer refusals. Composed stop-confirmation and guest-layout regressions pass; exact-commit real microVM confirmation awaits the Mac. |
 | 8 | No agent, member terminal or actor could be admitted to a branch machine. Tests and journeys passed because their fixtures set the fields by hand. | 1b4f32941e. The security owner accepted it at 18:55 PDT. |
 | 9 | The setup card stayed hidden through the first four setup steps. | c5120a5856 |
 | 10 | The app's sign-in path answered 404 on an install. | 9a218b7f68 |
