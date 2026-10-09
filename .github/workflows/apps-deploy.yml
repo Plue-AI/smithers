@@ -32,11 +32,13 @@ jobs:
   gate:
     name: apps gates
     runs-on: ubuntu-latest
-    # Setup 3 min, UI typecheck 1, unit tests 7, conformance 1, browser suite
-    # ~22 (30m target timeout), server 4, site 4: ~41 typical, ~49 worst.
+    # Measured 2026-10-09 (runs 37976842700, 37987394687): setup, UI
+    # typecheck, unit tests and conformance ~20 min; the browser suite ~40
+    # for 585 T1 tests (T1 alone ~33 min on ubuntu-latest, 13.4 on a 16-core
+    # Mac; 45m target timeout); server and site ~8: ~68 typical.
     # The TUI suites stay in ci.yml only: smithers.sh doesn't ship the TUI, so
     # a TUI red can't make a site deploy unsafe (#3483).
-    timeout-minutes: 75
+    timeout-minutes: 100
     env:
       SMITHERS_CACHE_URL: ${{ secrets.SMITHERS_CACHE_URL }}
       SMITHERS_CACHE_READ_TOKEN: ${{ secrets.SMITHERS_CACHE_READ_TOKEN }}
