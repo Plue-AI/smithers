@@ -29,6 +29,8 @@ export default showcase({
     const reviews: Array<unknown> = []
     const writes: Array<string> = []
     await backend.cloud()
+    // The repository names no GitHub source, so its pull requests are its own landings (b338dd75db).
+    await backend.json(API, { full_name: REPO, default_bookmark: "main" })
     await backend.json(`${API}/bookmarks`, {
       items: [
         { name: "main", target_change_id: MAIN, target_commit_id: "c0ffee1234567890", is_tracking_remote: false },

@@ -73,21 +73,19 @@ export default showcase({
     await app.show(attention)
     await app.beat(500)
 
-    // One run's gate, opened from the attention row, is decided on its own card.
-    await app.click(attention.getByRole("button", { name: "Answer" }).first())
-    const approval = page.locator('[data-kind="approval"]').last()
-    await expect(approval).toContainText("Land PR #68")
-    await app.show(approval)
-    await app.beat(500)
-    await app.click(approval.getByRole("button", { name: /approve/i }))
-    await app.saw("approval.approve", () => expect.poll(() => decided.get("req-land")).toBe("approve"))
-    await app.beat(500)
-
+    // Both gates are decided in the approvals inbox. A run's own approval card offers no
+    // decision unless its private runtime projection does (11431b1159, b5f1c97f6b).
     await app.slash(`/runs ${JSON.stringify({ operation: "approval-list", repo: REPO })}`)
     const inbox = page.locator('[data-kind="approvals-inbox"]').last()
-    await expect(inbox.getByTestId("approvals-inbox-count")).toHaveText("1 approval pending")
+    await expect(inbox.getByTestId("approvals-inbox-count")).toHaveText("2 approvals pending")
     await app.closeComposer()
     await app.show(inbox)
+    await app.beat(500)
+    const land = inbox.locator(".sui-approval-question", { hasText: "Land PR #68" }).locator("xpath=ancestor::*[.//button][1]")
+    await app.click(land.getByRole("button", { name: /approve/i }))
+    await app.saw("approval.approve", () => expect.poll(() => decided.get("req-land")).toBe("approve"))
+    await expect(inbox).toContainText("Approved")
+    await expect(inbox.getByTestId("approvals-inbox-count")).toHaveText("1 approval pending")
     await app.beat(500)
     const deps = inbox.locator(".sui-approval-question", { hasText: "Upgrade effect" }).locator("xpath=ancestor::*[.//button][1]")
     await app.click(deps.getByRole("button", { name: /deny/i }))
