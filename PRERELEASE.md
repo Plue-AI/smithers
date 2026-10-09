@@ -104,9 +104,7 @@ None of these is fixed on main.
 | | Defect | State |
 |---|---|---|
 | 1 | **A TODO cannot run on a real install.** The first machine finishes loading the catalog and then cannot be retired: a process stays alive in its writers group and the final capture check refuses. It keeps the install's only machine, and the TODO waits for a machine forever. The log shows only "microVM isolation is unavailable … EOF". Found 18:58 PDT. | Fix in progress. Until it lands, a released bundle cannot run a TODO. |
-| 2 | A failed machine start stays "Starting" on Home and keeps the only machine. The TODO has no control that restarts it. The queued "Refresh wiki" row has no button unless it has failed. | In progress |
-| 3 | A machine start re-driven after a host restart answered 401 on its clone. | In progress |
-| 4 | A workspace caught mid-release by a restart never settles. | In progress |
+| 2 | The queued "Refresh wiki" row has no button unless it has failed. | Open |
 | 5 | During a machine start, a chat view save can answer 503 and a sign-in can wait. Member rows stay locked for the whole start. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
 | 6 | A machine start does not notice a workspace deleted while it is being admitted. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
 | 7 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | Open |
@@ -120,6 +118,7 @@ Fixed on main, unverified until a fresh install built from main, with no local p
 | 10 | The app's sign-in path answered 404 on an install. | 9a218b7f68 |
 | 11 | A sign-in cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68 |
 | 12 | Model access read "Not signed incoding model". Reopening `/setup` after setup closed showed raw JSON. | 88b768b019 |
+| 13 | A failed initial start kept the only machine; restart cloning used the machine account; an interrupted catalog release stayed stuck. | fr27 start recovery: named failure and durable reaping, person-bound repository token, release reconciliation, and existing TODO Retry. PostgreSQL/trusted-process proof; real microVM confirmation awaits the Mac. |
 
 ### Journey rows
 

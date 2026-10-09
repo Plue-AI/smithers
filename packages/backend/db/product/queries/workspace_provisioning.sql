@@ -10,11 +10,11 @@ FROM workspaces w
 JOIN repositories r ON r.id = w.repository_id
 LEFT JOIN users u ON u.id = r.user_id
 LEFT JOIN organizations o ON o.id = r.org_id
-WHERE w.deleted_at IS NULL AND (w.status IN ('pending','starting')
+WHERE w.deleted_at IS NULL AND (w.status IN ('pending','starting','releasing') OR (w.status='failed' AND w.provisioning_stage='start_cleanup_pending')
  OR (w.status='running' AND EXISTS (SELECT 1 FROM workspace_sessions s WHERE s.workspace_id=w.id AND s.status IN ('pending','starting'))))
 -- Older API replicas do not hold ownership locks. Allow their bounded
 -- ten-minute attempt to finish during the first rolling upgrade.
-AND (w.status='running' OR w.updated_at < now()-interval '10 minutes')
+AND (w.status IN ('running','releasing','failed') OR w.updated_at < now()-interval '10 minutes')
 -- A child workspace boots only through its batch, never a credentialed recovery.
 AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id=w.id)
 ORDER BY w.updated_at, w.id

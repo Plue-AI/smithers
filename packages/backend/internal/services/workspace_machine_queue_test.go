@@ -336,6 +336,16 @@ func TestTodoMachineOwnershipRefusesUnknownRelease(t *testing.T) {
 	held, err = lanes.MachineHeld(t.Context(), "T1")
 	require.ErrorContains(t, err, "unconfirmed")
 	require.True(t, held, "waiting demand is not a release receipt")
+	for _, stage := range []string{"", workspaceStartCleanupPending} {
+		store.update("T1", func(row *db.Workspace) { row.Status, row.ProvisioningStage = "failed", stage })
+		held, err = lanes.MachineHeld(t.Context(), "T1")
+		require.ErrorContains(t, err, "unconfirmed")
+		require.True(t, held, "failure alone never proves the guest was reaped")
+	}
+	store.update("T1", func(row *db.Workspace) { row.ProvisioningStage = workspaceStartCleanupComplete })
+	held, err = lanes.MachineHeld(t.Context(), "T1")
+	require.NoError(t, err)
+	require.False(t, held, "successful stop/delete remains a release receipt after the runtime forgets its VM")
 	store.update("T1", func(row *db.Workspace) { row.Status = "stopped" })
 	held, err = lanes.MachineHeld(t.Context(), "T1")
 	require.NoError(t, err)

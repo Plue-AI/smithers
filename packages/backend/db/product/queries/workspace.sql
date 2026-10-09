@@ -268,6 +268,7 @@ RETURNING *;
 -- original updated_at additionally fences row-reuse ABA.
 UPDATE workspaces
 SET status = 'failed',
+    provisioning_stage = CASE WHEN sqlc.arg(cleanup_stage)::text <> '' THEN sqlc.arg(cleanup_stage)::text ELSE provisioning_stage END,
     failure_code = sqlc.arg(failure_code)::text,
     failure_message = sqlc.arg(failure_message)::text,
     updated_at = NOW()

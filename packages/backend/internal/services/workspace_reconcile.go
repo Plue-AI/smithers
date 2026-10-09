@@ -15,6 +15,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // WorkspaceProvisioningReconcileInterval is how often the provisioning
@@ -143,6 +144,18 @@ func (s *WorkspaceService) ReconcileWorkspaceProvisioning(ctx context.Context) e
 		if err != nil {
 			continue
 		}
+		if ws.Status == "failed" && ws.ProvisioningStage == workspaceStartCleanupPending {
+			if err := s.reconcileFailedWorkspaceStart(ctx, ws); err != nil {
+				slog.Warn("failed workspace cleanup retry failed", "workspace_id", ws.ID, "error", err)
+			}
+			continue
+		}
+		if ws.Status == "releasing" {
+			if err := s.reconcileWorkspaceRelease(ctx, ws); err != nil {
+				slog.Warn("workspace release recovery failed", "workspace_id", ws.ID, "error", err)
+			}
+			continue
+		}
 		s.provisionWorkspaceAsync(ctx, ws, CreateWorkspaceSessionInput{RepositoryID: row.RepositoryID, UserID: row.UserID, RepoOwner: row.RepositoryOwner, RepoName: row.RepositoryName, SourceBookmark: row.TargetBookmark})
 	}
 	return nil
@@ -245,4 +258,52 @@ func (s *WorkspaceService) recoverUnregisteredWorkspaceVM(ctx context.Context, w
 	}
 	updated, _, err := s.registerNewWorkspaceVM(ctx, workspace, id, "starting")
 	return updated, err
+}
+
+// A crashed release cannot claim a capture it did not finish. Confirm the
+// stop and retain the disk/history with a named failure; catalog retirement
+// can then move on without inventing a successful final capture.
+func (s *WorkspaceService) reconcileWorkspaceRelease(ctx context.Context, workspace db.Workspace) error {
+	if s.runtime == nil {
+		return errors.New("workspace release runtime unavailable")
+	}
+	_, err := s.withWorkspaceProvisionLock(ctx, workspace, func(current db.Workspace) (db.Workspace, error) {
+		unlock := s.lockRuntimeWorkspace(current.ID)
+		defer unlock()
+		current, err := s.q.GetWorkspace(ctx, current.ID)
+		if err != nil || current.Status != "releasing" {
+			return current, err
+		}
+		operation, err := s.workspaceRuntimeContext(ctx, current, current.UserID, workspaceLifecycleOperation(current, "recover-release"))
+		if err != nil {
+			return current, err
+		}
+		_, err = s.runtime.InspectWorkspace(operation, current.ID)
+		if err != nil && !errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
+			return current, err
+		}
+		// Idempotent stop discharges a reconstructed admission grant too. Inspecting
+		// a stopped guest alone must not leave the scheduler's slot occupied.
+		if err := s.stopRuntimeWorkspaceLocked(ctx, current, current.UserID, "recover-release"); err != nil {
+			return current, err
+		}
+		return s.failWorkspace(ctx, current, pkgerrors.Conflict("workspace release interrupted by host restart"))
+	})
+	return err
+}
+
+func (s *WorkspaceService) reconcileFailedWorkspaceStart(ctx context.Context, workspace db.Workspace) error {
+	if s.runtime == nil {
+		return errors.New("workspace cleanup runtime unavailable")
+	}
+	_, err := s.withWorkspaceProvisionLock(ctx, workspace, func(current db.Workspace) (db.Workspace, error) {
+		unlock := s.lockRuntimeWorkspace(current.ID)
+		defer unlock()
+		current, err := s.q.GetWorkspace(ctx, current.ID)
+		if err != nil || current.Status != "failed" || current.ProvisioningStage != workspaceStartCleanupPending {
+			return current, err
+		}
+		return current, s.reapFailedRuntimeWorkspaceLocked(ctx, current, current.UserID)
+	})
+	return err
 }

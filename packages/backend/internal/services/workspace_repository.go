@@ -252,7 +252,11 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 	if requesterID > 0 {
 		reader = requesterID
 	}
-	token, err := issueTemporaryRepoCloneToken(ctx, s.q, reader, "workspace-runtime-clone")
+	reader, err = s.workspaceRepositoryReader(ctx, row, reader)
+	if err != nil {
+		return err
+	}
+	token, err := issueTemporaryBoundRepoCloneToken(ctx, s.q, reader, row.RepositoryID, "workspace-runtime-clone")
 	if err != nil {
 		return pkgerrors.Internal("create workspace repository token: " + err.Error())
 	}
@@ -809,4 +813,37 @@ func validateWorkspaceRepositoryReceiptSource(receipt workspaceRepositoryReceipt
 		return pkgerrors.Conflict("workspace repository receipt does not match its pushed ref")
 	}
 	return nil
+}
+
+// A restart has no HTTP requester. The service owning a branch machine is not
+// a repository reader. Resolve its TODO's durable owner, or the sole person
+// with a write share (catalog/wiki/source machines have that share too).
+// Ambiguous or revoked ownership never falls back to the machine account.
+func (s *WorkspaceService) workspaceRepositoryReader(ctx context.Context, row db.Workspace, requester int64) (int64, error) {
+	owned, err := s.branchMachineOwned(ctx, requester)
+	if err != nil {
+		return 0, err
+	}
+	if !owned {
+		return requester, nil
+	}
+	if s.transactions == nil {
+		return 0, pkgerrors.Conflict("workspace repository reader unavailable")
+	}
+	tx, err := s.transactions.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var reader *int64
+	err = tx.QueryRow(ctx, `SELECT COALESCE(
+ (SELECT COALESCE(i.owner_id,i.created_by) FROM mythical_items i WHERE i.workspace_id=$1 AND i.repository_id=$2 LIMIT 1),
+ (SELECT CASE WHEN count(*)=1 THEN min(sh.grantee_user_id) END FROM workspace_shares sh JOIN users u ON u.id=sh.grantee_user_id WHERE sh.workspace_id=$1::uuid AND sh.level='write' AND NOT u.prohibit_login))`, row.ID, row.RepositoryID).Scan(&reader)
+	if err != nil {
+		return 0, err
+	}
+	if reader == nil || *reader <= 0 {
+		return 0, pkgerrors.Conflict("workspace repository reader unavailable")
+	}
+	return *reader, nil
 }

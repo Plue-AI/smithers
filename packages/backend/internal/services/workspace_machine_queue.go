@@ -277,6 +277,13 @@ func (l *workspaceMythicalLanes) MachineHeld(ctx context.Context, id string) (bo
 	if held {
 		return true, nil
 	}
+	// A deleted initial runtime has no inventory entry. Its durable cleanup
+	// receipt, written only after stop and delete succeeded, confirms release
+	// across runtime/host restarts without treating an arbitrary failed row as
+	// proof that its guest is gone.
+	if !known && row.Status == "failed" && row.ProvisioningStage == workspaceStartCleanupComplete {
+		return false, nil
+	}
 	if !known && row.Status != "stopped" && row.Status != "pending" && row.Status != "starting" {
 		return true, errors.New("machine release unconfirmed")
 	}

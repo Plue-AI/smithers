@@ -28,6 +28,7 @@ func (q *todoWakeStore) GetMythicalLane(context.Context, string) (db.MythicalLan
 type wakeBoundaryRuntime struct {
 	workspaceapi.WorkspaceRuntime
 	inspections int
+	stops       int
 }
 
 type nativeWakeBoundaryRuntime struct{ *wakeBoundaryRuntime }
@@ -39,6 +40,10 @@ func (*nativeWakeBoundaryRuntime) EnsureMachined(context.Context, string) error 
 func (r *wakeBoundaryRuntime) InspectWorkspace(context.Context, string) (workspaceapi.Workspace, error) {
 	r.inspections++
 	return workspaceapi.Workspace{}, errors.New("guest unavailable")
+}
+func (r *wakeBoundaryRuntime) StopWorkspace(context.Context, string) error {
+	r.stops++
+	return errors.New("guest unavailable")
 }
 func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 	for _, mode := range []string{"active", "review", "starting", "starting_unbound", "starting_legacy", "review_stale_candidate", "review_stale_head", "review_settled", "review_wrong_lane", "review_working", "review_paused", "retired", "paused", "landed", "dropped", "cancelled", "wrong_lane", "wrong_workspace", "item_unavailable", "lane_unavailable", "deleted", "pending"} {
@@ -103,6 +108,11 @@ func TestTodoWakeReReadsBindingAndControlsBeforeMachineEffects(t *testing.T) {
 			}
 			service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(provider))
 			require.Error(t, service.WakeTodoWorkspace(context.Background(), id.String(), row.ID, 3, 9))
+			if mode == "starting" {
+				require.Equal(t, 1, runtime.stops, "failed recovered initial boot attempts durable cleanup")
+			} else {
+				require.Zero(t, runtime.stops, "refused controls never stop a machine")
+			}
 			if mode == "active" || mode == "review" || mode == "starting" {
 				require.Equal(t, 1, runtime.inspections)
 			} else {

@@ -3180,7 +3180,19 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	adopted := mythicalChecksOf(item).Seed != nil && item.WorkspaceID != ""
 	retryHead := ""
 	var snapshot func() error
+	// A failed initial start never admitted coding work. Its completed reap
+	// receipt authorizes a fresh checkout, rather than a final capture from a
+	// machine that never materialized the repository. All running attempts
+	// still require the ordinary verified-capture boundary below.
+	failedStart := false
 	if todoRetryPending(item) && item.Attempt > 0 && !adopted {
+		workspace, err := s.queries().GetMythicalTodoBranchWorkspace(ctx, item)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, err
+		}
+		failedStart = err == nil && workspace.Status == "failed" && workspace.ProvisioningStage == workspaceStartCleanupComplete
+	}
+	if todoRetryPending(item) && item.Attempt > 0 && !adopted && !failedStart {
 		if reader, ok := s.lanes.(interface {
 			CapturedHead(context.Context, string, int64, int64) (string, error)
 		}); ok {

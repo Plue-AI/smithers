@@ -465,22 +465,24 @@ func (q *Queries) DeleteWorkspaceSnapshot(ctx context.Context, id string) error 
 const failProvisioningWorkspaceIfCurrent = `-- name: FailProvisioningWorkspaceIfCurrent :one
 UPDATE workspaces
 SET status = 'failed',
-    failure_code = $1::text,
-    failure_message = $2::text,
+    provisioning_stage = CASE WHEN $1::text <> '' THEN $1::text ELSE provisioning_stage END,
+    failure_code = $2::text,
+    failure_message = $3::text,
     updated_at = NOW()
-WHERE id = $3::uuid
-  AND status = $4::text
+WHERE id = $4::uuid
+  AND status = $5::text
   AND status IN ('pending', 'starting')
-  AND vm_id = $5::text
+  AND vm_id = $6::text
   AND (
-      $5::text <> ''
-      OR updated_at = $6::timestamptz
+      $6::text <> ''
+      OR updated_at = $7::timestamptz
   )
   AND deleted_at IS NULL
 RETURNING id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark, source_snapshot_id, kind, environment_source, environment_revision, environment_closure_hash, agent_session_id, head_push_token_id, environment_image, desktop_session_id, desktop_session_token_hash, desktop_session_expires_at, vm_id, provisioning_generation, status, failure_code, failure_message, provisioning_stage, last_activity_at, idle_timeout_secs, suspended_at, started_at, resumed_at, head_change_id, head_commit_id, ahead, behind, last_accessed_at, deleted_at, created_at, updated_at, rebuild_required_at, client_lease_secs, client_lease_expires_at, source_commit, vcpu_count, memory_mb, disk_mb, forked_from_item, forked_from_base, capture_pending, moved_off, branch_archived_at, cleanup_pending_head, cleanup_pending_capture_id, disk_reclaimed_at
 `
 
 type FailProvisioningWorkspaceIfCurrentParams struct {
+	CleanupStage      string    `json:"cleanup_stage"`
 	FailureCode       string    `json:"failure_code"`
 	FailureMessage    string    `json:"failure_message"`
 	ID                string    `json:"id"`
@@ -496,6 +498,7 @@ type FailProvisioningWorkspaceIfCurrentParams struct {
 // original updated_at additionally fences row-reuse ABA.
 func (q *Queries) FailProvisioningWorkspaceIfCurrent(ctx context.Context, arg FailProvisioningWorkspaceIfCurrentParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, failProvisioningWorkspaceIfCurrent,
+		arg.CleanupStage,
 		arg.FailureCode,
 		arg.FailureMessage,
 		arg.ID,

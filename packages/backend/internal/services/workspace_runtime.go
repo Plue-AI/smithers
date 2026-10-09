@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
@@ -341,6 +342,34 @@ func runtimeOperationError(operation string, err error) error {
 }
 
 func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Context, row db.Workspace, requesterID int64) (result db.Workspace, resultErr error) {
+	// Settle errors before releasing this start's runtime/provisioning ownership.
+	// Admission updates the stage/updated_at before vm_id is published; the
+	// caller's pre-admission snapshot cannot fence the failure write.
+	defer func() {
+		if resultErr == nil || isNoCapacityError(resultErr) || (row.Status != "pending" && row.Status != "starting") {
+			return
+		}
+		cleanup, cancel := detachedRuntimeContext(ctx, 30*time.Second)
+		defer cancel()
+		current, err := s.q.GetWorkspace(cleanup, row.ID)
+		if err != nil || current.ProvisioningGeneration != row.ProvisioningGeneration || (current.Status != "pending" && current.Status != "starting") {
+			return
+		}
+		failure := workspaceFailureDetailsFor(resultErr)
+		failed, transitioned, err := s.failProvisioningWorkspaceIfCurrent(cleanup, current, failure, workspaceStartCleanupPending)
+		if err != nil || !transitioned {
+			return
+		}
+		result = failed
+		// Keep cleanup durable too: a controller outage during reaping must not
+		// strand the sole slot after the terminal failure has been published.
+		if err := s.reapFailedRuntimeWorkspaceLocked(cleanup, current, requesterID); err != nil {
+			slog.Warn("failed to reap failed workspace start", "workspace_id", row.ID, "error", err)
+		}
+		s.observeWorkspaceLifecycle("fail", nil)
+		s.meterWorkspaceUsage(cleanup, current, "failed")
+		s.notifyWorkspace(cleanup, row.ID, "failed", failure)
+	}()
 	defer func() {
 		if resultErr != nil && s.machineAdmission != nil {
 			if runtime, ok := s.runtime.(interface{ CancelFailedAdmission(string, string) }); ok {
@@ -1177,4 +1206,17 @@ func mapRuntimeFileError(err error, kind string) error {
 		return pkgerrors.NotFound("workspace " + kind + " not found")
 	}
 	return pkgerrors.Internal("workspace " + kind + " operation failed")
+}
+
+const workspaceStartCleanupPending = "start_cleanup_pending"
+const workspaceStartCleanupComplete = "start_cleanup_complete"
+
+func (s *WorkspaceService) reapFailedRuntimeWorkspaceLocked(ctx context.Context, row db.Workspace, requesterID int64) error {
+	if err := s.stopRuntimeWorkspaceLocked(ctx, row, requesterID, "fail-start"); err != nil {
+		return err
+	}
+	if err := s.deleteRuntimeWorkspaceLocked(ctx, row, requesterID); err != nil {
+		return err
+	}
+	return s.setWorkspaceProvisioningStage(ctx, row.ID, workspaceStartCleanupComplete)
 }

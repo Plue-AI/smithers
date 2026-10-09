@@ -1335,9 +1335,14 @@ func workspaceProvisioningError(action string, cause error) *pkgerrors.APIError 
 	return failure
 }
 
-func (s *WorkspaceService) failProvisioningWorkspaceIfCurrent(ctx context.Context, workspace db.Workspace, failure workspaceFailureDetails) (db.Workspace, bool, error) {
+func (s *WorkspaceService) failProvisioningWorkspaceIfCurrent(ctx context.Context, workspace db.Workspace, failure workspaceFailureDetails, cleanupStage ...string) (db.Workspace, bool, error) {
+	stage := ""
+	if len(cleanupStage) > 0 {
+		stage = cleanupStage[0]
+	}
 	if conditional, ok := s.q.(workspaceProvisioningFailureQuerier); ok {
 		updated, err := conditional.FailProvisioningWorkspaceIfCurrent(ctx, db.FailProvisioningWorkspaceIfCurrentParams{
+			CleanupStage:      stage,
 			FailureCode:       string(failure.Code),
 			FailureMessage:    failure.Message,
 			ID:                workspace.ID,

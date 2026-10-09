@@ -1,0 +1,18 @@
+# Failed initial start and restart recovery
+
+Found on the 2026-10-08 real Mac install (capacity 1, canary-sandbox).
+
+The two initial failure sites were identified before changing them:
+
+- `workspace_repository.go`, repository materialization: restart reconciliation supplies `row.UserID`, the `smithers-machines` service account. The baseline composed test reads the actual clone token's persisted `access_tokens.user_id`: **1**, rather than the person **2**. The service account cannot read the repository and the real Git advertisement answers 401. Resolve the TODO's durable person or the sole personal write share and mint the existing repository-bound read token. Repository authorization remains enforced by Git HTTP.
+- `workspace_runtime.go` admission and `workspace_provisioning.go` failure CAS: admission writes `waiting_for_machine` and then clears the stage, changing `updated_at` while the durable `vm_id` remains empty. After advertisement 401, `FailProvisioningWorkspaceIfCurrent` receives the original timestamp. Its empty-VM ABA fence correctly matches no rows; the async caller ignores the non-transition. Keep the fence and reread the current same-generation row while holding provisioning/runtime ownership, then atomically publish failed plus cleanup-pending. Reaping completion is durable; reconciliation retries a failed cleanup. Unknown runtime ownership only counts as released with that completion receipt.
+
+Retry uses the existing TODO control and card. Initial start failure has no coding bytes to capture. It uses the retained branch's failed-start cleanup receipt to admit a fresh checkout; attempts that reached running keep the verified final capture requirement.
+
+Restart reconciliation includes releasing rows. Confirm stop for a live, stopped or missing guest, release its reconstructed admission and record `workspace release interrupted by host restart`; it retains history without claiming successful capture.
+
+Proof: `internal/compose/start_recovery_rehearsal_integration_test.go` uses real PostgreSQL, the installed router, real Git HTTP, trusted-process execution and capacity 1. Faults are HTTP 401 and one failed controller delete; restart recomposes the actual backend around retained rows and source authority. The three scenarios are failed-start cleanup/next TODO/Retry, person-owned restart cloning, and interrupted release followed by a GitHub-main move and replacement catalog load. J1/J2 receipts and final commands are recorded in the lane report.
+
+Real microVM and macOS confirmation awaits the Mac. Linux trusted-process evidence is not a real-microVM receipt. The broad short-test gate exceeded its standard budget and was deferred. Baseline checks also reproduce unrelated failures: sandbox refusal sync/async, lost-worker restore classification, marked-box resume withholding, lifecycle metrics, store-capability declarations, GitHub App error expectations, retained-disk resume, admission refusal classification, and the rebase-prefix assertion owned by fr26. The PostgreSQL crash test additionally needs its executable directory configured. These are not passing receipts.
+
+Validation on the rebased change: failure/next TODO/Retry passes, interrupted catalog release passes for stopped and live guests, and the corrected first-boot restart fixture passes with token owner 2. J1: 21/0/0; J2: 14/0/0. The restart fixture closes the old setup guest transport and clears its old native journal before representing a crash before first guest admission. Retaining that completed guest journal describes a different crash and is not used as first-boot evidence.

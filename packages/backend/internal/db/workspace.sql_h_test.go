@@ -74,6 +74,19 @@ func TestWorkspaceFailureTransitionsAreFencedAgainstProvisioning(t *testing.T) {
 		ID: reused.ID, ExpectedStatus: reused.Status, ExpectedVmID: reused.VmID, ExpectedUpdatedAt: reused.UpdatedAt,
 	})
 	require.ErrorIs(t, err, pgx.ErrNoRows, "an empty-VM attempt must not fail a reused pending row")
+
+	// Failure and its retryable cleanup receipt are one durable transition.
+	current, err = q.GetWorkspace(ctx, reused.ID)
+	require.NoError(t, err)
+	failed, err = q.FailProvisioningWorkspaceIfCurrent(ctx, FailProvisioningWorkspaceIfCurrentParams{
+		CleanupStage: "start_cleanup_pending",
+		FailureCode:  "provisioning_failed", FailureMessage: "workspace repository advertisement could not be verified",
+		ID: current.ID, ExpectedStatus: current.Status, ExpectedVmID: current.VmID, ExpectedUpdatedAt: current.UpdatedAt,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "failed", failed.Status)
+	assert.Equal(t, "start_cleanup_pending", failed.ProvisioningStage)
+	assert.Equal(t, "workspace repository advertisement could not be verified", failed.FailureMessage.String)
 }
 
 func TestWorkspaceSQL_H_WorkspaceSessionSnapshotRoundTrip(t *testing.T) {
