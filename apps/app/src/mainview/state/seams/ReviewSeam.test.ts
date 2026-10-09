@@ -34,7 +34,7 @@ test("review returns before launch and completion, deduplicates, then renders re
   expect(await seam.request(50, "owner/repo")).toEqual({ value: "Requested" })
   expect(await seam.request(50, "owner/repo")).toEqual({ value: "Requested" })
   expect(calls).toHaveLength(1)
-  expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ number: 50, repo: "owner/repo", conversation: h.store.session().activeBranchId })
+  expect(JSON.parse(calls[0]!.init!.body as string)).toEqual({ number: 50, repo: "owner/repo", conversation: "main" })
   expect(h.store.session().reviewRequests?.[0]?.state).toBe("requested")
   expect(h.settled).toEqual([])
   launch.resolve(Response.json({ operationId: "review-op", state: "accepted" }, { status: 202 }))
@@ -50,6 +50,26 @@ test("review returns before launch and completion, deduplicates, then renders re
   expect(card?.tabId).toBeUndefined()
   expect(card?.kind === "change" && card.payload.findings?.[0]).toMatchObject({ path: "src/cache.ts", line: 20, severity: "fix" })
   await waitFor(() => h.settled.length === 1)
+  h.close(); await h.store.dispose?.()
+})
+
+// Run 12: `/review #2` sent the local frame branch "branch-main", which the
+// install does not know, and every review answered 503 "Review unavailable".
+test("review names the conversation every other door names", async () => {
+  const sent: unknown[] = []
+  const h = await harness(async (_url, init) => {
+    if (init?.method === "POST") sent.push(JSON.parse(init.body as string).conversation)
+    return Response.json({ operationId: `op-${sent.length}`, state: "accepted" }, { status: 202 })
+  })
+  const seam = createReviewSeam(h.ctx, 60_000)
+  expect(h.store.session().activeBranchId).toBe("branch-main")
+  await seam.request(2, "owner/repo")
+  await h.store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "ben", open: true, selected_branch: "todo-12", nodes: [] } }).isPersisted.promise
+  await seam.request(3, "owner/repo")
+  await h.store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { owner: "alice", open: true, selected_branch: "todo-13", nodes: [] } }).isPersisted.promise
+  await seam.request(4, "owner/repo")
+  await waitFor(() => sent.length === 3)
+  expect(sent).toEqual(["main", "todo-12", "main"])
   h.close(); await h.store.dispose?.()
 })
 

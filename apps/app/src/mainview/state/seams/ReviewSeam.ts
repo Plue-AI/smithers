@@ -3,6 +3,7 @@ import { CardSchema, conversationTabIdOf } from "../AppState"
 import type { Session } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import { actorSharedState } from "../ActorBindings"
+import { accountOwnerOf } from "../AccountOwner"
 import { randomUuid } from "../../runtime/RandomUuid"
 import { captureCloudOwner, readErrorMessage, readResult, unreachableSentence, type SeamContext } from "./SeamContext"
 import { TOAST_SUPERSEDED } from "../controller/failures"
@@ -101,7 +102,9 @@ export const createReviewSeam = (ctx: SeamContext, pollMs = 1000) => {
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
       if (!Number.isSafeInteger(number) || number <= 0) return "Choose a PR."
-      const conversation = ctx.store.session().activeBranchId ?? "main"
+      // The install's conversation, as every other door names it; activeBranchId is a local frame id.
+      const navigation = ctx.store.session().branchNavigation
+      const conversation = navigation?.owner === accountOwnerOf(identity()) ? navigation?.selected_branch ?? "main" : "main"
       const existing = (ctx.store.session().reviewRequests ?? []).find(row => current(row) && row.repo === resolved.repo && row.number === number && row.conversation === conversation && ( ["requested", "running"].includes(row.state) || row.state === "failed" && row.terminal !== true ))
       if (existing) { run(existing); return readResult("Requested") }
       const row: Request = { id: randomUuid(), origin: ctx.baseUrl, owner: owner(), repo: resolved.repo, number, conversation, tabId: conversationTabIdOf(ctx.store.session()), state: "requested" }

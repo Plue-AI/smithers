@@ -398,6 +398,11 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		body := `{"number":50,"conversation":"main"}`
 		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"main"}`, "wrong-repository")
 		require.Equal(t, 403, wrongRepository.Code, wrongRepository.Body.String())
+		// Run 12: the app named its local frame branch "branch-main", which the
+		// install does not know. The refusal names that cause, not a 503.
+		unknown := call(`{"number":50,"conversation":"branch-main"}`, "unknown-conversation")
+		require.Equal(t, 404, unknown.Code, unknown.Body.String())
+		require.Contains(t, unknown.Body.String(), `"code":"conversation_not_found"`)
 		// Every preflight refusal remains before acceptance and allocation.
 		for _, code := range []string{"review_binding_unavailable", "review_source_unavailable", "review_digest_mismatch", "review_runtime_unavailable", "review_root_boundary_unavailable"} {
 			machine.refusal = code

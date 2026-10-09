@@ -3,9 +3,14 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -55,13 +60,41 @@ func conversationBranchResolver(branches *services.WorkspaceService) func(contex
 		}
 		row, err := branches.PresenceBranch(ctx, branch, scope.RepositoryID, scope.UserID)
 		if err != nil {
-			return "", err
+			return "", conversationRefusal(branch, err)
 		}
 		if row.TargetBookmark == "main" {
 			return "main", nil
 		}
 		return row.ID, nil
 	}
+}
+
+// conversationRefused is a conversation the person cannot address: no branch
+// has that name, or they cannot read it. TODO-family doors (todoRouteError)
+// answer its 4xx and cause instead of "unavailable"; the chat routes still
+// write the branch store's own refusal.
+type conversationRefused struct {
+	*services.TodoControlError
+	store *pkgerrors.APIError
+}
+
+func (e *conversationRefused) Unwrap() []error { return []error{e.TodoControlError, e.store} }
+
+// conversationRefusal types the branch store's 4xx refusals. Anything else
+// (a database or service fault) is left as it is.
+func conversationRefusal(branch string, err error) error {
+	var refusal *pkgerrors.APIError
+	if !errors.As(err, &refusal) || refusal.Status < 400 || refusal.Status >= 500 {
+		return err
+	}
+	typed := &services.TodoControlError{Status: refusal.Status, Code: "conversation_refused", Class: "user", Message: refusal.Message}
+	switch refusal.Status {
+	case http.StatusNotFound:
+		typed.Code, typed.Message = "conversation_not_found", "Conversation "+strconv.Quote(branch)+" not found"
+	case http.StatusUnauthorized, http.StatusForbidden:
+		typed.Class = "permission"
+	}
+	return &conversationRefused{TodoControlError: typed, store: refusal}
 }
 
 // The live member topic and the install composition use the same persisted,

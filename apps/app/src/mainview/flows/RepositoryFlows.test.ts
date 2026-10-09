@@ -209,7 +209,7 @@ describe("the repository's flows are slash leaves", () => {
     // even when the repository projection declares a same-named working-copy leaf.
     expect(await controller.commands.run("review", `17 ${REPO}`)).toEqual({ status: "executed", value: "Requested" })
     await settled(6)
-    expect(seen).toEqual([{ path: "/api/reviews", method: "POST", body: { number: 17, repo: REPO, conversation: "branch-main" } }])
+    expect(seen).toEqual([{ path: "/api/reviews", method: "POST", body: { number: 17, repo: REPO, conversation: "main" } }])
     expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "review", args: `17 ${REPO}` }) })).toBe("failed: this command runs on the conversation host")
     expect(seen).toHaveLength(1)
   })
