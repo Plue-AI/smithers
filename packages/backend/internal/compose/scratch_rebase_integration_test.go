@@ -40,6 +40,10 @@ func TestScratchRebaseNativeComposedInstall(t *testing.T) { testScratchRebaseCom
 func TestScratchRebaseConflictDoneComposedInstall(t *testing.T) {
 	testScratchRebaseComposed(t, true, false)
 }
+func TestScratchRebaseConflictCardComposedInstall(t *testing.T) {
+	testScratchRebaseComposed(t, true, false, "conflict-card")
+}
+
 func TestScratchRebaseConflictRestartComposedInstall(t *testing.T) {
 	testScratchRebaseComposed(t, true, false, "restart")
 }
@@ -257,13 +261,14 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 	receiptKey := "scratch-rebase"
 	initial := request("GET", branchPath, "", nil, 200)
 	require.Equal(t, map[string]any{"state": "pending", "onto": sourceName}, initial["rebase"], "the real Branch card exposes Rebase now before admission")
-	if slices.Contains(options, "app-card") {
+	runCard := func(mode string) string {
 		script, err := filepath.Abs("../../../../apps/app/e2e/real/branch-card-install.fixture.tsx")
 		require.NoError(t, err)
 		command := exec.CommandContext(ctx, "bun", "run", script)
 		command.Env = append(os.Environ(), "SMITHERS_BRANCH_CARD_ORIGIN="+origin, "SMITHERS_BRANCH_CARD_ID="+f.row.ID,
-			"SMITHERS_BRANCH_CARD_SUBJECT="+branch, "SMITHERS_BRANCH_CARD_REBASE=1", "SMITHERS_BRANCH_CARD_COOKIE=session="+f.cookie, "SMITHERS_BRANCH_CARD_LOGIN=presence-owner")
+			"SMITHERS_BRANCH_CARD_SUBJECT="+branch, "SMITHERS_BRANCH_CARD_REBASE="+mode, "SMITHERS_BRANCH_CARD_COOKIE=session="+f.cookie, "SMITHERS_BRANCH_CARD_LOGIN=presence-owner")
 		var output bytes.Buffer
+		cardKey := ""
 		command.Stdout, command.Stderr = &output, &output
 		require.NoError(t, command.Start())
 		finished := make(chan error, 1)
@@ -279,10 +284,10 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 				require.NoError(t, err, output.String())
 				for _, line := range strings.Split(output.String(), "\n") {
 					if key, ok := strings.CutPrefix(line, "REBASE_CARD_REQUEST="); ok {
-						receiptKey = key
+						cardKey = key
 					}
 				}
-				require.NotEqual(t, "scratch-rebase", receiptKey, output.String())
+				require.NotEmpty(t, cardKey, output.String())
 				observed = true
 			case <-ticker.C:
 				_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
@@ -295,6 +300,10 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 			}
 		}
 		t.Log(output.String())
+		return cardKey
+	}
+	if slices.Contains(options, "app-card") {
+		receiptKey = runCard("1")
 	}
 	receipt := request("POST", branchPath, receiptKey, map[string]bool{"rebase": true}, 202)
 	require.Equal(t, f.row.ID, receipt["branch"])
@@ -493,13 +502,21 @@ func testScratchRebaseComposed(t *testing.T, conflict, asleep bool, options ...s
 			require.Equal(t, "stale_conflict", stale["code"])
 			remaining := request("POST", branchPath, "scratch-done", map[string]string{"conflict_change": change, "onto_revision": onto}, 409)
 			require.Equal(t, "still_conflicted", remaining["code"])
+			if slices.Contains(options, "conflict-card") {
+				runCard("unresolved")
+				require.Equal(t, before, git("-C", store, "rev-parse", "refs/heads/"+branch))
+			}
 			resolveScratch()
-			done := request("POST", branchPath, "scratch-done", map[string]string{"conflict_change": change, "onto_revision": onto}, 202)
-			require.Equal(t, done, request("POST", branchPath, "scratch-done", map[string]string{"conflict_change": change, "onto_revision": onto}, 202))
-			for range 3 {
-				_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
-				require.NoError(t, err)
-				require.NoError(t, service.PollOnce(ctx))
+			if slices.Contains(options, "conflict-card") {
+				runCard("done")
+			} else {
+				done := request("POST", branchPath, "scratch-done", map[string]string{"conflict_change": change, "onto_revision": onto}, 202)
+				require.Equal(t, done, request("POST", branchPath, "scratch-done", map[string]string{"conflict_change": change, "onto_revision": onto}, 202))
+				for range 3 {
+					_, err = q.RequestMythicalStack(ctx, f.row.RepositoryID)
+					require.NoError(t, err)
+					require.NoError(t, service.PollOnce(ctx))
+				}
 			}
 		}
 	}

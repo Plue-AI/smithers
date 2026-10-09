@@ -63,18 +63,27 @@ test("T-UI-17: mounted terminal accepts owner keys and preserves the shell palet
 })
 
 // HTTP/socket contract proof; native conflict execution remains a composed-install check.
-for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_unavailable"] as const) {
-  test(`T-APP-10: scratch Resolve/Done keeps the bound conflict after ${refusal}`, async ({ page }) => {
+for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_unavailable", "completed"] as const) {
+  test(`T-APP-10: scratch Resolve/Done observes ${refusal} on the bound branch`, async ({ page }) => {
     await installCloudFixture(page, { capabilities: ["identity", "install"] })
     const writes: unknown[] = []
     const reads: string[] = []
     const branch = "scratch/ben/retry"
+    const branchId = "11111111-1111-4111-8111-111111111111"
+    let state = "running"
+    const receiptKeys: string[] = []
+    let publishCompletion!: () => void
     await page.route("**/api/branches/scratch%2Fben%2Fretry", route => {
-      if (route.request().method() === "GET") return route.fulfill({ json: { name: branch, machine: { id: "b-conflict" } } })
+      if (route.request().method() === "GET") return route.fulfill({ json: { name: branch, machine: { id: branchId } } })
       writes.push(route.request().postDataJSON())
       expect(route.request().headers()["idempotency-key"]).toBeTruthy()
+      if (refusal === "completed") return route.fulfill({ status: 202, json: { state: "accepted", branch: branchId, onto: "2222222222222222222222222222222222222222" } })
       return route.fulfill({ status: refusal === "rebase_execution_unavailable" ? 503 : 409,
         json: { code: refusal, class: refusal === "rebase_execution_unavailable" ? "infra" : "conflict", message: "Rebase unavailable" } })
+    })
+    await page.route(`**/api/branches/${branchId}?rebase_request=*`, route => {
+      receiptKeys.push(new URL(route.request().url()).searchParams.get("rebase_request")!)
+      return route.fulfill({ json: { kind: "scratch", machine: { id: branchId }, rebase_execution: { onto: "2222222222222222222222222222222222222222", state } } })
     })
     await page.route("**/api/branches/scratch%2Fben%2Fretry/files/src/retry.ts*", route => {
       reads.push(route.request().url())
@@ -85,18 +94,23 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
       if (typeof raw !== "string") return
       const frame = JSON.parse(raw)
       if (frame.t !== "sub") return
-      const data = frame.topic === "branch:b-conflict" ? {
-        id: "b-conflict", name: branch, head: "1111111111111111111111111111111111111111", machine: { state: "awake" },
+      const data = frame.topic === `branch:${branchId}` ? {
+        id: branchId, name: branch, head: "1111111111111111111111111111111111111111", machine: { state: "awake" },
         scratch: { forked_from: { kind: "main" } }, presence: [], terminals: [],
         rebase: { state: "conflict", onto: "main", paths: ["src/retry.ts"], conflict_change: "conflict-retained", onto_revision: "2222222222222222222222222222222222222222" },
         ssh_line: "ssh -p 2222 retry@localhost"
       } : []
       socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }))
+      if (frame.topic === `branch:${branchId}`) publishCompletion = () => {
+        const { rebase: _conflict, ...completed } = data as Record<string, unknown>
+        socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: 2,
+          data: { ...completed, head: "3333333333333333333333333333333333333333" } }))
+      }
     }))
     await page.goto("/")
     await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
     await say(page, `/branch ${branch}`)
-    const card = page.getByTestId("card-branch:b-conflict")
+    const card = page.getByTestId(`card-branch:${branchId}`)
     await expect(card).toContainText("Rebase conflict onto main")
     await card.getByRole("button", { name: "Resolve", exact: true }).press("Enter")
     await expect(page.getByTestId("card-file-branch-scratch/ben/retry-src/retry.ts")).toContainText("export const retry = 2;")
@@ -106,6 +120,26 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
     expect(writes).toEqual([])
     await card.getByRole("button", { name: "Done", exact: true }).press("Enter")
     await expect.poll(() => writes).toEqual([{ conflict_change: "conflict-retained", onto_revision: "2222222222222222222222222222222222222222" }])
+    if (refusal === "completed") {
+      await expect.poll(() => receiptKeys.length).toBeGreaterThan(0)
+      const running = page.locator('.notice[data-tone="live"]').filter({ hasText: "Rebase" })
+      await expect(running).toBeVisible()
+      await expect(page.getByTestId("composer-input")).toBeEditable()
+      await page.reload()
+      await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
+      await expect(running).toBeVisible()
+      expect(writes).toHaveLength(1)
+      expect(new Set(receiptKeys).size).toBe(1)
+      state = "completed"
+      publishCompletion()
+      await expect(card.getByRole("button", { name: "Done", exact: true })).toHaveCount(0)
+      await expect(card).toContainText("Scratch")
+      await expect(page.getByTestId(`card-branch:${branchId}`)).toHaveCount(1)
+      await expect(page.locator('.notice[data-tone="done"]').filter({ hasText: "Rebase" })).toBeVisible()
+      await expect(running).toHaveCount(0)
+      await expect(page.locator('.smithers-card[data-kind="todo"]')).toHaveCount(0)
+      return
+    }
     await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: "Rebase" })).toBeVisible()
     await expect(card.getByRole("button", { name: "Done", exact: true })).toBeVisible()
     await expect(card).toContainText("Rebase conflict onto main")
@@ -113,7 +147,7 @@ for (const refusal of ["still_conflicted", "stale_conflict", "rebase_execution_u
     await expect(page.getByTestId("composer-input")).toBeEditable()
     await page.reload()
     await expect(page.getByTestId("composer-input")).toBeEditable({ timeout: 30_000 })
-    await expect(page.getByTestId("card-branch:b-conflict")).toContainText("Rebase conflict onto main")
+    await expect(page.getByTestId(`card-branch:${branchId}`)).toContainText("Rebase conflict onto main")
     expect(writes).toHaveLength(1)
     await expect(page.locator('.smithers-card[data-kind="todo"]')).toHaveCount(0)
   })

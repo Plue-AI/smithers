@@ -7,6 +7,8 @@ const branch = process.env.SMITHERS_BRANCH_CARD_ID!
 const movedChoice = process.env.SMITHERS_BRANCH_MOVED_CHOICE
 const scratchFork = process.env.SMITHERS_BRANCH_CARD_FORK === "1"
 const scratchRebase = process.env.SMITHERS_BRANCH_CARD_REBASE === "1"
+const scratchUnresolved = process.env.SMITHERS_BRANCH_CARD_REBASE === "unresolved"
+const scratchDone = process.env.SMITHERS_BRANCH_CARD_REBASE === "done" || scratchUnresolved
 const machineControl = process.env.SMITHERS_BRANCH_MACHINE_CONTROL
 const newTerminal = process.env.SMITHERS_BRANCH_CARD_TERMINAL === "1"
 const agentAdd = process.env.SMITHERS_BRANCH_CARD_AGENT === "1"
@@ -71,7 +73,29 @@ try {
   assert.equal(card.kind, "branch")
   if (card.kind !== "branch") throw new Error("Expected Branch")
   await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
-  if (scratchRebase) {
+  if (scratchDone) {
+    await waitFor(() => host.querySelector('[data-flow="branch.rebase"]') !== null)
+    assert.ok(host.textContent?.includes("Scratch"))
+    const topic = live.getSnapshot(`branch:${branch}`)!.data as { rebase: { conflict_change: string; onto_revision: string } }
+    assert.ok(topic.rebase.conflict_change && topic.rebase.onto_revision)
+    await act(async () => (host.querySelector('[data-flow="branch.rebase"]') as HTMLButtonElement).click())
+    await waitFor(() => store.session().branchControlRequests?.some(request => request.state === (scratchUnresolved ? "failed" : "completed")) === true)
+    const row = store.session().branchControlRequests!.find(request => request.state === (scratchUnresolved ? "failed" : "completed"))!
+    if (!scratchUnresolved) assert.equal(row.workspace, branch)
+    assert.equal(row.number, undefined)
+    const writes = requests.filter(request => request.method === "POST")
+    assert.equal(writes.length, 1)
+    assert.deepEqual(writes[0]!.body, { conflict_change: topic.rebase.conflict_change, onto_revision: topic.rebase.onto_revision })
+    assert.equal(writes[0]!.status, scratchUnresolved ? 409 : 202)
+    if (scratchUnresolved) {
+      assert.deepEqual(writes[0]!.refusal, { class: "conflict", code: "still_conflicted", message: "Conflict remains" })
+      assert.ok(host.querySelector('[data-flow="branch.rebase"]'))
+    }
+    assert.equal([...store.collections.cards.values()].some(each => each.kind === "todo"), false)
+    assert.equal(controller.design.enabled, false)
+    console.log(`REBASE_CARD_REQUEST=${row.key}`)
+    console.log(scratchUnresolved ? "PASS mounted scratch Done refuses unresolved native paths without moving the branch" : "PASS mounted scratch Done through production dispatcher, PostgreSQL and native completion")
+  } else if (scratchRebase) {
     await waitFor(() => host.querySelector('[data-flow="branch.rebase-now"]') !== null)
     assert.ok(host.textContent?.includes("Scratch"))
     await act(async () => (host.querySelector('[data-flow="branch.rebase-now"]') as HTMLButtonElement).click())
