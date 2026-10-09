@@ -163,13 +163,71 @@ func TestAccessMachineHeadGrantsComposedPostgres(t *testing.T) {
 						status                int
 					}{"member-removal", fmt.Sprintf(`DELETE FROM collaborators WHERE repository_id=%d AND user_id=$1`, repo.ID), fmt.Sprintf(`INSERT INTO collaborators(repository_id,user_id,permission) VALUES(%d,$1,'%s')`, repo.ID, permission), 401})
 			}
+			nextSponsor, err := q.GetUserByLowerUsername(ctx, "alice")
+			require.NoError(t, err)
+			if nextSponsor.ID == user.ID {
+				nextSponsor, err = q.GetUserByLowerUsername(ctx, "ben")
+				require.NoError(t, err)
+			}
+			t.Run("stored-binding/other-sponsor", func(t *testing.T) {
+				_, err := r.pool.Exec(ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, nextSponsor.ID)
+				require.NoError(t, err)
+				defer func() {
+					_, err := r.pool.Exec(ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, user.ID)
+					require.NoError(t, err)
+				}()
+				before, err := q.GetWorkspace(ctx, own.ID)
+				require.NoError(t, err)
+				call(t, own.ID, 403)
+				after, err := q.GetWorkspace(ctx, own.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+			})
+			t.Run("stored-binding/service-machine-sole-writer", func(t *testing.T) {
+				machines, err := q.GetBranchMachineOwner(ctx)
+				require.NoError(t, err)
+				_, err = r.pool.Exec(ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, machines)
+				require.NoError(t, err)
+				defer func() {
+					_, err := r.pool.Exec(ctx, `DELETE FROM workspace_shares WHERE workspace_id=$1`, own.ID)
+					require.NoError(t, err)
+					_, err = r.pool.Exec(ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, user.ID)
+					require.NoError(t, err)
+				}()
+				_, err = r.pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, own.ID, machines, user.ID)
+				require.NoError(t, err)
+				call(t, own.ID, 200)
+				_, err = r.pool.Exec(ctx, `UPDATE workspace_shares SET level='read' WHERE workspace_id=$1 AND grantee_user_id=$2`, own.ID, user.ID)
+				require.NoError(t, err)
+				before, err := q.GetWorkspace(ctx, own.ID)
+				require.NoError(t, err)
+				call(t, own.ID, 403)
+				after, err := q.GetWorkspace(ctx, own.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				_, err = r.pool.Exec(ctx, `UPDATE workspace_shares SET level='write' WHERE workspace_id=$1 AND grantee_user_id=$2`, own.ID, user.ID)
+				require.NoError(t, err)
+				_, err = r.pool.Exec(ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, own.ID, machines, nextSponsor.ID)
+				require.NoError(t, err)
+				call(t, own.ID, 403)
+				after, err = q.GetWorkspace(ctx, own.ID)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				_, err = r.pool.Exec(ctx, `DELETE FROM workspace_shares WHERE workspace_id=$1 AND grantee_user_id=$2`, own.ID, nextSponsor.ID)
+				require.NoError(t, err)
+				call(t, own.ID, 200)
+			})
+			transitions = append(transitions, struct {
+				name, change, restore string
+				status                int
+			}{"workspace-transfer", fmt.Sprintf(`UPDATE workspaces SET user_id=%d WHERE id=$1`, nextSponsor.ID), fmt.Sprintf(`UPDATE workspaces SET user_id=%d WHERE id=$1`, user.ID), 403})
 			for _, transition := range transitions {
 				t.Run("write-fence/"+transition.name, func(t *testing.T) {
 					key := any(stored.TokenID)
 					if strings.HasPrefix(transition.name, "member-") {
 						key = user.ID
 					}
-					if transition.name == "publisher-replacement" || transition.name == "workspace-deletion" {
+					if transition.name == "publisher-replacement" || transition.name == "workspace-deletion" || transition.name == "workspace-transfer" {
 						key = own.ID
 					}
 					defer func() {

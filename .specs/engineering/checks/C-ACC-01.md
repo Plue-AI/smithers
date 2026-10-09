@@ -70,3 +70,16 @@ Written to `.artifacts/checks/C-ACC-01/<UTC timestamp>/`:
 - `matrix.json`: expected cell, actual status, class, fix and request id for each cell;
 - `unmapped-routes.txt` and the fake GitHub call log;
 - `go test -json` output, the commit SHA and `smithers-backend --version`.
+
+
+T-ACC-03 publisher sponsorship increment (`fr30-acc-03-r6`): an active former
+sponsor cannot report an ordinary workspace head after ownership transfers,
+even when the request was admitted before the production write-lock wait.
+The composed HTTP regression failed with 200/head mutation before the guard
+and passes with 403/permission and no head change. The guard reuses the
+issuer's WorkspaceSoleWriter predicate for service-owned branch machines:
+their sole write grantee remains eligible; a read share or second writer
+refuses the retained publisher. Owner/Maintainer/Member rows also prove
+queued credential expiry, publisher replacement, workspace deletion and
+member suspension/removal. Guest publication is substituted; these receipts
+do not qualify a real microVM or the full retained-effect matrix.

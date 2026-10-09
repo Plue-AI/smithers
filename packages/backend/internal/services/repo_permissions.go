@@ -806,6 +806,18 @@ func authorizeWorkspaceHead(ctx context.Context, q *db.Queries, subject InstallS
 	if workspace.RepositoryID != subject.RepositoryID || !workspace.HeadPushTokenID.Valid || workspace.HeadPushTokenID.Int64 != info.TokenID || workspace.DeletedAt.Valid {
 		return deny()
 	}
+	// The issuer may bind the sole writer of a service-owned branch machine.
+	// Reuse its stored predicate; an ordinary workspace ownership transfer
+	// must not leave its former sponsor's publisher authoritative.
+	if workspace.UserID != info.User.ID {
+		sole, err := q.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: info.User.ID})
+		if err != nil {
+			return InstallAuthorization{}, err
+		}
+		if !sole {
+			return deny()
+		}
+	}
 	repository, err := InstallRepositoryID(ctx, q)
 	if err != nil {
 		return InstallAuthorization{}, err
