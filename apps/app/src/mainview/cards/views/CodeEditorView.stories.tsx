@@ -1,6 +1,6 @@
 import type { CodeEditorViewProps } from "@smthrs/rpc/FileCard"
 import { fixtures } from "@smthrs/rpc/fixtures/File"
-import { CodeEditorView } from "./CodeEditorView"
+import { CodeEditorSurface as CodeEditorView } from "../CodeEditorSurface"
 import { ViewPlugin } from "@codemirror/view"
 import * as Y from "yjs"
 import { Awareness } from "y-protocols/awareness"

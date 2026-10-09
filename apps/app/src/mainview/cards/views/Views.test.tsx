@@ -2061,7 +2061,7 @@ for (const saved of ["saving", "saved"] as const) test(`File without authority h
 })
 
 test("File recovery renders hostile text inert and copies the literal buffer", async () => {
-  const { CodeEditorView } = await import("./CodeEditorView")
+  const { CodeEditorSurface: CodeEditorView } = await import("../CodeEditorSurface")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard")
   const writeText = mock(async (_text: string) => {})
@@ -2097,7 +2097,7 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
     const onAction = mock(() => {})
-    const { CodeEditorView } = await import("./CodeEditorView")
+    const { CodeEditorSurface: CodeEditorView } = await import("../CodeEditorSurface")
     const { fileStories } = await import("./CodeEditorView.stories")
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host)
@@ -2115,7 +2115,7 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
 
 describe("File presence review regressions", () => {
   test("binding shares undelegated agent colour with avatar", async () => {
-    const { CodeEditorView } = await import("./CodeEditorView")
+    const { CodeEditorSurface: CodeEditorView } = await import("../CodeEditorSurface")
     const { fixtures } = await import("@smthrs/rpc/fixtures/File")
     const agent = { kind: "agent" as const, agent: "coding" as const, id: "agent-1", avatar_url: "", name: "Agent", color_index: 2 as const }
     const host = document.createElement("div"); document.body.append(host)

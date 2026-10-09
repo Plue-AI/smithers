@@ -1,4 +1,4 @@
-import { CodeEditorView as Editor, type EditorBinding } from "@smthrs/ui/adapters/code-editor"
+import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { useMemo, useState, type ReactNode } from "react"
 import { copyText } from "@smthrs/ui/copy"
 import { coEditingVisuals } from "./coEditingVisuals"
@@ -10,10 +10,16 @@ import { formatBytes } from "./formatBytes"
 
 /** App-only snapshot bytes; the container loads and binds the named revision. */
 export type FileComparison = { readonly version: string; readonly text: string }
-export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison; readonly onCopy?: () => Promise<boolean>; readonly header?: ReactNode }
+/** One editor the View places: the current text (live when `binding` is set) or the compared snapshot. */
+export type FileEditorSlot = { readonly kind: "current"; readonly text: string; readonly binding?: EditorBinding } | { readonly kind: "snapshot"; readonly text: string }
+/**
+ * `editor` draws a slot with the CodeMirror adapter and its gesture seams; CodeEditorSurface
+ * supplies it, so this View stays props-only (C-UI-08) and never imports the adapter.
+ */
+export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison; readonly onCopy?: () => Promise<boolean>; readonly header?: ReactNode; readonly editor: (slot: FileEditorSlot) => ReactNode }
 
 /** File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
-export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison, onCopy, header }: CodeEditorViewProps) => {
+export const CodeEditorView = ({ model, view, actions, onAction, binding, comparison, onCopy, header, editor }: CodeEditorViewProps) => {
   const comparing = !!view.compare && !model.gone && model.content.kind === "text" && ((!!model.outside && comparison?.version === model.outside.version) || (!!model.unsaved && comparison?.version === "unsaved"))
   const live = !comparing && !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
   const visualBinding = useMemo<EditorBinding | undefined>(() => live && binding ? {
@@ -40,16 +46,13 @@ export const CodeEditorView = ({ model, view, actions, gestures, onAction, onVie
       {comparing ? <div className="code-compare-cap"><span>Current</span><code>{model.digest}</code></div> : null}
       <div className="code-file-editor" data-snapshot={model.gone ? "" : undefined}>
       {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to co-edit"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
-        <Editor binding={visualBinding} path={model.path} text={model.content.text} language={model.language}
-          diagnostics={model.diagnostics} hover={model.hover} reveal={model.reveal ?? (view.line ? { line: view.line } : undefined)}
-          gestures={gestures} onAction={onAction} onView={onView} />}
+        editor({ kind: "current", text: model.content.text, binding: visualBinding })}
 
       </div>
       </div>
       {comparing ? <div className="code-file-outside" data-version={comparison!.version}>
         <div className="code-compare-cap"><span>Snapshot</span><code>{comparison!.version}</code></div>
-        <Editor path={`${model.path} · Snapshot`} text={comparison!.text} language={model.language}
-          diagnostics={[]} onAction={() => {}} onView={() => {}} />
+        {editor({ kind: "snapshot", text: comparison!.text })}
       </div> : null}
       </div>
     </div>
