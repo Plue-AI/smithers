@@ -20,6 +20,7 @@
  * the UI lanes build only on what passes here.
  */
 import { Control } from "@smthrs/control/Control"
+import { ControlRuntime } from "@smthrs/control/ControlRuntime"
 import type { ApprovalPayload, ControlEvent, PlanCard, RunSummary } from "@smthrs/control/ControlSchema"
 import type * as GatewayProjection from "@smthrs/gateway/GatewayProjection"
 import { Projections } from "@smthrs/gateway/Projections"
@@ -224,6 +225,33 @@ describe("a live plan graph over a bridged real engine", () => {
       // for.
       expect(rows[0]?.waitRunId).not.toBe(rows[0]?.runId)
     }))
+
+  /*
+   * `Control.signal` commits the answer, then tries ONE delivery. A delivery
+   * that lands while the run tree is being re-driven finds the gate's wait
+   * cleared mid-resume and answers `unknown`, which leaves the command pending
+   * and bound "so the inbox retries this exact wait" (`AgentSession.deliverSignal`).
+   * A host's inbox is `AgentSession.drainRecordedSignals`, every 250 ms, as
+   * `AgentSession.make` forks it. A host without one leaves the gate asking a
+   * question it was answered, which is how the browser tier's runs hung on
+   * "Approval needed" after a successful Approval.Submit.
+   *
+   * The command is admitted here the way `Control.signal`'s mutation admits
+   * it, and no delivery is attempted, so the host's inbox is the only thing
+   * that can finish the run.
+   */
+  it("delivers an admitted answer its first delivery did not complete, through the host's signal inbox", { timeout: 120_000 }, () =>
+    runOn(
+      stack,
+      Effect.gen(function*() {
+        const engine = yield* Engine
+        const runtime = yield* ControlRuntime
+        const { runId } = yield* parked("inbox")
+        const principal = yield* runtime.stampPrincipal(relayPrincipal)
+        yield* runtime.admitSignal(`signal:inbox:${runId}`, runId, { name: "graph-gate#1", payload: "merged" }, principal)
+        expect(yield* engine.settled(runId)).toBe("completed")
+      })
+    ))
 
   scenario(
     "bridges the engine's own records into the run's events, which no unbridged stack does",

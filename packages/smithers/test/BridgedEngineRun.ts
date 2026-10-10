@@ -74,7 +74,7 @@ import * as TriggersDispatchReader from "@smthrs/triggers/DispatchReader"
 import * as SqlTriggerStore from "@smthrs/triggers/SqlTriggerStore"
 import type * as Trigger from "@smthrs/triggers/Trigger"
 import * as TriggerStore from "@smthrs/triggers/TriggerStore"
-import { Context, Effect, Layer, Option, Schema, type Scope } from "effect"
+import { Context, Effect, Layer, Option, Schedule, Schema, type Scope } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -579,6 +579,8 @@ export class Engine extends Context.Service<Engine, {
   readonly observe: (runId: string) => Effect.Effect<ControlExecutor.ExecutionObservation>
   /** The production signal port. */
   readonly deliverSignal: (input: ControlExecutor.Signal) => Effect.Effect<ControlExecutor.SignalDelivery>
+  /** One pass of the production signal inbox (`AgentSession.drainRecordedSignals`). */
+  readonly drainSignals: Effect.Effect<void, never, ControlRuntime>
   /** Polls until an execution BELOW `runId` is parked on a human wait. */
   readonly parkedBelow: (runId: string) => Effect.Effect<DurableEngineState.WaitingRow>
   /** Polls until the wrapper execution reaches a terminal status, and reports it. */
@@ -774,6 +776,10 @@ const engineLayer = (
             Effect.provideContext(services),
             Effect.orDie
           ),
+        drainSignals: AgentSession.drainRecordedSignals.pipe(
+          Effect.provideService(DurableEngineState.DurableEngineState, state),
+          Effect.provideContext(services)
+        ),
         parkedBelow,
         settled,
         journal,
@@ -862,6 +868,12 @@ const executor = Layer.effect(ControlExecutor.ControlExecutor)(
       ...(engine.refresh === undefined ? {} : { onSourceApplied: AuthoredRebuild.rebuild(engine.refresh) })
     })
     yield* Effect.forkScoped(supervisor.recover)
+    // The signal inbox, as `AgentSession.make` forks it. `Control.signal` tries
+    // one delivery after it commits an answer; one that finds the wait cleared
+    // by a resume in flight answers `unknown` and leaves the command bound for
+    // this to retry. Without it that answer is never delivered and the run
+    // stays parked on the question it was answered (FlowGraphRun.test.ts).
+    yield* Effect.forkScoped(engine.drainSignals.pipe(Effect.repeat({ schedule: Schedule.spaced("250 millis") })))
     return supervisor.wrap(ControlExecutor.makeNoop({
       readExecution: (runId) => engine.observe(runId),
       deliverSignal: (input) => engine.deliverSignal(input),
