@@ -8,10 +8,12 @@
 
 import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Layer } from "effect"
+import { Refused } from "../CliError.ts"
 
 /**
  * Wraps `FlowRuntime` so registering `coding/Request` or `coding/Vibe` dies with
- * `replaced: <tag>`; every other flow registers unchanged.
+ * an `entry_point_replaced` refusal (`replaced: <tag> ...`); every other flow
+ * registers unchanged.
  *
  * @since 1.0.0
  * @private
@@ -21,7 +23,13 @@ export const layer = Layer.effect(FlowRuntime.FlowRuntime)(Effect.map(FlowRuntim
   register: ((flow, handler, options) =>
     Effect.suspend(() =>
       flow._tag === "coding/Request" || flow._tag === "coding/Vibe"
-        ? Effect.die(new Error(`replaced: ${flow._tag}`))
+        ? Effect.die(
+          new Refused({
+            fault: "policy",
+            code: "entry_point_replaced",
+            message: `replaced: ${flow._tag} no longer starts work; start a TODO instead`
+          })
+        )
         : runtime.register(flow, handler, options)
     )) as typeof runtime.register
 })))
