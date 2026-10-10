@@ -604,7 +604,7 @@
     },
     "C-DUR-04": {
       "status": "pending-owner",
-      "reason": "Host-ingest controls and composed reference rebase automation (internal/compose/rebase_fault_test.go) exist; full K1–K6, mini rebase/root-input execution and authenticated owner-approved host mapping are still required",
+      "reason": "Host-ingest controls and composed reference rebase automation (internal/compose/rebase_fault_test.go) exist; full K1\u2013K6, mini rebase/root-input execution and authenticated owner-approved host mapping are still required",
       "ticket": "T-COL-03"
     },
     "C-DUR-05": {
@@ -1419,11 +1419,12 @@
     },
     "C-J3-10": {
       "status": "pending-owner",
-      "reason": "Automation present: apps/app/e2e/real/agent-terminal.spec.ts; authenticated owner approval of argv/host and qualification receipts pending",
+      "reason": "Automation present: apps/app/e2e/real/agent-terminal.spec.ts and installed-guest agent PTY tests; authenticated owner approval of argv/host and qualification receipts pending",
       "ticket": "T-TRM-05",
       "pendingBinding": {
         "files": [
-          "apps/app/e2e/real/agent-terminal.spec.ts"
+          "apps/app/e2e/real/agent-terminal.spec.ts",
+          "packages/backend/internal/machined/session_native_agent_pty_linux_test.go"
         ],
         "commands": [
           {
@@ -1446,6 +1447,31 @@
             "prerequisites": [
               "reference-host",
               "installed-bundle"
+            ]
+          },
+          {
+            "argv": [
+              "go",
+              "test",
+              "-json",
+              "./internal/machined",
+              "-run",
+              "^(TestAgentPtyDropsPrivilegesBeforePayload|TestAgentPtyRootInputsValidated|TestAgentPtyHostWatcherSeesTheCommandFromItsFirstByte)$"
+            ],
+            "cwd": "packages/backend",
+            "files": [
+              "packages/backend/internal/machined/session_native_agent_pty_linux_test.go"
+            ],
+            "reporter": "go",
+            "expectedCaseIds": [
+              "TestAgentPtyDropsPrivilegesBeforePayload",
+              "TestAgentPtyRootInputsValidated",
+              "TestAgentPtyHostWatcherSeesTheCommandFromItsFirstByte"
+            ],
+            "prerequisites": [
+              "installed-guest",
+              "SMITHERS_SESSION_ACCEPTANCE_CONFIG",
+              "SMITHERS_REQUIRE_SESSION_ACCEPTANCE=1"
             ]
           }
         ],
@@ -2399,8 +2425,37 @@
     },
     "C-REL-04": {
       "status": "pending-owner",
-      "reason": "Dark scorecard boundary tests exist; numeric source contracts, qualified owner authorization, PostgreSQL lifecycle fixtures and sampled-session evidence remain pending.",
-      "ticket": "T-REL-03"
+      "reason": "PostgreSQL literal scorecard fixture covers steps 1, 2 and 5 through the composed install router; qualified owner authorization and sampled-session evidence remain pending.",
+      "ticket": "T-REL-03",
+      "pendingBinding": {
+        "files": [
+          "packages/backend/internal/compose/install_scorecard_literal_integration_test.go"
+        ],
+        "commands": [
+          {
+            "argv": [
+              "go",
+              "test",
+              "-json",
+              "./internal/compose",
+              "-run",
+              "^TestInstallScorecardLiteralAlphaFixture$"
+            ],
+            "cwd": "packages/backend",
+            "files": [
+              "packages/backend/internal/compose/install_scorecard_literal_integration_test.go"
+            ],
+            "reporter": "go",
+            "expectedCaseIds": [
+              "TestInstallScorecardLiteralAlphaFixture"
+            ],
+            "prerequisites": [
+              "postgresql"
+            ]
+          }
+        ],
+        "provenance": "Source inventory verified against origin/main 2026-10-10; landed PostgreSQL fixture 848de03cee; pending only, no mapping approval or full-check qualification inferred"
+      }
     },
     "C-REL-05": {
       "status": "manual",
