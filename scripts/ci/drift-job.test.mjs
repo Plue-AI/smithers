@@ -17,6 +17,8 @@ const runFile = promisify(execFile)
 const gateCommands = [
   "pnpm exec smthrs lint '//...:fmt' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:targetIndex' --known-red '.github/ci-known-red.json' --verbose",
+  // factory.json drift once surfaced only in the Release gates (#3770).
+  "pnpm exec smthrs lint '//:factoryProjection' --known-red '.github/ci-known-red.json' --verbose",
   // The access test list (7f2d5a8eee) cannot drift from the files it names.
   "pnpm exec smthrs lint '//:backendAccessTests' --known-red '.github/ci-known-red.json' --verbose",
   "pnpm exec smthrs lint '//:openapiBundle' --known-red '.github/ci-known-red.json' --verbose",

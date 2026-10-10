@@ -544,6 +544,8 @@ const driftJob = {
   steps: [
     { name: "Formatting", verb: Smithers.Verb.Lint, pattern: "//...:fmt" },
     { name: "Target index drift", verb: Smithers.Verb.Lint, pattern: "//:targetIndex" },
+    // factory.json drift used to surface only in the Release gates (#3770).
+    { name: "Factory projection drift", verb: Smithers.Verb.Lint, pattern: "//:factoryProjection" },
     { name: "Backend access test list drift", verb: Smithers.Verb.Lint, pattern: "//:backendAccessTests" },
     { name: "OpenAPI bundle drift", verb: Smithers.Verb.Lint, pattern: "//:openapiBundle" },
     { name: "OpenAPI client drift", verb: Smithers.Verb.Lint, pattern: "//:openapiClients" },

@@ -140,9 +140,10 @@ test("an affected check without its check host's written paths refuses instead o
 
 // The driftCi steps in PACKAGE.ts, in order (scripts/ci/drift-job.test.mjs pins that list).
 const driftGates = [
-  ["lint", "//...:fmt"], ["lint", "//:targetIndex"], ["lint", "//:backendAccessTests"], ["lint", "//:openapiBundle"],
-  ["lint", "//:openapiClients"], ["lint", "//scripts:docsDrift"], ["build", "//scripts:apiBaseline"],
-  ["lint", "//scripts:conflictMarkers"], ["lint", "//scripts:trackedHygiene"], ["lint", "//:driftCi"], ["lint", "//:ci"]
+  ["lint", "//...:fmt"], ["lint", "//:targetIndex"], ["lint", "//:factoryProjection"], ["lint", "//:backendAccessTests"],
+  ["lint", "//:openapiBundle"], ["lint", "//:openapiClients"], ["lint", "//scripts:docsDrift"],
+  ["build", "//scripts:apiBaseline"], ["lint", "//scripts:conflictMarkers"], ["lint", "//scripts:trackedHygiene"],
+  ["lint", "//:driftCi"], ["lint", "//:ci"]
 ]
 const driftRun = (failing) => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "coding-drift-")))
