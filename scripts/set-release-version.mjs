@@ -55,6 +55,11 @@ export const versionedSources = [
     path: "packages/smithers/mcp/src/McpClient.ts",
     declaration: "clientInfo.version",
     pattern: /(name: "smithers",\s*version: ")([^"]*)(")/
+  },
+  {
+    path: "packages/smithers/flows/database/src/internal/ReleasePolicy.ts",
+    declaration: "releaseVersion",
+    pattern: /(export const releaseVersion = ")([^"]*)(")/
   }
 ]
 

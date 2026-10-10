@@ -136,6 +136,18 @@ test("the MCP client identity is a versioned source", () => {
   )
 })
 
+test("the storage release policy is a versioned source", () => {
+  // Its refusal texts quote the release; the rc.2 and rc.3 bumps left it at rc.1.
+  const source = versionedSources.find(({ path }) => path.endsWith("flows/database/src/internal/ReleasePolicy.ts"))
+  assert.ok(source, "ReleasePolicy.ts releaseVersion is not in versionedSources")
+  const text = ['export const releaseVersion = "1.0.0-rc.1"', 'export const nodeFloor = ">=26.4.0"'].join("\n")
+
+  assert.equal(
+    retargetSource(text, "1.0.0-rc.3", source),
+    text.replace('releaseVersion = "1.0.0-rc.1"', 'releaseVersion = "1.0.0-rc.3"')
+  )
+})
+
 test("retargetSource refuses a file that no longer carries the declaration", () => {
   const source = versionedSources.find(({ path }) => path.endsWith("Otlp.ts"))
 

@@ -4,6 +4,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient"
 import { existsSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
+import * as ReleasePolicy from "../src/internal/ReleasePolicy.ts"
 import * as NodeDatabase from "../src/node/NodeDatabase.ts"
 import { holdWriteLock } from "./harness/holdWriteLock.ts"
 import { tempDirectoryFixture } from "./harness/tempDirectoryFixture.ts"
@@ -143,7 +144,7 @@ describe("NodeDatabase guard: 0.x database files (X-13)", () => {
       if (!NodeDatabase.isUnsupportedDatabase(defect)) return
       expect(defect.code).toBe("unsupported_database_file")
       expect(defect.message).toBe(
-        `${filename} is not a Smithers 1.0 database (1.0.0-rc.1 does not load a 0.x smithers.db)`
+        `${filename} is not a Smithers 1.0 database (${ReleasePolicy.releaseVersion} does not load a 0.x smithers.db)`
       )
     }))
 
@@ -159,7 +160,7 @@ describe("NodeDatabase guard: 0.x database files (X-13)", () => {
       if (!NodeDatabase.isUnsupportedDatabase(defect)) return
       expect(defect.code).toBe("unsupported_database_file")
       expect(defect.message).toBe(
-        `${uri} is not a Smithers 1.0 database (1.0.0-rc.1 does not load a 0.x smithers.db)`
+        `${uri} is not a Smithers 1.0 database (${ReleasePolicy.releaseVersion} does not load a 0.x smithers.db)`
       )
     }))
 
@@ -177,7 +178,7 @@ describe("NodeDatabase guard: 0.x database files (X-13)", () => {
       if (!NodeDatabase.isUnsupportedDatabase(defect)) return
       expect(defect.code).toBe("unsupported_database_file")
       expect(defect.message).toBe(
-        `${uri} is not a Smithers 1.0 database (1.0.0-rc.1 does not load a 0.x smithers.db)`
+        `${uri} is not a Smithers 1.0 database (${ReleasePolicy.releaseVersion} does not load a 0.x smithers.db)`
       )
     }))
 
@@ -205,7 +206,7 @@ describe("NodeDatabase guard: 0.x database files (X-13)", () => {
       expect(defect.code).toBe("unsupported_database_file")
       // The refusal names the URI the caller gave, not the path it was probed by.
       expect(defect.message).toBe(
-        `${uri} is not a Smithers 1.0 database (1.0.0-rc.1 does not load a 0.x smithers.db)`
+        `${uri} is not a Smithers 1.0 database (${ReleasePolicy.releaseVersion} does not load a 0.x smithers.db)`
       )
     }))
 
@@ -363,7 +364,7 @@ describe("NodeDatabase guard: 0.x database files (X-13)", () => {
       if (!NodeDatabase.isUnsupportedDatabase(defect)) return
       expect(defect.code).toBe("unsupported_database_file")
       expect(defect.message).toBe(
-        `${uri} is not a Smithers 1.0 database (1.0.0-rc.1 does not load a 0.x smithers.db)`
+        `${uri} is not a Smithers 1.0 database (${ReleasePolicy.releaseVersion} does not load a 0.x smithers.db)`
       )
     }))
 
