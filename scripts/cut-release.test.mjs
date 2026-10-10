@@ -51,6 +51,7 @@ const write = (root, path, contents) => {
  * row's text under the wrong file.
  */
 const seededSources = {
+  "packages/smithers/flows/database/src/internal/ReleasePolicy.ts": "export const releaseVersion = \"0.1.0\"\n",
   "packages/smithers/flows/observability/src/Otlp.ts": "export const defaultServiceVersion = \"0.1.0\"\n",
   "packages/smithers/migrate/src/flow/Cli.ts": "export const version = \"0.1.0\"\n",
   "packages/smithers/migrate/src/Report.ts":
