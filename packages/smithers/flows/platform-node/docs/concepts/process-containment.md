@@ -39,6 +39,14 @@ adapter and `ProcessReaper.processLifecycle`:
 - The grace period is an upper bound. Once the target has exited and the group
   holds no other live member and no captured escaped descendant, cleanup
   finishes at once.
+- A grouped supervisor starts a guardian in its group before the target: a
+  `/bin/sh` that waits on a pipe only the supervisor holds. A supervisor killed
+  outright (`SIGKILL`, the OOM killer) runs no handler, so at that pipe's EOF
+  the guardian kills its own group with `kill 0`, which names the caller's
+  group rather than a number that could be stale. It ignores the catchable
+  signals a stop sends the group and dies in the supervisor's final `SIGKILL`.
+  A host without `/bin/sh` refuses to start a grouped target. A lost
+  supervisor sends no cleanup receipt, so its release stays unverified.
 
 Confined children use private directories for `HOME` and XDG config, cache, data, and state.
 

@@ -48,6 +48,13 @@ type Ready = {
 }
 const commandOf = (pid: number) =>
   spawnSync("/bin/ps", ["-ww", "-o", "command=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 }).stdout ?? ""
+const beatText = (path: string): string | undefined => {
+  try {
+    return readFileSync(path, "utf8")
+  } catch {
+    return undefined
+  }
+}
 const beatOf = (path: string): { readonly token: string; readonly pid: number; readonly tick: number } | undefined => {
   try {
     return JSON.parse(readFileSync(path, "utf8"))
@@ -80,6 +87,7 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
         const token = randomUUID()
         const marker = join(directory, "ready")
         let target: number | undefined
+        let holder: number | undefined
         let result = ""
         const identity = (pid: number) =>
           spawnSync("/bin/ps", ["-ww", "-o", "command=", "-p", String(pid)], {
@@ -91,9 +99,10 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
           const handle = yield* spawner.spawn(
             ChildProcess.make(process.execPath, [
               "-e",
-              `const token=${JSON.stringify(token)};require('node:fs').writeFileSync(${
-                JSON.stringify(marker)
-              },'ready');setInterval(()=>{},1000)`
+              `const token=${JSON.stringify(token)};
+const holder=require('node:child_process').spawn(process.execPath,
+  ['-e','const token='+JSON.stringify(token)+';setInterval(()=>{},1000)'],{detached:true,stdio:[0,1,2,3,4]});
+require('node:fs').writeFileSync(${JSON.stringify(marker)},String(holder.pid));setInterval(()=>{},1000)`
             ], {
               env: { PATH: "/usr/bin:/bin" },
               forceKillAfter: 0,
@@ -102,9 +111,12 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
           )
           try {
             target = targetPidOf(handle)!
-            while (!existsSync(marker)) yield* Effect.sleep(5)
-            // This exact owner was created by this UUID fixture. The target is
-            // deliberately left alive to hold both ends of the public pipes.
+            // The file exists before its content: wait for a whole pid.
+            while (!(Number(beatText(marker)) > 1)) yield* Effect.sleep(5)
+            holder = Number(beatText(marker))
+            // This exact owner was created by this UUID fixture. Its group
+            // guardian stops the target, so a holder that left the group in
+            // its own session keeps both ends of the public pipes alive.
             process.kill(handle.pid, "SIGKILL")
             const read = operation === "stdout" ? handle.stdout : handle.getOutputFd(4)
             const write = operation === "stdin" ? handle.stdin : handle.getInputFd(3)
@@ -113,7 +125,9 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
               : Stream.run(Stream.make(new Uint8Array(2 * 1024 * 1024)), write)
             result = JSON.stringify(yield* work.pipe(Effect.timeout("1 second"), Effect.exit))
           } finally {
-            if (target !== undefined && identity(target).includes(token)) process.kill(target, "SIGKILL")
+            for (const pid of [target, holder]) {
+              if (pid !== undefined && identity(pid).includes(token)) process.kill(pid, "SIGKILL")
+            }
           }
         }).pipe(
           Effect.provide(contained),
@@ -744,6 +758,96 @@ describe.skipIf(process.platform === "win32")("prepared POSIX process contract",
         }
       }
     }).pipe(Effect.provide(layers), Effect.scoped))
+
+  it.live("stops a lost owner's target and its same-group child (#3760)", () =>
+    Effect.gen(function*() {
+      const token = randomUUID()
+      let tree: { readonly target: number; readonly child: number } | undefined
+      let owner = 0
+      let childGroup = 0
+      let exited: ReadonlyArray<boolean> = []
+      try {
+        // The release fails, so every observation leaves the scope as data.
+        const released = yield* Effect.gen(function*() {
+          const raw = yield* ChildProcessSpawner
+          const prepared = yield* ProcessReaper.processLifecycle(
+            ChildProcess.make(process.execPath, [
+              "-e",
+              `const token=${JSON.stringify(token)};
+const child=require('node:child_process').spawn(process.execPath,
+  ['-e','const token='+JSON.stringify(token)+';setInterval(()=>{},1000)'],{stdio:'ignore'});
+process.stdout.write(JSON.stringify({target:process.pid,child:child.pid})+'\\n');setInterval(()=>{},1000)`
+            ], { env: { PATH: "/usr/bin:/bin" } }),
+            raw.spawn
+          )
+          yield* prepared.activate
+          const line = yield* prepared.handle.stdout.pipe(Stream.decodeText(), Stream.splitLines, Stream.runHead)
+          tree = JSON.parse(line._tag === "Some" ? line.value : "null")
+          owner = prepared.handle.pid
+          childGroup = group(tree!.child)
+          // The owner dies without running a handler, as under the OOM killer.
+          process.kill(owner, "SIGKILL")
+          exited = yield* Effect.promise(() =>
+            Promise.all([waitForExit(tree!.target, 5000), waitForExit(tree!.child, 5000)])
+          )
+        }).pipe(Effect.provide(layers), Effect.scoped, Effect.exit)
+        // Only a signal to the owner's group reaches this child.
+        expect(tree).toBeDefined()
+        expect(childGroup).toBe(owner)
+        expect(exited).toEqual([true, true])
+        // A lost owner sends no cleanup receipt, so the release stays unverified
+        // even though its group is gone.
+        expect(Exit.isFailure(released)).toBe(true)
+        if (Exit.isFailure(released)) expect(String(released.cause)).toContain("cleanup receipt: missing")
+      } finally {
+        for (const pid of [tree?.target, tree?.child]) {
+          if (pid !== undefined && commandOf(pid).includes(token)) process.kill(pid, "SIGKILL")
+        }
+      }
+    }))
+
+  it.live("keeps a lost owner's group guarded through a stop's grace window", () =>
+    Effect.gen(function*() {
+      const directory = yield* fixture
+      const token = randomUUID()
+      const pidFile = join(directory, "pid")
+      const termFile = join(directory, "term")
+      let target: number | undefined
+      let exited = false
+      try {
+        // The release fails, so every observation leaves the scope as data.
+        const released = yield* Effect.gen(function*() {
+          const raw = yield* ChildProcessSpawner
+          const prepared = yield* ProcessReaper.processLifecycle(
+            ChildProcess.make(process.execPath, [
+              "-e",
+              `const token=${JSON.stringify(token)};const fs=require('node:fs');
+process.on('SIGTERM',()=>fs.writeFileSync(${JSON.stringify(termFile)},'term'));
+fs.writeFileSync(${JSON.stringify(pidFile)},String(process.pid));setInterval(()=>{},1000)`
+            ], { env: { PATH: "/usr/bin:/bin" } }),
+            raw.spawn
+          )
+          yield* prepared.activate
+          while (!(Number(beatText(pidFile)) > 1)) yield* Effect.sleep(5)
+          target = Number(beatText(pidFile))
+          // The stop's TERM reaches the whole group, the guardian included,
+          // and the target ignores it for a grace far longer than this test.
+          yield* prepared.handle.kill({ killSignal: "SIGTERM", forceKillAfter: 30_000 }).pipe(
+            Effect.exit,
+            Effect.forkChild
+          )
+          while (beatText(termFile) !== "term") yield* Effect.sleep(5)
+          process.kill(prepared.handle.pid, "SIGKILL")
+          exited = yield* Effect.promise(() => waitForExit(target!, 5000))
+        }).pipe(Effect.provide(layers), Effect.scoped, Effect.exit)
+        // Only the guardian can stop the target before that grace ends.
+        expect(target).toBeGreaterThan(1)
+        expect(exited).toBe(true)
+        expect(Exit.isFailure(released)).toBe(true)
+      } finally {
+        if (target !== undefined && commandOf(target).includes(token)) process.kill(target, "SIGKILL")
+      }
+    }).pipe(Effect.scoped))
 
   it.live("stops a killed host's own target and its child without a replacement host", () =>
     Effect.gen(function*() {

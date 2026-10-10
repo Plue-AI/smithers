@@ -445,24 +445,46 @@ process.stdin.on('end', () => { fs.appendFileSync('prompts', JSON.stringify(prom
     expect(() => readFileSync(join(fake.root, "started"))).toThrow()
   })
 
-  it("fails a call whose supervisor is lost mid-call as a transport failure", async () => {
-    const fake = fakeModel(`require('node:fs').writeFileSync('supervisor', String(process.ppid));
-setInterval(() => {}, 1000);`)
-    const failure = await Effect.runPromise(Effect.gen(function*() {
-      const fiber = yield* Effect.forkChild(Effect.flip(Stream.runCollect(fake.model.stream(request()))))
-      yield* Effect.promise(async () => {
-        let supervisor = 0
-        for (let attempt = 0; attempt < 1000 && supervisor === 0; attempt++) {
-          try {
-            supervisor = Number(readFileSync(join(fake.root, "supervisor"), "utf8"))
-          } catch {}
-          if (supervisor === 0) await new Promise((resolve) => setTimeout(resolve, 10))
+  it("fails a call whose supervisor is lost mid-call as a transport failure and leaves no vendor behind", async () => {
+    const fake = fakeModel(
+      `require('node:fs').writeFileSync('tree', JSON.stringify({ supervisor: process.ppid, vendor: process.pid }));
+setInterval(() => {}, 1000);`
+    )
+    let tree: { supervisor: number; vendor: number } | undefined
+    try {
+      const failure = await Effect.runPromise(Effect.gen(function*() {
+        const fiber = yield* Effect.forkChild(Effect.flip(Stream.runCollect(fake.model.stream(request()))))
+        yield* Effect.promise(async () => {
+          // The file exists before its content: wait for a whole record.
+          for (let attempt = 0; attempt < 1000 && tree === undefined; attempt++) {
+            try {
+              tree = JSON.parse(readFileSync(join(fake.root, "tree"), "utf8"))
+            } catch {}
+            if (tree === undefined) await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+          process.kill(tree!.supervisor, "SIGKILL")
+        })
+        return yield* Fiber.join(fiber)
+      }))
+      expect(failure).toMatchObject({ code: "transport" })
+      // The vendor dies with its lost supervisor instead of running on under
+      // init with its session and quota (#3760).
+      let alive = true
+      for (let attempt = 0; attempt < 500 && alive; attempt++) {
+        try {
+          process.kill(tree!.vendor, 0)
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        } catch {
+          alive = false
         }
-        process.kill(supervisor, "SIGKILL")
-      })
-      return yield* Fiber.join(fiber)
-    }))
-    expect(failure).toMatchObject({ code: "transport" })
+      }
+      expect(alive, `vendor ${tree!.vendor} outlived its lost supervisor`).toBe(false)
+    } finally {
+      // A red run must not leak the fixture it proved leaks.
+      try {
+        if (tree !== undefined) process.kill(tree.vendor, "SIGKILL")
+      } catch {}
+    }
   })
 
   it("launches the vendor under the contained spawner's supervisor and kills its whole tree on cancel", async () => {

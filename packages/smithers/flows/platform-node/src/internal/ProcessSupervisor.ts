@@ -222,6 +222,8 @@ export class Control {
   targetDone = false
   ownerCreation: unknown
   targetPid: number | undefined
+  /** The owner's group guardian: a member that is neither target nor owner. */
+  guardianPid: number | undefined
   ownerDone = false
   spawnFailed = false
   cleanupFailed = false
@@ -425,12 +427,15 @@ export class Control {
         return
       case "spawned":
         if (
-          !this.activationSent || this.receivedStarted || !Number.isSafeInteger(message.pid) || Number(message.pid) <= 1
+          !this.activationSent || this.receivedStarted || !Number.isSafeInteger(message.pid) ||
+          Number(message.pid) <= 1 ||
+          message.guardian !== undefined && (!Number.isSafeInteger(message.guardian) || Number(message.guardian) <= 1)
         ) {
           throw processFault("status_invalid", "Invalid target startup")
         }
         this.receivedStarted = true
         this.targetPid = Number(message.pid)
+        if (message.guardian !== undefined) this.guardianPid = Number(message.guardian)
         this.started.resolve()
         return
       case "spawn_error":
@@ -552,7 +557,8 @@ export const prepare = (
       if (!grouped) return control.targetDone
       const observed = snapshot()
       if (observed === undefined || observed.ownGroup === raw.pid) return false
-      const running = observed.members.filter((member) => !member.zombie)
+      // The guardian leaves with the owner's final group SIGKILL.
+      const running = observed.members.filter((member) => !member.zombie && member.pid !== control.guardianPid)
       return running.length === 1 && running[0]!.pid === raw.pid
     }
     // This observation only shortens the owner's deadline. The live owner makes

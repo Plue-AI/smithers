@@ -41,7 +41,8 @@ export interface Handle extends ChildProcessHandle {
 /**
  * Starts a pipe-based command and contains its lifetime inside the caller's
  * scope. The returned pid names the live supervisor; exitCode reports
- * the actual target. The private parent connection stops the tree on host loss.
+ * the actual target. The private parent connection stops the tree on host loss,
+ * and the supervisor's group guardian stops the group on supervisor loss.
  * Transient commands have no durable ledger; durable hosts use NodeHost instead.
  *
  * Unconsumed output stays in bounded native buffers until it is read or the

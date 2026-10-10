@@ -8,6 +8,7 @@ import { Control } from "../src/internal/ProcessSupervisor.ts"
 import { source } from "../src/internal/SupervisorProgram.ts"
 
 const schedules = ["target exit", "status EOF", "request EOF"] as const
+type Spawned = readonly [command: string, args: ReadonlyArray<string>, options: Record<string, unknown>]
 
 // Execute the shipped source with manual event/timer delivery. No OS signals
 // occur here; recorded calls expose escalation before the grace timer runs.
@@ -17,9 +18,19 @@ const program = (
   platform = "linux",
   standardFds?: ReadonlyArray<number | "ignore">,
   identityResult?: unknown,
-  acknowledgeCleanup = false
+  acknowledgeCleanup = false,
+  extra: {
+    /** null: the guardian's launch failed and left no pid. */
+    readonly guardianPid?: number | null
+    readonly mode?: "group" | "direct"
+    readonly userFds?: ReadonlyArray<number>
+    readonly spawns?: Array<Spawned>
+  } = {}
 ) => {
+  const guardianPid = extra.guardianPid === undefined ? 4106 : extra.guardianPid ?? undefined
+  const mode = extra.mode ?? "group"
   const statusFrames: Array<unknown> = []
+  const spawns = extra.spawns ?? []
   const observations: Array<unknown> = []
   const released: Array<number> = []
   const replacements: Array<readonly [string, string]> = []
@@ -41,7 +52,11 @@ const program = (
   // One process table, published as Linux `/proc` stat lines and as `ps` rows.
   const table: Array<readonly [pid: number, parent: number, group: number, state: string]> = [
     [4102, 4101, 4101, "S"],
-    ...(escaped ? [[4103, 4102, 4103, "S"] as const] : [])
+    ...(escaped ? [[4103, 4102, 4103, "S"] as const] : []),
+    // The owner's live guardian shares its group for the target's lifetime.
+    // Every settlement case below therefore proves the guardian never holds
+    // a vacant group's grace window open.
+    ...(guardianPid === undefined || mode !== "group" ? [] : [[guardianPid, 4101, 4101, "S"] as const])
   ]
   const proc = new Map<string, string | Error>(
     table.map(([pid, parent, group, state]) => [
@@ -51,11 +66,12 @@ const program = (
   )
   const listing: { error?: Error } = {}
   const target = Object.assign(new EventEmitter(), { pid: 4102 })
+  const guardian = Object.assign(new EventEmitter(), { pid: guardianPid, stdin: new EventEmitter() })
   const runtime = Object.assign(new EventEmitter(), {
     pid: 4101,
     platform,
     env: identityResult === undefined ? {} : { SMITHERS_PROCESS_JOB_HELPER: "/trusted/helper" },
-    argv: ["/fixture/s", "group"],
+    argv: ["/fixture/s", mode],
     kill: (pid: number, signal: string) => signals.push([pid, signal])
   })
   const modules: Record<string, unknown> = {
@@ -80,7 +96,10 @@ const program = (
     },
     "node:net": { connect: (path: string) => path.endsWith("/s") ? status : requests },
     "node:child_process": {
-      spawn: () => target,
+      spawn: (command: string, args: ReadonlyArray<string>, options: Record<string, unknown>) => {
+        spawns.push([command, args, options])
+        return command === "/bin/sh" ? guardian : target
+      },
       spawnSync: (...args: ReadonlyArray<unknown>) => {
         observations.push(args)
         return identityResult ?? ({
@@ -108,7 +127,7 @@ const program = (
     type: "configure",
     command: "fixture",
     args: [],
-    userFds: [],
+    userFds: extra.userFds ?? [],
     standardFds,
     killSignal,
     graceMs: 25,
@@ -121,6 +140,8 @@ const program = (
     status,
     requests,
     target,
+    guardian,
+    spawns,
     send,
     released,
     replacements,
@@ -248,6 +269,46 @@ describe("supervisor stop policy", () => {
     expect(helper.timers.map((timer) => timer.millis)).toEqual([5000])
     helper.timers[0]!.run()
     expect(helper.signals).toEqual([[-4101, "SIGTERM"], [-4101, "SIGKILL"]])
+  })
+})
+
+describe("supervisor group guardian", () => {
+  it("starts a guardian in the owner's group before the target, holding none of the caller's descriptors", () => {
+    const helper = program("SIGTERM", false, "linux", undefined, undefined, false, { userFds: [4] })
+    expect(helper.spawns.map(([command]) => command)).toEqual(["/bin/sh", "fixture"])
+    const [, args, options] = helper.spawns[0]!
+    expect(args[0]).toBe("-c")
+    expect(args[1]).toMatch(/read -r line; kill -s KILL 0$/)
+    // Every slot the target receives a caller pipe in is null for the guardian.
+    expect(helper.spawns[1]![2].stdio).toEqual([0, 1, 2, "ignore", 4])
+    expect(options).toEqual({
+      cwd: "/",
+      env: {},
+      detached: false,
+      stdio: ["pipe", "ignore", "ignore", "ignore", "ignore"]
+    })
+  })
+
+  it("reports its guardian with the target's startup", () => {
+    const helper = program("SIGTERM", false)
+    helper.target.emit("spawn")
+    expect(helper.statusFrames).toContainEqual({ type: "spawned", pid: 4102, guardian: 4106 })
+  })
+
+  it("refuses to start a target whose group would be unguarded", () => {
+    const spawns: Array<Spawned> = []
+    expect(() => program("SIGTERM", false, "linux", undefined, undefined, false, { guardianPid: null, spawns }))
+      .toThrow(
+        expect.objectContaining({ reason: "guardian_unavailable", message: "Process group guardian unavailable" })
+      )
+    expect(spawns.map(([command]) => command)).toEqual(["/bin/sh"])
+  })
+
+  it("runs no guardian for a direct owner, which shares its host's group", () => {
+    const helper = program("SIGTERM", false, "linux", undefined, undefined, false, { mode: "direct" })
+    helper.target.emit("spawn")
+    expect(helper.spawns.map(([command]) => command)).toEqual(["fixture"])
+    expect(helper.statusFrames).toContainEqual({ type: "spawned", pid: 4102 })
   })
 })
 

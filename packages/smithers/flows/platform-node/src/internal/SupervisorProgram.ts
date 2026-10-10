@@ -44,6 +44,13 @@ const control = connect(socketPath);
 const requests = connect(socketPath.replace(/\/s$/, '/r'));
 let config;
 let target;
+// An owner killed outright (SIGKILL, the OOM killer) runs no handler, so it
+// cannot stop its group. Its guardian is a member of that group that waits on
+// a pipe only the owner holds. At EOF it kills its own group: kill 0 names the
+// caller's group, never a number that could be stale. It ignores the catchable
+// signals a stop sends the group and dies in the owner's final SIGKILL.
+let guardian;
+const guardianScript = "command trap '' HUP INT QUIT ABRT ALRM TERM USR1 USR2 PIPE TSTP TTIN TTOU; read -r line; kill -s KILL 0";
 let targetDone = false;
 let stopping = false;
 let explicitStop = false;
@@ -204,8 +211,9 @@ const settleVacantGroup = () => {
   let rows;
   try { rows = snapshot(); } catch { return; }
   for (const row of rows.values()) {
-    // The owner's only other child is the ps answering this snapshot; the
-    // exited target is already reaped and its orphans have another parent.
+    // The owner's other children are its guardian and the ps answering this
+    // snapshot; the exited target is already reaped and its orphans have
+    // another parent.
     if (row.group === process.pid && row.pid !== process.pid && row.parent !== process.pid && !row.zombie) return;
   }
   clearTimeout(timer);
@@ -251,6 +259,18 @@ requests.on('data', (data) => {
       if (config.standardFds !== undefined) {
         for (const fd of [0, 1, 2]) descriptors[fd] = config.standardFds[fd];
       }
+      if (grouped) {
+        // Started before the target, so no target outlives an owner unguarded.
+        // Every caller descriptor slot is replaced: a guardian holding a copy
+        // of the caller's output would keep that pipe from reaching EOF.
+        const guarded = descriptors.map(() => 'ignore');
+        guarded[0] = 'pipe';
+        guardian = cp.spawn('/bin/sh', ['-c', guardianScript], { cwd: '/', env: {}, detached: false, stdio: guarded });
+        // A failed launch has no pid; its later error event is the same fault.
+        guardian.once('error', () => {});
+        if (guardian.pid === undefined) throw new SupervisorFault('guardian_unavailable', 'Process group guardian unavailable');
+        guardian.stdin.on('error', () => {});
+      }
       try {
         target = cp.spawn(config.command, config.args, {
           cwd: config.cwd, env: config.env, shell: config.shell,
@@ -273,7 +293,7 @@ requests.on('data', (data) => {
           }
         }
         for (const fd of config.userFds) fs.closeSync(fd);
-        send({ type: 'spawned', pid: target.pid });
+        send({ type: 'spawned', pid: target.pid, ...(guardian === undefined ? {} : { guardian: guardian.pid }) });
       });
       target.once('error', spawnError);
       target.once('exit', (code, signal) => {

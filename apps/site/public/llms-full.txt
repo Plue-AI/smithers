@@ -30576,7 +30576,8 @@ A missing or invalid target result remains a platform failure. Use the handle's
 Drain stdout, stderr, stdin and status concurrently when using pipes. Keep the
 whole operation inside `Effect.scoped`; a target's natural exit also triggers
 cleanup of children holding those pipes open. The private parent connection
-requests cleanup on host loss. This API has no durable ledger; use
+requests cleanup on host loss, and the supervisor's group guardian kills the
+group on supervisor loss. This API has no durable ledger; use
 `NodeHost.layerContained` when a later host must reconcile retained records.
 
 ## ProcessReaper.layerSpawner

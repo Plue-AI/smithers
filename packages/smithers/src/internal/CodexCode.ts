@@ -203,8 +203,9 @@ const outputLimit = 16 * 1024 * 1024
 
 // The vendor runs through the platform's contained spawner: a supervisor owns
 // its process group, closing the scope (success, failure, deadline or a
-// cancelled run) kills that group, and the supervisor stops the tree if this
-// host dies. No `node:child_process` launch of its own.
+// cancelled run) kills that group, the supervisor stops the tree if this
+// host dies, and its group guardian stops the group if the supervisor dies.
+// No `node:child_process` launch of its own.
 const execute = (
   options: Options,
   request: ModelRequest.ModelRequest
