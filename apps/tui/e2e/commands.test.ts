@@ -77,7 +77,8 @@ const untilRecords = async (
   }
   throw new Error(`timed out waiting for ${label}; screen:\n${tui?.screen()}`)
 }
-const start = async (project: ReturnType<typeof setup>, args = "") => {
+/** `ready` is the first draw: the status line, or the startup picker that `-r` opens over it. */
+const start = async (project: ReturnType<typeof setup>, args = "", ready: (screen: string) => boolean = drawn) => {
   if (!existsSync(project.replay)) replay(project, reply("ctx.done(\"pong\")"))
   tui = await Tui.start({
     cwd: project.cwd,
@@ -90,7 +91,7 @@ const start = async (project: ReturnType<typeof setup>, args = "") => {
       SMITHERS_TUI_REPLAY_SPEED: "100"
     }
   })
-  await tui.until(drawn, 20_000, "first draw")
+  await tui.until(ready, 20_000, "first draw")
   return tui
 }
 const submit = async (text: string) => {
@@ -124,7 +125,7 @@ it("names, compacts, and resumes a conversation through the startup picker", asy
   expect(events.some((event) => event.type === "name" && event.name === "tmux conversation")).toBe(true)
   expect(events.some((event) => event.type === "compact" && event.dropped === 1)).toBe(true)
   await tui!.stop()
-  await start(project, "-r")
+  await start(project, "-r", (screen) => screen.includes("Resume session"))
   await tui!.until((screen) => screen.includes("tmux conversation"))
   await tui!.press(key.enter)
   await tui!.until((screen) => screen.includes("Resumed") && screen.includes("second message"))

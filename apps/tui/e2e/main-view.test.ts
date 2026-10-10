@@ -32,7 +32,10 @@ for (const [cols, rows] of [[160, 50], [100, 40], [80, 30]] as const) {
       expect(lines.some((line) => line.includes("Recursive review"))).toBe(true)
       expect(lines.some((line) => line.includes("Agent package"))).toBe(true)
       if (cols === 160) {
-        expect(lines.some((line) => line.includes("Recursive review") && line.includes("Chat"))).toBe(true)
+        // Side by side: the tree on the left, the 40-column chat on the right of the same rows. The chat's
+        // tab row no longer has room for the whole tree chip beside the pinned counts (544e463dd7).
+        expect(lines.find((line) => line.includes("Agent package"))!.indexOf("Agent package")).toBeLessThan(40)
+        expect(lines.find((line) => line.includes("follow up"))!.indexOf("follow up")).toBeGreaterThan(cols - 42)
       }
       expect(screen).not.toContain("Tree: Recursive review")
       expect(screen).not.toContain("Recursive reviewRecursive review")

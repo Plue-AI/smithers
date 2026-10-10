@@ -6,6 +6,7 @@ import { join, resolve } from "node:path"
 import { key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
+const altT = "\x1bt"
 
 it(
   "runs /claude as a worker, takes it over into Claude Code's own TUI, and continues it headless on exit",
@@ -37,7 +38,8 @@ it(
         10_000,
         "the worker draws Claude Code's own rows"
       )
-      await tui.press("t")
+      // Agent tabs open in the composer, where letters type; Take over is Alt+T (573ce2ed81, #3037).
+      await tui.press(altT)
       await tui.until((screen) => /claude session [0-9a-f-]{36}/.test(screen), 10_000, "Claude Code's own TUI")
       await tui.press(key.enter) // quit it
       await tui.until(
@@ -76,15 +78,15 @@ it("continues a finished Claude worker from its composer on the same session", a
     await tui.until((screen) => screen.includes("Ask Smithers"), 20_000, "first draw")
     await tui.type("/claude Refresh the session cookie before retry")
     await tui.press(key.enter)
-    await tui.press("\x1b[1;5C") // Summary
-    await tui.press("\x1b[1;5C") // worker tab
     await tui.until((screen) => screen.includes("Refreshed the cookie before retry."), 10_000, "first run done")
+    // A finished worker ends in a Chat card (e0658aec0e, #3034); clicking it opens the worker's tab.
+    await tui.click("✓ Refresh the session cookie before retry")
     await tui.until(
       (screen) => screen.includes("Continue Refresh the session cookie before retry"),
       5_000,
       "placeholder"
     )
-    await tui.press("i")
+    // The tab's composer is already focused; printable keys type (573ce2ed81, #3037).
     await tui.type("Check the logout path too")
     await tui.until((screen) => /┃\s+Check the logout path too/.test(screen), 5_000, "draft")
     await tui.press(key.enter)
