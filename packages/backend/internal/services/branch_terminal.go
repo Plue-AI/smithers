@@ -35,7 +35,7 @@ func (s *WorkspaceService) openMemberTerminal(ctx context.Context, branch string
 		return WorkspaceSessionResponse{}, pkgerrors.BadRequest("Invalid terminal request")
 	}
 	request = id.String()
-	row, err := s.branchFileWorkspace(ctx, strings.TrimSpace(branch), repository, member)
+	row, err := s.AuthorizeTerminalBranch(ctx, strings.TrimSpace(branch), repository, member)
 	if err != nil {
 		return WorkspaceSessionResponse{}, err
 	}

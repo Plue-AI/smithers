@@ -192,4 +192,21 @@ func TestBackgroundMachineRefusalReadsTheHeldTransaction(t *testing.T) {
 	requireBranchStatus(t, err, 403)
 	require.ErrorContains(t, err, "background machine belongs to its run")
 	require.Zero(t, nested)
+
+	// Entry must use its own admission transaction as well, with only one
+	// connection available. The failed nested mutation above rolled back.
+	_, err = pool.Exec(ctx, `INSERT INTO workflow_run_flow_invocations(workflow_run_id,user_id,flow_id,operation_id,background_workspace_id) VALUES ($1,$2,'main','terminal-background-op',$3::uuid)`, run, person, row.ID)
+	require.NoError(t, err)
+	for _, branch := range []string{row.ID, row.TargetBookmark} {
+		_, err = svc.AuthorizeTerminalBranch(ctx, branch, repo, person)
+		requireBranchStatus(t, err, 403)
+		require.ErrorContains(t, err, "background machine belongs to its run")
+	}
+	// Classification outages never grant person admission. This fixture owns
+	// its isolated database; restore the table even if an assertion fails.
+	_, err = pool.Exec(ctx, `ALTER TABLE workflow_run_flow_invocations RENAME TO unavailable_background_classification`)
+	require.NoError(t, err)
+	defer pool.Exec(context.WithoutCancel(ctx), `ALTER TABLE unavailable_background_classification RENAME TO workflow_run_flow_invocations`)
+	_, err = svc.AuthorizeTerminalBranch(ctx, row.ID, repo, person)
+	require.Error(t, err, "an unreadable classification must fail closed")
 }

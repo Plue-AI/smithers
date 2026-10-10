@@ -39,6 +39,12 @@ func (s *WorkspaceService) AuthorizeTerminalBranch(ctx context.Context, branch s
 		return row, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
+	// Classification is person admission, before any request or guest effect.
+	// Reuse this transaction so a saturated pool cannot bypass or deadlock it.
+	admission := context.WithValue(ctx, workspaceMutationTransactionKey{}, workspaceMutationTransaction{tx: tx, authority: workspaceMutationAuthority{workspaceID: row.ID, userID: member}})
+	if err = s.refuseBackgroundWorkspaceAccess(admission, row.ID); err != nil {
+		return row, err
+	}
 	p := s.branchMachineProviders
 	if err = p.Membership(ctx, tx, repo, member); err != nil {
 		return row, err

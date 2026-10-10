@@ -82,5 +82,11 @@ func (r *InstallBranchResolver) ResolveBranch(ctx context.Context, member int64,
 	if err != nil {
 		return WorkspaceAccess{}, err
 	}
+	// All person terminals, including every reauthorized SSH channel, pass
+	// through the same admission point as the app/API terminal door.
+	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(r.Database), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)))
+	if _, err := branches.AuthorizeTerminalBranch(ctx, ids[name], repo, member); err != nil {
+		return WorkspaceAccess{}, ErrWorkspaceAccessDenied
+	}
 	return WorkspaceAccess{SandboxID: ids[name], User: user, MemberID: member, UID: uid}, nil
 }
