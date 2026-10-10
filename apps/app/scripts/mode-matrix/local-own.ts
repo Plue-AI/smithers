@@ -157,8 +157,12 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
   const manifest = join(hostDir, "flow-hosts.json")
   const dataRoot = join(root, "state")
   const gitRoot = join(root, "github")
+  // The stack keeps scratch repositories at $TMPDIR/smithers-mythical/repo-<id>.git and an install's first repository
+  // is 1, so installs on one host must not share TMPDIR (compose/rehearsal_integration_test.go does the same).
+  const scratch = join(root, "tmp")
   mkdirSync(hostDir)
   mkdirSync(dataRoot)
+  mkdirSync(scratch)
   let backend: ReturnType<typeof Bun.spawn> | undefined
   let vite: ReturnType<typeof Bun.spawn> | undefined
   let fake: ReturnType<typeof Bun.spawn> | undefined
@@ -220,6 +224,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
       SMITHERS_PUBLIC_URL: origin,
       SMITHERS_TEST_BACKEND_SERVE: "1",
+      TMPDIR: scratch,
       ...githubBases(github.url),
       ...modelBase(models.origin)
     }
