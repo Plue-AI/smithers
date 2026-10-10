@@ -259,6 +259,13 @@ only way to evaluate bytes is to write them somewhere and import that path;
 call this before the import, because a declaration captures its site while its
 module is evaluated and never rewrites it afterwards.
 
+`Graph.inspect(flow)` returns an `Inspection`: the flow's nodes, edges,
+steps, diagnostics, and its prompt renderer's source, all serializable. It
+builds against an unresolved input reference and runs no action or prompt
+renderer, so a body that branches on its payload in plain JavaScript reports a
+diagnostic instead of a sample graph. Plan-time body code still runs, so call
+it only where loading the declaration is already trusted.
+
 ## Effects
 
 Pure effect declarations describing read and write envelopes.
