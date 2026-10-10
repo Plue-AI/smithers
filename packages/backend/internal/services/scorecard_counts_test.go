@@ -141,19 +141,35 @@ func TestScorecardCountsBoundariesAndAuthorship(t *testing.T) {
 func TestScorecardCountsPresence(t *testing.T) {
 	window, facts := scorecardCountFixture()
 	window.To = window.From.Add(7 * 24 * time.Hour)
-	for i := 0; i < 2; i++ {
+	// Alice's and Ben's audit rows overlap on one branch in 3 separate
+	// intervals: 3 sessions, not one per row or per person.
+	for i := 0; i < 3; i++ {
 		at := window.From.Add(time.Duration(i) * time.Hour)
 		for _, person := range []string{"Alice", "Ben"} {
 			facts.Presence = append(facts.Presence, scorecardPresence{ID: fmt.Sprintf("%d-%s", i, person), Person: person, Branch: "branch", From: at, To: at.Add(2 * time.Minute)})
 		}
 	}
-	facts.Presence = append(facts.Presence, facts.Presence[0], scorecardPresence{ID: "short", Person: "Carol", Branch: "branch", From: window.From, To: window.From.Add(2*time.Minute - time.Nanosecond)})
+	// A redelivered row, a row under 2 min and Carol joining the first
+	// interval add no session.
+	facts.Presence = append(facts.Presence, facts.Presence[0],
+		scorecardPresence{ID: "short", Person: "Carol", Branch: "branch", From: window.From.Add(30 * time.Minute), To: window.From.Add(32*time.Minute - time.Nanosecond)},
+		scorecardPresence{ID: "carol", Person: "Carol", Branch: "branch", From: window.From.Add(time.Minute), To: window.From.Add(4 * time.Minute)})
 	out := aggregateScorecard(window, facts)
-	require.Equal(t, map[string]any{"sessions": 4, "per_week": []int{4}}, out.Measures["multiplayer"].Value)
+	require.Equal(t, map[string]any{"sessions": 3, "per_week": []int{3}}, out.Measures["multiplayer"].Value)
 	require.Equal(t, "pass", out.Measures["multiplayer"].Verdict)
-	facts.Presence = facts.Presence[:2]
+	// A week with 2 separate intervals does not meet the target.
+	facts.Presence = facts.Presence[:4]
+	require.Equal(t, map[string]any{"sessions": 2, "per_week": []int{2}}, aggregateScorecard(window, facts).Measures["multiplayer"].Value)
 	require.Equal(t, "between", aggregateScorecard(window, facts).Measures["multiplayer"].Verdict)
-	facts.Presence[1].Branch = "other"
+	// One person's overlapping rows are never two members.
+	facts.Presence = []scorecardPresence{
+		{ID: "a1", Person: "Alice", Branch: "branch", From: window.From, To: window.From.Add(3 * time.Minute)},
+		{ID: "a2", Person: "Alice", Branch: "branch", From: window.From.Add(time.Minute), To: window.From.Add(4 * time.Minute)},
+		{ID: "b1", Person: "Ben", Branch: "other", From: window.From, To: window.From.Add(3 * time.Minute)},
+	}
+	require.Equal(t, map[string]any{"sessions": 0, "per_week": []int{0}}, aggregateScorecard(window, facts).Measures["multiplayer"].Value)
+	// Rows that only touch end to start share no time on the branch.
+	facts.Presence[2] = scorecardPresence{ID: "b1", Person: "Ben", Branch: "branch", From: window.From.Add(4 * time.Minute), To: window.From.Add(6 * time.Minute)}
 	require.Equal(t, map[string]any{"sessions": 0, "per_week": []int{0}}, aggregateScorecard(window, facts).Measures["multiplayer"].Value)
 }
 
@@ -174,6 +190,12 @@ func TestScorecardCountsLearning(t *testing.T) {
 	require.Equal(t, 0, aggregateScorecard(window, facts).Measures["self_improvement"].Value)
 	require.Equal(t, "between", aggregateScorecard(window, facts).Measures["self_improvement"].Verdict)
 	facts.TODOs = facts.TODOs[:9]
+	require.Equal(t, "between", aggregateScorecard(window, facts).Measures["self_improvement"].Verdict)
+	// The kill signal is no accepted proposal in two weeks: a shorter window
+	// without one cannot show it; a two-week window without one does.
+	facts.Learnings = nil
+	require.Equal(t, "kill", aggregateScorecard(window, facts).Measures["self_improvement"].Verdict)
+	window.To = window.From.Add(14*24*time.Hour - time.Nanosecond)
 	require.Equal(t, "between", aggregateScorecard(window, facts).Measures["self_improvement"].Verdict)
 }
 

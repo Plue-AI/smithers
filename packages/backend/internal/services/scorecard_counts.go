@@ -220,26 +220,52 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 		}
 	}
 	set("flow_revisions", revisions, "between")
-	sessions := make(map[string]bool)
-	sessionWeeks := make([]int, len(weeks))
-	for _, a := range facts.Presence {
-		if a.ID == "" || a.Branch == "" || a.Person == "" || a.To.Sub(a.From) < 2*time.Minute || !inWindow(a.From) {
+	// Each audit row is one person's session on a branch (§7.3.1a). A
+	// multiplayer session is one separate interval in which two or more
+	// members share a branch: overlapping co-presence is one session however
+	// many rows, people or sockets it spans.
+	type span struct{ from, to time.Time }
+	branches := make(map[string][]scorecardPresence)
+	rowSeen := make(map[string]bool)
+	for _, row := range facts.Presence {
+		if row.ID == "" || row.Branch == "" || row.Person == "" || row.To.Sub(row.From) < 2*time.Minute || rowSeen[row.ID] {
 			continue
 		}
-		for _, b := range facts.Presence {
-			if b.ID == a.ID || b.Person == "" || b.Person == a.Person || b.Branch != a.Branch || b.To.Sub(b.From) < 2*time.Minute {
-				continue
+		rowSeen[row.ID] = true
+		branches[row.Branch] = append(branches[row.Branch], row)
+	}
+	sessions := 0
+	sessionWeeks := make([]int, len(weeks))
+	for _, rows := range branches {
+		shared := []span{}
+		for i, a := range rows {
+			for _, b := range rows[i+1:] {
+				if a.Person == b.Person {
+					continue
+				}
+				start, end := a.From, a.To
+				if b.From.After(start) {
+					start = b.From
+				}
+				if b.To.Before(end) {
+					end = b.To
+				}
+				if start.Before(end) {
+					shared = append(shared, span{start, end})
+				}
 			}
-			start, end := a.From, a.To
-			if b.From.After(start) {
-				start = b.From
+		}
+		sort.Slice(shared, func(i, j int) bool { return shared[i].from.Before(shared[j].from) })
+		for i := 0; i < len(shared); {
+			session := shared[i]
+			for i++; i < len(shared) && !shared[i].from.After(session.to); i++ {
+				if shared[i].to.After(session.to) {
+					session.to = shared[i].to
+				}
 			}
-			if b.To.Before(end) {
-				end = b.To
-			}
-			if start.Before(end) && !sessions[a.ID] {
-				sessions[a.ID] = true
-				sessionWeeks[int(a.From.Sub(window.From).Hours()/168)]++
+			if inWindow(session.from) {
+				sessions++
+				sessionWeeks[int(session.from.Sub(window.From).Hours()/168)]++
 			}
 		}
 	}
@@ -252,7 +278,7 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 	if len(sessionWeeks) >= 2 && sessionWeeks[1] == 0 {
 		multi = "kill"
 	}
-	set("multiplayer", map[string]any{"sessions": len(sessions), "per_week": sessionWeeks}, multi)
+	set("multiplayer", map[string]any{"sessions": sessions, "per_week": sessionWeeks}, multi)
 	ordered := make([]scorecardTODO, 0, len(todos))
 	for _, todo := range todos {
 		ordered = append(ordered, todo)
@@ -314,9 +340,11 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 		}
 	}
 	improvement := "between"
+	// The kill signal is no accepted proposal in two weeks; a shorter
+	// window without one cannot show it.
 	if helped > 0 {
 		improvement = "pass"
-	} else if proposals == 0 {
+	} else if proposals == 0 && window.To.Sub(window.From) >= 14*24*time.Hour {
 		improvement = "kill"
 	}
 	set("self_improvement", helped, improvement)

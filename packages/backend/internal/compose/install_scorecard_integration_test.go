@@ -258,9 +258,11 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 		visits.leave("app:todo-1", owner, "alice-two")
 		visits.leave("app:todo-1", ben, "ben")
 	}
+	// Each day is one separate interval with Alice and Ben on the branch:
+	// one multiplayer session, not one per audit row. Two a week is short of 3.
 	multiplayer := readState()
-	require.Equal(t, map[string]any{"sessions": float64(8), "per_week": []any{float64(4), float64(4)}}, multiplayer.Measures["multiplayer"].Value)
-	require.Equal(t, "pass", multiplayer.Measures["multiplayer"].Verdict)
+	require.Equal(t, map[string]any{"sessions": float64(4), "per_week": []any{float64(2), float64(2)}}, multiplayer.Measures["multiplayer"].Value)
+	require.Equal(t, "between", multiplayer.Measures["multiplayer"].Verdict)
 	require.Empty(t, multiplayer.Measures["multiplayer"].MissingTickets)
 	require.Equal(t, mergedCard.Measures["merged"], multiplayer.Measures["merged"])
 	// Producer evidence outside the requested window establishes a measured
@@ -278,12 +280,12 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	_, err = pool.Exec(ctx, `DELETE FROM audit_log WHERE event_type='presence' AND metadata->>'start'='2026-10-13T08:00:00Z'`)
 	require.NoError(t, err)
 	twoSessions := readState()
-	require.Equal(t, map[string]any{"sessions": float64(6), "per_week": []any{float64(4), float64(2)}}, twoSessions.Measures["multiplayer"].Value)
+	require.Equal(t, map[string]any{"sessions": float64(3), "per_week": []any{float64(2), float64(1)}}, twoSessions.Measures["multiplayer"].Value)
 	require.Equal(t, "between", twoSessions.Measures["multiplayer"].Verdict)
 	_, err = pool.Exec(ctx, `DELETE FROM audit_log WHERE event_type='presence' AND metadata->>'start'='2026-10-12T08:00:00Z'`)
 	require.NoError(t, err)
 	zeroWeekTwo := readState()
-	require.Equal(t, map[string]any{"sessions": float64(4), "per_week": []any{float64(4), float64(0)}}, zeroWeekTwo.Measures["multiplayer"].Value)
+	require.Equal(t, map[string]any{"sessions": float64(2), "per_week": []any{float64(2), float64(0)}}, zeroWeekTwo.Measures["multiplayer"].Value)
 	require.Equal(t, "kill", zeroWeekTwo.Measures["multiplayer"].Verdict)
 	// Malformed timestamps are data, never SQL casts that abort other reads.
 	_, err = pool.Exec(ctx, `INSERT INTO audit_log(event_type,actor_id,actor_name,target_type,target_name,action,metadata,ip_address) VALUES('presence',$1,'scorecard-ben','branch','app:todo-1','visit','{"branch":"app:todo-1","member":0,"via":"app","start":"bad","end":"bad"}','')`, ben)
