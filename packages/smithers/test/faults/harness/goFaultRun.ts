@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 import { expect, test } from "vitest"
 import { requireReachedGoFaultMatrix, requireRebaseRecoveryObservations } from "./durability.ts"
 import { githubCrossings, requireGitHubRecoveryObservations } from "./githubFaultMatrix.ts"
-import { type FaultTier, goFaultCasesFor, type GoFaultCase, requiredFaultSiblings } from "./goFaultCases.ts"
+import { type FaultTier, type GoFaultCase, goFaultCasesFor, requiredFaultSiblings } from "./goFaultCases.ts"
 import { machineTodoPoints, requireTodoRecoveryObservations } from "./todoFaultMatrix.ts"
 
 export const workspaceRoot = fileURLToPath(new URL("../../../../../", import.meta.url))
@@ -75,7 +75,10 @@ export const registerGoFaultCases = (tier: FaultTier): void => {
   for (const [file, owner] of Object.entries(requiredFaultSiblings)) {
     if (owner !== tier) continue
     test(`required fault sibling: ${file}`, () => {
-      expect(existsSync(`${workspaceRoot}packages/smithers/test/faults/${file}`), `Missing production fault case: ${file}`)
+      expect(
+        existsSync(`${workspaceRoot}packages/smithers/test/faults/${file}`),
+        `Missing production fault case: ${file}`
+      )
         .toBe(true)
     })
   }
@@ -117,7 +120,9 @@ export const registerGoFaultCases = (tier: FaultTier): void => {
           entry.name === "TestRebaseFaultRootInputsValidatedBeforeUse"
         )
       } else requireReachedGoFaultMatrix(result.stdout, evidenceNames(entry, names), entry.points)
-      if (entry.file === "internal/compose/github_outbound_kill_test.go") requireGitHubRecoveryObservations(result.stdout)
+      if (entry.file === "internal/compose/github_outbound_kill_test.go") {
+        requireGitHubRecoveryObservations(result.stdout)
+      }
       if (entry.name === "TestTodoMachineKillThroughInstall") requireTodoRecoveryObservations(result.stdout, "machine")
     }, entry.budget.testMs)
   }

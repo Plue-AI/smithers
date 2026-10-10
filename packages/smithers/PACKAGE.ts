@@ -70,8 +70,14 @@ const laneTwo = [
   "test/ModuleHumanWaitBudget.test.ts"
 ]
 
+/**
+ * C-J6-02's composed-install file. Its Go cases need a backend database and
+ * the Go modules, which `delegatedLogin` below declares; this suite has neither.
+ */
+const delegatedLoginTest = "test/DelegatedLogin.integration.test.ts"
+
 /** Every other file, so a new file joins the third lane without an edit here. */
-const laneThree = [...laneOne, ...laneTwo].map((file) => `--exclude ${file}`).join(" ")
+const laneThree = [...laneOne, ...laneTwo, delegatedLoginTest].map((file) => `--exclude ${file}`).join(" ")
 
 const test = Smithers.Shell.Test({
   // The files run one after another (`fileParallelism: false`): 3906 s of
@@ -96,7 +102,7 @@ const test = Smithers.Shell.Test({
   data: [
     lib,
     Smithers.glob("src/**/*.ts"),
-    Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] }),
+    Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**", delegatedLoginTest] }),
     Smithers.file("vitest.config.ts"),
     Smithers.file("//packages/repo-targets/test-utils/effect-property.mjs"),
     Smithers.file("//packages/repo-targets/test-utils/effect-property.d.mts"),
@@ -115,6 +121,68 @@ const test = Smithers.Shell.Test({
     SMITHERS_HISTORY_TEST_PG_URL: "postgres://postgres:smithers-history-test@127.0.0.1:55435/smithers_history_test"
   },
   services: [historyPostgresDatabase],
+  sandbox: { network: "loopback" }
+})
+
+/**
+ * The PostgreSQL server C-J6-02's composed-install cases run against; each Go
+ * test creates and drops its own database on it, as under the root
+ * `backendGo`.
+ */
+const delegatedLoginPostgresDatabase = Smithers.Docker.Service({
+  image: "postgres@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+  env: { POSTGRES_USER: "smithers", POSTGRES_PASSWORD: "smithers-delegated-login-test" },
+  ports: { "5432": 55433 },
+  readiness: {
+    exec: ["pg_isready", "-h", "127.0.0.1", "-U", "smithers", "-d", "postgres"],
+    timeout: "120s"
+  },
+  stop: { signal: "SIGTERM", grace: "10s" }
+})
+
+/** The Go modules the composed backend tests compile against, on a clean runner. */
+const delegatedLoginGoModules = Smithers.Go.ModDownload({
+  mod: Smithers.file("//go.mod"),
+  sum: Smithers.file("//go.sum"),
+  outDirs: ["//.artifacts/delegated-login-go-modcache"],
+  sandbox: { network: true },
+  destinations: ["proxy.golang.org", "sum.golang.org", "storage.googleapis.com"]
+})
+
+/**
+ * C-J6-02: a delegated laptop login requests a review_merge card and cannot
+ * merge.
+ *
+ * `DelegatedLogin.integration.test.ts` runs the backend's composed-install Go
+ * cases whenever `CI` is set, and those refuse to run without a PostgreSQL
+ * server. Inside `test` it had neither that server nor the Go modules, so it
+ * failed there with "PostgreSQL tests are required" behind that suite's
+ * timeout. This target declares both. The file's reference-install case still
+ * needs `SMITHERS_DELEGATED_LOGIN_TEST=1` and is not run here.
+ */
+const delegatedLogin = Smithers.Shell.Test({
+  shell: "export GOMODCACHE=\"$PWD/.artifacts/delegated-login-go-modcache\"; cd packages/smithers && " +
+    `${vitest} --coverage.enabled=false ${delegatedLoginTest}`,
+  data: [
+    delegatedLoginGoModules,
+    lib,
+    Smithers.glob("src/**/*.ts"),
+    Smithers.file(delegatedLoginTest),
+    Smithers.file("test/setup.ts"),
+    Smithers.file("vitest.config.ts"),
+    Smithers.file("//go.mod"),
+    Smithers.file("//go.sum"),
+    backendPackage.buildInputs
+  ],
+  timeout: "20m",
+  hosts: ["linux"],
+  env: {
+    GOFLAGS: "-buildvcs=false -mod=readonly",
+    GOPROXY: "off",
+    SMITHERS_TEST_DATABASE_URL:
+      "postgres://smithers:smithers-delegated-login-test@127.0.0.1:55433/postgres?sslmode=disable"
+  },
+  services: [delegatedLoginPostgresDatabase],
   sandbox: { network: "loopback" }
 })
 
@@ -145,7 +213,8 @@ const faultPostgresDatabase = Smithers.Docker.Service({
  * exported never reached the case (#3459); the fault target names this output.
  */
 const faultPostgresPrograms = Smithers.Shell.Build({
-  shell: "prefix=\"$PWD/.artifacts/fault-postgres\"; src=\"$prefix/build\"; rm -rf \"$src\" && mkdir -p \"$src\" || exit $?; ssl=''; if [ \"$(uname -s)\" = Darwin ] && command -v brew >/dev/null; then openssl=$(brew --prefix openssl@3) && ssl=\"--with-includes=$openssl/include --with-libraries=$openssl/lib\"; fi; curl --fail --location --retry 3 --silent --show-error https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 --output \"$src/postgresql-18.0.tar.bz2\" && printf '%s  %s\\n' 0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078 \"$src/postgresql-18.0.tar.bz2\" | shasum -a 256 -c && tar -xjf \"$src/postgresql-18.0.tar.bz2\" -C \"$src\" && (cd \"$src/postgresql-18.0\" && ./configure --quiet --prefix=\"$prefix\" --without-icu --without-readline --without-zlib --with-ssl=openssl $ssl && make -s -j\"$(getconf _NPROCESSORS_ONLN)\" && make -s install && make -s -C contrib/pgcrypto install) && \"$prefix/bin/postgres\" --version; status=$?; rm -rf \"$src\"; exit $status",
+  shell:
+    "prefix=\"$PWD/.artifacts/fault-postgres\"; src=\"$prefix/build\"; rm -rf \"$src\" && mkdir -p \"$src\" || exit $?; ssl=''; if [ \"$(uname -s)\" = Darwin ] && command -v brew >/dev/null; then openssl=$(brew --prefix openssl@3) && ssl=\"--with-includes=$openssl/include --with-libraries=$openssl/lib\"; fi; curl --fail --location --retry 3 --silent --show-error https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 --output \"$src/postgresql-18.0.tar.bz2\" && printf '%s  %s\\n' 0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078 \"$src/postgresql-18.0.tar.bz2\" | shasum -a 256 -c && tar -xjf \"$src/postgresql-18.0.tar.bz2\" -C \"$src\" && (cd \"$src/postgresql-18.0\" && ./configure --quiet --prefix=\"$prefix\" --without-icu --without-readline --without-zlib --with-ssl=openssl $ssl && make -s -j\"$(getconf _NPROCESSORS_ONLN)\" && make -s install && make -s -C contrib/pgcrypto install) && \"$prefix/bin/postgres\" --version; status=$?; rm -rf \"$src\"; exit $status",
   outDirs: ["//.artifacts/fault-postgres"],
   sandbox: { network: true },
   timeout: "30m"
@@ -162,7 +231,8 @@ const faultPostgresPrograms = Smithers.Shell.Build({
  * trusted-process binding, so the fault target names these outputs (#3459).
  */
 const faultNative = Smithers.Shell.Build({
-  shell: "out=\"$PWD/.artifacts/fault-native\"; build=\"$out/build\"; debug=\"$build/target/debug\"; mkdir -p \"$build\" || exit $?; export RUSTUP_HOME=\"$build/rustup\" CARGO_TARGET_DIR=\"$build/target\"; rustup toolchain install && cargo build --locked -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding && cp \"$debug/smithers-jj-export\" \"$out/\" && cargo build --locked -p smithers-ffi --lib && { cp \"$debug/libsmithers_ffi.so\" \"$out/\" 2>/dev/null || cp \"$debug/libsmithers_ffi.dylib\" \"$out/\"; } && cargo build --locked -p smithers-machined --example rehearsal_daemon && cp \"$debug/examples/rehearsal_daemon\" \"$out/\" && cargo build --locked -p smithers-machined --example rehearsal_daemon --features killpoints && cp \"$debug/examples/rehearsal_daemon\" \"$out/machined-fault-daemon\"; status=$?; rm -rf \"$build\"; exit $status",
+  shell:
+    "out=\"$PWD/.artifacts/fault-native\"; build=\"$out/build\"; debug=\"$build/target/debug\"; mkdir -p \"$build\" || exit $?; export RUSTUP_HOME=\"$build/rustup\" CARGO_TARGET_DIR=\"$build/target\"; rustup toolchain install && cargo build --locked -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding && cp \"$debug/smithers-jj-export\" \"$out/\" && cargo build --locked -p smithers-ffi --lib && { cp \"$debug/libsmithers_ffi.so\" \"$out/\" 2>/dev/null || cp \"$debug/libsmithers_ffi.dylib\" \"$out/\"; } && cargo build --locked -p smithers-machined --example rehearsal_daemon && cp \"$debug/examples/rehearsal_daemon\" \"$out/\" && cargo build --locked -p smithers-machined --example rehearsal_daemon --features killpoints && cp \"$debug/examples/rehearsal_daemon\" \"$out/machined-fault-daemon\"; status=$?; rm -rf \"$build\"; exit $status",
   outDirs: ["//.artifacts/fault-native"],
   data: [
     Smithers.file("//Cargo.toml"),
@@ -419,6 +489,9 @@ export const Package = Smithers.Package({
     tuiSources,
     check,
     circular,
+    delegatedLogin,
+    delegatedLoginGoModules,
+    delegatedLoginPostgresDatabase,
     docs,
     docsFiles,
     faultNative,

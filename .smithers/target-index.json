@@ -62324,6 +62324,102 @@
     }
   },
   {
+    "label": "//packages/smithers:delegatedLogin",
+    "package": "packages/smithers",
+    "name": "delegatedLogin",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/test/DelegatedLogin.integration.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/test/setup.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/vitest.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/backend:buildInputs",
+      "//packages/smithers:delegatedLoginGoModules",
+      "//packages/smithers:delegatedLoginPostgresDatabase",
+      "//packages/smithers:lib"
+    ],
+    "hosts": [
+      "linux"
+    ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:delegatedLoginGoModules",
+    "package": "packages/smithers",
+    "name": "delegatedLoginGoModules",
+    "rule": "Go.ModDownload",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "destinations": [
+      "proxy.golang.org",
+      "storage.googleapis.com",
+      "sum.golang.org"
+    ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:delegatedLoginPostgresDatabase",
+    "package": "packages/smithers",
+    "name": "delegatedLoginPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers:docs",
     "package": "packages/smithers",
     "name": "docs",
@@ -62836,7 +62932,8 @@
         "kind": "glob",
         "pattern": "packages/smithers/test/**/*.test.ts",
         "exclude": [
-          "packages/smithers/test/faults/**"
+          "packages/smithers/test/faults/**",
+          "packages/smithers/test/DelegatedLogin.integration.test.ts"
         ]
       },
       {

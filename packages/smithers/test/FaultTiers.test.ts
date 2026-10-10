@@ -12,9 +12,9 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join, matchesGlob, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { goFaultCases, goFaultCasesFor, requiredFaultSiblings } from "./faults/harness/goFaultCases.ts"
-import release from "../vitest.faults.config.ts"
 import long from "../vitest.faults-long.config.ts"
+import release from "../vitest.faults.config.ts"
+import { goFaultCases, goFaultCasesFor, requiredFaultSiblings } from "./faults/harness/goFaultCases.ts"
 
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 const pkg = join(root, "packages/smithers")
@@ -76,8 +76,10 @@ describe("fault tiers", () => {
       expect(tiers, `${file} must run in exactly one tier`).toHaveLength(1)
       // The target keys on the files its config runs, so a cached tier never
       // passes over a case it did not run.
-      const keyed = [keys(faults, `packages/smithers/${file}`) && "release",
-        keys(faultsLong, `packages/smithers/${file}`) && "long"].filter(Boolean)
+      const keyed = [
+        keys(faults, `packages/smithers/${file}`) && "release",
+        keys(faultsLong, `packages/smithers/${file}`) && "long"
+      ].filter(Boolean)
       expect(keyed, `${file} is keyed by the wrong tier`).toEqual(tiers)
     }
   })

@@ -103,7 +103,11 @@ export const goFaultCases: ReadonlyArray<GoFaultCase> = [
     points: [...githubPoints, "github-production-propose"],
     tier: "long",
     host: "any",
-    budget: { go: `${githubRunMinutes}m`, spawnMs: (githubRunMinutes + 1) * 60_000, testMs: (githubRunMinutes + 1.5) * 60_000 }
+    budget: {
+      go: `${githubRunMinutes}m`,
+      spawnMs: (githubRunMinutes + 1) * 60_000,
+      testMs: (githubRunMinutes + 1.5) * 60_000
+    }
   },
   {
     // Slow by design, not hung. On nyc-02 (2026-10-10) K4b held a real
