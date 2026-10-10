@@ -704,7 +704,9 @@ func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkW
 		if err := s.requireBranchMachineProviders(); err != nil {
 			return err
 		}
-		if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
+		// The fork is the requesting person's sandbox; the machine service
+		// that owns every branch machine is exempt from the person cap.
+		if err := s.enforceWorkspaceQuota(ctx, input.UserID); err != nil {
 			return err
 		}
 		if s.revisionFork == nil {
