@@ -48,7 +48,7 @@ test("authors, edits, replans and runs the written source from chat", async ({ p
   // host's to choose; this host has no model.
   await command(page, "hello")
   await expect(page.getByTestId("composer-input")).toBeEnabled()
-  const entries = page.locator("article.entry")
+  const entries = page.locator(".smithers-chat-message")
   await expect(entries.filter({ hasText: "hello" }).last()).toHaveAttribute("data-role", "user")
   await expect(entries.last()).toHaveAttribute("data-role", "assistant")
   await expect(page.getByTestId("composer-stop")).not.toBeVisible()
