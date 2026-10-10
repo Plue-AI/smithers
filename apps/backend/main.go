@@ -40,16 +40,28 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	if len(testFlowHostConfigs) > 1 {
 		return fmt.Errorf("at most one Flow host test configuration is allowed")
 	}
-	var testFlowHostConfig flowhost.WorkspaceLauncherConfig
+	var test testBackend
 	if len(testFlowHostConfigs) == 1 {
-		testFlowHostConfig = testFlowHostConfigs[0]
+		test.flowHost = testFlowHostConfigs[0]
 	}
-	return serve(ctx, args, os.Executable, testFlowHostConfig)
+	return serve(ctx, args, os.Executable, test)
+}
+
+// testBackend is the programmatic, test-only exception to the install's
+// composition. main passes the zero value, and no flag or environment
+// variable reaches a field: only this package's tests set one.
+type testBackend struct {
+	// flowHost admits trusted-process workspaces and Flow hosts.
+	flowHost flowhost.WorkspaceLauncherConfig
+	// machines composes the trusted-process branch machines and machine images
+	// the Go journey rehearsal runs on (app.Config.TrustedProcessMachines).
+	machines bool
 }
 
 // serve runs the backend. executable answers the running backend's path
 // (os.Executable; startup tests pass a bundle fixture's).
-func serve(ctx context.Context, args []string, executable func() (string, error), testFlowHostConfig flowhost.WorkspaceLauncherConfig) (runErr error) {
+func serve(ctx context.Context, args []string, executable func() (string, error), test testBackend) (runErr error) {
+	testFlowHostConfig := test.flowHost
 	var cleanupErr error
 	defer func() { runErr = stopResult(ctx, runErr, cleanupErr) }()
 	if handled, err := native.DispatchMaintenance(ctx, args, executable); handled {
@@ -182,8 +194,10 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		// Unset in production; the no-GitHub walk's model stand-in otherwise.
 		ModelProxyUpstreams: upstreams,
 		// A microVM install composes its branch machine providers, so each
-		// TODO gets its own lane; a process backend keeps machines dark.
-		BranchMachines: mode == isolationMicroVM,
+		// TODO gets its own lane; a process backend keeps machines dark
+		// unless its test selects the trusted-process machines.
+		BranchMachines:         mode == isolationMicroVM,
+		TrustedProcessMachines: test.machines,
 	}
 
 	if inputs.postgresBin != "" {

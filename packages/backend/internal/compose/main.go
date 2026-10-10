@@ -114,12 +114,18 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 
 // installMachineImages returns setup step 6's image builder: the workspace
 // runtime's own layer builder (the bundled microVM runtime), else an adapter a
-// composition injects for a runtime without one (the trusted-process runtime
-// that only tests compose). An adapter beside a runtime that builds images is
-// refused, because it would report Machine ready for an image that runtime
-// never built. Root preparation reads only main's validated data
+// composition injects or selects for a runtime without one (the trusted-process
+// runtime that only tests compose). An adapter beside a runtime that builds
+// images is refused, because it would report Machine ready for an image that
+// runtime never built. Root preparation reads only main's validated data
 // (TestRootLayerInputsValidatedBeforeUse).
 func installMachineImages(options Options) (services.InstallMachineLayerBuilder, error) {
+	if err := validateTrustedProcessMachines(options); err != nil {
+		return nil, err
+	}
+	if options.TrustedProcessMachines {
+		return trustedProcessImages{sources: repositorySourceFiles{client: options.Repository}}, nil
+	}
 	runtime, builds := options.Workspace.(services.InstallMachineLayerBuilder)
 	if options.MachineImages == nil {
 		if builds {
@@ -133,9 +139,10 @@ func installMachineImages(options Options) (services.InstallMachineLayerBuilder,
 	return options.MachineImages, nil
 }
 
-// composeBranchMachines selects the branch machine providers: injected ones
-// for the trusted-process runtime that only tests compose, or the install's own
-// on its microVM runtime. Without either, every branch machine stays dark.
+// composeBranchMachines selects the branch machine providers: injected or
+// selected ones for the trusted-process runtime that only tests compose, or the
+// install's own on its microVM runtime. Without one, every branch machine stays
+// dark.
 func composeBranchMachines(options Options, hosted bool, members identity.MemberAuthorizer) (*services.BranchMachineProviders, error) {
 	isolation := func() workspace.IsolationLevel {
 		if options.Workspace == nil {
@@ -144,6 +151,14 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 		return options.Workspace.Isolation()
 	}
 	switch {
+	case options.TrustedProcessMachines:
+		if err := validateTrustedProcessMachines(options); err != nil {
+			return nil, err
+		}
+		if hosted {
+			return nil, fmt.Errorf("%w: this is a hosted deployment", errTrustedProcessMachines)
+		}
+		return trustedProcessBranchMachines(members), nil
 	case options.HostedBranchMachines && (options.BranchMachines != nil || options.InstallBranchMachines):
 		return nil, errors.New("hosted branch machine providers exclude injected and install providers")
 	case options.HostedBranchMachines:
@@ -209,6 +224,12 @@ type Options struct {
 	// that isolates nothing: the trusted-process runtime only tests compose.
 	// app.Config cannot set it.
 	BranchMachines *services.BranchMachineProviders
+	// TrustedProcessMachines selects the trusted-process branch machines and
+	// machine images (trusted_process_machines.go) for a single-owner
+	// composition on the trusted-process runtime with the Flow host test
+	// exception; any other composition refuses to start with it. Only the
+	// backend's test binary sets it (app.Config.TrustedProcessMachines).
+	TrustedProcessMachines bool
 	// InstallBranchMachines composes the install's own branch machine
 	// providers (services.InstallBranchMachineProviders, T-MCH-04 #3565) on
 	// its microVM runtime: a TODO gets its lane only then. A single-owner

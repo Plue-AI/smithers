@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -431,7 +430,7 @@ path = "lib.rs"
 	live, err := os.OpenFile(filepath.Join(r.evidence, "backend.live.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })
-	options := Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}, holdUntilCancelled: enable == "SMITHERS_BRANCH_FILES_INTEGRATION"}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
+	options := Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 		FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 		OwnerModelKeys: ownerKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
 		// Explicit synthetic measurements model capacity 3 and default parallel 2.
@@ -439,6 +438,9 @@ path = "lib.rs"
 		HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true},
 		// A label on GitHub is read within seconds, not the product's 120 s.
 		GitHubIssueEventsEvery: 2 * time.Second}
+	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" {
+		options.MachineImages = heldMachineImages{}
+	}
 	if enable == "SMITHERS_J11_SUMMARY_BROWSER" {
 		options.ModelStreamHost = newRehearsalSummaryModel(t, r.evidence)
 	}
@@ -1773,17 +1775,11 @@ func (model rehearsalCodingModel) turns() string {
 	return string(data)
 }
 
-// rehearsalBranchMachines are the install's branch machine providers
-// (services.InstallBranchMachineProviders): its roster, the one member
-// authorizer and the stack's lane binding, read in the creating transaction.
-// The trusted-process runtime the rehearsal composes isolates nothing, so its
-// microVM (R1-R5) and guest identity providers admit; the bundle's microVM
-// install composes the real ones (app.Config.BranchMachines).
+// rehearsalBranchMachines are the trusted-process branch machines
+// (trustedProcessBranchMachines) on the rehearsal's database; the bundle's
+// microVM install composes the real ones (app.Config.BranchMachines).
 func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProviders {
-	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(db.New(pool)), nil)
-	providers.MicroVM = func(context.Context) error { return nil }
-	providers.SessionIdentity = func(context.Context) error { return nil }
-	return &providers
+	return trustedProcessBranchMachines(identity.NewMemberBoundary(db.New(pool)))
 }
 
 // The assisted journey supervises trusted processes, not production VMs.
@@ -2374,50 +2370,13 @@ func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID
 	return connection, err
 }
 
-// trustedProcessImages is the machine image adapter for the trusted-process
-// runtime the rehearsal composes. Its machines run on the host toolchain, so it
-// can provide only the base image: it reads main's recipe through the mirror
-// and refuses one that needs a layer (a target index, image additions or a
-// detected toolchain). "6 machine ready" therefore proves setup admission,
-// persistence and fencing, not an image build. The install bundle binds its
-// microVM runtime's builder instead (installMachineImages).
-type trustedProcessImages struct {
-	sources workspaceapi.SourceFiles
-	// C-J1-03 holds the external image build, not the source mirror or routes.
-	holdUntilCancelled bool
-}
+// heldMachineImages holds setup step 6's external image build until the
+// rehearsal stops (C-J1-03 holds the build, not the source mirror or routes).
+type heldMachineImages struct{}
 
-func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
-	if images.holdUntilCancelled {
-		<-ctx.Done()
-		return microsandbox.Layer{}, ctx.Err()
-	}
-	if spec.Source == nil || spec.Source.Repository == "" || len(spec.Source.Revision) != 40 {
-		return microsandbox.Layer{}, fmt.Errorf("a machine image needs main's resolved revision")
-	}
-	read := func(path string) ([]byte, bool, error) {
-		data, err := images.sources.ReadSourceFile(ctx, *spec.Source, path)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, false, nil
-		}
-		return data, err == nil, err
-	}
-	_, indexed, err := read(".smithers/target-index.json")
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	machine, err := microsandbox.ReadMachineJSON(read)
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	recipe, err := microsandbox.DetectRecipe(read)
-	if err != nil {
-		return microsandbox.Layer{}, err
-	}
-	if indexed || len(machine.Packages) > 0 || len(recipe.Tools) > 0 {
-		return microsandbox.Layer{}, fmt.Errorf("main's recipe needs an image layer; the trusted-process runtime provides only the base image")
-	}
-	return microsandbox.Layer{}, nil
+func (heldMachineImages) ResolveWorkspaceLayer(ctx context.Context, _ workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
+	<-ctx.Done()
+	return microsandbox.Layer{}, ctx.Err()
 }
 
 // drop is a person's Drop of TODO n (J7.3b, §10.7.2) as the owner's browser

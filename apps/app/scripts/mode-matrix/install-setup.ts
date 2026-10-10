@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto"
 /*
  * The owner's J1 setup walk (mvp.md J1 step 2) over the install's own HTTP
  * doors, as the setup card sends it: Address, the GitHub App through the
- * app-manifest flow, the owner's GitHub sign-in, the repository, Model access
- * and Source ready. GitHub is the repository-owned GitHub fake
+ * app-manifest flow, the owner's GitHub sign-in, the repository, Model access,
+ * Source ready and Machine ready. GitHub is the repository-owned GitHub fake
  * (packages/backend/cmd/githubfake) and every model the loopback stand-in
  * (e2e/real/support/model-provider.ts), as in the local no-GitHub walk
  * (scripts/run-local-no-github.ts). Nothing here writes product state: the
@@ -191,7 +191,9 @@ export const walkSetup = async (walk: SetupWalk): Promise<InstallBrowser> => {
 
   await startStep(browser, "source", {})
   await waitStep(browser, "source", 3 * 60_000)
-  // Machine ready is not walked: the trusted-process test backend composes no machine image builder or branch
-  // machines (compose installMachineImages, composeBranchMachines), so its step 6 answers 503 (#3781).
+  // Machine ready on the test backend's trusted-process machine images (compose trusted_process_machines.go, #3781):
+  // the base image only, so it proves setup admission and persistence, not an image build.
+  await startStep(browser, "machine", {})
+  await waitStep(browser, "machine", 3 * 60_000)
   return browser
 }

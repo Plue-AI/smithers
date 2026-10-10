@@ -24,8 +24,9 @@ const testBackendServe = "SMITHERS_TEST_BACKEND_SERVE"
 // builds it with `go test -c -o <bin> ./apps/backend` and runs
 // `<bin> -test.run=^TestServeTrustedProcessBackend$ -test.timeout=0` with
 // SMITHERS_TEST_BACKEND_SERVE=1 and the backend's usual environment. It
-// serves the production composition with trusted-process workspaces until
-// SIGINT or SIGTERM, then shuts down cleanly. See
+// serves the production composition with trusted-process workspaces and the
+// Go journey rehearsal's trusted-process branch machines and machine images
+// until SIGINT or SIGTERM, then shuts down cleanly. See
 // apps/app/scripts/mode-matrix/local-own.ts.
 func TestServeTrustedProcessBackend(t *testing.T) {
 	if os.Getenv(testBackendServe) != "1" {
@@ -33,14 +34,19 @@ func TestServeTrustedProcessBackend(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, nil, flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}); err != nil {
+	if err := serve(ctx, nil, os.Executable, trustedProcessTestBackend); err != nil {
 		t.Fatal(err)
 	}
 }
 
+// trustedProcessTestBackend is the test backend's one exception set.
+var trustedProcessTestBackend = testBackend{flowHost: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}, machines: true}
+
 // The shipped binary refuses trusted-process isolation even when it is given
 // the test backend's selector and every isolation spelling. It refuses before
-// it loads any input or prepares any state.
+// it loads any input or prepares any state, so it never reaches the
+// trusted-process machines either: they compose only on that runtime
+// (compose TestTrustedProcessMachinesComposeOnlyForTests).
 func TestReleaseBinaryRefusesTrustedProcessIsolation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the release backend")

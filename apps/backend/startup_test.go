@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/installbundle/bundletest"
 )
@@ -108,7 +107,7 @@ func serveInstalled(t *testing.T, b testBundle, change func(env map[string]strin
 			t.Fatal(err)
 		}
 	}
-	return serve(context.Background(), nil, func() (string, error) { return b.backend, nil }, flowhost.WorkspaceLauncherConfig{})
+	return serve(context.Background(), nil, func() (string, error) { return b.backend, nil }, testBackend{})
 }
 
 // Ruling §17.3 (a), Fable round 3 B1 and N1, Astra round 3 X1 and X3: beside

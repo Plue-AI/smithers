@@ -223,6 +223,9 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       SMITHERS_FFI_LIBRARY_PATH: ffiLibrary,
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
       SMITHERS_PUBLIC_URL: origin,
+      // The backend listens on a free port, not 4000, so name its own loopback origin beside the public one: the
+      // branch machines clone, and the repository engine calls back, at that address (compose flowHostProductAPIURL).
+      SMITHERS_SERVER_ALLOWED_ORIGINS: `${origin},${backendOrigin}`,
       SMITHERS_TEST_BACKEND_SERVE: "1",
       TMPDIR: scratch,
       ...githubBases(github.url),

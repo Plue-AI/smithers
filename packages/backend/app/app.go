@@ -91,6 +91,14 @@ type Config struct {
 	// branch machines (#3751). Only a hosted deployment with a microVM
 	// Workspace may set it.
 	HostedBranchMachines bool
+	// TrustedProcessMachines composes the branch machines and machine images
+	// the Go journey rehearsal runs on: their microVM and guest identity
+	// checks admit, because the trusted-process Workspace isolates nothing.
+	// Only a single-owner composition whose Workspace is the trusted-process
+	// runtime and whose FlowHostConfig allows trusted processes for tests may
+	// set it; any other refuses to start. Only the backend's test binary sets
+	// it (apps/backend test_backend_test.go).
+	TrustedProcessMachines bool
 	// LiveCodeDocuments lets members co-edit code files through the branch
 	// machine's daemon (T-COL-08). Only a single-owner install with branch
 	// machines may set it, after ADR 0003 is accepted; unset, File cards stay
@@ -252,6 +260,7 @@ func (cfg Config) options() compose.Options {
 		Workspace:              cfg.Workspace,
 		InstallBranchMachines:  cfg.BranchMachines,
 		HostedBranchMachines:   cfg.HostedBranchMachines,
+		TrustedProcessMachines: cfg.TrustedProcessMachines,
 		LiveCodeDocuments:      cfg.LiveCodeDocuments,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
 		FlowHostConfig:         cfg.FlowHostConfig,
