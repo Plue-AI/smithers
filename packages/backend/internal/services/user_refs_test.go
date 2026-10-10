@@ -46,57 +46,60 @@ func (h *fakeUserRefHost) RetainUserRef(_ context.Context, _, _ string, userID i
 func TestUserRefStartFromOnMigratedProductDatabase(t *testing.T) {
 	p := newProductTestPool(t)
 	ctx := t.Context()
-	_, err := p.Exec(ctx, `INSERT INTO users(id,username,lower_username) VALUES (1,'alice','alice'),(2,'bob','bob')`)
-	require.NoError(t, err)
+	// Migration 0108 seeds the machine service user, so ids are assigned, and
+	// keeps one active machine per branch, so each workspace has its own.
+	var alice, bob int64
+	require.NoError(t, p.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('alice','alice') RETURNING id`).Scan(&alice))
+	require.NoError(t, p.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES ('bob','bob') RETURNING id`).Scan(&bob))
 	var repoID int64
-	require.NoError(t, p.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES (1,'demo','demo') RETURNING id`).Scan(&repoID))
+	require.NoError(t, p.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'demo','demo') RETURNING id`, alice).Scan(&repoID))
 	var alices, bobs string
-	require.NoError(t, p.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id) VALUES ($1, 1) RETURNING id::text`, repoID).Scan(&alices))
-	require.NoError(t, p.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id) VALUES ($1, 2) RETURNING id::text`, repoID).Scan(&bobs))
+	require.NoError(t, p.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, target_bookmark) VALUES ($1, $2, 'alice') RETURNING id::text`, repoID, alice).Scan(&alices))
+	require.NoError(t, p.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, target_bookmark) VALUES ($1, $2, 'bob') RETURNING id::text`, repoID, bob).Scan(&bobs))
 
 	commit := strings.Repeat("c", 40)
-	host := &fakeUserRefHost{refs: map[string]string{repohost.UserRef(1, "head"): commit, repohost.UserRef(1, "spike"): commit}}
+	host := &fakeUserRefHost{refs: map[string]string{repohost.UserRef(alice, "head"): commit, repohost.UserRef(alice, "spike"): commit}}
 	s := NewUserRefService(host, db.New(p))
 
 	// No name: the caller's head.
-	source, err := s.StartFrom(ctx, "alice", "demo", repoID, 1, alices, "")
+	source, err := s.StartFrom(ctx, "alice", "demo", repoID, alice, alices, "")
 	require.NoError(t, err)
 	assert.Equal(t, "head", source.Name)
 	require.NotNil(t, source.Base)
 	assert.Equal(t, UserRefBase{CommitID: commit, Ref: repohost.WorkspaceSourceRef(alices, commit)}, *source.Base)
 
 	// A named ref of the caller.
-	source, err = s.StartFrom(ctx, "alice", "demo", repoID, 1, alices, "spike")
+	source, err = s.StartFrom(ctx, "alice", "demo", repoID, alice, alices, "spike")
 	require.NoError(t, err)
 	assert.Equal(t, "spike", source.Name)
 	require.NotNil(t, source.Base)
 
 	// Bob has no head: his change starts from his workspace as it is.
-	source, err = s.StartFrom(ctx, "alice", "demo", repoID, 2, bobs, "")
+	source, err = s.StartFrom(ctx, "alice", "demo", repoID, bob, bobs, "")
 	require.NoError(t, err)
 	assert.Nil(t, source.Base)
 	// A name Bob never pushed is refused, and never resolves in Alice's namespace.
-	_, err = s.StartFrom(ctx, "alice", "demo", repoID, 2, bobs, "spike")
+	_, err = s.StartFrom(ctx, "alice", "demo", repoID, bob, bobs, "spike")
 	requireAPICode(t, err, pkgerrors.CodeUserRefMissing)
-	assert.Equal(t, []int64{1, 1, 2, 2}, host.users)
+	assert.Equal(t, []int64{alice, alice, bob, bob}, host.users)
 
 	// No one pins a ref into someone else's workspace.
 	calls := len(host.retained)
-	_, err = s.StartFrom(ctx, "alice", "demo", repoID, 2, alices, "")
+	_, err = s.StartFrom(ctx, "alice", "demo", repoID, bob, alices, "")
 	requireAPICode(t, err, pkgerrors.CodeNotFound)
-	_, err = s.StartFrom(ctx, "alice", "demo", repoID, 1, "not-a-uuid", "")
+	_, err = s.StartFrom(ctx, "alice", "demo", repoID, alice, "not-a-uuid", "")
 	requireAPICode(t, err, pkgerrors.CodeNotFound)
-	_, err = s.StartFrom(ctx, "alice", "demo", repoID, 1, alices, "../head")
+	_, err = s.StartFrom(ctx, "alice", "demo", repoID, alice, alices, "../head")
 	requireAPICode(t, err, pkgerrors.CodeBadRequest)
 	assert.Len(t, host.retained, calls)
 
 	// A repository that lands through its mythical stack starts lanes from its tip.
-	_, err = p.Exec(ctx, `INSERT INTO mythical_stacks(repository_id, actor_user_id) VALUES ($1, 1)`, repoID)
+	_, err = p.Exec(ctx, `INSERT INTO mythical_stacks(repository_id, actor_user_id) VALUES ($1, $2)`, repoID, alice)
 	require.NoError(t, err)
-	source, err = s.StartFrom(ctx, "alice", "demo", repoID, 1, alices, "")
+	source, err = s.StartFrom(ctx, "alice", "demo", repoID, alice, alices, "")
 	require.NoError(t, err)
 	assert.Nil(t, source.Base)
-	_, err = s.StartFrom(ctx, "alice", "demo", repoID, 1, alices, "spike")
+	_, err = s.StartFrom(ctx, "alice", "demo", repoID, alice, alices, "spike")
 	requireAPICode(t, err, pkgerrors.CodeUserRefStack)
 	assert.Len(t, host.retained, calls)
 }

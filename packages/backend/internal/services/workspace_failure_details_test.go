@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,38 +25,46 @@ func refusedWorkspaceSandbox() *sandbox.StatusError {
 	}
 }
 
-func pendingWorkspaceForFailure(id string) db.Workspace {
-	workspace := sampleDBWorkspace(id)
-	workspace.Status = "starting"
-	workspace.VmID = ""
-	return workspace
+// failureNotifyStore is the product store with its status notifications
+// captured, so a failed start's published payload can be read.
+type failureNotifyStore struct {
+	*db.Queries
+	notified chan db.NotifyWorkspaceStatusParams
+}
+
+func (q failureNotifyStore) NotifyWorkspaceStatus(_ context.Context, arg db.NotifyWorkspaceStatusParams) error {
+	var payload map[string]string
+	if json.Unmarshal([]byte(arg.Payload), &payload) == nil && payload["status"] == "failed" {
+		select {
+		case q.notified <- arg:
+		default:
+		}
+	}
+	return nil
+}
+
+// Since de86a86992 (#3565) creation reserves the branch machine in one
+// PostgreSQL transaction behind the activation providers, so a refused
+// sandbox's failure is read back from the reserved row.
+func refusedSandboxService(t *testing.T) (*WorkspaceService, failureNotifyStore, *pgxpool.Pool, int64, int64) {
+	t.Helper()
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	store := failureNotifyStore{Queries: db.New(pool), notified: make(chan db.NotifyWorkspaceStatusParams, 1)}
+	svc := newWorkspaceServiceForTests(store, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()),
+		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+			createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
+				return sandbox.CreateResult{}, refusedWorkspaceSandbox()
+			},
+		}))
+	return svc, store, pool, user, repo
 }
 
 func TestWorkspaceServiceRefusedSandboxPersistsFailureAndMapsSyncCode(t *testing.T) {
-	workspace := pendingWorkspaceForFailure("ws-refused")
-	var persisted db.FailProvisioningWorkspaceIfCurrentParams
-	q := &conditionalFailureWorkspaceQuerier{
-		mockWorkspaceQuerier: &mockWorkspaceQuerier{
-			createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
-				return workspace, nil
-			},
-		},
-		failProvisioningFn: func(_ context.Context, arg db.FailProvisioningWorkspaceIfCurrentParams) (db.Workspace, error) {
-			persisted = arg
-			failed := workspace
-			failed.Status = "failed"
-			return failed, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{}, refusedWorkspaceSandbox()
-		},
-	}))
-
+	svc, _, pool, user, repo := refusedSandboxService(t)
 	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: repo,
+		UserID:       user,
 		Name:         "refused",
 	})
 	require.Error(t, err)
@@ -65,62 +72,33 @@ func TestWorkspaceServiceRefusedSandboxPersistsFailureAndMapsSyncCode(t *testing
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
 	assert.Equal(t, pkgerrors.CodeEgressProxyUnavailable, apiErr.Code)
-	assert.Equal(t, "egress_proxy_unavailable", persisted.FailureCode)
-	assert.Equal(t, "workspace egress proxy is unavailable", persisted.FailureMessage)
+	var status, code, message string
+	require.NoError(t, pool.QueryRow(context.Background(), `SELECT status, failure_code, failure_message FROM workspaces WHERE repository_id=$1`, repo).Scan(&status, &code, &message))
+	assert.Equal(t, "failed", status)
+	assert.Equal(t, "egress_proxy_unavailable", code)
+	assert.Equal(t, "workspace egress proxy is unavailable", message)
 }
 
 func TestWorkspaceServiceAsyncRefusalPublishesFailureDetails(t *testing.T) {
-	workspace := pendingWorkspaceForFailure("ws-async-refused")
-	persisted := make(chan db.FailProvisioningWorkspaceIfCurrentParams, 1)
-	notified := make(chan db.NotifyWorkspaceStatusParams, 1)
-	var failureCalls atomic.Int32
-	q := &conditionalFailureWorkspaceQuerier{
-		mockWorkspaceQuerier: &mockWorkspaceQuerier{
-			createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
-				return workspace, nil
-			},
-			notifyWorkspaceStatusFn: func(_ context.Context, arg db.NotifyWorkspaceStatusParams) error {
-				select {
-				case notified <- arg:
-				default:
-				}
-				return nil
-			},
-		},
-		failProvisioningFn: func(_ context.Context, arg db.FailProvisioningWorkspaceIfCurrentParams) (db.Workspace, error) {
-			if failureCalls.Add(1) > 1 {
-				return db.Workspace{}, pgx.ErrNoRows
-			}
-			persisted <- arg
-			failed := workspace
-			failed.Status = "failed"
-			return failed, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{}, refusedWorkspaceSandbox()
-		},
-	}))
-
+	svc, store, _, user, repo := refusedSandboxService(t)
 	response, err := svc.CreateWorkspaceAsync(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: repo,
+		UserID:       user,
 		Name:         "refused",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, workspace.ID, response.ID)
+
+	require.Eventually(t, func() bool {
+		row, err := store.GetWorkspace(context.Background(), response.ID)
+		return err == nil && row.Status == "failed"
+	}, 5*time.Second, 20*time.Millisecond, "the refused start persists its failure")
+	failed, err := store.GetWorkspace(context.Background(), response.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "egress_proxy_unavailable", failed.FailureCode.String)
+	assert.Equal(t, "workspace egress proxy is unavailable", failed.FailureMessage.String)
 
 	select {
-	case failure := <-persisted:
-		assert.Equal(t, "egress_proxy_unavailable", failure.FailureCode)
-		assert.Equal(t, "workspace egress proxy is unavailable", failure.FailureMessage)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for failed workspace persistence")
-	}
-
-	select {
-	case notification := <-notified:
+	case notification := <-store.notified:
 		var payload map[string]string
 		require.NoError(t, json.Unmarshal([]byte(notification.Payload), &payload))
 		assert.Equal(t, "failed", payload["status"])
