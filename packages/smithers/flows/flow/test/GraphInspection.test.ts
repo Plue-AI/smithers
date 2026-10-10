@@ -77,6 +77,21 @@ describe("guest declaration inspection", () => {
     }
   })
 
+  it("names a fatal graph refusal by its own code rather than as missing input", () => {
+    const recursive = Flow.make("inspect/self", {
+      payload: { depth: Schema.Number },
+      success: Schema.Number,
+      body: ({ depth }): Node.Node<number> => recursive.call({ depth })
+    })
+    const inspection = Graph.inspect(recursive)
+    expect(inspection.steps).toEqual([{ id: "root", label: "inspect/self" }])
+    expect(inspection.diagnostics).toEqual([{
+      code: "recursion_requires_boundary",
+      message: expect.stringContaining("inspect/self.to(payload)")
+    }])
+    expect(inspection).not.toHaveProperty("prompt")
+  })
+
   it("distinguishes a complete empty graph from an unavailable one", () => {
     const flow = Flow.make("empty", { payload: {}, success: Schema.Void, body: () => Node.succeed(undefined) })
     expect(Graph.inspect(flow).steps).toEqual([])

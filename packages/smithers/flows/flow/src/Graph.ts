@@ -1813,6 +1813,10 @@ export const inspect = (flow: Flow.Any): Inspection => {
   const prompt = "prompt" in flow && typeof flow.prompt === "function"
     ? Function.prototype.toString.call(flow.prompt)
     : undefined
+  // The prompt source belongs to the declaration, so it rides on every
+  // inspection, whether or not the graph could be built.
+  const withPrompt = (inspection: Omit<Inspection, "prompt">): Inspection =>
+    prompt === undefined ? inspection : { ...inspection, prompt }
   try {
     const graph = build(flow, Planned.make("input"))
     const nodes = graph.nodes.map((node) => ({
@@ -1834,15 +1838,14 @@ export const inspect = (flow: Flow.Any): Inspection => {
         ? [{ id: node.id, label: node.ast.flow }]
         : []
     )
-    return {
+    return withPrompt({
       nodes,
       edges: graph.edges,
       steps,
-      diagnostics: graph.diagnostics.map(({ code, message }) => ({ code, message })),
-      ...(prompt === undefined ? {} : { prompt })
-    }
+      diagnostics: graph.diagnostics.map(({ code, message }) => ({ code, message }))
+    })
   } catch (error) {
-    return {
+    return withPrompt({
       // The declaration itself is a known boundary even when its internals
       // require real input. Do not publish a fictitious empty execution.
       nodes: [{ id: "root", kind: "FlowCall", label: flow._tag, dependencies: [] }],
@@ -1853,8 +1856,7 @@ export const inspect = (flow: Flow.Any): Inspection => {
           ? error.code === "planned_value_computed" ? "declaration_requires_input" : error.code
           : "declaration_inspection_failed",
         message: error instanceof Error ? error.message : String(error)
-      }],
-      ...(prompt === undefined ? {} : { prompt })
-    }
+      }]
+    })
   }
 }
