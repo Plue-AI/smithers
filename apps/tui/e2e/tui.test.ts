@@ -2362,8 +2362,9 @@ describe("approvals", () => {
       "approval row"
     )
     if (!asked(launched)) {
-      // A launch failure never asks; its reason is on the flow's tab.
+      // A launch failure never asks; its reason is on the flow's run, opened from its card.
       await started.tui.click("✗ consequential")
+      await started.tui.press(key.enter)
       throw new Error(
         `consequential failed before asking:\n${await started.tui.until(
           (screen) => screen.includes("· failed"),
@@ -2378,7 +2379,8 @@ describe("approvals", () => {
     await started.tui.until((screen) => screen.includes("n Deny"))
     await started.tui.press("n")
     await started.tui.until((screen) =>
-      /✗ consequential · \d+m?s · consequential was not approved/.test(screen) && !screen.includes("n Deny")
+      // The chat card names the failure (fda9ee5bd8).
+      /✗ consequential · \d+m?s · failed: consequential was not approved/.test(screen) && !screen.includes("n Deny")
     )
     const sessions = sessionFolder(started.sessions)
     const records = Session.load(join(sessions, readdirSync(sessions).find((name) => name.endsWith(".jsonl"))!))
@@ -2422,7 +2424,8 @@ describe("approvals", () => {
       await tui.until(drawn, 20_000)
       await tui.type("publish")
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Actions") && screen.includes("n Deny"), 10_000, "panel and approval")
+      // A view's tab shows in the strip only while it is open (544e463dd7); the steps below reach it.
+      await tui.until((screen) => screen.includes("n Deny"), 10_000, "approval")
       for (let index = 0; index < 4 && !tui.screen().includes("One action."); index++) {
         await tui.press("\x1b[1;5C")
         await Bun.sleep(200)
@@ -2821,6 +2824,9 @@ export default Flow.make("${tag}", {
     }
   }, 60_000)
 
+  /** The status line, where contributed status items follow the hints; it no longer carries token counts (559f9d8b27). */
+  const statusLine = (screen: string) => screen.trimEnd().split("\n").at(-1) ?? ""
+
   /** A repository flow whose `metadata.tui` key requests a durable run of itself. */
   const reviewFlow = [
     "---",
@@ -2867,7 +2873,7 @@ export default Flow.make("${tag}", {
       await tui.press(altZ)
       // One line in the chat, rewritten in place; the card says it, so no toast repeats it.
       await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen), 5_000, "running card")
-      await tui.until((screen) => /◌ review\s+↑/.test(screen), 5_000, "status item")
+      await tui.until((screen) => statusLine(screen).includes("◌ review"), 5_000, "status item")
       // Chat answers while the run is unresolved.
       await tui.type("hello")
       await tui.press(key.enter)
@@ -2876,7 +2882,7 @@ export default Flow.make("${tag}", {
       await tui.type("finish")
       await tui.press(key.enter)
       await tui.until((screen) => /✓ review · \d+m?s → Approved\./.test(screen), 5_000, "settled")
-      await tui.until((screen) => /✓ review\s+↑/.test(screen), 5_000, "settled status item")
+      await tui.until((screen) => statusLine(screen).includes("✓ review"), 5_000, "settled status item")
       expect(tui.screen()).not.toContain("review · done")
     },
     60_000
@@ -2897,8 +2903,12 @@ export default Flow.make("${tag}", {
     await tui.press(key.down)
     await tui.press(key.down)
     await tui.until((screen) => screen.includes("a Publish"), 5_000, "the row's action")
+    expect(statusLine(tui.screen())).not.toContain("review")
     await tui.type("a")
-    await tui.until((screen) => /[◐◓◑◒] review ·/.test(screen), 5_000, "row action requested the flow")
+    // The view stays open; the requested run shows in the status line, and its card in the chat (fda9ee5bd8).
+    await tui.until((screen) => statusLine(screen).includes("◌ review"), 5_000, "row action requested the flow")
+    await tui.press(key.escape)
+    await tui.until((screen) => /[◐◓◑◒] review ·/.test(screen), 5_000, "the run's chat card")
   }, 60_000)
 
   it("tab focuses the newest card from an empty composer and enter opens its view", async () => {
@@ -2961,7 +2971,7 @@ export default Flow.make("${tag}", {
     await tui.press("\x1bp")
     await tui.until((screen) => /[◐◓◑◒] ping · \d+m?s/.test(screen), 20_000, "running card")
     await tui.until(
-      (screen) => /✓ ping · \d+m?s/.test(screen) && /✓ ping\s+↑/.test(screen),
+      (screen) => /✓ ping · \d+m?s/.test(screen) && statusLine(screen).includes("✓ ping"),
       90_000,
       "settled from the real run"
     )
