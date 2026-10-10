@@ -39,14 +39,17 @@ it("opens a capped worker's host card, then raises its cap from the worker view"
       5_000,
       "the cap form"
     )
+    // From a failed worker's tab, Summary opens Failed on that row (84c3ec1408, #3040).
     await tui.press(key.ctrlS)
-    await tui.until((screen) => screen.includes("Failed 1 ›"), 5_000, "overview")
-    await tui.press(key.enter)
-    await tui.press(key.down)
+    await tui.until(
+      (screen) => /✗ Failed 1\s/.test(screen) && screen.includes("space Peek") && !screen.includes("200 of 200"),
+      5_000,
+      "overview"
+    )
     await tui.press(" ")
     // The peek names the outcome and its cause (tabs.ts outcome).
     await tui.until(
-      (screen) => screen.includes("failed: Token budget reached"),
+      (screen) => screen.includes("failed: Token budget reached") && screen.includes("200 of 200 tokens used."),
       5_000,
       "the outcome in the peek"
     )

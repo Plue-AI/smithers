@@ -52,6 +52,12 @@ const palette = async (query: string, row: RegExp) => {
   await tui!.until((screen) => row.test(screen), 5_000, `search row ${row}`)
   await tui!.press(key.enter)
 }
+/** Stop from Ctrl+K; Stop confirms once per run (573ce2ed81, #3037). */
+const stop = async (title: string) => {
+  await palette(`stop ${title.toLowerCase()}`, new RegExp(`Stop\\s+alt\\+x\\s+${title}`))
+  await tui!.until((screen) => screen.includes(`Stop ${title}?`), 5_000, "stop confirmation")
+  await tui!.press(key.enter)
+}
 
 interface Record {
   readonly type: string
@@ -89,13 +95,13 @@ it("Ctrl+K stop and resume settle and restart the named worker; the removed /ret
   )
   const [file] = files(where)
   expect(file).toBeDefined()
-  await palette("stop investigation", /Stop\s+x\s+Investigation/)
+  await stop("Investigation")
   await tui!.until((screen) => screen.includes("■ Investigation · stopped ·"), 5_000, "stopped worker")
   const statuses = () =>
     records(file!).filter((record) => record.type === "tab" && record.tab?.id === "investigation")
       .map((record) => record.tab!.status)
   expect(statuses().at(-1)).toBe("cancelled")
-  await palette("resume investigation", /Resume\s+r\s+Investigation/)
+  await palette("resume investigation", /Resume\s+alt\+r\s+Investigation/)
   await tui!.until(
     (screen) => /[◐◓◑◒] Investigation · \d+m?s/.test(screen) && !screen.includes("Investigation · stopped"),
     5_000,
@@ -103,7 +109,7 @@ it("Ctrl+K stop and resume settle and restart the named worker; the removed /ret
   )
   await tui!.until(() => statuses().at(-1) === "running", 5_000, "saved retry")
   expect(statuses()).toContain("cancelled")
-  await palette("stop investigation", /Stop\s+x\s+Investigation/)
+  await stop("Investigation")
   await tui!.until((screen) => screen.includes("■ Investigation · stopped ·"), 5_000, "retried worker stopped")
   expect(statuses().filter((status) => status === "cancelled")).toHaveLength(2)
 }, 45_000)
