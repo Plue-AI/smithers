@@ -1093,21 +1093,6 @@ func (s *WorkspaceService) createBookmarkWorkspace(ctx context.Context, reposito
 	return s.createWorkspaceRow(ctx, params)
 }
 
-func (s *WorkspaceService) ensureWorkspaceTargetBookmark(ctx context.Context, workspace db.Workspace, targetBookmark string) (db.Workspace, error) {
-	targetBookmark = targetWorkspaceBookmark(targetBookmark)
-	if strings.TrimSpace(workspace.TargetBookmark) == targetBookmark {
-		return workspace, nil
-	}
-	updated, err := s.q.UpdateWorkspaceTargetBookmark(ctx, db.UpdateWorkspaceTargetBookmarkParams{
-		ID:             workspace.ID,
-		TargetBookmark: targetBookmark,
-	})
-	if err != nil {
-		return db.Workspace{}, pkgerrors.Internal("update workspace target bookmark: " + err.Error())
-	}
-	return updated, nil
-}
-
 func targetWorkspaceBookmark(bookmark string) string {
 	if bookmark = strings.TrimSpace(bookmark); bookmark != "" {
 		return bookmark
@@ -1174,55 +1159,6 @@ func (s *WorkspaceService) enforceWorkspaceQuota(ctx context.Context, userID int
 		))
 	}
 	return nil
-}
-
-func (s *WorkspaceService) failStalePendingWorkspacesForRepoUser(ctx context.Context, repositoryID, userID int64) error {
-	if s.durableProvisioning() {
-		return s.ReconcileWorkspaceProvisioning(ctx)
-	}
-	total, err := s.q.CountWorkspacesByRepo(ctx, db.CountWorkspacesByRepoParams{
-		RepositoryID: repositoryID,
-		UserID:       userID,
-	})
-	if err != nil {
-		return pkgerrors.Internal("count workspaces: " + err.Error())
-	}
-	if total == 0 {
-		return nil
-	}
-
-	rows, err := s.q.ListWorkspacesByRepo(ctx, db.ListWorkspacesByRepoParams{
-		RepositoryID: repositoryID,
-		UserID:       userID,
-		PageOffset:   0,
-		PageSize:     int32(total),
-	})
-	if err != nil {
-		return pkgerrors.Internal("list workspaces: " + err.Error())
-	}
-	now := time.Now()
-	for _, workspace := range rows {
-		if !workspace.IsFork && s.shouldReplaceZombieWorkspace(workspace, now) {
-			if _, failErr := s.failWorkspace(ctx, workspace, errors.New("workspace provisioning timed out")); failErr != nil {
-				return failErr
-			}
-		}
-	}
-	return nil
-}
-
-func (s *WorkspaceService) shouldReplaceZombieWorkspace(workspace db.Workspace, now time.Time) bool {
-	if workspace.Status != "pending" && workspace.Status != "starting" {
-		return false
-	}
-	if strings.TrimSpace(workspace.VmID) != "" {
-		return false
-	}
-	staleSince := workspace.UpdatedAt
-	if staleSince.IsZero() {
-		staleSince = workspace.CreatedAt
-	}
-	return !staleSince.IsZero() && now.Sub(staleSince) > workspaceStaleAfter
 }
 
 type workspaceUnchangedFailureQuerier interface {

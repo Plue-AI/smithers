@@ -191,52 +191,6 @@ CREATE TRIGGER cov_refuse_workspace_insert BEFORE INSERT ON workspaces FOR EACH 
 	assert.Empty(t, f.branch(t, "cov/primary"))
 	assert.Empty(t, f.branch(t, "cov/derived"))
 
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		updateWorkspaceTargetBookmarkFn: func(ctx context.Context, arg db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("update target failed")
-		},
-	})
-	ws = sampleDBWorkspace("ws-target")
-	ws.TargetBookmark = "main"
-	_, err = svc.ensureWorkspaceTargetBookmark(ctx, ws, "feature")
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-	got, err := svc.ensureWorkspaceTargetBookmark(ctx, ws, "main")
-	require.NoError(t, err)
-	assert.Equal(t, ws.ID, got.ID)
-
-	now := time.Now()
-	stale := sampleDBWorkspace("ws-stale")
-	stale.Status = "starting"
-	stale.VmID = ""
-	stale.UpdatedAt = now.Add(-workspaceStaleAfter - time.Second)
-	assert.True(t, svc.shouldReplaceZombieWorkspace(stale, now))
-	stale.VmID = "vm-present"
-	assert.False(t, svc.shouldReplaceZombieWorkspace(stale, now))
-	stale.VmID = ""
-	stale.Status = "running"
-	assert.False(t, svc.shouldReplaceZombieWorkspace(stale, now))
-	stale.Status = "pending"
-	stale.UpdatedAt = time.Time{}
-	stale.CreatedAt = time.Time{}
-	assert.False(t, svc.shouldReplaceZombieWorkspace(stale, now))
-
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			return 0, nil
-		},
-	})
-	require.NoError(t, svc.failStalePendingWorkspacesForRepoUser(ctx, 101, 1))
-
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			return 1, nil
-		},
-		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return nil, errors.New("list failed")
-		},
-	})
-	err = svc.failStalePendingWorkspacesForRepoUser(ctx, 101, 1)
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {

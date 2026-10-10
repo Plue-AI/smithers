@@ -412,21 +412,6 @@ func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T)
 	_, err = refused.createDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
 	requireBranchMachineUnavailable(t, err)
 
-	existing := sampleDBWorkspace("ws-existing")
-	existing.TargetBookmark = "main"
-	q := &mockWorkspaceQuerier{
-		updateWorkspaceTargetBookmarkFn: func(context.Context, db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
-			return db.Workspace{}, stderrors.New("target failed")
-		},
-	}
-	_, err = newWorkspaceServiceForTests(q).ensureWorkspaceTargetBookmark(ctx, existing, "feature")
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
-		return 0, stderrors.New("count failed")
-	}}).failStalePendingWorkspacesForRepoUser(ctx, 101, 1)
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
 	registrarSuccess := &workspaceZRegistrarQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{}}
 	updated, won, err := newWorkspaceServiceForTests(registrarSuccess).registerNewWorkspaceVM(ctx, sampleDBWorkspace("ws-reg"), "vm-reg", "running")
 	require.NoError(t, err)
