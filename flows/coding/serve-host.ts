@@ -207,6 +207,7 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
                     ...adapters,
                     flowSourceRoot,
                     flowSourceRevision,
+                    retainedRepositoryJobs: snapshot === undefined,
                     ...models,
                     // Plans read and cite wiki revisions through the host API with
                     // the provisioned run credential (T-FLW-10). Only the machine's

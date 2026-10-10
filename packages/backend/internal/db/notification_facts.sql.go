@@ -11,6 +11,19 @@ import (
 	"time"
 )
 
+const getNotificationBranchLockRepository = `-- name: GetNotificationBranchLockRepository :one
+SELECT repository_id FROM branch_lock_join_requests WHERE id = $1
+`
+
+// Historical join-request notifications still require repository authorization.
+// This read grants no lock and is the only retained branch-lock query.
+func (q *Queries) GetNotificationBranchLockRepository(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, getNotificationBranchLockRepository, id)
+	var repository_id int64
+	err := row.Scan(&repository_id)
+	return repository_id, err
+}
+
 const getNotificationJournal = `-- name: GetNotificationJournal :one
 SELECT user_id, head, coverage_kind, coverage_started_at FROM notification_journals WHERE user_id = $1
 `

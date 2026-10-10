@@ -15,6 +15,13 @@ test("built native and coding hosts expose their actual private registrations", 
       assert.deepEqual(inventories.map((inventory) => inventory.host), ["native", "coding", "coding-wiki"])
       assert.equal(runtimes.length, 3)
       assert.ok(inventories[0]!.tags.some((tag) => tag.id === "agent/run"))
+      for (const inventory of inventories) {
+        assert.deepEqual(
+          auditRuntimeTags(inventory.tags).filter((row) => row.reason === "cut"),
+          [],
+          `${inventory.host} install registrations`
+        )
+      }
       const coding = inventories[1]!.tags
       assert.ok(coding.some((tag) => tag.id === "coding/ImplementAtom"))
       assert.ok(inventories[2]!.tags.some((tag) => tag.id === "coding/RefreshWiki"))
@@ -145,3 +152,25 @@ test("production host refuses replaced entry points before executing their bodie
     assert.equal(executed, 0, "host admission must execute no forbidden body or handler")
   }
 })
+
+test(
+  "hosted maintainer composition retains its repository execution and recovery layers",
+  { timeout: 120_000 },
+  async () => {
+    const inventory = await withProductionRegistries((inventories) => Effect.succeed(inventories), undefined, true)
+    for (const host of inventory.filter((row) => row.host !== "native")) {
+      for (
+        const id of [
+          "repository/RunJob",
+          "repository/RunSetup",
+          "repository/ScoreExecution",
+          "repository/CheckStep",
+          "repository/RegisterCandidate",
+          "repository/DeliverChange"
+        ]
+      ) {
+        assert.ok(host.tags.some((tag) => tag.id === id), `${host.host}: ${id}`)
+      }
+    }
+  }
+)

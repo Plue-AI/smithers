@@ -142,6 +142,50 @@ test("fresh and reused hosts retire CI, Feature and Chores command doors", async
   }
 })
 
+test("fresh and reused install hosts refuse the five-job setup and maintainer command doors", async (t) => {
+  const { stateRoot } = await workspace(t)
+  const root = join(stateRoot, "builtin-flows", policy)
+  const retired = [
+    "repository/setup",
+    "repository/trigger",
+    "repository-jobs/issues",
+    "repository-jobs/review",
+    "repository-jobs/ci",
+    "repository-jobs/feature",
+    "repository-jobs/chores"
+  ]
+  for (const reused of [false, true]) {
+    if (reused) {
+      await Effect.runPromise(provisionBuiltins(stateRoot, policy).pipe(Effect.provide(platform)))
+      for (const name of retired) {
+        const directory = join(root, name)
+        await mkdir(directory, { recursive: true })
+        await writeFile(join(directory, "flow.ts"), "throw new Error('Retired install door must not import')")
+      }
+    }
+    await Effect.runPromise(
+      provisionHostBuiltins(stateRoot, policy, { retainedRepositoryJobs: false }).pipe(Effect.provide(platform))
+    )
+    await Effect.gen(function*() {
+      const { routes } = yield* FileRouter.scan({ root })
+      const commands = yield* Command.make(routes)
+      for (const name of retired) {
+        assert.equal(routes.some((route) => route.name === name), false, name)
+        assert.equal((yield* commands.execute(name.replaceAll("/", " ")).pipe(Effect.result))._tag, "Failure", name)
+      }
+      assert.ok(routes.some((route) => route.name === "coding/implementation"))
+    }).pipe(
+      Effect.provideService(
+        FlowInvoker.FlowInvoker,
+        FlowInvoker.make({ invoke: () => Effect.die("Retired install doors must not dispatch") })
+      ),
+      Effect.provide(platform),
+      Effect.runPromise
+    )
+    for (const name of retired) await assert.rejects(access(join(root, name)), { code: "ENOENT" })
+  }
+})
+
 test("retiring packaged job doors preserves pinned source for existing history", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   const root = join(stateRoot, "builtin-flows", policy)
@@ -181,7 +225,8 @@ export default ({ name: "repository-jobs/ci", description: "Run the reviewed ci 
     yield* snapshots.pin(executable)
     yield* provisionHostBuiltins(stateRoot, policy, {
       planning: { ...project, implementation: "coding/implementation" },
-      landing
+      landing,
+      retainedRepositoryJobs: false
     })
     const restored = yield* snapshots.restore(digest)
     assert.equal(restored.descriptor.name, "repository-jobs/ci")

@@ -44,6 +44,14 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 		_, err = f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: item.user, SourceType: "landing", SourceID: pgtype.Int8{Int64: landing.ID, Valid: true}, Subject: item.body, Body: item.body})
 		require.NoError(t, err)
 	}
+	// The exclusive-lock doors are retired, but persisted join-request notices
+	// retain their repository authorization and member privacy.
+	var joinRequestID int64
+	require.NoError(t, f.pool.QueryRow(f.ctx, `INSERT INTO branch_lock_join_requests(repository_id,branch,requester_id,lock_generation) VALUES($1,'old-branch',$2,'11111111-1111-4111-8111-111111111111') RETURNING id`, f.repoID, f.other.ID).Scan(&joinRequestID))
+	_, err = f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: f.other.ID, SourceType: "branch_lock", SourceID: pgtype.Int8{Int64: joinRequestID, Valid: true}, Subject: "historical-lock-notification", Body: "historical-lock-notification"})
+	require.NoError(t, err)
+	_, err = f.q.CreateNotification(f.ctx, db.CreateNotificationParams{UserID: f.other.ID, SourceType: "branch_lock", SourceID: pgtype.Int8{Int64: joinRequestID + 1, Valid: true}, Subject: "missing-lock-notification", Body: "missing-lock-notification"})
+	require.NoError(t, err)
 	cookie := "workspace-list-member"
 	sum := sha256.Sum256([]byte(cookie))
 	_, err = f.q.CreateAuthSession(f.ctx, db.CreateAuthSessionParams{UserID: f.other.ID, Username: f.other.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
@@ -146,6 +154,10 @@ func TestInstallMemberNotificationReadsPostgres(t *testing.T) {
 				if actor.status == 200 {
 					if path != "/api/notifications/preferences" {
 						require.Contains(t, out.Body.String(), "member-private-notification")
+						if path != "/api/notifications" && !strings.HasSuffix(path, "/stream") {
+							require.Contains(t, out.Body.String(), "historical-lock-notification")
+							require.NotContains(t, out.Body.String(), "missing-lock-notification")
+						}
 					}
 					require.NotContains(t, out.Body.String(), "owner-private-notification")
 				} else {

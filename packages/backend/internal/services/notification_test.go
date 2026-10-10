@@ -63,8 +63,8 @@ func (m *mockNotificationQuerier) GetLandingRequestByID(ctx context.Context, id 
 	return db.LandingRequest{ID: id, RepositoryID: 1}, nil
 }
 
-func (m *mockNotificationQuerier) GetBranchLockJoinRequest(ctx context.Context, id int64) (db.BranchLockJoinRequest, error) {
-	return db.BranchLockJoinRequest{ID: id, RepositoryID: 1}, nil
+func (m *mockNotificationQuerier) GetNotificationBranchLockRepository(ctx context.Context, id int64) (int64, error) {
+	return 1, nil
 }
 
 func (m *mockNotificationQuerier) IsOrgOwnerForRepoUser(ctx context.Context, arg db.IsOrgOwnerForRepoUserParams) (bool, error) {

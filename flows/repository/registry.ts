@@ -211,7 +211,8 @@ export const provisionBuiltins = (
   stateRoot: string,
   policy: string,
   routes: ReadonlyArray<CodingRoute> = [],
-  checks: ReadonlyArray<BuiltinCheck> = []
+  checks: ReadonlyArray<BuiltinCheck> = [],
+  retainedRepositoryJobs = true
 ) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
@@ -235,6 +236,13 @@ export const provisionBuiltins = (
         )
       }
     }
+    if (!retainedRepositoryJobs) {
+      for (
+        const name of ["repository/setup", "repository/trigger", "repository-jobs/issues", "repository-jobs/review"]
+      ) {
+        yield* fs.remove(path.join(root, name), { recursive: true, force: true })
+      }
+    }
     /*
      * The bundled flows a workspace has before its repository writes any.
      *
@@ -250,21 +258,25 @@ export const provisionBuiltins = (
         readonly flow: RuntimeFlow.Any
       })
     > = [
-      {
-        name: "repository/setup",
-        delegate: "repository/RunSetup",
-        description: "Configure, evaluate and activate one repository responsibility."
-      },
-      {
-        name: "repository/trigger",
-        delegate: "repository/RunTrigger",
-        description: "Register one repository flow to run on a reviewed schedule."
-      },
-      ...(["issues", "review"] as const).map((job) => ({
-        name: `repository-jobs/${job}`,
-        delegate: "repository/RunJob",
-        description: `Run the reviewed ${job} responsibility with recorded evidence.`
-      })),
+      ...(retainedRepositoryJobs ?
+        [
+          {
+            name: "repository/setup",
+            delegate: "repository/RunSetup",
+            description: "Configure, evaluate and activate one repository responsibility."
+          },
+          {
+            name: "repository/trigger",
+            delegate: "repository/RunTrigger",
+            description: "Register one repository flow to run on a reviewed schedule."
+          },
+          ...(["issues", "review"] as const).map((job) => ({
+            name: `repository-jobs/${job}`,
+            delegate: "repository/RunJob",
+            description: `Run the reviewed ${job} responsibility with recorded evidence.`
+          }))
+        ] :
+        []),
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
       { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },

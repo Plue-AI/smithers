@@ -36,7 +36,8 @@ export const policyRegistration = (runtime: FlowRuntime.FlowRuntime["Service"], 
  */
 export const withProductionRegistries = async <A>(
   inspect: (inventories: readonly RegistryInventory[], runtimes: readonly FlowRuntime.FlowRuntime["Service"][]) => Effect.Effect<A, never, Scope.Scope>,
-  extraRegistrations?: Layer.Layer<never, never, FlowRuntime.FlowRuntime>
+  extraRegistrations?: Layer.Layer<never, never, FlowRuntime.FlowRuntime>,
+  retainedRepositoryJobs = false
 ): Promise<A> => {
   const artifactRoot = resolve(repository, ".artifacts")
   await mkdir(artifactRoot, { recursive: true })
@@ -81,7 +82,7 @@ export const withProductionRegistries = async <A>(
         const layer = host === "native"
           ? NativeControl.make(observedPlatform).layerHost({ root: repositoryPath, stateRoot, credential: "registry-fixture" }, extraRegistrations as NativeControl.ModuleRegistration | undefined)
           : Host.layer(observedPlatform, {
-            repositoryPath, stateRoot, helperPath, sourcePublication: "local-only", systemFlows,
+            repositoryPath, stateRoot, helperPath, retainedRepositoryJobs, sourcePublication: "local-only", systemFlows,
             gatewayId: "11111111-1111-4111-8111-111111111111", credential: "registry-fixture", implementationModel: "openai:gpt-6-luna",
             planning: host === "coding-wiki"
               ? { wiki: true, implementation: "coding/implementation", wikiOutput: resolve(temporary, "wiki"), reviewer: "catalog-registry", pages: [{ id: "overview", title: "Overview", purpose: "Registry fixture", document: "overview.md", inputs: [], kind: "current", related: [] }], checks: [] }

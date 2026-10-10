@@ -93,6 +93,9 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
+  /** Private hosted maintainer machinery; the install entry disables registration. */
+  readonly retainedRepositoryJobs?: boolean
+
   /** Installed registered-run atomic writer; never accepted in a flow payload. */
   readonly fileMutationProvider?: (canonicalRoot: string) => CodingFileSystem.MutationProvider
 
@@ -177,13 +180,14 @@ export const configuredCodingRoutes = (
 export const provisionHostBuiltins = (
   stateRoot: string,
   policy: string,
-  options: Pick<Options, "planning" | "landing">
+  options: Pick<Options, "planning" | "landing" | "retainedRepositoryJobs">
 ) =>
   provisionBuiltins(
     stateRoot,
     policy,
     configuredCodingRoutes(options).map((route) => route.name),
-    options.planning?.detected ?? []
+    options.planning?.detected ?? [],
+    options.retainedRepositoryJobs !== false
   )
 
 /**
@@ -195,7 +199,7 @@ export const provisionHostBuiltins = (
  */
 export const missingCodingExecutables = (
   built: Pick<Executable.Catalog, "executables">,
-  options: Pick<Options, "planning" | "landing">
+  options: Pick<Options, "planning" | "landing" | "retainedRepositoryJobs">
 ): ReadonlyArray<string> => {
   const required: ReadonlyArray<readonly [string, string | undefined]> = [
     ...[
@@ -205,9 +209,11 @@ export const missingCodingExecutables = (
       ...configuredCodingRoutes(options).map((route) => route.name)
     ]
       .map((name) => [name, undefined] as const),
-    ["repository/setup", RunSetup._tag],
-    ["repository/trigger", RunTrigger._tag],
-    ["repository-jobs/issues", RunJob._tag]
+    ...(options.retainedRepositoryJobs === false ? [] : [
+      ["repository/setup", RunSetup._tag],
+      ["repository/trigger", RunTrigger._tag],
+      ["repository-jobs/issues", RunJob._tag]
+    ] as const)
   ]
   return required.filter(([name, delegate]) =>
     !built.executables.some((entry) => entry.descriptor.name === name && entry.delegate === delegate)
@@ -716,6 +722,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         const repositoryPolicy = Digest.digest(
           Digest.canonical({
             bundle: repositoryBundle,
+            retainedRepositoryJobs: options.retainedRepositoryJobs !== false,
             implementationModel: options.implementationModel,
             researchModel: options.planningModel ?? options.implementationModel,
             gateway: options.gatewayId,
@@ -806,20 +813,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // evaluation row's verdict. It is the only model that answers any of them.
         // Selection happened before startup. The same real or scripted evaluator
         // serves the agent completion brake and every repository classifier.
-        const repository = Layer.mergeAll(
+        const repository = options.retainedRepositoryJobs === false ? Layer.empty : Layer.mergeAll(
           evaluator,
-          learningLayer.pipe(
-            Layer.provideMerge(
-              Layer.merge(
-                evaluator,
-                machineBinding({
-                  origin: options.learningEvidenceOrigin,
-                  host: options.gatewayId,
-                  credential: options.credential
-                })
-              )
-            )
-          ),
           inspectionLayers({
             repositoryPath: options.repositoryPath,
             fs,
@@ -871,6 +866,18 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           nativeActions,
           request,
           repository,
+          learningLayer.pipe(
+            Layer.provideMerge(
+              Layer.merge(
+                evaluator,
+                machineBinding({
+                  origin: options.learningEvidenceOrigin,
+                  host: options.gatewayId,
+                  credential: options.credential
+                })
+              )
+            )
+          ),
           // A dispatched turn keeps the host's registry and capability envelope:
           // it is expected to edit the workspace, so it is not evidence-only.
           dispatchRegistration(),
@@ -923,9 +930,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             reviewCheckDelegate,
             securityReviewCheckDelegate,
             securityAuditDelegate,
-            RunSetup,
-            RunJob,
-            RunTrigger,
+            ...(options.retainedRepositoryJobs === false ? [] : [RunSetup, RunJob, RunTrigger]),
             ...(wikiEnabled ? [wikiCheckDelegate] : [])
           ]
         }

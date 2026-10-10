@@ -20,3 +20,8 @@ WHERE f.user_id = sqlc.arg(user_id)
   AND f.sequence <= sqlc.arg(through_sequence)
 ORDER BY f.sequence ASC
 LIMIT sqlc.arg(page_size);
+
+-- name: GetNotificationBranchLockRepository :one
+-- Historical join-request notifications still require repository authorization.
+-- This read grants no lock and is the only retained branch-lock query.
+SELECT repository_id FROM branch_lock_join_requests WHERE id = $1;

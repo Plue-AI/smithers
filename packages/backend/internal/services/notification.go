@@ -41,7 +41,7 @@ type NotificationQueries interface {
 	GetRepoByID(ctx context.Context, id int64) (db.Repository, error)
 	GetIssueByID(ctx context.Context, id int64) (db.Issue, error)
 	GetLandingRequestByID(ctx context.Context, id int64) (db.LandingRequest, error)
-	GetBranchLockJoinRequest(ctx context.Context, id int64) (db.BranchLockJoinRequest, error)
+	GetNotificationBranchLockRepository(ctx context.Context, id int64) (int64, error)
 	GetNotificationByID(ctx context.Context, id int64) (db.Notification, error)
 	ListNotificationsByUser(ctx context.Context, arg db.ListNotificationsByUserParams) ([]db.Notification, error)
 	ListNotificationsByUserKeyset(ctx context.Context, arg db.ListNotificationsByUserKeysetParams) ([]db.Notification, error)
@@ -360,7 +360,7 @@ func (c *notificationAccessChecker) branchLockRepo(ctx context.Context, joinRequ
 	if repoID, ok := c.branchLockRepos[joinRequestID]; ok {
 		return repoID, nil
 	}
-	joinRequest, err := c.q.GetBranchLockJoinRequest(ctx, joinRequestID)
+	repoID, err := c.q.GetNotificationBranchLockRepository(ctx, joinRequestID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
 			c.branchLockRepos[joinRequestID] = notificationSourceMissing
@@ -368,8 +368,8 @@ func (c *notificationAccessChecker) branchLockRepo(ctx context.Context, joinRequ
 		}
 		return 0, pkgerrors.Internal("resolve notification branch-lock join request: " + err.Error())
 	}
-	c.branchLockRepos[joinRequestID] = joinRequest.RepositoryID
-	return joinRequest.RepositoryID, nil
+	c.branchLockRepos[joinRequestID] = repoID
+	return repoID, nil
 }
 
 func (c *notificationAccessChecker) canReadRepoID(ctx context.Context, repoID int64) (bool, error) {

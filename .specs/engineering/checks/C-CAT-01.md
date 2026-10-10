@@ -33,3 +33,13 @@ access under the same actor permissions; the descriptor remains `never`,
 undisclosed to agents and excluded from the generated skill. No policy or
 runtime-placement row was widened. The five targeted app suites pass 65/0,
 and the three CLI/skill suites pass 189/0. C-CAT-01 remains partial.
+
+2026-10-10 — done-l12 observes the install coding composition separately from
+private hosted maintainer registrations. The original audit reproduced 166
+unique violations (109 placement, 30 Cut, 27 unlisted). Removing the install's
+repository-job layers leaves 68 (48 placement, 20 unlisted), zero Cut and zero
+Replaced. The literal Appendix C policy and product Markdown are unchanged.
+The production-registry suite passes 4/0/0; fresh/reused builtin and pinned-source
+checks pass in the route suite. The default allowlist still fails. Remaining
+placements and the literal Appendix C omissions are recorded in the lane report;
+this is partial C-CAT-01 evidence, not acceptance on its named reference layer.
