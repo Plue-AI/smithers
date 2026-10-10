@@ -14,7 +14,13 @@ export const installCommands = (cli: object): Commands | undefined => trees.get(
 
 export const installCommandPaths = (cli: object): string[] => {
   const tree = trees.get(cli)
-  if (tree === undefined) throw new Refused({ fault: "bug", code: "install_discovery_unavailable", message: "CLI install discovery is unavailable" })
+  if (tree === undefined) {
+    throw new Refused({
+      fault: "bug",
+      code: "install_discovery_unavailable",
+      message: "CLI install discovery is unavailable"
+    })
+  }
   const paths: string[] = []
   const walk = (commands: Commands, prefix: string[] = []): void => {
     for (const [name, entry] of commands) {

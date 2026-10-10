@@ -24,7 +24,17 @@ const methods = ["get", "put", "post", "delete", "options", "head", "patch", "tr
 
 /** The spec's operations as the generated client should call them. */
 const operations = Object.entries(spec.paths).flatMap(([path, item]) =>
-  methods.filter((method) => item[method] !== undefined).map((method) => ({ path, method, operation: { ...item[method]!, parameters: [...((item.parameters as unknown as ReadonlyArray<Parameter>) ?? []), ...(item[method]!.parameters ?? [])] } }))
+  methods.filter((method) => item[method] !== undefined).map((method) => ({
+    path,
+    method,
+    operation: {
+      ...item[method]!,
+      parameters: [
+        ...((item.parameters as unknown as ReadonlyArray<Parameter>) ?? []),
+        ...(item[method]!.parameters ?? [])
+      ]
+    }
+  }))
 )
 
 const functionName = (id: string) =>
@@ -88,15 +98,22 @@ describe("the generated product API client", () => {
       owner.calls.push({ via: "request", args })
       return Promise.resolve(receipt)
     }
-    expect(await ProductApi.postApiStackAttentionId(owner.transport, { path: { id: "force/7" }, body: reset })).toBe(receipt)
+    expect(await ProductApi.postApiStackAttentionId(owner.transport, { path: { id: "force/7" }, body: reset })).toBe(
+      receipt
+    )
     expect(owner.calls).toEqual([{ via: "request", args: ["POST", "/api/stack/attention/force%2F7", reset] }])
     const maintainer = recorder()
     maintainer.transport.request = (...args) => {
       maintainer.calls.push({ via: "request", args })
       return Promise.resolve(null)
     }
-    expect(await ProductApi.postApiStackAttentionId(maintainer.transport, { path: { id: "order-7" }, body: { revision: 7 } })).toBeNull()
-    expect(maintainer.calls).toEqual([{ via: "request", args: ["POST", "/api/stack/attention/order-7", { revision: 7 }] }])
+    expect(
+      await ProductApi.postApiStackAttentionId(maintainer.transport, { path: { id: "order-7" }, body: { revision: 7 } })
+    ).toBeNull()
+    expect(maintainer.calls).toEqual([{
+      via: "request",
+      args: ["POST", "/api/stack/attention/order-7", { revision: 7 }]
+    }])
   })
 
   it("exports one function per operation with a JSON or empty request body, and nothing else", () => {
@@ -129,20 +146,43 @@ describe("the generated product API client", () => {
     expect(spec.paths["/api/install/ack-delay"]).toHaveProperty("post.operationId", "post_api_install_ack_delay")
     expect(spec.paths["/api/secrets"]).toHaveProperty("post.operationId", "post_api_secrets")
     expect(spec.paths["/api/auth/session"]).toHaveProperty("get.operationId", "get_api_auth_session")
-    expect(spec.paths["/api/auth/session"]).toHaveProperty("get.security", [{}, { sessionCookie: [] }, { bearerAuth: [] }])
-    expect(spec.paths["/api/issues/{number}/comments"]).toHaveProperty("post.operationId", "post_api_issues_number_comments")
-    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.parameters.3.schema.enum", ["candidate", "propose"])
+    expect(spec.paths["/api/auth/session"]).toHaveProperty("get.security", [{}, { sessionCookie: [] }, {
+      bearerAuth: []
+    }])
+    expect(spec.paths["/api/issues/{number}/comments"]).toHaveProperty(
+      "post.operationId",
+      "post_api_issues_number_comments"
+    )
+    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty(
+      "post.parameters.3.schema.enum",
+      ["candidate", "propose"]
+    )
     // Retained branch activity is served without waking its machine (#3568).
     expect(spec.paths["/api/branches/{b}/activity"]).toHaveProperty("get.operationId", "get_api_branches_activity")
     expect(spec.paths["/api/agents/{name}"]).toHaveProperty("get.operationId", "get_api_agents_name")
     expect(spec.paths["/api/model/test/receipt"]).toHaveProperty("get.operationId", "get_api_model_test_receipt")
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.operationId", "post_api_stack_attention_id")
-    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.oneOf.0.required", ["revision"])
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty(
+      "post.requestBody.content.application/json.schema.oneOf.0.required",
+      ["revision"]
+    )
     expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.204")
-    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.requestBody.content.application/json.schema.oneOf.1.required", ["old", "new"])
-    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty("post.responses.200.content.application/json.schema.properties.state.enum", ["settled"])
-    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty("post.operationId", "post_api_repos_owner_repo_workspaces_id_stack_operation")
-    expect(spec.paths["/api/branches/{b}/add-to-stack"]).toHaveProperty("post.operationId", "post_api_branches_b_add_to_stack")
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty(
+      "post.requestBody.content.application/json.schema.oneOf.1.required",
+      ["old", "new"]
+    )
+    expect(spec.paths["/api/stack/attention/{id}"]).toHaveProperty(
+      "post.responses.200.content.application/json.schema.properties.state.enum",
+      ["settled"]
+    )
+    expect(spec.paths["/api/repos/{owner}/{repo}/workspaces/{id}/stack/{operation}"]).toHaveProperty(
+      "post.operationId",
+      "post_api_repos_owner_repo_workspaces_id_stack_operation"
+    )
+    expect(spec.paths["/api/branches/{b}/add-to-stack"]).toHaveProperty(
+      "post.operationId",
+      "post_api_branches_b_add_to_stack"
+    )
     expect(spec.paths["/api/flows/{name}"]).toHaveProperty("get.operationId", "get_api_flows_name")
     expect(spec.paths["/api/flows"]).toHaveProperty("post.operationId", "post_api_flows")
     expect(spec.paths["/api/flows/{name}/run"]).toHaveProperty("post.operationId", "post_api_flows_name_run")
@@ -150,7 +190,7 @@ describe("the generated product API client", () => {
     for (const path of ["/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
       expect(spec.paths).not.toHaveProperty(path)
     }
-    expect(Object.keys(spec.paths).filter(path => path.startsWith("/api/app-timelines"))).toEqual([])
+    expect(Object.keys(spec.paths).filter((path) => path.startsWith("/api/app-timelines"))).toEqual([])
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(
       operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
@@ -224,9 +264,13 @@ describe("the generated product API client", () => {
       path: { hostID: "host/1?", runID: "run:7/steer" }
     })
     expect(result).toBe(answer)
-    expect(calls).toEqual([{ via: "request", args: [
-      "GET", "/api/gateways/host%2F1%3F/learning/run%3A7%2Fsteer/evidence"
-    ] }])
+    expect(calls).toEqual([{
+      via: "request",
+      args: [
+        "GET",
+        "/api/gateways/host%2F1%3F/learning/run%3A7%2Fsteer/evidence"
+      ]
+    }])
   })
 
   it("leaves unset query parameters out of the path", async () => {

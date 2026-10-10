@@ -14,24 +14,27 @@ export const todoRecoveryExpected: Readonly<Record<string, Readonly<Record<strin
   M1: { completedRouteCalls: 1, newAttempts: 0 },
   M2: { completedRouteCalls: 1, newAttempts: 0, checkCalls: 2, acceptedCheckResults: 1 },
   M3: { completedStepCalls: 1, effectiveWrites: 1, lookups: 2, newAttempts: 0 },
-  M4: { stepsReRun: 0, automaticKeylessRepeats: 0, retryAttempts: 1, hostCanaryAbsent: true },
+  M4: { stepsReRun: 0, automaticKeylessRepeats: 0, retryAttempts: 1, hostCanaryAbsent: true }
 }
 
 export function requireTodoRecoveryObservations(log: string, kind: "host" | "machine"): void {
   const points = kind === "host" ? hostTodoPoints : machineTodoPoints
   const parent = kind === "host" ? "TestTodoHostRecordedKillThroughInstall" : "TestTodoMachineKillThroughInstall"
-  const events = log.split("\n").filter(Boolean).map(line => JSON.parse(line) as { Test?: string; Output?: string })
+  const events = log.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { Test?: string; Output?: string })
   for (const point of points) {
     const name = `${parent}/${point}/crossing`
     requireReachedGoFault(log, name, [point])
-    const output = events.filter(event => event.Test === name).map(event => event.Output ?? "").join("")
+    const output = events.filter((event) => event.Test === name).map((event) => event.Output ?? "").join("")
     const observations = [...output.matchAll(/^(?:[ \t]+[^\r\n:]+\.go:\d+: )?CRASH-OBSERVATION (\{[^\r\n]*\})\r?$/gm)]
-      .map(match => JSON.parse(match[1]!) as Record<string, unknown>)
+      .map((match) => JSON.parse(match[1]!) as Record<string, unknown>)
     assert.equal(observations.length, 1, `required one final TODO recovery observation: ${point}`)
     const observation = observations[0]!
     const { terminal, modelRequestCalls, ...facts } = observation
-    assert.deepEqual(facts, { point, subject: "todo", ...todoRecoveryExpected[point] },
-      `literal TODO recovery observation mismatch: ${point}`)
+    assert.deepEqual(
+      facts,
+      { point, subject: "todo", ...todoRecoveryExpected[point] },
+      `literal TODO recovery observation mismatch: ${point}`
+    )
     if (["K2", "K5", "M1"].includes(point)) {
       assert([1, 2].includes(modelRequestCalls as number), `in-flight model request repeated more than once: ${point}`)
     } else assert.equal(modelRequestCalls, undefined)

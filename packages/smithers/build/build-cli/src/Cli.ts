@@ -887,8 +887,12 @@ const writeResults = async (file: FileHandle, summary: Executor.Summary): Promis
 }
 
 /** The results path, resolved like `--known-red` against the workspace. */
-const resultsPath = (options: { readonly workspace?: string; readonly resultsFile?: string } | undefined): string | undefined =>
-  options?.resultsFile === undefined ? undefined : NodePath.resolve(options.workspace ?? process.cwd(), options.resultsFile)
+const resultsPath = (
+  options: { readonly workspace?: string; readonly resultsFile?: string } | undefined
+): string | undefined =>
+  options?.resultsFile === undefined
+    ? undefined
+    : NodePath.resolve(options.workspace ?? process.cwd(), options.resultsFile)
 
 /**
  * Runs one execution command under a reporter that is closed however the
@@ -900,7 +904,11 @@ const executeCommand = async <A extends Outcome>(
   code: string,
   body: (reporter: Reporter.Reporter) => Promise<A>
 ): Promise<A | undefined> => {
-  const options = context.options as { readonly workspace?: string; readonly knownRed?: string; readonly resultsFile?: string } | undefined
+  const options = context.options as {
+    readonly workspace?: string
+    readonly knownRed?: string
+    readonly resultsFile?: string
+  } | undefined
   const resultsFile = resultsPath(options)
   // Open (create) the results file before any target runs, so an existing one refuses up front.
   let results: FileHandle | undefined
@@ -909,7 +917,11 @@ const executeCommand = async <A extends Outcome>(
       await NodeFs.mkdir(NodePath.dirname(resultsFile), { recursive: true })
       results = await NodeFs.open(resultsFile, "wx")
     } catch (cause) {
-      return context.error({ code, exitCode: 1, message: `results file ${resultsFile}: ${cause instanceof Error ? cause.message : String(cause)}` })
+      return context.error({
+        code,
+        exitCode: 1,
+        message: `results file ${resultsFile}: ${cause instanceof Error ? cause.message : String(cause)}`
+      })
     }
   }
   try {
@@ -917,7 +929,9 @@ const executeCommand = async <A extends Outcome>(
   } finally {
     // A step that failed before summarizing still leaves a readable record with no rows,
     // so it reads as "these labels did not run", never as an unreadable run.
-    if (results !== undefined && (await results.stat()).size === 0) await results.writeFile(`${JSON.stringify({ results: [], version: 1 })}\n`)
+    if (results !== undefined && (await results.stat()).size === 0) {
+      await results.writeFile(`${JSON.stringify({ results: [], version: 1 })}\n`)
+    }
     await results?.close()
   }
 }

@@ -43,20 +43,26 @@ const fixture = () => {
 
 // Contract coverage only: launchd and maintenance providers require the Mac receipts.
 describe("native maintenance output", () => {
-  it.each([
-    ["backup", undefined, "/Users/owner/Library/Application Support/Smithers/backups/1.2.3-20261007T010203Z"],
-    ["restore", "/snapshot with spaces", "2026-10-07T01:02:03Z"]
-  ] as const)("returns the native %s receipt as text", (operation, directory, receipt) => {
+  it.each(
+    [
+      ["backup", undefined, "/Users/owner/Library/Application Support/Smithers/backups/1.2.3-20261007T010203Z"],
+      ["restore", "/snapshot with spaces", "2026-10-07T01:02:03Z"]
+    ] as const
+  )("returns the native %s receipt as text", (operation, directory, receipt) => {
     const f = fixture()
     mkdirSync(f.system.agentsDir, { recursive: true })
     writeFileSync(Host.plistFile(f.system), Host.hostPlist(f.options))
     const run = vi.fn(() => ({ status: 0, stdout: receipt + "\n", stderr: "" })) as unknown as typeof spawnSync
     expect(Host.maintenance(operation, directory, f.system, run)).toBe(receipt)
-    expect(run).toHaveBeenCalledWith(join(f.bundle, "bin/smithers-backend"),
-      ["host-maintenance", operation, ...(directory ? [directory] : [])], {
-        encoding: "utf8", maxBuffer: 65536,
-        env: { HOME: homedir(), PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` }
-      })
+    expect(run).toHaveBeenCalledWith(join(f.bundle, "bin/smithers-backend"), [
+      "host-maintenance",
+      operation,
+      ...(directory ? [directory] : [])
+    ], {
+      encoding: "utf8",
+      maxBuffer: 65536,
+      env: { HOME: homedir(), PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` }
+    })
   })
   it("preserves the recovery command on backend failure", () => {
     const f = fixture()

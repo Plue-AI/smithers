@@ -74,16 +74,13 @@ describe("coherent execution snapshot batches", () => {
   it.effect("rejects fewer rows than requested, including a missing duplicate", () =>
     rejected(["present", "present"], batch([observed])))
 
-  it.effect("rejects more rows than requested", () =>
-    rejected(["present"], batch([observed, observed])))
+  it.effect("rejects more rows than requested", () => rejected(["present"], batch([observed, observed])))
 
   it.effect("rejects rows returned for an empty request", () => rejected([], batch([observed])))
 
-  it.effect("rejects rows in a different order", () =>
-    rejected(["present", "missing"], batch([missing, observed])))
+  it.effect("rejects rows in a different order", () => rejected(["present", "missing"], batch([missing, observed])))
 
-  it.effect("rejects an unrelated row even when the count matches", () =>
-    rejected(["requested"], batch([observed])))
+  it.effect("rejects an unrelated row even when the count matches", () => rejected(["requested"], batch([observed])))
 
   for (const row of [observed, missing]) {
     it.effect(`rejects a ${row._tag} row from another source`, () =>

@@ -109,7 +109,9 @@ export interface EngineExecutionEvidence {
   readonly graph?: EngineEvent.NodeGraph | undefined
   readonly status: string
   /** Recorded clock and deferred registrations and their explicit settlements. */
-  readonly waits: ReadonlyArray<{ readonly id: string; readonly kind: "sleep" | "signal"; readonly since: number; readonly settledAt?: number }>
+  readonly waits: ReadonlyArray<
+    { readonly id: string; readonly kind: "sleep" | "signal"; readonly since: number; readonly settledAt?: number }
+  >
   readonly result?: { readonly value: unknown; readonly sequence: number } | undefined
   /** Original classified failure bytes, never parsed from rendered detail. */
   readonly failure?: {
@@ -267,34 +269,48 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
       }
       return current
     }
-    if (envelope.eventType === EngineEvent.nodeEventTypes.planRecorded || envelope.eventType === EngineEvent.nodeEventTypes.subgraphAppended) {
+    if (
+      envelope.eventType === EngineEvent.nodeEventTypes.planRecorded ||
+      envelope.eventType === EngineEvent.nodeEventTypes.subgraphAppended
+    ) {
       const payload = envelope.payload as { graph?: unknown }
       const graph = decodeGraph(payload?.graph)
       if (Option.isSome(graph)) {
-        const nodes = new Map(execution.graph?.nodes.map(node => [node.id, node]))
+        const nodes = new Map(execution.graph?.nodes.map((node) => [node.id, node]))
         for (const node of graph.value.nodes) nodes.set(node.id, node)
         execution.graph = { ...graph.value, nodes: [...nodes.values()] }
       }
       generic()
       continue
     }
-    if (envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled || envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled) {
+    if (
+      envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled ||
+      envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled
+    ) {
       const scheduled = envelope.eventType === EngineEvent.nodeEventTypes.nodeScheduled
-        ? decodeScheduled(envelope.payload) : Option.none()
+        ? decodeScheduled(envelope.payload) :
+        Option.none()
       const settled = envelope.eventType === EngineEvent.nodeEventTypes.nodeSettled
-        ? decodeSettled(envelope.payload) : Option.none()
+        ? decodeSettled(envelope.payload) :
+        Option.none()
       const recorded = Option.isSome(scheduled) ? scheduled.value : Option.isSome(settled) ? settled.value : undefined
       if (recorded === undefined) {
         generic()
         continue
       }
       const nodeKey = identity(key, recorded.nodeId)
-      const action = recorded.action ?? execution.graph?.nodes.find(node => node.id === recorded.nodeId)?.action
+      const action = recorded.action ?? execution.graph?.nodes.find((node) => node.id === recorded.nodeId)?.action
       let node = nodes.get(nodeKey)
       if (node === undefined || Option.isSome(scheduled)) {
         const instance = (instances.get(nodeKey) ?? 0) + 1
         instances.set(nodeKey, instance)
-        node = span(`engine-node:${nodeKey}#${instance}`, "call", inspectLabel(action ?? recorded.nodeId), envelope.emittedAtMs, detail(row, envelope))
+        node = span(
+          `engine-node:${nodeKey}#${instance}`,
+          "call",
+          inspectLabel(action ?? recorded.nodeId),
+          envelope.emittedAtMs,
+          detail(row, envelope)
+        )
         nodes.set(nodeKey, node)
         execution.span.children.push(node)
       }
@@ -304,9 +320,13 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         node.status = "running"
       } else {
         const value = Option.getOrThrow(settled)
-        node.status = value.outcome === "failed" ? "failed"
-          : value.outcome === "deferred" ? "waiting"
-          : value.outcome === "skipped" ? "skipped" : "completed"
+        node.status = value.outcome === "failed" ?
+          "failed"
+          : value.outcome === "deferred" ?
+          "waiting"
+          : value.outcome === "skipped"
+          ? "skipped"
+          : "completed"
         if (value.outcome !== "deferred") node.endedAt = envelope.emittedAtMs
         // The redacted preview is evidence, including when truncated. Never
         // evaluate it, or mistake a JSON prefix for a complete return value.
@@ -379,7 +399,9 @@ const foldEngineJournal = (records: ReadonlyArray<JournalRecord>) => {
         else if (kind === "sleep") existing.kind = kind
       }
       if (recorded.value.event._tag === "Execution" && recorded.value.event.lifecycle.state !== "completed") {
-        for (const wait of recorded.value.event.lifecycle.waits) registerWait(wait.waitId, wait._tag === "Clock" ? "sleep" : "signal")
+        for (const wait of recorded.value.event.lifecycle.waits) {
+          registerWait(wait.waitId, wait._tag === "Clock" ? "sleep" : "signal")
+        }
       }
       if (recorded.value.event._tag === "ClockScheduled") {
         registerWait(recorded.value.event.waitId, "sleep")

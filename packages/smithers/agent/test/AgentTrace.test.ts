@@ -1436,7 +1436,9 @@ describe("the request and the decision behind a step", () => {
     const payload = AgentSession.trace(requested({ request: request({ system }) }))!.payload as Record<string, unknown>
     expect(payload.system).toMatchObject({ truncated: true })
     expect(payload.task).toBe("{\"atom\":\"t5.md\"}")
-    const untasked = AgentSession.trace(requested({ request: request({ system: [ModelRequest.SystemPart.make({ text: "contract" })] }) }))!
+    const untasked = AgentSession.trace(
+      requested({ request: request({ system: [ModelRequest.SystemPart.make({ text: "contract" })] }) })
+    )!
     expect(Object.hasOwn(untasked.payload as object, "task")).toBe(false)
   })
 

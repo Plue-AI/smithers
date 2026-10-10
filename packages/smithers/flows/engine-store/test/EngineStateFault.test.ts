@@ -14,11 +14,12 @@ const database = Layer.provideMerge(Migrations.layer, TestDatabase.sqliteLayer)
 const address = { flowName: "Fault/Test", executionId: "run", deferredName: "answer" }
 const row = { ...address, exit: Exit.succeed("ready"), completedAtMs: 1 }
 
-const insertRun = (runId: string) => Effect.gen(function*() {
-  const sql = yield* SqlClient.SqlClient
-  yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
+const insertRun = (runId: string) =>
+  Effect.gen(function*() {
+    const sql = yield* SqlClient.SqlClient
+    yield* sql`INSERT INTO flows_runs (run_id, status, created_at_ms, state_json)
     VALUES (${runId}, 'pending', 0, '{}')`
-})
+  })
 
 const fault = <A, E>(
   exit: Exit.Exit<A, E>,
@@ -56,40 +57,44 @@ describe("EngineStateFault", () => {
 
   for (const field of ["exit_json", "metadata_json"] as const) {
     it.effect(`reports corrupt ${field} when reading a completion`, () =>
-      withCrypto(Effect.gen(function*() {
-        const sql = yield* SqlClient.SqlClient
-        const state = yield* DurableEngineState.make
-        yield* insertRun("run")
-        yield* state.completeDeferred(row)
-        yield* TestDatabase.checks(sql, false)
-        yield* sql`UPDATE flows_deferred_completions SET ${sql(field)} = '{broken'`
-        const defect = fault(
-          yield* Effect.exit(state.deferred(address)),
-          "value_not_decodable",
-          `could not decode ${field}`
-        )
-        expect(defect.field).toBe(field)
-        expect(defect.cause).toBeDefined()
-      }).pipe(Effect.provide(database))))
+      withCrypto(
+        Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          const state = yield* DurableEngineState.make
+          yield* insertRun("run")
+          yield* state.completeDeferred(row)
+          yield* TestDatabase.checks(sql, false)
+          yield* sql`UPDATE flows_deferred_completions SET ${sql(field)} = '{broken'`
+          const defect = fault(
+            yield* Effect.exit(state.deferred(address)),
+            "value_not_decodable",
+            `could not decode ${field}`
+          )
+          expect(defect.field).toBe(field)
+          expect(defect.cause).toBeDefined()
+        }).pipe(Effect.provide(database))
+      ))
   }
 
   it.effect("reports a missing deferred row and can retry after the storage fault is removed", () =>
-    withCrypto(Effect.gen(function*() {
-      const sql = yield* SqlClient.SqlClient
-      const state = yield* DurableEngineState.make
-      yield* insertRun("run")
-      yield* sql`CREATE TRIGGER suppress_completion BEFORE INSERT ON flows_deferred_completions BEGIN SELECT RAISE(IGNORE); END`
-      const defect = fault(
-        yield* Effect.exit(state.completeDeferred(row)),
-        "deferred_completion_missing",
-        "deferred completion disappeared during first-writer transaction"
-      )
-      expect(defect.field).toBeUndefined()
-      expect(defect.cause).toBeUndefined()
-      expect(Option.isNone(yield* state.deferred(address))).toBe(true)
-      yield* sql`DROP TRIGGER suppress_completion`
-      expect((yield* state.completeDeferred(row))._tag).toBe("Completed")
-    }).pipe(Effect.provide(database))))
+    withCrypto(
+      Effect.gen(function*() {
+        const sql = yield* SqlClient.SqlClient
+        const state = yield* DurableEngineState.make
+        yield* insertRun("run")
+        yield* sql`CREATE TRIGGER suppress_completion BEFORE INSERT ON flows_deferred_completions BEGIN SELECT RAISE(IGNORE); END`
+        const defect = fault(
+          yield* Effect.exit(state.completeDeferred(row)),
+          "deferred_completion_missing",
+          "deferred completion disappeared during first-writer transaction"
+        )
+        expect(defect.field).toBeUndefined()
+        expect(defect.cause).toBeUndefined()
+        expect(Option.isNone(yield* state.deferred(address))).toBe(true)
+        yield* sql`DROP TRIGGER suppress_completion`
+        expect((yield* state.completeDeferred(row))._tag).toBe("Completed")
+      }).pipe(Effect.provide(database))
+    ))
 
   it.effect("reports a missing parent edge and can retry after the storage fault is removed", () =>
     Effect.gen(function*() {

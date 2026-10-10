@@ -29,7 +29,11 @@ describe("context line", () => {
     const decoded = ContextLineCardSchema.parse(base)
     expect(decoded.items[0]?.action).toEqual({ tag: "file", label: "flow.ts", args: { path: "flows/todo/flow.ts" } })
     expect(decoded.items[1]?.action).toBeUndefined()
-    expect(decoded.actions).toEqual([{ tag: "run.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } }])
+    expect(decoded.actions).toEqual([{
+      tag: "run.inspect",
+      label: "Inspect",
+      args: { branch: "T12", answer: "answer-12" }
+    }])
     expect(ContextLineCardSchema.parse(fixtures.one.model).actions).toEqual([])
   })
   test("an empty line still parses; counts are nonnegative integers", () => {

@@ -12,11 +12,11 @@
 
 import type * as KernelHttpClient from "@smthrs/kernel/HttpClient"
 import * as Auth from "@smthrs/model/Auth"
-import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
 import * as Endpoint from "@smthrs/model/Endpoint"
 import * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
+import * as OpenAIChatGPT from "@smthrs/model/OpenAIChatGPT"
 import type * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import type { ModelPlan } from "@smthrs/rpc/ConfiguredModel"
@@ -65,13 +65,17 @@ export const withRoute = <A>(
         return Result.fail(new ModelError({ code: "authentication", message: "ChatGPT sign-in unavailable" }))
       }
       const bearer = Auth.bearer(Secret.make(access.accessToken))
-      return Result.map(OpenAIChatGPT.make({
-        baseUrl: plan.baseUrl,
-        auth: {
-          sign: (headers) => Effect.map(bearer.sign(headers), (signed) => ({ ...signed, "chatgpt-account-id": access.accountId })),
-          credentialHeaders: ["Authorization", "chatgpt-account-id"]
-        }
-      }), visit)
+      return Result.map(
+        OpenAIChatGPT.make({
+          baseUrl: plan.baseUrl,
+          auth: {
+            sign: (headers) =>
+              Effect.map(bearer.sign(headers), (signed) => ({ ...signed, "chatgpt-account-id": access.accountId })),
+            credentialHeaders: ["Authorization", "chatgpt-account-id"]
+          }
+        }),
+        visit
+      )
     }
     case "openai-responses":
       return Result.map(

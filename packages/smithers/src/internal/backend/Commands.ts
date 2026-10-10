@@ -3,9 +3,6 @@
  * @since 1.0.0
  */
 
-import { targetsInstall } from "./Destination.ts"
-import { mountCardDoors } from "./CardDoors.ts"
-import { catalogCommands, dispatchCatalog, mountCatalog } from "./Catalog.ts"
 import { Cli, Completions, z } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
@@ -14,9 +11,12 @@ import * as Failure from "../Failure.ts"
 import { admin } from "./Admin.ts"
 import { ask } from "./AgentDocs.ts"
 import { auth } from "./Auth.ts"
+import { mountCardDoors } from "./CardDoors.ts"
+import { catalogCommands, dispatchCatalog, mountCatalog } from "./Catalog.ts"
 import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
+import { targetsInstall } from "./Destination.ts"
 import { egress } from "./Egress.ts"
 import { history, humans } from "./History.ts"
 import * as HostService from "./HostService.ts"
@@ -36,7 +36,11 @@ export const handlers: Record<string, Handler> = {
   "host backup": async () => HostService.maintenance("backup"),
   "host upgrade": async () => HostService.maintenance("upgrade"),
   "host restore": async (_c, a) => HostService.maintenance("restore", String(a.directory)),
-  "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, { ...(typeof o.bind === "string" ? { bind: o.bind } : {}), ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {}) }),
+  "host start": (_c, _a, o) =>
+    HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, {
+      ...(typeof o.bind === "string" ? { bind: o.bind } : {}),
+      ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {})
+    }),
   "host stop": async () => HostService.stop(HostService.launchd()),
   "host status": () => HostService.status(),
   ...resources,
@@ -48,7 +52,9 @@ export const handlers: Record<string, Handler> = {
   ...misc,
   ...workspaces,
   ...workspaceChildren,
-  ...Object.fromEntries(Object.entries(stacks).filter(([name]) => !["stack land", "stack submit", "stack sync"].includes(name))),
+  ...Object.fromEntries(
+    Object.entries(stacks).filter(([name]) => !["stack land", "stack submit", "stack sync"].includes(name))
+  ),
   ...egress,
   ...history,
   "agent ask": ask,
@@ -170,7 +176,8 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const args = name === "completion"
       ? z.object({ shell: z.enum(["bash", "zsh", "fish"]) })
       : previous?.args ?? definition.args
-    const interactive = ["host backup", "host upgrade", "host restore"].includes(name) || name === "api" || name === "config set" || name === "completion" ||
+    const interactive = ["host backup", "host upgrade", "host restore"].includes(name) || name === "api" ||
+      name === "config set" || name === "completion" ||
       (name.startsWith("auth ") && !name.endsWith(" status") && name !== "auth token") ||
       ["workspace shell", "workspace ssh"].includes(name)
     const human = name === "host start"
@@ -260,9 +267,11 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
   mountCatalog(cli, runtime)
   mountCardDoors(cli, runtime)
   const workspace = tree.get("workspace")
-  if (workspace && "_group" in workspace) for (const name of ["shell", "exec", "cp"]) {
-    const door = workspace.commands.get(name)
-    if (door) tree.set(name, door)
+  if (workspace && "_group" in workspace) {
+    for (const name of ["shell", "exec", "cp"]) {
+      const door = workspace.commands.get(name)
+      if (door) tree.set(name, door)
+    }
   }
   const authGroup = tree.get("auth")!
   if ("_group" in authGroup) tree.set("login", authGroup.commands.get("login")!)

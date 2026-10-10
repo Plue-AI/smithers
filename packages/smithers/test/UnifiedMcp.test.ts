@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -269,7 +269,10 @@ it(
       }
       expect(host.seen).toEqual([])
       for (
-        const [name, args] of [["flows", {}], ["flow_show", { flow: "team/todo" }], ["todo_show", { n: "T2" }], ["agent", { name: "reviewer" }]] as const
+        const [name, args] of [["flows", {}], ["flow_show", { flow: "team/todo" }], ["todo_show", { n: "T2" }], [
+          "agent",
+          { name: "reviewer" }
+        ]] as const
       ) {
         const result = await server.call("call_read_tool", { name, arguments: args })
         expect(result?.isError, JSON.stringify(result)).not.toBe(true)

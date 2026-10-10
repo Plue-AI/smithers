@@ -34,7 +34,10 @@ describe("Commands", () => {
     expect(CommandsCardSchema.safeParse(withCommand({ tag })).success).toBe(false)
   })
   test("accepts inert repository flow names without registering them as actions", () => {
-    expect(CommandsCardSchema.parse(withCommand({ tag: "release-notes", synopsis: "/release-notes" })).groups[0]!.commands[0]!.tag).toBe("release-notes")
+    expect(
+      CommandsCardSchema.parse(withCommand({ tag: "release-notes", synopsis: "/release-notes" })).groups[0]!
+        .commands[0]!.tag
+    ).toBe("release-notes")
   })
   test("each command needs its synopsis and description", () => {
     for (const key of ["synopsis", "description"]) {

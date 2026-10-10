@@ -13,19 +13,33 @@ export interface BranchCard {
   id: string
   name: string
   item?: { n: number; title: string; state: TodoState; step?: string; place: number }
-  scratch?: { forked_from: { kind: "main" } | { kind: "item"; n: number; title: string } | { kind: "branch"; name: string } }
+  scratch?: {
+    forked_from: { kind: "main" } | { kind: "item"; n: number; title: string } | { kind: "branch"; name: string }
+  }
   machine: MachineState
   rebase?:
     | { state: "pending"; onto: string; waiting_for?: { actor: Actor; terminal: string } }
     | { state: "rebasing"; onto: string }
     | { state: "conflict"; onto: string; paths: string[]; conflict_change?: string; onto_revision?: string }
   moved_off?: { by: Actor; item: number }
-  presence: { actor: Actor; where:
-    | { kind: "file"; path: string; line?: number }
-    | { kind: "terminal"; id: string }
-    | { kind: "step"; label: string }
-    | { kind: "branch" }; watching?: string }[]
-  terminals: { id: string; title: string; owner: Actor; agents: Actor[]; watchers: Actor[]; command?: string; frozen: boolean }[]
+  presence: {
+    actor: Actor
+    where:
+      | { kind: "file"; path: string; line?: number }
+      | { kind: "terminal"; id: string }
+      | { kind: "step"; label: string }
+      | { kind: "branch" }
+    watching?: string
+  }[]
+  terminals: {
+    id: string
+    title: string
+    owner: Actor
+    agents: Actor[]
+    watchers: Actor[]
+    command?: string
+    frozen: boolean
+  }[]
   activity: {
     id: string
     actor: Actor
@@ -38,7 +52,12 @@ export interface BranchCard {
     at: string
     actions: Action[]
   }[]
-  changed_files: { path: string; change: "added" | "modified" | "deleted" | "renamed"; renamed_to?: string; authors: Actor[] }[]
+  changed_files: {
+    path: string
+    change: "added" | "modified" | "deleted" | "renamed"
+    renamed_to?: string
+    authors: Actor[]
+  }[]
   ssh_line: string
 }
 
@@ -108,8 +127,9 @@ export const BranchActivityEntry = z.strictObject({
   kind: z.enum(["write", "burst", "doc_edit", "rebase", "moved_off"]),
   actor: z.union([BranchParticipant, ActorSchema]),
   files: z.array(z.strictObject({
-    path: z.string().min(1).refine(value =>
-      !/[\\\u0000]/.test(value) && value.split("/").every(part => part !== "" && part !== "." && part !== "..")),
+    path: z.string().min(1).refine((value) =>
+      !/[\\\u0000]/.test(value) && value.split("/").every((part) => part !== "" && part !== "." && part !== "..")
+    ),
     change: z.enum(["added", "modified", "deleted", "renamed"]),
     before_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional(),
     after_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional()

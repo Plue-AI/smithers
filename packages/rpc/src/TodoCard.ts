@@ -4,7 +4,6 @@
  */
 
 import { z } from "zod"
-import { LessonsReceiptSchema } from "./ProposalCard.ts"
 import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import {
@@ -18,6 +17,7 @@ import {
   RebasePendingSchema,
   TodoStateSchema
 } from "./CardPrimitives.ts"
+import { LessonsReceiptSchema } from "./ProposalCard.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**

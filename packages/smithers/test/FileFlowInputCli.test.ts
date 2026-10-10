@@ -85,7 +85,8 @@ export default Flow.make("echo", {
   }, 60_000)
 
   it.each([{}, { value: 42 }, { value: null }, { value: false }, { value: ["hello"] }])(
-    "refuses invalid input %j before plan or run admission", async (input) => {
+    "refuses invalid input %j before plan or run admission",
+    async (input) => {
       for (const verb of ["plan", "start"]) {
         const result = await command([
           ...(verb === "plan" ? ["plan"] : ["flow", "start"]),
@@ -107,7 +108,9 @@ export default Flow.make("echo", {
         expect(result.stdout).not.toContain("\"runId\"")
       }
       await expectNoAdmission()
-    }, 60_000)
+    },
+    60_000
+  )
 
   it("enforces refined input without executing it during discovery", async () => {
     const file = join(root, "flows", "echo", "flow.ts")

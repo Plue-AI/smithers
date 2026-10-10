@@ -6,7 +6,8 @@ import { type Story, story } from "./_story.ts"
 const zero = {
   queued: 0,
   starting: 0,
-  working: 0, retrying: 0,
+  working: 0,
+  retrying: 0,
   needs_you: 0,
   paused: 0,
   failed: 0,
@@ -134,7 +135,8 @@ const activeModel: HomeCard = {
       kind: "order",
       text: "T3 merged before T2",
       todo: 3,
-      id: "order-three", revision: 1,
+      id: "order-three",
+      revision: 1,
       actions: [{ tag: "order.ok", label: "OK", args: { id: "order-three" }, primary: true }]
     },
     {

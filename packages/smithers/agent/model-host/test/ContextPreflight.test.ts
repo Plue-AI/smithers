@@ -118,15 +118,22 @@ test.each([
 })
 
 test("usage before and after settlement preserves the selected pinned context", async () => {
-  const model = Model.make({ stream: () => Stream.fromIterable<ModelEvent>([
-    { type: "usage", inputTokens: 7 },
-    { type: "text-delta", id: "s", text: '[{"index":0,"reason":"Retry implementation"}]' },
-    { type: "settle", stopReason: "stop" },
-    { type: "usage", inputTokens: 7, outputTokens: 5 }
-  ]) })
+  const model = Model.make({
+    stream: () =>
+      Stream.fromIterable<ModelEvent>([
+        { type: "usage", inputTokens: 7 },
+        { type: "text-delta", id: "s", text: "[{\"index\":0,\"reason\":\"Retry implementation\"}]" },
+        { type: "settle", stopReason: "stop" },
+        { type: "usage", inputTokens: 7, outputTokens: 5 }
+      ])
+  })
   const answer = await Effect.runPromise(runContextPreflight(input, model, { modelId: "fast" }))
   expect(answer.result.context).toEqual([{
-    kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123", reason: "Retry implementation"
+    kind: "file",
+    label: "retry.ts",
+    ref: "src/webhooks/retry.ts",
+    revision: "abc123",
+    reason: "Retry implementation"
   }])
   expect(answer.selectedContext[0]?.text).toBe("export const retry = 3")
 })
@@ -245,7 +252,12 @@ test.each([65532, 65533])("selector limit includes a buffered credential-prefix 
 
 test("subscription fallback selects context without sending an unsupported output-token limit", async () => {
   const requests: ModelRequest[] = []
-  const answer = await Effect.runPromise(runContextPreflight(input, fake("[{\"index\":0,\"reason\":\"Retry implementation\"}]", requests), { modelId: "subscription-coding", outputTokenLimitSupported: false }))
+  const answer = await Effect.runPromise(
+    runContextPreflight(input, fake("[{\"index\":0,\"reason\":\"Retry implementation\"}]", requests), {
+      modelId: "subscription-coding",
+      outputTokenLimitSupported: false
+    })
+  )
   expect(requests).toHaveLength(1)
   expect(requests[0]?.params.maxTokens).toBeUndefined()
   expect(answer.result.model).toBe("subscription-coding")

@@ -40,32 +40,54 @@ function deferred<T>() {
 
 describe("registered terminal command result contract", () => {
   it("strips raw eight-bit ANSI controls across PTY frames", async () => {
-    const data = new Uint8Array([0x9b, 0x33, 0x31, 0x6d, 0x6f, 0x6b, 0x9b, 0x30, 0x6d,
-      0x9d, 0x31, 0x33, 0x33, 0x3b, 0x44, 0x3b, 0x30, 0x9c, 0x80, 0x0a])
-    for (const chunks of [[data], [...data].map(byte => new Uint8Array([byte]))]) {
-      const frames: CommandFrame[] = chunks.map(bytes => ({ kind: "output", bytes }))
+    const data = new Uint8Array([
+      0x9b,
+      0x33,
+      0x31,
+      0x6d,
+      0x6f,
+      0x6b,
+      0x9b,
+      0x30,
+      0x6d,
+      0x9d,
+      0x31,
+      0x33,
+      0x33,
+      0x3b,
+      0x44,
+      0x3b,
+      0x30,
+      0x9c,
+      0x80,
+      0x0a
+    ])
+    for (const chunks of [[data], [...data].map((byte) => new Uint8Array([byte]))]) {
+      const frames: CommandFrame[] = chunks.map((bytes) => ({ kind: "output", bytes }))
       frames.push({ kind: "exit", code: 7 })
       expect(await fixture(frames).commands.run(input, controller().signal)).toEqual(expected("ok\n", 7))
     }
   })
 
-  it.each([
-    ["two byte", [0xc2, 0xa1], "¡"],
-    ["three byte lower bound", [0xe0, 0xa0, 0x80], "ࠀ"],
-    ["surrogate boundary", [0xed, 0x9f, 0xbf], "퟿"],
-    ["C1 continuation", [0xe9, 0x9b, 0xaa], "雪"],
-    ["four byte", [0xf0, 0x9f, 0x98, 0x80], "😀"],
-    ["four byte middle", [0xf1, 0x80, 0x80, 0x80], "\u{40000}"],
-    ["Unicode upper bound", [0xf4, 0x8f, 0xbf, 0xbf], "\u{10ffff}"],
-    ["broken two byte", [0xc2, 0x61], "�a"],
-    ["overlong three byte", [0xe0, 0x80, 0x61], "�a"],
-    ["surrogate", [0xed, 0xa0, 0x80, 0x61], "��a"],
-    ["overlong four byte", [0xf0, 0x80, 0x61], "�a"],
-    ["beyond Unicode", [0xf4, 0x90, 0x61, 0x9c, 0x62], "�b"],
-    ["invalid leading byte", [0xf5, 0x80, 0x61], "�a"]
-  ] as const)("preserves UTF-8 while stripping standalone C1 controls: %s", async (_name, data, text) => {
-    for (const chunks of [[new Uint8Array(data)], data.map(byte => new Uint8Array([byte]))]) {
-      const frames: CommandFrame[] = chunks.map(bytes => ({ kind: "output", bytes }))
+  it.each(
+    [
+      ["two byte", [0xc2, 0xa1], "¡"],
+      ["three byte lower bound", [0xe0, 0xa0, 0x80], "ࠀ"],
+      ["surrogate boundary", [0xed, 0x9f, 0xbf], "퟿"],
+      ["C1 continuation", [0xe9, 0x9b, 0xaa], "雪"],
+      ["four byte", [0xf0, 0x9f, 0x98, 0x80], "😀"],
+      ["four byte middle", [0xf1, 0x80, 0x80, 0x80], "\u{40000}"],
+      ["Unicode upper bound", [0xf4, 0x8f, 0xbf, 0xbf], "\u{10ffff}"],
+      ["broken two byte", [0xc2, 0x61], "�a"],
+      ["overlong three byte", [0xe0, 0x80, 0x61], "�a"],
+      ["surrogate", [0xed, 0xa0, 0x80, 0x61], "��a"],
+      ["overlong four byte", [0xf0, 0x80, 0x61], "�a"],
+      ["beyond Unicode", [0xf4, 0x90, 0x61, 0x9c, 0x62], "�b"],
+      ["invalid leading byte", [0xf5, 0x80, 0x61], "�a"]
+    ] as const
+  )("preserves UTF-8 while stripping standalone C1 controls: %s", async (_name, data, text) => {
+    for (const chunks of [[new Uint8Array(data)], data.map((byte) => new Uint8Array([byte]))]) {
+      const frames: CommandFrame[] = chunks.map((bytes) => ({ kind: "output", bytes }))
       frames.push(status)
       expect(await fixture(frames).commands.run(input, controller().signal)).toEqual(expected(text))
     }
@@ -91,65 +113,74 @@ describe("registered terminal command result contract", () => {
       vi.useRealTimers()
     }
   })
-  it.each([status, { kind: "signal", signal: 15 } as const])("releases the command subscription before reusing the session: %j", async (completion) => {
-    let active = false
-    let releases = 0
-    const commands = new Commands({
-      execute: async function*() {
-        if (active) throw new Error("previous command still subscribed")
-        active = true
-        try {
-          yield output("fixture")
-          yield completion
-        } finally {
-          active = false
-          releases++
-        }
-      },
-      killRun: async () => {}
-    })
-    const first = commands.run(input, controller().signal)
-    const second = commands.run(input, controller().signal)
-    const code = completion.kind === "exit" ? 0 : 143
-    expect(await first).toEqual(expected("fixture", code))
-    expect(await second).toEqual(expected("fixture", code))
-    expect(active).toBe(false)
-    expect(releases).toBe(2)
-  })
+  it.each([status, { kind: "signal", signal: 15 } as const])(
+    "releases the command subscription before reusing the session: %j",
+    async (completion) => {
+      let active = false
+      let releases = 0
+      const commands = new Commands({
+        execute: async function*() {
+          if (active) throw new Error("previous command still subscribed")
+          active = true
+          try {
+            yield output("fixture")
+            yield completion
+          } finally {
+            active = false
+            releases++
+          }
+        },
+        killRun: async () => {}
+      })
+      const first = commands.run(input, controller().signal)
+      const second = commands.run(input, controller().signal)
+      const code = completion.kind === "exit" ? 0 : 143
+      expect(await first).toEqual(expected("fixture", code))
+      expect(await second).toEqual(expected("fixture", code))
+      expect(active).toBe(false)
+      expect(releases).toBe(2)
+    }
+  )
 
-  it.each([status, { kind: "signal", signal: 15 } as const])("refuses reuse when subscription release yields another frame: %j", async (completion) => {
-    const killing = deferred<void>()
-    const killed = deferred<void>()
-    let calls = 0
-    const commands = new Commands({
-      execute: async function*() {
-        calls++
-        try {
-          yield output("fixture")
-          yield completion
-        } finally {
-          // AsyncGenerator.return() need not finish the subscription. This
-          // fixture retains it by yielding from the generator's finally block.
-          yield output("late output")
+  it.each([status, { kind: "signal", signal: 15 } as const])(
+    "refuses reuse when subscription release yields another frame: %j",
+    async (completion) => {
+      const killing = deferred<void>()
+      const killed = deferred<void>()
+      let calls = 0
+      const commands = new Commands({
+        execute: async function*() {
+          calls++
+          try {
+            yield output("fixture")
+            yield completion
+          } finally {
+            // AsyncGenerator.return() need not finish the subscription. This
+            // fixture retains it by yielding from the generator's finally block.
+            yield output("late output")
+          }
+        },
+        killRun: async () => {
+          killing.resolve()
+          await killed.promise
         }
-      },
-      killRun: async () => { killing.resolve(); await killed.promise }
-    })
-    let settled = false
-    const first = commands.run(input, controller().signal).catch((error) => {
-      settled = true
-      return error
-    })
-    const second = commands.run(input, controller().signal).catch((error) => error)
-    await killing.promise
-    expect(settled).toBe(false)
-    expect(calls).toBe(1)
-    killed.resolve()
-    expect(await first).toMatchObject({ code: "command_failed", message: "Agent terminal subscription still open" })
-    expect(await second).toMatchObject({ code: "provider_unavailable" })
-    expect(calls).toBe(1)
-    await commands.end()
-  })
+      })
+      let settled = false
+      const first = commands.run(input, controller().signal).catch((error) => {
+        settled = true
+        return error
+      })
+      const second = commands.run(input, controller().signal).catch((error) => error)
+      await killing.promise
+      expect(settled).toBe(false)
+      expect(calls).toBe(1)
+      killed.resolve()
+      expect(await first).toMatchObject({ code: "command_failed", message: "Agent terminal subscription still open" })
+      expect(await second).toMatchObject({ code: "provider_unavailable" })
+      expect(calls).toBe(1)
+      await commands.end()
+    }
+  )
 
   it("ends the run when releasing a completed command fails", async () => {
     let kills = 0
@@ -161,7 +192,9 @@ describe("registered terminal command result contract", () => {
           throw new Error("subscription cleanup failed")
         }
       },
-      killRun: async () => { kills++ }
+      killRun: async () => {
+        kills++
+      }
     })
     await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ code: "command_failed" })
     expect(kills).toBe(1)
@@ -180,7 +213,9 @@ describe("registered terminal command result contract", () => {
           await new Promise(() => {})
         }
       },
-      killRun: async () => { kills++ }
+      killRun: async () => {
+        kills++
+      }
     })
     const result = commands.run({ ...input, timeoutMs: 20 }, controller().signal)
     await releasing.promise
@@ -538,7 +573,10 @@ describe("registered terminal command result contract", () => {
       execute: () => ({
         [Symbol.asyncIterator]: () => ({
           next: async () => ({ done: false as const, value: { kind: "exit" as const, code: -1 } }),
-          return: async () => { released++; return { done: true as const, value: undefined } }
+          return: async () => {
+            released++
+            return { done: true as const, value: undefined }
+          }
         })
       }),
       killRun: async () => {
@@ -548,7 +586,9 @@ describe("registered terminal command result contract", () => {
         await receipt.promise
       }
     })
-    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({ message: "Agent terminal cleanup unconfirmed" })
+    await expect(commands.run(input, controller().signal)).rejects.toMatchObject({
+      message: "Agent terminal cleanup unconfirmed"
+    })
     expect(released).toBe(0)
     const endings = [commands.end(), commands.end()]
     await entered.promise
@@ -562,5 +602,4 @@ describe("registered terminal command result contract", () => {
     expect(attempts).toBe(2)
     expect(released).toBe(1)
   })
-
 })

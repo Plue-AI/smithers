@@ -53,8 +53,11 @@ const receipt = (result: "done" | "cancelled" | "expired", text?: string): Confi
 })
 const pending = {
   issue: story("One click: comment on an issue", {
-    ...amend, action: { tag: "issue.comment", verb: "Comment" }, summary: "#7",
-    subject: { kind: "issue", ref: "7", revision: "1:7" }, text: "Ready"
+    ...amend,
+    action: { tag: "issue.comment", verb: "Comment" },
+    summary: "#7",
+    subject: { kind: "issue", ref: "7", revision: "1:7" },
+    text: "Ready"
   }, { actions: [verb("approval.approve", "Comment", { id: "issue-comment" })], expect: ["#7", "Ready", "Comment"] }),
   one_click: story("One click: amend with the exact text", amend, {
     actions: [verb("todo.amend", "Amend", { n: "12" })],

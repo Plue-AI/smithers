@@ -546,20 +546,32 @@ export const Package = S.Package({ targets: { good, bad, worse, consumer } })
   it("writes each label's status to --results-file, even when the run passes on a known-red failure", async () => {
     const root = await fixture()
     const results = NodePath.join(root, "out", "results.json")
-    const served = await serve(root, ["test", "//:bad", "//:good", "--known-red", "known-red.json", "--results-file", results])
+    const served = await serve(root, [
+      "test",
+      "//:bad",
+      "//:good",
+      "--known-red",
+      "known-red.json",
+      "--results-file",
+      results
+    ])
     expect(served.exitCode).toBe(0)
     const written = JSON.parse(await Fs.readFile(results, "utf8"))
     expect(written.version).toBe(1)
     expect(Object.fromEntries(written.results.map((row: { label: string; status: string }) => [row.label, row.status])))
       .toEqual({ "//:bad": "failed", "//:good": "ran" })
     // Only label/status/key rows: a result's error carries raw child output, and CI publishes this file.
-    expect(written.results.every((row: object) => Object.keys(row).sort().join() === "durationMs,key,label,status")).toBe(true)
+    expect(written.results.every((row: object) => Object.keys(row).sort().join() === "durationMs,key,label,status"))
+      .toBe(true)
     expect(written).not.toHaveProperty("knownRed")
     expect(await Fs.readFile(results, "utf8")).not.toContain("reviewed failure")
     const plain = NodePath.join(root, "out", "plain.json")
     const worse = await serve(root, ["test", "//:worse", "--results-file", plain])
     expect(worse.exitCode).toBe(1)
-    expect(JSON.parse(await Fs.readFile(plain, "utf8")).results).toMatchObject([{ label: "//:worse", status: "failed" }])
+    expect(JSON.parse(await Fs.readFile(plain, "utf8")).results).toMatchObject([{
+      label: "//:worse",
+      status: "failed"
+    }])
     const before = await Fs.readFile(plain, "utf8")
     const again = await serve(root, ["test", "//:good", "--results-file", plain])
     expect(again.exitCode).toBe(1)
@@ -583,7 +595,10 @@ export const Package = S.Package({ targets: { good, bad, worse, consumer } })
     for (const attempt of [1, 2]) {
       const file = NodePath.join(root, "out", `worse-${attempt}.json`)
       await serve(root, ["test", "//:worse", "--results-file", file])
-      expect(JSON.parse(await Fs.readFile(file, "utf8")).results).toMatchObject([{ label: "//:worse", status: "failed" }])
+      expect(JSON.parse(await Fs.readFile(file, "utf8")).results).toMatchObject([{
+        label: "//:worse",
+        status: "failed"
+      }])
     }
     const green = NodePath.join(root, "out", "good-2.json")
     await serve(root, ["test", "//:good", "--results-file", NodePath.join(root, "out", "good-1.json")])

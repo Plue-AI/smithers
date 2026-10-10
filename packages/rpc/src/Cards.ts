@@ -14,7 +14,6 @@ import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
  */
 
 import { z } from "zod"
-import { ConfiguredModelSchema } from "./ConfiguredModel.ts"
 import { AGENT_ROLES, AgentRoleModelSchema } from "./AgentRoles.ts"
 import { BillingPlanSchema, SandboxEntitlementSchema } from "./BillingPlans.ts"
 import {
@@ -35,6 +34,7 @@ import {
   LandingBlockSchema,
   RevisionPinSchema
 } from "./Changes.ts"
+import { ConfiguredModelSchema } from "./ConfiguredModel.ts"
 import { DiffCardSchema } from "./DiffCard.ts"
 import { type DraftCard, DraftCardSchema } from "./DraftCard.ts"
 import { FactoryRuleSchema } from "./FactoryProjection.ts"
@@ -645,7 +645,19 @@ const DraftPayloadSchema: z.ZodType<
   DraftCard & {
     idempotencyKey: string
     request?: TodoRequest | undefined
-    issuePreparation?: { source: { author?: string | null | undefined; number: number; title: string; body: string; url: string; digest?: string | undefined; comments: Array<{ author: string | null; body: string }> }; state: "requested" | "ready" | "failed"; error?: string | undefined } | undefined
+    issuePreparation?: {
+      source: {
+        author?: string | null | undefined
+        number: number
+        title: string
+        body: string
+        url: string
+        digest?: string | undefined
+        comments: Array<{ author: string | null; body: string }>
+      }
+      state: "requested" | "ready" | "failed"
+      error?: string | undefined
+    } | undefined
     imagePreparation?: {
       name: string
       repo: string
@@ -658,7 +670,19 @@ const DraftPayloadSchema: z.ZodType<
 > = DraftCardSchema.extend({
   idempotencyKey: z.string(),
   request: TodoRequestSchema.optional(),
-  issuePreparation: z.object({ source: z.object({ author: z.string().nullable().optional(), number: z.number().int().positive(), title: z.string(), body: z.string(), url: z.string(), digest: z.string().optional(), comments: z.array(z.object({ author: z.string().nullable(), body: z.string() })) }), state: z.enum(["requested", "ready", "failed"]), error: z.string().optional() }).optional(),
+  issuePreparation: z.object({
+    source: z.object({
+      author: z.string().nullable().optional(),
+      number: z.number().int().positive(),
+      title: z.string(),
+      body: z.string(),
+      url: z.string(),
+      digest: z.string().optional(),
+      comments: z.array(z.object({ author: z.string().nullable(), body: z.string() }))
+    }),
+    state: z.enum(["requested", "ready", "failed"]),
+    error: z.string().optional()
+  }).optional(),
   imagePreparation: z.object({
     name: z.string(),
     repo: z.string(),
@@ -1986,7 +2010,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
         selectedAgent: z.string().optional(),
         selectedModel: z.string().optional(),
         testing: z.array(z.string()).optional(),
-        testRequests: z.record(z.string(), z.object({ requestId: z.string(), model: ConfiguredModelSchema })).optional(),
+        testRequests: z.record(z.string(), z.object({ requestId: z.string(), model: ConfiguredModelSchema }))
+          .optional(),
         assignment: z.object({
           id: z.string(),
           role: z.string(),

@@ -7,7 +7,7 @@ import { Client } from "../src/internal/backend/Client.ts"
 
 // Map only the Linux guest root; descriptors, files, cache and HTTP are real.
 const guest = vi.hoisted(() => ({ root: "" }))
-vi.mock("node:fs", async actual => {
+vi.mock("node:fs", async (actual) => {
   const fs = await actual<typeof import("node:fs")>()
   return { ...fs, openSync: (path: string, flags: number) => fs.openSync(path === "/" ? guest.root : path, flags) }
 })
@@ -31,8 +31,8 @@ it("pins HTTP authority to A across rotation, 401 and a readable copy of B's cre
     if (accepted && request.method === "POST") mutations++
     response.writeHead(accepted ? 200 : 401, { "content-type": "application/json" }).end("{}")
   })
-  await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
-  dispose.push(() => new Promise<void>((done, failed) => server.close(error => error ? failed(error) : done())))
+  await new Promise<void>((done) => server.listen(0, "127.0.0.1", done))
+  dispose.push(() => new Promise<void>((done, failed) => server.close((error) => error ? failed(error) : done())))
   const address = server.address()
   if (!address || typeof address === "string") throw new Error("No listener")
   const origin = `http://127.0.0.1:${address.port}`
@@ -41,8 +41,15 @@ it("pins HTTP authority to A across rotation, 401 and a readable copy of B's cre
     await mkdir(join(root, "run/smithers/sessions", session), { recursive: true })
     await writeFile(file(session), `synthetic-${session}\n`, { mode: 0o600 })
   }
-  const client = (session: string) => new Client({ environment: { HOME: root, SMITHERS_URL: origin,
-    SMITHERS_TERMINAL_SESSION: session, SMITHERS_TOKEN_FILE: `/run/smithers/sessions/${session}/token` } })
+  const client = (session: string) =>
+    new Client({
+      environment: {
+        HOME: root,
+        SMITHERS_URL: origin,
+        SMITHERS_TERMINAL_SESSION: session,
+        SMITHERS_TOKEN_FILE: `/run/smithers/sessions/${session}/token`
+      }
+    })
   const a = client("a"), b = client("b")
   await a.response("GET", "/probe")
   await b.response("GET", "/probe")
@@ -55,7 +62,10 @@ it("pins HTTP authority to A across rotation, 401 and a readable copy of B's cre
   expect(mutations).toBe(0)
   await a.response("GET", "/probe")
   await b.response("GET", "/probe")
-  expect(requests.slice(-2)).toEqual([{ token: "token synthetic-a2", session: "a" }, { token: "token synthetic-b", session: "b" }])
+  expect(requests.slice(-2)).toEqual([{ token: "token synthetic-a2", session: "a" }, {
+    token: "token synthetic-b",
+    session: "b"
+  }])
   valid.delete("token synthetic-a2")
   await expect(a.response("POST", "/probe", {})).rejects.toMatchObject({ status: 401 })
   await writeFile(file("a"), "synthetic-b\n")

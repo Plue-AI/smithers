@@ -36,6 +36,8 @@ export const fixtures = {
     { expect: ["Implement"] }
   ),
   ssh: story("Ben via SSH", { ...base, owner: ssh_person, command: "jj status" }, { expect: ["jj status"] }),
-  frozen_watching: story("Watching while rebasing", { ...base, frozen: true, viewer_is_owner: false }, { expect: ["Checks"] }),
+  frozen_watching: story("Watching while rebasing", { ...base, frozen: true, viewer_is_owner: false }, {
+    expect: ["Checks"]
+  }),
   frozen: story("Frozen while rebasing", { ...base, command: "pnpm check", frozen: true }, { expect: ["Checks"] })
 } satisfies Record<string, Story<TerminalCard>>

@@ -308,7 +308,10 @@ describe("migrated command dispatch", () => {
 
   it("refuses repository selection on the install-wide runs door before transport", async () => {
     const requests: string[] = []
-    const f = await fixture((req, res) => { requests.push(req.url!); res.end("{}") })
+    const f = await fixture((req, res) => {
+      requests.push(req.url!)
+      res.end("{}")
+    })
     const result = await f.run(["runs", "list", "--repo", "owner/repo"])
     expect(result.code).toBe(2)
     expect(JSON.parse(result.output)).toEqual({ code: "UsageError", message: "This HTTP door does not accept repo" })

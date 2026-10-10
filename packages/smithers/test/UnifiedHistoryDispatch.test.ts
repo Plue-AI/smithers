@@ -122,11 +122,23 @@ describe("unified historical command dispatch", () => {
   // M-12 removes historical fork/rewind from the customer command surface.
   // Recovery and replay remain available through the retained library and reads.
   it.each(["fork", "rewind"])("refuses retired %s before any history work", async (command) => {
-    for (const flags of [[], ["--at", "0"], ["--yes"], ["--preview"], ["--whole-repo"],
-      ["--step", "d1", "--result", "1"], ["--remote", "https://control.invalid"]]) {
+    for (
+      const flags of [
+        [],
+        ["--at", "0"],
+        ["--yes"],
+        ["--preview"],
+        ["--whole-repo"],
+        ["--step", "d1", "--result", "1"],
+        ["--remote", "https://control.invalid"]
+      ]
+    ) {
       const result = await invoke([command, "run-1", ...flags], { environment: {} })
       expect(result.codes).toEqual([1])
-      expect(JSON.parse(result.stdout)).toMatchObject({ code: "COMMAND_NOT_FOUND", message: `'${command}' is not a command for 'runs'.` })
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        code: "COMMAND_NOT_FOUND",
+        message: `'${command}' is not a command for 'runs'.`
+      })
       for (const port of Object.values(ports)) expect(port).not.toHaveBeenCalled()
     }
   })

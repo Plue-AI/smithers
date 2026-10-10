@@ -207,7 +207,11 @@ const AttributedResumeInput = Schema.Struct({
   principal: Schema.optional(Principal)
 })
 const AttributedRunInput = Schema.Union([
-  Schema.Struct({ ...RunInputSchema.members[0].fields, principal: Schema.optional(Principal), reservedRunId: Schema.optional(Schema.NonEmptyString) }),
+  Schema.Struct({
+    ...RunInputSchema.members[0].fields,
+    principal: Schema.optional(Principal),
+    reservedRunId: Schema.optional(Schema.NonEmptyString)
+  }),
   Schema.Struct({ ...RunInputSchema.members[1].fields, principal: Schema.optional(Principal) })
 ])
 const AttributedSignalInput = Schema.Struct({
@@ -995,12 +999,16 @@ export const layer: Layer.Layer<
         // A detached live host keeps its fence. Delegate the admitted event
         // wake to it, just as a node decision does, instead of leaving an idle
         // retained module with input it will never get a boundary to drain.
-        Effect.catchTag("/control/ClaimLost", (refusal) => refusal.parkedBy === undefined ? Effect.void : Effect.gen(function*() {
-          const delegated = yield* runtime.requestResume(run.runId).pipe(
-            Effect.catchTag("/control/InvalidInput", () => Effect.succeed(undefined))
-          )
-          if (delegated !== undefined) yield* emit(run.runId, "control.run.resumed", { runId: run.runId })
-        })),
+        Effect.catchTag(
+          "/control/ClaimLost",
+          (refusal) =>
+            refusal.parkedBy === undefined ? Effect.void : Effect.gen(function*() {
+              const delegated = yield* runtime.requestResume(run.runId).pipe(
+                Effect.catchTag("/control/InvalidInput", () => Effect.succeed(undefined))
+              )
+              if (delegated !== undefined) yield* emit(run.runId, "control.run.resumed", { runId: run.runId })
+            })
+        ),
         Effect.catchTag("/control/RunNotFound", () => Effect.void),
         Effect.catchTag(
           "/control/CodeDrift",
@@ -1763,7 +1771,13 @@ export const layer: Layer.Layer<
             principal,
             fingerprint("run", principal, input),
             Effect.gen(function*() {
-              const launched = yield* runtime.launch(input.planId, input.digest, input.envelope, principal, input.reservedRunId)
+              const launched = yield* runtime.launch(
+                input.planId,
+                input.digest,
+                input.envelope,
+                principal,
+                input.reservedRunId
+              )
               if (launched._tag === "Parked") {
                 return { ...launched.receipt, receiptId: input.idempotencyKey }
               }

@@ -166,7 +166,9 @@ export const auth: Record<string, Handler> = {}
 auth["auth login"] = async (c, a, o) => {
   const target = c.session.target(str(a.origin || o.hostname || o.host)), admin = !!(o.admin || o.observe)
   const agent = str(o.agent)
-  if (agent && (admin || agent === "smithers" || agent === "terminal" || !/^[a-z0-9-]{1,32}$/.test(agent))) throw new UsageError({ message: "Invalid external agent name" })
+  if (agent && (admin || agent === "smithers" || agent === "terminal" || !/^[a-z0-9-]{1,32}$/.test(agent))) {
+    throw new UsageError({ message: "Invalid external agent name" })
+  }
   if (o.ttl && !admin) throw new UsageError({ message: "--ttl requires --admin" })
   if (admin && o["with-token"]) throw new UsageError({ message: "--admin requires browser consent" })
   if (o.ttl) {

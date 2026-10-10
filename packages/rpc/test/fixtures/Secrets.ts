@@ -21,7 +21,8 @@ const secret = (name: string, scope: Secret["scope"], hosts?: string[]): Secret 
 })
 const add: Action = {
   tag: "secrets",
-  label: "Add", args: { operation: "set" },
+  label: "Add",
+  args: { operation: "set" },
   primary: true,
   input: [{ name: "name", label: "Name", kind: "text", required: true }, ...fields("all_branches")]
 }
@@ -46,13 +47,31 @@ export const fixtures = {
     { secrets: [secret("NPM_TOKEN", "all_branches"), secret("RELEASE_TOKEN", "main_only", ["registry.npmjs.org"])] },
     { actions: [add], expect: ["NPM_TOKEN", "RELEASE_TOKEN"] }
   ),
-  disabled: story("Secret change unavailable", { secrets: [{ name: "DEPLOY_TOKEN", scope: "main_only", actions: [{ tag: "secrets", label: "Delete", args: { operation: "delete", name: "DEPLOY_TOKEN" }, disabled: { reason: "Change pending" } }] }] }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
+  disabled: story("Secret change unavailable", {
+    secrets: [{
+      name: "DEPLOY_TOKEN",
+      scope: "main_only",
+      actions: [{
+        tag: "secrets",
+        label: "Delete",
+        args: { operation: "delete", name: "DEPLOY_TOKEN" },
+        disabled: { reason: "Change pending" }
+      }]
+    }]
+  }, { expect: ["DEPLOY_TOKEN", "Change pending"] }),
   file_path: story(
     "A model key delivered as a file",
-    { secrets: [{ ...secret("ANTHROPIC_API_KEY", "all_branches", ["api.anthropic.com"]), path: "~/.config/anthropic/key" }] },
+    {
+      secrets: [{
+        ...secret("ANTHROPIC_API_KEY", "all_branches", ["api.anthropic.com"]),
+        path: "~/.config/anthropic/key"
+      }]
+    },
     { actions: [add], expect: ["ANTHROPIC_API_KEY", "~/.config/anthropic/key"] }
   ),
-  long_name: story("Long secret name", { secrets: [secret("PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN", "all_branches")] }, { actions: [add], expect: ["PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN"] }),
+  long_name: story("Long secret name", {
+    secrets: [secret("PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN", "all_branches")]
+  }, { actions: [add], expect: ["PRODUCTION_RELEASE_REGISTRY_AUTHENTICATION_TOKEN"] }),
   member_view: story(
     "Secret names as a member sees them",
     { secrets: [{ name: "NPM_TOKEN", scope: "all_branches", actions: [] }] },

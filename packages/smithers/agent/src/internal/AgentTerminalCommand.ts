@@ -57,9 +57,13 @@ class Capture {
         this.utf8Min = 0x80
         this.utf8Max = 0xbf
       } else {
-        this.utf8Remaining = byte >= 0xc2 && byte <= 0xdf ? 1
-          : byte >= 0xe0 && byte <= 0xef ? 2
-          : byte >= 0xf0 && byte <= 0xf4 ? 3 : 0
+        this.utf8Remaining = byte >= 0xc2 && byte <= 0xdf ?
+          1
+          : byte >= 0xe0 && byte <= 0xef ?
+          2
+          : byte >= 0xf0 && byte <= 0xf4
+          ? 3
+          : 0
         this.utf8Min = byte === 0xe0 ? 0xa0 : byte === 0xf0 ? 0x90 : 0x80
         this.utf8Max = byte === 0xed ? 0x9f : byte === 0xf4 ? 0x8f : 0xbf
       }

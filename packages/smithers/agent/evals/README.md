@@ -31,7 +31,7 @@ https://evals.smithers.sh/installation/.
 import { CaseExecutor, Runner, Suite } from "@smthrs/evals"
 import { Effect, Layer } from "effect"
 
-const greet = ({ name: "greet" })
+const greet = { name: "greet" }
 
 const executor = CaseExecutor.make((suiteCase) =>
   Effect.succeed({

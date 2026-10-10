@@ -706,16 +706,30 @@ describe("terminal credential files (#3537)", () => {
     })
     await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
     expect(session.credentialIdentity(f.origin)).toBe(
-      new Session({ ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(f.origin)
+      new Session({ ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(
+        f.origin
+      )
     )
     expect(spawn).not.toHaveBeenCalled()
   })
 
   it("refuses explicit bearer and case-insensitive Authorization overrides before HTTP admission", async () => {
     const f = await fixture()
-    const client = new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" } })
-    for (const options of [{ token: "synthetic-foreign" }, { headers: { Authorization: "token synthetic-foreign" } }, { headers: { authorization: "token synthetic-foreign" } }, { headers: { AUTHORIZATION: "token synthetic-foreign" } }, { headers: { "Smithers-Terminal-Session": "foreign" } }]) {
-      await expect(client.response("POST", "/probe", {}, options)).rejects.toMatchObject({ code: "token_file_unavailable" })
+    const client = new Client({
+      environment: { ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }
+    })
+    for (
+      const options of [
+        { token: "synthetic-foreign" },
+        { headers: { Authorization: "token synthetic-foreign" } },
+        { headers: { authorization: "token synthetic-foreign" } },
+        { headers: { AUTHORIZATION: "token synthetic-foreign" } },
+        { headers: { "Smithers-Terminal-Session": "foreign" } }
+      ]
+    ) {
+      await expect(client.response("POST", "/probe", {}, options)).rejects.toMatchObject({
+        code: "token_file_unavailable"
+      })
     }
     expect(f.received).toEqual([])
     expect(spawn).not.toHaveBeenCalled()
@@ -726,7 +740,15 @@ describe("terminal credential files (#3537)", () => {
     await writeFile(f.client.session.authPath, JSON.stringify({ api_url: f.origin, token: "synthetic-saved" }))
     f.allow("synthetic-saved")
     for (const tokenFile of [undefined, "", "/run/smithers/sessions/foreign/token"]) {
-      const client = new Client({ environment: { ...f.environment, SMITHERS_URL: f.origin, SMITHERS_TERMINAL_SESSION: "a", SMITHERS_TOKEN_FILE: tokenFile, SMITHERS_TOKEN: "synthetic-saved" } })
+      const client = new Client({
+        environment: {
+          ...f.environment,
+          SMITHERS_URL: f.origin,
+          SMITHERS_TERMINAL_SESSION: "a",
+          SMITHERS_TOKEN_FILE: tokenFile,
+          SMITHERS_TOKEN: "synthetic-saved"
+        }
+      })
       await expect(client.response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
     }
     expect(f.received).toEqual([])
@@ -735,10 +757,25 @@ describe("terminal credential files (#3537)", () => {
 
   it("keeps managed sessions bound to the host bridge when configuration or request options select another origin", async () => {
     const f = await fixture()
-    const session = new Session({ ...f.environment, SMITHERS_URL: f.origin, SMITHERS_TERMINAL_SESSION: "a", SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" })
+    const session = new Session({
+      ...f.environment,
+      SMITHERS_URL: f.origin,
+      SMITHERS_TERMINAL_SESSION: "a",
+      SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token"
+    })
     expect(session.target(f.origin).api_url).toBe(f.origin)
-    expect(() => session.target("http://127.0.0.1:9")).toThrow(expect.objectContaining({ code: "token_file_unavailable" }))
-    expect(() => new Session({ ...f.environment, SMITHERS_URL: f.origin, SMITHERS_API_ORIGIN: "http://127.0.0.1:9", SMITHERS_TERMINAL_SESSION: "a", SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).target()).toThrow(expect.objectContaining({ code: "token_file_unavailable" }))
+    expect(() => session.target("http://127.0.0.1:9")).toThrow(
+      expect.objectContaining({ code: "token_file_unavailable" })
+    )
+    expect(() =>
+      new Session({
+        ...f.environment,
+        SMITHERS_URL: f.origin,
+        SMITHERS_API_ORIGIN: "http://127.0.0.1:9",
+        SMITHERS_TERMINAL_SESSION: "a",
+        SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token"
+      }).target()
+    ).toThrow(expect.objectContaining({ code: "token_file_unavailable" }))
     expect(f.received).toEqual([])
   })
 
@@ -764,8 +801,19 @@ describe("terminal credential files (#3537)", () => {
 
   it("keeps malformed managed paths bound and refuses environment identity overrides", async () => {
     const f = await fixture()
-    for (const path of ["/run/smithers/../../tmp/token", "/run/smithers/token", "/run//smithers/sessions/a/token", "/run/smithers/sessions/a/../b/token"]) {
-      const session = new Session({ ...f.environment, SMITHERS_TOKEN_FILE: path, SMITHERS_TOKEN: "synthetic-env-value" })
+    for (
+      const path of [
+        "/run/smithers/../../tmp/token",
+        "/run/smithers/token",
+        "/run//smithers/sessions/a/token",
+        "/run/smithers/sessions/a/../b/token"
+      ]
+    ) {
+      const session = new Session({
+        ...f.environment,
+        SMITHERS_TOKEN_FILE: path,
+        SMITHERS_TOKEN: "synthetic-env-value"
+      })
       await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
     }
     expect(spawn).not.toHaveBeenCalled()
@@ -778,7 +826,11 @@ describe("terminal credential files (#3537)", () => {
       "http://127.0.0.1:4000"
     )
     expect(
-      new Session({ ...environment, SMITHERS_URL: "http://127.0.0.1:4000", SMITHERS_API_ORIGIN: "http://127.0.0.1:4001" })
+      new Session({
+        ...environment,
+        SMITHERS_URL: "http://127.0.0.1:4000",
+        SMITHERS_API_ORIGIN: "http://127.0.0.1:4001"
+      })
         .target().api_url
     ).toBe("http://127.0.0.1:4001")
   })
@@ -819,6 +871,9 @@ it("uses the selected saved credential via when no agent environment is present"
   f.allow(token)
   const client = new Client({ environment: f.environment })
   await client.session.save(f.environment.SMITHERS_API_ORIGIN!, token, { kind: "delegated", via: "claude-code" })
-  f.route("/probe", (request, response) => { expect(request.headers["smithers-via"]).toBe("claude-code"); response.end("{}") })
+  f.route("/probe", (request, response) => {
+    expect(request.headers["smithers-via"]).toBe("claude-code")
+    response.end("{}")
+  })
   await client.response("GET", "/probe")
 })

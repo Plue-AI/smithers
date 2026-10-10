@@ -692,7 +692,10 @@ const makeRuntime = (
           // so the walk stops at one rather than telling a reader that a run
           // which can proceed cannot.
           ...(pendingWaits === undefined ? {} : { pendingWaits }),
-          ...(pendingWaits === undefined || !pendingWaits.some((wait) => wait.reason === ControlExecutor.humanWaitReason) || terminal(base.status)
+          ...(pendingWaits === undefined || !pendingWaits.some((wait) =>
+              wait.reason === ControlExecutor.humanWaitReason
+            ) ||
+              terminal(base.status)
             ? {}
             : { status: "waiting-approval" as const }),
           ...(pendingResume === undefined ? {} : { pendingResume }),

@@ -210,16 +210,28 @@ export const refusalOf = (error: APIError, redact: (value: unknown) => unknown =
     refusal.code = "workspace_resources_exceeded"
   }
   const classes = ["user", "permission", "capacity", "github", "infra", "conflict", "never"] as const
-  const category = classes.find(value => value === error.detail.class)
+  const category = classes.find((value) => value === error.detail.class)
   const code = str(error.detail.code)
   if (category !== undefined && /^[a-z][a-z0-9_]{0,127}$/.test(code)) {
     refusal.code = code
-    refusal.fault = category === "permission" || category === "never" ? "policy"
-      : category === "conflict" ? "wait" : category === "user" ? "user" : "infra"
+    refusal.fault = category === "permission" || category === "never" ?
+      "policy"
+      : category === "conflict"
+      ? "wait"
+      : category === "user"
+      ? "user"
+      : "infra"
   }
   const stated = Failure.terminalSafe(str(redact(str(error.detail.message)))).trim()
-  return withCause(new Refused({ ...refusal, ...(category === undefined ? {} : { class: category }),
-    httpStatus: error.status, message: stated || refusal.message }), error)
+  return withCause(
+    new Refused({
+      ...refusal,
+      ...(category === undefined ? {} : { class: category }),
+      httpStatus: error.status,
+      message: stated || refusal.message
+    }),
+    error
+  )
 }
 
 /**
@@ -412,8 +424,18 @@ export class Client {
     if (!path.startsWith("/") || path.startsWith("//")) {
       throw new UsageError({ message: "API path must start with /" })
     }
-    if (this.session.managedFile && (options.token != null || Object.keys(options.headers ?? {}).some(key => ["authorization", "smithers-terminal-session"].includes(key.toLowerCase())))) {
-      throw new Refused({ fault: "user", code: "token_file_unavailable", message: "A managed terminal uses only its session credential" })
+    if (
+      this.session.managedFile &&
+      (options.token != null ||
+        Object.keys(options.headers ?? {}).some((key) =>
+          ["authorization", "smithers-terminal-session"].includes(key.toLowerCase())
+        ))
+    ) {
+      throw new Refused({
+        fault: "user",
+        code: "token_file_unavailable",
+        message: "A managed terminal uses only its session credential"
+      })
     }
     const origin = options.origin ?? this.session.target().api_url
     // Explicit bounded signals also own cancellation cleanup after the command

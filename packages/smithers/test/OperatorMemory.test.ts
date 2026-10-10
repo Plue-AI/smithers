@@ -191,7 +191,17 @@ describe("operator memory", () => {
 
   it("persists a dismissal timestamp across CLI reopen and repeated rejection", async () => {
     const root = fixture()
-    expect((await invoke(root, ["notes", "add", "Run lint before review", "--note-id", "check:lint@review", "--status", "pending"])).code).toBe(0)
+    expect(
+      (await invoke(root, [
+        "notes",
+        "add",
+        "Run lint before review",
+        "--note-id",
+        "check:lint@review",
+        "--status",
+        "pending"
+      ])).code
+    ).toBe(0)
     const original = (await invoke(root, ["notes", "get", "check:lint@review"])).data
     expect((await invoke(root, ["notes", "status", "check:lint@review", "rejected"])).code).toBe(0)
     const dismissed = (await invoke(root, ["notes", "get", "check:lint@review"])).data

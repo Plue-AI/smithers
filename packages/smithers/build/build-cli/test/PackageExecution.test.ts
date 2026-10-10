@@ -1324,14 +1324,20 @@ describe("toolchain identity in keys", () => {
     const binary = NodePath.join(tools, "uncached-compiler")
     const counter = NodePath.join(tools, "executions")
     const quotedCounter = `'${counter.replaceAll("'", "'\\''")}'`
-    await Fs.writeFile(binary,
+    await Fs.writeFile(
+      binary,
       `#!/bin/sh\nset -e\nif [ "$1" = --version ]; then echo 1.0; exit 0; fi\nprintf 'run\\n' >> ${quotedCounter}\nmkdir -p dist\nprintf 'artifact' > dist/a.txt\n`,
-      { mode: 0o755 })
+      { mode: 0o755 }
+    )
     await write(root, "WORKSPACE.ts", workspaceModule(`  host: S.Host({ bins: ["uncached-compiler"] }),`))
-    await write(root, "PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+    await write(
+      root,
+      "PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
 const dist = S.Shell.Build({ bin: S.Host.bin("uncached-compiler"), cache: false, sandbox: "none", outDirs: ["dist"] })
 export const Package = S.Package({ targets: { dist } })
-`)
+`
+    )
     commitAll(root)
     vi.stubEnv("PATH", `${tools}${NodePath.delimiter}${process.env["PATH"] ?? ""}`)
     try {
@@ -1342,7 +1348,9 @@ export const Package = S.Package({ targets: { dist } })
         expect(await Fs.readFile(NodePath.join(root, "dist/a.txt"), "utf8")).toBe("artifact")
       }
       expect(await Fs.readFile(counter, "utf8")).toBe("run\nrun\n")
-    } finally { vi.unstubAllEnvs() }
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it("misses the build cache when a resolved binary changes without changing its version", async () => {

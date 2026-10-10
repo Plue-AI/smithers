@@ -140,10 +140,14 @@ describe("typed control hosts", () => {
     const exit = vi.fn()
     const previous = process.exitCode
     try {
-      expect(await Bridge.query(Effect.as(CommandStatus.set(130), "cancelled"), local, { ...runtime, exit })).toBe("cancelled")
+      expect(await Bridge.query(Effect.as(CommandStatus.set(130), "cancelled"), local, { ...runtime, exit })).toBe(
+        "cancelled"
+      )
       expect(exit).toHaveBeenCalledExactlyOnceWith(130)
       expect(process.exitCode).toBe(previous)
-    } finally { process.exitCode = previous }
+    } finally {
+      process.exitCode = previous
+    }
   })
   it("provides a run-capable host and reports settlement through Incur", async () => {
     const exit = vi.fn()

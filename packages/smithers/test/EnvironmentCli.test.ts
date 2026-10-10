@@ -123,15 +123,27 @@ describe("environment CLI process boundary", () => {
 
   it.each([
     { name: "missing transport", remote: false, args: ["environment", "add", "dev", "--directory", "$root"] },
-    { name: "conflicting transport", remote: false, args: ["environment", "add", "dev", "--local", "--ssh", "host", "--directory", "$root"] },
-    { name: "zero local forwarding port", remote: true, args: ["environment", "forward", "remote", "--local-port", "0", "--remote-port", "22"] },
-    { name: "oversized remote forwarding port", remote: true, args: ["environment", "forward", "remote", "--local-port", "22", "--remote-port", "65536"] }
+    {
+      name: "conflicting transport",
+      remote: false,
+      args: ["environment", "add", "dev", "--local", "--ssh", "host", "--directory", "$root"]
+    },
+    {
+      name: "zero local forwarding port",
+      remote: true,
+      args: ["environment", "forward", "remote", "--local-port", "0", "--remote-port", "22"]
+    },
+    {
+      name: "oversized remote forwarding port",
+      remote: true,
+      args: ["environment", "forward", "remote", "--local-port", "22", "--remote-port", "65536"]
+    }
   ])("rejects $name", async ({ remote, args }) => {
     const { root, cli } = await fixture()
     if (remote) {
       expect(cli(["environment", "add", "remote", "--ssh", "fixture", "--directory", root]).status).toBe(0)
     }
-    const argv = args.map(arg => arg === "$root" ? root : arg)
+    const argv = args.map((arg) => arg === "$root" ? root : arg)
     const result = cli(argv)
     expect(result.status, argv.join(" ")).not.toBe(0)
     expect(result.error).toBeUndefined()

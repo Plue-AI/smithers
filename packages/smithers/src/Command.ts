@@ -16,16 +16,16 @@ import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
 import { Clock, Console, Effect, Option, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
 import * as CliError from "./CliError.ts"
-import * as Launch from "./commands/Launch.ts"
-import * as RunControl from "./commands/RunControl.ts"
 import * as BugCmd from "./commands/Bug.ts"
 import { cancelAll } from "./commands/CancelAll.ts"
 import * as ClaudeCmd from "./commands/Claude.ts"
 import * as DoctorCmd from "./commands/Doctor.ts"
 import * as GcCmd from "./commands/Gc.ts"
 import * as Globals from "./commands/Globals.ts"
+import * as Launch from "./commands/Launch.ts"
 import * as MigrateCmd from "./commands/Migrate.ts"
 import * as Removed from "./commands/Removed.ts"
+import * as RunControl from "./commands/RunControl.ts"
 import * as RunReads from "./commands/RunReads.ts"
 import * as Settlement from "./commands/Settlement.ts"
 import * as UpdateCmd from "./commands/Update.ts"
@@ -139,7 +139,9 @@ const renderSettlement = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
   Effect.gen(function*() {
     let status: number | undefined
     const value = yield* operation.pipe(
-      Effect.provideService(CommandStatus.CommandStatus, (code) => { status = code })
+      Effect.provideService(CommandStatus.CommandStatus, (code) => {
+        status = code
+      })
     )
     yield* render(value)
     if (status !== undefined) yield* CommandStatus.set(status)
@@ -186,7 +188,8 @@ const allowCodeDriftFlag = Flag.Boolean("allow-code-drift").pipe(
   Flag.withDescription("Resume even though the run's flow changed since it started")
 )
 
-const runResume = (id: string, drift: boolean) => Effect.flatMap(quiet, suppressed => renderSettlement(Launch.resume(id, drift, suppressed)))
+const runResume = (id: string, drift: boolean) =>
+  Effect.flatMap(quiet, (suppressed) => renderSettlement(Launch.resume(id, drift, suppressed)))
 
 const run = Command.make("run", {
   plan: requiredArgument("plan-payload"),
@@ -277,7 +280,17 @@ const up = Command.make("up", upFlags, (config) =>
       "max-concurrency": config["max-concurrency"]
     })
     const globals = yield* rootCommand
-    yield* renderSettlement(Launch.start({ ...config, quiet: yield* quiet, remote: Option.fromUndefinedOr(Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")), root: globals.root, mcpConfig: globals.mcpConfig }))
+    yield* renderSettlement(
+      Launch.start({
+        ...config,
+        quiet: yield* quiet,
+        remote: Option.fromUndefinedOr(
+          Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")
+        ),
+        root: globals.root,
+        mcpConfig: globals.mcpConfig
+      })
+    )
   })).pipe(Command.withDescription(Verb.find("up")!.help))
 
 const approve = Command.make("approve", {

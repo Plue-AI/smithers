@@ -19,7 +19,9 @@ const reference = guide.split("## Canonical tools and independent approval")[1]?
 
 /** Backticked names in one piece of text, in order. */
 const names = (text: string) => [...text.matchAll(/`([a-z_-]+)`/g)].map((match) => match[1] ?? "")
-const excluded = names(guide.replaceAll(/\s+/g, " ").match(/([^.]*) are absent from both discovery and dispatch/)?.[1] ?? "")
+const excluded = names(
+  guide.replaceAll(/\s+/g, " ").match(/([^.]*) are absent from both discovery and dispatch/)?.[1] ?? ""
+)
 
 /** The tool names `smthrs --mcp` serves through its discovery tools. */
 const unified = new Set(

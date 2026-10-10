@@ -13,7 +13,7 @@ const migratedFixture = Smithers.Filegroup({
 const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
   cwd: "packages/smithers/agent/registry",
   // ModuleMetadata.test.ts projects migrate's emitted module; a change to it must rerun the test.
-  deps: [migratedFixture],
+  deps: [migratedFixture]
 })
 
 const securityReview = Smithers.SecurityReview({

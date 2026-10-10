@@ -1050,7 +1050,9 @@ export default Flow.make("pinned", { description:"Retained", payload:{}, success
       expect(executable.descriptor).toBe(approved)
       expect(Descriptor.executionDigest(executable.descriptor)).toBe(digest)
       yield* fs.writeFileString(`${workspace}/pnpm-lock.yaml`, "lockfileVersion: 'changed'\n")
-      expect((yield* Effect.flip(Executable.fromDescriptor(approved, options({ sourceRoot: { identity, workspace } })))).code)
+      expect(
+        (yield* Effect.flip(Executable.fromDescriptor(approved, options({ sourceRoot: { identity, workspace } })))).code
+      )
         .toBe("body_unavailable")
     }).pipe(Effect.scoped, Effect.provide(platform)))
 

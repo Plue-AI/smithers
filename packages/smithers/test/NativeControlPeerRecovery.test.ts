@@ -84,28 +84,32 @@ it(
       // Reserve both writers before stopping the owner, so SIGSTOP cannot
       // strand its SQLite transaction and lock out the fault injection.
       // PID probing still reports the stopped owner as alive.
-      const rootOwner = database(root, "control", (controlDb) => database(root, "engine", (engineDb) => {
-        controlDb.exec("BEGIN IMMEDIATE")
-        engineDb.exec("BEGIN IMMEDIATE")
-        original.kill("SIGSTOP")
-        controlDb.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(Date.now() - 60_000, runId)
-        controlDb.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
-          Date.now() - 60_000,
-          runId
-        )
-        const owner = engineDb.prepare("SELECT * FROM flows_runs WHERE run_id = ?").get(runId) as unknown as Row
-        // Reproduce the durable split from #2958: budget suspension released the
-        // engine root while the original control fence and detached child live.
-        // SQL injects that inter-store fault; both recoverers are shipped hosts.
-        engineDb.prepare(`UPDATE flows_runs SET status = 'suspended',
+      const rootOwner = database(root, "control", (controlDb) =>
+        database(root, "engine", (engineDb) => {
+          controlDb.exec("BEGIN IMMEDIATE")
+          engineDb.exec("BEGIN IMMEDIATE")
+          original.kill("SIGSTOP")
+          controlDb.prepare("UPDATE flows_runs SET heartbeat_at_ms = ? WHERE run_id = ?").run(
+            Date.now() - 60_000,
+            runId
+          )
+          controlDb.prepare("UPDATE flows_consensus_leases SET heartbeat_at_ms = ? WHERE run_id = ?").run(
+            Date.now() - 60_000,
+            runId
+          )
+          const owner = engineDb.prepare("SELECT * FROM flows_runs WHERE run_id = ?").get(runId) as unknown as Row
+          // Reproduce the durable split from #2958: budget suspension released the
+          // engine root while the original control fence and detached child live.
+          // SQL injects that inter-store fault; both recoverers are shipped hosts.
+          engineDb.prepare(`UPDATE flows_runs SET status = 'suspended',
       waiting_reason = 'released', owner_host_id = NULL, owner_pid = NULL, owner_nonce = NULL,
       heartbeat_at_ms = NULL, claim_host_id = NULL, claim_pid = NULL, claim_nonce = NULL,
       claimed_at_ms = NULL WHERE run_id = ?`).run(runId)
-        engineDb.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
-        engineDb.exec("COMMIT")
-        controlDb.exec("COMMIT")
-        return owner
-      }))
+          engineDb.prepare("DELETE FROM flows_consensus_leases WHERE run_id = ?").run(runId)
+          engineDb.exec("COMMIT")
+          controlDb.exec("COMMIT")
+          return owner
+        }))
       // A real release also records its decision. Without that receipt the
       // injected row is unproven corruption, which recovery must not admit.
       await Effect.runPromise(

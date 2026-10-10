@@ -178,15 +178,25 @@ export const fixtures = {
   one_entry: story("One entry on screen", { lines: lines.slice(0, 1), on_screen: ["entry-10", "entry-10"] }, {
     expect: ["Publish card contracts"]
   }),
-  ...Object.fromEntries([1, 2, 3].flatMap(level => (["quiet", "attention", "failed"] as const).map(tone => {
-    const title = `Zoom ${level} ${tone}`
-    return [`zoom_${level}_${tone}`, story(title, {
-      lines: [{ entry_id: `zoom-${level}-${tone}`, kind: "prompt", title, tone,
-        glyph: { event: tone === "failed" ? "failed" : tone === "attention" ? "attention" : "ok" },
-        zoom: { level, count: 24, last_entry_id: "zoom-end", from: at(9, 10), to: at(10, 32) } }],
-      on_screen: ["", ""]
-    }, { expect: [title] })]
-  }))),
+  ...Object.fromEntries([1, 2, 3].flatMap((level) =>
+    (["quiet", "attention", "failed"] as const).map((tone) => {
+      const title = `Zoom ${level} ${tone}`
+      return [
+        `zoom_${level}_${tone}`,
+        story(title, {
+          lines: [{
+            entry_id: `zoom-${level}-${tone}`,
+            kind: "prompt",
+            title,
+            tone,
+            glyph: { event: tone === "failed" ? "failed" : tone === "attention" ? "attention" : "ok" },
+            zoom: { level, count: 24, last_entry_id: "zoom-end", from: at(9, 10), to: at(10, 32) }
+          }],
+          on_screen: ["", ""]
+        }, { expect: [title] })
+      ]
+    })
+  )),
   zoomed: story("A long chat zoomed out with distance from the band", {
     lines: zoomed,
     on_screen: ["entry-756", "entry-757"]

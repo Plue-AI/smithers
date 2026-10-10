@@ -7,9 +7,9 @@ import {
   github_user,
   outside,
   person,
-  ssh_person,
   reviewer,
   smithers_for_ben,
+  ssh_person,
   system,
   will_person
 } from "./_shared.ts"
@@ -56,12 +56,24 @@ const states = {
     actions: [{ tag: "box.suspend", label: "Sleep", args: { branch: "todo/12" } }, steer, newTerminal, fork],
     expect: ["todo/12", "Card model contracts", "ssh -p 2222 todo-12@mac-mini.local"]
   }),
-  asleep: story("Machine asleep", { ...base, item: { ...itemWithoutStep, state: "in_review" }, machine: { state: "asleep" } }, {
+  asleep: story("Machine asleep", {
+    ...base,
+    item: { ...itemWithoutStep, state: "in_review" },
+    machine: { state: "asleep" }
+  }, {
     actions: [{ tag: "box.resume", label: "Wake", args: { branch: "todo/12" } }, fork],
     expect: ["todo/12"]
   }),
-  waking: story("Machine waking", { ...base, item: { ...itemWithoutStep, state: "starting" }, machine: { state: "waking" } }, { expect: ["todo/12"] }),
-  waiting: story("Waiting for a machine", { ...base, item: { ...itemWithoutStep, state: "queued" }, machine: { state: "waiting", position: 2 } }, {
+  waking: story("Machine waking", {
+    ...base,
+    item: { ...itemWithoutStep, state: "starting" },
+    machine: { state: "waking" }
+  }, { expect: ["todo/12"] }),
+  waiting: story("Waiting for a machine", {
+    ...base,
+    item: { ...itemWithoutStep, state: "queued" },
+    machine: { state: "waiting", position: 2 }
+  }, {
     expect: ["todo/12"]
   }),
   closed: story(
@@ -71,8 +83,15 @@ const states = {
   ),
   failed: story(
     "Machine failed to start",
-    { ...base, item: { ...itemWithoutStep, state: "failed", step: "Starting" }, machine: { state: "failed", error: { class: "machine_start", message: "Image build failed" } } },
-    { actions: [{ tag: "box.resume", label: "Retry", args: { branch: "todo/12" } }], expect: ["Image build failed", "Starting"] }
+    {
+      ...base,
+      item: { ...itemWithoutStep, state: "failed", step: "Starting" },
+      machine: { state: "failed", error: { class: "machine_start", message: "Image build failed" } }
+    },
+    {
+      actions: [{ tag: "box.resume", label: "Retry", args: { branch: "todo/12" } }],
+      expect: ["Image build failed", "Starting"]
+    }
   ),
   rebase_pending: story("Rebase pending onto T8", { ...base, rebase: { state: "pending", onto: "T8" } }, {
     actions: [{ tag: "branch.rebase-now", label: "Rebase now", args: { branch: "todo/12" }, primary: true }],
@@ -80,14 +99,26 @@ const states = {
   }),
   rebase_waiting_for: story(
     "Rebase pending, waiting for a write in Ben's terminal",
-    { ...base, terminals: [{ id: "terminal-1", title: "Checks", owner: person, agents: [], watchers: [], frozen: false }], rebase: { state: "pending", onto: "main", waiting_for: { actor: person, terminal: "terminal-1" } } },
+    {
+      ...base,
+      terminals: [{ id: "terminal-1", title: "Checks", owner: person, agents: [], watchers: [], frozen: false }],
+      rebase: { state: "pending", onto: "main", waiting_for: { actor: person, terminal: "terminal-1" } }
+    },
     { expect: ["Ben"] }
   ),
   rebasing: story("Rebasing", { ...base, rebase: { state: "rebasing", onto: "T8" } }, { expect: ["T8"] }),
   scratch_conflict: story(
     "Scratch branch with a rebase conflict",
     { ...scratch, rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] } },
-    { actions: [{ tag: "terminal", label: "Resolve", args: { branch: "scratch/repro" } }, { tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }, disabled: { reason: "Unresolved paths" } }], expect: ["scratch/repro", "packages/rpc/src/HomeCard.ts"] }
+    {
+      actions: [{ tag: "terminal", label: "Resolve", args: { branch: "scratch/repro" } }, {
+        tag: "branch.rebase",
+        label: "Done",
+        args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" },
+        disabled: { reason: "Unresolved paths" }
+      }],
+      expect: ["scratch/repro", "packages/rpc/src/HomeCard.ts"]
+    }
   ),
   scratch_main: story("Scratch branch forked from main", scratch, {
     actions: [addToStack],
@@ -114,18 +145,52 @@ const states = {
       expect: ["Ben"]
     }
   ),
-  queued_item: story("Queued item", { ...base, item: { ...itemWithoutStep, state: "queued" } }, { expect: ["Card model contracts"] }),
-  starting_item: story("Starting item", { ...base, item: { ...itemWithoutStep, state: "starting" } }, { expect: ["Card model contracts"] }),
-  needs_you_item: story("Item needs you", { ...base, item: { ...itemWithoutStep, state: "needs_you" } }, { expect: ["Card model contracts"] }),
-  paused_item: story("Paused item", { ...base, item: { ...itemWithoutStep, state: "paused" } }, { expect: ["Card model contracts"] }),
-  failed_item: story("Failed item", { ...base, item: { ...itemWithoutStep, state: "failed" } }, { expect: ["Card model contracts"] }),
-  review_item: story("Item in review", { ...base, item: { ...itemWithoutStep, state: "in_review" } }, { expect: ["Card model contracts"] }),
-  dropped_item: story("Dropped item", { ...base, item: { ...itemWithoutStep, state: "dropped" } }, { expect: ["Card model contracts"] }),
-  scratch_ready: story("Scratch conflict ready to finish", { ...scratch, rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] } }, {
-    actions: [{ tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" } }], expect: ["packages/rpc/src/HomeCard.ts"]
+  queued_item: story("Queued item", { ...base, item: { ...itemWithoutStep, state: "queued" } }, {
+    expect: ["Card model contracts"]
+  }),
+  starting_item: story("Starting item", { ...base, item: { ...itemWithoutStep, state: "starting" } }, {
+    expect: ["Card model contracts"]
+  }),
+  needs_you_item: story("Item needs you", { ...base, item: { ...itemWithoutStep, state: "needs_you" } }, {
+    expect: ["Card model contracts"]
+  }),
+  paused_item: story("Paused item", { ...base, item: { ...itemWithoutStep, state: "paused" } }, {
+    expect: ["Card model contracts"]
+  }),
+  failed_item: story("Failed item", { ...base, item: { ...itemWithoutStep, state: "failed" } }, {
+    expect: ["Card model contracts"]
+  }),
+  review_item: story("Item in review", { ...base, item: { ...itemWithoutStep, state: "in_review" } }, {
+    expect: ["Card model contracts"]
+  }),
+  dropped_item: story("Dropped item", { ...base, item: { ...itemWithoutStep, state: "dropped" } }, {
+    expect: ["Card model contracts"]
+  }),
+  scratch_ready: story("Scratch conflict ready to finish", {
+    ...scratch,
+    rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] }
+  }, {
+    actions: [{
+      tag: "branch.rebase",
+      label: "Done",
+      args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }
+    }],
+    expect: ["packages/rpc/src/HomeCard.ts"]
   }),
   answered: story("Answer the coding agent", { ...base, presence: [{ actor: person, where: { kind: "branch" } }] }, {
-    actions: [{ tag: "todo.answer", label: "Answer", args: { n: "12", wait: "question-1" }, primary: true, input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }] }, steer, newTerminal, fork], expect: ["todo/12"]
+    actions: [
+      {
+        tag: "todo.answer",
+        label: "Answer",
+        args: { n: "12", wait: "question-1" },
+        primary: true,
+        input: [{ name: "text", label: "Answer the coding agent", kind: "text", required: true }]
+      },
+      steer,
+      newTerminal,
+      fork
+    ],
+    expect: ["todo/12"]
   }),
   active: story(
     "People and agents working together",
@@ -226,12 +291,15 @@ const states = {
     },
     {
       actions: [steer, newTerminal, fork],
-      gestures: { file: { tag: "file", label: "Open file", args: { branch: "todo/12" } }, terminal: { tag: "terminal.watch", label: "Open terminal" }, item: { tag: "todo", label: "Open TODO" } },
+      gestures: {
+        file: { tag: "file", label: "Open file", args: { branch: "todo/12" } },
+        terminal: { tag: "terminal.watch", label: "Open terminal" },
+        item: { tag: "todo", label: "Open TODO" }
+      },
       expect: ["Changed outside Smithers", "Pushed a commit", "Checks"]
     }
   )
 } satisfies Record<string, Story<BranchCard>>
-
 
 export const fixtures = {
   ...states,

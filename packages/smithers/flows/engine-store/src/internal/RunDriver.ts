@@ -2800,10 +2800,12 @@ export const make = (
                 // codec here, even when another worker executed that flow.
                 // This is the typed Trampoline's fail-fast wiring contract:
                 // terminal work has no future wake to justify Suspended.
-                return Effect.die(new FlowEngine.FlowNotRegistered({
-                  flowName: state.flowName,
-                  message: `Flow ${state.flowName} is not registered`
-                }))
+                return Effect.die(
+                  new FlowEngine.FlowNotRegistered({
+                    flowName: state.flowName,
+                    message: `Flow ${state.flowName} is not registered`
+                  })
+                )
               }
               return (Schema.decodeUnknownEffect(
                 Schema.toCodecJson(Flow.Result({

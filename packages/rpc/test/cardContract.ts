@@ -110,7 +110,10 @@ const strings = (value: unknown): string[] => {
 }
 
 /** Schema-free story checks, also used by plain TypeScript card props. */
-export const storyContract = (name: string, stories: Readonly<Record<string, Story<unknown, object, string>>>): void => {
+export const storyContract = (
+  name: string,
+  stories: Readonly<Record<string, Story<unknown, object, string>>>
+): void => {
   describe(`${name} stories`, () => {
     test("publishes one named story per state", () => {
       const names = Object.values(stories).map((story) => story.name)
@@ -128,7 +131,7 @@ export const storyContract = (name: string, stories: Readonly<Record<string, Sto
       test(`expects only strings the ${state} story carries`, () => {
         // The model, plus the labels, disabled reasons and form fields of the actions the story passes.
         const carried = [...strings(fixture), ...strings(story.actions), ...strings(story.gestures)]
-        if (strings(fixture).some(text => text.length > 0)) expect(story.expect.length).toBeGreaterThan(0)
+        if (strings(fixture).some((text) => text.length > 0)) expect(story.expect.length).toBeGreaterThan(0)
         // The third model role shows as "Decisions"; UI copy never shows its internal id (mvp.md §6.5).
         expect(story.expect.filter((text) => /jev/i.test(text)), `${name}.${state}`).toEqual([])
         for (const text of story.expect) {

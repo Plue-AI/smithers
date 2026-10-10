@@ -17,7 +17,9 @@ export type LiveDocGoldenFrame = string | readonly number[]
 export class LiveDocRelay {
   private offset = 0
   private readonly frames: readonly LiveDocGoldenFrame[]
-  constructor(frames: readonly LiveDocGoldenFrame[]) { this.frames = frames }
+  constructor(frames: readonly LiveDocGoldenFrame[]) {
+    this.frames = frames
+  }
 
   next(): string | Uint8Array | undefined {
     const frame = this.frames[this.offset]
@@ -29,9 +31,14 @@ export class LiveDocRelay {
   }
 
   /** Test host boundary: client identity and colour are always overwritten. */
-  awareness(input: Record<string, unknown>, principal: { actor: import("../BranchCard.ts").BranchParticipant; colour: string }) {
+  awareness(
+    input: Record<string, unknown>,
+    principal: { actor: import("../BranchCard.ts").BranchParticipant; colour: string }
+  ) {
     return LiveDocAwareness.parse({ ...input, actor: principal.actor, colour: principal.colour })
   }
 
-  reconnect(): void { this.offset = 0 }
+  reconnect(): void {
+    this.offset = 0
+  }
 }

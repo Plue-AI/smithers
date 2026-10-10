@@ -740,13 +740,15 @@ export const layerSeatEvaluator = (
           Evaluator.layerVercelGateway({ apiKey: Redacted.make(key), baseUrl: jevBaseUrl(environment) }).pipe(
             // A judgment through the install's metered proxy names the engine
             // dispatch it ran under, as every other model call does.
-            Layer.provide(Layer.effect(
-              HttpClient.HttpClient,
-              Effect.map(
+            Layer.provide(
+              Layer.effect(
                 HttpClient.HttpClient,
-                (client) => MeteredDispatch.attributeClient(client, environment[Endpoint.modelProxyVariable])
-              )
-            ).pipe(Layer.provide(jevHttp)))
+                Effect.map(
+                  HttpClient.HttpClient,
+                  (client) => MeteredDispatch.attributeClient(client, environment[Endpoint.modelProxyVariable])
+                )
+              ).pipe(Layer.provide(jevHttp))
+            )
           )
         ),
         Evaluator.Evaluator

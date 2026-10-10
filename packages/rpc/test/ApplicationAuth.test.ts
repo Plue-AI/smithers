@@ -11,10 +11,13 @@ import {
 } from "../src/ApplicationAuth.ts"
 
 describe("socket ticket", () => {
- test("validates the socket ticket", () => {
-  expect(SocketTicketResponseSchema.parse({ticket:"one-use",expires_at:"2026-10-04T00:00:00Z"})).toEqual({ticket:"one-use",expires_at:"2026-10-04T00:00:00Z"})
-  expect(SocketTicketResponseSchema.safeParse({ticket:"",expires_at:""}).success).toBe(false)
- })
+  test("validates the socket ticket", () => {
+    expect(SocketTicketResponseSchema.parse({ ticket: "one-use", expires_at: "2026-10-04T00:00:00Z" })).toEqual({
+      ticket: "one-use",
+      expires_at: "2026-10-04T00:00:00Z"
+    })
+    expect(SocketTicketResponseSchema.safeParse({ ticket: "", expires_at: "" }).success).toBe(false)
+  })
 })
 
 describe("selected backend identity (unit)", () => {

@@ -68,11 +68,20 @@ describe.skipIf(!available)("native ProcessConfinement enforcement", () => {
     NodeFs.copyFileSync("/bin/cat", executable)
     NodeFs.writeFileSync(NodePath.join(tools, "secret"), "outside-secret")
     NodeFs.writeFileSync(NodePath.join(f.workspaceRoot, "input"), "allowed-input")
-    const profile: Profile = { workspaceRoot: f.workspaceRoot, reads: ["input"], writes: [], readOnly: [], network: "none" }
+    const profile: Profile = {
+      workspaceRoot: f.workspaceRoot,
+      reads: ["input"],
+      writes: [],
+      readOnly: [],
+      network: "none"
+    }
     const good = await f.execute(ChildProcess.make(executable, ["input"], { cwd: f.workspaceRoot }), profile)
     expect(good.code).toBe(0)
     expect(good.stdout).toBe("allowed-input")
-    const refused = await f.execute(ChildProcess.make(executable, [NodePath.join(tools, "secret")], { cwd: f.workspaceRoot }), profile)
+    const refused = await f.execute(
+      ChildProcess.make(executable, [NodePath.join(tools, "secret")], { cwd: f.workspaceRoot }),
+      profile
+    )
     expect(refused.code).not.toBe(0)
     expect(refused.stdout).not.toContain("outside-secret")
   })

@@ -2,11 +2,33 @@
  * @since 1.0.0
  */
 export const legacyCards = [
-  { row: { id: "proposal:lint", title: "Run lint", status: "active", createdAt: 0, ordinal: 0, kind: "proposal", payload: { id: "lint" } },
-    expectedKind: "proposal", expectedTitle: "Run lint", expectedWas: null },
   {
-    row: { id: "saved-setup", title: "Set up Smithers", status: "active", createdAt: 0, ordinal: 0, kind: "setup", payload: {} },
-    expectedKind: "setup", expectedTitle: "Set up Smithers", expectedWas: null
+    row: {
+      id: "proposal:lint",
+      title: "Run lint",
+      status: "active",
+      createdAt: 0,
+      ordinal: 0,
+      kind: "proposal",
+      payload: { id: "lint" }
+    },
+    expectedKind: "proposal",
+    expectedTitle: "Run lint",
+    expectedWas: null
+  },
+  {
+    row: {
+      id: "saved-setup",
+      title: "Set up Smithers",
+      status: "active",
+      createdAt: 0,
+      ordinal: 0,
+      kind: "setup",
+      payload: {}
+    },
+    expectedKind: "setup",
+    expectedTitle: "Set up Smithers",
+    expectedWas: null
   },
   {
     "row": {
@@ -4215,6 +4237,32 @@ export const legacyCards = [
     "expectedTitle": "Saved commands",
     "expectedWas": null
   },
-  { row: { id: "saved-docs", title: "Saved docs", status: "active", createdAt: 0, ordinal: 0, kind: "docs", payload: { page: "quickstart", markdown: "## Saved" } }, expectedKind: "docs", expectedTitle: "Saved docs", expectedWas: null },
-  { row: { id: "saved-debug-api", title: "Saved API", status: "active", createdAt: 0, ordinal: 0, kind: "debug-api", payload: {} }, expectedKind: "debug-api", expectedTitle: "Saved API", expectedWas: null }
+  {
+    row: {
+      id: "saved-docs",
+      title: "Saved docs",
+      status: "active",
+      createdAt: 0,
+      ordinal: 0,
+      kind: "docs",
+      payload: { page: "quickstart", markdown: "## Saved" }
+    },
+    expectedKind: "docs",
+    expectedTitle: "Saved docs",
+    expectedWas: null
+  },
+  {
+    row: {
+      id: "saved-debug-api",
+      title: "Saved API",
+      status: "active",
+      createdAt: 0,
+      ordinal: 0,
+      kind: "debug-api",
+      payload: {}
+    },
+    expectedKind: "debug-api",
+    expectedTitle: "Saved API",
+    expectedWas: null
+  }
 ] as const

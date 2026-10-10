@@ -12,16 +12,24 @@ const runner = fileURLToPath(new URL("../../../scripts/release/host-backup-fault
 
 describe("C-REL-06 installed backup kill points", () => {
   for (const point of ["freeze", "drain", "capture", "pg_dump", "clone", "manifest"]) {
-    it.skipIf(!eligible)(`killed during ${point} reopens the served TODO route without publishing a backup`, async () => {
-      const child = spawn(process.execPath, [runner, resolve(config!), point], { stdio: ["ignore", "pipe", "pipe"] })
-      let output = ""
-      child.stdout.on("data", bytes => { output += bytes })
-      child.stderr.on("data", bytes => { output += bytes })
-      const status = await new Promise<number | null>((yes, no) => {
-        child.once("error", no)
-        child.once("close", yes)
-      })
-      expect(status, output).toBe(0)
-    }, 180_000)
+    it.skipIf(!eligible)(
+      `killed during ${point} reopens the served TODO route without publishing a backup`,
+      async () => {
+        const child = spawn(process.execPath, [runner, resolve(config!), point], { stdio: ["ignore", "pipe", "pipe"] })
+        let output = ""
+        child.stdout.on("data", (bytes) => {
+          output += bytes
+        })
+        child.stderr.on("data", (bytes) => {
+          output += bytes
+        })
+        const status = await new Promise<number | null>((yes, no) => {
+          child.once("error", no)
+          child.once("close", yes)
+        })
+        expect(status, output).toBe(0)
+      },
+      180_000
+    )
   }
 })

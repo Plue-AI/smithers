@@ -7,10 +7,10 @@ import { randomUUID } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { text } from "node:stream/consumers"
 import * as CliError from "../CliError.ts"
+import * as NodeOutput from "../NodeOutput.ts"
 import * as Project from "../Project.ts"
 import * as Ui from "../Ui.ts"
 import * as Unsupported from "../Unsupported.ts"
-import * as NodeOutput from "../NodeOutput.ts"
 import * as FlowCatalog from "./FlowCatalog.ts"
 import * as RunReads from "./RunReads.ts"
 import * as Settlement from "./Settlement.ts"
@@ -92,11 +92,11 @@ export const decodeInput = (
       catch: () => new CliError.UsageError({ message: "Could not read --data from stdin" })
     })
     : source.startsWith("@")
-      ? Effect.tryPromise({
-        try: () => readFile(source.slice(1), "utf8"),
-        catch: () => new CliError.UsageError({ message: `Could not read --data file ${source.slice(1)}` })
-      })
-      : Effect.succeed(source)
+    ? Effect.tryPromise({
+      try: () => readFile(source.slice(1), "utf8"),
+      catch: () => new CliError.UsageError({ message: `Could not read --data file ${source.slice(1)}` })
+    })
+    : Effect.succeed(source)
   return serialized.pipe(
     Effect.flatMap((value) =>
       Effect.try({
@@ -136,7 +136,6 @@ export const signal = (serialized: string): Effect.Effect<ControlSchema.SignalPa
     Schema.decodeUnknownEffect(ControlSchema.SignalPayload, { reportInput: false })
   )
 
-
 const flowCatalog = FlowCatalog.read
 /**
  * Identify one signal mutation by its canonical payload digest.
@@ -149,19 +148,21 @@ export const signalKey = (runId: string, payload: ControlSchema.SignalPayload): 
   return `cli:signal:${runId}:${Sha256.digestSync(canonical)}`
 }
 
-
 /**
  * Compile a non-reserved flow with its decoded input.
  * @category constructors
  * @since 1.0.0
  */
-export const plan = (flow: string, entries: ReadonlyArray<string>, data: Option.Option<string>) => Effect.gen(function*() {
-  const input = yield* decodeInput(entries, data)
-  const flowId = yield* selectedFlow(flow)
-  if (Unsupported.isReservedFlow(flowId)) return yield* Effect.fail(Unsupported.reservedFlowError("flow plan", flowId))
-  const control = yield* ControlService.Control
-  return yield* control.plan({ flowId, input })
-})
+export const plan = (flow: string, entries: ReadonlyArray<string>, data: Option.Option<string>) =>
+  Effect.gen(function*() {
+    const input = yield* decodeInput(entries, data)
+    const flowId = yield* selectedFlow(flow)
+    if (Unsupported.isReservedFlow(flowId)) {
+      return yield* Effect.fail(Unsupported.reservedFlowError("flow plan", flowId))
+    }
+    const control = yield* ControlService.Control
+    return yield* control.plan({ flowId, input })
+  })
 /**
  * Read the complete project flow listing.
  * @category constructors
@@ -178,15 +179,18 @@ export const listFlows = Effect.gen(function*() {
  * @category constructors
  * @since 1.0.0
  */
-export const output = (runId: string, nodeId?: string) => Effect.gen(function*() {
-  const control = yield* ControlService.Control
-  yield* RunReads.existing(control, runId)
-  const nodes = NodeOutput.project(yield* RunReads.events(control, runId))
-  if (nodeId === undefined) return nodes
-  const node = nodes.find(candidate => candidate.nodeId === nodeId)
-  if (node === undefined) return yield* Effect.fail(new CliError.UsageError({ message: NodeOutput.notFound(runId, nodeId, nodes) }))
-  return node
-})
+export const output = (runId: string, nodeId?: string) =>
+  Effect.gen(function*() {
+    const control = yield* ControlService.Control
+    yield* RunReads.existing(control, runId)
+    const nodes = NodeOutput.project(yield* RunReads.events(control, runId))
+    if (nodeId === undefined) return nodes
+    const node = nodes.find((candidate) => candidate.nodeId === nodeId)
+    if (node === undefined) {
+      return yield* Effect.fail(new CliError.UsageError({ message: NodeOutput.notFound(runId, nodeId, nodes) }))
+    }
+    return node
+  })
 const reportTerminal = (receipt: ControlSchema.Receipt) =>
   Settlement.report(receipt._tag === "Terminal" ? { kind: `control.run.${receipt.status}` } : undefined)
 
@@ -195,26 +199,44 @@ const reportTerminal = (receipt: ControlSchema.Receipt) =>
  * @category constructors
  * @since 1.0.0
  */
-export const cancel = (runId: string) => Effect.flatMap(ControlService.Control, control =>
-  control.cancel({ runId, idempotencyKey: `cli:cancel:${runId}` }).pipe(Effect.tap(reportTerminal)))
+export const cancel = (runId: string) =>
+  Effect.flatMap(
+    ControlService.Control,
+    (control) => control.cancel({ runId, idempotencyKey: `cli:cancel:${runId}` }).pipe(Effect.tap(reportTerminal))
+  )
 /**
  * Deliver a signal with a payload-specific mutation key.
  * @category constructors
  * @since 1.0.0
  */
-export const deliverSignal = (runId: string, serialized: string) => Effect.gen(function*() {
-  const payload = yield* signal(serialized)
-  const control = yield* ControlService.Control
-  return yield* control.signal({ runId, signal: payload, idempotencyKey: signalKey(runId, payload) }).pipe(Effect.tap(reportTerminal))
-})
+export const deliverSignal = (runId: string, serialized: string) =>
+  Effect.gen(function*() {
+    const payload = yield* signal(serialized)
+    const control = yield* ControlService.Control
+    return yield* control.signal({ runId, signal: payload, idempotencyKey: signalKey(runId, payload) }).pipe(
+      Effect.tap(reportTerminal)
+    )
+  })
 /**
  * Deliver an attributed operator steering message.
  * @category constructors
  * @since 1.0.0
  */
-export const steer = (runId: string, body: string) => Effect.gen(function*() {
-  const control = yield* ControlService.Control
-  const stamp = Date.now()
-  const messageId = `cli:steer:${runId}:${randomUUID()}`
-  return yield* control.steer({ runId, message: { kind: "Message", messageId, runId, principal: { kind: "operator", id: "cli", stampedAt: stamp }, createdAt: stamp, body }, idempotencyKey: messageId })
-})
+export const steer = (runId: string, body: string) =>
+  Effect.gen(function*() {
+    const control = yield* ControlService.Control
+    const stamp = Date.now()
+    const messageId = `cli:steer:${runId}:${randomUUID()}`
+    return yield* control.steer({
+      runId,
+      message: {
+        kind: "Message",
+        messageId,
+        runId,
+        principal: { kind: "operator", id: "cli", stampedAt: stamp },
+        createdAt: stamp,
+        body
+      },
+      idempotencyKey: messageId
+    })
+  })

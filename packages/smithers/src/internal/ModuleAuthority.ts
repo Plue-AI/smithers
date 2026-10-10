@@ -204,13 +204,18 @@ export const make = (
         let launchOrdinal: number | undefined
         if (budgetHost.reenterModules?.includes(card.flowId) === true) {
           const launches = yield* budgetHost.controlJournal.entries({
-            runId: JournalEvent.RunId.make(rootId), eventTypes: ["control.module.launched"], limit: 1_000
+            runId: JournalEvent.RunId.make(rootId),
+            eventTypes: ["control.module.launched"],
+            limit: 1_000
           }).pipe(Effect.orDie)
-          if (launches.hasMore) return yield* refuse(executionId, "Retained module launches exceed the ancestry lookup limit")
+          if (launches.hasMore) {
+            return yield* refuse(executionId, "Retained module launches exceed the ancestry lookup limit")
+          }
           for (const entry of launches.entries) {
             const marker = Schema.decodeUnknownOption(Schema.Struct({
               ordinal: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-              executionDigest: Schema.String, executionId: Schema.String
+              executionDigest: Schema.String,
+              executionId: Schema.String
             }))(entry.payload)
             if (Option.isSome(marker) && visited.has(marker.value.executionId)) {
               if (launchOrdinal !== undefined || marker.value.executionDigest !== approved) {
@@ -308,7 +313,8 @@ export const make = (
             return yield* handler(payload, executionId).pipe(
               Effect.onExit((exit) =>
                 instance.suspended || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) ||
-                  (Exit.isSuccess(exit) && flow._tag.startsWith("registry/entry/") && flow._tag.endsWith(`/${flowId}`) &&
+                  (Exit.isSuccess(exit) && flow._tag.startsWith("registry/entry/") &&
+                    flow._tag.endsWith(`/${flowId}`) &&
                     budgetHost.reenterModules?.includes(flowId) === true)
                   // Without the record the wait is charged, the conservative side.
                   ? shared.suspend.pipe(

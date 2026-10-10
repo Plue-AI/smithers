@@ -20,7 +20,15 @@ describe("public workspace spelling", () => {
     [["--root", "/project", "gateway", "--port", "8080"], ["gateway", "--port", "8080", "--root", "/project"]],
     [["--root", "/project", "runs", "show", "run-1"], ["runs", "show", "run-1", "--root", "/project"]],
     [["--root", "/project", "init", "--", "literal"], ["init", "--root", "/project", "--", "literal"]],
-    [["flow", "execute", "{}", "--mcp-config", "/project/mcp.json", "--root", "/project"], ["flow", "execute", "{}", "--mcp-config", "/project/mcp.json", "--root", "/project"]],
+    [["flow", "execute", "{}", "--mcp-config", "/project/mcp.json", "--root", "/project"], [
+      "flow",
+      "execute",
+      "{}",
+      "--mcp-config",
+      "/project/mcp.json",
+      "--root",
+      "/project"
+    ]],
     [["flow", "list", "--root", "/project"], ["flow", "list", "--root", "/project"]],
     [["generate", "flow", "hello", "--root", "/project"], ["generate", "flow", "hello", "--root", "/project"]],
     [["run", "//:app", "--", "--root", "/argument"], ["run", "//:app", "--", "--root", "/argument"]]

@@ -32,11 +32,13 @@ export interface CatalogHttpBinding {
   readonly defaults?: Readonly<Record<string, unknown>>
   readonly query?: Readonly<Record<string, string>>
   /** Optional nested request objects, emitted only when their source field is present. */
-  readonly objects?: Readonly<Record<string, {
-    readonly when: string
-    readonly body: Readonly<Record<string, string>>
-    readonly defaults?: Readonly<Record<string, unknown>>
-  }>>
+  readonly objects?: Readonly<
+    Record<string, {
+      readonly when: string
+      readonly body: Readonly<Record<string, string>>
+      readonly defaults?: Readonly<Record<string, unknown>>
+    }>
+  >
 }
 
 /**
@@ -78,9 +80,11 @@ export const catalogRequest = (
   for (const [field, nested] of Object.entries(binding.objects ?? {})) {
     if (payload[nested.when] === undefined || payload[nested.when] === null) continue
     body[field] = {
-      ...Object.fromEntries(Object.entries(nested.body)
-        .filter(([, source]) => payload[source] !== undefined)
-        .map(([key, source]) => [key, payload[source]])),
+      ...Object.fromEntries(
+        Object.entries(nested.body)
+          .filter(([, source]) => payload[source] !== undefined)
+          .map(([key, source]) => [key, payload[source]])
+      ),
       ...structuredClone(nested.defaults)
     }
   }
@@ -91,7 +95,9 @@ export const catalogRequest = (
       throw new CatalogRequestError("field_invalid", `Missing or invalid ${field}`)
     }
     const segment = String(value)
-    if (segment === "" || segment === "." || segment === "..") throw new CatalogRequestError("field_invalid", `Invalid ${field}`)
+    if (segment === "" || segment === "." || segment === "..") {
+      throw new CatalogRequestError("field_invalid", `Invalid ${field}`)
+    }
     used.add(field)
     return encodeURIComponent(segment)
   })

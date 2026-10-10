@@ -190,14 +190,17 @@ export const createModelProbe = (options: ModelProbeOptions): ModelProbe => {
     if (request.kind !== planned.plan.kind) return failed({ code: "invalid", field: "protocol" })
     const http = manualRedirects(options.fetch)
     const exit = await Effect.runPromiseExit(
-      (request.kind === "decision" ? decision(planned, deadlineMs, request) : generation(planned, request, input !== undefined || planned.plan.protocol !== "openai-responses-chatgpt")).pipe(
-        Effect.catch((error) => Effect.succeed<Outcome>({ failure: modelFailureOf(error, deadlineMs) })),
-        Effect.timeoutOrElse({
-          duration: deadlineMs,
-          orElse: () => Effect.succeed<Outcome>({ failure: { code: "timeout", deadlineMs } })
-        }),
-        Effect.provide(http.layer)
-      )
+      (request.kind === "decision"
+        ? decision(planned, deadlineMs, request)
+        : generation(planned, request, input !== undefined || planned.plan.protocol !== "openai-responses-chatgpt"))
+        .pipe(
+          Effect.catch((error) => Effect.succeed<Outcome>({ failure: modelFailureOf(error, deadlineMs) })),
+          Effect.timeoutOrElse({
+            duration: deadlineMs,
+            orElse: () => Effect.succeed<Outcome>({ failure: { code: "timeout", deadlineMs } })
+          }),
+          Effect.provide(http.layer)
+        )
     )
     const redirected = http.redirected()
     if (redirected !== undefined) return failed({ code: "refused", status: redirected })

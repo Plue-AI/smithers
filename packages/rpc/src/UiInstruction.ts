@@ -99,11 +99,16 @@ export const UiInstructionFrameSchema = z.object({ command: z.enum(UI_INSTRUCTIO
   .superRefine((frame, context) => {
     const declared: ReadonlyArray<string> = UI_INSTRUCTION_FIELDS[frame.command]
     for (const field of Object.keys(frame)) {
-      if (field !== "command" && (frame[field] === null || typeof frame[field] === "object") &&
-        !(frame.command === "runs.trace.view" && field === "state")) {
+      if (
+        field !== "command" && (frame[field] === null || typeof frame[field] === "object") &&
+        !(frame.command === "runs.trace.view" && field === "state")
+      ) {
         context.addIssue({ code: "custom", path: [field], message: "Only monitor state carries a structured value" })
       }
-      if (frame.command === "runs.trace.view" && field === "state" && !monitorState.nullable().safeParse(frame[field]).success) {
+      if (
+        frame.command === "runs.trace.view" && field === "state" &&
+        !monitorState.nullable().safeParse(frame[field]).success
+      ) {
         context.addIssue({ code: "custom", path: [field], message: "Invalid monitor state" })
       }
       if (field !== "command" && !declared.includes(field)) {

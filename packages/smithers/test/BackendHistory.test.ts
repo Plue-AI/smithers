@@ -332,7 +332,12 @@ const serve = async (handler: Handler) => {
     let body = ""
     req.on("data", (chunk) => body += chunk)
     req.on("end", () => {
-      requests.push({ method: req.method!, url: req.url!, body, request: req.headers["idempotency-key"] as string | undefined })
+      requests.push({
+        method: req.method!,
+        url: req.url!,
+        body,
+        request: req.headers["idempotency-key"] as string | undefined
+      })
       handler(req, res, body)
     })
   })
@@ -367,7 +372,12 @@ const serve = async (handler: Handler) => {
       const signals = new EventEmitter()
       started?.(signals)
       await main({
-        argv: [...args, ...(["stack", "todo"].includes(args[0]!) ? [] : ["--repo", "owner/repo"]), "--audience", "human"],
+        argv: [
+          ...args,
+          ...(["stack", "todo"].includes(args[0]!) ? [] : ["--repo", "owner/repo"]),
+          "--audience",
+          "human"
+        ],
         env: { ...env },
         stdout: { isTTY: true, columns: 100, write: (text) => void (output += text) },
         stderr: { isTTY: false, columns: 100, write: (text) => void (error += text) },
@@ -559,7 +569,9 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const shown = await f.run(["stack"])
       expect(shown.code, shown.error).toBe(0)
       expect(shown.output.startsWith("stack\n")).toBe(true)
-      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("active · 1/2 lanes\n◆ Needs you 1\n  #12 Fix login · PR open · https://x.test/5")
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain(
+        "active · 1/2 lanes\n◆ Needs you 1\n  #12 Fix login · PR open · https://x.test/5"
+      )
       const raw = await f.run(["stack", "--json"])
       expect(JSON.parse(raw.output)).toEqual(snapshot)
       expect(f.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
@@ -590,13 +602,19 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       reason: "The model provider did not answer",
       failure: { kind: "model", fault: "dependency" }
     })
-    const f = await serve((req, res) => req.url === "/api/stack" ? json(res, stack([blocked, model])) : void items(req, res, [blocked, model]))
+    const f = await serve((req, res) =>
+      req.url === "/api/stack" ? json(res, stack([blocked, model])) : void items(req, res, [blocked, model])
+    )
     try {
       const shown = await f.run(["stack"])
       expect(shown.code, shown.error).toBe(0)
       expect(shown.output.startsWith("stack\n")).toBe(true)
-      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("#12 Fix login · blocked · Smithers could not set up a lane after repeated tries")
-      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain("#13 Flaky model · retrying · The model provider did not answer")
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain(
+        "#12 Fix login · blocked · Smithers could not set up a lane after repeated tries"
+      )
+      expect(render(JSON.parse(shown.output.slice(shown.output.indexOf("\n") + 1)), now)).toContain(
+        "#13 Flaky model · retrying · The model provider did not answer"
+      )
       const raw = await f.run(["stack", "--json"])
       expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason, failure })
     } finally {
@@ -619,7 +637,9 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const filed = await f.run(["todo", "new", "--title", "Add dark mode", "--text", "Follow the system theme"])
       expect(filed.code, filed.error).toBe(0)
       expect(filed.output.startsWith("todo new\n")).toBe(true)
-      expect(itemLine(JSON.parse(filed.output.slice(filed.output.indexOf("\n") + 1)))).toBe("#40 Add dark mode · queued")
+      expect(itemLine(JSON.parse(filed.output.slice(filed.output.indexOf("\n") + 1)))).toBe(
+        "#40 Add dark mode · queued"
+      )
       expect((await f.run(["todo", "new", "--title", "Add dark mode", "--idempotencyKey", "abc-1"])).code).toBe(0)
       expect((await f.run(["todo", "new", "--title", "Add dark mode", "--idempotencyKey", "abc-1"])).code).toBe(0)
       const invalidTitle = await f.run(["todo", "new", "--title", "", "--json"])
@@ -628,12 +648,18 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       const invalidRequest = await f.run(["todo", "new", "--title", "x", "--idempotencyKey", "", "--json"])
       expect(invalidRequest.code, invalidRequest.output).toBe(1)
       expect(invalidRequest.output).toContain("idempotencyKey")
-      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; prompt: string; place: { mode: string } })
+      const sent = f.requests.map((r) =>
+        JSON.parse(r.body ?? "{}") as { title: string; prompt: string; place: { mode: string } }
+      )
       expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/todos")).toBe(
         true
       )
       expect(sent).toHaveLength(3)
-      expect(sent[0]).toMatchObject({ title: "Add dark mode", prompt: "Follow the system theme", place: { mode: "append" } })
+      expect(sent[0]).toMatchObject({
+        title: "Add dark mode",
+        prompt: "Follow the system theme",
+        place: { mode: "append" }
+      })
       expect(f.requests[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
       expect(f.requests[1]!.request).toBe("abc-1")
       expect(f.requests[2]!.request).toBe("abc-1")

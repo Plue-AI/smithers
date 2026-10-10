@@ -9,7 +9,7 @@ import { killResumeFixture } from "./harness/killResumeCase.ts"
 import { markers } from "./harness/killResumeFlow.ts"
 
 const fixtures: Array<ReturnType<typeof killResumeFixture>> = []
-afterAll(() => fixtures.forEach(fixture => rmSync(fixture.directory, { recursive: true, force: true })))
+afterAll(() => fixtures.forEach((fixture) => rmSync(fixture.directory, { recursive: true, force: true })))
 
 describe("case39 crossing recovery after SIGKILL", () => {
   for (const crossing of ["keyed-write", "sealed-check", "keyless-shell"] as const) {
@@ -21,9 +21,16 @@ describe("case39 crossing recovery after SIGKILL", () => {
       const killed = spawnEngineChild({ ...options, mode: "execute" })
       try {
         await killed.handshake
-        await waitFor(() => fixture.marker(markers.secondStarted) !== undefined, "remote effect before settlement", 60_000)
-        expect(fixture.counter()).toEqual(crossing === "keyed-write"
-          ? ["first", "second", "lookup", "write"] : ["first", "second", "write"])
+        await waitFor(
+          () => fixture.marker(markers.secondStarted) !== undefined,
+          "remote effect before settlement",
+          60_000
+        )
+        expect(fixture.counter()).toEqual(
+          crossing === "keyed-write"
+            ? ["first", "second", "lookup", "write"] :
+            ["first", "second", "write"]
+        )
         expect(fixture.marker(markers.secondDone)).toBeUndefined()
       } finally {
         await killProcess(killed.process)
@@ -39,9 +46,11 @@ describe("case39 crossing recovery after SIGKILL", () => {
       } else {
         expect(code, resumed.stderr()).toBe(0)
         expect(resumed.stdout()).toContain("RESULT_STATUS=succeeded kill-resume:first-value:second-value")
-        expect(fixture.counter()).toEqual(crossing === "keyed-write"
-          ? ["first", "second", "lookup", "write", "second", "lookup"]
-          : ["first", "second", "write", "second", "write"])
+        expect(fixture.counter()).toEqual(
+          crossing === "keyed-write"
+            ? ["first", "second", "lookup", "write", "second", "lookup"]
+            : ["first", "second", "write", "second", "write"]
+        )
         // A further restart replays both completed outcomes without any body dispatch.
         const settled = fixture.counter()
         const replay = spawnEngineChild({ ...options, mode: "execute", secondSleepMs: 1 })
@@ -49,8 +58,10 @@ describe("case39 crossing recovery after SIGKILL", () => {
         expect(fixture.counter()).toEqual(settled)
       }
       const events = await journalEventTypes(fixture.filename, fixture.executionId)
-      expect(events.filter(type => type === "flows.engine.attempt-started")).toHaveLength(3)
-      expect(events.filter(type => type === "flows.engine.attempt-finished")).toHaveLength(crossing === "keyless-shell" ? 2 : 3)
+      expect(events.filter((type) => type === "flows.engine.attempt-started")).toHaveLength(3)
+      expect(events.filter((type) => type === "flows.engine.attempt-finished")).toHaveLength(
+        crossing === "keyless-shell" ? 2 : 3
+      )
     }, 300_000)
   }
 })

@@ -309,10 +309,12 @@ export type AgentConversationReplayAccess = z.infer<typeof AgentConversationRepl
  * @category schemas
  */
 export const AgentConversationBatchSchema = AgentTurnBatchSchema.extend({
-  frames: z.array(z.object({ type: z.string(), runId: Identity }).passthrough().superRefine((frame, ctx) => {
-    const result = AgentTurnFrameSchema.safeParse(frame)
-    if (!result.success) for (const issue of result.error.issues) ctx.addIssue({ ...issue })
-  })).min(1).max(256)
+  frames: z.array(
+    z.object({ type: z.string(), runId: Identity }).passthrough().superRefine((frame, ctx) => {
+      const result = AgentTurnFrameSchema.safeParse(frame)
+      if (!result.success) { for (const issue of result.error.issues) ctx.addIssue({ ...issue }) }
+    })
+  ).min(1).max(256)
 })
 /** Authenticated archive batch with original historical frame bytes.
  * @since 1.0.0
@@ -329,8 +331,12 @@ export const AgentConversationReplaySchema = z.object({
   conversationId: Identity,
   userText: z.string().max(2 << 20),
   page: z.object({
-    status: z.literal("ok"), after: AgentTurnCursorSchema, next: AgentTurnCursorSchema,
-    head: AgentTurnCursorSchema, terminal: z.boolean(), more: z.boolean(),
+    status: z.literal("ok"),
+    after: AgentTurnCursorSchema,
+    next: AgentTurnCursorSchema,
+    head: AgentTurnCursorSchema,
+    terminal: z.boolean(),
+    more: z.boolean(),
     batches: z.array(AgentConversationBatchSchema)
   }).strict()
 }).strict()

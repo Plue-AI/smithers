@@ -58,17 +58,39 @@ test("legacy listing entries remain parseable without fabricated account or spac
   expect(CardSchema.parse(source)).toEqual(source)
 })
 
-
 test("pinned wiki history preserves exact content and old history remains compatible", () => {
-  const source = { id: "wiki-revision-owner/repo-public-42-4", kind: "wiki-history", title: "Retries · r4",
-    createdAt: 1, ordinal: 1, status: "active", payload: { repo: "owner/repo", space: "public", pageId: 42,
-      slug: "retries", title: "Retries", path: "Retries.md", revisions: [], page: 1, hasNext: false,
-      content: { revision: 4, markdown: "# Retries\n\nRetry three times." } } }
+  const source = {
+    id: "wiki-revision-owner/repo-public-42-4",
+    kind: "wiki-history",
+    title: "Retries · r4",
+    createdAt: 1,
+    ordinal: 1,
+    status: "active",
+    payload: {
+      repo: "owner/repo",
+      space: "public",
+      pageId: 42,
+      slug: "retries",
+      title: "Retries",
+      path: "Retries.md",
+      revisions: [],
+      page: 1,
+      hasNext: false,
+      content: { revision: 4, markdown: "# Retries\n\nRetry three times." }
+    }
+  }
   expect(CardSchema.parse(source)).toEqual(source)
   for (const revision of [0, -1, 4.5, "4", null]) {
-    expect(CardSchema.safeParse({ ...source, payload: { ...source.payload, content: { ...source.payload.content, revision } } }).success).toBe(false)
+    expect(
+      CardSchema.safeParse({
+        ...source,
+        payload: { ...source.payload, content: { ...source.payload.content, revision } }
+      }).success
+    ).toBe(false)
   }
-  expect(CardSchema.safeParse({ ...source, payload: { ...source.payload, content: { revision: 4 } } }).success).toBe(false)
+  expect(CardSchema.safeParse({ ...source, payload: { ...source.payload, content: { revision: 4 } } }).success).toBe(
+    false
+  )
   const { content: _content, ...payload } = source.payload
   expect(CardSchema.parse({ ...source, payload })).toEqual({ ...source, payload })
 })

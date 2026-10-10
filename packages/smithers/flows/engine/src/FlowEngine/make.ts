@@ -62,10 +62,12 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
       CurrentRegistrations,
       (ancestors) =>
         ancestors.some((entry) => entry.owner === registrationGates && entry.name === name)
-          ? Effect.die(new RegistrationFault({
-            flowName: name,
-            message: `Flow ${name} cannot recursively register itself while admission is in progress`
-          }))
+          ? Effect.die(
+            new RegistrationFault({
+              flowName: name,
+              message: `Flow ${name} cannot recursively register itself while admission is in progress`
+            })
+          )
           : Effect.acquireUseRelease(
             Effect.sync(() => {
               let gate = registrationGates.get(name)

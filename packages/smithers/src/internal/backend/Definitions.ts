@@ -25,7 +25,11 @@ export const definitions = {
   "host start": {
     description: "Start the bundled host service",
     args: z.object({}),
-    options: z.object({ bundle: z.string().optional().describe("Built server bundle directory"), bind: z.string().optional(), origin: z.array(z.string()).optional() })
+    options: z.object({
+      bundle: z.string().optional().describe("Built server bundle directory"),
+      bind: z.string().optional(),
+      origin: z.array(z.string()).optional()
+    })
   },
   "host stop": {
     description: "Stop the host service",
@@ -1025,7 +1029,9 @@ export const definitions = {
       "header": z.array(z.string()).describe("Request header the value goes in (repeatable, with --host)").default([]),
       "host": z.array(z.string()).describe("Host the secret may be sent to (repeatable, with --header)").default([]),
       "main-only": z.boolean().describe("Only trusted runs on the default bookmark receive it").default(false),
-      "path": z.string().describe("Also write it as a file on every branch machine: ~/... or /run/smithers/files/...; empty removes it").optional(),
+      "path": z.string().describe(
+        "Also write it as a file on every branch machine: ~/... or /run/smithers/files/...; empty removes it"
+      ).optional(),
       "repo": z.string().describe("Repository (OWNER/REPO)").optional()
     })
   },

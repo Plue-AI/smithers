@@ -344,7 +344,11 @@ const machineEvidence = (repository: Repository): MachineRecipe => {
     // Machine preparation must not add a generated lockfile to a TODO checkout.
     const command = manager === "npm" && chosen.length > 0
       ? ["npm", "ci"]
-      : [manager, "install", ...(manager === "npm" ? ["--package-lock=false"] : chosen.length > 0 ? ["--frozen-lockfile"] : [])]
+      : [
+        manager,
+        "install",
+        ...(manager === "npm" ? ["--package-lock=false"] : chosen.length > 0 ? ["--frozen-lockfile"] : [])
+      ]
     const offline = manager === "pnpm" && chosen.length > 0
       ? ["pnpm", "install", "--offline", "--frozen-lockfile"]
       : [...command, "--offline"]

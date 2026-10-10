@@ -1,6 +1,6 @@
 import { z } from "zod"
-import { ActorSchema } from "./CardPrimitives.ts"
 import { BranchParticipant } from "./BranchCard.ts"
+import { ActorSchema } from "./CardPrimitives.ts"
 
 // Working-together I2: browser wire contract; durability belongs to the document host.
 /**
@@ -82,14 +82,23 @@ export const LiveDocGone = z.discriminatedUnion("kind", [
  * @category schemas
  */
 export const LiveDocReply = z.discriminatedUnion("t", [
- z.strictObject({ t: z.literal("authors"), id: LiveDocId, data: z.record(z.union([z.string().regex(/^[a-f0-9]{32}$/), z.literal("outside")]), ActorSchema) }),
+  z.strictObject({
+    t: z.literal("authors"),
+    id: LiveDocId,
+    data: z.record(z.union([z.string().regex(/^[a-f0-9]{32}$/), z.literal("outside")]), ActorSchema)
+  }),
   z.strictObject({
     t: z.literal("snap"),
     id: LiveDocId,
     cursor: z.number().int().nonnegative(),
     data: z.strictObject({ epoch: z.string().regex(/^[0-9a-f]{32}$/), client_id: LiveDocId })
   }),
-  z.strictObject({ t: z.literal("saved"), id: LiveDocId, sv: base64, seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }),
+  z.strictObject({
+    t: z.literal("saved"),
+    id: LiveDocId,
+    sv: base64,
+    seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+  }),
   z.strictObject({ t: z.literal("gap"), id: LiveDocId }),
   z.strictObject({ t: z.literal("outside"), id: LiveDocId, data: LiveDocOutside }),
   z.strictObject({ t: z.literal("gone"), id: LiveDocId, data: LiveDocGone }),

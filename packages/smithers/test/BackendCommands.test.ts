@@ -611,7 +611,7 @@ describe("repository selection and transfer", () => {
     await repositories["cache connect"]!(c, {}, { ...options, workspace: home })
     const file = join(home, "PACKAGE.ts")
     const content = await readFile(file, "utf8")
-    expect(content).toContain('import { Smithers } from "@smthrs/targets"')
+    expect(content).toContain("import { Smithers } from \"@smthrs/targets\"")
     await writeFile(join(home, "package.json"), JSON.stringify({ type: "module" }))
     const targetsRoot = join(import.meta.dirname, "../build/targets")
     const manifest = JSON.parse(await readFile(join(targetsRoot, "package.json"), "utf8")) as {
@@ -642,7 +642,7 @@ describe("repository selection and transfer", () => {
     const { c, home, request } = await fixture()
     request.mockResolvedValue({ token: "smithers_cachero_public" })
     const file = join(home, "PACKAGE.ts")
-    const existing = 'import { Smithers } from "@smthrs/targets"\nexport const existing = 1\n'
+    const existing = "import { Smithers } from \"@smthrs/targets\"\nexport const existing = 1\n"
     await writeFile(file, existing)
     const result = object(await repositories["cache connect"]!(c, {}, { ...options, workspace: home }))
     expect(result.changed).toBe(true)
@@ -1082,7 +1082,10 @@ describe("workspace create over local HTTP (#2939)", () => {
 describe("retired repository registration report", () => {
   it("has no CLI door and sends no request", async () => {
     let requests = 0
-    const f = await homeFixture((_req, res) => { requests++; res.end("{}") })
+    const f = await homeFixture((_req, res) => {
+      requests++
+      res.end("{}")
+    })
     try {
       const result = await f.run(["repo", "report", "acme/widgets", "--workspace", "old"])
       expect(result.code).not.toBe(0)
@@ -1101,25 +1104,41 @@ describe("local host service commands", () => {
     await mkdir(stateDir)
     const message = "cannot start a fresh install: disk: 43.99 GiB free on the state volume; 44 GiB required"
     await writeFile(join(stateDir, "start-refusal.json"), JSON.stringify({ code: "host_capacity_zero", message }))
-    vi.spyOn(HostService, command).mockImplementation(async () => { throw HostService.startRefusal(stateDir)! })
+    vi.spyOn(HostService, command).mockImplementation(async () => {
+      throw HostService.startRefusal(stateDir)!
+    })
     try {
       const result = await f.run(["host", command])
       expect(result.code).toBe(1)
       expect(result.output + result.error).toContain(`host_capacity_zero: ${message}`)
       expect(result.output + result.error).not.toContain("/setup?")
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
   it("reports local health without calling the configured remote backend", async () => {
     const seen: string[] = []
-    const health = { state: "ready", bundle: "/bundle", version: "1.0", launchd: "running", readiness: "ready", doctor: "ready" }
+    const health = {
+      state: "ready",
+      bundle: "/bundle",
+      version: "1.0",
+      launchd: "running",
+      readiness: "ready",
+      doctor: "ready"
+    }
     vi.spyOn(HostService, "status").mockResolvedValue(health)
-    const f = await homeFixture((req, res) => { seen.push(String(req.url)); res.end("{}") })
+    const f = await homeFixture((req, res) => {
+      seen.push(String(req.url))
+      res.end("{}")
+    })
     try {
       const result = await f.run(["host", "status", "--json"])
       expect(result.code).toBe(0)
       expect(seen).toEqual([])
       expect(JSON.parse(result.output)).toMatchObject(health)
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
   it.each([false, true])("prints the setup URL with its token intact (json=%s)", async (json) => {
     const url = "http://localhost:4000/setup?token=fixture-setup-secret"
@@ -1131,7 +1150,9 @@ describe("local host service commands", () => {
       expect(result.output).toContain(url)
       expect(result.error).not.toContain("fixture-setup-secret")
       expect(HostService.start).toHaveBeenCalledWith("/bundle", {})
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
   it.each([
     ["setup_closed", "Already set up.", 3],
@@ -1143,7 +1164,9 @@ describe("local host service commands", () => {
       const result = await f.run(["host", "start"])
       expect(result.code).toBe(exitCode)
       expect(result.output).toContain(message)
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
   it("keeps readiness or transport failure distinct from an owner claim", async () => {
     vi.spyOn(HostService, "start").mockRejectedValue(new Error("Host setup socket unavailable"))
@@ -1152,10 +1175,11 @@ describe("local host service commands", () => {
       const result = await f.run(["host", "start"])
       expect(result.code).toBe(1)
       expect(result.output + result.error).not.toContain("Already set up")
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 })
-
 
 describe("delegated laptop login", () => {
   it("runs the registered login --agent command and saves issuer metadata", async () => {
@@ -1167,8 +1191,16 @@ describe("delegated laptop login", () => {
       expect(launched.searchParams.get("agent")).toBe("claude-code")
       const callback = `http://127.0.0.1:${launched.searchParams.get("callback_port")}/callback`
       submitted = fetch(callback, {
-        method: "POST", headers: { "content-type": "application/json", origin: new URL(callback).origin },
-        body: JSON.stringify({ callback_state: launched.searchParams.get("callback_state"), token: "delegated-secret", kind: "delegated", via: "claude-code", username: "ben", expires_at: "2099-01-01T00:00:00Z" })
+        method: "POST",
+        headers: { "content-type": "application/json", origin: new URL(callback).origin },
+        body: JSON.stringify({
+          callback_state: launched.searchParams.get("callback_state"),
+          token: "delegated-secret",
+          kind: "delegated",
+          via: "claude-code",
+          username: "ben",
+          expires_at: "2099-01-01T00:00:00Z"
+        })
       })
       return ""
     })
@@ -1184,9 +1216,12 @@ describe("delegated laptop login", () => {
     expect(JSON.stringify(saved)).toContain("delegated")
     expect(write.mock.calls.flat().join("")).not.toContain("delegated-secret")
   })
-  it.each(["smithers", "terminal", "Bad", "a_b"])("refuses reserved or invalid agent %s before opening a browser", async (agent) => {
-    const { c, exec } = await fixture()
-    await expect(auth["auth login"]!(c, {}, { agent })).rejects.toThrow("Invalid external agent")
-    expect(exec).not.toHaveBeenCalled()
-  })
+  it.each(["smithers", "terminal", "Bad", "a_b"])(
+    "refuses reserved or invalid agent %s before opening a browser",
+    async (agent) => {
+      const { c, exec } = await fixture()
+      await expect(auth["auth login"]!(c, {}, { agent })).rejects.toThrow("Invalid external agent")
+      expect(exec).not.toHaveBeenCalled()
+    }
+  )
 })

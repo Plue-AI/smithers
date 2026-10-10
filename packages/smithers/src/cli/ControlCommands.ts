@@ -17,10 +17,10 @@ import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import * as CliError from "../CliError.ts"
 import { cancelAll, unexpectedRunList } from "../commands/CancelAll.ts"
-import * as Launch from "../commands/Launch.ts"
-import * as RunControl from "../commands/RunControl.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
 import * as Globals from "../commands/Globals.ts"
+import * as Launch from "../commands/Launch.ts"
+import * as RunControl from "../commands/RunControl.ts"
 import * as Forensics from "../Forensics.ts"
 import { defaultApprovalScope } from "../internal/ApprovalScope.ts"
 import * as BoundedEvents from "../internal/BoundedEvents.ts"
@@ -102,7 +102,6 @@ const runsList = { command: "runs list", description: "List the current durable 
 const afterDecision = Presentation.runs({
   otherwise: [{ command: "runs list", description: "Check the run after the decision" }]
 })
-
 
 /** The notices and backend refusal every local verb applies before it reads. */
 const checks = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
@@ -245,7 +244,15 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       options: options.extend({ data: z.string().optional().describe("JSON input object") }),
       run: (c) =>
         guard(c, () =>
-          Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.plan(c.args.flow, c.args.input, Option.fromUndefinedOr(c.options.data))), c.options, runtime, { plansFlows: true }), {
+          Bridge.query(
+            Effect.andThen(
+              checks(c.options, runtime),
+              RunControl.plan(c.args.flow, c.args.input, Option.fromUndefinedOr(c.options.data))
+            ),
+            c.options,
+            runtime,
+            { plansFlows: true }
+          ), {
           next: [
             {
               command: "approvals approve --help",
@@ -283,18 +290,26 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
               throw new CliError.Refused({ fault: "user", code: "no_flows", message: `No flows found in ${root}` })
             }
           }
-          return Bridge.launch(Effect.andThen(checks(c.options, runtime), Launch.start({
-            ...c.options, flow: c.args.flow,
-            data: Option.fromUndefinedOr(c.options.data),
-            remote: Option.fromUndefinedOr(Bridge.configuration(c.options, runtime).remote),
-            root: Option.fromUndefinedOr(c.options.root),
-            mcpConfig: Option.fromUndefinedOr(c.options.mcpConfig),
-            budgetTokens: Option.fromUndefinedOr(c.options.budgetTokens),
-            budgetMs: Option.fromUndefinedOr(c.options.budgetMs),
-            budgetUsd: Option.fromUndefinedOr(c.options.budgetUsd),
-            onExceeded: Option.fromUndefinedOr(c.options.onExceeded),
-            deadline: Option.fromUndefinedOr(c.options.deadline)
-          })), c.options, runtime)
+          return Bridge.launch(
+            Effect.andThen(
+              checks(c.options, runtime),
+              Launch.start({
+                ...c.options,
+                flow: c.args.flow,
+                data: Option.fromUndefinedOr(c.options.data),
+                remote: Option.fromUndefinedOr(Bridge.configuration(c.options, runtime).remote),
+                root: Option.fromUndefinedOr(c.options.root),
+                mcpConfig: Option.fromUndefinedOr(c.options.mcpConfig),
+                budgetTokens: Option.fromUndefinedOr(c.options.budgetTokens),
+                budgetMs: Option.fromUndefinedOr(c.options.budgetMs),
+                budgetUsd: Option.fromUndefinedOr(c.options.budgetUsd),
+                onExceeded: Option.fromUndefinedOr(c.options.onExceeded),
+                deadline: Option.fromUndefinedOr(c.options.deadline)
+              })
+            ),
+            c.options,
+            runtime
+          )
         })
     })
     .command("execute", {
@@ -304,7 +319,11 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       options,
       run: (c) =>
         guard(c, async () =>
-          Bridge.launch(Effect.andThen(checks(c.options, runtime), Launch.execute(await payload(c.args.approval), c.options.quiet)), c.options, runtime))
+          Bridge.launch(
+            Effect.andThen(checks(c.options, runtime), Launch.execute(await payload(c.args.approval), c.options.quiet)),
+            c.options,
+            runtime
+          ))
     })
 
 /**
@@ -554,14 +573,24 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs.extend({ node: z.string().optional() }),
       options,
       run: (c) =>
-        guard(c, () => Bridge.read(Effect.andThen(checks(c.options, runtime), RunControl.output(c.args.run, c.args.node)), c.options, runtime))
+        guard(c, () =>
+          Bridge.read(
+            Effect.andThen(checks(c.options, runtime), RunControl.output(c.args.run, c.args.node)),
+            c.options,
+            runtime
+          ))
     })
     .command("cancel", {
       description: "Cancel one durable run",
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs,
       options,
-      run: (c) => guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.cancel(c.args.run)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
+      run: (c) =>
+        guard(c, async () =>
+          Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.cancel(c.args.run)), c.options, {
+            ...runtime,
+            ...await prepareHistoryRun(c.args.run, c.options, runtime)
+          }))
     })
     .command("cancel-all", {
       description: "Cancel every nonterminal run in this project",
@@ -586,10 +615,14 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) => {
         const { allowCodeDrift, ...connection } = c.options
         return guard(c, async () =>
-          Bridge.launch(Effect.andThen(checks(connection, runtime), Launch.resume(c.args.run, allowCodeDrift, connection.quiet)), connection, {
-            ...runtime,
-            ...await prepareHistoryRun(c.args.run, connection, runtime)
-          }))
+          Bridge.launch(
+            Effect.andThen(checks(connection, runtime), Launch.resume(c.args.run, allowCodeDrift, connection.quiet)),
+            connection,
+            {
+              ...runtime,
+              ...await prepareHistoryRun(c.args.run, connection, runtime)
+            }
+          ))
       }
     })
     .command("continue", {
@@ -613,7 +646,13 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs.extend({ payload: z.string() }),
       options,
-      run: (c) => guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.deliverSignal(c.args.run, c.args.payload)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
+      run: (c) =>
+        guard(c, async () =>
+          Bridge.query(
+            Effect.andThen(checks(c.options, runtime), RunControl.deliverSignal(c.args.run, c.args.payload)),
+            c.options,
+            { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }
+          ))
     })
     .command("steer", {
       description: "Send an attributed operator message",
@@ -621,7 +660,12 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs,
       options: options.extend({ message: z.string().min(1) }),
       run: (c) =>
-        guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.steer(c.args.run, c.options.message)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
+        guard(c, async () =>
+          Bridge.query(
+            Effect.andThen(checks(c.options, runtime), RunControl.steer(c.args.run, c.options.message)),
+            c.options,
+            { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }
+          ))
     })
 
 const isIncident = Schema.is(ControlFacts.GuardIncident)
@@ -682,7 +726,12 @@ const decideIncident = async (
   if (row.status === "pending") {
     const approval = JSON.stringify(row.payload)
     return Bridge.launch(
-      Effect.andThen(checks(connection, runtime), decision === "continue" ? Launch.approve(approval, row.payload.scope, connection.quiet) : Launch.deny(approval, connection.quiet)),
+      Effect.andThen(
+        checks(connection, runtime),
+        decision === "continue"
+          ? Launch.approve(approval, row.payload.scope, connection.quiet)
+          : Launch.deny(approval, connection.quiet)
+      ),
       connection,
       { ...runtime, ...await prepareHistoryRun(runId, connection, runtime) }
     )
@@ -694,10 +743,14 @@ const decideIncident = async (
       message: `Run ${runId} was already ${row.status === "approved" ? "continued" : "stopped"} on ${row.requestId}.`
     })
   }
-  return Bridge.launch(Effect.andThen(checks(connection, runtime), Launch.resume(runId, false, connection.quiet)), connection, {
-    ...runtime,
-    ...await prepareHistoryRun(runId, connection, runtime)
-  })
+  return Bridge.launch(
+    Effect.andThen(checks(connection, runtime), Launch.resume(runId, false, connection.quiet)),
+    connection,
+    {
+      ...runtime,
+      ...await prepareHistoryRun(runId, connection, runtime)
+    }
+  )
 }
 
 const decide = async (
@@ -851,8 +904,7 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) =>
         guard(
           c,
-          async () =>
-            decide("approve", await payload(c.args.approval), c.options.scope, c.options, runtime),
+          async () => decide("approve", await payload(c.args.approval), c.options.scope, c.options, runtime),
           { next: afterDecision }
         )
     })

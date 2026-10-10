@@ -330,11 +330,15 @@ it("keeps the missing gateway setup reason when Luna cannot resolve either", asy
 
 // Pool failures are backup outages: a configured Jev primary must first be
 // unreachable. A missing primary key is a setup refusal and never asks Luna.
-const unreachableJev = Layer.succeed(HttpClient.HttpClient)(HttpClient.make((request) =>
-  Effect.fail(new HttpClientError.HttpClientError({
-    reason: new HttpClientError.TransportError({ request, description: "connection refused" })
-  }))
-))
+const unreachableJev = Layer.succeed(HttpClient.HttpClient)(
+  HttpClient.make((request) =>
+    Effect.fail(
+      new HttpClientError.HttpClientError({
+        reason: new HttpClientError.TransportError({ request, description: "connection refused" })
+      })
+    )
+  )
+)
 
 it.each(["unavailable", "disconnected"] as const)(
   "fails closed when the subscription pool is %s during resolution",
@@ -357,7 +361,7 @@ it.each(["unavailable", "disconnected"] as const)(
           questions: { complete: Evaluator.BooleanQuestion.of({ instructions: "Complete?" }) }
         })).pipe(Effect.provide(
           layerSeatEvaluator({
-          AI_GATEWAY_API_KEY: "vck_test",
+            AI_GATEWAY_API_KEY: "vck_test",
             SMITHERS_ACCOUNT_POOL_URL: "https://pool.example",
             SMITHERS_ACCOUNT_POOL_KEY: "host-credential",
             SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",

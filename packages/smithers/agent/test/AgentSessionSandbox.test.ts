@@ -95,7 +95,10 @@ const completed = Stream.make(
  * this host cannot satisfy the selected confinement boundary.
  */
 interface Host {
-  readonly context?: Pick<AgentSession.Options, "freshContext" | "workspaceInstructions" | "instructions" | "memory" | "system">
+  readonly context?: Pick<
+    AgentSession.Options,
+    "freshContext" | "workspaceInstructions" | "instructions" | "memory" | "system"
+  >
   readonly sandbox?: AgentSession.Options["sandbox"]
   readonly flows?: ReadonlyArray<FlowBinding.Source>
   /** The agent's run; the default completes at once. */
@@ -315,7 +318,10 @@ it("starts an isolated prompt without calling memory or profile providers or inh
       memory: () => Effect.die("must not discover implementation memory"),
       system: ["implementer system canary"]
     },
-    agentRun: (options) => { observed = options; return completed }
+    agentRun: (options) => {
+      observed = options
+      return completed
+    }
   })
   expect(result.agentRuns).toBe(1)
   expect(observed?.instructions).toEqual([])

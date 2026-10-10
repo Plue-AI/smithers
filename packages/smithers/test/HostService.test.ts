@@ -55,38 +55,70 @@ const fixture = () => {
 describe("restored launchd service", () => {
   it("matches the committed r4 service contract on every host", () => {
     const text = Host.hostPlist({ bundle: "/fixture/bundle", stateDir: "/fixture/state", home: "/fixture/home" }, {})
-    for (const value of [
-      hostExpectations.label, "/fixture/bundle/bin/smithers-server", hostExpectations.handoff_argument,
-      "/fixture/state", "/fixture/state/logs/host.log", "/fixture/home",
-      "/fixture/bundle/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    ]) expect(text).toContain(`<string>${value}</string>`)
-    expect(text).toMatch(new RegExp(`<key>ThrottleInterval</key>\\s*<integer>${hostExpectations.throttle_seconds}</integer>`))
-    expect(text).toMatch(new RegExp(`<key>ExitTimeOut</key>\\s*<integer>${hostExpectations.exit_timeout_seconds}</integer>`))
+    for (
+      const value of [
+        hostExpectations.label,
+        "/fixture/bundle/bin/smithers-server",
+        hostExpectations.handoff_argument,
+        "/fixture/state",
+        "/fixture/state/logs/host.log",
+        "/fixture/home",
+        "/fixture/bundle/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      ]
+    ) expect(text).toContain(`<string>${value}</string>`)
+    expect(text).toMatch(
+      new RegExp(`<key>ThrottleInterval</key>\\s*<integer>${hostExpectations.throttle_seconds}</integer>`)
+    )
+    expect(text).toMatch(
+      new RegExp(`<key>ExitTimeOut</key>\\s*<integer>${hostExpectations.exit_timeout_seconds}</integer>`)
+    )
     for (const field of ["RunAtLoad"]) expect(text).toMatch(new RegExp(`<key>${field}</key>\\s*<true/>`))
-    expect(text).toMatch(/<key>KeepAlive<\/key>\s*<dict>\s*<key>PathState<\/key>\s*<dict>\s*<key>\/fixture\/state\/start-refusal.json<\/key>\s*<false\/>/)
+    expect(text).toMatch(
+      /<key>KeepAlive<\/key>\s*<dict>\s*<key>PathState<\/key>\s*<dict>\s*<key>\/fixture\/state\/start-refusal.json<\/key>\s*<false\/>/
+    )
     for (const field of ["UserName", "GroupName", "RootDirectory"]) expect(text).not.toContain(`<key>${field}</key>`)
   })
 
   it.each([43.99, 44, 44.01])("starts through the CLI host adapter with %s GiB free", async (free) => {
     const f = fixture()
-    const handoff = vi.fn(async () => ({ code: "setup_ready", setup_urls: ["http://localhost/setup?token=fixture"], exitCode: 0 }))
+    const handoff = vi.fn(async () => ({
+      code: "setup_ready",
+      setup_urls: ["http://localhost/setup?token=fixture"],
+      exitCode: 0
+    }))
     const probe = async () => {
       // Stand-in for the bundled backend's authoritative ValidateStart result.
-      if (free < 44) writeFileSync(join(f.options.stateDir, "start-refusal.json"), JSON.stringify({
-        code: "host_capacity_zero", message: `cannot start a fresh install: disk: ${free.toFixed(2)} GiB free on the state volume; 44 GiB required`
-      }))
+      if (free < 44) {
+        writeFileSync(
+          join(f.options.stateDir, "start-refusal.json"),
+          JSON.stringify({
+            code: "host_capacity_zero",
+            message: `cannot start a fresh install: disk: ${
+              free.toFixed(2)
+            } GiB free on the state volume; 44 GiB required`
+          })
+        )
+      }
       return true
     }
     if (free < 44) {
-      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).rejects.toThrow("host_capacity_zero: cannot start a fresh install: disk: 43.99 GiB free on the state volume; 44 GiB required")
+      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).rejects.toThrow(
+        "host_capacity_zero: cannot start a fresh install: disk: 43.99 GiB free on the state volume; 44 GiB required"
+      )
       expect(Host.loaded(f.system)).toBe(false)
       expect(Host.startRefusal(f.options.stateDir)?.code).toBe("host_capacity_zero")
-      await expect(Host.status(f.system, f.options.stateDir)).rejects.toThrow("43.99 GiB free on the state volume; 44 GiB required")
+      await expect(Host.status(f.system, f.options.stateDir)).rejects.toThrow(
+        "43.99 GiB free on the state volume; 44 GiB required"
+      )
       expect(handoff).not.toHaveBeenCalled()
-      await expect(Host.startInstalled(f.options, f.system, async () => true, handoff)).resolves.toMatchObject({ code: "setup_ready" })
+      await expect(Host.startInstalled(f.options, f.system, async () => true, handoff)).resolves.toMatchObject({
+        code: "setup_ready"
+      })
       expect(Host.startRefusal(f.options.stateDir)).toBeUndefined()
     } else {
-      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).resolves.toMatchObject({ code: "setup_ready" })
+      await expect(Host.startInstalled(f.options, f.system, probe, handoff)).resolves.toMatchObject({
+        code: "setup_ready"
+      })
       expect(Host.loaded(f.system)).toBe(true)
       expect(handoff).toHaveBeenCalledOnce()
     }
@@ -107,7 +139,16 @@ describe("restored launchd service", () => {
       expect(text).toContain("<string>http://127.0.0.1:45678</string>")
       expect(text).toContain("<string>localhost,127.0.0.1</string>")
       expect(text).toContain("<string>/owner/fixture &amp; ca.pem</string>")
-      for (const denied of ["SMITHERS_MICROSANDBOX_BIN", "SMITHERS_WORKSPACE_ISOLATION", "CEREBRAS_API_KEY", "provider-secret", "NODE_OPTIONS", "/hostile/"]) {
+      for (
+        const denied of [
+          "SMITHERS_MICROSANDBOX_BIN",
+          "SMITHERS_WORKSPACE_ISOLATION",
+          "CEREBRAS_API_KEY",
+          "provider-secret",
+          "NODE_OPTIONS",
+          "/hostile/"
+        ]
+      ) {
         expect(text).not.toContain(denied)
       }
       expect(await Host.install(f.options, f.system)).toBe("unchanged")
@@ -119,9 +160,26 @@ describe("restored launchd service", () => {
     }
   })
   it("keeps upper/lowercase proxy and CA policy while refusing unrelated environment", () => {
-    const allowed = ["HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"]
+    const allowed = [
+      "HTTP_PROXY",
+      "HTTPS_PROXY",
+      "NO_PROXY",
+      "ALL_PROXY",
+      "http_proxy",
+      "https_proxy",
+      "no_proxy",
+      "all_proxy",
+      "SSL_CERT_FILE",
+      "SSL_CERT_DIR"
+    ]
     const environment = Object.fromEntries(allowed.map((name) => [name, "value-" + name]))
-    const text = Host.hostPlist(fixture().options, { ...environment, HTTPS_PROXY: "", HOME: "/hostile", PATH: "/hostile", SMITHERS_BACKEND_MODE: "plue" })
+    const text = Host.hostPlist(fixture().options, {
+      ...environment,
+      HTTPS_PROXY: "",
+      HOME: "/hostile",
+      PATH: "/hostile",
+      SMITHERS_BACKEND_MODE: "plue"
+    })
     for (const name of allowed.filter((name) => name !== "HTTPS_PROXY")) {
       expect(text).toContain(`<key>${name}</key>`)
       expect(text).toContain(`<string>value-${name}</string>`)
@@ -195,26 +253,29 @@ describe("restored launchd service", () => {
       expect(spawnSync("/usr/bin/plutil", ["-lint", file]).status).toBe(0)
     }
   })
-  it.skipIf(process.platform !== "darwin")("runs the absolute bundled launcher at login without shell tools or privileged fields", () => {
-    const f = fixture(), text = Host.hostPlist(f.options, {}), file = join(f.root, "parse.plist")
-    writeFileSync(file, text)
-    const parsed = JSON.parse(
-      spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }).stdout
-    )
-    expect(parsed).toEqual({
-      Label: "sh.smithers.host",
-      ProgramArguments: [join(f.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
-      WorkingDirectory: f.options.stateDir,
-      EnvironmentVariables: { HOME: f.root, PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` },
-      RunAtLoad: true,
-      KeepAlive: { PathState: { [join(f.options.stateDir, "start-refusal.json")]: false } },
-      ThrottleInterval: 5,
-      ExitTimeOut: 30,
-      ProcessType: "Standard",
-      StandardOutPath: join(f.root, "state/logs/host.log"),
-      StandardErrorPath: join(f.root, "state/logs/host.log")
-    })
-  })
+  it.skipIf(process.platform !== "darwin")(
+    "runs the absolute bundled launcher at login without shell tools or privileged fields",
+    () => {
+      const f = fixture(), text = Host.hostPlist(f.options, {}), file = join(f.root, "parse.plist")
+      writeFileSync(file, text)
+      const parsed = JSON.parse(
+        spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }).stdout
+      )
+      expect(parsed).toEqual({
+        Label: "sh.smithers.host",
+        ProgramArguments: [join(f.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
+        WorkingDirectory: f.options.stateDir,
+        EnvironmentVariables: { HOME: f.root, PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` },
+        RunAtLoad: true,
+        KeepAlive: { PathState: { [join(f.options.stateDir, "start-refusal.json")]: false } },
+        ThrottleInterval: 5,
+        ExitTimeOut: 30,
+        ProcessType: "Standard",
+        StandardOutPath: join(f.root, "state/logs/host.log"),
+        StandardErrorPath: join(f.root, "state/logs/host.log")
+      })
+    }
+  )
   it("starts once, keeps an unchanged agent, then reloads a changed bundle once", async () => {
     const f = fixture()
     expect(await Host.install(f.options, f.system)).toBe("installed")
@@ -362,41 +423,76 @@ describe("private setup handoff", () => {
 })
 
 it("passes explicit network settings to the existing bundled launcher", () => {
- const text = Host.hostPlist({bundle:"/bundle", stateDir:"/state", home:"/home", bind:"0.0.0.0", origins:["http://lan-a:4000", "https://box.example"]})
- expect(text).toContain("<string>--bind</string>")
- expect(text).toContain("<string>0.0.0.0</string>")
- expect(text).toContain("<string>http://lan-a:4000</string>")
- expect(text).toContain("<string>https://box.example</string>")
- expect(text.match(/<string>--origin<\/string>/g)).toHaveLength(2)
+  const text = Host.hostPlist({
+    bundle: "/bundle",
+    stateDir: "/state",
+    home: "/home",
+    bind: "0.0.0.0",
+    origins: ["http://lan-a:4000", "https://box.example"]
+  })
+  expect(text).toContain("<string>--bind</string>")
+  expect(text).toContain("<string>0.0.0.0</string>")
+  expect(text).toContain("<string>http://lan-a:4000</string>")
+  expect(text).toContain("<string>https://box.example</string>")
+  expect(text.match(/<string>--origin<\/string>/g)).toHaveLength(2)
 })
 
 it("refuses invalid serving flags before host service effects", () => {
- for (const address of [
-  {bind:"invalid"}, {bind:"0.0.0.0:4001"},
-  {origins:["/relative"]}, {origins:["http://box?"]}, {origins:["http://box#"]}, {origins:["ftp://box"]}, {origins:["http://box/path"]},
-  {origins:["http://box", "https://box"]},
-  {origins:["https://localhost:4000"]}, {origins:["https://127.0.0.1:4000"]}, {origins:["https://[::1]:4000"]}
- ]) expect(() => Host.validateAddress(address)).toThrow();
- expect(() => Host.validateAddress({bind:"0.0.0.0",origins:["http://lan-a:4000", "https://box.example"]})).not.toThrow();
- expect(() => Host.validateAddress({bind:"[::]:4000"})).not.toThrow();
+  for (
+    const address of [
+      { bind: "invalid" },
+      { bind: "0.0.0.0:4001" },
+      { origins: ["/relative"] },
+      { origins: ["http://box?"] },
+      { origins: ["http://box#"] },
+      { origins: ["ftp://box"] },
+      { origins: ["http://box/path"] },
+      { origins: ["http://box", "https://box"] },
+      { origins: ["https://localhost:4000"] },
+      { origins: ["https://127.0.0.1:4000"] },
+      { origins: ["https://[::1]:4000"] }
+    ]
+  ) expect(() => Host.validateAddress(address)).toThrow()
+  expect(() => Host.validateAddress({ bind: "0.0.0.0", origins: ["http://lan-a:4000", "https://box.example"] })).not
+    .toThrow()
+  expect(() => Host.validateAddress({ bind: "[::]:4000" })).not.toThrow()
 })
 
-
 describe("install telemetry over HTTP", () => {
-  it.each([200, 401, 404, 503])("probes GET /api/install with HTTP %s and omits unavailable telemetry", async (code) => {
-    const server = createServer((req, res) => {
-      expect(req.method).toBe("GET"); expect(req.url).toBe("/api/install"); expect(req.headers.authorization).toBe("Bearer fixture-person")
-      res.writeHead(code, { "Content-Type": "application/json" })
-      res.end(JSON.stringify({ capacity: 2, this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3, limit: { fix: "private" } }, github_app: { configured: true, installed: false, install_url: "secret" }, setup_urls: ["secret"] }))
-    })
-    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done))
-    try {
-      const address = server.address() as { port: number }
-      expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual(code === 200 ? {
-        capacity: 2, this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3 }, github_app: { configured: true, installed: false }
-      } : undefined)
-    } finally { await new Promise<void>((done) => server.close(() => done())) }
-  })
+  it.each([200, 401, 404, 503])(
+    "probes GET /api/install with HTTP %s and omits unavailable telemetry",
+    async (code) => {
+      const server = createServer((req, res) => {
+        expect(req.method).toBe("GET")
+        expect(req.url).toBe("/api/install")
+        expect(req.headers.authorization).toBe("Bearer fixture-person")
+        res.writeHead(code, { "Content-Type": "application/json" })
+        res.end(
+          JSON.stringify({
+            capacity: 2,
+            this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3, limit: { fix: "private" } },
+            github_app: { configured: true, installed: false, install_url: "secret" },
+            setup_urls: ["secret"]
+          })
+        )
+      })
+      await new Promise<void>((done) => server.listen(0, "127.0.0.1", done))
+      try {
+        const address = server.address() as { port: number }
+        expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual(
+          code === 200 ?
+            {
+              capacity: 2,
+              this_mac: { memory_gb: 32, perf_cores: 10, capacity: 3 },
+              github_app: { configured: true, installed: false }
+            } :
+            undefined
+        )
+      } finally {
+        await new Promise<void>((done) => server.close(() => done()))
+      }
+    }
+  )
   it.each([
     ["memory", "needs 14 GiB of memory"],
     ["cores", "needs 2 performance cores"],
@@ -405,13 +501,24 @@ describe("install telemetry over HTTP", () => {
     const server = createServer((req, res) => {
       expect(req.headers.authorization).toBe("Bearer fixture-person")
       res.writeHead(200, { "Content-Type": "application/json" })
-      res.end(JSON.stringify({ capacity: 0, this_mac: { capacity: 0, limit: { term, fix, secret: "omitted" } }, setup_urls: ["secret"] }))
+      res.end(
+        JSON.stringify({
+          capacity: 0,
+          this_mac: { capacity: 0, limit: { term, fix, secret: "omitted" } },
+          setup_urls: ["secret"]
+        })
+      )
     })
-    await new Promise<void>(done => server.listen(0, "127.0.0.1", done))
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done))
     try {
       const address = server.address() as { port: number }
-      expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual({ capacity: 0, this_mac: { capacity: 0, limit: { term, fix } } })
-    } finally { await new Promise<void>(done => server.close(() => done())) }
+      expect(await Host.installTelemetry(`http://127.0.0.1:${address.port}/api/install`, "fixture-person")).toEqual({
+        capacity: 0,
+        this_mac: { capacity: 0, limit: { term, fix } }
+      })
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()))
+    }
   })
   it("omits malformed and unreachable telemetry", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("invalid"))

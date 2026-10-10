@@ -510,4 +510,4 @@ export const projectResult = (
  * @since 1.0.0-rc.1
  */
 export { decodeClaude, decodeCodex } from "./ExternalTranscript.ts"
-export type { Entry as ExternalEntry, Decoded as ExternalDecoded } from "./ExternalTranscript.ts"
+export type { Decoded as ExternalDecoded, Entry as ExternalEntry } from "./ExternalTranscript.ts"

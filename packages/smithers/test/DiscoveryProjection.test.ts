@@ -6,7 +6,13 @@ it("keeps the person-only API playground outside CLI discovery", async () => {
   const cli = makeCli({ environment: {} }, { humanHelp: true })
   const capture = async (args: string[]) => {
     let output = ""
-    await cli.serve(args, { env: {}, stdout: text => { output += text }, exit: code => expect(code).toBe(0) })
+    await cli.serve(args, {
+      env: {},
+      stdout: (text) => {
+        output += text
+      },
+      exit: (code) => expect(code).toBe(0)
+    })
     return output
   }
   expect(await capture(["--help"])).not.toMatch(/^\s+debug\s{2,}/m)
@@ -18,7 +24,20 @@ it("keeps the person-only API playground outside CLI discovery", async () => {
     expect(names).toContain(kept)
   }
   // B.6 (including its no-agent approval rule): future/library commands are opt-in.
-  for (const absent of ["debug api", "build", "serve", "environment list", "flow list", "runs continue", "runs stop", "admin health", "workspace children", "approvals approve"]) {
+  for (
+    const absent of [
+      "debug api",
+      "build",
+      "serve",
+      "environment list",
+      "flow list",
+      "runs continue",
+      "runs stop",
+      "admin health",
+      "workspace children",
+      "approvals approve"
+    ]
+  ) {
     expect(paths).not.toContain(absent)
     expect(names).not.toContain(absent)
   }

@@ -1182,73 +1182,77 @@ export const layerMemory = (options: MemoryOptions = {}): Layer.Layer<ControlRun
             }
           }
         ),
-        launch: Effect.fn("ControlRuntime.launch")(function*(planId, requestedDigest, envelope, principal, reservedRunId) {
-          const plan = yield* Effect.fromOption(
-            Option.fromNullishOr(plans.get(planId)),
-            () => new PlanNotFound({ planId })
-          )
-          if (plan.card.digest !== requestedDigest) {
-            return yield* new PlanDigestMismatch({
-              planId,
-              expected: plan.card.digest,
-              actual: requestedDigest
-            })
-          }
-          if (!sameEnvelope(plan.card.envelope, envelope)) {
-            return yield* new EnvelopeMismatch({
-              planId,
-              expected: canonical(plan.card.envelope),
-              actual: canonical(envelope)
-            })
-          }
-          if (plan.decision === "pending") {
-            return {
-              _tag: "Parked",
-              receipt: {
-                _tag: "Parked",
-                receiptId: `launch:${planId}`,
+        launch: Effect.fn("ControlRuntime.launch")(
+          function*(planId, requestedDigest, envelope, principal, reservedRunId) {
+            const plan = yield* Effect.fromOption(
+              Option.fromNullishOr(plans.get(planId)),
+              () => new PlanNotFound({ planId })
+            )
+            if (plan.card.digest !== requestedDigest) {
+              return yield* new PlanDigestMismatch({
                 planId,
-                status: "waiting-approval"
+                expected: plan.card.digest,
+                actual: requestedDigest
+              })
+            }
+            if (!sameEnvelope(plan.card.envelope, envelope)) {
+              return yield* new EnvelopeMismatch({
+                planId,
+                expected: canonical(plan.card.envelope),
+                actual: canonical(envelope)
+              })
+            }
+            if (plan.decision === "pending") {
+              return {
+                _tag: "Parked",
+                receipt: {
+                  _tag: "Parked",
+                  receiptId: `launch:${planId}`,
+                  planId,
+                  status: "waiting-approval"
+                }
               }
             }
+            if (plan.decision !== "approved") {
+              return yield* new PlanDenied({ planId })
+            }
+            const sequence = ++runSequence
+            const runId = reservedRunId ?? `run-${sequence}`
+            if (runs.has(runId)) {
+              return yield* new PersistenceError({ operation: "reserve a run", message: "Run identity already exists" })
+            }
+            const fence = `fence-${++fenceSequence}`
+            const timestamp = now()
+            const summary: RunSummary = {
+              runId,
+              flowId: plan.card.flowId,
+              status: "accepted",
+              planId,
+              planDigest: plan.card.digest,
+              ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
+              ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
+              ownerId: "memory-owner",
+              ...(principal === undefined ? {} : { launchedBy: { id: principal.id, kind: principal.kind } }),
+              ...(plan.card.envelope.budget.deadline === undefined
+                ? {}
+                : { deadlineAt: timestamp + plan.card.envelope.budget.deadline }),
+              createdAt: timestamp,
+              updatedAt: timestamp
+            }
+            runs.set(runId, {
+              summary: snapshot(summary),
+              fence,
+              localFence: fence,
+              sequence: runSequence,
+              signals: []
+            })
+            return {
+              _tag: "Started",
+              receipt: accepted(`launch:${planId}:${runId}`, runId),
+              run: snapshot(summary)
+            }
           }
-          if (plan.decision !== "approved") {
-            return yield* new PlanDenied({ planId })
-          }
-          const sequence = ++runSequence
-          const runId = reservedRunId ?? `run-${sequence}`
-          if (runs.has(runId)) return yield* new PersistenceError({ operation: "reserve a run", message: "Run identity already exists" })
-          const fence = `fence-${++fenceSequence}`
-          const timestamp = now()
-          const summary: RunSummary = {
-            runId,
-            flowId: plan.card.flowId,
-            status: "accepted",
-            planId,
-            planDigest: plan.card.digest,
-            ...(plan.card.executionDigest === undefined ? {} : { executionDigest: plan.card.executionDigest }),
-            ...(options.engineVersion === undefined ? {} : { engineVersion: options.engineVersion }),
-            ownerId: "memory-owner",
-            ...(principal === undefined ? {} : { launchedBy: { id: principal.id, kind: principal.kind } }),
-            ...(plan.card.envelope.budget.deadline === undefined
-              ? {}
-              : { deadlineAt: timestamp + plan.card.envelope.budget.deadline }),
-            createdAt: timestamp,
-            updatedAt: timestamp
-          }
-          runs.set(runId, {
-            summary: snapshot(summary),
-            fence,
-            localFence: fence,
-            sequence: runSequence,
-            signals: []
-          })
-          return {
-            _tag: "Started",
-            receipt: accepted(`launch:${planId}:${runId}`, runId),
-            run: snapshot(summary)
-          }
-        }),
+        ),
         getRun: Effect.fn("ControlRuntime.getRun")((runId) =>
           Effect.map(requireRun(runId), (run) => snapshot(run.summary))
         ),

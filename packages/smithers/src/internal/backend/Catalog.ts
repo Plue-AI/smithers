@@ -5,19 +5,19 @@
  */
 
 import { Cli, z } from "incur"
-import { isIP } from "node:net"
-import { spawn } from "./Process.ts"
 import { randomUUID } from "node:crypto"
+import { isIP } from "node:net"
 import { catalogDescriptors } from "../../Catalog.ts"
 import { catalogRequest } from "../../CatalogRequest.ts"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
 import * as Failure from "../Failure.ts"
-import { draftFromIssue } from "./IssueDraft.ts"
 import { Client, list, object } from "./Client.ts"
-import { targetsInstall } from "./Destination.ts"
 import { definitions } from "./Definitions.ts"
+import { targetsInstall } from "./Destination.ts"
+import { draftFromIssue } from "./IssueDraft.ts"
+import { spawn } from "./Process.ts"
 
 /**
  * Generated operations with a CLI door and external-agent policy.
@@ -56,19 +56,38 @@ const httpPayloadSchema = (row: typeof catalogCommands[number]): Record<string, 
   const schema = row.payload.schema as Record<string, any>
   if (!schema.anyOf) return schema
   const binding = row.client?.http ?? row.http
-  const keys = [...Array.from(binding?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!), ...Object.values(binding?.body ?? {}), ...Object.values(binding?.query ?? {})]
-  const hasValue = (field: Record<string, any>): boolean => field.not === undefined && (field.anyOf === undefined || field.anyOf.some((member: Record<string, any>) => member.type !== "null" && member.not === undefined))
-  const variants = schema.anyOf.filter((variant: Record<string, any>) => variant.type === "object" && (binding != null || variant.properties?.operation === undefined || !hasValue(variant.properties.operation)) && keys.every(key => variant.properties?.[key] && hasValue(variant.properties[key])))
+  const keys = [
+    ...Array.from(binding?.path.matchAll(/\{([^}]+)\}/g) ?? [], (match) => match[1]!),
+    ...Object.values(binding?.body ?? {}),
+    ...Object.values(binding?.query ?? {})
+  ]
+  const hasValue = (field: Record<string, any>): boolean =>
+    field.not === undefined &&
+    (field.anyOf === undefined ||
+      field.anyOf.some((member: Record<string, any>) => member.type !== "null" && member.not === undefined))
+  const variants = schema.anyOf.filter((variant: Record<string, any>) =>
+    variant.type === "object" &&
+    (binding != null || variant.properties?.operation === undefined || !hasValue(variant.properties.operation)) &&
+    keys.every((key) => variant.properties?.[key] && hasValue(variant.properties[key]))
+  )
   if (variants.length !== 1) throw new UsageError({ message: "This HTTP door has no unique payload variant" })
   const variant = variants[0]
-  return { ...variant, properties: Object.fromEntries(Object.entries(variant.properties).filter(([, field]) => hasValue(field as Record<string, any>))) }
+  return {
+    ...variant,
+    properties: Object.fromEntries(
+      Object.entries(variant.properties).filter(([, field]) => hasValue(field as Record<string, any>))
+    )
+  }
 }
 
 /** An explicit GET query projection also limits this door's accepted payload fields. */
 const httpInputFields = (row: typeof catalogCommands[number]): ReadonlySet<string> | undefined => {
   const binding = row.client?.http ?? row.http
   return binding?.method === "GET" && binding.query !== undefined
-    ? new Set([...Array.from(binding.path.matchAll(/\{([^}]+)\}/g), match => match[1]!), ...Object.values(binding.query)])
+    ? new Set([
+      ...Array.from(binding.path.matchAll(/\{([^}]+)\}/g), (match) => match[1]!),
+      ...Object.values(binding.query)
+    ])
     : undefined
 }
 
@@ -89,16 +108,19 @@ export const dispatchCatalog = async (
   const supplied: Record<string, unknown> = {
     ...values,
     ...(row.name === "todo.answer" && values.todo !== undefined
-      ? { n: Number(String(values.todo).replace(/^T/, "")) } : {})
+      ? { n: Number(String(values.todo).replace(/^T/, "")) } :
+      {})
   }
   if (row.http === null && row.client === undefined) {
     throw new Refused({ fault: "infra", code: "not_available", message: "Not available yet" })
   }
-  const variantFields = (row.payload.schema as Record<string, any>).anyOf?.flatMap((variant: Record<string, any>) => Object.keys(variant.properties ?? {})) as string[] | undefined
-  const otherVariant = variantFields?.find(key => supplied[key] !== undefined && !(key in fields))
+  const variantFields = (row.payload.schema as Record<string, any>).anyOf?.flatMap((variant: Record<string, any>) =>
+    Object.keys(variant.properties ?? {})
+  ) as string[] | undefined
+  const otherVariant = variantFields?.find((key) => supplied[key] !== undefined && !(key in fields))
   if (otherVariant) throw new UsageError({ message: `This HTTP door does not accept ${otherVariant}` })
   const exposed = httpInputFields(row)
-  const unsupported = exposed && Object.keys(fields).find(key => supplied[key] !== undefined && !exposed.has(key))
+  const unsupported = exposed && Object.keys(fields).find((key) => supplied[key] !== undefined && !exposed.has(key))
   if (unsupported) throw new UsageError({ message: `This HTTP door does not accept ${unsupported}` })
   const input = Object.fromEntries(
     Object.keys(fields).filter((key) => supplied[key] !== undefined).map((key) => [key, supplied[key]])
@@ -110,7 +132,9 @@ export const dispatchCatalog = async (
     throw new UsageError({ message: "An answer is required" })
   }
   const requestId = typeof payload.idempotencyKey === "string" ? payload.idempotencyKey : randomUUID()
-  const prepared = row.client?.kind === "issue-draft" ? await draftFromIssue(client, payload, client.runtime.signal) : payload
+  const prepared = row.client?.kind === "issue-draft"
+    ? await draftFromIssue(client, payload, client.runtime.signal)
+    : payload
   let request: ReturnType<typeof catalogRequest>
   try {
     request = catalogRequest({ http: row.client?.http ?? row.http }, prepared)
@@ -149,13 +173,17 @@ export const dispatchCatalog = async (
   if (row.name === "ssh") {
     const endpoint = object(result)
     const host = endpoint.host, branch = endpoint.branch
-    if (typeof host !== "string" || !(isIP(host) || /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(host)) ||
+    if (
+      typeof host !== "string" || !(isIP(host) || /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(host)) ||
       typeof branch !== "string" || !/^(?:smithers\/|scratch\/[a-z0-9_-]+\/)?[a-z0-9_-]+$/.test(branch) ||
-      ["main", "root", "developer"].includes(branch) || endpoint.port !== 2222) {
+      ["main", "root", "developer"].includes(branch) || endpoint.port !== 2222
+    ) {
       throw new Refused({ fault: "infra", code: "invalid_ssh_endpoint", message: "Invalid SSH address" })
     }
     const child = spawn("ssh", ["-p", "2222", "-l", branch, host], {
-      env: client.env, stdio: "inherit", signal: client.runtime.signal
+      env: client.env,
+      stdio: "inherit",
+      signal: client.runtime.signal
     })
     const code = await child.exited
     client.runtime.exit?.(code)
@@ -206,7 +234,13 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
         entry = entry && "run" in entry ? { ...mounted, root: entry } : mounted
         parent.set(word, entry)
       }
-      if (!("_group" in entry)) throw new Refused({ fault: "bug", code: "catalog_group_conflict", message: `Cannot mount catalog group ${word}` })
+      if (!("_group" in entry)) {
+        throw new Refused({
+          fault: "bug",
+          code: "catalog_group_conflict",
+          message: `Cannot mount catalog group ${word}`
+        })
+      }
       parent = entry.commands
     }
     const existing = parent.get(leaf)
@@ -214,8 +248,16 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     // A group may still need a catalog root without losing its local children.
     const local = existing && "_group" in existing ? existing.root : existing
     const schema = httpPayloadSchema(row)
-    const fields: Record<string, any> = schema.properties ?? {}, required = new Set([...(schema.required ?? []), ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], match => match[1]!).filter(key => row.http?.defaults?.[key] === undefined)])
-    const positional = row.name === "ssh" ? "branch" : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
+    const fields: Record<string, any> = schema.properties ?? {},
+      required = new Set([
+        ...(schema.required ?? []),
+        ...Array.from(row.http?.path.matchAll(/\{([^}]+)\}/g) ?? [], (match) => match[1]!).filter((key) =>
+          row.http?.defaults?.[key] === undefined
+        )
+      ])
+    const positional = row.name === "ssh"
+      ? "branch"
+      : ["n", "id", "number", "name", "path", "workflow"].find((key) => required.has(key))
     const positionalKeys = new Set([
       positional,
       ...(positional === "n" ? ["answer", "text", "direction"].filter((key) => required.has(key)) : [])
@@ -239,8 +281,16 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
     const command = Cli.create("root").command(leaf, {
       description: `${row.summary}${row.agent === "confirm" ? "; waits for the person's confirmation" : ""}`,
       mcp: row.agent === "never" ? false : { annotations: { readOnlyHint: row.http?.method === "GET" } },
-      args: row.name === "todo.answer" ? definitions["todo answer"].args : local && "run" in local ? local.args ?? z.object(args) : z.object(args),
-      options: row.name === "todo.answer" ? definitions["todo answer"].options : local && "run" in local && local.options ? local.options.partial().extend(options) : z.object(options),
+      args: row.name === "todo.answer"
+        ? definitions["todo answer"].args
+        : local && "run" in local
+        ? local.args ?? z.object(args)
+        : z.object(args),
+      options: row.name === "todo.answer"
+        ? definitions["todo answer"].options
+        : local && "run" in local && local.options
+        ? local.options.partial().extend(options)
+        : z.object(options),
       run: (context: any) => {
         if (local && "run" in local && !targetsInstall(context, runtime)) {
           return local.run({ ...context, options: local.options?.parse(context.options) ?? context.options })
@@ -250,12 +300,16 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
           try {
             const mapped = { ...context.args }
             if (local && "run" in local) {
-              catalogArgs.forEach((key, index) => { if (localArgs[index]) mapped[key] = context.args[localArgs[index]!] })
+              catalogArgs.forEach((key, index) => {
+                if (localArgs[index]) mapped[key] = context.args[localArgs[index]!]
+              })
             }
             if (row.name === "review" && Array.isArray(mapped.number) && mapped.number.length === 1) {
               mapped.number = mapped.number[0]
             }
-            const parsed = local && "run" in local && row.http && row.name !== "todo.answer" ? z.object(args).parse(mapped) : mapped
+            const parsed = local && "run" in local && row.http && row.name !== "todo.answer"
+              ? z.object(args).parse(mapped)
+              : mapped
             const value = await dispatchCatalog(client, row, { ...parsed, ...context.options })
             return ["md", "yaml", "toon"].includes(context.format) ? Failure.terminalSafeValue(value) : value
           } catch (error) {
@@ -277,6 +331,11 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
       }
     })
     const mounted = Cli.toCommands.get(command)!.get(leaf)!
-    parent.set(leaf, existing && "_group" in existing && "run" in mounted ? { ...existing, description: row.name === "stack" ? row.summary : existing.description, root: mounted } : mounted)
+    parent.set(
+      leaf,
+      existing && "_group" in existing && "run" in mounted
+        ? { ...existing, description: row.name === "stack" ? row.summary : existing.description, root: mounted }
+        : mounted
+    )
   }
 }

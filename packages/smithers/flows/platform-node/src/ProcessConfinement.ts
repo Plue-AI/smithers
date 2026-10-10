@@ -299,14 +299,21 @@ export const make = (options: Options = {}): KernelProcessConfinement.Service =>
     // installed outside its ordinary runtime paths.
     const originalArgv = argvOf(command)
     const launch = ProcessSandbox.launcher(
-      originalArgv[0]!, targetEnvironment.PATH,
+      originalArgv[0]!,
+      targetEnvironment.PATH,
       [...confinement.reads, ...confinement.writes, ...confinement.externalReads],
-      confinement.workspaceRoot, hostFacts
+      confinement.workspaceRoot,
+      hostFacts
     )
     const targetArgv = ["/usr/bin/env", "-i", "/bin/sh", script, launch.program, ...originalArgv.slice(1)]
     const wrapped = yield* Effect.try({
       try: () =>
-        ProcessSandbox.wrap({ ...confinement, externalReads: [...confinement.externalReads, ...launch.reads, script] }, targetArgv, targetEnvironment, hostFacts),
+        ProcessSandbox.wrap(
+          { ...confinement, externalReads: [...confinement.externalReads, ...launch.reads, script] },
+          targetArgv,
+          targetEnvironment,
+          hostFacts
+        ),
       catch: (cause) => failure("Unknown", command, `could not render the confinement: ${messageOf(cause)}`, cause)
     })
     let [executable, ...args] = wrapped.argv

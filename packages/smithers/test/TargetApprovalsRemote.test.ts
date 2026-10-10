@@ -6,9 +6,9 @@
  */
 import { spawn, spawnSync } from "node:child_process"
 import { mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { type AddressInfo, createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createServer, type AddressInfo } from "node:net"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import * as TargetApprovals from "../src/cli/TargetApprovals.ts"
@@ -24,14 +24,15 @@ afterAll(() => {
 const push = { label: "//images:push", digest: "a".repeat(64) }
 const other = { label: "//images:mirror", digest: "b".repeat(64) }
 
-const freePort = () => new Promise<number>((resolve, reject) => {
-  const probe = createServer()
-  probe.once("error", reject)
-  probe.listen(0, "127.0.0.1", () => {
-    const port = (probe.address() as AddressInfo).port
-    probe.close(error => error ? reject(error) : resolve(port))
+const freePort = () =>
+  new Promise<number>((resolve, reject) => {
+    const probe = createServer()
+    probe.once("error", reject)
+    probe.listen(0, "127.0.0.1", () => {
+      const port = (probe.address() as AddressInfo).port
+      probe.close((error) => error ? reject(error) : resolve(port))
+    })
   })
-})
 
 /** A served workspace: its base URL, the operator token it printed, and a hard kill. */
 const serve = async (cwd: string, port: number) => {

@@ -46,14 +46,14 @@ import * as Read from "@smthrs/std/Read"
 import * as Schema from "effect/Schema"
 
 /** A step that reads a file. It declares what `read` declares. */
-export const ReadTarget = ({
+export const ReadTarget = {
   name: "read-target",
   input: Schema.Struct({ path: Schema.String }),
   output: Read.Output,
   capabilities: Read.capabilities,
   effects: Read.effects,
   flows: [Read.flow]
-})
+}
 ```
 
 A planner reading `ReadTarget` can see that the step reads and does not write,

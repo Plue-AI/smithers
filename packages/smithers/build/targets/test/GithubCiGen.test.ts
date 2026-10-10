@@ -14,7 +14,6 @@ import { tmpdir } from "node:os"
 import * as NodePath from "node:path"
 import { describe, expect, it } from "vitest"
 import * as Yaml from "yaml"
-import * as Input from "../src/Input.ts"
 import * as CiToolchain from "../src/CiToolchain.ts"
 import {
   actionlintImages,
@@ -33,6 +32,7 @@ import {
   toolchainSteps
 } from "../src/GithubCiGen.ts"
 import { parseWorkflow as parseStrictWorkflow } from "../src/GithubWorkflow.ts"
+import * as Input from "../src/Input.ts"
 import * as RustToolchain from "../src/RustToolchain.ts"
 import { Secret } from "../src/Secret.ts"
 import * as Target from "../src/Target.ts"
@@ -556,7 +556,9 @@ describe("render", () => {
     const text = render(attrsOf({ ...goldenAttrs, results: true }))
     const workflow = parseWorkflow(text)
     for (const job of workflow.jobs) {
-      const commands = job.steps.map((step) => step.run ?? "").filter((command) => command.startsWith("pnpm exec smthrs"))
+      const commands = job.steps.map((step) => step.run ?? "").filter((command) =>
+        command.startsWith("pnpm exec smthrs")
+      )
       for (const command of commands) {
         expect(command).toMatch(/ --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION\.json" --verbose$/)
       }
@@ -569,7 +571,11 @@ describe("render", () => {
       expect(upload.condition).toBe("always()")
       expect(upload.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/)
       // Non-matrix jobs get a literal 0: strategy.job-index is only defined under a matrix.
-      expect(text).toMatch(new RegExp(`smthrs-results-${job.id}-(0|\\$\\{\\{ strategy\\.job-index \\}\\})-\\$\\{\\{ github\\.run_attempt \\}\\}`))
+      expect(text).toMatch(
+        new RegExp(
+          `smthrs-results-${job.id}-(0|\\$\\{\\{ strategy\\.job-index \\}\\})-\\$\\{\\{ github\\.run_attempt \\}\\}`
+        )
+      )
     }
     expect(text).toContain("${{ runner.temp }}/smthrs-results")
   })
@@ -1926,42 +1932,93 @@ describe("main-pinned Ubuntu setup", () => {
 
 describe("trusted reusable drift boundary", () => {
   const revision = "0123456789abcdef0123456789abcdef01234567"
-  const drift: Job = { id: "drift", runsOn: "ubuntu-latest", toolchain: CiToolchain.Needs({ install: true }), steps: [{ verb: Verb.Lint, pattern: "//:targetIndex" }] }
+  const drift: Job = {
+    id: "drift",
+    runsOn: "ubuntu-latest",
+    toolchain: CiToolchain.Needs({ install: true }),
+    steps: [{ verb: Verb.Lint, pattern: "//:targetIndex" }]
+  }
   it("keeps the root job in an immutable callee with no caller environment or inputs", () => {
-    const attrs: Attrs = attrsOf({ ...goldenAttrs, jobs: [drift], gates: [], requiredJobs: ["drift"], trustedWorkflowRevision: revision })
+    const attrs: Attrs = attrsOf({
+      ...goldenAttrs,
+      jobs: [drift],
+      gates: [],
+      requiredJobs: ["drift"],
+      trustedWorkflowRevision: revision
+    })
     const workflow = Yaml.parse(render(attrs))
-    expect(workflow.jobs['trusted-drift']).toEqual({ uses: 'smithersai/smithers/.github/workflows/trusted-drift.yml@0123456789abcdef0123456789abcdef01234567' })
+    expect(workflow.jobs["trusted-drift"]).toEqual({
+      uses: "smithersai/smithers/.github/workflows/trusted-drift.yml@0123456789abcdef0123456789abcdef01234567"
+    })
     expect(workflow.jobs.drift.name).toBe("Per-commit drift")
     expect(workflow.jobs.drift.needs).toBe("trusted-drift")
     expect(workflow.jobs.drift.if).toBe("${{ always() }}")
-    expect(workflow.jobs.drift.steps).toEqual([{ name: "Trusted drift result", run: "test '${{ needs.trusted-drift.result }}' = 'success'", shell: "bash" }])
+    expect(workflow.jobs.drift.steps).toEqual([{
+      name: "Trusted drift result",
+      run: "test '${{ needs.trusted-drift.result }}' = 'success'",
+      shell: "bash"
+    }])
   })
   it("checks out the caller revision only after trusted setup, with separate non-cancelling concurrency", () => {
-    const attrs: Attrs = attrsOf({ ...goldenAttrs, pushBranches: [], pullRequest: false, workflowDispatch: false, workflowCall: true,
-      concurrency: "commit", jobs: [{ ...drift, trustedSetupRevision: revision }], gates: [], requiredJobs: ["drift"] })
+    const attrs: Attrs = attrsOf({
+      ...goldenAttrs,
+      pushBranches: [],
+      pullRequest: false,
+      workflowDispatch: false,
+      workflowCall: true,
+      concurrency: "commit",
+      jobs: [{ ...drift, trustedSetupRevision: revision }],
+      gates: [],
+      requiredJobs: ["drift"]
+    })
     const workflow = Yaml.parse(render(attrs))
     expect(workflow.on).toEqual({ workflow_call: null })
-    expect(workflow.concurrency).toEqual({ group: "trusted-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}", "cancel-in-progress": false })
-    expect(workflow.jobs.drift.steps[0].uses).toBe("smithersai/smithers/.github/actions/trusted-ci-setup@0123456789abcdef0123456789abcdef01234567")
-    expect(workflow.jobs.drift.steps[1].with).toEqual({ ref: "${{ github.event.pull_request.head.sha || github.sha }}", "persist-credentials": "false" })
+    expect(workflow.concurrency).toEqual({
+      group: "trusted-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.sha }}",
+      "cancel-in-progress": false
+    })
+    expect(workflow.jobs.drift.steps[0].uses).toBe(
+      "smithersai/smithers/.github/actions/trusted-ci-setup@0123456789abcdef0123456789abcdef01234567"
+    )
+    expect(workflow.jobs.drift.steps[1].with).toEqual({
+      ref: "${{ github.event.pull_request.head.sha || github.sha }}",
+      "persist-credentials": "false"
+    })
     expect(() => render({ ...attrs, workflowDispatch: true })).toThrow(/call-only/)
     expect(() => render({ ...attrs, workflowCall: false, workflowDispatch: true })).toThrow(/main-pinned call-only/)
   })
   it("refuses legacy privileged setup after branch checkout", () => {
-    const attrs: Attrs = attrsOf({ ...goldenAttrs, pushBranches: [], pullRequest: false, workflowDispatch: false, workflowCall: true,
-      concurrency: "commit", jobs: [{ ...drift, trustedSetupRevision: revision }], gates: [], requiredJobs: ["drift"] })
+    const attrs: Attrs = attrsOf({
+      ...goldenAttrs,
+      pushBranches: [],
+      pullRequest: false,
+      workflowDispatch: false,
+      workflowCall: true,
+      concurrency: "commit",
+      jobs: [{ ...drift, trustedSetupRevision: revision }],
+      gates: [],
+      requiredJobs: ["drift"]
+    })
     for (const key of ["apt", "docker", "postgres", "nix"] as const) {
       const job = { ...drift, trustedSetupRevision: revision, toolchain: { ...drift.toolchain, [key]: {} } }
       expect(() => render({ ...attrs, jobs: [job] } as Attrs)).toThrow(/privileged setup after branch checkout/)
     }
   })
   it("refuses branch refs, credentials, extra jobs, and nested setup in the caller", () => {
-    const attrs: Attrs = attrsOf({ ...goldenAttrs, jobs: [drift], gates: [], requiredJobs: ["drift"], trustedWorkflowRevision: revision })
+    const attrs: Attrs = attrsOf({
+      ...goldenAttrs,
+      jobs: [drift],
+      gates: [],
+      requiredJobs: ["drift"],
+      trustedWorkflowRevision: revision
+    })
     for (const pin of ["main", "", "A".repeat(40), "a".repeat(39)]) {
       expect(() => render({ ...attrs, trustedWorkflowRevision: pin })).toThrow(/trusted drift caller/)
     }
     expect(() => render({ ...attrs, results: true })).toThrow(/trusted drift caller/)
     expect(() => render({ ...attrs, jobs: [drift, { ...drift, id: "other" }] })).toThrow(/trusted drift caller/)
-    expect(() => render({ ...attrs, jobs: [{ ...drift, trustedSetupRevision: revision }] })).toThrow(/main-pinned call-only/)
+    expect(() => render({ ...attrs, jobs: [{ ...drift, trustedSetupRevision: revision }] })).toThrow(
+      /main-pinned call-only/
+    )
   })
 })

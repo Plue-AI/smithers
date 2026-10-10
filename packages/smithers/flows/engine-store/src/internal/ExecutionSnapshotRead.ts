@@ -287,12 +287,14 @@ export const coherentBatch = (runIds: ReadonlyArray<string>, batch: Batch): Effe
       row.revision > batch.revision
     )
   ) {
-    return Effect.fail(new RunStoreError({
-      method: "ExecutionSnapshot.read",
-      code: "persistence_failed",
-      message: "stored execution batch is incoherent: source, identity, order or revision mismatch",
-      cause: undefined
-    }))
+    return Effect.fail(
+      new RunStoreError({
+        method: "ExecutionSnapshot.read",
+        code: "persistence_failed",
+        message: "stored execution batch is incoherent: source, identity, order or revision mismatch",
+        cause: undefined
+      })
+    )
   }
   return Effect.succeed(batch)
 }

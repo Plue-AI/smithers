@@ -29,7 +29,9 @@ export type LiveReply = z.infer<typeof LiveReplySchema>
 export class LiveFrameRefused extends Error {
   readonly _tag = "LiveFrameRefused"
   readonly code = "not_reserved"
-  constructor() { super("Not a reserved frame") }
+  constructor() {
+    super("Not a reserved frame")
+  }
 }
 /** @since 1.0.0 */
 export function decodeLiveReserved(raw: unknown): LiveReply {

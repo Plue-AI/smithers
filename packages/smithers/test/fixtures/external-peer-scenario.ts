@@ -36,15 +36,18 @@ const stopWithoutDatabaseLock = async (root: string, owner: ReturnType<typeof sp
         locked = true
         return true
       } catch (error) {
-        if (error !== null && typeof error === "object" && "errcode" in error &&
-          typeof error.errcode === "number" && (error.errcode & 0xff) === 5) return false
+        if (
+          error !== null && typeof error === "object" && "errcode" in error &&
+          typeof error.errcode === "number" && (error.errcode & 0xff) === 5
+        ) return false
         throw error
       }
     }, "database idle before owner stop")
     assert.equal(owner.kill("SIGSTOP"), true)
-    await poll(() => execFileSync("/bin/ps", ["-o", "state=", "-p", String(owner.pid)], {
-      encoding: "utf8"
-    }).trim().startsWith("T"), "owner stopped without a database lock")
+    await poll(() =>
+      execFileSync("/bin/ps", ["-o", "state=", "-p", String(owner.pid)], {
+        encoding: "utf8"
+      }).trim().startsWith("T"), "owner stopped without a database lock")
   } finally {
     try {
       if (locked) barrier.exec("ROLLBACK")
@@ -348,7 +351,8 @@ if (
           // work or conceal other persistence failures.
           yield* control.list({ _tag: "runs", filters: { runId } }).pipe(Effect.retry({
             schedule: Schedule.spaced("100 millis").pipe(Schedule.upTo({ times: 300 })),
-            while: error => (mode === "stall" || mode === "detached-stall") &&
+            while: (error) =>
+              (mode === "stall" || mode === "detached-stall") &&
               error instanceof PersistenceError && error.cause instanceof DurableWriter.DatabaseError &&
               error.cause.code === "busy"
           }))

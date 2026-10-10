@@ -79,8 +79,16 @@ describe.skipIf(process.platform === "win32")("migrated scripts through the publ
   it.each([
     { old: "smithers up simple-workflow.jsx --input \"$INPUT\"", detached: false, invalid: false },
     { old: "bunx smthrs up .smithers/workflows/simple-workflow.tsx --input='{}' -d", detached: true, invalid: true },
-    { old: "smithers workflow run simple-workflow.jsx -d '{\"topic\":\"legacy data alias\"}'", detached: false, invalid: false },
-    { old: 'bunx smthrs up .smithers/workflows/simple-workflow.tsx --input "$INPUT" -d', detached: true, invalid: false }
+    {
+      old: "smithers workflow run simple-workflow.jsx -d '{\"topic\":\"legacy data alias\"}'",
+      detached: false,
+      invalid: false
+    },
+    {
+      old: "bunx smthrs up .smithers/workflows/simple-workflow.tsx --input \"$INPUT\" -d",
+      detached: true,
+      invalid: false
+    }
   ])("admits the right flow/input and execution mode for $old", async ({ detached, invalid, old }) => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "smithers-migrated-cli-")))
     roots.push(root)
@@ -112,7 +120,7 @@ describe.skipIf(process.platform === "win32")("migrated scripts through the publ
       expect(receipt.runId).toMatch(/^run-/)
       if (!detached) {
         expect(receipt).toMatchObject({ _tag: "Accepted", status: "failed" })
-        expect(receipt.cause).toContain('Action "simple-workflow/Research" has no implementation')
+        expect(receipt.cause).toContain("Action \"simple-workflow/Research\" has no implementation")
       }
       expect(receipt.detached === true).toBe(detached)
       if (detached) expect(receipt.logFile).toBe(join(root, ".flows", "logs", `${receipt.runId}.log`))

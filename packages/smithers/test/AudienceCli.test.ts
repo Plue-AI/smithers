@@ -53,7 +53,7 @@ describe("audience-aware public CLI", { timeout: 90_000 }, () => {
     const commands = JSON.parse(manifest.stdout).commands as Array<{ name: string }>
     for (const group of ["tui", "triggers", "org"]) {
       expect(help.stdout).not.toMatch(new RegExp(`^\\s+${group}\\s`, "m"))
-      expect(commands.some(command => command.name === group || command.name.startsWith(group + " "))).toBe(false)
+      expect(commands.some((command) => command.name === group || command.name.startsWith(group + " "))).toBe(false)
       const explicit = await invoke([group, "--help"], {})
       expect(explicit.code, explicit.stdout + explicit.stderr).toBe(0)
       expect(explicit.stdout).toContain(group)

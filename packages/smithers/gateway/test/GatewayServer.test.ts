@@ -42,11 +42,11 @@ import { createServer } from "node:http"
 import { connect } from "node:net"
 import { compileFunction } from "node:vm"
 import { GatewayError, GatewayErrorCode, type GatewayErrorCode as GatewayErrorCodeValue } from "../src/GatewayError.ts"
-import { traceFromJournal } from "../src/RunTrace.ts"
 import { GatewayRpcs } from "../src/GatewayRpcs.ts"
 import * as GatewayServer from "../src/GatewayServer.ts"
 import * as NodeGateway from "../src/node/NodeGateway.ts"
 import { make as makeProjections, maxProjectionBytes, Projections } from "../src/Projections.ts"
+import { traceFromJournal } from "../src/RunTrace.ts"
 import { defaultCadenceStack, emit, stack } from "./GatewayStack.ts"
 
 const health: GatewayServer.Health = {
@@ -1328,86 +1328,231 @@ describe("the assembled gateway over a real loopback bind", () => {
       const card = yield* control.plan({ flowId: "system/test", input: {} })
       yield* control.approve(approvalOf(card))
       const receipt = yield* control.run({
-        _tag: "Plan", planId: card.planId, digest: card.digest, envelope: card.envelope,
+        _tag: "Plan",
+        planId: card.planId,
+        digest: card.digest,
+        envelope: card.envelope,
         idempotencyKey: `monitor:${card.planId}`
       })
       if (receipt._tag !== "Accepted" || receipt.runId === undefined) return yield* Effect.die("expected a run")
       const runId = receipt.runId
       const records = [
-        { eventType: "flows.engine.plan-recorded", payload: { flow: "system/test", generation: 0, nodes: 2, graph: { nodes: [
-          { id: "edit", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
-          { id: "boundary", kind: "action", tier: "sealed", dependsOn: ["edit"], action: "<boundary:edited>" },
-          { id: "check", kind: "action", tier: "sealed", dependsOn: ["boundary"], action: "coding/check-command" }
-        ] } } },
-        { eventType: "flows.engine.node-scheduled", payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" } },
-        { eventType: "flows.engine.node-settled", payload: { nodeId: "edit", outcome: "built", attempts: 1,
-          result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true } } },
-        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
-          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
-          event: { _tag: "ClockScheduled", clockId: "clock", waitId: "sleep", dueAtMs: 200 } } },
-        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
-          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
-          event: { _tag: "DeferredCompleted", waitId: "sleep", result: { _tag: "Success", value: null } } } },
-        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
-          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
-          event: { _tag: "Execution", lifecycle: { state: "suspended", waits: [{ _tag: "Deferred", waitId: "signal" }] } } } },
-        { eventType: "flows.engine.v2.state-event", payload: { version: 2, executionId: "native-edit",
-          lineage: { kind: "root", runId: "native-edit", rootRunId: "native-edit", lineageId: "native-edit", round: 0, parentRunId: null },
-          event: { _tag: "DeferredCompleted", waitId: "signal", result: { _tag: "Success", value: "answer" } } } }
+        {
+          eventType: "flows.engine.plan-recorded",
+          payload: {
+            flow: "system/test",
+            generation: 0,
+            nodes: 2,
+            graph: {
+              nodes: [
+                { id: "edit", kind: "action", tier: "sealed", dependsOn: [], action: "coding/edit-atom" },
+                { id: "boundary", kind: "action", tier: "sealed", dependsOn: ["edit"], action: "<boundary:edited>" },
+                { id: "check", kind: "action", tier: "sealed", dependsOn: ["boundary"], action: "coding/check-command" }
+              ]
+            }
+          }
+        },
+        {
+          eventType: "flows.engine.node-scheduled",
+          payload: { nodeId: "edit", kind: "action", attempt: 1, action: "coding/edit-atom" }
+        },
+        {
+          eventType: "flows.engine.node-settled",
+          payload: {
+            nodeId: "edit",
+            outcome: "built",
+            attempts: 1,
+            result: { preview: "globalThis.monitorCanary = true", bytes: 9000, truncated: true }
+          }
+        },
+        {
+          eventType: "flows.engine.v2.state-event",
+          payload: {
+            version: 2,
+            executionId: "native-edit",
+            lineage: {
+              kind: "root",
+              runId: "native-edit",
+              rootRunId: "native-edit",
+              lineageId: "native-edit",
+              round: 0,
+              parentRunId: null
+            },
+            event: { _tag: "ClockScheduled", clockId: "clock", waitId: "sleep", dueAtMs: 200 }
+          }
+        },
+        {
+          eventType: "flows.engine.v2.state-event",
+          payload: {
+            version: 2,
+            executionId: "native-edit",
+            lineage: {
+              kind: "root",
+              runId: "native-edit",
+              rootRunId: "native-edit",
+              lineageId: "native-edit",
+              round: 0,
+              parentRunId: null
+            },
+            event: { _tag: "DeferredCompleted", waitId: "sleep", result: { _tag: "Success", value: null } }
+          }
+        },
+        {
+          eventType: "flows.engine.v2.state-event",
+          payload: {
+            version: 2,
+            executionId: "native-edit",
+            lineage: {
+              kind: "root",
+              runId: "native-edit",
+              rootRunId: "native-edit",
+              lineageId: "native-edit",
+              round: 0,
+              parentRunId: null
+            },
+            event: {
+              _tag: "Execution",
+              lifecycle: { state: "suspended", waits: [{ _tag: "Deferred", waitId: "signal" }] }
+            }
+          }
+        },
+        {
+          eventType: "flows.engine.v2.state-event",
+          payload: {
+            version: 2,
+            executionId: "native-edit",
+            lineage: {
+              kind: "root",
+              runId: "native-edit",
+              rootRunId: "native-edit",
+              lineageId: "native-edit",
+              round: 0,
+              parentRunId: null
+            },
+            event: { _tag: "DeferredCompleted", waitId: "signal", result: { _tag: "Success", value: "answer" } }
+          }
+        }
       ]
-      for (const [index, record] of records.entries()) yield* emit(runId, "control.engine.event", {
-        version: 1, executionId: "native-edit", generation: 0, sequence: index + 1,
-        eventId: `edit-${index}`, sourceId: "engine", sourceSequence: index + 1, emittedAtMs: 99 + index,
-        ...record, meta: {}
-      })
-      const response = yield* Effect.promise(() => fetch(`${url}/projections`, {
-        method: "POST", headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
-        body: JSON.stringify({ _tag: "Request", id: 1, tag: "Projection.Snapshot",
-          payload: { selector: { _tag: "run-events", runId } }, headers: [] }) + "\n"
-      }))
+      for (const [index, record] of records.entries()) {
+        yield* emit(runId, "control.engine.event", {
+          version: 1,
+          executionId: "native-edit",
+          generation: 0,
+          sequence: index + 1,
+          eventId: `edit-${index}`,
+          sourceId: "engine",
+          sourceSequence: index + 1,
+          emittedAtMs: 99 + index,
+          ...record,
+          meta: {}
+        })
+      }
+      const response = yield* Effect.promise(() =>
+        fetch(`${url}/projections`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
+          body: JSON.stringify({
+            _tag: "Request",
+            id: 1,
+            tag: "Projection.Snapshot",
+            payload: { selector: { _tag: "run-events", runId } },
+            headers: []
+          }) + "\n"
+        })
+      )
       expect(response.status).toBe(200)
       const text = yield* Effect.promise(() => response.text())
       const answer = JSON.parse(text.split("\n")[0]!)
       expect(answer.exit._tag).toBe("Success")
       const model = traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)
-      const node = model.rows.find(row => row.id.startsWith("engine-node:"))!
-      expect(node).toMatchObject({ label: "Edited the files", status: "completed", startedAt: 100, endedAt: 101,
-        detail: { output: "globalThis.monitorCanary = true" } })
-      expect(traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)).toEqual(model)
-      expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
-      const monitor = (at?: number) => Effect.promise(async () => {
-        const response = await fetch(`${url}/runtime/v1/monitor`, {
-          method: "POST", headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
-          body: JSON.stringify({ protocol: "smithers.flow-runtime/v1", runId, ...(at === undefined ? {} : { at }) })
-        })
-        expect(response.status).toBe(200)
-        return (await response.json() as { value: any }).value
+      const node = model.rows.find((row) => row.id.startsWith("engine-node:"))!
+      expect(node).toMatchObject({
+        label: "Edited the files",
+        status: "completed",
+        startedAt: 100,
+        endedAt: 101,
+        detail: { output: "globalThis.monitorCanary = true" }
       })
-      yield* emit(runId, "control.engine.event", { version: 1, executionId: "native-edit", eventType: "flows.run.presentation", payload: { kind: "text", text: "Hello, Ada <script>globalThis.monitorCanary = true</script>" } })
+      expect(traceFromJournal({ runId, flowId: "system/test", status: "running" }, answer.exit.value.rows)).toEqual(
+        model
+      )
+      expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
+      const monitor = (at?: number) =>
+        Effect.promise(async () => {
+          const response = await fetch(`${url}/runtime/v1/monitor`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer edge-secret" },
+            body: JSON.stringify({ protocol: "smithers.flow-runtime/v1", runId, ...(at === undefined ? {} : { at }) })
+          })
+          expect(response.status).toBe(200)
+          return (await response.json() as { value: any }).value
+        })
+      yield* emit(runId, "control.engine.event", {
+        version: 1,
+        executionId: "native-edit",
+        eventType: "flows.run.presentation",
+        payload: { kind: "text", text: "Hello, Ada <script>globalThis.monitorCanary = true</script>" }
+      })
       const snapshot = yield* monitor()
       expect(snapshot.id).toBe(runId)
-      expect(snapshot.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited",
-        since: "1970-01-01T00:00:00.102Z", settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.103Z" } },
-        { id: "engine-wait:native-edit%3A0:signal", kind: "signal", label: "Waited", since: "1970-01-01T00:00:00.104Z",
-          settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.105Z" } }])
-      const waiting = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.payload?.event?._tag === "ClockScheduled").sequence)
-      expect(waiting.waits).toEqual([{ id: "engine-wait:native-edit%3A0:sleep", kind: "sleep", label: "Waited", since: "1970-01-01T00:00:00.102Z" }])
+      expect(snapshot.waits).toEqual([{
+        id: "engine-wait:native-edit%3A0:sleep",
+        kind: "sleep",
+        label: "Waited",
+        since: "1970-01-01T00:00:00.102Z",
+        settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.103Z" }
+      }, {
+        id: "engine-wait:native-edit%3A0:signal",
+        kind: "signal",
+        label: "Waited",
+        since: "1970-01-01T00:00:00.104Z",
+        settled: { by: { kind: "system", color_index: 7 }, at: "1970-01-01T00:00:00.105Z" }
+      }])
+      const waiting = yield* monitor(
+        answer.exit.value.rows.find((row: any) => row.payload?.payload?.event?._tag === "ClockScheduled").sequence
+      )
+      expect(waiting.waits).toEqual([{
+        id: "engine-wait:native-edit%3A0:sleep",
+        kind: "sleep",
+        label: "Waited",
+        since: "1970-01-01T00:00:00.102Z"
+      }])
       expect(snapshot.attempts[0].graph).toEqual([
         { id: "engine-node:native-edit%3A0:edit", label: "Edited the files", state: "done", deps: [] },
-        { id: "engine-node:native-edit%3A0:check", label: "Ran checks", state: "next", deps: ["engine-node:native-edit%3A0:edit"] }
+        {
+          id: "engine-node:native-edit%3A0:check",
+          label: "Ran checks",
+          state: "next",
+          deps: ["engine-node:native-edit%3A0:edit"]
+        }
       ])
-      expect(snapshot.attempts[0].steps).toMatchObject([{ label: "Edited the files", state: "completed", started_at: "1970-01-01T00:00:00.100Z", ended_at: "1970-01-01T00:00:00.101Z" }])
+      expect(snapshot.attempts[0].steps).toMatchObject([{
+        label: "Edited the files",
+        state: "completed",
+        started_at: "1970-01-01T00:00:00.100Z",
+        ended_at: "1970-01-01T00:00:00.101Z"
+      }])
       expect(snapshot.attempts[0].steps[0].usage).toBeUndefined()
       expect(snapshot.attempts[0].phases[0].cells[0].output).toBe("globalThis.monitorCanary = true")
-      expect(snapshot.presentation).toEqual({ kind: "text", text: "Hello, Ada <script>globalThis.monitorCanary = true</script>" })
+      expect(snapshot.presentation).toEqual({
+        kind: "text",
+        text: "Hello, Ada <script>globalThis.monitorCanary = true</script>"
+      })
       const before = yield* control.list({ _tag: "runs" })
-      const replay = yield* monitor(answer.exit.value.rows.find((row: any) => row.payload?.eventType === "flows.engine.node-scheduled").sequence)
+      const replay = yield* monitor(
+        answer.exit.value.rows.find((row: any) => row.payload?.eventType === "flows.engine.node-scheduled").sequence
+      )
       expect(replay.attempts[0].steps[0].state).toBe("running")
       expect(replay.attempts[0].steps[0].output).toBeUndefined()
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
       expect((globalThis as typeof globalThis & { monitorCanary?: boolean }).monitorCanary).toBeUndefined()
       expect(replay.presentation).toBeUndefined()
-      yield* emit(runId, "control.engine.event", { version: 1, executionId: "native-edit", eventType: "flows.run.presentation", payload: { kind: "text", text: "never load this", module: "./view.ts" } })
+      yield* emit(runId, "control.engine.event", {
+        version: 1,
+        executionId: "native-edit",
+        eventType: "flows.run.presentation",
+        payload: { kind: "text", text: "never load this", module: "./view.ts" }
+      })
       expect((yield* monitor()).presentation).toBeUndefined()
       yield* emit(runId, "control.run.waiting-approval", { runId })
       // The current monitor omits the journal; a replay at the end names its last sequence.
@@ -1418,10 +1563,16 @@ describe("the assembled gateway over a real loopback bind", () => {
       expect((yield* monitor(waitingSeq)).state).toBe("waiting")
       expect((yield* monitor(interruptedSeq)).state).toBe("interrupted")
       expect(yield* control.list({ _tag: "runs" })).toEqual(before)
-
-    }).pipe(Effect.provide(served({ host: "127.0.0.1", port: 0, credential: "edge-secret",
-      runtimeBridge: { runtimeArtifactDigest: "a".repeat(64), sourceRevision: "b".repeat(40), ownerGeneration: 1 }
-    }, delegatedBearer))))
+    }).pipe(
+      Effect.provide(
+        served({
+          host: "127.0.0.1",
+          port: 0,
+          credential: "edge-secret",
+          runtimeBridge: { runtimeArtifactDigest: "a".repeat(64), sourceRevision: "b".repeat(40), ownerGeneration: 1 }
+        }, delegatedBearer)
+      )
+    ))
 
   test("serves a projection snapshot over POST /projections, framed on the wire", () =>
     Effect.gen(function*() {

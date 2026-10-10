@@ -324,12 +324,15 @@ export const runSummary = (
     outputTokens: facts.outputTokens,
     verdict: Diagnosis.verdict(facts),
     diagnosis: Diagnosis.render({ runId: run.runId, ...optional("flowId", run.flowId) }, facts),
-    ...optional("finalOutput", Diagnosis.resolvedOutput(facts) ?? (
-      run.status === "failed" && facts.fault?.tag.endsWith("/source_refused") &&
-        facts.cause?.match(/source_refused: ([a-z_]+)/)
-        ? JSON.stringify({ message: facts.cause.match(/source_refused: ([a-z_]+)/)![0] })
-        : undefined
-    )) ,
+    ...optional(
+      "finalOutput",
+      Diagnosis.resolvedOutput(facts) ?? (
+        run.status === "failed" && facts.fault?.tag.endsWith("/source_refused") &&
+          facts.cause?.match(/source_refused: ([a-z_]+)/)
+          ? JSON.stringify({ message: facts.cause.match(/source_refused: ([a-z_]+)/)![0] })
+          : undefined
+      )
+    ),
     ...(run.status === "failed" ? optional("failureFault", facts.fault?.class) : {}),
     ...(run.status === "failed" ? optional("failureTag", facts.fault?.tag) : {})
   }

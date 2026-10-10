@@ -4,8 +4,8 @@ import { describe, expect, test } from "vitest"
 import {
   decodeLiveDocBinary,
   encodeLiveDocBinary,
-  LiveDocReply,
   LiveDocAwareness,
+  LiveDocReply,
   LiveDocWriteRefusal,
   parseLiveDocTopic
 } from "../src/LiveDoc.ts"
@@ -118,7 +118,6 @@ describe("document browser contract", () => {
   })
 })
 
-
 test("sequence receipts and outside/gone envelopes are strict", () => {
   const by = { id: "ben", kind: "person", member_id: "ben", via: "ssh" }
   for (const seq of [0, 1, Number.MAX_SAFE_INTEGER]) {
@@ -127,16 +126,23 @@ test("sequence receipts and outside/gone envelopes are strict", () => {
   for (const seq of [undefined, -1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
     expect(LiveDocReply.safeParse({ t: "saved", id: 7, sv: "AA==", seq }).success).toBe(false)
   }
-  for (const frame of [
-    { t: "outside", id: 7, data: { version: "burst-1", by } },
-    { t: "gone", id: 7, data: { kind: "deleted", by } },
-    { t: "gone", id: 7, data: { kind: "renamed", by, to: "src/new.ts" } }
-  ]) {
+  for (
+    const frame of [
+      { t: "outside", id: 7, data: { version: "burst-1", by } },
+      { t: "gone", id: 7, data: { kind: "deleted", by } },
+      { t: "gone", id: 7, data: { kind: "renamed", by, to: "src/new.ts" } }
+    ]
+  ) {
     const relay = new LiveDocRelay([JSON.stringify(frame)])
     expect(JSON.parse(relay.next() as string)).toEqual(frame)
   }
-  for (const data of [{ kind: "renamed", by }, { kind: "deleted", by, to: "a" }, { deleted: true, by },
-    { kind: "renamed", by, to: "../escape" }]) {
+  for (
+    const data of [{ kind: "renamed", by }, { kind: "deleted", by, to: "a" }, { deleted: true, by }, {
+      kind: "renamed",
+      by,
+      to: "../escape"
+    }]
+  ) {
     expect(LiveDocReply.safeParse({ t: "gone", id: 7, data }).success).toBe(false)
   }
 })
@@ -146,19 +152,23 @@ test("fake host stamps awareness identity and colour while preserving relative s
   const principal = { actor, colour: "#336699" }
   const position = { tname: "content", item: { client: 42, clock: 0 }, assoc: -1 }
   const relay = new LiveDocRelay([])
-  expect(relay.awareness({ actor: { id: "forged" }, colour: "red", line: 2, anchor: position, head: position }, principal))
+  expect(
+    relay.awareness({ actor: { id: "forged" }, colour: "red", line: 2, anchor: position, head: position }, principal)
+  )
     .toEqual({ actor, colour: "#336699", line: 2, anchor: position, head: position })
   expect(relay.awareness({ line: 1 }, principal)).toEqual({ ...principal, line: 1 })
   for (const line of [0, -1, 1.5]) expect(() => relay.awareness({ line }, principal)).toThrow()
-  expect(LiveDocAwareness.safeParse({ ...principal, line: 1, head: { item: { client: -1, clock: 0 } } }).success).toBe(false)
+  expect(LiveDocAwareness.safeParse({ ...principal, line: 1, head: { item: { client: -1, clock: 0 } } }).success).toBe(
+    false
+  )
 })
 
 test("document display references reject malformed keys and actors", () => {
- const actor = {kind:"person",login:"ben",name:"Ben",avatar_url:"https://example.com/ben.svg",color_index:0}
- const key = "0123456789abcdef0123456789abcdef"
- const frame = {t:"authors",id:7,data:{[key]:actor,outside:{kind:"outside",color_index:7}}}
- expect(LiveDocReply.parse(frame)).toEqual(frame)
- expect(LiveDocReply.safeParse({...frame,data:{forged:actor}}).success).toBe(false)
- expect(LiveDocReply.safeParse({...frame,data:{[key]:{kind:"person",id:"forged"}}}).success).toBe(false)
- expect(LiveDocReply.safeParse({...frame,data:{[key]:{...actor,color_index:9}}}).success).toBe(false)
+  const actor = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://example.com/ben.svg", color_index: 0 }
+  const key = "0123456789abcdef0123456789abcdef"
+  const frame = { t: "authors", id: 7, data: { [key]: actor, outside: { kind: "outside", color_index: 7 } } }
+  expect(LiveDocReply.parse(frame)).toEqual(frame)
+  expect(LiveDocReply.safeParse({ ...frame, data: { forged: actor } }).success).toBe(false)
+  expect(LiveDocReply.safeParse({ ...frame, data: { [key]: { kind: "person", id: "forged" } } }).success).toBe(false)
+  expect(LiveDocReply.safeParse({ ...frame, data: { [key]: { ...actor, color_index: 9 } } }).success).toBe(false)
 })

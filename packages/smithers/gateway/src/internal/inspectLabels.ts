@@ -10,4 +10,3 @@ export const inspectLabel = (tag: string): string => {
   const tool = /^<cell-call:(.+)>$/.exec(tag)?.[1] ?? tag
   return ACTION_RENDERINGS[tool] ?? tool
 }
-

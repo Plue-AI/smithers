@@ -642,9 +642,10 @@ describe("ControlLive when the row moves under it", () => {
             getRun: (runId) => armed ? Effect.map(runtime.getRun(runId), parked) : runtime.getRun(runId),
             resume: (runId, options) => armed ? Effect.fail(refusal(runId)) : runtime.resume(runId, options),
             // The owning host can finish after the public claim refuses.
-            requestResume: (runId, options) => index === 3 && armed
-              ? Effect.fail(new InvalidInput({ issue: "run completed" }))
-              : runtime.requestResume(runId, options)
+            requestResume: (runId, options) =>
+              index === 3 && armed
+                ? Effect.fail(new InvalidInput({ issue: "run completed" }))
+                : runtime.requestResume(runId, options)
           }))
         })
         return run(

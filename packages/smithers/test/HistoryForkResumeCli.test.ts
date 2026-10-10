@@ -147,12 +147,13 @@ it("resumes the retained module snapshot, replays carried steps and settles only
     const resumed = await run("runs", "resume", forkId)
     expect(resumed._tag).toBe("Accepted")
     // Resume's successful process exit is backed by the fork's durable settlement.
-    expect(read("control", (db) => JSON.parse(String(
-      db.prepare("SELECT state_json FROM flows_runs WHERE run_id=?").get(forkId)!.state_json
-    )))).toMatchObject({ status: "completed", executionDigest: digest })
-    expect(read("engine", (db) =>
-      db.prepare("SELECT status FROM flows_runs WHERE run_id=?").get(forkId)?.status
-    )).toBe("completed")
+    expect(read("control", (db) =>
+      JSON.parse(String(
+        db.prepare("SELECT state_json FROM flows_runs WHERE run_id=?").get(forkId)!.state_json
+      )))).toMatchObject({ status: "completed", executionDigest: digest })
+    expect(read("engine", (db) => db.prepare("SELECT status FROM flows_runs WHERE run_id=?").get(forkId)?.status)).toBe(
+      "completed"
+    )
     expect(read("control", (db) => db.prepare("SELECT status FROM flows_runs WHERE run_id=?").get(runId)?.status))
       .toBe("suspended")
     const settled = await run("runs", "show", forkId)

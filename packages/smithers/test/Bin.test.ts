@@ -572,7 +572,9 @@ describe("the help surface", processBudget, () => {
       expect(help.stdout).toMatch(new RegExp(`^\\s+${name}\\s{2,}`, "m"))
     }
     // Appendix B.6: callable library groups are absent from install discovery.
-    for (const name of ["build", "test", "targets", "approvals", "generate", "eval", "memory", "credentials", "triggers"]) {
+    for (
+      const name of ["build", "test", "targets", "approvals", "generate", "eval", "memory", "credentials", "triggers"]
+    ) {
       expect(help.stdout).not.toMatch(new RegExp(`^\\s+${name}\\s{2,}`, "m"))
     }
   })
@@ -1762,14 +1764,32 @@ describe("an attached launch's exit status", processBudget, () => {
   it("the installed bin door preserves up failure and terminal cancel status", () => {
     const cwd = stageUnservableSeat()
     rmSync(join(cwd, "flows", "failing", "flow.mdx"))
-    writeFileSync(join(cwd, "flows", "failing", "flow.ts"), readFileSync(new URL("./fixtures/bin-failing/flow.ts", import.meta.url)))
+    writeFileSync(
+      join(cwd, "flows", "failing", "flow.ts"),
+      readFileSync(new URL("./fixtures/bin-failing/flow.ts", import.meta.url))
+    )
     symlinkSync(join(packageRoot, "node_modules"), join(cwd, "node_modules"), "dir")
-    const invoke = (...args: Array<string>) => spawnSync(process.execPath, [
-      "--no-warnings", "--import", scriptedHost, shim, ...args, "--root", cwd, "--json"
-    ], {
-      cwd, encoding: "utf8", timeout: 180_000,
-      env: { ...process.env, HOME: cwd, SMITHERS_OPENAI_AUTH: "chatgpt", PATH: `${join(cwd, "codex")}:${process.env.PATH ?? ""}` }
-    })
+    const invoke = (...args: Array<string>) =>
+      spawnSync(process.execPath, [
+        "--no-warnings",
+        "--import",
+        scriptedHost,
+        shim,
+        ...args,
+        "--root",
+        cwd,
+        "--json"
+      ], {
+        cwd,
+        encoding: "utf8",
+        timeout: 180_000,
+        env: {
+          ...process.env,
+          HOME: cwd,
+          SMITHERS_OPENAI_AUTH: "chatgpt",
+          PATH: `${join(cwd, "codex")}:${process.env.PATH ?? ""}`
+        }
+      })
     try {
       const failed = invoke("up", "failing")
       expect(failed.error).toBeUndefined()
@@ -1783,13 +1803,17 @@ describe("an attached launch's exit status", processBudget, () => {
         const state = { ...JSON.parse(String(row.state_json)), runId: "terminal-cancelled", status: "cancelled" }
         db.prepare("INSERT INTO flows_runs(run_id,status,created_at_ms,state_json) VALUES(?, 'cancelled', ?, ?)")
           .run(state.runId, Date.now(), JSON.stringify(state))
-      } finally { db.close() }
+      } finally {
+        db.close()
+      }
       // A terminal receipt needs no driver; pin its process status at the bin boundary.
       const cancelled = invoke("runs", "cancel", "terminal-cancelled")
       expect(cancelled.error).toBeUndefined()
       expect(cancelled.status, cancelled.stderr).toBe(130)
       expect(JSON.parse(cancelled.stdout)).toMatchObject({ _tag: "Terminal", status: "cancelled" })
-    } finally { rmSync(cwd, { recursive: true, force: true }) }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true })
+    }
   })
   it("exits 1 for a run that settled failed, and still prints the receipt", () => {
     const cwd = stageUnservableSeat()

@@ -4,9 +4,8 @@
  */
 
 import { describe, expect, test } from "vitest"
-import { BranchActivityEntry, BranchTopic, type BranchCard } from "../../src/BranchCard.ts"
+import { BranchActivityEntry, type BranchCard, BranchTopic } from "../../src/BranchCard.ts"
 import { fixtures } from "../fixtures/Branch.ts"
-
 
 // Literal oracles from ui-components.md T-UI-15 and spec §4.2, §7.3.1, §3; never read from the schema.
 const MACHINE_STATES = ["awake", "asleep", "waking", "closed", "waiting", "failed"] as const
@@ -48,9 +47,10 @@ describe("Branch coverage", () => {
   })
 })
 
-
 test("branch live topics and durable activity fixtures match the I2 wire contract", () => {
-  for (const topic of ["branch:T12", "branch:T12:files", "branch:T12:activity"]) expect(BranchTopic.parse(topic)).toBe(topic)
+  for (const topic of ["branch:T12", "branch:T12:files", "branch:T12:activity"]) {
+    expect(BranchTopic.parse(topic)).toBe(topic)
+  }
   for (const topic of ["branch:", "branch:T12:other", "branch:T12:files:extra", "branch:a/b", "branch:a b"]) {
     expect(BranchTopic.safeParse(topic).success).toBe(false)
   }
@@ -59,23 +59,56 @@ test("branch live topics and durable activity fixtures match the I2 wire contrac
   for (const kind of ["write", "burst", "doc_edit", "rebase", "moved_off"]) {
     expect(BranchActivityEntry.parse({ ...base, kind })).toEqual({ ...base, kind })
   }
-  const entry = { ...base, kind: "burst", versions: "a".repeat(40), files: [
-    { path: "a.ts", change: "modified", before_blob: "b".repeat(40), after_blob: "c".repeat(40) },
-    { path: "new.ts", change: "added", after_blob: "d".repeat(64) },
-    { path: "old.ts", change: "deleted", before_blob: "e".repeat(40) },
-    { path: "renamed.ts", change: "renamed" }
-  ] }
+  const entry = {
+    ...base,
+    kind: "burst",
+    versions: "a".repeat(40),
+    files: [
+      { path: "a.ts", change: "modified", before_blob: "b".repeat(40), after_blob: "c".repeat(40) },
+      { path: "new.ts", change: "added", after_blob: "d".repeat(64) },
+      { path: "old.ts", change: "deleted", before_blob: "e".repeat(40) },
+      { path: "renamed.ts", change: "renamed" }
+    ]
+  }
   expect(BranchActivityEntry.parse(entry)).toEqual(entry)
-  for (const invalid of [
-    { ...entry, kind: "edit" }, { ...entry, versions: "not-a-commit" },
-    { ...entry, actor: { ...actor, uid: 20000 } },
-    { ...entry, files: [{ path: "../escape", change: "added" }] },
-    { ...entry, files: [{ path: "a", change: "modified", before_blob: "bad" }] }
-  ]) expect(BranchActivityEntry.safeParse(invalid).success).toBe(false)
+  for (
+    const invalid of [
+      { ...entry, kind: "edit" },
+      { ...entry, versions: "not-a-commit" },
+      { ...entry, actor: { ...actor, uid: 20000 } },
+      { ...entry, files: [{ path: "../escape", change: "added" }] },
+      { ...entry, files: [{ path: "a", change: "modified", before_blob: "bad" }] }
+    ]
+  ) expect(BranchActivityEntry.safeParse(invalid).success).toBe(false)
 })
 
 test("the branch stream also accepts server-resolved display attribution", () => {
-  const actor = { id: "member:2", member_id: "2", kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" }
-  const entry = { id: "burst-owned", kind: "burst", at: "2026-10-06T12:00:00Z", actor, files: [{ path: "src/retry.ts", change: "modified" }] }
-  expect(BranchActivityEntry.parse(entry)).toEqual({ ...entry, actor: { kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" } })
+  const actor = {
+    id: "member:2",
+    member_id: "2",
+    kind: "person",
+    login: "presence-owner",
+    name: "Alice",
+    avatar_url: "https://github.com/identicons/placeholder.png",
+    color_index: 0,
+    via: "ssh"
+  }
+  const entry = {
+    id: "burst-owned",
+    kind: "burst",
+    at: "2026-10-06T12:00:00Z",
+    actor,
+    files: [{ path: "src/retry.ts", change: "modified" }]
+  }
+  expect(BranchActivityEntry.parse(entry)).toEqual({
+    ...entry,
+    actor: {
+      kind: "person",
+      login: "presence-owner",
+      name: "Alice",
+      avatar_url: "https://github.com/identicons/placeholder.png",
+      color_index: 0,
+      via: "ssh"
+    }
+  })
 })

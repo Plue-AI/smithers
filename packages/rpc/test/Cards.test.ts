@@ -258,9 +258,14 @@ describe("held Review PR form request", () => {
  * lands with it.
  */
 test("recorded workspace cards retain their title and retire their controls", () => {
-  const card = CardSchema.parse({ ...base, title: "Old branch", kind: "workspace", payload: { workspaceId: "ws-1", status: "running" } })
+  const card = CardSchema.parse({
+    ...base,
+    title: "Old branch",
+    kind: "workspace",
+    payload: { workspaceId: "ws-1", status: "running" }
+  })
   expect(card).toMatchObject({ title: "Old branch", kind: "retired", payload: { was: "workspace" } })
-  expect(CardSchema.options.map(option => option.shape.kind.value)).not.toContain("workspace")
+  expect(CardSchema.options.map((option) => option.shape.kind.value)).not.toContain("workspace")
 })
 
 describe("the service-log card", () => {
@@ -549,15 +554,23 @@ describe("card patches never invent defaults", () => {
 })
 
 describe("legacy environment persistence", () => {
- test("retains the title without restoring saved values or controls", () => {
-   const row = { ...base, kind: "env", payload: { repo: "smithers", vars: [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }], setupScript: "pnpm install" } }
-   const decoded = CardSchema.parse(row)
-   expect(decoded.kind).toBe("retired")
-   expect(decoded.title).toBe(row.title)
-   expect(decoded.payload).toEqual({ was: "env" })
-   expect(JSON.stringify(decoded)).not.toContain("password")
-   expect(CardSchema.parse(decoded)).toEqual(decoded)
- })
+  test("retains the title without restoring saved values or controls", () => {
+    const row = {
+      ...base,
+      kind: "env",
+      payload: {
+        repo: "smithers",
+        vars: [{ name: "DATABASE_URL", value: "postgres://user:password@host/db" }],
+        setupScript: "pnpm install"
+      }
+    }
+    const decoded = CardSchema.parse(row)
+    expect(decoded.kind).toBe("retired")
+    expect(decoded.title).toBe(row.title)
+    expect(decoded.payload).toEqual({ was: "env" })
+    expect(JSON.stringify(decoded)).not.toContain("password")
+    expect(CardSchema.parse(decoded)).toEqual(decoded)
+  })
 })
 
 describe("the run trace card's graph view", () => {
@@ -756,18 +769,52 @@ const FIXTURES: Record<
 > = {
   todo: {
     minimal: { n: 12, requests: [] },
-    full: { n: 12, model: todoFixtures.failed.model, requests: [], observedConfirmations: [], answerDraft: "A late answer", answeredBy: "maya" }
+    full: {
+      n: 12,
+      model: todoFixtures.failed.model,
+      requests: [],
+      observedConfirmations: [],
+      answerDraft: "A late answer",
+      answeredBy: "maya"
+    }
   },
   /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },
   branch: { minimal: { id: "b-retry" }, full: { id: "b-retry", tab: "activity" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
-  proposal: { minimal: { id: "lint" }, full: { id: "lint", model: { id: "lint", title: "Run lint", evidence: ["3 of the last 5"],
-    refs: [{ label: "T7", url: "https://github.com/smithers/canary/pull/41" }], state: "accepted", todo: { n: 12, title: "Run lint" } },
-    load: { owner: "ben", state: "failed", error: "Not available" },
-    request: { action: "accept", owner: "ben", state: "failed", error: "Not available" } } },
-  run: { minimal: { id: "run-1" }, full: { id: "run-1", view: { selected: "cell-legacy", tab: "journal", at: 3 }, memberViews: { alice: { selected: "cell-alice", tab: "run", at: 2 } } } },
-  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },
+  proposal: {
+    minimal: { id: "lint" },
+    full: {
+      id: "lint",
+      model: {
+        id: "lint",
+        title: "Run lint",
+        evidence: ["3 of the last 5"],
+        refs: [{ label: "T7", url: "https://github.com/smithers/canary/pull/41" }],
+        state: "accepted",
+        todo: { n: 12, title: "Run lint" }
+      },
+      load: { owner: "ben", state: "failed", error: "Not available" },
+      request: { action: "accept", owner: "ben", state: "failed", error: "Not available" }
+    }
+  },
+  run: {
+    minimal: { id: "run-1" },
+    full: {
+      id: "run-1",
+      view: { selected: "cell-legacy", tab: "journal", at: 3 },
+      memberViews: { alice: { selected: "cell-alice", tab: "run", at: 2 } }
+    }
+  },
+  flow: {
+    minimal: { name: "todo" },
+    full: {
+      name: "todo",
+      version: "v3",
+      memberVersions: { will: "v3", ben: "v2" },
+      proposal: { request: "request-1", diff: "diff-1" }
+    }
+  },
   setup: { minimal: {}, full: {} },
   /* #3730: an agent CLI started from the conversation names the session it wrote. */
   "agent-session": {
@@ -787,7 +834,19 @@ const FIXTURES: Record<
       source: { path: "TODO.md", owner: "ben", opened: true },
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",
-      issuePreparation: { source: { author: "ben", number: 7, title: "Original issue", body: "Original body", url: "https://github.com/org/repo/issues/7", digest: "a".repeat(64), comments: [{ author: "alice", body: "Observed failure" }] }, state: "failed", error: "Model unavailable" },
+      issuePreparation: {
+        source: {
+          author: "ben",
+          number: 7,
+          title: "Original issue",
+          body: "Original body",
+          url: "https://github.com/org/repo/issues/7",
+          digest: "a".repeat(64),
+          comments: [{ author: "alice", body: "Observed failure" }]
+        },
+        state: "failed",
+        error: "Model unavailable"
+      },
       imagePreparation: { name: "todo", repo: "org/repo", state: "requested" },
       idempotencyKey: "commit-1",
       request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
@@ -1596,7 +1655,6 @@ const FIXTURES: Record<
     }
   },
 
-
   "sync-ops": {
     minimal: { subject: "Mirror · smithersai/smithers", source: "github-mirror", runState: null, ops: [] },
     full: {
@@ -1650,7 +1708,17 @@ const FIXTURES: Record<
   file: {
     minimal: { repo: "smithersai/smithers", path: "README.md", content: "# hi\n", truncated: false },
     full: {
-      file: { path: "README.md", branch: "b12", language: "markdown", digest: "digest-2", content: { kind: "text", text: "# current\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] },
+      file: {
+        path: "README.md",
+        branch: "b12",
+        language: "markdown",
+        digest: "digest-2",
+        content: { kind: "text", text: "# current\n" },
+        mode: "read_only",
+        diagnostics: [],
+        authors: [],
+        editors: []
+      },
       compare: true,
       comparison: { version: "versions-17", text: "# before\n" },
       workspaceId: gatewayWorkspaceId,
@@ -1899,8 +1967,21 @@ const FIXTURES: Record<
       files: []
     },
     full: {
-      branchDiffSource: "scratch/ben/try-retry", branchDiffEntry: "6ad2b1a9-1869-4d1a-b087-8ba32a09b102", branchDiffRequest: "diff-request-1", branchDiffPending: false,
-      branchFiles: [{ path: "retry.ts", branch: "b12", against: { kind: "item_base", rev: "candidate-11" }, change: "modified", hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const n = 1" }, { op: "+", text: "const n = 2" }] }] }],
+      branchDiffSource: "scratch/ben/try-retry",
+      branchDiffEntry: "6ad2b1a9-1869-4d1a-b087-8ba32a09b102",
+      branchDiffRequest: "diff-request-1",
+      branchDiffPending: false,
+      branchFiles: [{
+        path: "retry.ts",
+        branch: "b12",
+        against: { kind: "item_base", rev: "candidate-11" },
+        change: "modified",
+        hunks: [{
+          old_start: 1,
+          new_start: 1,
+          lines: [{ op: "-", text: "const n = 1" }, { op: "+", text: "const n = 2" }]
+        }]
+      }],
       repo: "smithersai/smithers",
       changeId: "qupxosqw",
       from: "4",
@@ -2819,7 +2900,6 @@ describe("every persisted card kind", () => {
 
   test("PR read failures and repository import launch identity refuse invalid persisted values", () => {
     expect(CardSchema.safeParse(card("pr", { ...FIXTURES.pr.full, readErrors: { commits: 500 } })).success).toBe(false)
-
   })
 })
 
@@ -2913,7 +2993,17 @@ const cloudAgentFixtures: KindFixtures = {
 
 describe("removed presentation compatibility", () => {
   // Pin the Cut contract independently of the schema and retirement registry.
-  const cutKinds = ["admin-health", "agent", "commit", "commit-list", "connect", "grant-confirm", "notifications", "registration", "repository-setup"] as const
+  const cutKinds = [
+    "admin-health",
+    "agent",
+    "commit",
+    "commit-list",
+    "connect",
+    "grant-confirm",
+    "notifications",
+    "registration",
+    "repository-setup"
+  ] as const
   test("the cut manifest records exactly the removed card kinds", () => {
     const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
       rows: { disposition: string; cardKinds: string[] }[]
@@ -3127,13 +3217,24 @@ describe("pinned historical storage", () => {
 
 test("deferred billing, repository and trigger cards retain live decoding", () => {
   const base = { id: "retained", title: "Saved", status: "active", createdAt: 1, ordinal: 1 }
-  for (const card of [
-    { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
-    { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
-    { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
-    { kind: "balance", payload: { totalUsd: "0.00", state: "empty", allowedToStartWork: false,
-      lifetimeChargedUsd: "0.00", chargeCount: 0, introUsd: null } }
-  ]) {
+  for (
+    const card of [
+      { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
+      { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
+      { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
+      {
+        kind: "balance",
+        payload: {
+          totalUsd: "0.00",
+          state: "empty",
+          allowedToStartWork: false,
+          lifetimeChargedUsd: "0.00",
+          chargeCount: 0,
+          introUsd: null
+        }
+      }
+    ]
+  ) {
     expect(CardSchema.parse({ ...base, ...card }).kind).toBe(card.kind)
   }
 })

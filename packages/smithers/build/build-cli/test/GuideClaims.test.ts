@@ -34,5 +34,4 @@ describe("guide behavior claims", () => {
     expect(page).toContain("Declare output-affecting values in `env`")
     expect(page).toContain("resolved Nix environment variables")
   })
-
 })

@@ -32,13 +32,25 @@ describe("generated catalog tags", () => {
   })
 })
 
-
 test("retired Settings tags stay out of the executable catalog", () => {
-  for (const tag of ["settings.address", "settings.capacity", "settings.parallel", "settings.preapprove-default", "settings.daily-admissions", "settings.obsidian", "settings.model-key", "settings.setup"]) {
+  for (
+    const tag of [
+      "settings.address",
+      "settings.capacity",
+      "settings.parallel",
+      "settings.preapprove-default",
+      "settings.daily-admissions",
+      "settings.obsidian",
+      "settings.model-key",
+      "settings.setup"
+    ]
+  ) {
     expect(CatalogTagSchema.safeParse(tag).success).toBe(false)
   }
 })
 
 test("retired secret tags cannot be executed", () => {
-  for (const tag of ["secrets.set", "secrets.delete", "secrets.bind", "secrets.scope"]) expect(CatalogTagSchema.safeParse(tag).success).toBe(false)
+  for (const tag of ["secrets.set", "secrets.delete", "secrets.bind", "secrets.scope"]) {
+    expect(CatalogTagSchema.safeParse(tag).success).toBe(false)
+  }
 })

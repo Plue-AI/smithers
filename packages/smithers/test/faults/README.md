@@ -13,12 +13,12 @@ Stop/Resume handlers have landed; the protocol-peer delivery controls below
 cannot qualify engine parking or completed-step replay.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
-| Check | Required production harness | Host |
-| --- | --- | --- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
-| C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` and compose `todo_machine_kill_fault_test.go` | Approved reference Mac, microVM |
-| C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts`; `engine/case39-kill-crossing.test.ts` | CI, PostgreSQL 18, fake GitHub |
-| C-DUR-04 | backend machined `fault_test.go`; compose `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
+| Check    | Required production harness                                                                                                                                                                   | Host                                           |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac                     |
+| C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` and compose `todo_machine_kill_fault_test.go`                                                                                                   | Approved reference Mac, microVM                |
+| C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts`; `engine/case39-kill-crossing.test.ts`                                         | CI, PostgreSQL 18, fake GitHub                 |
+| C-DUR-04 | backend machined `fault_test.go`; compose `rebase_fault_test.go`                                                                                                                              | Linux CI (daemon), approved reference Mac (VM) |
 
 These are required paths, not claims of implemented coverage. The approved
 mapping in `scripts/check-commands.json` and authenticated CI results determine
@@ -129,6 +129,7 @@ To run only the Linux fault job remotely, dispatch `reliability.yml` on `main`
 with `campaign: faults-linux`. Its default `all` and the nightly schedule keep
 all campaigns and both host selections. The Linux selection does not enable
 reference-host execution or approve check mappings.
+
 ### T-FLW-09 host and machine controls
 
 `host/case40-host-kill-todo-run.test.ts` invokes

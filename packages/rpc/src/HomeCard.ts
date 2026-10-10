@@ -74,11 +74,14 @@ export const HomeCardSchema = z.object({
     ])
   ),
   items: z.array(HomeItemSchema),
-  counts: z.preprocess(value => value !== null && typeof value === "object" && !Array.isArray(value)
-    ? { retrying: 0, ...value } : value, z.record(TodoStateSchema, z.number().int().nonnegative())),
+  counts: z.preprocess((value) =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? { retrying: 0, ...value } :
+      value, z.record(TodoStateSchema, z.number().int().nonnegative())),
   merged_since_last_look: z.array(z.number().int().positive()),
   /** Shared committed merge facts; old records retain their original count. */
-  merge_history: z.array(z.object({ n: z.number().int().positive(), seq: z.number().int().nonnegative().safe() })).optional(),
+  merge_history: z.array(z.object({ n: z.number().int().positive(), seq: z.number().int().nonnegative().safe() }))
+    .optional(),
   machines: z.object({
     in_use: z.number().int().nonnegative(),
     capacity: z.number().int().nonnegative(),

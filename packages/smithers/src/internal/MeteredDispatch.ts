@@ -59,9 +59,13 @@ export const attributeRequest = (
   proxy: string | undefined
 ): Effect.Effect<HttpClientRequest.HttpClientRequest> => {
   const base = proxyOf(proxy)
-  if (base === undefined || (request.url !== base && !request.url.startsWith(`${base}/`))) return Effect.succeed(request)
-  return Effect.map(currentDispatch, (step) =>
-    step === undefined ? request : HttpClientRequest.setHeader(request, header, step))
+  if (base === undefined || (request.url !== base && !request.url.startsWith(`${base}/`))) {
+    return Effect.succeed(request)
+  }
+  return Effect.map(
+    currentDispatch,
+    (step) => step === undefined ? request : HttpClientRequest.setHeader(request, header, step)
+  )
 }
 
 /**
@@ -89,4 +93,6 @@ export const attributeClient = <E, R>(
   client: HttpClient.HttpClient.With<E, R>,
   proxy: string | undefined
 ): HttpClient.HttpClient.With<E, R> =>
-  proxyOf(proxy) === undefined ? client : HttpClient.mapRequestEffect(client, (request) => attributeRequest(request, proxy))
+  proxyOf(proxy) === undefined
+    ? client
+    : HttpClient.mapRequestEffect(client, (request) => attributeRequest(request, proxy))

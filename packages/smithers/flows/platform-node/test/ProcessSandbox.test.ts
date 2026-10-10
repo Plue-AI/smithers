@@ -592,7 +592,11 @@ describe("native host read confinement", () => {
   it("binds a Smithers machine's toolchain layer read-only, never the rest of /opt/smithers", () => {
     // A check spawned as `pnpm run lint` execs pnpm by PATH inside the empty root (the walk at
     // 2dd209686e: "exec: pnpm: not found", exit 127), so the layer the machine puts on PATH is runtime.
-    const facts = host("linux", { bwrap: "/usr/bin/bwrap" }, [], ["/usr", "/opt/smithers/toolchain", "/opt/smithers/rust"])
+    const facts = host("linux", { bwrap: "/usr/bin/bwrap" }, [], [
+      "/usr",
+      "/opt/smithers/toolchain",
+      "/opt/smithers/rust"
+    ])
     const argv = ProcessSandbox.bubblewrap(planned(facts), ["pnpm", "run", "lint"], facts).join(" ")
     expect(argv).toContain("--ro-bind /opt/smithers/toolchain /opt/smithers/toolchain")
     expect(argv).toContain("--ro-bind /opt/smithers/rust /opt/smithers/rust")

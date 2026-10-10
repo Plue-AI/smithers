@@ -286,7 +286,12 @@ describe("NodeControl.seatResolver OpenAI-compatible providers", () => {
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
       ],
       ["cerebras", "cerebras:qwen-3.8-27b", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"],
-      ["vercel", "vercel:anthropic/claude-sonnet-4.5", "AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/v1/chat/completions"]
+      [
+        "vercel",
+        "vercel:anthropic/claude-sonnet-4.5",
+        "AI_GATEWAY_API_KEY",
+        "https://ai-gateway.vercel.sh/v1/chat/completions"
+      ]
     ] as const
   )("routes a keyed %s seat through Chat Completions at its own endpoint", async (_provider, seat, variable, url) => {
     const resolved = await Effect.runPromise(resolve({ [variable]: "key" }, seat))

@@ -16,7 +16,9 @@ const skillFiles = (directory: string, prefix = ""): Array<string> =>
   readdirSync(join(directory, prefix), { withFileTypes: true }).flatMap((entry) =>
     entry.isDirectory()
       ? skillFiles(directory, join(prefix, entry.name))
-      : entry.name === "SKILL.md" ? [join(prefix, entry.name)] : []
+      : entry.name === "SKILL.md"
+      ? [join(prefix, entry.name)]
+      : []
   )
 
 test("skill repository paths exist", () => {
@@ -38,6 +40,6 @@ test("skill repository paths exist", () => {
 test("path matching includes stale files and directories and excludes nonliteral references", () => {
   expect(referencedPaths(
     "`apps/app/src/bun/Harnesses.ts` `docs/learn/` `packages/rpc/src/LocalApp.ts` " +
-    "`@smthrs/flow` `flows/<name>/flow.ts` `node crates/flows-jj/build-wasm.mjs --verify` `--help`"
+      "`@smthrs/flow` `flows/<name>/flow.ts` `node crates/flows-jj/build-wasm.mjs --verify` `--help`"
   )).toEqual(["apps/app/src/bun/Harnesses.ts", "docs/learn/", "packages/rpc/src/LocalApp.ts"])
 })

@@ -140,9 +140,11 @@ describe("public executable bootstrap", () => {
       main.mockRejectedValue(failure)
       await boot()
       expect(process.exitCode).toBe(1)
-      expect(stderr).toBe(failure instanceof Error
-        ? "Authorization: Bearer [REDACTED_TOKEN]\n"
-        : "Something went wrong on our side. Not your fault.\n")
+      expect(stderr).toBe(
+        failure instanceof Error
+          ? "Authorization: Bearer [REDACTED_TOKEN]\n"
+          : "Something went wrong on our side. Not your fault.\n"
+      )
       expect(stderr).not.toContain("fixture-bootstrap-secret")
     }
   )

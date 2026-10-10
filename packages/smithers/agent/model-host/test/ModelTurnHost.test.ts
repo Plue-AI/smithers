@@ -206,7 +206,8 @@ test("cuts subscription token and account identity across every chunk boundary",
   for (const secret of [access, account]) {
     for (let boundary = 0; boundary <= secret.length; boundary++) {
       const cutter = new StreamingCredentialCutter(credential)
-      const output = cutter.push(`before ${secret.slice(0, boundary)}`) + cutter.push(`${secret.slice(boundary)} after`) + cutter.finish()
+      const output = cutter.push(`before ${secret.slice(0, boundary)}`) +
+        cutter.push(`${secret.slice(boundary)} after`) + cutter.finish()
       expect(output).toBe("before  after")
     }
   }

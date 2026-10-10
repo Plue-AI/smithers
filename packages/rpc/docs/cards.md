@@ -20,7 +20,6 @@ and hidden by the app-local `DEFERRED_CARD_KINDS` list. `branches`, `file`,
 `diff`, `secrets`, `run-trace`, `balance` and `billing-plans` remain current.
 `cardAvailable` excludes decoded tombstones and the two deferred app kinds.
 
-
 `CardPatchSchema` requires `kind`, including for metadata-only updates. Its payload
 is a shallow partial of that kind's payload schema: every top-level field is
 optional and has no default, so a field the patch omits stays absent and the

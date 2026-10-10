@@ -4,8 +4,6 @@
  * @since 1.0.0
  */
 
-import { catalogCommands } from "./internal/backend/Catalog.ts"
-import { retainInstallDiscovery } from "./internal/backend/InstallDiscovery.ts"
 import { makeCli as makeBuildCli } from "@smthrs/build-cli/Cli"
 import * as Positionals from "@smthrs/build-cli/Positionals"
 import * as RedactedLogger from "@smthrs/journal/RedactedLogger"
@@ -40,6 +38,8 @@ import * as DidYouMean from "./DidYouMean.ts"
 import * as Doctor from "./Doctor.ts"
 import { createEvalCli } from "./evaluation/EvalCli.ts"
 import * as Init from "./Init.ts"
+import { catalogCommands } from "./internal/backend/Catalog.ts"
+import { retainInstallDiscovery } from "./internal/backend/InstallDiscovery.ts"
 import * as NodeControl from "./NodeControl.ts"
 import { createCredentialsCli } from "./operator/Credentials.ts"
 import { createIntegrationsCli } from "./operator/Integrations.ts"
@@ -75,7 +75,10 @@ const globalsOf = (connection: Bridge.ConnectionOptions, config: Bridge.Runtime)
  * @category constructors
  * @since 1.0.0
  */
-export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?: boolean } = {}): ReturnType<typeof makeBuildCli> => {
+export const makeCli = (
+  config: Bridge.Runtime = {},
+  documentation: { humanHelp?: boolean } = {}
+): ReturnType<typeof makeBuildCli> => {
   const mcpGlobals = z.object({
     audience: z.enum(["auto", "human", "agent"]).default("auto"),
     silent: z.boolean().default(false),
@@ -415,24 +418,45 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
   // Incur has no hidden-group flag. A separate discovery tree removes deferred
   // groups from help, schemas, skills and MCP without mutating the invocation tree.
   const discovery = makeBuildCli({
-    ...config, cliName: "smthrs", cliVersion: packageVersion,
+    ...config,
+    cliName: "smthrs",
+    cliVersion: packageVersion,
     cliDescription: "Build workspace targets and operate durable agent flows",
     sync: { cwd: dirname(createRequire(import.meta.url).resolve("@smthrs/cli/package.json")), include: ["skills/*"] },
-    cacheSteps: createStepCacheCli(), approvals: config.approvals ?? TargetApprovals.store
+    cacheSteps: createStepCacheCli(),
+    approvals: config.approvals ?? TargetApprovals.store
   })
   discovery.use((context, next) => Presentation.scope(context, config, next))
   const discoveryTree = Cli.toCommands.get(discovery as never)!
   discoveryTree.clear()
   // Appendix B.6 is an explicit discovery allowlist. Other public library
   // commands remain callable, but do not enter install help, skills or MCP.
-  const doors = [...catalogCommands.filter(row => row.actors.includes("external_agent") && row.agent !== "never" &&
-    (row.visibility === "core" || row.visibility === "advanced")).map(row => row.cli!.join(" ")),
-    "login", "ssh-key add", "ssh-key delete", "ssh-key list", "workspace ssh", "ssh", "shell", "exec", "cp", "api",
-    "host start", "host stop", "host status", "host upgrade", "host backup", "host restore"]
+  const doors = [
+    ...catalogCommands.filter((row) =>
+      row.actors.includes("external_agent") && row.agent !== "never" &&
+      (row.visibility === "core" || row.visibility === "advanced")
+    ).map((row) => row.cli!.join(" ")),
+    "login",
+    "ssh-key add",
+    "ssh-key delete",
+    "ssh-key list",
+    "workspace ssh",
+    "ssh",
+    "shell",
+    "exec",
+    "cp",
+    "api",
+    "host start",
+    "host stop",
+    "host status",
+    "host upgrade",
+    "host backup",
+    "host restore"
+  ]
   const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = [], allowed = doors) => {
     for (const [name, entry] of source) {
       const path = [...prefix, name], key = path.join(" ")
-      if (!allowed.some(door => door === key || door.startsWith(key + " "))) continue
+      if (!allowed.some((door) => door === key || door.startsWith(key + " "))) continue
       if ("_group" in entry) {
         const commands = new Map()
         project(entry.commands, commands, path, allowed)
@@ -443,14 +467,23 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
   project(Cli.toCommands.get(cli as never)!, discoveryTree)
   retainInstallDiscovery(cli, discoveryTree)
   // Appendix A person-only commands belong in human help, never skills or MCP.
-  const humanDiscovery = makeBuildCli({ ...config, cliName: "smthrs", cliVersion: packageVersion,
+  const humanDiscovery = makeBuildCli({
+    ...config,
+    cliName: "smthrs",
+    cliVersion: packageVersion,
     cliDescription: "Build workspace targets and operate durable agent flows",
-    cacheSteps: createStepCacheCli(), approvals: config.approvals ?? TargetApprovals.store })
+    cacheSteps: createStepCacheCli(),
+    approvals: config.approvals ?? TargetApprovals.store
+  })
   const humanTree = Cli.toCommands.get(humanDiscovery as never)!
   humanTree.clear()
-  project(Cli.toCommands.get(cli as never)!, humanTree, [], [...doors,
-    ...catalogCommands.filter(row => row.actors.includes("person") &&
-      (row.visibility === "core" || row.visibility === "advanced")).map(row => row.cli!.join(" "))])
+  project(Cli.toCommands.get(cli as never)!, humanTree, [], [
+    ...doors,
+    ...catalogCommands.filter((row) =>
+      row.actors.includes("person") &&
+      (row.visibility === "core" || row.visibility === "advanced")
+    ).map((row) => row.cli!.join(" "))
+  ])
 
   const invoke = cli.serve.bind(cli)
   const serve: typeof cli.serve = (argv = [], serveOptions) => {
@@ -472,7 +505,10 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
       const entry = invocationTree.get(word)
       if (entry === undefined) break
       const visible = visibleTree.get(word)
-      if (visible === undefined) { hiddenHelp = true; break }
+      if (visible === undefined) {
+        hiddenHelp = true
+        break
+      }
       if (!("_group" in entry) || !("_group" in visible)) break
       invocationTree = entry.commands
       visibleTree = visible.commands
@@ -481,14 +517,19 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
       !parsed.mcp && !argv.includes("--http") && !argv.includes("--schema") &&
       !argv.includes("--llms") && !argv.includes("--llms-full")
     const rootDiscovery = parsed.rest[0] === undefined || parsed.rest[0]?.startsWith("-") ||
-      parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--help") || argv.includes("-h") || argv.includes("--llms") || argv.includes("--llms-full")
+      parsed.rest[0] === "skills" || parsed.mcp || argv.includes("--help") || argv.includes("-h") ||
+      argv.includes("--llms") || argv.includes("--llms-full")
     const helpDiscovery = documentation.humanHelp && !parsed.mcp && parsed.rest[0] !== "skills" &&
-      !argv.includes("--llms") && !argv.includes("--llms-full") && (argv.includes("--help") || argv.includes("-h"))
-      ? humanDiscovery : discovery
-    const dispatch = (options: typeof serveOptions) => rootDiscovery && !explicitHiddenHelp ? helpDiscovery.serve(argv, options) : invoke(argv, options)
-    if (argv.some(word => word === "--mcp" || word === "--http")) return dispatch(serveOptions)
-    return Presentation.withErrorEnvelope(serveOptions?.stdout ?? (text => process.stdout.write(text)),
-      stdout => dispatch({ ...serveOptions, stdout }))
+        !argv.includes("--llms") && !argv.includes("--llms-full") && (argv.includes("--help") || argv.includes("-h"))
+      ? humanDiscovery :
+      discovery
+    const dispatch = (options: typeof serveOptions) =>
+      rootDiscovery && !explicitHiddenHelp ? helpDiscovery.serve(argv, options) : invoke(argv, options)
+    if (argv.some((word) => word === "--mcp" || word === "--http")) return dispatch(serveOptions)
+    return Presentation.withErrorEnvelope(
+      serveOptions?.stdout ?? ((text) => process.stdout.write(text)),
+      (stdout) => dispatch({ ...serveOptions, stdout })
+    )
   }
   cli.serve = async (argv = process.argv.slice(2), serveOptions) => {
     // Read the selected command's actual option arities before Incur extracts
@@ -555,7 +596,8 @@ export const makeCli = (config: Bridge.Runtime = {}, documentation: { humanHelp?
     if (!refused || parsed.json || parsed.format !== undefined || config.presentation?.structured) return
     const suggestion = await Effect.runPromise(
       DidYouMean.didYouMean(
-        typed, parsed.rest.slice(offset + 1),
+        typed,
+        parsed.rest.slice(offset + 1),
         DidYouMean.commands(documentation.humanHelp ? humanDiscovery : discovery)
       ).pipe(
         Effect.provide(evaluator(config.environment ?? process.env))

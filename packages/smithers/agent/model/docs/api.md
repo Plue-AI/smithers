@@ -170,13 +170,13 @@ The `retryable` getter computes from the code and `httpStatus`:
 caller exceeded a wall-clock budget it declared and interrupted the request
 itself, so nothing about the request's settlement is known.
 
-| Export                                     | Kind        | Behavior                                                                                                                                                        |
-| ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ModelErrorCode`                           | schema      | The thirteen-literal code vocabulary above.                                                                                                                     |
-| `ModelError`                               | error class | As described above.                                                                                                                                             |
-| `isContextOverflow(providerCode, message)` | refinement  | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
-| `isQuotaExhausted(providerCode, message)`  | refinement  | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
-| `isTerminalRefusal(error)` | classification | Whether the normalized refusal requires intervention rather than a quota cooldown; shared with agent quota policy and failure actions. |
+| Export                                     | Kind           | Behavior                                                                                                                                                        |
+| ------------------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ModelErrorCode`                           | schema         | The thirteen-literal code vocabulary above.                                                                                                                     |
+| `ModelError`                               | error class    | As described above.                                                                                                                                             |
+| `isContextOverflow(providerCode, message)` | refinement     | Whether a provider's own code and message describe a context overflow. Protocol adapters call it ahead of their generic bad-request branch.                     |
+| `isQuotaExhausted(providerCode, message)`  | refinement     | Whether a provider's own code and message describe an exhausted account rather than a transient rate limit, so a durable consumer can park instead of retrying. |
+| `isTerminalRefusal(error)`                 | classification | Whether the normalized refusal requires intervention rather than a quota cooldown; shared with agent quota policy and failure actions.                          |
 
 ## `FailureCopy`
 

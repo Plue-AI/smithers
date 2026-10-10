@@ -231,7 +231,13 @@ describe("pinned flow version", () => {
 })
 
 test("merged TODO retains its source-linked lesson subjects", () => {
-  const receipt = { todo: 7, lessons: [{ title: "Retry helper", ref: "wiki:retry-helper" }, { title: "Run lint", ref: "proposal:check:lint@review" }] }
+  const receipt = {
+    todo: 7,
+    lessons: [{ title: "Retry helper", ref: "wiki:retry-helper" }, {
+      title: "Run lint",
+      ref: "proposal:check:lint@review"
+    }]
+  }
   const model = TodoCardSchema.parse({ ...fixtures.merged.model, n: 7, lessons: 2, lessons_receipt: receipt })
   expect(model.lessons).toBe(2)
   expect(model.lessons_receipt).toEqual(receipt)
@@ -240,15 +246,20 @@ test("merged TODO retains its source-linked lesson subjects", () => {
 
 describe("synced PR reviews", () => {
   const by = { kind: "github", login: "dana", color_index: 7 }
-  const withReview = (state: unknown, actor: unknown = by) => ({ ...fixtures.in_review.model,
-    pr: { ...fixtures.in_review.model.pr!, reviews: [{ id: "19", state, by: actor, at: "2026-10-08T00:00:00Z" }] } })
-  test.each(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"])("preserves %s without granting approval", state => {
-    const card = TodoCardSchema.parse(withReview(state))
-    expect(card.pr?.reviews).toEqual([{ id: "19", state, by, at: "2026-10-08T00:00:00Z" }])
-    expect(card.preapproval).toBeUndefined()
-    expect(card.state).toBe("in_review")
+  const withReview = (state: unknown, actor: unknown = by) => ({
+    ...fixtures.in_review.model,
+    pr: { ...fixtures.in_review.model.pr!, reviews: [{ id: "19", state, by: actor, at: "2026-10-08T00:00:00Z" }] }
   })
-  test.each(["PENDING", "approve", "UNKNOWN"])("rejects %s", state => {
+  test.each(["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"])(
+    "preserves %s without granting approval",
+    (state) => {
+      const card = TodoCardSchema.parse(withReview(state))
+      expect(card.pr?.reviews).toEqual([{ id: "19", state, by, at: "2026-10-08T00:00:00Z" }])
+      expect(card.preapproval).toBeUndefined()
+      expect(card.state).toBe("in_review")
+    }
+  )
+  test.each(["PENDING", "approve", "UNKNOWN"])("rejects %s", (state) => {
     expect(TodoCardSchema.safeParse(withReview(state)).success).toBe(false)
   })
   test("uses the existing actor color contract", () => {

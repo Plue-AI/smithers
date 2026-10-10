@@ -546,5 +546,4 @@ describe("committed outside-change boundary contract", () => {
     )])
     expect(result.replay.inserts).toEqual(result.first.inserts)
   })
-
 })

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { type MythicalItem, MYTHICAL_ROUTES, mythicalRoute } from "../src/Mythical.ts"
+import { MYTHICAL_ROUTES, type MythicalItem, mythicalRoute } from "../src/Mythical.ts"
 import { landable } from "../src/StackView.ts"
 
 const head = "c".repeat(40)
@@ -25,16 +25,18 @@ describe("landable", () => {
     const { todo: _todo, ...proposal } = proposed
     const { head: _head, ...headless } = proposed.pullRequest!
     const { pullRequest: _pull, ...unopened } = proposed
-    for (const item of [
-      chat,
-      proposal,
-      unopened,
-      { ...proposed, automerge: true },
-      { ...proposed, state: "landed" as const },
-      { ...proposed, state: "verifying" as const },
-      { ...proposed, pullRequest: { ...proposed.pullRequest!, state: "closed" as const } },
-      { ...proposed, pullRequest: headless }
-    ]) {
+    for (
+      const item of [
+        chat,
+        proposal,
+        unopened,
+        { ...proposed, automerge: true },
+        { ...proposed, state: "landed" as const },
+        { ...proposed, state: "verifying" as const },
+        { ...proposed, pullRequest: { ...proposed.pullRequest!, state: "closed" as const } },
+        { ...proposed, pullRequest: headless }
+      ]
+    ) {
       expect(landable(item)).toBe(false)
     }
   })

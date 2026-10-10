@@ -23,7 +23,8 @@ interface Options {
  * @private
  */
 export const make =
-  ({ runs, control, registry, catalog }: Options) => (runId: string, native?: RunStore.RunRow): Effect.Effect<boolean> =>
+  ({ runs, control, registry, catalog }: Options) =>
+  (runId: string, native?: RunStore.RunRow): Effect.Effect<boolean> =>
     Effect.gen(function*() {
       const row = native ?? (yield* runs.get(runId))
       // A durable cancellation admits only the driver's owner-fenced cleanup.

@@ -31,7 +31,13 @@ import type { WorkerFailureCode } from "./WorkerFailureCodes.ts"
  * @since 1.0.0
  * @category constants
  */
-export const MODEL_PROTOCOLS = ["anthropic-messages", "openai-responses", "openai-responses-chatgpt", "openai-chat", "evaluation"] as const
+export const MODEL_PROTOCOLS = [
+  "anthropic-messages",
+  "openai-responses",
+  "openai-responses-chatgpt",
+  "openai-chat",
+  "evaluation"
+] as const
 /**
  * Validates a model protocol at the RPC boundary.
  *

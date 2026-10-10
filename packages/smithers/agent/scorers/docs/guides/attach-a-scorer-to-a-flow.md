@@ -14,7 +14,7 @@ about the target.
 ```ts
 import { Binding } from "@smthrs/scorers"
 
-const greet = ({ name: "greet" })
+const greet = { name: "greet" }
 
 const binding = Binding.make({
   scorer: contains,

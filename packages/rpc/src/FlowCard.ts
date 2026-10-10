@@ -61,4 +61,6 @@ export type FlowViewProps = CardProps<FlowCard, {}, "agent">
  * @since 1.0.0
  * @category models
  */
-export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new" | "agent">
+export type FlowCardCallbacks = CardCallbacks<
+  "flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new" | "agent"
+>

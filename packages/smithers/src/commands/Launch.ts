@@ -8,9 +8,9 @@ import * as Detached from "../Detached.ts"
 import * as Environment from "../Environment.ts"
 import * as Project from "../Project.ts"
 import * as Unsupported from "../Unsupported.ts"
+import { approval, decodeInput, selectedFlow } from "./RunControl.ts"
 import * as RunReads from "./RunReads.ts"
 import * as Settlement from "./Settlement.ts"
-import { approval, decodeInput, selectedFlow } from "./RunControl.ts"
 /**
  * Resume a parked run and return its settled receipt.
  * @category constructors
@@ -77,13 +77,13 @@ export const run = (payload: ControlService.ApprovalInput, wait = false, quiet =
     return Settlement.receiptDocument(receipt, settlement)
   })
 
-
 /**
  * Decode and execute a serialized plan approval.
  * @category constructors
  * @since 1.0.0
  */
-export const execute = (serialized: string, quiet = false) => Effect.flatMap(approval(serialized), payload => run(payload, false, quiet))
+export const execute = (serialized: string, quiet = false) =>
+  Effect.flatMap(approval(serialized), (payload) => run(payload, false, quiet))
 const plannedBudget = (config: {
   readonly budgetTokens: Option.Option<number>
   readonly budgetMs: Option.Option<number>
@@ -126,7 +126,6 @@ const plannedBudget = (config: {
     }
   })
 
-
 /**
  * Inputs shared by canonical and compatibility launch commands.
  * @category models
@@ -152,115 +151,123 @@ export interface StartOptions {
  * @category constructors
  * @since 1.0.0
  */
-export const start = (config: StartOptions) => Effect.gen(function*() {
-  if (config.detached && Option.isSome(config.remote)) return yield* Effect.fail(new CliError.UnsupportedError({ message: "flow start -d spawns a local executor; run `smthrs flow start` attached against --remote" }))
-  if (config.detached && config.wait) return yield* Effect.fail(new CliError.UsageError({ message: "--wait and --detached cannot be combined" }))
-  const flowId = yield* selectedFlow(config.flow)
-  if (Unsupported.isReservedFlow(flowId)) {
-    return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
-  }
-  const decodedInput = yield* decodeInput([], config.data)
-  const budget = yield* plannedBudget(config)
-  const control = yield* ControlService.Control
-  const card = yield* control.plan({ flowId, input: decodedInput, ...(budget === undefined ? {} : { budget }) })
-  // The bare `*` envelope grants every capability, and markdown discovery
-  // substitutes it for a flow that declares none, so `up` never approves it
-  // unseen. The operator reviews the card with `plan` and signs it with
-  // `approve`.
-  if (card.envelope.capabilities.includes("*")) {
-    return yield* Effect.fail(
-      new CliError.UsageError({
-        message: `flow start will not approve ${flowId}: its envelope grants every capability ("*"). `
-          + (card.warnings === undefined ? "" : `${card.warnings.map((warning) => warning.message).join("; ")}. `)
-          + `Declare capabilities in the flow, or review it with \`smthrs flow plan ${flowId}\` and approve it with \`smthrs approvals approve\``
-      })
-    )
-  }
-  // Scope `run`: the approval authorizes this launch and its whole run, not
-  // every future launch of the flow.
-  yield* control.approve({ ...card.approval, scope: "run" })
-  if (!config.detached) return yield* run({ ...card.approval, scope: "run" }, config.wait, config.quiet)
-
-  const projectRoot = yield* Project.ProjectRoot
-  const timeoutMs = Environment.readInteger(process.env, "SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
-  const passthrough = [
-    // The child runs with the project root as its cwd. An absolute MCP path
-    // preserves the file the parent parsed when the flag was relative.
-    ...(Option.isNone(config.mcpConfig)
-      ? []
-      : ["--mcp-config", resolve(process.cwd(), config.mcpConfig.value)]),
-    ...(Option.isNone(config.root) ? [] : ["--root", projectRoot])
-  ]
-  // Each `up` plans afresh, so the plan id is this launch's alone. An id the
-  // child's log announces is trusted only when this process's own control
-  // store holds that run under this plan: the log is shared with every tool
-  // the run spawns, and they inherit the admission nonce.
-  const planId = card.approval.target._tag === "Plan" ? card.approval.target.planId : undefined
-  const admission = (runId: string) =>
-    Effect.runPromise(
-      RunReads.summary(control, runId).pipe(
-        Effect.map((summary) => planId !== undefined && summary !== undefined && summary.planId === planId)
+export const start = (config: StartOptions) =>
+  Effect.gen(function*() {
+    if (config.detached && Option.isSome(config.remote)) {
+      return yield* Effect.fail(
+        new CliError.UnsupportedError({
+          message: "flow start -d spawns a local executor; run `smthrs flow start` attached against --remote"
+        })
       )
-    )
-  const launched = yield* Effect.callback<Detached.Launched | Detached.Rejected>((resume, signal) => {
-    const pending = Detached.launch({
-      root: projectRoot,
-      payload: JSON.stringify({ ...card.approval, scope: "run" }),
-      passthrough,
-      signal,
-      admission,
-      ...(timeoutMs === undefined ? {} : { timeoutMs })
-    })
-    pending.then((result) => resume(Effect.succeed(result)), (error) => resume(Effect.die(error)))
-    // Interruption aborts the signal first. Wait for termination and reaping
-    // before the CLI scope can close and the process can exit.
-    return Effect.promise(() => pending.then(() => undefined, () => undefined))
-  })
-  if (!Detached.isLaunched(launched)) {
-    return yield* Effect.fail(
-      new CliError.UnsupportedError({
-        message: `${launched.reason}\nLog: ${launched.logFile}${launched.tail === "" ? "" : `\n${launched.tail}`}`
-      })
-    )
-  }
-  // The receipt's own field, never an operator-supplied id: rc.0 has no
-  // `--run-id`, and a caller reads the run id from here.
-  return { runId: launched.runId, logFile: launched.logFile, detached: true }
+    }
+    if (config.detached && config.wait) {
+      return yield* Effect.fail(new CliError.UsageError({ message: "--wait and --detached cannot be combined" }))
+    }
+    const flowId = yield* selectedFlow(config.flow)
+    if (Unsupported.isReservedFlow(flowId)) {
+      return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
+    }
+    const decodedInput = yield* decodeInput([], config.data)
+    const budget = yield* plannedBudget(config)
+    const control = yield* ControlService.Control
+    const card = yield* control.plan({ flowId, input: decodedInput, ...(budget === undefined ? {} : { budget }) })
+    // The bare `*` envelope grants every capability, and markdown discovery
+    // substitutes it for a flow that declares none, so `up` never approves it
+    // unseen. The operator reviews the card with `plan` and signs it with
+    // `approve`.
+    if (card.envelope.capabilities.includes("*")) {
+      return yield* Effect.fail(
+        new CliError.UsageError({
+          message: `flow start will not approve ${flowId}: its envelope grants every capability ("*"). `
+            + (card.warnings === undefined ? "" : `${card.warnings.map((warning) => warning.message).join("; ")}. `)
+            + `Declare capabilities in the flow, or review it with \`smthrs flow plan ${flowId}\` and approve it with \`smthrs approvals approve\``
+        })
+      )
+    }
+    // Scope `run`: the approval authorizes this launch and its whole run, not
+    // every future launch of the flow.
+    yield* control.approve({ ...card.approval, scope: "run" })
+    if (!config.detached) return yield* run({ ...card.approval, scope: "run" }, config.wait, config.quiet)
 
-})
+    const projectRoot = yield* Project.ProjectRoot
+    const timeoutMs = Environment.readInteger(process.env, "SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
+    const passthrough = [
+      // The child runs with the project root as its cwd. An absolute MCP path
+      // preserves the file the parent parsed when the flag was relative.
+      ...(Option.isNone(config.mcpConfig)
+        ? []
+        : ["--mcp-config", resolve(process.cwd(), config.mcpConfig.value)]),
+      ...(Option.isNone(config.root) ? [] : ["--root", projectRoot])
+    ]
+    // Each `up` plans afresh, so the plan id is this launch's alone. An id the
+    // child's log announces is trusted only when this process's own control
+    // store holds that run under this plan: the log is shared with every tool
+    // the run spawns, and they inherit the admission nonce.
+    const planId = card.approval.target._tag === "Plan" ? card.approval.target.planId : undefined
+    const admission = (runId: string) =>
+      Effect.runPromise(
+        RunReads.summary(control, runId).pipe(
+          Effect.map((summary) => planId !== undefined && summary !== undefined && summary.planId === planId)
+        )
+      )
+    const launched = yield* Effect.callback<Detached.Launched | Detached.Rejected>((resume, signal) => {
+      const pending = Detached.launch({
+        root: projectRoot,
+        payload: JSON.stringify({ ...card.approval, scope: "run" }),
+        passthrough,
+        signal,
+        admission,
+        ...(timeoutMs === undefined ? {} : { timeoutMs })
+      })
+      pending.then((result) => resume(Effect.succeed(result)), (error) => resume(Effect.die(error)))
+      // Interruption aborts the signal first. Wait for termination and reaping
+      // before the CLI scope can close and the process can exit.
+      return Effect.promise(() => pending.then(() => undefined, () => undefined))
+    })
+    if (!Detached.isLaunched(launched)) {
+      return yield* Effect.fail(
+        new CliError.UnsupportedError({
+          message: `${launched.reason}\nLog: ${launched.logFile}${launched.tail === "" ? "" : `\n${launched.tail}`}`
+        })
+      )
+    }
+    // The receipt's own field, never an operator-supplied id: rc.0 has no
+    // `--run-id`, and a caller reads the run id from here.
+    return { runId: launched.runId, logFile: launched.logFile, detached: true }
+  })
 
 /**
  * Grant an approval and settle any run this executor owns.
  * @category constructors
  * @since 1.0.0
  */
-export const approve = (serialized: string, scope: ControlService.ApprovalInput["scope"] = "run", quiet = false) => Effect.gen(function*() {
-  const payload = yield* approval(serialized)
-  const control = yield* ControlService.Control
-  const parkSequence = yield* Settlement.decisionPark(control, payload.target)
-  const receipt = yield* control.approve({ ...payload, scope })
-  // A decision restarts the run it answers, in this call, on this process's
-  // own executor. The decision therefore ends with
-  // a settled run, and the shell that ran `smthrs approve` is entitled to
-  // read that run's status from `$?` exactly as `up` and `run` promise it.
-  const settlement = yield* Settlement.awaitOwnedRun(control, receipt, parkSequence, quiet)
-  yield* Settlement.report(settlement)
-  return Settlement.receiptDocument(receipt, settlement)
-
-})
+export const approve = (serialized: string, scope: ControlService.ApprovalInput["scope"] = "run", quiet = false) =>
+  Effect.gen(function*() {
+    const payload = yield* approval(serialized)
+    const control = yield* ControlService.Control
+    const parkSequence = yield* Settlement.decisionPark(control, payload.target)
+    const receipt = yield* control.approve({ ...payload, scope })
+    // A decision restarts the run it answers, in this call, on this process's
+    // own executor. The decision therefore ends with
+    // a settled run, and the shell that ran `smthrs approve` is entitled to
+    // read that run's status from `$?` exactly as `up` and `run` promise it.
+    const settlement = yield* Settlement.awaitOwnedRun(control, receipt, parkSequence, quiet)
+    yield* Settlement.report(settlement)
+    return Settlement.receiptDocument(receipt, settlement)
+  })
 
 /**
  * Deny an approval and settle any run this executor owns.
  * @category constructors
  * @since 1.0.0
  */
-export const deny = (serialized: string, quiet = false) => Effect.gen(function*() {
-  const payload = yield* approval(serialized)
-  const control = yield* ControlService.Control
-  const parkSequence = yield* Settlement.decisionPark(control, payload.target)
-  const receipt = yield* control.deny(payload)
-  const settlement = yield* Settlement.awaitOwnedRun(control, receipt, parkSequence, quiet)
-  yield* Settlement.report(settlement)
-  return Settlement.receiptDocument(receipt, settlement)
-
-})
+export const deny = (serialized: string, quiet = false) =>
+  Effect.gen(function*() {
+    const payload = yield* approval(serialized)
+    const control = yield* ControlService.Control
+    const parkSequence = yield* Settlement.decisionPark(control, payload.target)
+    const receipt = yield* control.deny(payload)
+    const settlement = yield* Settlement.awaitOwnedRun(control, receipt, parkSequence, quiet)
+    yield* Settlement.report(settlement)
+    return Settlement.receiptDocument(receipt, settlement)
+  })

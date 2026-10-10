@@ -46,10 +46,13 @@ describe("stale_read diagnostics", () => {
   })
 })
 
- it("round trips the daemon moved_off refusal through the standard error", () => {
+it("round trips the daemon moved_off refusal through the standard error", () => {
   const error = new StdError({ code: "moved_off", message: "Branch moved off the item", path: "retry.ts" })
   expect(Schema.decodeUnknownSync(StdError)(Schema.encodeSync(StdError)(error))).toMatchObject({
-    _tag: "@smthrs/std/StdError", code: "moved_off", path: "retry.ts", message: "Branch moved off the item"
+    _tag: "@smthrs/std/StdError",
+    code: "moved_off",
+    path: "retry.ts",
+    message: "Branch moved off the item"
   })
   expect(Schema.decodeUnknownResult(Code)("moved_off")._tag).toBe("Success")
 })

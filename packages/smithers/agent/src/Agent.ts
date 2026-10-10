@@ -636,7 +636,9 @@ const withCapacity = (
               let callKey: string | undefined
               if (entry.seat.refresh !== undefined) {
                 const instance = yield* FlowRuntime.FlowInstance
-                const { modelId: _model, cacheKey: _cache, ...request } = Schema.encodeSync(ModelRequest.ModelRequest)(step.request)
+                const { modelId: _model, cacheKey: _cache, ...request } = Schema.encodeSync(ModelRequest.ModelRequest)(
+                  step.request
+                )
                 callKey = yield* StepKey.fromKeyMaterial({
                   ...step.keyMaterial,
                   body: {

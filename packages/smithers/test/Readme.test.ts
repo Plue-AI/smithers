@@ -128,7 +128,9 @@ const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.
 
 /** Export-map subpaths with a literal target, minus the leading `./`. */
 const subpaths = Object.entries(manifest.exports)
-  .filter(([key, target]) => !key.includes("*") && typeof target === "string" && key !== "." && key !== "./package.json")
+  .filter(([key, target]) =>
+    !key.includes("*") && typeof target === "string" && key !== "." && key !== "./package.json"
+  )
   .map(([key]) => key.slice(2))
 
 /** The README's subpath-only list: `- \`@smthrs/cli/<dir>/<Module>\`` lines under its heading. */

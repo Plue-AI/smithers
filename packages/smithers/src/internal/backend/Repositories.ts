@@ -248,10 +248,18 @@ repositories["repo connect"] = async (c, a) => {
   }
   const license_spdx_id = await licenseOf(github)
   let status = object(await c.request("GET", `/api/repos/${slug}/github-app-status`))
-  if (status.github_app_configured === false) throw new Refused({ fault: "user", code: "github_app_not_configured", message: "The GitHub App is not configured" })
+  if (status.github_app_configured === false) {
+    throw new Refused({ fault: "user", code: "github_app_not_configured", message: "The GitHub App is not configured" })
+  }
   if (!status.github_app_installed) {
     const installUrl = str(status.install_url)
-    if (!installUrl) throw new Refused({ fault: "user", code: "github_app_not_configured", message: "The GitHub App is not configured" })
+    if (!installUrl) {
+      throw new Refused({
+        fault: "user",
+        code: "github_app_not_configured",
+        message: "The GitHub App is not configured"
+      })
+    }
     c.write(`Install ${installUrl}\n`)
   }
   while (!status.github_app_installed) {

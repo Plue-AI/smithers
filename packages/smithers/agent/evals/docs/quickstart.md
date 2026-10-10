@@ -22,7 +22,7 @@ returns a number in [0, 1]. Both come from packages the pipeline composes:
 import { Scorer } from "@smthrs/scorers"
 import { Effect } from "effect"
 
-const greet = ({ name: "greet" })
+const greet = { name: "greet" }
 
 const polite = Scorer.make({
   id: "quickstart/polite",
@@ -162,7 +162,7 @@ import { Binding, Scorer } from "@smthrs/scorers"
 import { Effect, Layer } from "effect"
 import { readFile, writeFile } from "node:fs/promises"
 
-const greet = ({ name: "greet" })
+const greet = { name: "greet" }
 
 const polite = Scorer.make({
   id: "quickstart/polite",

@@ -25,18 +25,31 @@ import { describe, expect, it } from "vitest"
 // login, private confirmation, stale-head and session-approval assertions.
 const run = promisify(execFile)
 const backend = fileURLToPath(new URL("../../backend/", import.meta.url))
-describe.skipIf(!process.env.SMITHERS_TEST_DATABASE_URL && !process.env.CI)("delegated laptop login against the install", () => {
-  it("uses the issued credential to request a review_merge card without merging", async () => {
-    const { stdout, stderr } = await run("go", [
-      "test", "./internal/compose", "-run", "^Test(DelegatedCredentialComposedInstallPostgres|ConfirmationMergeAdmissionComposedPostgres)$", "-count=1", "-v"
-    ], { cwd: backend, env: { ...process.env, SMITHERS_REQUIRE_DATABASE_TESTS: "1" }, timeout: 600_000, maxBuffer: 4 << 20 }).catch((error: Error & { stdout?: string; stderr?: string }) => {
-      throw new Error(`${error.message}\n${error.stdout ?? ""}\n${error.stderr ?? ""}`)
-    })
-    expect(stdout + stderr).not.toContain("--- SKIP:")
-    expect(stdout).toContain("--- PASS: TestConfirmationMergeAdmissionComposedPostgres")
-    expect(stdout).toContain("--- PASS: TestDelegatedCredentialComposedInstallPostgres")
-  }, 610_000)
-})
+describe.skipIf(!process.env.SMITHERS_TEST_DATABASE_URL && !process.env.CI)(
+  "delegated laptop login against the install",
+  () => {
+    it("uses the issued credential to request a review_merge card without merging", async () => {
+      const { stdout, stderr } = await run("go", [
+        "test",
+        "./internal/compose",
+        "-run",
+        "^Test(DelegatedCredentialComposedInstallPostgres|ConfirmationMergeAdmissionComposedPostgres)$",
+        "-count=1",
+        "-v"
+      ], {
+        cwd: backend,
+        env: { ...process.env, SMITHERS_REQUIRE_DATABASE_TESTS: "1" },
+        timeout: 600_000,
+        maxBuffer: 4 << 20
+      }).catch((error: Error & { stdout?: string; stderr?: string }) => {
+        throw new Error(`${error.message}\n${error.stdout ?? ""}\n${error.stderr ?? ""}`)
+      })
+      expect(stdout + stderr).not.toContain("--- SKIP:")
+      expect(stdout).toContain("--- PASS: TestConfirmationMergeAdmissionComposedPostgres")
+      expect(stdout).toContain("--- PASS: TestDelegatedCredentialComposedInstallPostgres")
+    }, 610_000)
+  }
+)
 
 const enabled = process.env.SMITHERS_DELEGATED_LOGIN_TEST === "1"
 const root = fileURLToPath(new URL("../../..", import.meta.url))
@@ -131,18 +144,27 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
   const exited = new Promise<number | null>((resolve) => harness.on("exit", resolve))
   let complete = false
   try {
-    const host = await poll(async () => {
-      if (harness.exitCode !== null) throw new Error(`The harness stopped before serving:\n${logs}`)
-      return existsSync(join(dir, "host.json")) ? JSON.parse(readFileSync(join(dir, "host.json"), "utf8")) as Host : undefined
-    }, "the installed composition", 900_000)
+    const host = await poll(
+      async () => {
+        if (harness.exitCode !== null) throw new Error(`The harness stopped before serving:\n${logs}`)
+        return existsSync(join(dir, "host.json"))
+          ? JSON.parse(readFileSync(join(dir, "host.json"), "utf8")) as Host
+          : undefined
+      },
+      "the installed composition",
+      900_000
+    )
     const inspect = async <T>(path: string): Promise<T> => {
       const response = await fetch(host.inspector + path)
       if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`)
       return await response.json() as T
     }
     const merges = async () =>
-      (await inspect<Array<Write>>("/github")).filter((write) => write.method === "PUT" && write.path.endsWith("/merge"))
-    const lastMove = async () => (await inspect<Array<{ data: Record<string, unknown> }>>("/events?type=todo.moved")).at(-1)?.data
+      (await inspect<Array<Write>>("/github")).filter((write) =>
+        write.method === "PUT" && write.path.endsWith("/merge")
+      )
+    const lastMove = async () =>
+      (await inspect<Array<{ data: Record<string, unknown> }>>("/events?type=todo.moved")).at(-1)?.data
 
     const tools = mkdtempSync(join(dir, "browser-"))
     const browser = join(tools, "consent.mjs")
@@ -187,7 +209,9 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
 
     // Step 1: the laptop line Settings shows, consented as B in a browser.
     const claude = laptop("claude-code", host.codes[0]!)
-    const login = await claude.cli("1-login-agent", ["login", host.origin, "--agent", "claude-code"], { CLAUDECODE: "1" })
+    const login = await claude.cli("1-login-agent", ["login", host.origin, "--agent", "claude-code"], {
+      CLAUDECODE: "1"
+    })
     expect(login.code, login.stderr).toBe(0)
     expect(JSON.parse(login.stdout)).toMatchObject({ status: "logged_in", user: host.member })
     const saved = claude.credential()
@@ -217,14 +241,21 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
     })
     expect(moved.code, moved.stderr).toBe(0)
     expect(JSON.parse(moved.stdout)).toMatchObject({ state: "accepted" })
-    expect(await lastMove()).toMatchObject({ n: host.t3, direction: "up", by: { person: host.member, via: "claude-code" } })
-    const audit = await inspect<Array<{ actor_name: string; action: string; target_name: string; metadata: Record<string, unknown> }>>(
+    expect(await lastMove()).toMatchObject({
+      n: host.t3,
+      direction: "up",
+      by: { person: host.member, via: "claude-code" }
+    })
+    const audit = await inspect<
+      Array<{ actor_name: string; action: string; target_name: string; metadata: Record<string, unknown> }>
+    >(
       `/audit?token=${String(row.id)}`
     )
-    expect(audit.find((entry) => entry.action === "POST" && entry.target_name === `/api/todos/${host.t3}`)).toMatchObject({
-      actor_name: host.member,
-      metadata: { kind: "delegated", via: "claude-code", stored_via: "claude-code" }
-    })
+    expect(audit.find((entry) => entry.action === "POST" && entry.target_name === `/api/todos/${host.t3}`))
+      .toMatchObject({
+        actor_name: host.member,
+        metadata: { kind: "delegated", via: "claude-code", stored_via: "claude-code" }
+      })
 
     // A Codex environment makes the CLI send Smithers-Via: codex. The
     // claude-code credential's stored via stands.
@@ -232,7 +263,11 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
       CODEX_HOME: join(claude.home, "codex")
     })
     expect(forged.code, forged.stderr).toBe(0)
-    expect(await lastMove()).toMatchObject({ n: host.t3, direction: "down", by: { person: host.member, via: "claude-code" } })
+    expect(await lastMove()).toMatchObject({
+      n: host.t3,
+      direction: "down",
+      by: { person: host.member, via: "claude-code" }
+    })
     const forgedAudit = (await inspect<typeof audit>(`/audit?token=${String(row.id)}`)).filter((entry) =>
       entry.action === "POST" && entry.target_name === `/api/todos/${host.t3}`
     )
@@ -255,7 +290,9 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
     expect(await lastMove()).toMatchObject({ n: host.t3, direction: "up", by: { person: host.member, via: "cli" } })
 
     // Step 4: Merge from the agent opens a confirmation and merges nothing.
-    const merge = await claude.cli("4-merge", ["merge", `T${host.t1}`, "--reviewed_head_sha", host.head], { CLAUDECODE: "1" })
+    const merge = await claude.cli("4-merge", ["merge", `T${host.t1}`, "--reviewed_head_sha", host.head], {
+      CLAUDECODE: "1"
+    })
     expect(merge.code, merge.stderr).toBe(3)
     const receipt = JSON.parse(merge.stdout) as Record<string, string>
     expect(Object.keys(receipt).sort()).toEqual(["confirmation", "message", "state"])
@@ -277,7 +314,9 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
         body: JSON.stringify(body)
       })
     // Step 5: the same request sent without the CLI is still only a request.
-    const direct = await agent("POST", `/api/todos/${host.t1}/merge`, "c-j6-02-direct-merge", { reviewed_head_sha: host.head })
+    const direct = await agent("POST", `/api/todos/${host.t1}/merge`, "c-j6-02-direct-merge", {
+      reviewed_head_sha: host.head
+    })
     const directBody = await direct.json() as Record<string, string>
     record("5-direct-merge.json", { status: direct.status, body: directBody })
     expect(direct.status).toBe(202)
@@ -319,14 +358,20 @@ it.skipIf(!enabled)("C-J6-02 laptop login is delegated, attributed, and cannot m
       return found.length > 0 ? found : undefined
     }, "GitHub's merge call")
     // B's own confirmations list settles the card once main holds the merge.
-    await poll(async () => {
-      const response = await fetch(`${host.origin}/api/confirmations`, { headers: { cookie } })
-      const rows = await response.json() as Array<{ id: string; state: string }>
-      return rows.find((row) => row.id === receipt.confirmation)?.state === "approved" ? rows : undefined
-    }, "B's approved confirmation", 240_000)
+    await poll(
+      async () => {
+        const response = await fetch(`${host.origin}/api/confirmations`, { headers: { cookie } })
+        const rows = await response.json() as Array<{ id: string; state: string }>
+        return rows.find((row) => row.id === receipt.confirmation)?.state === "approved" ? rows : undefined
+      },
+      "B's approved confirmation",
+      240_000
+    )
     const approvals = await inspect<Array<{ id: string; member: string; command: string; state: string }>>("/approvals")
     record("approvals.json", approvals)
-    expect(approvals.filter((approval) => approval.command === "merge").every((approval) => approval.member === host.member))
+    expect(
+      approvals.filter((approval) => approval.command === "merge").every((approval) => approval.member === host.member)
+    )
       .toBe(true)
     // Any later merge call would arrive while the confirmation settles.
     const calls = await inspect<Array<Write>>("/github")

@@ -260,7 +260,9 @@ describe("the implementing step, defaulted to the bundled flow on this host", ()
           readFile: () => JSON.stringify({ tokens: { access_token: "test-access", refresh_token: "test-refresh" } })
         }).pipe(Effect.provideService(Ui.Ui, service))
       ))
-      expect(error.message).toBe(`${onlyMatch}: SeatUnresolved: install Codex, then run \`codex login --device-auth\` to run the codex:sol seat`)
+      expect(error.message).toBe(
+        `${onlyMatch}: SeatUnresolved: install Codex, then run \`codex login --device-auth\` to run the codex:sol seat`
+      )
       expect(error.message).not.toContain("Set OPENAI_API_KEY")
     }
   )

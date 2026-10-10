@@ -13,7 +13,9 @@ describe("public repository activity paths (unit)", () => {
 
 test("retired browser write routes are absent while private archive reads remain", async () => {
   const routes = await import("../src/AgentApiRoutes.ts")
-  for (const name of ["TURN_PATH", "CANCEL_PATH", "TURN_RETIRE_PATH", "CHAT_TURN_PATH", "CHAT_CANCEL_PATH"]) expect(routes).not.toHaveProperty(name)
+  for (const name of ["TURN_PATH", "CANCEL_PATH", "TURN_RETIRE_PATH", "CHAT_TURN_PATH", "CHAT_CANCEL_PATH"]) {
+    expect(routes).not.toHaveProperty(name)
+  }
   expect(routes.TURN_REPLAY_PATH).toBe("/api/agent/turn/replay")
   expect(routes.CONVERSATIONS_PATH).toBe("/api/agent/conversations")
   expect(routes.CONVERSATION_REPLAY_PATH).toBe("/api/agent/conversations/replay")
