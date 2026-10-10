@@ -62406,12 +62406,66 @@
     }
   },
   {
+    "label": "//packages/smithers:faultNative",
+    "package": "packages/smithers",
+    "name": "faultNative",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      },
+      {
+        "kind": "file",
+        "path": "crates/flows-jj/Cargo.toml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources",
+      "//crates/smithers-machined:buildInputs",
+      "//crates/smithers-machined:ffiInputs",
+      "//packages/backend:machineContractInputs"
+    ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers:faultPostgresDatabase",
     "package": "packages/smithers",
     "name": "faultPostgresDatabase",
     "rule": "Docker.Service",
     "kinds": [
       "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:faultPostgresPrograms",
+    "package": "packages/smithers",
+    "name": "faultPostgresPrograms",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
     ],
     "cacheable": false,
     "inputs": [],
@@ -62435,7 +62489,9 @@
       {
         "kind": "glob",
         "pattern": "packages/smithers/test/faults/**/*.test.ts",
-        "exclude": []
+        "exclude": [
+          "packages/smithers/test/faults/long/**"
+        ]
       },
       {
         "kind": "glob",
@@ -62456,7 +62512,51 @@
     ],
     "outputs": [],
     "dependencies": [
-      "//packages/smithers:faultPostgresDatabase"
+      "//packages/smithers:faultPostgresDatabase",
+      "//packages/smithers:faultPostgresPrograms"
+    ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:faultsLong",
+    "package": "packages/smithers",
+    "name": "faultsLong",
+    "rule": "Vitest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/test/faults/long/**/*.test.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/test/faults/**/*",
+        "exclude": [
+          "packages/smithers/test/faults/**/*.test.ts"
+        ]
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/vitest.faults-long.config.ts"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/smithers:faultNative",
+      "//packages/smithers:faultPostgresDatabase",
+      "//packages/smithers:faultPostgresPrograms"
     ],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"

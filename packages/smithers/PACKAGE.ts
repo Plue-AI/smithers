@@ -1,7 +1,10 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 /** Standard package targets plus package-owned documentation generation. */
 import { Smithers } from "@smthrs/targets"
+import { Package as flowsJjPackage } from "../../crates/flows-jj/PACKAGE.ts"
+import { Package as machinedPackage } from "../../crates/smithers-machined/PACKAGE.ts"
 import { Package as scriptPackage } from "../../scripts/PACKAGE.ts"
+import { Package as backendPackage } from "../backend/PACKAGE.ts"
 
 const tuiSources = Smithers.Filegroup({
   cwd: "apps/tui",
@@ -132,6 +135,67 @@ const faultPostgresDatabase = Smithers.Docker.Service({
 })
 
 /**
+ * PostgreSQL 18 programs for the private-cluster cases
+ * (`postgres_kill_fault_test.go` and case40's K5 crossing), which start, kill
+ * and restart their own server and never the shared one. Built from the checksum-pinned 18.0 source
+ * with pgcrypto, which the product migrations create, as the harness user: no
+ * system install. The 18.0 archive ships no generated parser, so the host
+ * needs a C toolchain, bison, flex and OpenSSL headers, as hosted runners
+ * have. The runner passes a case no host variable, so the directory a workflow
+ * exported never reached the case (#3459); the fault target names this output.
+ */
+const faultPostgresPrograms = Smithers.Shell.Build({
+  shell: "prefix=\"$PWD/.artifacts/fault-postgres\"; src=\"$prefix/build\"; rm -rf \"$src\" && mkdir -p \"$src\" || exit $?; ssl=''; if [ \"$(uname -s)\" = Darwin ] && command -v brew >/dev/null; then openssl=$(brew --prefix openssl@3) && ssl=\"--with-includes=$openssl/include --with-libraries=$openssl/lib\"; fi; curl --fail --location --retry 3 --silent --show-error https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 --output \"$src/postgresql-18.0.tar.bz2\" && printf '%s  %s\\n' 0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078 \"$src/postgresql-18.0.tar.bz2\" | shasum -a 256 -c && tar -xjf \"$src/postgresql-18.0.tar.bz2\" -C \"$src\" && (cd \"$src/postgresql-18.0\" && ./configure --quiet --prefix=\"$prefix\" --without-icu --without-readline --without-zlib --with-ssl=openssl $ssl && make -s -j\"$(getconf _NPROCESSORS_ONLN)\" && make -s install && make -s -C contrib/pgcrypto install) && \"$prefix/bin/postgres\" --version; status=$?; rm -rf \"$src\"; exit $status",
+  outDirs: ["//.artifacts/fault-postgres"],
+  sandbox: { network: true },
+  timeout: "30m"
+})
+
+/**
+ * Native programs the long tier's cases drive, built from this checkout: the
+ * FFI library, the trusted-process `smithers-jj-export` the composed install
+ * rehearsals bind a TODO's checkout with, machined's rehearsal daemon, and the
+ * same daemon with its fault hooks (`--features killpoints`), which K7 kills
+ * at its points. The hooks compile only into debug builds, never a release.
+ * A workflow's exported paths never reached a case, and the CI-installed
+ * `SMITHERS_WORKSPACE_JJ_EXPORT_BINARY` that does reach it lacks the
+ * trusted-process binding, so the fault target names these outputs (#3459).
+ */
+const faultNative = Smithers.Shell.Build({
+  shell: "out=\"$PWD/.artifacts/fault-native\"; build=\"$out/build\"; debug=\"$build/target/debug\"; mkdir -p \"$build\" || exit $?; export RUSTUP_HOME=\"$build/rustup\" CARGO_TARGET_DIR=\"$build/target\"; rustup toolchain install && cargo build --locked -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding && cp \"$debug/smithers-jj-export\" \"$out/\" && cargo build --locked -p smithers-ffi --lib && { cp \"$debug/libsmithers_ffi.so\" \"$out/\" 2>/dev/null || cp \"$debug/libsmithers_ffi.dylib\" \"$out/\"; } && cargo build --locked -p smithers-machined --example rehearsal_daemon && cp \"$debug/examples/rehearsal_daemon\" \"$out/\" && cargo build --locked -p smithers-machined --example rehearsal_daemon --features killpoints && cp \"$debug/examples/rehearsal_daemon\" \"$out/machined-fault-daemon\"; status=$?; rm -rf \"$build\"; exit $status",
+  outDirs: ["//.artifacts/fault-native"],
+  data: [
+    Smithers.file("//Cargo.toml"),
+    Smithers.file("//Cargo.lock"),
+    Smithers.file("//rust-toolchain.toml"),
+    Smithers.file("//crates/flows-jj/Cargo.toml"),
+    flowsJjPackage.nativeSources,
+    machinedPackage.ffiInputs,
+    machinedPackage.buildInputs,
+    backendPackage.machineContractInputs
+  ],
+  sandbox: { network: true },
+  timeout: "30m"
+})
+
+/**
+ * What every Go-backed fault case reads. The runner passes a case only the
+ * host bootstrap environment, so the database URL, the host class and the
+ * programs a workflow exported never arrived and every Go-backed case failed
+ * with "Real PostgreSQL is required" (#3459). The targets declare them. Program
+ * paths are workspace-relative because a declaration holds a fixed string; the
+ * harness makes them absolute before a case starts. `linux` is the host class
+ * of every runner these targets serve; the approved reference host needs its
+ * own declaration, with its bundle, when its matrix entry stops refusing.
+ */
+const faultEnv = {
+  SMITHERS_FAULT_HOST: "linux",
+  SMITHERS_FAULT_POSTGRES_BIN: ".artifacts/fault-postgres/bin",
+  SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-fault-test@127.0.0.1:55439/postgres?sslmode=disable",
+  SMITHERS_REQUIRE_DATABASE_TESTS: "1"
+}
+
+/**
  * The package's fault-injection cases.
  *
  * A package opts into the matrix by declaring this key, so
@@ -141,19 +205,50 @@ const faultPostgresDatabase = Smithers.Docker.Service({
  * the process table — so they run serially, without coverage, from
  * `vitest.faults.config.ts`, and unconfined.
  *
- * The runner passes a case only the host bootstrap environment, so the
- * database URL a workflow exported never arrived and every Go-backed case
- * failed with "Real PostgreSQL is required" (#3459). The target declares its
- * own server instead.
+ * This is the release tier, the gate's "Exclusive fault matrix": everything
+ * under `test/faults` except `test/faults/long/`. Its file cases took 945 s on
+ * the release runner (2026-10-10) and its Go cases add a compile of the
+ * compose tests and about two minutes of route kills, so it declares 40
+ * minutes rather than the Vitest default 20; nightly reliability's 60-minute
+ * job still fits its setup and the PostgreSQL build around it.
  */
 const faults = Smithers.FaultSuite({
   cwd: "packages/smithers",
+  tests: Smithers.glob("test/faults/**/*.test.ts", { exclude: ["test/faults/long/**"] }),
+  deps: [faultPostgresPrograms],
+  env: faultEnv,
+  services: [faultPostgresDatabase],
+  sandbox: "none",
+  timeoutMs: 40 * 60_000
+})
+
+/**
+ * The long fault tier: `test/faults/long/`, cases measured in tens of minutes
+ * or budgeted in hours (the packaged pause/resume, GitHub outbound, machined
+ * K4/K4b/K7, rebase and case40 host-kill cases). Scheduled reliability runs it
+ * nightly; the release gate does not wait on it. `harness/goFaultCases.ts`
+ * assigns each Go case a tier and `test/FaultTiers.test.ts` checks every case
+ * is in exactly one. The budget sits under a hosted runner's six-hour job
+ * ceiling; the reference-only cases budgeted beyond it refuse in seconds off
+ * the reference host.
+ */
+const faultsLong = Smithers.FaultSuite({
+  cwd: "packages/smithers",
+  tests: Smithers.glob("test/faults/long/**/*.test.ts"),
+  config: Smithers.file("vitest.faults-long.config.ts"),
+  // case40's K5 crossing kills its own private cluster, as the release
+  // tier's PostgreSQL case does.
+  deps: [faultNative, faultPostgresPrograms],
   env: {
-    SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-fault-test@127.0.0.1:55439/postgres?sslmode=disable",
-    SMITHERS_REQUIRE_DATABASE_TESTS: "1"
+    ...faultEnv,
+    SMITHERS_FFI_LIBRARY_PATH: ".artifacts/fault-native/libsmithers_ffi.so",
+    SMITHERS_REHEARSAL_JJ_EXPORT_BINARY: ".artifacts/fault-native/smithers-jj-export",
+    SMITHERS_REHEARSAL_MACHINED_BINARY: ".artifacts/fault-native/rehearsal_daemon",
+    SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY: ".artifacts/fault-native/machined-fault-daemon"
   },
   services: [faultPostgresDatabase],
-  sandbox: "none"
+  sandbox: "none",
+  timeoutMs: 345 * 60_000
 })
 
 /** The corrected native editor and its reproducible source used by the TUI. */
@@ -326,8 +421,11 @@ export const Package = Smithers.Package({
     circular,
     docs,
     docsFiles,
+    faultNative,
     faultPostgresDatabase,
+    faultPostgresPrograms,
     faults,
+    faultsLong,
     fmt,
     lib,
     lint,

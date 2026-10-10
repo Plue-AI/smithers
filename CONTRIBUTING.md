@@ -157,7 +157,10 @@ The CI declaration has several deliberate operational constraints:
 - The fault-injection matrix selects packages that declare a `faults` target
   with `Smithers.FaultSuite`. The nightly reliability workflow runs
   `test '//packages/...:faults' --jobs 1`; ordinary push/PR CI does not run it.
-  Release retains its fault gate. The reference-host selection refuses until
+  Release retains its fault gate. Cases measured in tens of minutes or budgeted
+  in hours live under `packages/smithers/test/faults/long/` and run only
+  nightly, as `//packages/smithers:faultsLong`; each Go case's tier is in
+  `harness/goFaultCases.ts`. The reference-host selection refuses until
   its check mappings, main-built bundle and host provenance are approved; see
   [the durability inventory](packages/smithers/test/faults/README.md).
   A case injects a real fault into a real process and reads the result out of

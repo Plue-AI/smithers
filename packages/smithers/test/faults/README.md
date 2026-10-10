@@ -1,8 +1,10 @@
 # Durability fault matrix (T-REL-04, #3459)
 
-Run the existing serial matrix with `pnpm exec smthrs test
-'//packages/...:faults' --jobs 1`. `Smithers.FaultSuite` discovers TypeScript
-cases here; `durability-required.test.ts` now selects the named Go cases below. Missing
+Run the release tier with `pnpm exec smthrs test '//packages/...:faults' --jobs
+1` and the long tier with `pnpm exec smthrs test
+'//packages/smithers:faultsLong' --jobs 1`. `Smithers.FaultSuite` discovers
+TypeScript cases here; `harness/goFaultCases.ts` lists the named Go cases below
+and the tier each runs in. Missing
 case files, unmatched Go selectors, skipped cases and missing kill markers
 fail the matrix. The PostgreSQL transition and three merge boundaries are implemented; the
 remaining required production cases stay fail-closed. The composed Start admission
@@ -15,7 +17,7 @@ Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check    | Required production harness                                                                                                                                                                   | Host                                           |
 | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac                     |
+| C-DUR-01 | `long/case40-host-kill-todo-run.test.ts`; backend compose `todo_pause_fault_test.go` (Start) and compose `todo_live_pause_fault_test.go` (Stop/Resume); compose `postgres_kill_fault_test.go` | Linux CI and reference Mac                     |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` and compose `todo_machine_kill_fault_test.go`                                                                                                   | Approved reference Mac, microVM                |
 | C-DUR-03 | backend compose `github_outbound_kill_test.go`; compose `todo_merge_fault_test.go`; `github-step-kill.test.ts`; `engine/case39-kill-crossing.test.ts`                                         | CI, PostgreSQL 18, fake GitHub                 |
 | C-DUR-04 | backend machined `fault_test.go`; compose `rebase_fault_test.go`                                                                                                                              | Linux CI (daemon), approved reference Mac (VM) |
@@ -56,6 +58,14 @@ HTTP boundary. Missing launch, pause, reconciliation, merge-fence,
 pending-operation, capture, watcher or transport contracts block their cases.
 C-DUR-04 K1–K6 belong to S2; K7/K8 belong to their S3 owners.
 
+machined's `fault_test.go` marks its points like the route cases. The K4 child
+prints `CRASH-POINT K4` before it exits after the commit and before the
+acknowledgement, and its controller requires that exact line; each K4b run
+marks `K4b` once the dispatcher has seen the cut. Each K7 driver runs the
+composed install cases, which mark every injected fault, and requires one
+marker per run (K7a–K7d ten each, K7e twenty, the K7b host kill ten); a
+skipped install case refuses.
+
 Per-kill observations belong with the matching check's evidence under
 `.artifacts/checks/C-DUR-0N/<timestamp>/`: exact point and subject, steps re-run,
 external effects, acknowledged/found write hashes, attempt/event rows,
@@ -79,8 +89,25 @@ another case, and an unfinished leaf fails even if its parent reports success.
 Controllers still own exact point
 validation before killing. A marker alone is never recovery proof.
 
-The nightly Linux job provisions an isolated PostgreSQL 18 service and requires
-database tests. The reference entry remains refused before branch execution.
+### Tiers
+
+The release gate's "Exclusive fault matrix" runs `//packages/smithers:faults`:
+every case under `test/faults` except `test/faults/long/`, in a 40-minute
+budget. Scheduled reliability runs `//packages/smithers:faultsLong` nightly:
+the files under `test/faults/long/` and the Go cases measured in tens of
+minutes or budgeted in hours. Today those are the packaged pause/resume case
+(about 12 minutes), the GitHub outbound matrix (108-minute budget), machined's
+K4/K4b/K7 file (about 13 minutes), the rebase dispatcher cases (4 hours each),
+the C-DUR-02 reference cases and case40 (72-minute budget). Each Go case names
+its tier in `harness/goFaultCases.ts`; `../FaultTiers.test.ts` fails when a
+case runs in no tier or in both.
+
+The runner passes a case only the host bootstrap environment, so both targets
+declare what the cases read: the PostgreSQL 18 service and its URL,
+`SMITHERS_REQUIRE_DATABASE_TESTS`, `SMITHERS_FAULT_HOST=linux`, and the programs
+they build. A case that finds no host class fails. The reference entry remains
+refused before branch execution; it needs its own declared target, naming the
+reference host and its approved bundle, before it can run.
 The Go wrapper prints stdout and stderr before checking process errors, signals
 and exit status, retaining partial JSON on failed or timed-out cases. These
 logs are diagnostic output, not passing check receipts.
@@ -108,7 +135,9 @@ HTTP exchanges, committed event replay and PostgreSQL recovery logs are retained
 under `C-DUR-01/<timestamp>/postgres-transition/`.
 
 This test needs PostgreSQL 18 `postgres` and `initdb` binaries. Set
-`SMITHERS_FAULT_POSTGRES_BIN` to their directory when they are outside PATH.
+`SMITHERS_FAULT_POSTGRES_BIN` to their directory when they are outside PATH;
+the fault tiers name the ones `//packages/smithers:faultPostgresPrograms`
+builds, which case40's K5 crossing uses too.
 It creates a private cluster on a loopback ephemeral port, disables Unix
 sockets, and signals only its postmaster and the children whose kernel parent PID is that
 postmaster. It waits for those children to exit before restart. It never kills the shared
@@ -117,13 +146,19 @@ case does not qualify the install supervisor, run recovery, live WebSocket
 projection, or all of C-DUR-01. The case lives in `compose` so it can reuse the
 production router harness without introducing a services/compose import cycle.
 
-The nightly Linux job builds checksum-pinned PostgreSQL 18.0 from the official
-source archive into its runner temporary directory as the harness user. It
-builds `pgcrypto` with OpenSSL for product migrations and exports
-`SMITHERS_FAULT_POSTGRES_BIN` for the private-cluster case; the Docker
+`//packages/smithers:faultPostgresPrograms` builds checksum-pinned PostgreSQL
+18.0 from the official source archive into `.artifacts/fault-postgres` as the
+harness user, with `pgcrypto` and OpenSSL for product migrations, and both
+tiers name it in `SMITHERS_FAULT_POSTGRES_BIN`; the declared Docker
 service remains the database for other integration cases. No system install,
 sudo, or shared-server stop is required. Source provisioning is separate from
 reference-host artifact approval and does not enable privileged cases.
+
+`//packages/smithers:faultNative` builds the long tier's native programs from
+the checkout into `.artifacts/fault-native`: the FFI library, the
+trusted-process `smithers-jj-export`, machined's rehearsal daemon, and the same
+daemon with `--features killpoints` for K7. The declared paths are
+workspace-relative; the harness makes them absolute before a Go case starts.
 
 To run only the Linux fault job remotely, dispatch `reliability.yml` on `main`
 with `campaign: faults-linux`. Its default `all` and the nightly schedule keep
@@ -132,7 +167,7 @@ reference-host execution or approve check mappings.
 
 ### T-FLW-09 host and machine controls
 
-`host/case40-host-kill-todo-run.test.ts` invokes
+`long/case40-host-kill-todo-run.test.ts` invokes
 `TestTodoHostKillThroughInstall` in the shared composed install rehearsal.
 It requires real PostgreSQL, the native FFI library, and a source-export helper
 with `trusted-process-binding/v1`. The packaged host is killed with SIGKILL
@@ -145,7 +180,7 @@ explicit qualification disabled.
 
 ```sh
 cd packages/smithers
-pnpm exec vitest run --config vitest.faults.config.ts test/faults/host/case40-host-kill-todo-run.test.ts
+pnpm exec smthrs test //packages/smithers:faultsLong --jobs 1
 ```
 
 `flowhost/machine_kill_fault_test.go` supplies the reference-machine transport
@@ -227,7 +262,7 @@ Reference-host qualification and approved check mappings remain required.
 
 ```sh
 cd packages/smithers
-pnpm exec vitest run --config vitest.faults.config.ts test/faults/durability-required.test.ts -t 'C-DUR-01: TestTodoStartPauseResumeCrashThroughRoutes'
+pnpm exec vitest run --config vitest.faults-long.config.ts test/faults/long/durability-long.test.ts -t 'C-DUR-01: TestTodoStartPauseResumeCrashThroughRoutes'
 ```
 
 ### Composed reference rebase faults
