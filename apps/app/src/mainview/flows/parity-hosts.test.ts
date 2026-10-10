@@ -264,7 +264,7 @@ describe("host parity — the web and native catalogs against the servers' own c
     const everything = new Set<RuntimeCapability>([
       ...productCapabilities,
       ...cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: true, terminal: true, browser: true }),
-      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true, launchCodex: true, launchClaudeCode: true })
+      ...localCapabilities({ agent: true, identity: true, cloud: true, browser: true })
     ])
     /* Every current capability has a host row. native.shell remains decode-only for historical records. */
     const orphans = RuntimeCapabilitySchema.options.filter((capability) => capability !== "native.shell" && !everything.has(capability))

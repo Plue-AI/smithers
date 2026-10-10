@@ -1,4 +1,3 @@
-import { resolve } from "node:path"
 import { defineConfig, devices } from "@playwright/test"
 
 /*
@@ -44,10 +43,7 @@ export default defineConfig({
     env: {
       SMITHERS_VIEW_STORIES: process.env.SMITHERS_VIEW_STORIES ?? "1",
       SMITHERS_LOCAL_PORT: String(PORT),
-      SMITHERS_CHAT_STUB: CHAT_STUB,
-      // #3730: Codex and Claude Code start as these fixture CLIs, which write a session; the real CLIs never run in a test.
-      SMITHERS_E2E_CODEX_CLI: resolve(__dirname, "e2e/fixtures/agent-launch/codex.ts"),
-      SMITHERS_E2E_CLAUDE_CLI: resolve(__dirname, "e2e/fixtures/agent-launch/claude.ts")
+      SMITHERS_CHAT_STUB: CHAT_STUB
     }
   }
 })

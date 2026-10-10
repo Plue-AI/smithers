@@ -6,12 +6,13 @@ import { fileURLToPath } from "node:url"
 // T-UI-16: CodeSurface is already reachable; T-APP-11 wires its live props. No new View.
 // Views built dark await their owning wiring tickets. Wiring removes its row.
 const PENDING_WIRING: Record<string, string> = {
+  // In-app acts render as EntryRow events since 263c41d3d8; the deleted host preview (T-AGT-02) was its last caller.
+  "ActLineView.tsx": "T-AGT-03"
 }
 
 // Committed inventory: a new View needs its own wiring receipt, rather than
 // becoming accepted just because the import walker can discover it.
 const WIRED_VIEWS = {
-  "ActLineView.tsx": { ticket: "T-APP-16", legacy: [] },
   "HomeView.tsx": { ticket: "T-APP-01", legacy: ["cards/StackCard.tsx", "cards/RepositoryHomeCard.tsx"] },
   "TodoView.tsx": { ticket: "T-APP-02", legacy: [] },
   "DraftView.tsx": { ticket: "T-APP-02", legacy: [] },

@@ -58,8 +58,6 @@ export type CommandActions =
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
     | "githubSyncSnapshots"
-    // A Codex session the conversation shows read-only (M-38), never an act.
-    | "externalSession"
     // The fast model's titles are what the timeline reads, never an act.
     | "timelineTitles"
     | "contextLine"

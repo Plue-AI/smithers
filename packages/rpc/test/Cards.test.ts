@@ -816,7 +816,7 @@ const FIXTURES: Record<
     }
   },
   setup: { minimal: {}, full: {} },
-  /* #3730: an agent CLI started from the conversation names the session it wrote. */
+  /* #3730's host-launched agent session, retired with the launcher (T-AGT-02): a stored one decodes as a tombstone. */
   "agent-session": {
     minimal: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" },
     full: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" }

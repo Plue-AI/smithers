@@ -21,7 +21,5 @@ export const canDecide = (flowOrTask: string | undefined, admin: boolean): boole
 export const shownInTranscript = (card: Card, admin: boolean): boolean => {
   if (card.kind === "run-trace") return card.payload.workflow !== "register-repository"
   if (card.kind === "approval") return canDecide(card.payload.question?.name, admin)
-  // A started agent's session shows as its own entries (App.tsx), never as a card frame (#3730).
-  if (card.kind === "agent-session") return false
   return true
 }

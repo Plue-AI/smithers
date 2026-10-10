@@ -798,12 +798,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     payload: z.object({ id: z.string(), tab: z.enum(["activity", "files", "terminals"]).optional() })
   }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
-  /* An agent CLI started from this conversation (M-38): the session the conversation shows read-only. */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("agent-session"),
-    payload: z.object({ agent: z.enum(["codex", "claude-code"]), session: z.string() })
-  }),
   z.object({
     ...cardBaseShape,
     kind: z.literal("todo"),
@@ -2272,7 +2266,9 @@ export const LEGACY_CARD_KINDS = [
   "agent-form",
   "history",
   "experimental",
-  "request-queue"
+  "request-queue",
+  // #3730's host-launched agent session; T-AGT-02 retired the launcher, and members' sessions arrive as imported entries.
+  "agent-session"
 ] as const
 const retiredKinds = new Set<string>(LEGACY_CARD_KINDS)
 

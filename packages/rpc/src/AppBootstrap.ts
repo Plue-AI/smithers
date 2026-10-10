@@ -48,9 +48,6 @@ export const RuntimeCapabilitySchema = z.enum([
   "cloud.terminal", // this origin tunnels workspace terminals (/api/cloud-ws/*)
   "code.intelligence", // File-card language servers run as member daemon sessions (/api/branches/{b}/lsp)
   "cloud.pat", // a host-held Smithers Cloud PAT session (/api/cloud-auth/*)
-  // This host starts the Codex or the Claude Code CLI on its own machine and serves the session it writes (/api/external/launch).
-  "launch.codex",
-  "launch.claude-code",
   /*
    * The desktop shell (Electrobun) serves this origin: its renderer relay
    * appends the row to the backend's bootstrap, and the packaged Bun host

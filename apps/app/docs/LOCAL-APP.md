@@ -195,7 +195,7 @@ handles is told the DTO's `lsp.languages`.
 
 On an install, the guest broker identifies Claude Code and Codex processes in registered member terminal sessions. An owner-UID child reads only each linked transcript; the shipped host adapter normalizes it into the branch conversation. Authenticated history and `conversation:<branch>` live delivery share the read-only entries with branch members. Raw transcripts and unrelated home history are not exposed.
 
-`GET /api/external/sessions` and `/api/external/codex` are retired in the backend and Bun preview. Local fixture launchers may still return a session identity through `/api/external/launch`; that identity grants no raw-file read. Fixture transcript lookup is test support only. Real-agent discovery, privileged isolation and latency acceptance remain reference-host checks under C-AGT-02.
+The Bun host starts no agent CLI and serves no transcript. `/api/external/launch`, `/api/external/sessions` and `/api/external/codex` answer 404 in every composition, the bootstrap lists no `launch.*` capability, and the app reads no `?codex=` or `?claude=` address. Real-agent discovery, privileged isolation and latency acceptance remain reference-host checks under C-AGT-02.
 
 ## Model-authored cards
 

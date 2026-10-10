@@ -325,28 +325,6 @@ export const JEV_PATH = "/api/jev"
 export const HEALTH_PATH = "/api/health"
 
 /**
- * A Codex or Claude Code session on the local preview's own machine, as raw JSONL (mvp.md M-38):
- * `?agent=codex|claude-code&session=<id or prefix>&offset=<next>` answers
- * `{ agent, session_id, owner, offset, next, text, eof }`, the file's complete lines from `offset`, at most 4 MiB.
- * The app decodes them with `@smthrs/harness/ExternalTranscript`. Only the local preview serves this, on loopback,
- * behind the local-session capability, from the OS user's own CODEX_HOME or CLAUDE_CONFIG_DIR. An install serves
- * no raw transcript: a member's session reaches the branch conversation as imported read-only entries.
- *
- * @since 1.0.0
- * @category constants
- */
-export const EXTERNAL_SESSIONS_PATH = "/api/external/sessions"
-
-/**
- * Start an agent CLI on this machine: `POST { agent: "codex" | "claude-code", prompt }` answers `{ agent, session }`,
- * the id of the session the CLI wrote, which EXTERNAL_SESSIONS_PATH then reads.
- *
- * @since 1.0.0
- * @category constants
- */
-export const EXTERNAL_LAUNCH_PATH = "/api/external/launch"
-
-/**
  * The account's current billing standing: its plan key, its caps, and today's spend.
  *
  * @since 1.0.0

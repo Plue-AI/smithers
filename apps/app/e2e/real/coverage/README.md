@@ -112,8 +112,19 @@ repository path; its production default is
 
 `scripts/run-mode-matrix.ts` applies one obligation catalog to
 `web-selfhost`, `web-plue`, `local-own`, and `local-plue`. It selects scenarios by their stable `real-scenario` tag, not
-their old host tag, so a mode cannot get a smaller copied suite. `audit`
-records readiness only; `run` also runs the deterministic nonblocking/toast
+their old host tag, so a mode cannot get a smaller copied suite. A mode runs every scenario it owes; an applicable
+scenario it does not owe runs only on a host its declaration names (`modeScenarioIds`), since the gate fails a run on
+an undeclared host.
+
+`local-own` is an install like the one mvp.md J1 sets up: `scripts/mode-matrix/local-own.ts` builds the
+repository-owned GitHub fake (`packages/backend/cmd/githubfake`) and the loopback model stand-in, then walks setup
+over the install's own HTTP doors (`install-setup.ts`): Address, the GitHub App's manifest flow, the owner's GitHub
+sign-in, the repository, Model access and Source ready. The owner's session cookie is the one that sign-in set, and
+`SMITHERS_REAL_INSTALL_REPOSITORY` names the one repository the scenarios use; they create and delete none. The
+trusted-process test backend composes no branch machines, so Machine ready and the scenarios that need a machine
+cannot pass there yet (#3781).
+
+`audit` records readiness only; `run` also runs the deterministic nonblocking/toast
 specs and every currently implemented real scenario in the catalog.
 Each mode's readiness requests, bodies included, share one 30 s deadline
 (`--readiness-timeout-ms` overrides it); an expired probe fails that mode and
@@ -206,7 +217,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 7. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 8. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one
@@ -238,8 +249,6 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `cloud.terminal` | core | core |
 | `code.intelligence` | optional | absent |
 | `cloud.pat` | optional | absent |
-| `launch.codex` | absent | absent |
-| `launch.claude-code` | absent | absent |
 | `native.shell` | absent | absent |
 
 Plue owes `github` because its hosted backend serves GitHub sign-in and

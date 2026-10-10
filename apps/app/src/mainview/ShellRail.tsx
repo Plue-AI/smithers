@@ -30,7 +30,6 @@ import { diagnosticVisible } from "./state/AppState"
 import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
-import { actsLine, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
 import { foldedRuns, withTitles, zoomTimeline } from "./TimelineZoom"
 
 export type RailEntry =
@@ -38,7 +37,6 @@ export type RailEntry =
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
-  | { readonly kind: "external"; readonly item: ExternalItem; readonly conversation?: ExternalConversation | undefined }
 
 const firstLine = (text: string): string => text.split("\n").find(line => line.trim() !== "")?.trim() ?? ""
 
@@ -74,7 +72,6 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       return [{ entry_id: entry.card.id, kind: "card", title: model.title, tone, glyph: { state: model.state }, ...(action ? { action } : {}) }]
     }
   }
-  if (entry.kind === "external") return externalLine(entry.item, entry.conversation)
   if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card), glyph: toneGlyph(cardTone(entry.card)) }]
   const { message } = entry
   const text = firstLine(message.text)
@@ -84,26 +81,9 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
     : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
 })
 
-/** A Codex session's item (M-38): prompts carry their owner, answers the agent; a run of commands and a diff are events. */
-const externalLine = (item: ExternalItem, conversation: ExternalConversation | undefined): TimelineLine[] => {
-  switch (item.kind) {
-    case "message": {
-      const text = firstLine(item.text) || (item.reasoning === undefined ? "" : "Reasoning")
-      if (text === "" || conversation === undefined) return []
-      return [item.role === "user"
-        ? { entry_id: item.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: { actor: conversation.owner } }
-        : { entry_id: item.id, kind: "answer", title: text, tone: "quiet", glyph: { actor: conversation.agent } }]
-    }
-    case "acts": return [{ entry_id: item.id, kind: "event", title: actsLine(item).replace(/^ran/, "Ran"), tone: "quiet", glyph: { event: item.failed ? "attention" : "ok" } }]
-    case "diff": return [{ entry_id: item.id, kind: "card", title: `Diff · ${item.card.path.split("/").at(-1)}`, tone: "quiet", glyph: { event: "ok" } }]
-    case "error": return [{ entry_id: item.id, kind: "event", title: item.text, tone: "failed", glyph: { event: "failed" } }]
-  }
-}
-
 /** Each entry's time, where it has one: a folded timeline line shows its span (#3728). */
 export const railTimes = (entries: ReadonlyArray<RailEntry>): Map<string, number> => new Map(entries.flatMap((entry): Array<[string, number]> =>
   entry.kind === "card" ? [[entry.card.id, entry.card.createdAt]]
-    : entry.kind === "external" ? [[entry.item.id, entry.item.at]]
     : entry.kind === "message" ? [[entry.message.id, entry.message.createdAt]]
     : []))
 /** Index persisted cursor addresses once per snapshot, including embedded cards. */

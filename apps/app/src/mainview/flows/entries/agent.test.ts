@@ -4,11 +4,11 @@ import { createAppStore } from "../../state/AppStore"
 import { MessageSchema, ToastSchema } from "../../state/AppState"
 import { memoryStorage, unavailableAgent } from "../../state/TestFixtures"
 
-for (const capabilities of [[], ["launch.codex", "launch.claude-code"]] as const) test(`provider launch capabilities never add app catalog doors: ${capabilities}`, async () => {
+test("the retired agent launch flows add no app catalog door", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const launches: string[] = []
   const controller = createAppController(store, unavailableAgent, {
-    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: [...capabilities], authFlow: "none", sandbox: null },
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: [], authFlow: "none", sandbox: null },
     fetchImpl: async input => { if (String(input).includes("launch")) launches.push(String(input)); return new Response(null, { status: 404 }) }
   })
   try {

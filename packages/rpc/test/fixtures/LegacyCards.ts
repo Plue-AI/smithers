@@ -4158,9 +4158,9 @@ export const legacyCards = [
         "session": "0199e2e0-0000-7000-8000-00000000a11c"
       }
     },
-    "expectedKind": "agent-session",
+    "expectedKind": "retired",
     "expectedTitle": "Codex",
-    "expectedWas": null
+    "expectedWas": "agent-session"
   },
   {
     "row": {

@@ -204,7 +204,6 @@ export const stubCommandActions = (overrides: Partial<CommandActions> = {}): Com
   flowCards: unexpected,
   get forkBranch(): never { return unexpected() },
   changeMembers: unexpected,
-  startAgent: unexpected,
   design: createDesignWorld(),
   live: undefined,
   presentCard: unexpected,

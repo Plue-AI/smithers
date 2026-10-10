@@ -23,8 +23,6 @@ import {
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
-  EXTERNAL_SESSIONS_PATH,
-  EXTERNAL_LAUNCH_PATH,
   MODEL_STREAM_PATH,
   TURN_REPLAY_PATH,
   TURN_ERASE_PATH
@@ -62,7 +60,6 @@ import type { CloudAuth, CloudKeychain } from "./CloudAuth"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
 import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
-import type { AgentLauncher } from "./AgentLaunch"
 
 /** The deployed identity seam the sign-in device flow talks to. */
 export const DEFAULT_IDENTITY_UPSTREAM = "https://canary.smithers.sh"
@@ -154,8 +151,6 @@ export interface LocalServerOptions {
   readonly identityUpstream?: string | null
   /** Self-hosted product backend for the live channel; independent of cloud mode. */
   readonly backendApi?: string | null
-  /** Starts agent CLIs on this machine (#3730); absent, this host has no launch door. The server stops it. */
-  readonly agentLauncher?: AgentLauncher
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -645,10 +640,6 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
-/** Both the request target and its actual peer must be loopback. */
-export const localPreviewLoopback = (hostname: string, address: string | undefined): boolean =>
-  hostname === "127.0.0.1" && (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1")
-
 export const startLocalServer = async (options: LocalServerOptions): Promise<LocalServer> => {
   const log = options.log ?? ((line: string) => console.log(line))
   const distDir = resolve(options.distDir)
@@ -713,9 +704,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         overview: identityUpstream !== null,
         plans: identityUpstream !== null,
         cloud: cloudUpstream !== null,
-        browser: remoteEnabled,
-        launchCodex: launcher?.agents.includes("codex") === true,
-        launchClaudeCode: launcher?.agents.includes("claude-code") === true
+        browser: remoteEnabled
       }),
       authFlow: identityUpstream === null ? "none" : "both",
       // Required by `AppBootstrapSchema`, and omitting it stopped the app
@@ -738,28 +727,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       pid: process.pid,
       home
     }))
-
-  // Host CLI launches remain local preview only. Shared conversation history
-  // comes from normalized branch ingestion; no router reads raw agent homes.
-  const localPreview = !remoteEnabled && !(options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi)
-  const launcher = localPreview ? options.agentLauncher : undefined
-  if (launcher !== undefined) router.add("POST", EXTERNAL_LAUNCH_PATH, async ({ request }) => {
-    const generation = launcher.admission()
-    const read = await readJson(request, 64 * 1024)
-    if ("error" in read) return read.error
-    const body = read.body as { agent?: unknown; prompt?: unknown } | undefined
-    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
-    const agent = launcher.agents.find(each => each === body?.agent)
-    if (agent === undefined || prompt === "") return jsonError("invalid_request", `Name an agent this host starts (${launcher.agents.join(", ")}) and give it a prompt.`)
-    const launched = await launcher.launch(agent, prompt, generation)!
-    // Only a typed, public failure crosses the HTTP boundary; stderr stays local.
-    return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
-  })
-
-  if (launcher !== undefined) router.add("DELETE", EXTERNAL_LAUNCH_PATH, async () => {
-    await launcher.stopAll()
-    return json({ ok: true })
-  })
 
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
   /** Offline performs no egress, so a configured model may be reached on loopback only. */
@@ -952,7 +919,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    */
   router.add("POST", CLOUD_AUTH_START_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    const started = await (launcher ? launcher.revoke(() => cloudAuth.start()) : cloudAuth.start())
+    const started = await cloudAuth.start()
     return "error" in started ? jsonError("cloud_auth_unavailable", started.error) : json(started)
   })
   router.add("GET", CLOUD_AUTH_SESSION_PATH, () =>
@@ -977,7 +944,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
   router.add("POST", CLOUD_AUTH_SIGN_OUT_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    await (launcher ? launcher.revoke(() => cloudAuth.signOut()) : cloudAuth.signOut())
+    await cloudAuth.signOut()
     closeCloudBridges(4401, "signed out of Smithers Cloud")
     return json({ ok: true })
   })
@@ -1034,10 +1001,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     const { pathname } = url
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
-    }
-    if (pathname === EXTERNAL_SESSIONS_PATH || pathname === EXTERNAL_LAUNCH_PATH) {
-      if (!localPreview) return jsonError("not_found", "Not found.")
-      if (!localPreviewLoopback(url.hostname, bunServer.requestIP(request)?.address)) return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
     if (pathname === "/api/live") {
       if (request.headers.get("origin") !== origin) return jsonError("invalid_origin", "WebSocket origin does not match the local app.")
@@ -1158,9 +1121,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       }
       if (pathname === "/api/auth/session") return jsonError("not_found", `No route for ${request.method} ${pathname}.`)
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
-        const transition = async () => identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
-        return launcher && (pathname === "/api/auth/sign-out" || pathname === "/api/auth/sign-in")
-          ? launcher.revoke(transition) : transition()
+        return identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
       }
       /*
        * The product API. The cloud client is served BY the Worker, so every
@@ -1374,7 +1335,6 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       // failed finalizer must not strand the listener or another child owner.
       const results = await Promise.allSettled([
         () => closeCloudBridges(1001, "the local app is shutting down"),
-        () => options.agentLauncher?.dispose(),
         () => { for (const interrupt of sealedTurns.values()) interrupt(); sealedTurns.clear() },
         () => { for (const runId of writers.keys()) agent?.cancel(runId); for (const writer of writers.values()) writer.end(); writers.clear() },
         () => server.stop(true),

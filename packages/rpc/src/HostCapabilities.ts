@@ -50,10 +50,6 @@ export interface LocalCapabilityOptions {
   readonly identity: boolean
   readonly cloud: boolean
   readonly recommend?: boolean
-  /** This launch holds a Codex launcher and serves the sessions it starts. */
-  readonly launchCodex?: boolean
-  /** This launch holds a Claude Code launcher and serves the sessions it starts. */
-  readonly launchClaudeCode?: boolean
 }
 
 const present = (rows: ReadonlyArray<readonly [RuntimeCapability, boolean]>): Array<RuntimeCapability> =>
@@ -100,7 +96,5 @@ export const localCapabilities = (opts: LocalCapabilityOptions): Array<RuntimeCa
     ["cloud.terminal", opts.cloud],
     ["cloud.pat", opts.cloud],
     ["recommend", opts.recommend === true],
-    ["commands.select", opts.recommend === true],
-    ["launch.codex", opts.launchCodex === true],
-    ["launch.claude-code", opts.launchClaudeCode === true]
+    ["commands.select", opts.recommend === true]
   ])

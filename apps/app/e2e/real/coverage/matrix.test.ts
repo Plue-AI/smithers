@@ -21,6 +21,7 @@ import {
   missingModeReadiness,
   matrixPasses,
   matrixVerdict,
+  modeScenarioIds,
   owedScenarioIds,
   parseMatrixConfig,
   probeMode,
@@ -123,9 +124,31 @@ describe("deployment mode matrix", () => {
 
   test("GitHub import runs only when the host advertises its configured integration", () => {
     const owned = applicableScenarioIds(["identity", "agent", "model.turn", "cloud", "cloud.terminal"])
-    expect(owned).toContain("repositories.local-git-push-file-readback")
+    expect(owned).toContain("issues.product-create-readback")
     expect(owned).not.toContain("repositories.github-import-direct-readback")
     expect(applicableScenarioIds(["identity", "github"])).toContain("repositories.github-import-direct-readback")
+  })
+
+  test("a mode runs what it owes, and an optional scenario only on a host its declaration names", () => {
+    const hosts: Record<string, readonly ("local" | "production")[]> = { "repositories.github-import-direct-readback": ["production"] }
+    const declared = (id: string) => hosts[id] ?? ["local", "production"]
+    const advertised = ["identity", "github", "cloud", "cloud.terminal"]
+    // local-own advertises its fake GitHub App, but GitHub import is a Plue scenario: running it here fails the gate.
+    expect(modeScenarioIds("local-own", advertised, declared)).toEqual(owedScenarioIds("local-own"))
+    expect(modeScenarioIds("local-own", advertised, declared)).not.toContain("repositories.github-import-direct-readback")
+    expect(modeScenarioIds("local-own", advertised, () => ["local"])).toContain("repositories.github-import-direct-readback")
+    // A Plue mode owes it and runs it whatever the declaration says; the gate then reports any undeclared host.
+    expect(modeScenarioIds("web-plue", advertised, () => undefined)).toEqual(owedScenarioIds("web-plue"))
+    expect(modeScenarioIds("web-plue", advertised, () => undefined)).toContain("repositories.github-import-direct-readback")
+    // Nothing the bootstrap does not advertise runs.
+    expect(modeScenarioIds("local-own", ["identity"], declared)).toEqual(["auth.mode-session-cookie-persistence", "issues.product-create-readback", "issues.product-reload-readback"])
+  })
+
+  test("repository creation and pushes to an install's own Git are retired: one repository per install", () => {
+    for (const id of ["repositories.product-create-readback", "repositories.local-git-push-file-readback"]) {
+      expect(MATRIX_SCENARIO_IDS).not.toContain(id)
+      expect(RETIRED_SCENARIOS.find((retired) => retired.id === id)?.reason).toContain("§8")
+    }
   })
 
   test("a Plue mode owes GitHub import and fails it while its host does not advertise github", () => {
@@ -185,7 +208,8 @@ describe("deployment mode matrix", () => {
       "ceefdbdb4354e207073557c58681c24ee1a1f5aa90bb6797addc44c4f70fc517",
       "d49406e39037cd1b9bdadae0bccc0fe926f5e9cee6ed24250c78a63526187726",
       "f8a29e64e387c7d1d89be67b5175c0572b15be37d3366acb46cf0fa07c2e1a57",
-      "30baa935b07f9517e72e9d508da6aae447b21bb5effe9c74409a333d748236f8"
+      "30baa935b07f9517e72e9d508da6aae447b21bb5effe9c74409a333d748236f8",
+      "ddc15cf16cc668e9670685f8051f54381bc99b28edf030cdc8c04679d56c1656"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)
@@ -343,9 +367,9 @@ describe("deployment mode matrix", () => {
 
   test("a failed attempt prevents a later pass from satisfying an obligation", () => {
     const readiness = { mode: "local-own" as const, status: "passed" as const, tier: "local-infrastructure" as const, origin: "https://example.test", endpoint: "https://example.test", capabilities: ["identity"], reasons: [] }
-    const base = { scenarioId: "repositories.local-git-push-file-readback", host: "local" as const, mode: "local-own" as const, revision, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }
+    const base = { scenarioId: "issues.product-create-readback", host: "local" as const, mode: "local-own" as const, revision, startedAt: "2026-09-21T00:00:00Z", finishedAt: "2026-09-21T00:00:01Z" }
     const rows = scenarioReceipts(readiness, revision, [{ ...base, status: "failed" as const }, { ...base, status: "passed" as const }])
-    expect(rows.find(({ scenarioId }) => scenarioId === "repositories.local-git-push-file-readback")?.status).toBe("failed")
+    expect(rows.find(({ scenarioId }) => scenarioId === "issues.product-create-readback")?.status).toBe("failed")
   })
 
   test("readiness joins a real execution receipt with health and advertised capabilities", async () => {

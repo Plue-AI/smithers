@@ -80,8 +80,6 @@ export { RETIRED_SCENARIOS } from "./deferrals/history"
 /** One obligation catalog. Modes inject topology; they do not copy scenario bodies. */
 export const MATRIX_OBLIGATIONS: readonly MatrixObligation[] = [
   { id: "signed-in", scenarios: [{ id: "auth.mode-session-cookie-persistence", capabilities: ["identity"] }], tier: "local-infrastructure" },
-  { id: "repository-create", scenarios: [{ id: "repositories.product-create-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
-  { id: "local-git-push", scenarios: [{ id: "repositories.local-git-push-file-readback", capabilities: ["identity"] }], tier: "local-infrastructure" },
   { id: "github-import", scenarios: [{ id: "repositories.github-import-direct-readback", capabilities: ["identity", "github"] }], tier: "live-provider" },
   { id: "workspace", scenarios: [{ id: "workspaces.product-lifecycle", capabilities: ["identity", "cloud"] }], tier: "local-infrastructure" },
   { id: "terminal", scenarios: [{ id: "workspaces.product-terminal-keyboard-output", capabilities: ["identity", "cloud", "cloud.terminal"] }], tier: "local-infrastructure" },
@@ -101,7 +99,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 7
+export const FEATURE_MATRIX_VERSION = 8
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
@@ -135,9 +133,6 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "cloud.terminal": { selfhost: core, plue: core },
   "code.intelligence": { selfhost: optional("needs isolated branch machines with member sessions"), plue: absent("hosted composition serves no branch language servers") },
   "cloud.pat": { selfhost: optional("a local host's session with its configured backend"), plue: absent("the shared backend holds no Smithers Cloud PAT session") },
-  // #3730: only the local preview host starts an agent CLI on its own machine; the backend has no launch route.
-  "launch.codex": { selfhost: absent("the backend starts no agent CLI"), plue: absent("the backend starts no agent CLI") },
-  "launch.claude-code": { selfhost: absent("the backend starts no agent CLI"), plue: absent("the backend starts no agent CLI") },
   "native.shell": { selfhost: absent("retired shell capability"), plue: absent("retired shell capability") },
 }
 
@@ -161,6 +156,19 @@ export const applicableScenarioIds = (capabilities: readonly string[]): readonly
   MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios
     .filter((scenario) => scenario.capabilities.every((capability) => capabilities.includes(capability)))
     .map(({ id }) => id))
+
+/**
+ * The scenarios a mode runs: every one it owes, and each other applicable one whose declaration names the mode's
+ * host. A run on a host a scenario never declared fails the real E2E gate (undeclared-run-host), so an optional
+ * feature's scenario written for another host stays out of this mode's run instead of failing it.
+ */
+export const modeScenarioIds = (
+  mode: DeploymentMode, capabilities: readonly string[], declaredHosts: (scenarioId: string) => readonly RealHost[] | undefined
+): readonly string[] => {
+  const owed = owedScenarioIds(mode)
+  const host = MODE_DESCRIPTORS[mode].legacyHost
+  return applicableScenarioIds(capabilities).filter((id) => owed.includes(id) || (declaredHosts(id) ?? []).includes(host))
+}
 
 export const MANDATORY_DETERMINISTIC_BUN_TESTS = [
   "src/mainview/state/controller/workflows.test.ts",

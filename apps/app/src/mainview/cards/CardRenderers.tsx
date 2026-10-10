@@ -49,7 +49,6 @@ import { draftCardFamily } from "./DraftCard"
 import { confirmCardFamily } from "./ActCard"
 import { branchCardFamily } from "./BranchCard"
 import { terminalCardFamily } from "./TerminalCard"
-import { agentSessionCardFamily } from "./AgentSessionCard"
 import { runCardFamily } from "./RunContainer"
 
 /* MOCK SEAM (state/seams/DesignWorld): `design:` cards read the seeded world through their own bodies. */
@@ -94,7 +93,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   confirmCardFamily,
   branchCardFamily,
   terminalCardFamily,
-  agentSessionCardFamily,
   runCardFamily,
   flowCardFamily,
   docsCardFamily,
@@ -134,7 +132,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...confirmCardFamily,
   ...branchCardFamily,
   ...terminalCardFamily,
-  ...agentSessionCardFamily,
   ...runCardFamily,
   ...flowCardFamily,
   ...docsCardFamily,
