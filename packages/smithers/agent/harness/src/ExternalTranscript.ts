@@ -871,10 +871,9 @@ const claudeToolPart = (
   }
 }
 
-/**
- * The Claude Code record, status, attachment and block kinds this module names. Each list is closed: a kind
- * outside it is a tagged `unsupported_record`, so a new kind stops the import where a person can see it.
- */
+// The Claude Code record, status, attachment and block kinds this module names. Each list is closed: a kind
+// outside it is a tagged `unsupported_record`, so a new kind stops the import where a person can see it.
+
 /** Rows outside the conversation chain: session bookkeeping that names no speaker and says nothing. */
 const claudeSkippedRows = [
   "mode",
