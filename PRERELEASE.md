@@ -1,37 +1,38 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 16:50 PDT
-main          after 71acddc881 when written
+Updated       2026-10-09 23:55 PDT
+main          8b4811ba6a (run 15 bundle) and later
 
-Published     1.0.0-rc.3 on npm `next`, 16:47 PDT. Release run 37995491765,
-              tag v1.0.0-rc.3 → 71acddc881. 48 of 48 packages. `latest` stays
-              0.35.0, except @smthrs/canonical: its first-ever publish (rc.2)
-              set latest=next=1.0.0-rc.2 (npm does this for a new name).
-              `npm i smthrs@next` installs and reports 1.0.0-rc.3.
-              rc.1 and rc.2 tag runs failed in publishing (pnpm 404 read as
-              fatal, fixed 1618f9d9ce; new name served late, fixed 3c8b53afd1).
-Journeys      71acddc881: no failed row, every suite on try 1.
+Published     1.0.0-rc.3 on npm `next`, 16:47 PDT, tag v1.0.0-rc.3 → 71acddc881.
+              48 of 48 packages. `latest` stays 0.35.0, except @smthrs/canonical
+              (its first publish at rc.2 set latest=rc.2). rc.4 waits for the
+              learning and /review start fix below, then a run-16 pass.
+Journeys      8b4811ba6a: no failed row, every suite on try 1.
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
-              J7 19/0/2  J8 6/0/3   J9 12/0/1  J10 36/0/4 J11 19/0/0
-Real install  Run 13 on the rc.3 tag run's bundle, 0 mismatches, no patch.
-              T1 PASS: canary-sandbox#154, merged with the card's Merge
-              16:11:20, squash f0bc030c99. T2 PASS: PR #155 opened 16:17:07.
-              The composer's /review now gets 202 (fixed in rc.3).
-Broken in     1. The learning machine passes initialization, then fails
-rc.3             EnsureMachined step=head not_ready 3 times and stops without
-                 running: its workspace row has no source commit.
-              2. After a TODO opens its PR, that VM's msb agent hits "max
-                 clients reached" (up to ~880 relays): one `msb exec` relay
-                 per connection, no cap, re-probe twice a second. T1's
-                 publish got a 500 and Merge stayed disabled 7 min; T2's
-                 machine held the only slot 22+ min, so /review, T2's review
-                 and the last wiki refresh never got a machine.
-              3. After a merge, the TODO card may show Plan "failed" beside
-                 Verify "done"; nothing failed. Fixed on main, e202f42ad0.
-              1 and 2 are being fixed for rc.4. 1's three failures came in
-              3 s partly because a cached backoff refusal counted as a
-              failed start; fixed on main, 8b41be917d.
+              J7 19/0/2  J8 6/0/3   J9 13/0/0  J10 36/0/4 J11 19/0/0
+Real install  Run 15 on dry run 38023660168's bundle (8b4811ba6a), no patch.
+              T1 PASS: canary-sandbox#158 merged with the card's Merge; card
+              shows Plan done. T2 PASS: #159. Relays: peak 7 per VM, 0 refusals.
+              One slot, nobody acting: T2's machine suspended in review, its
+              review lane took the slot, wrote "Review: approve", retired.
+Broken on     1. The learning machine's coding host exits at start: the box
+main             launcher hands it a landing credential it must not have.
+              2. /review's coding host exits (no jj exporter on the bare
+                 launcher), and that launcher cannot release the failed
+                 machine, so it keeps the only slot.
+              1 and 2 are one fix in progress (no landing credential, exporter
+              planted, release on exhaustion).
+              3. Wiki refresh runs end review-failed on the scripted model only
+                 (fixture gap, runs 12-15); fix in progress.
+Fixed since   rc.3 learning head (84e132ca0a) and vm_id (f5ca4c0dc1); relay
+rc.3          storm (5bc8b4db0b); one-slot deadlock (7f3bf68737, bac0abcd33,
+              3e007cbdeb); Plan "failed" (e202f42ad0); start bound (8b41be917d);
+              #3759 (2dad24a47d); #3760, #3761; DNS message (a58c17b4bf).
+Done work     Release gates: repo flows, site, drift, wasm, native FFI, TUI,
+              script lint and JSDoc green on lane hosts; the rest in progress.
+              Tickets still need the Mac mini for most receipts (see
+              ~/smithers-lanes/done/PLAN-D.md).
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
@@ -43,8 +44,9 @@ To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
               (refused at 39.19, started at 44.77). Commands: section 6.
 No mini/Cloud The Mac mini is offline (Will, 10-08). Cloud cannot run a TODO.
 
-Needs Will    Nothing. Optional: say yes to using your model keys if an install
-              run should also run a TODO with a real model.
+Needs Will    Owner calls in ~/smithers-lanes/done/QUEUE.md (hosting ratchet,
+              fixture path, sync-commits spec conflict, mapping approvals).
+              Optional: your model keys for a real-model TODO run.
 ```
 
 ## 1. What works
