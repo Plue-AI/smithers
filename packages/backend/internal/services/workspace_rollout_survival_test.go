@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -273,4 +274,40 @@ func TestWorkspaceProvisionLockPostgresOwnership(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, ran, "ownership ends with the owner's transaction")
+}
+
+// Install run 14 (#3776): a /review job's machine row waited "starting" in the
+// full queue. Ten minutes on, this reconciler re-drove it as if an API had
+// stopped: its service-owned TODO request took over the holder, and its
+// fifteen-minute provisioning bound failed the row "machine admission
+// unavailable" while the job still waited. The job's own background request
+// owns that wait; a row without one is still re-driven.
+func TestReconcileLeavesHostOwnedMachineWaitsToTheirOwner(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		t.Run(fmt.Sprintf("owned=%v", owned), func(t *testing.T) {
+			ws := sampleDBWorkspace("review-machine")
+			ws.Status, ws.VmID = "starting", ""
+			ws.UpdatedAt = time.Now().Add(-11 * time.Minute)
+			q := &rolloutRecoveryQuerier{mockWorkspaceQuerier: provisioningTestQuerier(nil), workspace: ws}
+			var reads atomic.Int32
+			q.getWorkspaceFn = func(context.Context, string) (db.Workspace, error) { reads.Add(1); return ws, nil }
+			runtime := new(microsandbox.Runtime)
+			if owned {
+				_, err := runtime.Request("background", machineQueueHolder(ws.ID), "review-job", "review")
+				require.NoError(t, err)
+			}
+			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
+			require.NoError(t, svc.ReconcileWorkspaceProvisioning(context.Background()))
+			require.NoError(t, svc.WaitForProvisioning(context.Background()))
+			if owned {
+				require.Equal(t, int32(1), reads.Load(), "the reconciler only looked at the row")
+				rows := runtime.AdmissionSnapshot()
+				require.Len(t, rows, 1)
+				require.Equal(t, "background", rows[0].Class, "no second demand took over the job's holder")
+				require.Equal(t, "waiting", rows[0].State)
+			} else {
+				require.Greater(t, reads.Load(), int32(1), "a row an API left starting is re-driven")
+			}
+		})
+	}
 }

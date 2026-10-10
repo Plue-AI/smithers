@@ -156,9 +156,32 @@ func (s *WorkspaceService) ReconcileWorkspaceProvisioning(ctx context.Context) e
 			}
 			continue
 		}
+		if s.hostOwnedMachineWaits(ws.ID) {
+			continue
+		}
 		s.provisionWorkspaceAsync(ctx, ws, CreateWorkspaceSessionInput{RepositoryID: row.RepositoryID, UserID: row.UserID, RepoOwner: row.RepositoryOwner, RepoName: row.RepositoryName, SourceBookmark: row.TargetBookmark})
 	}
 	return nil
+}
+
+// hostOwnedMachineWaits reports a machine whose owner (a /review or learning
+// job) is waiting for it in its own background admission request. Its row is
+// starting only because the queue is full, not because an API stopped. A
+// second, service-owned request would rank its holder as an unscoped TODO the
+// install never grants, and time out into "machine admission unavailable"
+// while the job still waits (#3776).
+func (s *WorkspaceService) hostOwnedMachineWaits(id string) bool {
+	queue, ok := s.runtime.(workspaceMachineQueue)
+	if !ok {
+		return false
+	}
+	holder := machineQueueHolder(id)
+	for _, row := range queue.AdmissionSnapshot() {
+		if row.Holder == holder && row.Class == "background" && (row.State == "waiting" || row.State == "granted") {
+			return true
+		}
+	}
+	return false
 }
 
 // RunProvisioningReconciler reconciles now and then every
