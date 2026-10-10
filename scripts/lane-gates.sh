@@ -67,6 +67,23 @@ check_go_format() {
   echo "PASS gofmt:$target" >> "$log"
 }
 
+# //scripts:lint and //:jsdocTree share the root eslint.config.js. A lane owns the lint of every operator
+# script and package source it touches, so this is never grandfathered by a baseline (#3765).
+# Reads changed paths on stdin; files outside those trees, and deleted files, are skipped.
+check_root_lint() {
+  local files=() f out
+  while IFS= read -r f; do
+    [[ "$f" =~ ^scripts/.*\.mjs$ || "$f" =~ ^packages/([^/]+/){1,3}src/.*\.ts$ ]] && [ -f "$f" ] && files+=("$f")
+  done
+  [ ${#files[@]} -eq 0 ] && return 0
+  # The workspace's own ESLint binary: `pnpm exec` may verify or install dependencies first.
+  if out=$(node_modules/.bin/eslint --config eslint.config.js --max-warnings 0 --no-warn-ignored "${files[@]}" 2>&1); then
+    echo "PASS root-eslint (${#files[@]} files)" >> "$log"; return 0
+  fi
+  printf 'FAIL root-eslint\n%s\n' "$out" >> "$log"
+  newreds+=("root-eslint"); return 1
+}
+
 # Sourcing exposes the same parser/check used by the executable to regression fixtures.
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then return 0; fi
 
@@ -138,6 +155,8 @@ check migration-gate "go test -run 'TestMigrationGate|TestMigrationRegistry' ./p
 [ -f scripts/check-sqlc-drift.sh ] && check sqlc-drift "bash scripts/check-sqlc-drift.sh"
 check lane-gates "node --test scripts/lane-gates.test.mjs scripts/lane-prerequisites.test.mjs"
 check tracked-hygiene "node scripts/check-tracked-hygiene.mjs"
+# A here-string, not a pipe: a piped function runs in a subshell and its newreds would be lost.
+[ $mode = gate ] && check_root_lint <<< "$changed"
 if command -v smthrs >/dev/null; then check drift "smthrs lint //:driftCi //:targetIndex //:ci //scripts:trackedHygiene //scripts:conflictMarkers"
 else echo "SKIP drift: smthrs unavailable on this host" >> "$log"; fi
 
