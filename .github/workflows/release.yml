@@ -236,7 +236,7 @@ jobs:
         if: matrix.lane != 'candidate'
         uses: docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f
         with:
-          args: ".github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-auth.yml .github/workflows/apps-deploy.yml .github/workflows/distribution.yml .github/workflows/canary.yml .github/workflows/reliability.yml .github/workflows/native-windows.yml .github/workflows/mirror-sync.yml .github/workflows/drift.yml .github/workflows/reference-host.yml"
+          args: ".github/workflows/ci.yml .github/workflows/release.yml .github/workflows/release-auth.yml .github/workflows/apps-deploy.yml .github/workflows/distribution.yml .github/workflows/canary.yml .github/workflows/reliability.yml .github/workflows/native-windows.yml .github/workflows/mirror-sync.yml .github/workflows/drift.yml .github/workflows/reference-host.yml .github/workflows/trusted-drift.yml .github/workflows/trusted-setup-validation.yml"
       - name: Install pinned Rust toolchain
         run: rustup toolchain install
       - name: Install Go
@@ -457,6 +457,13 @@ jobs:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
+      # The migration-landing regressions in //scripts:engineeringScriptRegressions
+      # regenerate a fixture with the pinned sqlc (scripts/check-sqlc-drift.sh).
+      - name: Install pinned sqlc
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Script gates
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: pnpm exec smthrs test '//scripts/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose

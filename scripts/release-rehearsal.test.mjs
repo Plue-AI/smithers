@@ -281,6 +281,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Install PostgreSQL",
     "Start the gates lane time budget",
     "Release changelog section",
+    "Install pinned sqlc",
     "Install Playwright Chromium and WebKit",
     "Install PostgreSQL 18 for the owned local mode",
     "Real PostgreSQL backup and restore",
