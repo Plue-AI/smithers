@@ -99,7 +99,7 @@ export type FeatureSupport = "core" | "optional" | "absent"
 export type FeatureRow = { readonly support: "core" } | { readonly support: "optional" | "absent"; readonly reason: string }
 
 /** Bump with any row change; every matrix report publishes this version and the table's digest. */
-export const FEATURE_MATRIX_VERSION = 8
+export const FEATURE_MATRIX_VERSION = 9
 
 const core = { support: "core" } as const
 const optional = (reason: string): FeatureRow => ({ support: "optional", reason })
@@ -136,12 +136,19 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "native.shell": { selfhost: absent("retired shell capability"), plue: absent("retired shell capability") },
 }
 
-export const featureMatrixSHA256 = (): string => canonicalSHA256(FEATURE_MATRIX)
+export const featureMatrixSHA256 = (): string => canonicalSHA256({ providers: FEATURE_MATRIX, modeExceptions: MODE_FEATURE_EXCEPTIONS })
+
+/** local-own uses Linux trusted processes without a guest session broker.
+ * Person terminal proof belongs to the Mac reference install's real microVM.
+ */
+export const MODE_FEATURE_EXCEPTIONS = {
+  "local-own": { "cloud.terminal": "Requires the Mac reference install's real microVM and guest session broker" }
+} as const
 
 /** The features a mode's bootstrap must advertise. */
 export const coreFeatures = (mode: DeploymentMode): readonly RuntimeCapability[] => {
   const provider = MODE_DESCRIPTORS[mode].provider
-  return (Object.keys(FEATURE_MATRIX) as RuntimeCapability[]).filter((capability) => FEATURE_MATRIX[capability][provider].support === "core")
+  return (Object.keys(FEATURE_MATRIX) as RuntimeCapability[]).filter((capability) => FEATURE_MATRIX[capability][provider].support === "core" && !(mode === "local-own" && capability === "cloud.terminal"))
 }
 
 /** A mode owes every scenario whose capabilities are all core for its provider; each one it owes must pass. */
@@ -167,7 +174,7 @@ export const modeScenarioIds = (
 ): readonly string[] => {
   const owed = owedScenarioIds(mode)
   const host = MODE_DESCRIPTORS[mode].legacyHost
-  return applicableScenarioIds(capabilities).filter((id) => owed.includes(id) || (declaredHosts(id) ?? []).includes(host))
+  return applicableScenarioIds(capabilities).filter((id) => !(mode === "local-own" && id === "workspaces.product-terminal-keyboard-output") && (owed.includes(id) || (declaredHosts(id) ?? []).includes(host)))
 }
 
 export const MANDATORY_DETERMINISTIC_BUN_TESTS = [

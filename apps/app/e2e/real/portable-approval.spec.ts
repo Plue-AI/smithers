@@ -1,34 +1,18 @@
 import { randomUUID } from "node:crypto"
+import { approvalFlow } from "./support/matrix-flow-fixture"
 import type { APIRequestContext, Page } from "@playwright/test"
 import { authenticatedTest } from "./auth-permissions/profile"
 import { scenario } from "./coverage/types"
 import { awaitBoot, expect, productUrl, realApi, reloadApp } from "./support/test"
 import { runSlash } from "./issues/local"
 import { finishFirstVisit } from "./support/first-visit"
-import { pushMainFiles, runningWorkspace, withOwnedRepository } from "./portable/owned-repository"
+import { installRepository, pushMainFiles, runningWorkspace, withProductRepository } from "./portable/owned-repository"
 import { readWorkspaceText } from "./run-inspection/seeded-flow"
 
 authenticatedTest.setTimeout(300_000)
 
-const approvalFlow = (marker: string): string => [
-  "---",
-  "description: Ask before writing an approval proof.",
-  'capabilities: ["fs:read:**", "fs:write:**"]',
-  "model: coding/implement",
-  "budget:",
-  "  tokens: 60000",
-  "  milliseconds: 240000",
-  "---",
-  "",
-  `Approval marker: ${marker}`,
-  `First call ask with question "Approve the effect ${marker}?". Wait for the actual human decision.`,
-  `Only when approved is true, write approval-effect.txt containing ${marker}. Never write that file after denial.`,
-  `After either decision, write approval-result.json with marker ${JSON.stringify(marker)} and decision "approved" or "denied" matching the returned approved boolean. Finish.`,
-  ""
-].join("\n")
-
 const decide = async (page: Page, request: APIRequestContext, decision: "approve" | "deny") => {
-  await withOwnedRepository(page, request, async repo => {
+  await withProductRepository(page, request, async repo => {
     const marker = randomUUID()
     await pushMainFiles(page, request, repo, { "flows/approval-proof/flow.mdx": approvalFlow(marker) })
     await runningWorkspace(page, request, repo, async workspaceId => {
@@ -36,7 +20,7 @@ const decide = async (page: Page, request: APIRequestContext, decision: "approve
       await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
       await awaitBoot(page, "navigate", started)
       await finishFirstVisit(page)
-      await runSlash(page, `/box.view ${workspaceId}`)
+      await runSlash(page, installRepository() ? `/branch ${workspaceId}` : `/box.view ${workspaceId}`)
       await expect(page.getByTestId(`card-branch:${workspaceId}`)).toBeVisible()
       const accepted = page.waitForResponse(response => response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/api/workflow/rpc" && response.request().postDataJSON()?.procedure === "Run")

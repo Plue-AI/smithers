@@ -217,7 +217,7 @@ requires all declared hosts. Test discovery (`--list`) is not execution proof.
 
 ### Feature matrix
 
-Feature matrix version 8. `FEATURE_MATRIX` in `matrix.ts` classifies every
+Feature matrix version 9. `FEATURE_MATRIX` in `matrix.ts` classifies every
 runtime capability for each provider:
 
 - `core`: every mode of the provider must advertise it. The report has one
@@ -253,3 +253,5 @@ SHA-256 digest of the table. Change a row only with a version bump.
 
 Plue owes `github` because its hosted backend serves GitHub sign-in and
 import. A self-hosted operator enables it with a GitHub OAuth app.
+
+Linux `local-own` does not owe `workspaces.product-terminal-keyboard-output`: person terminals require the Mac reference install’s real microVM and guest session broker. The other modes retain the terminal obligation.

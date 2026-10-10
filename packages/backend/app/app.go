@@ -99,6 +99,8 @@ type Config struct {
 	// set it; any other refuses to start. Only the backend's test binary sets
 	// it (apps/backend test_backend_test.go).
 	TrustedProcessMachines bool
+	// RehearsalDaemon names the native fixture daemon; only the guarded test composition may set it.
+	RehearsalDaemon string
 	// LiveCodeDocuments lets members co-edit code files through the branch
 	// machine's daemon (T-COL-08). Only a single-owner install with branch
 	// machines may set it, after ADR 0003 is accepted; unset, File cards stay
@@ -261,6 +263,7 @@ func (cfg Config) options() compose.Options {
 		InstallBranchMachines:  cfg.BranchMachines,
 		HostedBranchMachines:   cfg.HostedBranchMachines,
 		TrustedProcessMachines: cfg.TrustedProcessMachines,
+		RehearsalDaemon:        cfg.RehearsalDaemon,
 		LiveCodeDocuments:      cfg.LiveCodeDocuments,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
 		FlowHostConfig:         cfg.FlowHostConfig,

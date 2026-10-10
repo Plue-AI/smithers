@@ -347,6 +347,8 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
         const context = await playwright.chromium.launchPersistentContext(ownerProfile, {
           baseURL, headless: process.env.SMITHERS_REAL_HEADED !== "1", viewport: { width: 1280, height: 900 }
         })
+        // A restored tab must not compete with this scenario for the storage writer.
+        for (const restored of context.pages().slice(1)) await restored.close()
         const cookieCache = join(ownerProfile, "owner-session-cookies.json")
         try {
           try {

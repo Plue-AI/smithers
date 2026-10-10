@@ -519,3 +519,22 @@ describe("the owned process", () => {
     expect(`${stdout}${stderr}`).not.toContain(short)
   })
 })
+
+test("matrix approval cells travel through the real model protocol", async () => {
+  const marker = "cd4ca9ea-084e-4555-8bc0-f7fe39b9a6b9"
+  const events = await Effect.runPromise(Effect.gen(function*() {
+    const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+    return yield* Stream.runCollect(model.stream(ModelRequest.ModelRequest.make({
+      modelId: PROVIDER_MODEL.answers, system: [],
+      messages: [ModelRequest.Message.user(`Approval marker: ${marker}`)], tools: [],
+      params: ModelRequest.GenerationParams.make({ maxTokens: 4096 })
+    })))
+  }).pipe(Effect.provide(executor)))
+  const settled = ModelEvent.settledMessage(events)
+  const [part] = settled.message.content
+  expect(part?.type).toBe("text")
+  const source = /^```cell\n([\s\S]*)\n```$/.exec(part?.type === "text" ? part.text : "")?.[1]
+  expect(source).toContain('ctx.call("ask"')
+  expect(source).toContain(marker)
+  expect(source).toContain('decision.approved ? "approved" : "denied"')
+})

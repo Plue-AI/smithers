@@ -627,7 +627,13 @@ export const approvals = (
   run?: ControlSchema.RunSummary | undefined
 ): ReadonlyArray<ApprovalRow> => {
   const native = run === undefined ? undefined : ExecutionFact.foldControl(events, run.runId, run.executionView)
+  const grantFacts = events.filter(event => event.kind === "control.approval.requested" && Schema.is(ControlFacts.ApprovalRequestFact)(event.payload))
+  const grants = ControlFacts.fold(grantFacts).approvals
   const observed = run?.pendingWaits?.map((wait) => {
+    // An agent ask parks on its registered grant token, not a HumanTask answer.
+    // Preserve the committed target instead of inventing an answer-only target.
+    const grant = grants.find(row => row.runId === run.runId && row.requestId === wait.token)
+    if (grant !== undefined) return grant
     const projected = native?.provenance.humanWaits === "events" ?
       native.view?.humanWaits?.find((candidate) =>
         candidate.executionId === wait.runId && candidate.waiting?.tokenDigest === wait.tokenDigest

@@ -8,6 +8,7 @@ import {
   canonicalSHA256,
   FEATURE_MATRIX,
   FEATURE_MATRIX_VERSION,
+  MODE_FEATURE_EXCEPTIONS,
   featureMatrixSHA256,
   featureReceipts,
   coreFeatures,
@@ -193,6 +194,17 @@ describe("deployment mode matrix", () => {
     }
   })
 
+  test("Linux local-own leaves person terminals to the Mac reference install", () => {
+    expect(MODE_FEATURE_EXCEPTIONS["local-own"]["cloud.terminal"]).toContain("Mac reference")
+    expect(coreFeatures("local-own")).not.toContain("cloud.terminal")
+    expect(owedScenarioIds("local-own")).not.toContain("workspaces.product-terminal-keyboard-output")
+    expect(modeScenarioIds("local-own", ["identity", "cloud", "cloud.terminal"], () => ["local"]))
+      .not.toContain("workspaces.product-terminal-keyboard-output")
+    for (const mode of ["web-selfhost", "web-plue", "local-plue"] as const) {
+      expect(owedScenarioIds(mode)).toContain("workspaces.product-terminal-keyboard-output")
+    }
+  })
+
   test("the published feature matrix classifies every runtime capability for both providers (#1668)", () => {
     expect(Object.keys(FEATURE_MATRIX).sort()).toEqual([...RuntimeCapabilitySchema.options].sort())
     for (const [capability, providers] of Object.entries(FEATURE_MATRIX)) {
@@ -211,7 +223,8 @@ describe("deployment mode matrix", () => {
       "d49406e39037cd1b9bdadae0bccc0fe926f5e9cee6ed24250c78a63526187726",
       "f8a29e64e387c7d1d89be67b5175c0572b15be37d3366acb46cf0fa07c2e1a57",
       "30baa935b07f9517e72e9d508da6aae447b21bb5effe9c74409a333d748236f8",
-      "ddc15cf16cc668e9670685f8051f54381bc99b28edf030cdc8c04679d56c1656"
+      "ddc15cf16cc668e9670685f8051f54381bc99b28edf030cdc8c04679d56c1656",
+      "9a8c8829e6411bd193f1cb409caed600303bb3cfe95560d23aa2660084733803"
     ]
     expect(published).toHaveLength(FEATURE_MATRIX_VERSION)
     expect(new Set(published).size).toBe(published.length)

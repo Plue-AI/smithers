@@ -117,8 +117,12 @@ const pushFiles = async (
   const work = join(root, "checkout")
   try {
     const origin = process.env.SMITHERS_REAL_GIT_ORIGIN ?? process.env.SMITHERS_REAL_API_ORIGIN ?? new URL(page.url()).origin
-    const url = new URL(`/${repo.fullName}.git`, origin).toString()
-    const token = await gitToken(page, request)
+    // A person's external main edit is simulated in githubfake's own Git
+    // repository. Product/agent credentials never write the install mirror.
+    const fakeGitRoot = installRepository() ? process.env.SMITHERS_REAL_INSTALL_GIT_ROOT : undefined
+    if (installRepository() && !fakeGitRoot) throw new Error("Install flow fixtures require githubfake's Git root")
+    const url = fakeGitRoot ? join(fakeGitRoot, `${repo.fullName}.git`) : new URL(`/${repo.fullName}.git`, origin).toString()
+    const token = fakeGitRoot ? undefined : await gitToken(page, request)
     await runGit(root, ["clone", url, work], token)
     if (branch !== "main") await runGit(work, ["checkout", "-b", branch])
     for (const [path, content] of Object.entries(files)) {
@@ -154,11 +158,38 @@ export const pushChangeRevision = (
 ): Promise<string> => pushFiles(page, request, repo, "fixture", "Change fixture", files, changeId)
 
 /** Declare project files on main, before a box checks it out. */
-export const pushMainFiles = (page: Page, request: APIRequestContext, repo: OwnedRepository, files: Readonly<Record<string, string>>): Promise<string> =>
-  pushFiles(page, request, repo, "main", "Add project files", files)
+export const pushMainFiles = async (page: Page, request: APIRequestContext, repo: OwnedRepository, files: Readonly<Record<string, string>>): Promise<string> => {
+  type FlowCard = { name: string; versions: Array<{ id: string; state: string }> }
+  const previous = installRepository() ? await (await realApi(page, request, "GET", "/api/flows")).json() as FlowCard[] : []
+  const commit = await pushFiles(page, request, repo, "main", "Add project files", files)
+  if (installRepository()) {
+    const sync = await realApi(page, request, "POST", "/api/github/sync", {})
+    expect(sync.status(), await sync.text()).toBe(202)
+    await expect.poll(async () => {
+      const response = await realApi(page, request, "GET", `${repo.path}/bookmarks`)
+      if (!response.ok()) return undefined
+      const body = await response.json()
+      return body.items.find((row: { name: string }) => row.name === "main")?.target_commit_id
+    }, { timeout: 120_000 }).toBe(commit)
+    for (const path of Object.keys(files)) {
+      const name = /^flows\/(.+)\/flow\.mdx$/.exec(path)?.[1]
+      if (!name) continue
+      const prior = previous.find(card => card.name === name)?.versions.find(version => version.state === "active")?.id
+      await expect.poll(async () => {
+        const response = await realApi(page, request, "GET", "/api/flows")
+        expect(response.status()).toBe(200)
+        const cards = await response.json() as FlowCard[]
+        const versions = cards.find(card => card.name === name)?.versions
+        return versions?.some(version => version.id !== prior && version.state === "active") && !versions.some(version => version.state === "merged-syncing")
+      }, { timeout: 120_000 }).toBe(true)
+    }
+  }
+  return commit
+}
 
 /** Open a box of `repo` on main, wait for it to run, and delete it afterwards. */
 export const runningWorkspace = async <T>(page: Page, request: APIRequestContext, repo: OwnedRepository, use: (id: string) => Promise<T>): Promise<T> => {
+  if (installRepository()) return runningInstallBranch(page, request, use)
   const created = await realApi(page, request, "POST", `${repo.path}/workspaces`, { name: "matrix", source_bookmark: "main", kind: "container" })
   expect([201, 202]).toContain(created.status())
   const workspace = await created.json() as { readonly id?: unknown }
@@ -176,5 +207,28 @@ export const runningWorkspace = async <T>(page: Page, request: APIRequestContext
     const deleted = await realApi(page, request, "DELETE", path)
     expect(deleted.status()).toBe(204)
     expect((await realApi(page, request, "GET", path)).status()).toBe(404)
+  }
+}
+
+/** Fork main through the install's stack service; retain its machine identity. */
+export const runningInstallBranch = async <T>(page: Page, request: APIRequestContext, use: (id: string, branch: string) => Promise<T>): Promise<T> => {
+  const created = await realApi(page, request, "POST", "/api/branches", { from: "main", name: `matrix-${randomUUID().slice(0, 8)}` })
+  expect(created.status(), await created.text()).toBe(201)
+  const branch = await created.json() as { name: string; machine?: { id: string } }
+  const path = `/api/branches/${encodeURIComponent(branch.name)}`
+  try {
+    let machine: string | undefined
+    await expect.poll(async () => {
+      const response = await realApi(page, request, "GET", path)
+      expect(response.status()).toBe(200)
+      const row = await response.json()
+      machine = row.machine?.id
+      return row.state
+    }, { timeout: 120_000 }).toBe("awake")
+    expect(machine).toEqual(expect.any(String))
+    return await use(machine!, branch.name)
+  } finally {
+    const archived = await realApi(page, request, "POST", `${path}/archive`, {})
+    expect([200, 202], await archived.text()).toContain(archived.status())
   }
 }

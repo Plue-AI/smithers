@@ -5,6 +5,7 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
+import { approvalFlow } from "../../e2e/real/support/matrix-flow-fixture"
 import { PROVIDER_MODEL } from "../../e2e/real/support/model-provider-behaviors"
 import { launchModelProvider, type ModelProvider } from "../../e2e/real/support/model-provider-process"
 import { githubBases, modelBase, setupLine } from "../run-local-no-github"
@@ -125,6 +126,8 @@ const seedGitHubRepository = (gitRoot: string, owner: string): void => {
   writeFileSync(join(seed, "README.md"), "# demo\n\nThe mode matrix's install repository.\n")
   writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n")
   writeFileSync(join(seed, "Makefile"), "build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n")
+  mkdirSync(join(seed, "flows", "approval-proof"), { recursive: true })
+  writeFileSync(join(seed, "flows", "approval-proof", "flow.mdx"), approvalFlow("00000000-0000-4000-8000-000000000000"))
   git(["-C", seed, "add", "."])
   git(["-C", seed, "-c", "user.name=Owner", "-c", "user.email=owner@example.test", "commit", "-q", "-m", "Initial commit"])
   git(["clone", "-q", "--bare", seed, bare])
@@ -195,7 +198,9 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     // into the apps/backend test binary (apps/backend/test_backend_test.go).
     await run("build local test backend", ["go", "test", "-c", "-trimpath", "-ldflags", `-X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=${revision}`, "-o", backendBinary, "./apps/backend"])
     await run("build GitHub fake", ["go", "build", "-o", fakeBinary, "./packages/backend/cmd/githubfake"])
-    await run("build coding host", ["node", "flows/coding/build.mjs", join(hostDir, "smithers-coding-host")])
+    const daemonTarget = join(rootDir, ".artifacts", "rehearsal-machined")
+    await run("build rehearsal daemon", ["cargo", "build", "--locked", "-p", "smithers-machined", "--example", "rehearsal_daemon", "--target-dir", daemonTarget])
+    await run("build coding host", ["node", "--input-type=module", "-e", `import { bundle } from "./flows/coding/build.mjs"; await bundle("flows/test/rehearsal-host.ts", ${JSON.stringify(join(hostDir, "smithers-coding-host"))})`])
     await run("build model host", ["node", "apps/model-host/build.mjs", join(hostDir, "smithers-model-host")])
     await run("write Flow host manifest", ["node", "distribution/flow-host-manifest.mjs", manifest, join(hostDir, "smithers-coding-host")])
 
@@ -215,6 +220,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const backendEnv = {
       ...process.env,
       PORT: String(backendPort),
+      SMITHERS_SSH_ADDR: "127.0.0.1:0",
       SMITHERS_DATA_ROOT: dataRoot,
       SMITHERS_NATIVE_POSTGRES_BIN: postgresBin,
       SMITHERS_FLOW_HOST_MANIFEST: manifest,
@@ -227,6 +233,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       // branch machines clone, and the repository engine calls back, at that address (compose flowHostProductAPIURL).
       SMITHERS_SERVER_ALLOWED_ORIGINS: `${origin},${backendOrigin}`,
       SMITHERS_TEST_BACKEND_SERVE: "1",
+      SMITHERS_REHEARSAL_MACHINED_BINARY: join(rootDir, ".artifacts", "rehearsal-machined", "debug", "examples", "rehearsal_daemon"),
       TMPDIR: scratch,
       ...githubBases(github.url),
       ...modelBase(models.origin)
@@ -251,6 +258,29 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const created = JSON.parse((await owned.expect("GET", repositoryPath, 200)).text) as { readonly full_name?: string }
     if (created.full_name !== repository) throw new Error(`setup mirrored ${created.full_name}, not ${repository}`)
 
+    // Public activation and the fixture's real retirement receipts both
+    // precede its persistence restart. Activation alone may still be capturing
+    // the startup machine; private background machines are absent from /workspaces.
+    const databasePort = readFileSync(join(dataRoot, "postgres", "data", "postmaster.pid"), "utf8").split("\n")[3]!.trim()
+    const databasePassword = readFileSync(join(dataRoot, "postgres", "password"), "utf8")
+    const database = new Bun.SQL(`postgres://smithers:${encodeURIComponent(databasePassword)}@127.0.0.1:${databasePort}/postgres`)
+    try {
+      const idleDeadline = Date.now() + 120_000
+      for (;;) {
+        const flows = JSON.parse((await owned.expect("GET", "/api/flows", 200)).text) as ReadonlyArray<{
+          name: string; versions: ReadonlyArray<{ state: string }>
+        }>
+        const retired = await database.unsafe(`SELECT EXISTS (
+          SELECT 1 FROM flow_loads WHERE state = 'idle' AND loaded_commit = commit_id
+          AND loaded_commit <> '' AND workspace_id = ''
+        ) AND NOT EXISTS (
+          SELECT 1 FROM workspaces WHERE status IN ('pending', 'starting', 'running') AND deleted_at IS NULL
+        ) AS idle`)
+        if (retired[0]?.idle === true && flows.some(flow => flow.name === "approval-proof" && flow.versions.some(version => version.state === "active"))) break
+        if (Date.now() >= idleDeadline) throw new Error("local-own startup work did not retire before the persistence restart")
+        await Bun.sleep(250)
+      }
+    } finally { await database.close() }
     const secrets = join(dataRoot, "config", "secrets.json")
     const beforeVolume = createHash("sha256").update(readFileSync(secrets)).digest("hex")
     await stop(backend)
@@ -278,7 +308,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
     return {
       modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username: owner, sessionCookie }), SMITHERS_LOCAL_INSTALL_REPOSITORY: repository },
+      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username: owner, sessionCookie }), SMITHERS_LOCAL_INSTALL_REPOSITORY: repository, SMITHERS_LOCAL_INSTALL_GIT_ORIGIN: github.url, SMITHERS_LOCAL_INSTALL_GIT_ROOT: gitRoot },
       close
     }
   } catch (error) {

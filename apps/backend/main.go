@@ -56,6 +56,7 @@ type testBackend struct {
 	// machines composes the trusted-process branch machines and machine images
 	// the Go journey rehearsal runs on (app.Config.TrustedProcessMachines).
 	machines bool
+	daemon   string
 }
 
 // serve runs the backend. executable answers the running backend's path
@@ -198,6 +199,7 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		// unless its test selects the trusted-process machines.
 		BranchMachines:         mode == isolationMicroVM,
 		TrustedProcessMachines: test.machines,
+		RehearsalDaemon:        test.daemon,
 	}
 
 	if inputs.postgresBin != "" {

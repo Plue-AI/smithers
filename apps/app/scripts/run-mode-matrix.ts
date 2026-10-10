@@ -11,6 +11,7 @@ import {
   MODE_DESCRIPTORS,
   READINESS_DEADLINE_MS,
   featureMatrixSHA256,
+  MODE_FEATURE_EXCEPTIONS,
   featureReceipts,
   missingModeReadiness,
   matrixVerdict,
@@ -116,7 +117,7 @@ for (const mode of selectedModes) {
       SMITHERS_REAL_BASE_URL: modeConfig.origin,
       SMITHERS_REAL_E2E_MODE: mode,
       // The one repository the local install wraps; its scenarios add none (mvp.md §2 rule 2).
-      ...(mode === "local-own" && process.env.SMITHERS_LOCAL_INSTALL_REPOSITORY ? { SMITHERS_REAL_INSTALL_REPOSITORY: process.env.SMITHERS_LOCAL_INSTALL_REPOSITORY } : {}),
+      ...(mode === "local-own" && process.env.SMITHERS_LOCAL_INSTALL_REPOSITORY ? { SMITHERS_REAL_INSTALL_REPOSITORY: process.env.SMITHERS_LOCAL_INSTALL_REPOSITORY, SMITHERS_REAL_GIT_ORIGIN: process.env.SMITHERS_LOCAL_INSTALL_GIT_ORIGIN, SMITHERS_REAL_INSTALL_GIT_ROOT: process.env.SMITHERS_LOCAL_INSTALL_GIT_ROOT } : {}),
       ...(MODE_DESCRIPTORS[mode].provider === "plue" ? { SMITHERS_REAL_GIT_ORIGIN: modeConfig.endpoint } : {}),
       SMITHERS_REAL_E2E_HOST: MODE_DESCRIPTORS[mode].legacyHost,
       // Every Plue scenario must run against the deployment readiness certified.
@@ -163,7 +164,7 @@ const report = {
   evidence,
   commands,
   readiness,
-  featureMatrix: { version: FEATURE_MATRIX_VERSION, sha256: featureMatrixSHA256(), rows: FEATURE_MATRIX },
+  featureMatrix: { version: FEATURE_MATRIX_VERSION, sha256: featureMatrixSHA256(), rows: FEATURE_MATRIX, modeExceptions: MODE_FEATURE_EXCEPTIONS },
   features,
   scenarios
 }

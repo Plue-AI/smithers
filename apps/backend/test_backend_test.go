@@ -34,7 +34,9 @@ func TestServeTrustedProcessBackend(t *testing.T) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := serve(ctx, nil, os.Executable, trustedProcessTestBackend); err != nil {
+	test := trustedProcessTestBackend
+	test.daemon = os.Getenv("SMITHERS_REHEARSAL_MACHINED_BINARY")
+	if err := serve(ctx, nil, os.Executable, test); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -62,6 +64,7 @@ func TestReleaseBinaryRefusesTrustedProcessIsolation(t *testing.T) {
 			command := exec.Command(binary)
 			command.Env = append(os.Environ(),
 				testBackendServe+"=1",
+				"SMITHERS_REHEARSAL_MACHINED_BINARY="+filepath.Join(root, "untrusted-daemon"),
 				"SMITHERS_WORKSPACE_ISOLATION="+mode,
 				"SMITHERS_DATA_ROOT="+root,
 				"SMITHERS_DATABASE_URL=postgres://unused",

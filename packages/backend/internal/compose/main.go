@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -61,6 +62,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/operations"
 	"github.com/smithersai/smithers/packages/backend/ports"
 	"github.com/smithersai/smithers/packages/backend/previewgateway"
+	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	"github.com/smithersai/smithers/packages/backend/webapp"
 	"github.com/smithersai/smithers/packages/backend/workspace"
@@ -230,6 +232,8 @@ type Options struct {
 	// exception; any other composition refuses to start with it. Only the
 	// backend's test binary sets it (app.Config.TrustedProcessMachines).
 	TrustedProcessMachines bool
+	// RehearsalDaemon names the native fixture daemon; only the guarded test composition may set it.
+	RehearsalDaemon string
 	// InstallBranchMachines composes the install's own branch machine
 	// providers (services.InstallBranchMachineProviders, T-MCH-04 #3565) on
 	// its microVM runtime: a TODO gets its lane only then. A single-owner
@@ -350,6 +354,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// can never silently boot the API. See migrate.go.
 	if len(args) > 0 && args[0] == "migrate" {
 		return runMigrate(ctx, args[1:], stdout, stderr)
+	}
+	if err := validateRehearsalDaemon(options.Options); err != nil {
+		return err
+	}
+	if options.RehearsalDaemon != "" {
+		options.Machined = new(machined.Registry)
+		defer options.Machined.Close()
 	}
 	// Resolve the install's registry before binding any machine admission door.
 	// This also refuses terminals and attribution when no flow host is enabled.
@@ -495,6 +506,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	defer poolStatsCancel()
 	database.StartPoolStatsCollector(poolStatsCtx, pool, smithersMetrics, 15*time.Second)
 
+	if options.RehearsalDaemon != "" {
+		if options.topology.hosted() {
+			return errors.New("rehearsal daemon requires a single-owner test install")
+		}
+		// Match the journey's declared capacity fixture. This is no measurement
+		// of Linux or reference Mac capacity; production never selects it.
+		options.HostProfile = &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: 400 << 30, MacOSVersion: "15.6", Hypervisor: true}
+		lifecycle := &ownedRehearsalLifecycle{ctx: ctx}
+		defer lifecycle.close()
+		options.Workspace = bindingProcessRuntime{rehearsalAdmissionRuntime: &rehearsalAdmissionRuntime{Runtime: options.Workspace.(*process.Runtime), aliases: map[string]string{}}, t: lifecycle, evidence: lifecycle.TempDir(), daemons: options.Machined, daemonStops: new(sync.Map), pool: pool, daemonBinary: options.RehearsalDaemon, repository: options.Repository, helper: os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY")}
+	}
 	queries := db.New(pool)
 	var installCapacity *services.InstallCapacityService
 	if options.HostProfile != nil {
@@ -672,7 +694,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Startup validation permits this only for the single trusted owner.
 		billingPolicy = services.NewUnlimitedBillingPolicy()
 	}
-	if options.InstallBranchMachines {
+	if options.InstallBranchMachines || options.RehearsalDaemon != "" {
 		billingPolicy = installMachineAdmissionPolicy{Policy: billingPolicy, start: services.NewMachineAdmissionPolicy(billingPolicy)}
 	}
 	// Every attributed push is capped at, and recorded in, its owner's
@@ -1195,7 +1217,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
-		if options.InstallBranchMachines {
+		if options.InstallBranchMachines || options.RehearsalDaemon != "" {
 			disk, ok := options.Workspace.(interface {
 				FreeDisk(context.Context) (int64, error)
 			})

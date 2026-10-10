@@ -3,7 +3,7 @@ import { authenticatedTest } from "./auth-permissions/profile"
 import { awaitBoot, expect, productUrl, realApi } from "./support/test"
 import { attachJson, runSlash } from "./issues/local"
 import { finishFirstVisit } from "./support/first-visit"
-import { runningWorkspace, withOwnedRepository } from "./portable/owned-repository"
+import { installRepository, runningInstallBranch, runningWorkspace, withOwnedRepository, withProductRepository } from "./portable/owned-repository"
 import type { APIRequestContext, Page } from "@playwright/test"
 import type { OwnedRepository } from "./portable/owned-repository"
 import { enableVerboseEvidence, expectFlowOutcome } from "./repositories-github/local"
@@ -46,6 +46,39 @@ authenticatedTest("a product workspace suspends, resumes, and deletes", scenario
   coverage: ["action:branch", "action:box.suspend", "action:box.resume", "action:box.delete", "host:local", "host:production", "path:success", "door:slash", "surface:workspace-api", "evidence:state-transitions-and-delete"]
 }), async ({ page, request }, testInfo) => {
   testInfo.setTimeout(600_000)
+  if (installRepository()) {
+    await withProductRepository(page, request, async (repo) => {
+      await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
+      await awaitBoot(page, "navigate", performance.now())
+      await finishFirstVisit(page)
+      await runningInstallBranch(page, request, async (machine, branch) => {
+        await runSlash(page, `/branch ${branch}`)
+        const card = page.getByTestId(`card-branch:${machine}`)
+        await expect(card).toBeVisible()
+        const path = `/api/branches/${encodeURIComponent(branch)}`
+        const read = async () => {
+          const response = await realApi(page, request, "GET", path)
+          expect(response.status()).toBe(200)
+          const row = await response.json()
+          expect(row.machine.id).toBe(machine)
+          return row
+        }
+        for (const [label, op, state] of [["Sleep", "sleep", "asleep"], ["Wake", "wake", "awake"]] as const) {
+          const submitted = page.waitForResponse(response => response.request().method() === "POST" &&
+            new URL(response.url()).pathname === path && response.request().postDataJSON()?.op === op)
+          await card.getByRole("button", { name: label, exact: true }).click()
+          expect((await submitted).status()).toBe(202)
+          await expect.poll(async () => (await read()).state, { timeout: 180_000 }).toBe(state)
+        }
+        const before = await read()
+        expect(before.head).toMatch(/^[0-9a-f]{40}$/)
+        const archive = await realApi(page, request, "POST", `${path}/archive`, {})
+        expect([200, 202], await archive.text()).toContain(archive.status())
+        await expect.poll(async () => (await read()).state, { timeout: 120_000 }).toBe("closed")
+      })
+    })
+    return
+  }
   await withOwnedRepository(page, request, async (repo) => {
     const startedAt = performance.now()
     await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })

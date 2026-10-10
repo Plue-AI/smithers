@@ -1,3 +1,4 @@
+import { Confirmation, ConfirmationAccepted, ConfirmationRejected, ConfirmationAction, ConfirmationActions } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
 import { ApprovalAnswerForm } from "./RunsCards"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
@@ -67,7 +68,18 @@ const TrustedApprovalBody = ({ card, onDecideApproval, onRunCommand }: {
   readonly onRunCommand: RunCommand
 }) => {
   const { payload } = card
-  if (!payload.question || card.status === "acted") return <ApprovalRecord card={card} />
+  if (!payload.question) return <Confirmation state={card.status === "error" ? "failed-submission" : payload.decision ?? "requested"}>
+    <ApprovalRecord card={card} />
+    {card.status === "acted" ? null : <ConfirmationActions>
+      <ConfirmationAction decision="approve" disabled={payload.pending === true} onDecide={() => onDecideApproval(card.id, "approved")} />
+      <ConfirmationAction decision="deny" disabled={payload.pending === true} onDecide={() => onDecideApproval(card.id, "denied")} />
+    </ConfirmationActions>}
+    <ConfirmationAccepted>Approved</ConfirmationAccepted>
+    <ConfirmationRejected>Denied</ConfirmationRejected>
+    {card.status === "error" && payload.error !== undefined ? <FailureNotice data-testid="approval-decision-failure"
+      failure={describedFailure("approval.decide", APPROVAL_DECISION_FAILED, payload.error)} /> : null}
+  </Confirmation>
+  if (card.status === "acted") return <ApprovalRecord card={card} />
   return <div className="sui-approval-answer-body">
     <ApprovalAnswerForm question={payload.question} draft={payload.answerDraft}
       disabled={payload.pending === true}

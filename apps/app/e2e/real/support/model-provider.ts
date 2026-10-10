@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { matrixFlowCell } from "./matrix-flow-fixture"
 /*
  * The loopback model provider: a real HTTP server on 127.0.0.1 that a host
  * under test reaches over TCP as a USER-SUPPLIED endpoint. It substitutes no
@@ -228,6 +229,10 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
     isRecord(message) && (message.role === "system" || message.role === "developer") &&
     messageText(message.content).startsWith("Choose relevant context. Return only a JSON array of {index,reason}"))
   if (preflight) return record(openaiStream(modelId, includeUsage, ["[]"]), "context/preflight")
+  const matrixTask = protocol === "openai-chat" && Array.isArray(body.messages)
+    ? body.messages.filter(isRecord).map(message => messageText(message.content)).join("\n") : ""
+  const matrixCell = matrixFlowCell(matrixTask)
+  if (matrixCell) return record(openaiStream(modelId, includeUsage, [matrixCell]), "matrix/flow")
   const coding = protocol === "openai-chat" && Array.isArray(body.messages) ? todoTurn(body.messages.filter(isRecord)) : undefined
   if (coding !== undefined) return record(openaiStream(modelId, includeUsage, [coding.content]), coding.step)
   if (protocol === "evaluation" && isTodoJudgement(questions)) return record(judgeTodo(questions ?? {}), "todo/judge")
