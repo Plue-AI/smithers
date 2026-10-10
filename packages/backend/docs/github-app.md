@@ -95,9 +95,9 @@ rechecks the source captured before the read, the current repository binding
 and the worker's live claim, checked again after lock waits. Unchanged listings
 reuse the latest delivery. Poll claims order changed observations, including
 changes back to an earlier SHA and empty listings. They are delivery records,
-not a second current-state cache. Missing ref consumers retain them across
-restart; consumer effects and acknowledgement share one transaction. Production
-ref consumers and full stream qualification remain outstanding.
+not a second current-state cache. The registered refs consumer's effects and
+acknowledgement share one transaction. Full stream qualification remains
+outstanding.
 
 ## Fetched-state delivery
 
@@ -123,8 +123,9 @@ Delivery follows numeric event order, independently of database timestamps.
 Embedded issue text is cached data; downstream label admission must still check
 its authorship and current membership.
 
-The shared jobs worker retains requests when no consumer is registered. A
-consumer writes through the same PostgreSQL transaction that acknowledges its
+The shared jobs worker fails a request terminally when its stream has no
+registered consumer, recording a `github.fetched.consumer_missing` receipt and
+log entry. A consumer writes through the same PostgreSQL transaction that acknowledges its
 request. Failure rolls back both, and a later version in the stream waits for
 earlier pending work. Delivery rechecks current repository/installation binding
 and provider authority. No separate delivery table or scheduler is introduced.
@@ -132,9 +133,12 @@ and provider authority. No separate delivery table or scheduler is introduced.
 Install composition binds the sealed installation credentials, existing storage
 and unprivileged runtime to fetched-state admission. Missing credentials,
 changed installation bindings and unavailable runtime providers refuse before
-fetching or consuming. The existing pull and refs consumers and ordered `todo` label door
-are registered. Other downstream owners use `RegisterFetchedConsumer`; absent
-owners retain pending deliveries rather than receiving substitute effects.
+fetching or consuming. Issue, pull, refs, check, review and both comment
+streams have registered consumers, and the ordered `todo` label door consumes
+repository events. The issue consumer only acknowledges the cached row: a
+TODO's prompt is frozen at admission, so later issue edits do not change it.
+Other downstream owners call `RegisterFetchedConsumer` before workers start; a
+stream without an owner fails rather than receiving substitute effects.
 
 Issue, pull-request and repository-event pages use conditional install reads
 through the shared HTTP transport and scoped token minter. In-memory ETags are
@@ -237,7 +241,9 @@ Retry schedules each configured owner once and returns before HTTP.
 Check and review projections share the repository owner's Retry scheduling.
 Repository reads and per-TODO reads use the same hints as webhooks; main pulls
 use their durable request generations and wake channel. Retry preserves cadence,
-validators, failed-read backoff and shared budget state. A launch acknowledgement
+validators, repository-stream backoff and shared budget state. An explicit Retry
+clears a per-TODO pull read's failed-read delay; webhook hints keep it, and the
+reader still applies shared stream and resource pauses. A launch acknowledgement
 never establishes freshness. Scheduling failures remain errors.
 
 Successful install main-pull requests wake the same worker immediately instead
@@ -331,7 +337,7 @@ object as other streams. Submitted reviews also admit individual `pulls/reviews`
 objects through the registered review consumer; review and conversation comment
 consumers share the existing steering owner. Their effects and acknowledgements
 remain in the same delivery transaction. Consumer effects and acknowledgement share a
-transaction, and absent consumers remain pending. Cache readiness is separate
+transaction; a delivery without a consumer fails terminally. Cache readiness is separate
 from downstream PR/check/review projections and reference-host C-GH-07 evidence.
 The production-composition cadence tests cover repository streams and admission;
 the service tests cover related-page conditional reads, restart, head fencing,
