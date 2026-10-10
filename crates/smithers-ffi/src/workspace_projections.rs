@@ -6,16 +6,9 @@ use base64::prelude::{Engine as _, BASE64_STANDARD};
 use serde_json::{json, Value};
 
 use super::workspace_engine::{field, jj, Failure};
-use super::workspace_local::jj_at;
+use super::workspace_local::{jj_at, operation_args};
 
 type Result<T> = std::result::Result<T, Failure>;
-
-fn op_args(operation: &Value) -> &str {
-    operation
-        .pointer("/tags/args")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-}
 
 fn projection(operation: &Value, workspace: &str, repo: &Path) -> Option<Value> {
     // JJ's operation args use JJ quoting, not shell quoting. Accept only the
@@ -31,7 +24,7 @@ fn projection(operation: &Value, workspace: &str, repo: &Path) -> Option<Value> 
         format!("'{}'", path.replace('\'', "\\'"))
     };
     let prefix = format!("jj -R {quoted} --no-pager '--color=never' ");
-    let mut args = op_args(operation).strip_prefix(&prefix)?;
+    let mut args = operation_args(operation).strip_prefix(&prefix)?;
     let mut marker = None;
     while let Some(after) = args.strip_prefix("--config 'smithers.") {
         let (kind, after) = after.split_once("=\"")?;
@@ -228,12 +221,16 @@ mod tests {
         );
         let marker = format!("--config 'smithers.coding-projection=\"{encoded}\"' ");
         let prefix = "jj -R /tmp/projection-repo --no-pager '--color=never' ";
-        let legitimate = json!({"tags":{"args":format!("{prefix}{marker}new")}});
-        assert!(projection(&legitimate, workspace, repo).is_some());
-        let message = json!({"tags":{"args":format!("{prefix}describe -m \"{marker}\"")}});
-        assert!(projection(&message, workspace, repo).is_none());
-        let duplicate = json!({"tags":{"args":format!("{prefix}{marker}{marker}new")}});
-        assert!(projection(&duplicate, workspace, repo).is_none());
+        // jj 0.39 records the invocation under `tags`; later releases under
+        // `attributes`. Both must project, and both must refuse forgeries.
+        for key in ["tags", "attributes"] {
+            let legitimate = json!({key:{"args":format!("{prefix}{marker}new")}});
+            assert!(projection(&legitimate, workspace, repo).is_some(), "{key}");
+            let message = json!({key:{"args":format!("{prefix}describe -m \"{marker}\"")}});
+            assert!(projection(&message, workspace, repo).is_none(), "{key}");
+            let duplicate = json!({key:{"args":format!("{prefix}{marker}{marker}new")}});
+            assert!(projection(&duplicate, workspace, repo).is_none(), "{key}");
+        }
     }
 
     #[test]

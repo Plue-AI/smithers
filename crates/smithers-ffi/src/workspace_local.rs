@@ -266,7 +266,9 @@ fn receipt(repo: &Path, request_id: &str, digest: &str) -> Result<Option<Value>>
     Ok(found)
 }
 
-fn operation_args(operation: &Value) -> &str {
+// jj 0.39 records an operation's invocation under `tags`; later releases
+// renamed the field to `attributes`. Every reader of a receipt goes here.
+pub(super) fn operation_args(operation: &Value) -> &str {
     operation
         .pointer("/attributes/args")
         .or_else(|| operation.pointer("/tags/args"))
@@ -783,7 +785,16 @@ mod tests {
     #[test]
     fn unsupported_operations_refuse_before_workspace_lock_or_reads() {
         let directory = tempdir().unwrap();
-        for operation in ["unknown"] {
+        // Near misses of routed operations refuse too: dispatch matches the
+        // exact operation name, never a case or whitespace variant of one.
+        for operation in [
+            "unknown",
+            "",
+            "READ",
+            "read ",
+            "Stack.Candidate",
+            "stack.publish",
+        ] {
             let input = serde_json::to_vec(&json!({
                 "operation": operation,
                 "repositoryPath": directory.path(),
