@@ -535,41 +535,18 @@ func TestWorkspaceService_CreateWorkspace_ReusesWinnerWhenActivationConflicts(t 
 	assert.Equal(t, "failed", rows[0].Status, "the losing machine is failed, not left active")
 }
 
+// A resume that times out keeps the asleep machine: no replacement VM, no
+// delete and no status write. Since de86a86992 (#3565) CreateWorkspace joins
+// the canonical main machine, and the wake passes machine admission
+// (c240bd3cf7, #3568), so the case composes both instead of meeting them.
 func TestWorkspaceService_CreateWorkspace_PreservesStoppedVMOnResumeTimeout(t *testing.T) {
 	t.Parallel()
+	pool, member, repo, asleep := asleepMainMachine(t, "vm-stopped")
 
-	var updatedStatuses []string
-	var executionUpdates []db.UpdateWorkspaceExecutionInfoParams
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace("ws-primary")
-			workspace.VmID = "vm-stopped"
-			workspace.Status = "suspended"
-			return workspace, nil
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			updatedStatuses = append(updatedStatuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = "vm-stopped"
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-		suspendRunningWorkspaceFn: func(ctx context.Context, id string) (db.Workspace, error) {
-			// The row is 'suspended', so the reprovision gauge-release CAS loses.
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			executionUpdates = append(executionUpdates, arg)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
+	var starts, creates int
 	var deletedVMs []string
-	svc := newWorkspaceServiceForTests(
-		q,
+	svc := composeHostedSandboxWake(newWorkspaceServiceForTests(
+		db.New(pool),
 		WithWorkspaceGitBaseURL("https://api.smithers.sh"),
 		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 			getVMFn: func(ctx context.Context, vmID string) (sandbox.Sandbox, error) {
@@ -580,42 +557,30 @@ func TestWorkspaceService_CreateWorkspace_PreservesStoppedVMOnResumeTimeout(t *t
 				return nil
 			},
 			startVMFn: func(ctx context.Context, vmID string, req sandbox.StartRequest) (sandbox.StartResult, error) {
+				starts++
 				_, hasDeadline := ctx.Deadline()
-				assert.True(t, hasDeadline)
+				assert.True(t, hasDeadline, "a resume is bounded")
 				assert.Equal(t, "vm-stopped", vmID)
 				return sandbox.StartResult{}, context.DeadlineExceeded
 			},
 			createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
-				assert.Empty(t, req.GitRepos)
-				require.NotNil(t, req.WaitForReady)
-				assert.True(t, *req.WaitForReady)
-				assert.Equal(t, defaultWorkspaceHome, req.Workdir)
-				assertWorkspaceClaudeBootstrap(t, req)
+				creates++
 				return sandbox.CreateResult{ID: "vm-replacement"}, nil
 			},
-			execAwaitFn: func(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
-				assert.Equal(t, "vm-replacement", vmID)
-				assert.Contains(t, req.Command, "GIT_CONFIG_KEY_0=http.extraHeader")
-				assert.Contains(t, req.Command, "/roninjin10/smithers.git")
-				assert.Contains(t, req.Command, defaultWorkspaceClonePath)
-				status := int32(0)
-				return sandbox.ExecResult{StatusCode: &status}, nil
-			},
 		}),
-	)
+	), pool)
 
-	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "roninjin10",
-		RepoName:     "smithers",
-		Name:         "primary",
-	})
-	require.Error(t, err)
-	assert.Empty(t, updatedStatuses)
-	assert.Empty(t, executionUpdates)
+	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{RepositoryID: repo, UserID: member, RepoOwner: "roninjin10", RepoName: "smithers", Name: "primary"})
+	var refusal *pkgerrors.APIError
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, 503, refusal.Status, "a timed-out resume is retryable")
+	assert.Positive(t, starts)
+	assert.Zero(t, creates, "a timed-out resume never replaces the machine")
 	assert.Empty(t, deletedVMs)
-
+	row, err := db.New(pool).GetWorkspace(context.Background(), asleep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "vm-stopped", row.VmID)
+	assert.Equal(t, "suspended", row.Status)
 }
 
 func TestWorkspaceService_CreateWorkspaceSnapshot_PersistsSnapshotID(t *testing.T) {
