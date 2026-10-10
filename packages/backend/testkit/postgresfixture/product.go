@@ -44,13 +44,20 @@ func NewProductDatabase(t testing.TB, maxConnections ...int32) (*pgxpool.Pool, s
 	return pool, db.URL
 }
 
-// Open connects a pool that decodes the product's SQL types. maxConns 0 keeps
-// the pgxpool default.
+// DefaultMaxConns is the product's database.max_conns default. pgxpool's own
+// default is the larger of 4 and the CPU count, so on a 4-CPU CI runner a
+// composed install's listeners and transactions waited on each other for a
+// connection and timed out, while a 48-core lane host never saw it.
+const DefaultMaxConns = 25
+
+// Open connects a pool that decodes the product's SQL types. maxConns 0 sizes
+// the pool as the product does (DefaultMaxConns), whatever the host.
 func Open(ctx context.Context, raw string, maxConns int32) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(raw)
 	if err != nil {
 		return nil, err
 	}
+	config.MaxConns = DefaultMaxConns
 	if maxConns > 0 {
 		config.MaxConns = maxConns
 	}
@@ -66,7 +73,7 @@ func Open(ctx context.Context, raw string, maxConns int32) (*pgxpool.Pool, error
 type Suite struct {
 	// Empty skips the product schema for suites that migrate their own.
 	Empty bool
-	// MaxConns sizes the shared pool; 0 keeps the pgxpool default.
+	// MaxConns sizes the shared pool; 0 uses DefaultMaxConns.
 	MaxConns int32
 	// Whole marks a binary whose every test needs the database: without one
 	// it runs no tests and reports the skip, or fails when required.
