@@ -114,6 +114,12 @@ if (values.help) {
         // realPath/stat of those directories, never the files beneath them.
         ...new Set([
           root,
+          ...pages.flatMap((page) =>
+            page.sourceDirectory === undefined ? [] : [
+              resolve(root, page.sourceDirectory),
+              `${resolve(root, page.sourceDirectory)}/**`
+            ]
+          ),
           ...sourceFiles.map((file) => resolve(root, file)),
           ...(incremental?.policySources.map((file) => resolve(root, file)) ?? []),
           output,

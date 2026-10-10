@@ -7,6 +7,7 @@ import { type PageSpec, type Receipt, type ReviewedPage, WikiError } from "./sch
 
 const maxFileBytes = 512_000
 const maxPageBytes = 300_000
+const maxGeneratedSources = 32
 const assessmentPolicy = "exact-single-line-ascii-boundary-trim-v1"
 const fail = (code: WikiError["code"], message: string) => new WikiError({ code, message })
 export const digest = (text: string) =>
@@ -135,7 +136,6 @@ export const operations = (
       const root = yield* fs.realPath(options.root)
       if (directory !== ".") yield* Effect.try({ try: () => safePath(directory), catch: (error) => error as WikiError })
       const files: Array<string> = []
-      let entries = 0
       const pending = [directory]
       while (pending.length) {
         const current = pending.shift()!
@@ -150,23 +150,21 @@ export const operations = (
           } catch {
             continue
           }
-          if (++entries > 256) {
-            return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
-          }
           const info = yield* fs.stat(path.join(absolute, entry))
           if (info.type === "Directory") {
             pending.push(relative)
           } else if (info.type === "File" && /\.(?:md|mdx|ts|tsx|js|jsx|go|rs|py|json|toml|yaml|yml)$/.test(entry)) {
             files.push(relative)
           }
-          if (files.length + pending.length > 256) {
-            return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
-          }
         }
       }
       return files.sort()
     })
-  const generatedMarkdown = (spec: PageSpec, sources: ReadonlyArray<{ path: string; text: string }>) => {
+  const generatedMarkdown = (
+    spec: PageSpec,
+    sources: ReadonlyArray<{ path: string; text: string }>,
+    summary: boolean
+  ) => {
     const sections = sources.flatMap((source) => {
       const symbols = source.text.split(/\r?\n/).flatMap((line, index) =>
         /^\s*(?:export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type)|func\s|pub\s|(?:async\s+)?def\s|class\s)/
@@ -186,12 +184,14 @@ export const operations = (
             first + 1
           }](../sources/${source.path}#L${first + 1})`
         ]
-      const bullets = symbols.length ? symbols : fallback
+      const bullets = symbols.length ? (summary ? symbols.slice(0, 3) : symbols) : fallback
       // A source with no nonblank line stays captured, but no line could cite
       // a section for it, so the page would never verify.
       return bullets.length ? [`## ${source.path}\n\n${bullets.join("\n")}`] : []
     })
-    return `# ${spec.title}\n\n${sections.join("\n\n")}\n`
+    return `# ${spec.title}\n\n${summary ? "Source summary; selected files and exports.\n\n" : ""}${
+      sections.join("\n\n")
+    }\n`
   }
   const collect = (spec: PageSpec) =>
     Effect.gen(function*() {
@@ -201,8 +201,33 @@ export const operations = (
       const names = spec.sourceDirectory === undefined
         ? [...new Set([spec.document, ...spec.inputs])].sort()
         : yield* inventory(spec.sourceDirectory)
-      const sources = yield* Effect.forEach(names, read)
-      if (sources.reduce((total, source) => total + new TextEncoder().encode(source.text).length, 0) > maxPageBytes) {
+      // Generated pages summarize a deterministic spread across the inventory.
+      // Explicit author-owned pages still capture every declared input in full.
+      const selected = spec.sourceDirectory === undefined || names.length <= maxGeneratedSources
+        ? names
+        : Array.from({ length: maxGeneratedSources }, (_, i) =>
+          names[Math.floor(i * (names.length - 1) / (maxGeneratedSources - 1))]!)
+      const sources: Array<{ path: string; digest: string; text: string }> = []
+      let capturedBytes = 0
+      for (const name of selected) {
+        if (spec.sourceDirectory !== undefined) {
+          const fs = options.fs ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
+          const info = yield* fs.stat(path.resolve(options.root, name))
+          // Keep complete archived files and the reviewer prompt bounded. Large
+          // files belong in focused, explicitly excerpted pages instead.
+          if (info.size > BigInt(40_000 - capturedBytes)) {
+            continue
+          }
+        }
+        const source = yield* read(name)
+        sources.push(source)
+        capturedBytes += new TextEncoder().encode(source.text).length
+      }
+      const summary = sources.length < names.length
+      if (
+        sources.reduce((total, source) =>
+          total + new TextEncoder().encode(source.text).length, 0) > maxPageBytes
+      ) {
         return yield* Effect.fail(
           fail(
             "invalid-input",
@@ -213,10 +238,15 @@ export const operations = (
       const markdown = spec.sourceDirectory === undefined ?
         sources.find((source) => source.path === spec.document)!.text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
           .trim() + "\n" :
-        generatedMarkdown(spec, sources)
+        generatedMarkdown(spec, sources, summary)
       const contentDigest = yield* digest(markdown)
       const inputDigest = yield* digest(
-        canonical({ policy: 2, spec, sources: sources.map(({ path, digest }) => ({ path, digest })) })
+        canonical({
+          policy: spec.sourceDirectory === undefined ? 2 : 3,
+          spec,
+          ...(spec.sourceDirectory === undefined ? {} : { inventory: names }),
+          sources: sources.map(({ path, digest }) => ({ path, digest }))
+        })
       )
       const evidence = { spec, sources, markdown, contentDigest, inputDigest, sections: sections(markdown) }
       yield* Effect.try({ try: () => reviewEvidence(evidence), catch: (error) => error as WikiError })
