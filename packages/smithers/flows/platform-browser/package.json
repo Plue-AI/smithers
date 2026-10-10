@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/platform-browser",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -139,8 +139,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/jj": "1.0.0-rc.3",
-    "@smthrs/kernel": "1.0.0-rc.3"
+    "@smthrs/jj": "1.0.0-rc.4",
+    "@smthrs/kernel": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",
@@ -161,7 +161,7 @@
     "typescript-eslint": "8.69.0",
     "vitest": "5.0.0",
     "@effect/platform-node": "4.0.0-rc.115",
-    "@smthrs/artifacts": "1.0.0-rc.3"
+    "@smthrs/artifacts": "1.0.0-rc.4"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"

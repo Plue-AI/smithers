@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/engine",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -150,13 +150,13 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/canonical": "1.0.0-rc.3",
-    "@smthrs/crypto": "1.0.0-rc.3",
-    "@smthrs/flow": "1.0.0-rc.3",
-    "@smthrs/journal": "1.0.0-rc.3",
-    "@smthrs/keys": "1.0.0-rc.3",
-    "@smthrs/plan": "1.0.0-rc.3",
-    "@smthrs/capability": "1.0.0-rc.3"
+    "@smthrs/canonical": "1.0.0-rc.4",
+    "@smthrs/crypto": "1.0.0-rc.4",
+    "@smthrs/flow": "1.0.0-rc.4",
+    "@smthrs/journal": "1.0.0-rc.4",
+    "@smthrs/keys": "1.0.0-rc.4",
+    "@smthrs/plan": "1.0.0-rc.4",
+    "@smthrs/capability": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

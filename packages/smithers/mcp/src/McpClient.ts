@@ -223,7 +223,7 @@ export const HttpConnectOptionsSchema = Schema.Struct({
  */
 export const clientInfo: { readonly name: string; readonly version: string } = Object.freeze({
   name: "smithers",
-  version: "1.0.0-rc.3"
+  version: "1.0.0-rc.4"
 })
 
 /**

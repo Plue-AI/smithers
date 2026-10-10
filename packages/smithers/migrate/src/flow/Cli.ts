@@ -76,7 +76,7 @@ const flags = {
  * @category models
  * @since 1.0.0-rc.0
  */
-export const version = "1.0.0-rc.3"
+export const version = "1.0.0-rc.4"
 
 /**
  * The command: one migration, one report, one exit code.

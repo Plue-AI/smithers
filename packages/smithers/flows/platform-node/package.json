@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/platform-node",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "engine",
@@ -185,8 +185,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/jj": "1.0.0-rc.3",
-    "@smthrs/kernel": "1.0.0-rc.3",
+    "@smthrs/jj": "1.0.0-rc.4",
+    "@smthrs/kernel": "1.0.0-rc.4",
     "undici": "8.10.2",
     "redis": "6.2.1",
     "@types/ws": "8.18.1",
@@ -201,7 +201,7 @@
     "@effect/platform-node-shared": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
-    "@smthrs/journal": "1.0.0-rc.3",
+    "@smthrs/journal": "1.0.0-rc.4",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",
     "dprint": "0.57.1",

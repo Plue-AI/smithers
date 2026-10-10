@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/plan-store",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "engine"
@@ -114,9 +114,9 @@
     "test:matrix": "node ../database/scripts/test-matrix.mjs"
   },
   "dependencies": {
-    "@smthrs/database": "1.0.0-rc.3",
-    "@smthrs/keys": "1.0.0-rc.3",
-    "@smthrs/plan": "1.0.0-rc.3"
+    "@smthrs/database": "1.0.0-rc.4",
+    "@smthrs/keys": "1.0.0-rc.4",
+    "@smthrs/plan": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

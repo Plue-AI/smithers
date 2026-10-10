@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/patterns",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -410,8 +410,8 @@
     "coverage": "vitest --coverage"
   },
   "dependencies": {
-    "@smthrs/flow": "1.0.0-rc.3",
-    "@smthrs/plan": "1.0.0-rc.3"
+    "@smthrs/flow": "1.0.0-rc.4",
+    "@smthrs/plan": "1.0.0-rc.4"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.2",

@@ -1,7 +1,7 @@
 {
   "name": "@smthrs/integrations",
   "type": "module",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "license": "MIT",
   "smthrs": {
     "group": "agent"
@@ -449,13 +449,13 @@
     "test:matrix": "node ../../flows/database/scripts/test-matrix.mjs"
   },
   "dependencies": {
-    "@smthrs/control": "1.0.0-rc.3",
-    "@smthrs/database": "1.0.0-rc.3",
-    "@smthrs/errors": "1.0.0-rc.3",
-    "@smthrs/flow": "1.0.0-rc.3",
-    "@smthrs/notifications": "1.0.0-rc.3",
-    "@smthrs/canonical": "1.0.0-rc.3",
-    "@smthrs/plan": "1.0.0-rc.3"
+    "@smthrs/control": "1.0.0-rc.4",
+    "@smthrs/database": "1.0.0-rc.4",
+    "@smthrs/errors": "1.0.0-rc.4",
+    "@smthrs/flow": "1.0.0-rc.4",
+    "@smthrs/notifications": "1.0.0-rc.4",
+    "@smthrs/canonical": "1.0.0-rc.4",
+    "@smthrs/plan": "1.0.0-rc.4"
   },
   "peerDependencies": {
     "effect": "4.0.0-rc.115"
@@ -465,10 +465,10 @@
     "@effect/platform-node": "4.0.0-rc.115",
     "@effect/vitest": "4.0.0-rc.115",
     "@eslint/js": "9.39.5",
-    "@smthrs/engine": "1.0.0-rc.3",
-    "@smthrs/flows": "1.0.0-rc.3",
-    "@smthrs/platform-bun": "1.0.0-rc.3",
-    "@smthrs/platform-node": "1.0.0-rc.3",
+    "@smthrs/engine": "1.0.0-rc.4",
+    "@smthrs/flows": "1.0.0-rc.4",
+    "@smthrs/platform-bun": "1.0.0-rc.4",
+    "@smthrs/platform-node": "1.0.0-rc.4",
     "@types/node": "26.4.1",
     "@vitest/coverage-v8": "5.0.0",
     "dprint": "0.57.1",
