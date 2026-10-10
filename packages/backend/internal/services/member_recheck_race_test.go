@@ -103,7 +103,8 @@ func TestMemberRecheckConcurrentRosterPostgres(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal(ctx.Err())
 			}
-			asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+			// Roster effects fence on the owner's live, verified session (6c9a598847).
+			asOwner := registerTestInstallCredential(t, pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"}), repo.ID)
 			if mode == "first sign-in" {
 				require.NoError(t, m.LinkGitHub(ctx, 102, writer.ID, "writer"))
 			} else {

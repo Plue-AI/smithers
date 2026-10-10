@@ -66,7 +66,8 @@ func testMemberDeletedWorkspaceShares(t *testing.T, recheck bool) {
 		require.NoError(t, f.m.Pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE user_id=$1`, later.ID).Scan(&suspended))
 		require.True(t, suspended, "the later member must also be processed")
 	} else {
-		asOwner := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+		// Roster effects fence on the owner's live, verified session (6c9a598847).
+		asOwner := registerTestInstallCredential(t, f.m.Pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"}), repoID)
 		require.NoError(t, f.m.Remove(asOwner, "writer"))
 		require.Zero(t, fetchedCount(t, f.m.Pool, `SELECT count(*) FROM collaborators WHERE github_id=77`))
 	}
