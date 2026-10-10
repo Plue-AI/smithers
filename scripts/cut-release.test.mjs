@@ -154,16 +154,22 @@ test("parseArguments takes one version and refuses a tag", () => {
   assert.throws(() => parseArguments(["1.0.0", "--allow-branch"]), /--allow-branch requires --commit/)
 })
 
-test("a cut writes both halves, refreshes both tracked lockfiles, and then verifies both", () => {
-  assert.deepEqual(steps("1.0.0", { bunLock: true }).map((step) => [step.command, ...step.args]), [
+test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, and then verifies all three", () => {
+  assert.deepEqual(steps("1.0.0", { bunLock: true, siteCliData: true }).map((step) => [step.command, ...step.args]), [
     [process.execPath, "scripts/set-release-version.mjs", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--version", "1.0.0"],
     ["pnpm", "install", "--lockfile-only", "--ignore-scripts"],
     ["bun", "install", "--lockfile-only", "--ignore-scripts"],
+    [process.execPath, "apps/site/scripts/gen-cli-data.mjs"],
     [process.execPath, "scripts/set-release-version.mjs", "--check", "1.0.0"],
-    [process.execPath, "scripts/generate-changelog.mjs", "--check", "--version", "1.0.0"]
+    [process.execPath, "scripts/generate-changelog.mjs", "--check", "--version", "1.0.0"],
+    [process.execPath, "apps/site/scripts/gen-cli-data.mjs", "--check"]
   ])
-  assert.equal(steps("1.0.0", { bunLock: false }).some((step) => step.command === "bun"), false)
+  assert.equal(steps("1.0.0", { bunLock: false, siteCliData: true }).some((step) => step.command === "bun"), false)
+  assert.equal(
+    steps("1.0.0", { bunLock: true, siteCliData: false }).some((step) => step.args[0] === "apps/site/scripts/gen-cli-data.mjs"),
+    false
+  )
 })
 
 test("the printed follow-up commits with the repository's message and pushes the tag", () => {
@@ -244,6 +250,34 @@ test("--commit records the cut, tags it, and pushes nothing", () => {
     assert.deepEqual(dirtyPaths(root), [], "the cut is entirely in the commit")
     assert.match(output, /Nothing was pushed\./)
     assert.equal(output.includes("git push origin main v0.2.0\n"), true)
+  })
+})
+
+/**
+ * A stand-in for the site's CLI data generator: it captures the CLI version
+ * the cut just wrote, as the real one does through the CLI's help banner.
+ */
+const siteGenerator = `import { readFileSync, writeFileSync } from "node:fs"
+const { version } = JSON.parse(readFileSync("packages/smithers/package.json", "utf8"))
+const text = JSON.stringify({ cli: version }, null, 2) + "\\n"
+const path = "apps/site/src/data/versions.json"
+if (!process.argv.includes("--check")) writeFileSync(path, text)
+else if (readFileSync(path, "utf8") !== text) { console.error("drift: " + path); process.exit(1) }
+`
+
+test("--commit regenerates the site CLI data from the bumped CLI, so the release's Site gate sees no drift", () => {
+  withFixture((root) => {
+    write(root, "apps/site/scripts/gen-cli-data.mjs", siteGenerator)
+    write(root, "apps/site/src/data/versions.json", json({ cli: "0.1.0" }))
+    git(root, ["add", "-A"])
+    git(root, ["commit", "-q", "-m", "📝 docs(site): capture the CLI data"])
+
+    cut(root, ["0.2.0", "--commit"])
+
+    assert.deepEqual(JSON.parse(readFileSync(join(root, "apps/site/src/data/versions.json"), "utf8")), { cli: "0.2.0" })
+    const committed = git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split("\n")
+    assert.ok(committed.includes("apps/site/src/data/versions.json"))
+    assert.deepEqual(dirtyPaths(root), [], "the regenerated data is in the release commit")
   })
 })
 

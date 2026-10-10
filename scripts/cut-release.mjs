@@ -1,6 +1,6 @@
 /**
  * Cuts one release in the working copy: the version bump, the changelog
- * section, and the two verifications that prove both landed.
+ * section, the site's CLI data, and the verifications that prove each landed.
  *
  * Before this script the bump and the changelog were separate operator moves
  * with nothing sequencing them, and only one of them was checked. The version
@@ -8,6 +8,10 @@
  * and a tag whose manifests disagreed with it failed loudly. The changelog had
  * no such gate at all, so the release that shipped with a missing section
  * shipped green.
+ *
+ * The site's CLI data (apps/site/src/data) captures the CLI's help banner and
+ * version pins, so a bump drifts it, and the release's Site gate checks that
+ * drift.
  *
  * The script writes and then re-reads. Writing and verifying are separate
  * passes on purpose: the check is the same one `release.yml` runs, so a cut
@@ -64,19 +68,23 @@ export const nextCommands = (version) => [
   }`
 ]
 
+/** The generator behind `//apps/site:cliData`, which the Site gate checks. */
+const siteCliDataScript = "apps/site/scripts/gen-cli-data.mjs"
+
 /**
  * Every child invocation a cut makes, in order.
  *
  * Declared as data so the suite can assert the order and the flags without
- * running a release, and so the two verifications are visibly the same
- * commands `release.yml` runs rather than a paraphrase of them. Lockfiles sit
- * between the writes and checks because the frozen install in the release job
- * consumes the bumped manifest ranges.
+ * running a release, and so the verifications are visibly the same commands
+ * `release.yml` runs rather than a paraphrase of them. Lockfiles sit between
+ * the writes and checks because the frozen install in the release job
+ * consumes the bumped manifest ranges. The site's CLI data is captured after
+ * the bump because its generator reads the version the bump wrote.
  *
  * @since 1.0.0
  * @category utilities
  */
-export const steps = (version, options = { bunLock: true }) => [
+export const steps = (version, options = { bunLock: true, siteCliData: true }) => [
   {
     name: "set the workspace version",
     command: process.execPath,
@@ -99,6 +107,13 @@ export const steps = (version, options = { bunLock: true }) => [
       args: ["install", "--lockfile-only", "--ignore-scripts"]
     }]
     : []),
+  ...(options.siteCliData
+    ? [{
+      name: "regenerate the site CLI data",
+      command: process.execPath,
+      args: [siteCliDataScript]
+    }]
+    : []),
   {
     name: "verify the workspace version",
     command: process.execPath,
@@ -108,7 +123,14 @@ export const steps = (version, options = { bunLock: true }) => [
     name: "verify the changelog section",
     command: process.execPath,
     args: ["scripts/generate-changelog.mjs", "--check", "--version", version]
-  }
+  },
+  ...(options.siteCliData
+    ? [{
+      name: "verify the site CLI data",
+      command: process.execPath,
+      args: [siteCliDataScript, "--check"]
+    }]
+    : [])
 ]
 
 const run = (root, command, args) => execFileSync(command, args, { cwd: root, stdio: ["ignore", "inherit", "inherit"] })
@@ -210,7 +232,8 @@ export const main = (argv, root = repoRoot) => {
   process.stdout.write(
     "\nThe generated changelog must be regenerated for the exact release commit and checked before tagging.\n"
   )
-  for (const step of steps(options.version, { bunLock: trackedPath(root, "bun.lock") })) {
+  const present = { bunLock: trackedPath(root, "bun.lock"), siteCliData: trackedPath(root, siteCliDataScript) }
+  for (const step of steps(options.version, present)) {
     process.stdout.write(`\n=== ${step.name}\n`)
     if (step.command !== "bun") {
       run(root, step.command, step.args)
