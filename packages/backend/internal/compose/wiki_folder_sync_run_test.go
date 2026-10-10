@@ -14,8 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The host launches configured folder sync with its background workers.
-func TestRun_SyncsConfiguredWikiFolder(t *testing.T) {
+// A single-owner install never syncs folders named in host configuration:
+// 74897cf4e6 removed that fallback, so only the owner's persisted install
+// setting (services.RunInstallWikiFolderSync) or a hosted deployment's
+// configuration starts folder sync.
+func TestRun_InstallIgnoresHostConfiguredWikiFolder(t *testing.T) {
 	preserveSlog(t)
 	env := baseRunEnv(t)
 	ctx := context.Background()
@@ -40,10 +43,10 @@ wiki_sync:
 `, name, name, vault)), 0o600))
 
 	h := startRun(t, env, "-config", file)
-	require.Eventually(t, func() bool {
-		var path string
-		err := pool.QueryRow(ctx, `SELECT path FROM wiki_pages WHERE repository_id=$1 AND visibility='private'`, repo.ID).Scan(&path)
-		return err == nil && path == "Home.md"
-	}, 15*time.Second, 50*time.Millisecond, "logs:\n%s", h.logs.String())
+	// Three of the configured one-second passes.
+	time.Sleep(3 * time.Second)
+	var pages int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM wiki_pages WHERE repository_id=$1`, repo.ID).Scan(&pages))
+	require.Zero(t, pages, "logs:\n%s", h.logs.String())
 	h.shutdownAndWaitNil()
 }
