@@ -77,6 +77,13 @@ export const nextCommands = (version) => [
 const siteCliDataScript = "apps/site/scripts/gen-cli-data.mjs"
 
 /**
+ * The generator of `apps/site/public/llms-full.txt`, which the Site gate also
+ * checks. The bundle repeats the reference pages, and the bump rewrites the
+ * release those pages quote, so a cut that left it alone shipped a stale one.
+ */
+const siteLlmsScript = "apps/site/scripts/generate-llms.mjs"
+
+/**
  * The checked-in output of each workspace generator a cut regenerates, keyed
  * by its target. `target <label> --write` writes it and `lint <label>` is the
  * release gate that checks it; a cut skips a label whose output this tree does
@@ -106,7 +113,7 @@ const smthrs = (name, args) => ({ name, command: "pnpm", args: ["exec", "smthrs"
  */
 export const steps = (
   version,
-  options = { bunLock: true, siteCliData: true, factoryProjection: true, targetIndex: true }
+  options = { bunLock: true, siteCliData: true, siteLlms: true, factoryProjection: true, targetIndex: true }
 ) => [
   {
     name: "set the workspace version",
@@ -137,6 +144,13 @@ export const steps = (
       args: [siteCliDataScript]
     }]
     : []),
+  ...(options.siteLlms
+    ? [{
+      name: "regenerate the site llms bundle",
+      command: process.execPath,
+      args: [siteLlmsScript]
+    }]
+    : []),
   ...(options.factoryProjection
     ? [smthrs("regenerate the factory projection", ["target", "//:factoryProjection", "--write"])]
     : []),
@@ -156,6 +170,13 @@ export const steps = (
       name: "verify the site CLI data",
       command: process.execPath,
       args: [siteCliDataScript, "--check"]
+    }]
+    : []),
+  ...(options.siteLlms
+    ? [{
+      name: "verify the site llms bundle",
+      command: process.execPath,
+      args: [siteLlmsScript, "--check"]
     }]
     : []),
   ...(options.factoryProjection ? [smthrs("verify the factory projection", ["lint", "//:factoryProjection"])] : []),
@@ -264,6 +285,7 @@ export const main = (argv, root = repoRoot) => {
   const present = {
     bunLock: trackedPath(root, "bun.lock"),
     siteCliData: trackedPath(root, siteCliDataScript),
+    siteLlms: trackedPath(root, siteLlmsScript),
     factoryProjection: trackedPath(root, generatedOutputs["//:factoryProjection"]),
     targetIndex: trackedPath(root, generatedOutputs["//:targetIndex"])
   }

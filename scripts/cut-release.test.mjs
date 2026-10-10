@@ -175,26 +175,32 @@ test("parseArguments takes one version and refuses a tag", () => {
 })
 
 /** Every optional step on, as a tree that tracks all of their inputs and outputs gets. */
-const everyStep = { bunLock: true, siteCliData: true, factoryProjection: true, targetIndex: true }
+const everyStep = { bunLock: true, siteCliData: true, siteLlms: true, factoryProjection: true, targetIndex: true }
 
-test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, the factory projection and the target index, and then verifies all five", () => {
+test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, the llms bundle, the factory projection and the target index, and then verifies all six", () => {
   assert.deepEqual(steps("1.0.0", everyStep).map((step) => [step.command, ...step.args]), [
     [process.execPath, "scripts/set-release-version.mjs", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--version", "1.0.0"],
     ["pnpm", "install", "--lockfile-only", "--ignore-scripts"],
     ["bun", "install", "--lockfile-only", "--ignore-scripts"],
     [process.execPath, "apps/site/scripts/gen-cli-data.mjs"],
+    [process.execPath, "apps/site/scripts/generate-llms.mjs"],
     ["pnpm", "exec", "smthrs", "target", "//:factoryProjection", "--write"],
     ["pnpm", "exec", "smthrs", "target", "//:targetIndex", "--write"],
     [process.execPath, "scripts/set-release-version.mjs", "--check", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--check", "--version", "1.0.0"],
     [process.execPath, "apps/site/scripts/gen-cli-data.mjs", "--check"],
+    [process.execPath, "apps/site/scripts/generate-llms.mjs", "--check"],
     ["pnpm", "exec", "smthrs", "lint", "//:factoryProjection"],
     ["pnpm", "exec", "smthrs", "lint", "//:targetIndex"]
   ])
   assert.equal(steps("1.0.0", { ...everyStep, bunLock: false }).some((step) => step.command === "bun"), false)
   assert.equal(
     steps("1.0.0", { ...everyStep, siteCliData: false }).some((step) => step.args[0] === "apps/site/scripts/gen-cli-data.mjs"),
+    false
+  )
+  assert.equal(
+    steps("1.0.0", { ...everyStep, siteLlms: false }).some((step) => step.args[0] === "apps/site/scripts/generate-llms.mjs"),
     false
   )
   for (const [option, label] of [["factoryProjection", "//:factoryProjection"], ["targetIndex", "//:targetIndex"]]) {
