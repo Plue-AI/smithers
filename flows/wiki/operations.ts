@@ -167,7 +167,7 @@ export const operations = (
       return files.sort()
     })
   const generatedMarkdown = (spec: PageSpec, sources: ReadonlyArray<{ path: string; text: string }>) => {
-    const sections = sources.map((source) => {
+    const sections = sources.flatMap((source) => {
       const symbols = source.text.split(/\r?\n/).flatMap((line, index) =>
         /^\s*(?:export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type)|func\s|pub\s|(?:async\s+)?def\s|class\s)/
             .test(line)
@@ -186,8 +186,11 @@ export const operations = (
             first + 1
           }](../sources/${source.path}#L${first + 1})`
         ]
-      return `## ${source.path}\n\n${(symbols.length ? symbols : fallback).join("\n")}`
-    }).filter(Boolean)
+      const bullets = symbols.length ? symbols : fallback
+      // A source with no nonblank line stays captured, but no line could cite
+      // a section for it, so the page would never verify.
+      return bullets.length ? [`## ${source.path}\n\n${bullets.join("\n")}`] : []
+    })
     return `# ${spec.title}\n\n${sections.join("\n\n")}\n`
   }
   const collect = (spec: PageSpec) =>

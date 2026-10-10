@@ -51,17 +51,71 @@ func PersistInstallCodingProject(ctx context.Context, pool *pgxpool.Pool, source
 		checks = append(checks, map[string]any{"id": "build-only", "target": ".", "flow": "checks/build-only", "tier": "fast", "required": true})
 		detected = append(detected, map[string]any{"flow": "checks/build-only", "argv": []string{}, "timeoutMs": 1800000})
 	}
+	pages := installWikiPages(paths)
+	seats := map[string]string{}
+	for _, role := range []string{"coding/implement", "coding/plan", "coding/poc", "coding/review", "wiki/reviewer", "coding/dispatch", "repository/research", "repository/evaluator", "repository/author", "flow/author"} {
+		seats[role] = "auto"
+	}
+	config := map[string]any{"conflictAttempts": 1, "implementation": "coding/implementation", "checks": checks, "detected": detected, "wiki": len(pages) > 0, "seats": seats}
+	if len(pages) > 0 {
+		config["pages"] = pages
+		config["wikiOutput"] = "/var/tmp/smithers/wiki"
+		config["reviewer"] = "product-engineering-v1"
+	}
+	raw, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	// A retried setup never overwrites owner changes. All defaults are one row.
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING`, InstallCodingProjectKey, raw)
+	return err
+}
+
+// The files the wiki inventory collects (flows/wiki/operations.ts: safePath,
+// refusePrivate and the inventory's extensions), for public, non-hidden paths.
+var (
+	wikiSourceName      = regexp.MustCompile(`^[A-Za-z0-9_./@-]+$`)
+	wikiSourceExtension = regexp.MustCompile(`\.(?:md|mdx|ts|tsx|js|jsx|go|rs|py|json|toml|yaml|yml)$`)
+	wikiPrivateSegment  = regexp.MustCompile(`(?i)^(?:node_modules|Smithers-Ops)$`)
+	wikiPrivateFile     = regexp.MustCompile(`(?i)^(?:id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials\.json|service-account.*\.json|secrets?(?:\..*)?\.(?:json|ya?ml|toml)|.*\.(?:env|token|pem|key|p8|p12|pfx|jks|ppk|keystore|asc|gpg|tfvars|tfvars\.json|tfstate(?:\.backup)?|db|sqlite))$`)
+)
+
+func wikiReadsSource(name string) bool {
+	if !wikiSourceName.MatchString(name) || !wikiSourceExtension.MatchString(name) {
+		return false
+	}
+	parts := strings.Split(name, "/")
+	for _, part := range parts {
+		if part == "" || strings.HasPrefix(part, ".") || wikiPrivateSegment.MatchString(part) {
+			return false
+		}
+	}
+	return !wikiPrivateFile.MatchString(parts[len(parts)-1])
+}
+
+// installWikiPages is the generated page catalog: an overview, an
+// architecture page and one page per top-level directory, each inventoried
+// afresh at every revision by flows/wiki/operations.ts. A page is declared
+// only where that inventory reads a source: a page with none has nothing to
+// cite, so the verified refresh would fail at every fold.
+func installWikiPages(paths []string) []map[string]any {
+	paths = append([]string(nil), paths...)
 	sort.Strings(paths)
 	packages := map[string]bool{}
+	readable := false
 	for _, name := range paths {
-		if strings.HasPrefix(name, ".") || strings.Contains(name, "/.") {
+		if !wikiReadsSource(name) {
 			continue
 		}
+		readable = true
 		if dir, _, ok := strings.Cut(name, "/"); ok {
 			packages[dir] = true
 		}
 	}
 	pages := []map[string]any{}
+	if !readable {
+		return pages
+	}
 	page := func(id, title string) {
 		pages = append(pages, map[string]any{"id": id, "title": title, "purpose": "Describe the code with source citations", "kind": "current", "document": "", "sourceDirectory": ".", "inputs": []string{}, "related": []string{}})
 	}
@@ -90,23 +144,7 @@ func PersistInstallCodingProject(ctx context.Context, pool *pgxpool.Pool, source
 		page(id, dir)
 		pages[len(pages)-1]["sourceDirectory"] = dir
 	}
-	seats := map[string]string{}
-	for _, role := range []string{"coding/implement", "coding/plan", "coding/poc", "coding/review", "wiki/reviewer", "coding/dispatch", "repository/research", "repository/evaluator", "repository/author", "flow/author"} {
-		seats[role] = "auto"
-	}
-	config := map[string]any{"conflictAttempts": 1, "implementation": "coding/implementation", "checks": checks, "detected": detected, "wiki": len(pages) > 0, "seats": seats}
-	if len(pages) > 0 {
-		config["pages"] = pages
-		config["wikiOutput"] = "/var/tmp/smithers/wiki"
-		config["reviewer"] = "product-engineering-v1"
-	}
-	raw, err := json.Marshal(config)
-	if err != nil {
-		return err
-	}
-	// A retried setup never overwrites owner changes. All defaults are one row.
-	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING`, InstallCodingProjectKey, raw)
-	return err
+	return pages
 }
 
 // MergeCodingProject replaces repository fields; seats merge by role. Config

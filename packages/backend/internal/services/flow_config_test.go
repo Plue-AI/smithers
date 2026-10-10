@@ -132,3 +132,31 @@ func TestInstallChecksRemainAvailableWithInvalidMachineVersionPostgres(t *testin
 	require.Equal(t, []string{"pnpm", "test"}, project.Detected[0].Argv)
 	require.Equal(t, []string{"pnpm", "lint"}, project.Detected[1].Argv)
 }
+
+// A page is declared only where the wiki inventory (flows/wiki/operations.ts)
+// collects a source: a page with none can never be cited, so the verified
+// refresh would fail on every fold (#3785).
+func TestInstallWikiPagesOnlyWhereTheInventoryReadsASource(t *testing.T) {
+	ids := func(paths ...string) []string {
+		out := []string{}
+		for _, page := range installWikiPages(paths) {
+			out = append(out, page["id"].(string))
+			if page["id"] == "overview" || page["id"] == "architecture" {
+				require.Equal(t, ".", page["sourceDirectory"])
+			} else {
+				require.Equal(t, page["title"], page["sourceDirectory"])
+			}
+		}
+		return out
+	}
+	// codeplanesmithers/canary-sandbox at run 15: docs/ holds only a .txt file.
+	canary := []string{"README.md", "big.txt", "blob.bin", "docs/nested/hello.txt", "package-lock.json", "package.json", "real-run-20261009-r14.md", "video-demo-server.mjs"}
+	require.Equal(t, []string{"overview", "architecture"}, ids(canary...))
+	require.Equal(t, []string{"overview", "architecture", "package-api", "package-src"}, ids(
+		"api/v1/routes.go", "assets/logo.png", "bin/run.sh", "docs/notes.txt", "src/index.ts",
+		"vendor/node_modules/x/index.js", "keys/credentials.json", "Smithers-Ops/plan.md", "odd/na me.ts", ".github/workflows/ci.yml",
+	))
+	// Nothing the inventory reads: no overview either, so the install declares no wiki.
+	require.Empty(t, ids("notes.txt", "docs/a.txt", ".github/workflows/ci.yml"))
+	require.Empty(t, ids())
+}

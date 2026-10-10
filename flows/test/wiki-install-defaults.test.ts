@@ -81,3 +81,31 @@ test(
     await assert.rejects(collect(), /symlink/)
   }
 )
+
+test("a generated page writes no section for a source with no line to cite", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "wiki-install-"))
+  const root = join(directory, "repo")
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  await mkdir(join(root, "api"), { recursive: true })
+  await writeFile(join(root, "api/server.ts"), "export function startServer() {}\n")
+  await writeFile(join(root, "api/empty.ts"), "")
+  await writeFile(join(root, "api/blank.md"), "\n  \r\n")
+  const spec = {
+    id: "package-api",
+    title: "api",
+    purpose: "Describe the code with source citations",
+    kind: "current" as const,
+    document: "",
+    sourceDirectory: "api",
+    inputs: [],
+    related: []
+  }
+  const ops = operations({ root, output: join(directory, "wiki") })
+  const evidence = await Effect.runPromise(ops.collect(spec).pipe(Effect.provide(platform)))
+  // Still captured, so an edit to either refreshes the page.
+  assert.deepEqual(evidence.sources.map((source) => source.path), ["api/blank.md", "api/empty.ts", "api/server.ts"])
+  assert.equal(
+    evidence.markdown,
+    "# api\n\n## api/server.ts\n\n- `export function startServer() {}` [api/server.ts:1](../sources/api/server.ts#L1)\n"
+  )
+})

@@ -359,6 +359,61 @@ export const GREETING = "Hello from Smithers!"
 /** Every system message of a turn, joined. */
 export const systemOf = (messages) => messages.filter((message) => message?.role === "system").map((message) => text(message.content)).join("\n")
 
+/** The source link a wiki page writes: `](../sources/<path>#L<line>)` (flows/wiki/operations.ts). */
+const sourceLink = /\]\(\.\.\/sources\/([A-Za-z0-9_./@-]+)#L([1-9][0-9]*)\)/g
+
+/**
+ * A source's visible lines as the review evidence numbers them (`<n> | <text>`,
+ * flows/wiki/evidence.ts), each with the quote a citation may carry: the
+ * line's first nonblank run between carriage returns, trimmed. Blank lines
+ * carry none.
+ */
+const visibleLines = (source) =>
+  String(source?.lines ?? "").split("\n").flatMap((entry) => {
+    const numbered = /^(\d+) \| (.*)$/s.exec(entry)
+    const quote = numbered?.[2].split("\r").map((part) => part.trim()).find(Boolean)
+    return quote === undefined ? [] : [{ path: source.path, line: Number(numbered[1]), quote }]
+  })
+
+/**
+ * The install's wiki review (flows/wiki/workflow.ts ReviewPage). Its task
+ * carries the page's review evidence (flows/wiki/evidence.ts reviewEvidence):
+ * the spec, the heading sections and each source's visible lines. A section is
+ * supported by exact visible lines, and a current page never by its own
+ * document alone:
+ * - every line it links (a generated page's bullets);
+ * - else the first line it quotes verbatim (a declared page's prose);
+ * - else, for a heading alone, the first line of the file the heading names,
+ *   or of the first source when it names none.
+ * Any other section is uncertain, so prose no source states never verifies.
+ * Hostile source bytes stay citation data.
+ */
+const wikiReview = (system) => {
+  const task = system.slice(system.lastIndexOf("The task for this run:"))
+  const evidence = leadingJson(task.slice(task.indexOf("\n{") + 1))
+  if (!Array.isArray(evidence?.sections) || !Array.isArray(evidence?.sources)) return undefined
+  const own = evidence.spec?.kind === "intent" ? undefined : evidence.spec?.document
+  const lines = evidence.sources.filter((source) => source?.path !== own).flatMap(visibleLines)
+  return evidence.sections.map((section) => {
+    const markdown = String(section?.markdown ?? "")
+    const linked = [...markdown.matchAll(sourceLink)].flatMap(([, path, line]) =>
+      lines.filter((entry) => entry.path === path && entry.line === Number(line)))
+    const quoted = lines.find((entry) => /\w{3}/.test(entry.quote) && markdown.includes(entry.quote))
+    const heading = /^#{1,3} ([^\n]+)$/.exec(markdown.trim())?.[1].trim()
+    const titled = heading === undefined ? undefined
+      : evidence.sources.some((source) => source?.path === heading) ? lines.find((entry) => entry.path === heading)
+      : lines[0]
+    const citations = linked.length > 0 ? [...new Map(linked.map((entry) => [`${entry.path}:${entry.line}`, entry])).values()]
+      : [quoted ?? titled].filter((entry) => entry !== undefined)
+    return {
+      id: section.id,
+      verdict: citations.length > 0 ? "supported" : "uncertain",
+      explanation: citations.length > 0 ? "Each cited line states what this section says." : "No supplied source line states this section.",
+      citations
+    }
+  })
+}
+
 /** The conflict prompt (ResolveConflict's shape) names the conflicted path. */
 const conflictPath = /Resolve the conflict in path "([^"]+)"/
 
@@ -384,26 +439,9 @@ export const todoTurn = (messages, greeting = GREETING) => {
   if (system.includes("You adjudicate code-review findings against the diff")) {
     return { step: "review/verify", content: done({ verdicts: [{ index: 0, verdict: "keep", reason: "The slice starts one entry too early." }] }) }
   }
-  // The install's ordinary wiki check runs before implementation. Its
-  // rehearsal pages quote source lines verbatim; answer only that fixture
-  // shape, preserving hostile bytes as citation data.
   if (system.includes("Review a repository wiki page against its exact source snapshot.")) {
-    const task = system.slice(system.lastIndexOf("The task for this run:"))
-    const evidence = leadingJson(task.slice(task.indexOf("\n{") + 1))
-    if (!Array.isArray(evidence?.sections) || !Array.isArray(evidence?.sources)) return undefined
-    const sections = evidence.sections.map((section) => {
-      const link = /\[([^\]]+):(\d+)\]\(\.\.\/sources\//.exec(section.markdown)
-      const source = evidence.sources.find((entry) => entry.path === link?.[1]) ?? evidence.sources[0]
-      const numbered = source?.lines.split("\n").map((line) => /^(\d+) \| (.*)$/.exec(line)).filter(Boolean) ?? []
-      const selected = link === null ? numbered.find((line) => line[2].trim()) : numbered.find((line) => line[1] === link[2])
-      const supported = selected !== undefined && (link !== null || /^# [^\n]+$/.test(section.markdown.trim()))
-      return {
-        id: section.id, verdict: supported ? "supported" : "uncertain",
-        explanation: supported ? "The rehearsal page quotes the supplied source snapshot." : "No literal rehearsal source supports this section.",
-        citations: supported ? [{ path: source.path, line: Number(selected[1]), quote: selected[2] }] : []
-      }
-    })
-    return { step: "wiki/review-page", content: done({ sections }) }
+    const sections = wikiReview(system)
+    return sections === undefined ? undefined : { step: "wiki/review-page", content: done({ sections }) }
   }
   const conflict = conflictPath.exec(all)
   if (conflict !== null) {
