@@ -17,7 +17,6 @@ import { z } from "zod"
  * @category constants
  */
 export const UI_INSTRUCTION_FIELDS = {
-  "box.facet": ["workspaceId", "facet"],
   "card.dismiss": ["cardId"],
   "card.history.back": ["cardId"],
   "card.history.forward": ["cardId"],

@@ -11,7 +11,6 @@ import (
 // fields each declares. It mirrors packages/rpc/src/UiInstruction.ts; both
 // are checked against the generated catalog.
 var uiInstructionFields = map[string][]string{
-	"box.facet":            {"workspaceId", "facet"},
 	"card.dismiss":         {"cardId"},
 	"card.history.back":    {"cardId"},
 	"card.history.forward": {"cardId"},
