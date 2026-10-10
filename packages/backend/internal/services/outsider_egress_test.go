@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -129,8 +132,12 @@ func (q *outsiderSealQuerier) SealOutsiderWorkspaceEgress(context.Context, strin
 }
 
 // A box that booted before its workspace was marked runs the deployment's
-// full egress: it is suspended once, so its next start is narrowed, and the
-// workspace is sealed. A boot in flight is waited for, never sealed.
+// full egress, so a hosted sandbox seals the workspace only once no box of
+// it runs the old policy. A boot in flight is waited for, never sealed. Since
+// c240bd3cf7 (#3568) only a workspace runtime can capture and sleep a branch,
+// so narrowing a running sandbox box is refused and the workspace is not
+// sealed; TestWorkspaceRuntimeWithholdsConversationBeforeAMarkedBoxStarts
+// covers the runtime's narrowing of a box that is already awake.
 func TestNarrowOutsiderEgressSuspendsABoxThatBootedBeforeTheMark(t *testing.T) {
 	t.Parallel()
 	status, suspended := "running", 0
@@ -165,13 +172,27 @@ func TestNarrowOutsiderEgressSuspendsABoxThatBootedBeforeTheMark(t *testing.T) {
 	assert.False(t, q.sealed, "a boot in flight may have computed its policy before the mark")
 
 	status = "running"
+	err := service.NarrowOutsiderEgress(ctx, "ws-box")
+	require.ErrorContains(t, err, "branch sleep requires verified capture")
+	assert.False(t, q.sealed, "a box still running the full egress keeps the workspace unsealed")
+
+	status = "suspended"
 	require.NoError(t, service.NarrowOutsiderEgress(ctx, "ws-box"))
-	assert.Equal(t, 1, suspended)
+	assert.Zero(t, suspended, "a suspended box needs no suspension to seal")
 	assert.True(t, q.sealed)
 
 	status = "running"
 	require.NoError(t, service.NarrowOutsiderEgress(ctx, "ws-box"))
-	assert.Equal(t, 1, suspended, "a sealed workspace's boxes all booted narrowed")
+	assert.Zero(t, suspended, "a sealed workspace's boxes all booted narrowed")
+}
+
+// unopenedBranchTransactions completes the activation providers for a
+// hosted sandbox wake, which opens no branch transaction.
+type unopenedBranchTransactions struct{ t *testing.T }
+
+func (u unopenedBranchTransactions) Begin(context.Context) (pgx.Tx, error) {
+	u.t.Error("a hosted sandbox wake opens no branch transaction")
+	return nil, errors.New("unexpected branch transaction")
 }
 
 type markingWorkspaceQuerier struct {
@@ -187,15 +208,17 @@ func (q *markingWorkspaceQuerier) IsOutsiderWorkspace(context.Context, string) (
 }
 
 // A marked workspace's box resumes with the narrowed egress; a resume whose
-// policy predates the mark is suspended again once the box is visibly
-// running, so it never keeps the deployment's full egress.
+// policy predates the mark is refused once the box is visibly running, so no
+// outsider-started work runs with the deployment's full egress. Since
+// c240bd3cf7 (#3568) a wake passes machine admission and the activation
+// providers, and only a workspace runtime can sleep the box again.
 func TestResumeNarrowsAMarkedBoxAndRefusesOneThatPredatesTheMark(t *testing.T) {
 	t.Parallel()
 	resume := func(markedAfter int) (*sandbox.EgressProxyPolicy, int, error) {
 		var applied *sandbox.EgressProxyPolicy
 		suspended := 0
 		q := &markingWorkspaceQuerier{markedAfter: markedAfter}
-		service := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+		service := newWorkspaceServiceForTests(q, WithWorkspaceTransactions(unopenedBranchTransactions{t}), WithBranchMachineProviders(branchMachineTestProviders()), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 			startVMFn: func(_ context.Context, _ string, req sandbox.StartRequest) (sandbox.StartResult, error) {
 				applied = req.EgressProxy
 				return sandbox.StartResult{}, nil
@@ -205,6 +228,7 @@ func TestResumeNarrowsAMarkedBoxAndRefusesOneThatPredatesTheMark(t *testing.T) {
 				return sandbox.SuspendResult{}, nil
 			},
 		}))
+		service.EnableMachineAdmission(nil)
 		workspace := sampleDBWorkspace("ws-box")
 		workspace.Status = "suspended"
 		_, err := service.resumeWorkspaceVM(context.Background(), workspace)
@@ -216,10 +240,10 @@ func TestResumeNarrowsAMarkedBoxAndRefusesOneThatPredatesTheMark(t *testing.T) {
 	assert.Equal(t, sandbox.ConversationWithheldHostRules(), applied.HostRules)
 	assert.Zero(t, suspended)
 
-	applied, suspended, err = resume(1)
-	require.Error(t, err)
+	applied, _, err = resume(1)
+	require.ErrorContains(t, err, "restarts with the egress of a box that ran outsider-started work")
+	assert.Equal(t, http.StatusServiceUnavailable, apiStatus(t, err))
 	assert.Nil(t, applied, "the policy was computed before the mark")
-	assert.Equal(t, 1, suspended)
 }
 
 type conversationRuntime struct {
@@ -240,6 +264,15 @@ func (r *conversationRuntime) StartWorkspace(_ context.Context, id string) (work
 	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
 }
 
+// WaitAdmission grants the start once the service's admission Ready check
+// passes, as the native runtime does after taking a slot.
+func (r *conversationRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	if err := p.Ready(ctx, microsandbox.AdmissionRequest{Class: class, Holder: holder, Actor: actor, Reason: reason}); err != nil {
+		return nil, err
+	}
+	return ctx, nil
+}
+
 type withholdingRuntime struct{ conversationRuntime }
 
 func (r *withholdingRuntime) WithholdConversationEgress(_ context.Context, id string) error {
@@ -250,33 +283,57 @@ func (r *withholdingRuntime) WithholdConversationEgress(_ context.Context, id st
 // On a workspace runtime the runtime owns the box's proxy: a marked
 // workspace starts only after the runtime withholds GitHub conversation
 // from its egress, and a runtime that cannot refuses the start. A repository
-// job's running box is narrowed by the runtime, then sealed.
+// job's running box is narrowed by the runtime, then sealed. Since c240bd3cf7
+// (#3568) a wake passes machine admission and the activation providers, and
+// moves its PostgreSQL row from suspended to starting, so each case wakes a
+// real suspended branch row through that composition.
 func TestWorkspaceRuntimeWithholdsConversationBeforeAMarkedBoxStarts(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	row := sampleDBWorkspace("ws-box")
-	row.Status, row.VmID = "suspended", "vm-box"
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	suspended := func(name string) db.Workspace {
+		row, err := db.New(pool).CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: user, Name: name, TargetBookmark: name, Kind: "container", Status: "suspended"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='vm-box' WHERE id=$1`, row.ID)
+		require.NoError(t, err)
+		row.VmID = "vm-box"
+		return row
+	}
+	waking := func(q WorkspaceQuerier, runtime workspaceapi.WorkspaceRuntime) *WorkspaceService {
+		service := newWorkspaceServiceForTests(q, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()),
+			WithWorkspaceBillingPolicy(NewMachineAdmissionPolicy(&UnlimitedBillingPolicy{})), WithWorkspaceRuntime(runtime))
+		service.EnableMachineAdmission(nil)
+		return service
+	}
+	held := func(row db.Workspace) mockWorkspaceQuerier {
+		return mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}
+	}
 
+	row := suspended("plain")
 	plain := &conversationRuntime{}
-	q := &outsiderSealQuerier{}
-	service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(plain))
+	q := &outsiderSealQuerier{mockWorkspaceQuerier: held(row)}
+	service := waking(q, plain)
 	_, err := service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
-	require.Error(t, err)
+	require.ErrorContains(t, err, "cannot withhold GitHub conversation")
 	assert.Empty(t, plain.calls, "no box starts without the narrowed egress")
 	require.Error(t, service.NarrowOutsiderEgress(ctx, row.ID))
 	assert.False(t, q.sealed)
 
+	row = suspended("withholding")
 	withholding := &withholdingRuntime{}
-	q = &outsiderSealQuerier{}
-	service = newWorkspaceServiceForTests(q, WithWorkspaceRuntime(withholding))
+	q = &outsiderSealQuerier{mockWorkspaceQuerier: held(row)}
+	service = waking(q, withholding)
 	// The fake runtime starts the box and stops short of a repository.
 	_, _ = service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
 	require.NoError(t, service.NarrowOutsiderEgress(ctx, row.ID))
 	assert.True(t, q.sealed)
-	assert.Equal(t, []string{"withhold ws-box", "start ws-box", "withhold ws-box"}, withholding.calls)
+	assert.Equal(t, []string{"withhold " + row.ID, "start " + row.ID, "withhold " + row.ID}, withholding.calls)
 
+	row = suspended("maintainer")
 	maintainer := &conversationRuntime{}
-	service = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(maintainer))
+	unmarked := held(row)
+	service = waking(&unmarked, maintainer)
 	_, _ = service.ensureRuntimeWorkspaceRunningLocked(ctx, row, row.UserID)
-	assert.Equal(t, []string{"start ws-box"}, maintainer.calls, "an unmarked workspace needs nothing of its runtime")
+	assert.Equal(t, []string{"start " + row.ID}, maintainer.calls, "an unmarked workspace needs nothing of its runtime")
 }

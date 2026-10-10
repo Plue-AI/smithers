@@ -196,144 +196,107 @@ func TestWorkspaceProvisioning_Z_BootstrapAndCLIErrorBranches(t *testing.T) {
 	require.True(t, addWorkspaceCodingHost(map[string]sandbox.SandboxFile{"/tmp/probe": {Content: compressed.String()}}))
 }
 
+// Since de86a86992 (#3565) every creation door reserves its canonical branch
+// machine in one PostgreSQL transaction behind the activation providers, and
+// TestBranchMachineUnavailableProviders covers the refusal without them. These
+// branches therefore compose that real transaction; the mock sandbox client
+// injects VM failures and a querier override injects the fork quota count.
 func TestWorkspaceProvisioning_Z_CreateAsyncForkAndSnapshotBranches(t *testing.T) {
 	ctx := context.Background()
-	workspace := sampleDBWorkspace("ws-z")
-	workspace.UserID = 1
-	workspace.RepositoryID = 101
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	machines := func(store WorkspaceQuerier, opts ...WorkspaceServiceOption) *WorkspaceService {
+		return newWorkspaceServiceForTests(store, append([]WorkspaceServiceOption{
+			WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()),
+		}, opts...)...)
+	}
+	source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: user, Name: "source", TargetBookmark: "source", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: user, WorkspaceID: source.ID, Name: "snap", SnapshotID: "fs-snap"})
+	require.NoError(t, err)
+	restore := func(branch string) CreateWorkspaceInput {
+		return CreateWorkspaceInput{RepositoryID: repo, UserID: user, SnapshotID: snapshot.ID, SourceBookmark: branch}
+	}
+	branchRows := func(branch string) int {
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE repository_id=$1 AND target_bookmark=$2 AND deleted_at IS NULL`, repo, branch).Scan(&count))
+		return count
+	}
 
-	quotaQ := &mockWorkspaceQuerier{countActiveWorkspacesByUserFn: func(context.Context, int64) (int64, error) {
-		return MaxActiveWorkspacesPerUser, nil
-	}}
-	_, err := newWorkspaceServiceForTests(quotaQ, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
-	assert.Equal(t, http.StatusTooManyRequests, apiStatus(t, err))
+	// A snapshot the repository does not hold is a 404, by UUID or not.
+	for _, id := range []string{"11111111-1111-4111-8111-111111111111", "snap"} {
+		input := restore("restore-missing")
+		input.SnapshotID = id
+		_, err = machines(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).CreateWorkspaceAsync(ctx, input)
+		assert.Equal(t, http.StatusNotFound, apiStatus(t, err), id)
+	}
+	assert.Zero(t, branchRows("restore-missing"))
 
-	q := workspaceZRunningQuery(workspace)
-	q.createWorkspaceFn = func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return workspace, nil }
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	// A restore whose VM cannot be created is a 500.
+	_, err = machines(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-snap-error"}, stderrors.New("create failed")
 		},
-	})).CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
+	})).CreateWorkspace(ctx, restore("restore-vm-fails"))
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
-	q = &mockWorkspaceQuerier{countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
-		return 0, stderrors.New("count failed")
-	}}
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1})
+	// A restore whose machine row cannot be inserted is a 500 and keeps no row.
+	_, err = pool.Exec(ctx, `CREATE FUNCTION z_refuse_workspace_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.target_bookmark = 'restore-insert-fails' THEN RAISE EXCEPTION 'insert failed'; END IF; RETURN NEW; END $$;
+CREATE TRIGGER z_refuse_workspace_insert BEFORE INSERT ON workspaces FOR EACH ROW EXECUTE FUNCTION z_refuse_workspace_insert()`)
+	require.NoError(t, err)
+	_, err = machines(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).CreateWorkspaceAsync(ctx, restore("restore-insert-fails"))
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	assert.Zero(t, branchRows("restore-insert-fails"))
 
-	_, err = newWorkspaceServiceForTests(quotaQ, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
-	assert.Equal(t, http.StatusTooManyRequests, apiStatus(t, err))
-
-	q = &mockWorkspaceQuerier{getWorkspaceSnapshotByRepoFn: func(context.Context, db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-		return db.WorkspaceSnapshot{}, pgx.ErrNoRows
-	}}
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
-	assert.Equal(t, http.StatusNotFound, apiStatus(t, err))
-
-	q = &mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(context.Context, db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			return sampleDBWorkspaceSnapshot("snap", workspace.ID, "snap", "fs-snap"), nil
-		},
-		createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
-			return db.Workspace{}, stderrors.New("insert failed")
-		},
-	}
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	done := make(chan struct{})
-	q = workspaceZRunningQuery(workspace)
-	q.createWorkspaceFn = func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return workspace, nil }
-	q.updateWorkspaceExecutionInfoFn = func(context.Context, db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-		defer close(done)
-		running := workspace
-		running.Status = "running"
-		running.VmID = "vm-snap-async"
-		return running, nil
-	}
-	resp, err := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	// An accepted restore returns at once and provisions its VM in the background.
+	resp, err := machines(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-snap-async"}, nil
 		},
-	})).CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap"})
+	})).CreateWorkspaceAsync(ctx, restore("restore-async"))
 	require.NoError(t, err)
-	assert.Equal(t, workspace.ID, resp.ID)
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for async snapshot provisioning")
+	require.Eventually(t, func() bool {
+		row, err := q.GetWorkspace(ctx, resp.ID)
+		return err == nil && row.VmID == "vm-snap-async"
+	}, 5*time.Second, 20*time.Millisecond, "async snapshot provisioning must bind its VM")
+	created, err := q.GetWorkspace(ctx, resp.ID)
+	require.NoError(t, err)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, owner, created.UserID, "the machine service owns the branch machine")
+	assert.Equal(t, "restore-async", created.TargetBookmark)
+
+	// Fork checks the source machine and the owner's quota before the
+	// revision writer, and refuses without that writer.
+	_, err = machines(nil).ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: user, WorkspaceID: source.ID})
+	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	fork := machines(q)
+	_, err = fork.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: user, WorkspaceID: source.ID})
+	assert.Equal(t, http.StatusServiceUnavailable, apiStatus(t, err))
+	forked := false
+	fork.revisionFork = func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error) {
+		forked = true
+		return WorkspaceResponse{}, nil
 	}
-
-	_, err = NewWorkspaceService(nil).ForkWorkspace(ctx, ForkWorkspaceInput{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).ForkWorkspace(ctx, ForkWorkspaceInput{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-	_, err = newWorkspaceServiceForTests(quotaQ, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: workspace.ID})
-	assert.Equal(t, http.StatusTooManyRequests, apiStatus(t, err))
-
-	q = &mockWorkspaceQuerier{getWorkspaceByRepoFn: func(context.Context, db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-		return db.Workspace{}, pgx.ErrNoRows
-	}}
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: "missing"})
+	_, err = fork.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: user, WorkspaceID: "11111111-1111-4111-8111-111111111111"})
 	assert.Equal(t, http.StatusNotFound, apiStatus(t, err))
+	full := machines(workspaceZQuotaQuerier{Queries: q})
+	full.revisionFork = fork.revisionFork
+	_, err = full.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: user, WorkspaceID: source.ID})
+	assert.Equal(t, http.StatusTooManyRequests, apiStatus(t, err))
+	assert.False(t, forked, "a refused fork never reaches the revision writer")
+	_, err = fork.ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: repo, UserID: user, WorkspaceID: source.ID})
+	require.NoError(t, err)
+	assert.True(t, forked)
+}
 
-	_, err = newWorkspaceServiceForTests(workspaceZRunningQuery(workspace), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
-			return sandbox.Sandbox{}, stderrors.New("get failed")
-		},
-	})).ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: workspace.ID})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+// workspaceZQuotaQuerier reports its owner at the active workspace cap.
+type workspaceZQuotaQuerier struct{ *db.Queries }
 
-	q = workspaceZRunningQuery(workspace)
-	q.createWorkspaceFn = func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
-		return db.Workspace{}, stderrors.New("insert failed")
-	}
-	_, err = newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).
-		ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: workspace.ID})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	// A failed fork must NOT fail the request. Forking is an optimization, not
-	// the session's whole job (see workspaceForkTimeout): forkWorkspaceVM reaps
-	// the partial child and binds a freshly provisioned sandbox to the fork
-	// workspace instead. This assertion previously demanded a 500 and had gone
-	// stale against that deliberate fallback, reddening the package.
-	q = workspaceZRunningQuery(workspace)
-	q.createWorkspaceFn = func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
-		return sampleDBWorkspace("ws-fork-created"), nil
-	}
-	deletedForkVMs := make(chan string, 1)
-	forked, err := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		forkVMFn: func(context.Context, string, sandbox.ForkRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{ID: "vm-fork-fail"}, stderrors.New("fork failed")
-		},
-		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{ID: "vm-fork-fallback"}, nil
-		},
-		deleteVMFn: func(_ context.Context, vmID string) error {
-			select {
-			case deletedForkVMs <- vmID:
-			default:
-			}
-			return nil
-		},
-	})).ForkWorkspace(ctx, ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: workspace.ID})
-	require.NoError(t, err, "a failed fork must fall back to a fresh sandbox, not fail the session")
-	assert.Equal(t, "vm-fork-fallback", forked.VMID, "the fork workspace must be bound to the fallback VM")
-	select {
-	case orphan := <-deletedForkVMs:
-		assert.Equal(t, "vm-fork-fail", orphan, "the ambiguous partial fork child must be reaped")
-	default:
-		t.Fatal("the partial fork child was never reaped")
-	}
+func (workspaceZQuotaQuerier) CountActiveWorkspacesByUser(context.Context, int64) (int64, error) {
+	return MaxActiveWorkspacesPerUser, nil
 }
 
 func TestWorkspaceProvisioning_Z_SnapshotAndDeleteBranches(t *testing.T) {
@@ -420,141 +383,44 @@ func TestWorkspaceProvisioning_Z_SnapshotAndDeleteBranches(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
 
+// de86a86992 (#3565) reduced the find-or-create helpers to one branch
+// machine reservation: the per-requester stale-row replacement, identity
+// reuse, list/count lookups and the quota pre-check they covered are gone.
+// Without the activation providers each helper refuses before any store read.
 func TestWorkspaceProvisioning_Z_FindCreateAndRegistrationBranches(t *testing.T) {
 	ctx := context.Background()
 
-	q := &mockWorkspaceQuerier{countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
-		return 0, stderrors.New("count failed")
-	}}
-	_, err := newWorkspaceServiceForTests(q).findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "main", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	stale := sampleDBWorkspace("ws-stale-primary")
-	stale.Status = "starting"
-	stale.VmID = ""
-	stale.UpdatedAt = time.Now().Add(-workspaceStaleAfter - time.Second)
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 1, nil },
-		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return []db.Workspace{stale}, nil
+	untouched := &mockWorkspaceQuerier{
+		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
+			t.Fatal("a refused creation must not count workspaces")
+			return 0, nil
 		},
-		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return stale, nil
+		countActiveWorkspacesByUserFn: func(context.Context, int64) (int64, error) {
+			t.Fatal("a refused creation must not read the quota")
+			return 0, nil
 		},
-		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			return db.Workspace{}, stderrors.New("fail stale")
+		createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) {
+			t.Fatal("a refused creation must write no row")
+			return db.Workspace{}, nil
 		},
 	}
-	_, err = newWorkspaceServiceForTests(q).findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "main", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	refused := newWorkspaceServiceForTests(untouched)
+	_, err := refused.findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "main", workspaceCreateMetadata{})
+	requireBranchMachineUnavailable(t, err)
+	_, err = refused.findOrCreateDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
+	requireBranchMachineUnavailable(t, err)
+	_, err = refused.createDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
+	requireBranchMachineUnavailable(t, err)
 
 	existing := sampleDBWorkspace("ws-existing")
 	existing.TargetBookmark = "main"
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return existing, nil
-		},
+	q := &mockWorkspaceQuerier{
 		updateWorkspaceTargetBookmarkFn: func(context.Context, db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
 			return db.Workspace{}, stderrors.New("target failed")
 		},
 	}
 	_, err = newWorkspaceServiceForTests(q).ensureWorkspaceTargetBookmark(ctx, existing, "feature")
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	stale.Name = "replacement"
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return stale, nil
-		},
-		updateWorkspaceStatusFn: func(_ context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			failed := stale
-			failed.Status = arg.Status
-			return failed, nil
-		},
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			created := sampleDBWorkspace("ws-replacement")
-			created.Name = arg.Name
-			created.TargetBookmark = arg.TargetBookmark
-			created.VmID = ""
-			created.Status = arg.Status
-			return created, nil
-		},
-	}
-	replaced, err := newWorkspaceServiceForTests(q).findOrCreatePrimaryWorkspace(ctx, 101, 1, "replacement", "main", workspaceCreateMetadata{})
-	require.NoError(t, err)
-	assert.Equal(t, "ws-replacement", replaced.ID)
-
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return stale, nil
-		},
-		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			return db.Workspace{}, stderrors.New("fail active stale")
-		},
-	}
-	_, err = newWorkspaceServiceForTests(q).findOrCreatePrimaryWorkspace(ctx, 101, 1, "replacement", "main", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
-		return 0, stderrors.New("count failed")
-	}}).findOrCreateDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return nil, stderrors.New("list failed")
-		},
-	}).findOrCreateDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	staleFork := stale
-	staleFork.ID = "ws-stale-fork"
-	staleFork.IsFork = true
-	staleFork.TargetBookmark = "feature"
-	staleFork.Name = "branch"
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 1, nil },
-		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return []db.Workspace{staleFork}, nil
-		},
-		updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			return db.Workspace{}, stderrors.New("fail stale fork")
-		},
-	}
-	_, err = newWorkspaceServiceForTests(q).findOrCreateDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
-
-	q = &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) { return 0, nil },
-		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return []db.Workspace{staleFork}, nil
-		},
-		updateWorkspaceStatusFn: func(_ context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			failed := staleFork
-			failed.Status = arg.Status
-			return failed, nil
-		},
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			created := sampleDBWorkspace("ws-derived-replacement")
-			created.IsFork = arg.IsFork
-			created.TargetBookmark = arg.TargetBookmark
-			created.VmID = ""
-			created.Status = arg.Status
-			return created, nil
-		},
-	}
-	derived, err := newWorkspaceServiceForTests(q).findOrCreateDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	require.NoError(t, err)
-	assert.Equal(t, "ws-derived-replacement", derived.ID)
-
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{countActiveWorkspacesByUserFn: func(context.Context, int64) (int64, error) {
-		return MaxActiveWorkspacesPerUser, nil
-	}}).createDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	assert.Equal(t, http.StatusTooManyRequests, apiStatus(t, err))
 
 	err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
 		return 0, stderrors.New("count failed")
