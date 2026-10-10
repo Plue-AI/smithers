@@ -211,7 +211,9 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 	if head != a.Head {
 		return "", reviewRefusal("review_head_mismatch")
 	}
-	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$4 WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID, current.ID); err != nil {
+	// The Flow host start seeds the machine's branch head from source_commit
+	// (machineBranchHead): the restored PR head, retained on the host.
+	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$4,source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID, current.ID, a.Head); err != nil {
 		return "", err
 	}
 	host, err := m.resolver.ResolveFlowRuntime(ctx, target)

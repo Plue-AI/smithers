@@ -165,7 +165,9 @@ func (m *learningMachine) EnsureLearningMachine(ctx context.Context, repository,
 		return flowruntime.Target{}, learningRefusal("learning_source_mismatch")
 	}
 	// The learning target resolver requires a running row bound to its VM.
-	if _, err := m.pool.Exec(ctx, `UPDATE workspaces SET status='running', vm_id=$4 WHERE id=$1 AND repository_id=$2 AND user_id=$3 AND deleted_at IS NULL`, target.WorkspaceID, repository, actor, current.ID); err != nil {
+	// The Flow host start seeds the machine's branch head from source_commit
+	// (machineBranchHead); without it EnsureMachined refuses step "head".
+	if _, err := m.pool.Exec(ctx, `UPDATE workspaces SET status='running', vm_id=$4, source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3 AND deleted_at IS NULL`, target.WorkspaceID, repository, actor, current.ID, pin.SourceCommit); err != nil {
 		return flowruntime.Target{}, err
 	}
 	return target, nil

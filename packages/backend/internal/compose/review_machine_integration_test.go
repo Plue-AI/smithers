@@ -112,7 +112,7 @@ esac
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)
-	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}}
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool}
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
@@ -425,6 +425,9 @@ esac
 	require.Equal(t, reviewWorkspaceID(admission.OperationID), runtime.id)
 	runtime.mu.Unlock()
 	require.EqualValues(t, 1, transport.starts.Load(), "lost guest acknowledgments reuse the authenticated host binding")
+	// A row without the restored head refuses EnsureMachined step "head"
+	// not_ready until the start exhausts (real install run 13, Stop 1).
+	require.Equal(t, []string{admission.Head}, transport.seeds, "the review machine's branch head seed is the restored PR head")
 	require.GreaterOrEqual(t, source.restores, 2)
 	require.Equal(t, admission.Head, source.selected.Head)
 	var count int
@@ -470,7 +473,27 @@ func (s *reviewSourceContract) Retire(context.Context, string, services.ReviewAd
 
 // Only the guest's HTTP transport is controlled. The production resolver owns
 // host binding, credentials, catalog selection and authenticated bridge calls.
-type reviewHostTransport struct{ *todoControlHostTransport }
+type reviewHostTransport struct {
+	*todoControlHostTransport
+	pool  *pgxpool.Pool
+	seeds []string
+}
+
+// StartFlowHost records the branch head seed the production machine broker
+// reads at this boundary (EnsureMachined step "head", machineBranchHead).
+func (h *reviewHostTransport) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	if h.pool == nil {
+		return h.todoControlHostTransport.StartFlowHost(ctx, launch)
+	}
+	var seed string
+	if err := h.pool.QueryRow(ctx, `SELECT COALESCE(NULLIF(head_commit_id,''),source_commit) FROM workspaces WHERE id=$1`, launch.Binding.WorkspaceID).Scan(&seed); err != nil {
+		return flowhost.Connection{}, err
+	}
+	h.mu.Lock()
+	h.seeds = append(h.seeds, seed)
+	h.mu.Unlock()
+	return h.todoControlHostTransport.StartFlowHost(ctx, launch)
+}
 
 func (h *reviewHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/runtime/v1/command" {

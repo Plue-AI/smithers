@@ -193,7 +193,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)
-	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}}
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool}
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
@@ -331,6 +331,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.Equal(t, float64(2), card["lessons"])
 	require.EqualValues(t, 1, runtime.starts.Load())
 	require.EqualValues(t, 1, transport.starts.Load())
+	require.Equal(t, []string{item.PRMergeCommit}, transport.seeds, "the learning machine's branch head seed is the pinned merge")
 	require.Equal(t, learningCounts{creates: 1, restores: 1, deletes: 2}, guest.counts())
 	require.Zero(t, queue.InUse())
 	require.Equal(t, item.PRMergeCommit, source.restored.SourceCommit)

@@ -184,6 +184,12 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 	var status, vm string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status, vm_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND user_id=$3`, workspaceID, repository, owner.ID).Scan(&status, &vm))
 	require.Equal(t, []string{"running", workspaceID}, []string{status, vm})
+	// The Flow host start seeds the machine's branch head from the row
+	// (machineBranchHead); a row without the pinned merge refuses not_ready
+	// three times and exhausts the start (real install run 13, Stop 1).
+	var seed string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COALESCE(NULLIF(head_commit_id,''),source_commit) FROM workspaces WHERE id=$1`, workspaceID).Scan(&seed))
+	require.Equal(t, merge, seed, "the learning machine's branch head seed is the pinned merge")
 	var launch []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch' AND request_id=$1`, "learning-run:"+item).Scan(&launch))
 	var saved struct {
