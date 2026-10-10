@@ -50,6 +50,7 @@ const engineeringScriptRegressions = Smithers.NodeTest({
     Smithers.file("//scripts/backend-compose-tests.test.mjs"),
     Smithers.file("//scripts/check-bindings.test.mjs"),
     Smithers.file("//scripts/lane-gates.test.mjs"),
+    Smithers.file("//scripts/lane-checks.test.mjs"),
     Smithers.file("//scripts/lane-prerequisites.test.mjs"),
     Smithers.file("//scripts/homebrew-publish.test.mjs"),
     Smithers.file("//scripts/homebrew-release.test.mjs"),

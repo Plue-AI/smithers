@@ -65080,6 +65080,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/lane-checks.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/lane-prerequisites.test.mjs"
       },
       {

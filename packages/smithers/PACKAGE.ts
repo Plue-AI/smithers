@@ -51,17 +51,12 @@ const lane = `${vitest} --reporter=blob --coverage.reporter=json` +
   " --coverage.thresholds.lines=0 --coverage.thresholds.functions=0" +
   " --coverage.thresholds.branches=0 --coverage.thresholds.statements=0"
 
-/** The two longest files: 964 s and 402 s (real lease expiries). */
-const laneOne = ["test/Bin.test.ts", "test/NativeControlExternalPeerRecovery.test.ts"]
+/** The longest file: 964 s (real lease expiries). */
+const laneOne = ["test/Bin.test.ts"]
 
-/** The next longest files, 46 s to 265 s each. */
+/** The 402 s recovery file plus the shorter end of the measured 46–265 s group. */
 const laneTwo = [
-  "test/ModuleSourceSnapshotCli.test.ts",
-  "test/EndToEnd.test.ts",
-  "test/NativeCancellationCli.test.ts",
-  "test/FileFlowInputCli.test.ts",
-  "test/CloudSandbox.test.ts",
-  "test/DetachedHostResume.test.ts",
+  "test/NativeControlExternalPeerRecovery.test.ts",
   "test/NativeControlPortable.test.ts",
   "test/UnifiedCli.test.ts",
   "test/HistoryVerify.test.ts",
@@ -71,21 +66,33 @@ const laneTwo = [
   "test/ModuleHumanWaitBudget.test.ts"
 ]
 
+const laneThree = [
+  "test/ModuleSourceSnapshotCli.test.ts",
+  "test/EndToEnd.test.ts",
+  "test/NativeCancellationCli.test.ts",
+  "test/FileFlowInputCli.test.ts",
+  "test/CloudSandbox.test.ts",
+  "test/DetachedHostResume.test.ts"
+]
+
 /**
  * C-J6-02's composed-install file. Its Go cases need a backend database and
  * the Go modules, which `delegatedLogin` below declares; this suite has neither.
  */
 const delegatedLoginTest = "test/DelegatedLogin.integration.test.ts"
 
-/** Every other file, so a new file joins the third lane without an edit here. */
-const laneThree = [...laneOne, ...laneTwo, delegatedLoginTest].map((file) => `--exclude ${file}`).join(" ")
+/** Every other file, so a new file joins the fourth lane without an edit here. */
+const laneFour = [...laneOne, ...laneTwo, ...laneThree, delegatedLoginTest].map((file) => `--exclude ${file}`).join(" ")
 
 const test = Smithers.Shell.Test({
   // The files run one after another (`fileParallelism: false`): 3906 s of
   // them, measured 2026-10-10 on four pinned cores, against the 40-minute cap.
   // As two halves the second half alone took 3305 s there and timed out on
   // the Release gates lane (job 114021383970). Three lanes of about 1300 s
-  // each finished in 1574 s, and merging their blobs checks the thresholds
+  // each finished in 1574 s locally but 2114 s hosted. Four lanes isolate
+  // the measured 964 s Bin file and move the 402 s peer-recovery file into
+  // seven shorter files; the six longest remaining files run separately.
+  // Merging their blobs checks the thresholds
   // over the whole suite as before. The runner shows a target's first 200
   // live lines: `github-actions` prints one line per failed case first, so a
   // red names every failing file before `dot` prints details that may pass
@@ -94,8 +101,9 @@ const test = Smithers.Shell.Test({
     "cd packages/smithers && blobs=$(mktemp -d) && {",
     `${lane} --outputFile=$blobs/one.json ${laneOne.join(" ")} & one=$!;`,
     `${lane} --outputFile=$blobs/two.json ${laneTwo.join(" ")} & two=$!;`,
-    `${lane} --outputFile=$blobs/three.json ${laneThree}; wait $one $two;`,
-    "if test -f $blobs/one.json && test -f $blobs/two.json && test -f $blobs/three.json;",
+    `${lane} --outputFile=$blobs/three.json ${laneThree.join(" ")} & three=$!;`,
+    `${lane} --outputFile=$blobs/four.json ${laneFour}; wait $one $two $three;`,
+    "if test -f $blobs/one.json && test -f $blobs/two.json && test -f $blobs/three.json && test -f $blobs/four.json;",
     `then ${vitest} --merge-reports=$blobs --reporter=github-actions --reporter=dot;`,
     "else echo \"a lane of the suite ended without its report\" >&2; false; fi; };",
     "status=$?; rm -rf \"$blobs\"; exit $status"

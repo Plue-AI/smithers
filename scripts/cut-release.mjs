@@ -180,7 +180,9 @@ export const steps = (
     }]
     : []),
   ...(options.factoryProjection ? [smthrs("verify the factory projection", ["lint", "//:factoryProjection"])] : []),
-  ...(options.targetIndex ? [smthrs("verify the target index", ["lint", "//:targetIndex"])] : [])
+  ...(options.targetIndex ? [smthrs("verify the target index", ["lint", "//:targetIndex"])] : []),
+  { name: "verify every documentation stamp", command: process.execPath, args: ["scripts/lane-checks.mjs", "docs-all"] },
+  smthrs("verify workspace formatting", ["lint", "//...:fmt"])
 ]
 
 const run = (root, command, args) => execFileSync(command, args, { cwd: root, stdio: ["ignore", "inherit", "inherit"] })

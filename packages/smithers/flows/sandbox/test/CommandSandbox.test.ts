@@ -91,7 +91,10 @@ describe("CommandSandbox", () => {
     Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner
       const provider = CommandSandbox.make({ spawner, prefix: [], workdir: join(root, "conformance") })
-      const violations = yield* SandboxConformance.check(provider, { provides: { kill: true, ping: true } })
+      const violations = yield* SandboxConformance.check(provider, {
+        session: `${root}-conformance`,
+        provides: { kill: true, ping: true }
+      })
       expect(violations).toEqual([])
     }).pipe(Effect.provide(platform)), 120_000)
 
@@ -106,7 +109,10 @@ describe("CommandSandbox", () => {
           joinsArguments: true,
           workdir: join(root, "joined")
         })
-        const violations = yield* SandboxConformance.check(provider, { provides: { kill: true, ping: true } })
+        const violations = yield* SandboxConformance.check(provider, {
+          session: `${root}-joined`,
+          provides: { kill: true, ping: true }
+        })
         expect(violations).toEqual([])
       }).pipe(Effect.provide(platform)),
     120_000

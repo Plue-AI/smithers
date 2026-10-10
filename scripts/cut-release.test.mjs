@@ -24,6 +24,7 @@ const scriptsDirectory = resolve(import.meta.dirname)
 /** The scripts a cut spawns, plus the membership reader they share. */
 const copiedScripts = [
   "cut-release.mjs",
+  "lane-checks.mjs",
   "generate-changelog.mjs",
   "set-release-version.mjs",
   "workspace-packages.mjs"
@@ -92,6 +93,8 @@ const seed = () => {
   for (const dependency of ["tinyglobby", "yaml"]) {
     symlinkSync(realpathSync(join(scriptsDirectory, "../node_modules", dependency)), join(root, "node_modules", dependency), "junction")
   }
+  write(root, "node_modules/.bin/smthrs", `#!${process.execPath}\nprocess.exit(0)\n`)
+  chmodSync(join(root, "node_modules/.bin/smthrs"), 0o755)
   write(root, ".gitignore", "node_modules/\n")
   write(root, "pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\nlinkWorkspacePackages: true\n")
   write(
@@ -177,7 +180,7 @@ test("parseArguments takes one version and refuses a tag", () => {
 /** Every optional step on, as a tree that tracks all of their inputs and outputs gets. */
 const everyStep = { bunLock: true, siteCliData: true, siteLlms: true, factoryProjection: true, targetIndex: true }
 
-test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, the llms bundle, the factory projection and the target index, and then verifies all six", () => {
+test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, the llms bundle, the factory projection and the target index, and then verifies generated data, docs stamps and formatting", () => {
   assert.deepEqual(steps("1.0.0", everyStep).map((step) => [step.command, ...step.args]), [
     [process.execPath, "scripts/set-release-version.mjs", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--version", "1.0.0"],
@@ -192,7 +195,9 @@ test("a cut writes both halves, refreshes both tracked lockfiles, regenerates th
     [process.execPath, "apps/site/scripts/gen-cli-data.mjs", "--check"],
     [process.execPath, "apps/site/scripts/generate-llms.mjs", "--check"],
     ["pnpm", "exec", "smthrs", "lint", "//:factoryProjection"],
-    ["pnpm", "exec", "smthrs", "lint", "//:targetIndex"]
+    ["pnpm", "exec", "smthrs", "lint", "//:targetIndex"],
+    [process.execPath, "scripts/lane-checks.mjs", "docs-all"],
+    ["pnpm", "exec", "smthrs", "lint", "//...:fmt"]
   ])
   assert.equal(steps("1.0.0", { ...everyStep, bunLock: false }).some((step) => step.command === "bun"), false)
   assert.equal(
@@ -212,7 +217,7 @@ test("a cut writes both halves, refreshes both tracked lockfiles, regenerates th
 
 test("the cut verifies the factory projection and the target index with the exact commands the release's drift gates run", () => {
   const release = readFileSync(join(scriptsDirectory, "../.github/workflows/release.yml"), "utf8")
-  const lints = steps("1.0.0", everyStep).filter((step) => step.args.slice(0, 3).join(" ") === "exec smthrs lint")
+  const lints = steps("1.0.0", everyStep).filter((step) => step.args[3] !== "//...:fmt" && step.args.slice(0, 3).join(" ") === "exec smthrs lint")
   assert.deepEqual(lints.map((step) => step.args[3]), ["//:factoryProjection", "//:targetIndex"])
   for (const step of lints) {
     assert.ok(
@@ -350,6 +355,7 @@ const smthrsStandIn = (writable) => `#!${process.execPath}
 const { mkdirSync, readdirSync, readFileSync, writeFileSync } = require("node:fs")
 const [verb, label, flag] = process.argv.slice(2)
 const outputs = { "//:factoryProjection": [".smithers/factory.json", "flows"], "//:targetIndex": [".smithers/target-index.json", "src"] }
+if (label === "//...:fmt") process.exit(0)
 const [path, walked] = outputs[label]
 const text = JSON.stringify(readdirSync(walked).sort(), null, 2) + "\\n"
 if (verb === "target" && flag === "--write") {
@@ -493,3 +499,26 @@ test("--commit checks the generated block on the exact release commit before tag
     assert.equal(git(root, ["tag", "--list", "v0.2.0"]), "", "a stale exact-commit block is never tagged")
   })
 })
+
+for (const gate of ["docs", "fmt"]) {
+  test(`a red ${gate} gate refuses the cut before committing or tagging`, () => {
+    withFixture((root) => {
+      write(root, "node_modules/.bin/smthrs", `#!${process.execPath}
+const args = process.argv.slice(2)
+if (args[0] === ${JSON.stringify(gate === "docs" ? "docs" : "lint")}) { console.error("stale ${gate}"); process.exit(1) }
+`)
+      chmodSync(join(root, "node_modules/.bin/smthrs"), 0o755)
+      if (gate === "docs") write(root, ".smithers/target-index.json", json([{ rule: "Docs.Check", label: "//packages/backend:docs", inputs: [] }]))
+      git(root, ["add", "-A"])
+      git(root, ["commit", "--allow-empty", "-q", "-m", "seed red gate"])
+      const head = git(root, ["rev-parse", "HEAD"])
+      assert.throws(() => cut(root, ["0.2.0", "--commit"]), error => {
+        assert.match(String(error.stderr), /stale/)
+        if (gate === "docs") assert.match(String(error.stderr), /pnpm exec smthrs docs '\/\/packages\/backend:docs' --write/)
+        return true
+      })
+      assert.equal(git(root, ["rev-parse", "HEAD"]), head)
+      assert.equal(git(root, ["tag", "--list", "v0.2.0"]), "")
+    })
+  })
+}
