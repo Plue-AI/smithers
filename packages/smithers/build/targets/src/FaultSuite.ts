@@ -65,6 +65,15 @@ export interface Options {
    * boot microVMs, so a suite with services declares `"none"`.
    */
   readonly sandbox?: Attr.Sandbox | undefined
+  /**
+   * How long the whole run may take before the runner is killed. A suite
+   * whose cases hold real outages or drive installs for minutes each sets the
+   * budget it measured; a run that passes it reports as failed rather than
+   * being cut off by the job around it.
+   *
+   * @default the Vitest default, 1_200_000
+   */
+  readonly timeoutMs?: number | undefined
 }
 
 /**
@@ -122,5 +131,6 @@ export const FaultSuite = (options: Options): ReturnType<typeof Vitest> =>
     cwd: options.cwd,
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.services === undefined ? {} : { services: options.services }),
-    ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox })
+    ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs })
   })

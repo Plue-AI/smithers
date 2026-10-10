@@ -126,6 +126,17 @@ describe("FaultSuite", () => {
     expect(plannedCalls(target)[0]!.payload["env"]).toEqual({})
   })
 
+  // A tier whose cases each hold minutes of real outage overran the Vitest
+  // default and was killed with every case unreported (#3459).
+  it("passes a declared run budget and keeps the Vitest default otherwise", () => {
+    const long = FaultSuite({ cwd: "packages/smithers", timeoutMs: 20_400_000, packageManager })
+    expect(attrsOf(long).timeoutMs).toBe(20_400_000)
+    expect(plannedCalls(long)[0]!.payload["timeoutMs"]).toBe(20_400_000)
+    const ordinary = FaultSuite({ cwd: "packages/smithers", packageManager })
+    expect(attrsOf(ordinary).timeoutMs).toBe(1_200_000)
+    expect(plannedCalls(ordinary)[0]!.payload["timeoutMs"]).toBe(1_200_000)
+  })
+
   it("keys on the harness and the fixtures, not only on the cases", () => {
     // A case is one file over a harness that spawns children and reads
     // budgets. Keying on the cases alone would serve a cached pass over an

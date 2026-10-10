@@ -277,7 +277,7 @@ Extracts and validates fenced source blocks from one Markdown file. `file` is th
 
 ### Remaining exports
 
-`Smithers.Vitest` and `Smithers.FaultSuite` accept `env`, `services` and `sandbox` as `Shell.Test` does. The runner sees only the host bootstrap environment, so a case reads a service's URL from the declared `env`, never from the caller's shell, and a service requires an explicit `sandbox`.
+`Smithers.Vitest` and `Smithers.FaultSuite` accept `env`, `services` and `sandbox` as `Shell.Test` does. The runner sees only the host bootstrap environment, so a case reads a service's URL from the declared `env`, never from the caller's shell, and a service requires an explicit `sandbox`. `Smithers.FaultSuite` also accepts `timeoutMs`, the run's budget; it defaults to the Vitest 20 minutes, and a tier whose cases take longer declares the budget it measured.
 
 `Smithers.testSuite(paths, { isolate: true })` enables Bun `--isolate` for suites whose files mutate process globals. It costs about 3× wall time; the default and Node runner are unchanged. This is temporary: after [#3696](https://github.com/smithersai/smithers/issues/3696) lands, apps/app drops isolation and the option is deleted if no callers remain.
 
