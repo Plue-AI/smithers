@@ -4,7 +4,13 @@ import { mock } from "bun:test"
 GlobalRegistrator.register()
 const calls: string[] = []
 const initialUrl = window.location.href
-const fakeStore = { savedStoreUnavailable: true, dispose: async () => { calls.push("store.dispose") } }
+// The live channel follows the identity session on every host (ControllerBootMemo.ts followSignIn).
+// Recovery reads no identity, so the session never answers and the channel stays closed.
+const fakeStore = {
+  savedStoreUnavailable: true,
+  dispose: async () => { calls.push("store.dispose") },
+  collections: { identitySessions: { get: () => undefined, subscribeChanges: () => ({ unsubscribe: () => {} }) } }
+}
 const fakeController = {
   dispose: async () => { calls.push("controller.dispose") },
   adoptSession: async () => { calls.push("identity.adopt") },
