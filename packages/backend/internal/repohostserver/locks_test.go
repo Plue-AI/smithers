@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,7 +128,19 @@ func TestRepoLockerWaitFollowsContext(t *testing.T) {
 	locker := newRepoLocker()
 	unlock := lockT(t, locker.Lock, "repo")
 	const waiters = 50
-	before := runtime.NumGoroutine()
+	// Count the goroutines inside the lock call itself. A process-wide
+	// goroutine count also moves with other tests' goroutines as they exit.
+	waiting := func() int {
+		stacks := make([]byte, 1<<20)
+		for {
+			n := runtime.Stack(stacks, true)
+			if n < len(stacks) {
+				return strings.Count(string(stacks[:n]), "(*repoLocker).LockAll(")
+			}
+			stacks = make([]byte, 2*len(stacks))
+		}
+	}
+	require.Zero(t, waiting())
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
 	for range waiters {
@@ -141,7 +154,7 @@ func TestRepoLockerWaitFollowsContext(t *testing.T) {
 		defer locker.mu.Unlock()
 		return locker.locks["repo"].refs == waiters+1
 	}, time.Second, time.Millisecond)
-	require.GreaterOrEqual(t, runtime.NumGoroutine(), before+waiters)
+	require.Equal(t, waiters, waiting())
 	cancel()
 	for range waiters {
 		select {
@@ -154,7 +167,7 @@ func TestRepoLockerWaitFollowsContext(t *testing.T) {
 	locker.mu.Lock()
 	require.Equal(t, 1, locker.locks["repo"].refs)
 	locker.mu.Unlock()
-	require.Eventually(t, func() bool { return runtime.NumGoroutine() < before+waiters/2 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return waiting() == 0 }, time.Second, 10*time.Millisecond)
 	unlock()
 	require.Empty(t, locker.locks)
 }
