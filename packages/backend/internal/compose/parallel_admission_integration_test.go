@@ -271,6 +271,7 @@ func testParallelAdmissionInstallBoundary(t *testing.T, beforeCapacityRecovery, 
 	require.NoError(t, os.WriteFile(msb, []byte(fmt.Sprintf(`#!/bin/sh
 case "$1" in
  create|run|start)
+  printf '%%s\n' "$*" >> %q
   while [ ! -f %q ]; do
    if [ -f %q ]; then case "$*" in *"$(cat %q)"*) exit 0 ;; esac; fi
    sleep 0.05
@@ -289,7 +290,7 @@ case "$1" in
   fi ;;
  *) printf '[]\n' ;;
 esac
-`, release, firstBoot, firstBoot, stopAcknowledged, stopPending, stopPending, firstBoot+".retained", firstBoot+".retained", inventoryJSON)), 0o700))
+`, filepath.Join(scratch, "boots"), release, firstBoot, firstBoot, stopAcknowledged, stopPending, stopPending, firstBoot+".retained", firstBoot+".retained", inventoryJSON)), 0o700))
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
 	machineRuntime, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
 		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 8})
@@ -1840,7 +1841,28 @@ func exerciseMixedClassAdmission(t *testing.T, pool *pgxpool.Pool, stack *servic
 		return runtime.AdmissionHeld("workspace:"+benBranch.ID) && !runtime.AdmissionHeld("workspace:"+aliceBranch.ID)
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, 1, runtime.InUse())
+	// Ben's granted SSH wakes his retained machine. A boot outlives the session
+	// that asked for it and keeps its grant until it settles, so close the
+	// session while the boot is in flight, then settle the boot: the release
+	// always takes the confirmed stop. Closing first only sometimes won the race,
+	// and otherwise T5 waited for a boot that only the test's cleanup ended.
+	benSum := sha256.Sum256([]byte(benBranch.ID))
+	benMachine := "smthrs-ws-01234567-" + hex.EncodeToString(benSum[:])[:20]
+	require.Eventually(t, func() bool {
+		boots, _ := os.ReadFile(filepath.Join(filepath.Dir(firstBoot), "boots"))
+		return strings.Contains(string(boots), benMachine)
+	}, 10*time.Second, 20*time.Millisecond, "Ben's granted SSH boots his machine")
 	closeSSH()
+	require.Eventually(t, func() bool {
+		for _, row := range runtime.AdmissionSnapshot() {
+			if row.Holder == "workspace:"+benBranch.ID && (row.State == "waiting" || row.State == "granted") {
+				return false
+			}
+		}
+		return true
+	}, 5*time.Second, 10*time.Millisecond, "the closed session leaves the line")
+	require.True(t, runtime.AdmissionHeld("workspace:"+benBranch.ID), "a boot in flight keeps its grant after its session leaves")
+	require.NoError(t, os.WriteFile(firstBoot, []byte(benMachine), 0600))
 	require.Eventually(t, func() bool { return readTodo(5).State == "starting" }, 15*time.Second, 20*time.Millisecond)
 	require.Equal(t, "queued", readTodo(6).State)
 	require.Equal(t, learningCounts{}, guest.counts())
