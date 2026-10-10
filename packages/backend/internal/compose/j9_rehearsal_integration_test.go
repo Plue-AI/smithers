@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -344,7 +345,39 @@ func TestJ9Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.pending("3 The answer shows Make TODO and Save to wiki", "the answer's actions (AnswerActions.ts) and the Draft card in Ben's browser", "the buttons show on the answer; Make TODO and \"make that a TODO\" open a Draft prefilled with a title and the answer, held only in Ben's browser until Commit (§14.5.1); browser-rendered, not served", "T-APP-02", "browser")
+	r.step("3 The answer shows Make TODO and Save to wiki", "Chromium on the composed install as Ben and Alice", "answer actions; prefilled Draft private to Ben; no TODO before Commit", "T-APP-02", func() error {
+		before, err := r.todoList()
+		if err != nil {
+			return err
+		}
+		wire := func(jar http.CookieJar) string {
+			var cookies []map[string]string
+			for _, cookie := range jar.Cookies(mustRehearsalURL(r.origin)) {
+				cookies = append(cookies, map[string]string{"name": cookie.Name, "value": cookie.Value})
+			}
+			raw, _ := json.Marshal(cookies)
+			return string(raw)
+		}
+		cmd := exec.CommandContext(r.ctx, "bun", "e2e/real/ask-repository.browser.ts")
+		cmd.Dir = filepath.Join(r.root, "apps/app")
+		cmd.Env = append(os.Environ(), "SMITHERS_J9_BROWSER_ORIGIN="+r.origin, "SMITHERS_J9_BEN_COOKIES="+wire(ben), "SMITHERS_J9_ALICE_COOKIES="+wire(alice), "SMITHERS_J9_ANSWER="+answer, "SMITHERS_J9_BROWSER_EVIDENCE="+r.evidence)
+		output, err := cmd.CombinedOutput()
+		if writeErr := os.WriteFile(filepath.Join(r.evidence, "answer-browser.log"), output, 0600); writeErr != nil {
+			return writeErr
+		}
+		if err != nil {
+			return fmt.Errorf("answer browser: %w: %s", err, output)
+		}
+		after, err := r.todoList()
+		if err != nil {
+			return err
+		}
+		if len(after) != len(before) {
+			return fmt.Errorf("opening Draft filed a TODO")
+		}
+		r.actual = strings.TrimSpace(string(output))
+		return nil
+	})
 	var aliceLive *liveSocket
 	defer func() {
 		if aliceLive != nil {
@@ -478,8 +511,8 @@ func TestJ9Rehearsal(t *testing.T) {
 		var records string
 		if err := r.pool.QueryRow(r.ctx, `SELECT json_build_object(
 		  'mythical_items', (SELECT coalesce(json_agg(json_build_object('number',number,'state',state,'revisions',revisions) ORDER BY number),'[]') FROM mythical_items WHERE source='todo'),
-		  'wiki_pages', (SELECT coalesce(json_agg(json_build_object('id',p.id,'title',p.title,'author',u.username) ORDER BY p.id),'[]') FROM wiki_pages p JOIN users u ON u.id=p.author_id),
-		  'wiki_page_revisions', (SELECT coalesce(json_agg(json_build_object('page_id',page_id,'revision',revision) ORDER BY id),'[]') FROM wiki_page_revisions))::text`).Scan(&records); err != nil {
+		  'wiki_pages', (SELECT coalesce(json_agg(json_build_object('id',p.id,'title',p.title,'author',u.username) ORDER BY p.id),'[]') FROM wiki_pages p JOIN users u ON u.id=p.author_id WHERE p.title IN ('Webhooks','Webhook retries answer','Redeliver callers answer')),
+		  'wiki_page_revisions', (SELECT coalesce(json_agg(json_build_object('page_id',page_id,'revision',revision) ORDER BY id),'[]') FROM wiki_page_revisions WHERE page_id IN (SELECT id FROM wiki_pages WHERE title IN ('Webhooks','Webhook retries answer','Redeliver callers answer'))))::text`).Scan(&records); err != nil {
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(r.evidence, "records.json"), []byte(records), 0600); err != nil {

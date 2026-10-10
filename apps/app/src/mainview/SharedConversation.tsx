@@ -4,6 +4,9 @@ import { useSyncExternalStore } from "react"
 import { Markdown, MessageScrollerItem } from "@smthrs/ui"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { CopyMessageButton, TranscriptMessage } from "./TranscriptMessage"
+import { answerActions } from "./flows/AnswerActions"
+import { flowArgs } from "./flows/FlowArgs"
+import { DiffAction } from "./cards/views/DiffAction"
 import { cardActions } from "./flows/cardActions"
 import { contextActions } from "./flows/contextActions"
 import { contextOpenAction } from "./flows/contextOpenAction"
@@ -44,11 +47,12 @@ export function SharedConversation({ source, localCardIds }: { source: SharedCon
       const inspect = cardActions((tag, input) => controller.runCommand(tag, JSON.stringify(input)), turn.preflight ? [
         { tag: "run.inspect", label: "Inspect", command_input: { id: turn.runId } }
       ] : [])
+      const answers = turn.state === "completed" && text.trim() ? answerActions((name, input) => controller.commands.submit({ name, payload: (input ?? {}) as Record<string, unknown>, actor: "user", ...(name === "wiki.save" ? { display: flowArgs("wiki.save", input as { name?: string; text?: string }) } : {}) }), text) : undefined
       const answer = { kind: "agent" as const, id: turn.runId, agent: "smithers" as const, for_member: person, avatar_url: PlaceholderAvatarUrl, color_index: color }
       return <div key={turn.id} data-shared-turn={turn.id} data-state={turn.state}>
         {turn.subject ? null : <>
           <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:prompt`}><EntryRow kind="prompt" author={{ kind: "person", ...person, color_index: color }} title="" tone="quiet" card={<Markdown content={turn.prompt} />} onAction={() => {}} /></MessageScrollerItem>
-          <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" action={inspect.actions[0]} contextActions={turn.context ? contextActions(turn.context, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction) : undefined} context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} /><span className="message-actions"><CopyMessageButton text={text} onCopy={value => controller.runCommandForResult("chat.copy-message", value)} /></span>{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={inspect.onAction} /></MessageScrollerItem>
+          <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" action={inspect.actions[0]} contextActions={turn.context ? contextActions(turn.context, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction) : undefined} context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{answers ? <div className="message-answer-actions">{answers.actions.map(action => <DiffAction key={action.tag} action={action} onAction={answers.onAction} />)}</div> : null}<span className="message-actions"><CopyMessageButton text={text} onCopy={value => controller.runCommandForResult("chat.copy-message", value)} /></span>{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={inspect.onAction} /></MessageScrollerItem>
         </>}
         {frames.flatMap((frame) => {
           if (frame.type !== "card") return []

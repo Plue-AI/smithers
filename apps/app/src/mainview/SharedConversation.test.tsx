@@ -42,3 +42,24 @@ test("shared cards retain their first position, latest record, and one owner acr
     expect(local).toContain('data-testid="card-other"')
   } finally { await store.dispose?.() }
 })
+
+for (const cell of [
+  { state: "completed", text: "Retry policy in retry.ts", actions: true },
+  { state: "running", text: "Partial answer", actions: false },
+  { state: "failed", text: "Partial failure", actions: false },
+  { state: "completed", text: "   ", actions: false }
+]) test(`shared answer actions: ${cell.state} ${JSON.stringify(cell.text)}`, async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = { store, runCommand: () => {}, runCommandForResult: async () => undefined } as unknown as AppController
+  const conversation = SharedConversationSchema.parse({ id: "main", entries: [{
+    id: "answer", author: 2, authorLogin: "ben", runId: "run-answer", prompt: "Where?", state: cell.state,
+    frames: [{ type: "delta", runId: "run-answer", kind: "text", text: cell.text }]
+  }] })
+  const source = { get: () => ({ conversation }), subscribe: () => () => {} } as unknown as SharedConversationSeam
+  try {
+    const html = renderToStaticMarkup(<ControllerContext value={controller}><MessageScrollerProvider><SharedConversation source={source} /></MessageScrollerProvider></ControllerContext>)
+    expect(html.includes("Make TODO")).toBe(cell.actions)
+    expect(html.includes("Save to wiki")).toBe(cell.actions)
+    expect(html.includes('class="message-answer-actions"')).toBe(cell.actions)
+  } finally { await store.dispose?.() }
+})
