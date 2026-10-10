@@ -90,4 +90,46 @@ describe("ESLint source paths", () => {
       await Fs.rm(root, { recursive: true, force: true })
     }
   })
+
+  // ESLint warns about an explicitly named file that the flat config ignores,
+  // and that warning alone broke a zero-warning budget (the root `//:jsdocTree`
+  // names every package source, and the config opts the UI packages out).
+  it("lets the flat config's ignores decide for explicit files without spending the warning budget", async () => {
+    const root = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-eslint-")))
+    try {
+      const linted = NodePath.join(root, "src/linted.ts")
+      const ignored = NodePath.join(root, "src/generated.ts")
+      await Fs.mkdir(NodePath.dirname(linted), { recursive: true })
+      await Fs.writeFile(linted, "const linted = 1\n")
+      await Fs.writeFile(ignored, "debugger\n")
+      await Fs.writeFile(
+        NodePath.join(root, "eslint.config.mjs"),
+        "export default [{ ignores: [\"src/generated.ts\"] }, { files: [\"**/*.ts\"], rules: { \"no-debugger\": \"error\" } }]\n"
+      )
+      const target = EsLint.EsLint({
+        packageManager,
+        sources: [Input.file("src/linted.ts"), Input.file("src/generated.ts")],
+        configs: [Input.file("eslint.config.mjs")],
+        deps: [],
+        maxWarnings: 0,
+        fix: false,
+        cwd: "."
+      })
+      const argv = plannedArgv(target)
+      const args = [eslint, ...argv.slice(3), "--format", "json"]
+      const result = await execFile(process.execPath, args, { cwd: root })
+      const files = JSON.parse(result.stdout) as Array<{ readonly filePath: string; readonly warningCount: number }>
+      expect(files.map((file) => file.filePath)).toEqual([linted])
+      expect(files.every((file) => file.warningCount === 0)).toBe(true)
+
+      // The ignore covers only the named file: a violation in a linted file still fails.
+      await Fs.writeFile(linted, "debugger\n")
+      await expect(execFile(process.execPath, args, { cwd: root })).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining("\"ruleId\":\"no-debugger\"")
+      })
+    } finally {
+      await Fs.rm(root, { recursive: true, force: true })
+    }
+  })
 })

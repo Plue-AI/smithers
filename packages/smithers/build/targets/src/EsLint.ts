@@ -55,7 +55,10 @@ const lintPatterns = (cwd: string, sources: ReadonlyArray<Input.Declared>): Read
  *
  * The body records one {@link Exec.Exec} run of `eslint` from `cwd` with the
  * first declared flat config passed as `--config`, the warning budget as
- * `--max-warnings`, and `--fix` when fix mode is enabled. Every further
+ * `--max-warnings`, and `--fix` when fix mode is enabled. When a source names
+ * a file, the run also passes `--no-warn-ignored`: the flat config's ignores
+ * decide whether that file is linted, and ESLint's notice about skipping it
+ * must not spend the warning budget. Globs never draw that notice. Every further
  * config is declared key material for files the flat config imports. Tools
  * resolve through `pnpm exec`, matching the pnpm workspace install target.
  * Key material contains source and flat-config digests, dependency keys,
@@ -83,6 +86,7 @@ export const EsLint = Target.make("EsLint", {
         ...(config === undefined ? [] : ["--config", Input.rootRelative(attrs.cwd, config.path)]),
         "--max-warnings",
         String(attrs.maxWarnings),
+        ...(attrs.sources.some((source) => source._tag === "File") ? ["--no-warn-ignored"] : []),
         ...(attrs.fix ? ["--fix"] : []),
         ...lintPatterns(attrs.cwd, attrs.sources)
       ])

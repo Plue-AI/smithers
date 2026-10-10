@@ -146,6 +146,7 @@ describe("EsLint", () => {
       "eslint.config.js",
       "--max-warnings",
       "0",
+      "--no-warn-ignored",
       "src/**/*.ts",
       "eslint.config.js"
     ])
