@@ -66,7 +66,7 @@ import * as PortableSearch from "@smthrs/std/PortableSearch"
 import * as Read from "@smthrs/std/Read"
 import * as Search from "@smthrs/std/Search"
 import * as SearchContract from "@smthrs/std/SearchContract"
-import { StdError } from "@smthrs/std/StdError"
+import type { StdError } from "@smthrs/std/StdError"
 import * as TestRun from "@smthrs/std/TestRun"
 import type * as TestRunner from "@smthrs/std/TestRunner"
 import * as Write from "@smthrs/std/Write"
@@ -321,10 +321,7 @@ const inAgentTerminal = (port: TerminalPort) => {
   return Bash.inTerminal((input) =>
     Effect.tryPromise({
       try: (signal) => commands.run(input, signal),
-      catch: (error) =>
-        error instanceof StdError
-          ? error
-          : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })
+      catch: AgentTerminalCommand.failure
     })
   )
 }

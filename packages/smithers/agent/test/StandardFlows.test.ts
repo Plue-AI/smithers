@@ -280,6 +280,25 @@ describe("the coding agent's terminal binding (T-TRM-05)", () => {
     expect(counter.spawns).toBe(0)
   })
 
+  it("answers a transport failure of the port's own as a failed command, with no host spawn", async () => {
+    const counter = { spawns: 0 }
+    const seen: Array<unknown> = []
+    // Not a StdError: whatever the session transport throws, none of its text reaches the cell.
+    // eslint-disable-next-line require-yield
+    const port = portOf(async function*() {
+      throw new Error("socket hang up: 10.0.0.7:4022")
+    }, seen)
+    const source = StandardFlows.shell(noSpawn(counter), undefined, { terminal: "agent", terminalPort: port })
+    const [binding] = await Effect.runPromise(source.bindings())
+    const input = { command: "pnpm test", mode: "unhermetic" }
+    const result = await Effect.runPromise(binding!.run(callOf("bash", input)))
+    expect(result).toMatchObject({ outcome: "failure", code: "flow_failed", value: null })
+    expect(result.message).not.toContain("socket hang up")
+    expect(result.message).not.toContain("10.0.0.7")
+    expect(seen).toEqual([input])
+    expect(counter.spawns).toBe(0)
+  })
+
   it("serializes two calls on one run and cancels the running one when interrupted", async () => {
     const counter = { spawns: 0 }
     const seen: Array<unknown> = []

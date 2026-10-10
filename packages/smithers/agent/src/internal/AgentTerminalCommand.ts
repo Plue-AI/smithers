@@ -135,6 +135,19 @@ class Capture {
 }
 
 /**
+ * A terminal command's failure as a cell reads it: the terminal's own error, or
+ * one fixed sentence for anything else a session transport threw, so none of
+ * the transport's text reaches a transcript.
+ *
+ * @private
+ * @since 1.0.0
+ */
+export const failure = (error: unknown): StdError =>
+  error instanceof StdError
+    ? error
+    : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })
+
+/**
  * One registered run/session port; commands serialize, including failures.
  *
  * @private
@@ -270,9 +283,7 @@ export class Commands {
       await this.kill()
       // end() may have confirmed cleanup before this catch retained the iterator.
       this.dispose()
-      throw error instanceof StdError
-        ? error
-        : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })
+      throw failure(error)
     } finally {
       clearTimeout(timer)
       signal.removeEventListener("abort", abort)
