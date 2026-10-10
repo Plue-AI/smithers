@@ -251,7 +251,11 @@ func TestInstallAPIHostUsesPublicRouterAndRevokesBearer(t *testing.T) {
 	modelRequests := strings.Join(captured, "\n")
 	require.Contains(t, modelRequests, "Add greeting")
 	require.Contains(t, modelRequests, "Merge flow is built in")
-	require.Contains(t, modelRequests, "A person must control this TODO")
+	// 26aa21d9f2 lets a member's delegated Stop through the catalog policy;
+	// this fixture composes no TODO controls, so the stop reaches the service
+	// and is refused as unavailable rather than person-only.
+	require.NotContains(t, modelRequests, "A person must control this TODO")
+	require.Contains(t, modelRequests, "todo_control_unavailable")
 	// Merge has no qualified consumer in this fixture; Drop below still records its private confirmation.
 	require.Contains(t, modelRequests, "confirmation_unavailable")
 	var confirmations int

@@ -244,7 +244,8 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	awaitHomeCapacity, stopHome = openHome()
 	awaitHomeCapacity(1)
 	stopHome()
-	capacity.Profile.DiskFreeBytes = 60 << 30
+	// One machine needs its 32 GiB plus the 12 GiB floor b74a68604e set.
+	capacity.Profile.DiskFreeBytes = 40 << 30
 	response = request("GET", "/api/install", good, "")
 	require.Equal(t, 200, response.Code)
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
@@ -253,7 +254,7 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	// §8.2.1a: at capacity 0 Settings shows the limiting term and its fix, from the one Go host profile.
 	require.NotNil(t, status.Mac.Limit, response.Body.String())
 	require.Equal(t, "disk", status.Mac.Limit.Term)
-	require.Equal(t, "free 12 GiB on the state volume", status.Mac.Limit.Fix)
+	require.Equal(t, "free 4 GiB on the state volume", status.Mac.Limit.Fix)
 	awaitHomeCapacity, stopHome = openHome()
 	awaitHomeCapacity(0)
 	stopHome()

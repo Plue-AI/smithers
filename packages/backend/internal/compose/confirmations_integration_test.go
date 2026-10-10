@@ -283,8 +283,11 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 		require.Contains(t, w.Body.String(), "idempotency_mismatch")
 	}
 	// A fresh bound-command role check precedes denial, even after listing.
+	// The install keeps an owner: since eb9b3e0870 a confirmation write
+	// rechecks the live member boundary, which refuses an install with no owner
+	// (401), so maya is demoted by moving ownership to ben.
 	merge := seed("review_merge", "merge", false)
-	_, err = pool.Exec(ctx, `DELETE FROM self_host_owners`)
+	_, err = pool.Exec(ctx, `UPDATE self_host_owners SET user_id=$1`, other.ID)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
@@ -310,7 +313,7 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
+	_, err = pool.Exec(ctx, `UPDATE self_host_owners SET user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	todos := services.NewMythicalService(pool, nil)
 	router = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}})
