@@ -201,11 +201,18 @@ const linkTestModules = async (root: string) => {
     Path.join(root, "node_modules"),
     "dir"
   )
-  await Fs.symlink(
-    Path.resolve(import.meta.dirname, "../node_modules"),
-    Path.join(root, "packages/dependency/node_modules"),
-    "dir"
-  )
+  // The fixture package needs only a `vitest` bin. pnpm's shim reaches its
+  // target by a path relative to the shim's own directory, and the fixture
+  // package sits two levels shallower than this one, so this package's shim,
+  // linked in, climbs out of the workspace (`/node_modules/.pnpm/...`). The
+  // fixture's bin runs the shim's recorded target, which lives in the root
+  // store the linked root `node_modules` already exposes.
+  const shim = await Fs.readFile(Path.resolve(import.meta.dirname, "../node_modules/.bin/vitest"), "utf8")
+  const target = /^# cmd-shim-target=(.+)$/m.exec(shim)?.[1]
+  expect(target, "pnpm's vitest shim records its target").toBeDefined()
+  const bin = Path.join(root, "packages/dependency/node_modules/.bin/vitest")
+  await Fs.mkdir(Path.dirname(bin), { recursive: true })
+  await Fs.writeFile(bin, `#!/bin/sh\nexec node ${JSON.stringify(target)} "$@"\n`, { mode: 0o755 })
 }
 
 it.each(["test", "ci"])("affected %s preserves a partial wildcard's exclusive dependency refusal", async (verb) => {
