@@ -1137,6 +1137,13 @@
   },
   {
     "package": "packages/backend/internal/services",
+    "file": "workspace_fork_person_quota_test.go",
+    "tests": [
+      "TestForkQuotaCountsThePersonNotTheMachineService"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/services",
     "file": "workspace_preview_authorize_test.go",
     "tests": [
       "TestAuthorizeWorkspacePreviewRechecksEveryGrant",

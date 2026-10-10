@@ -137,45 +137,6 @@ impl<B: Bundles> Delivery<B> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    #[test]
-    fn refused_bundle_stops_reading_and_cannot_certify_import() {
-        let mut sender = BundleSender::new(1, Cursor::new(vec![1; 300_000])).unwrap();
-        sender.next_frame().unwrap().unwrap();
-        assert_eq!(
-            sender
-                .receive(&Frame {
-                    kind: 6,
-                    stream: 1,
-                    payload: {
-                        let mut bytes = vec![255];
-                        bytes.extend(crate::conn::structure_bytes(&[crate::conn::field(1, [2])]));
-                        bytes
-                    },
-                })
-                .unwrap_err()
-                .kind(),
-            io::ErrorKind::PermissionDenied
-        );
-        assert!(!sender.verified());
-        assert_eq!(
-            sender.next_frame().unwrap_err().kind(),
-            io::ErrorKind::BrokenPipe
-        );
-        assert!(sender
-            .receive(&Frame {
-                kind: 6,
-                stream: 1,
-                payload: vec![7]
-            })
-            .is_err());
-    }
-}
-
 pub struct BundleSender<R> {
     source: R,
     credit: Sender,
@@ -248,5 +209,44 @@ impl<R: Read> BundleSender<R> {
     /// Only peer close after EOF certifies that the host imported the bundle.
     pub fn verified(&self) -> bool {
         self.verified
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn refused_bundle_stops_reading_and_cannot_certify_import() {
+        let mut sender = BundleSender::new(1, Cursor::new(vec![1; 300_000])).unwrap();
+        sender.next_frame().unwrap().unwrap();
+        assert_eq!(
+            sender
+                .receive(&Frame {
+                    kind: 6,
+                    stream: 1,
+                    payload: {
+                        let mut bytes = vec![255];
+                        bytes.extend(crate::conn::structure_bytes(&[crate::conn::field(1, [2])]));
+                        bytes
+                    },
+                })
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(!sender.verified());
+        assert_eq!(
+            sender.next_frame().unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert!(sender
+            .receive(&Frame {
+                kind: 6,
+                stream: 1,
+                payload: vec![7]
+            })
+            .is_err());
     }
 }

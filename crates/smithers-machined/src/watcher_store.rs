@@ -317,7 +317,7 @@ impl Store {
             .mode(0o600)
             .open(&path)?;
         let result = (|| {
-            file.write_all(&bytes)?;
+            file.write_all(bytes)?;
             file.sync_all()?;
             fs::rename(&path, self.directory.join(destination))?;
             File::open(&self.directory)?.sync_all()

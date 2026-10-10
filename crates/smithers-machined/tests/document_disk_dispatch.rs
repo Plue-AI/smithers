@@ -35,11 +35,16 @@ use yrs::{
 };
 const MEMBER: &[u8] = &[0, 255, 128, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
+type SavedReceipt = (String, [u8; 32], Option<String>);
+type DeletedReceipt = (String, Option<String>);
+type BatchWrite<'a> = (&'a str, Option<&'a [u8]>, &'a [u8]);
+type Mutation<'a> = (&'a str, Option<&'a [u8]>, Option<&'a [u8]>);
+
 #[derive(Clone, Default)]
 struct Receipts(
     Arc<Mutex<Vec<Vec<u8>>>>,
-    Arc<Mutex<Vec<(String, [u8; 32], Option<String>)>>>,
-    Arc<Mutex<Vec<(String, Option<String>)>>>,
+    Arc<Mutex<Vec<SavedReceipt>>>,
+    Arc<Mutex<Vec<DeletedReceipt>>>,
 );
 impl Versions for Receipts {
     fn own_delete(
@@ -872,7 +877,7 @@ fn accepted_outside_snapshot_is_not_reported_again_as_a_swap_race() {
         .any(|n| matches!(n, smithers_machined::doc::host::Notice::Outside { .. })));
 }
 
-fn batch(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, &[u8])]) -> Vec<u8> {
+fn batch(cx: &mut LockCx, changes: &[BatchWrite<'_>]) -> Vec<u8> {
     mutations(
         cx,
         &changes
@@ -881,7 +886,7 @@ fn batch(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, &[u8])]) -> Vec<u8> {
             .collect::<Vec<_>>(),
     )
 }
-fn mutations(cx: &mut LockCx, changes: &[(&str, Option<&[u8]>, Option<&[u8]>)]) -> Vec<u8> {
+fn mutations(cx: &mut LockCx, changes: &[Mutation<'_>]) -> Vec<u8> {
     let mut values = (changes.len() as u16).to_be_bytes().to_vec();
     for (path, base, content) in changes {
         let base = base

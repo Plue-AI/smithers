@@ -1516,10 +1516,7 @@ fn production_local_socket_rejects_non_agent_before_write_dispatch() {
                 if matches!(
                     error.kind(),
                     std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
-                ) =>
-            {
-                ()
-            }
+                ) => {}
             result => panic!("local request: {result:?}"),
         }
         let mut byte = [0];

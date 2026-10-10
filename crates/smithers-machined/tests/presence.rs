@@ -573,14 +573,25 @@ fn broker_process_census_is_bound_and_departures_are_published() {
             .code,
         12
     );
-    let mut duplicate = listed(8, 2); duplicate.extend(listed(8, 2));
-    let mut ended = listed(8, 2); ended[37] = 2;
-    let mut foreign_lifetime = listed(8, 2); foreign_lifetime[0] = 9;
+    let mut duplicate = listed(8, 2);
+    duplicate.extend(listed(8, 2));
+    let mut ended = listed(8, 2);
+    ended[37] = 2;
+    let mut foreign_lifetime = listed(8, 2);
+    foreign_lifetime[0] = 9;
     let mut too_many = Vec::new();
-    for id in 1..=65 { too_many.extend(listed(id, 1)); }
+    for id in 1..=65 {
+        too_many.extend(listed(id, 1));
+    }
     for bad in [duplicate, ended, foreign_lifetime, too_many, vec![0]] {
         *census.lock().unwrap() = bad;
-        assert_eq!(broker.poll_presence(now+Duration::from_secs(2)).unwrap_err().code,12);
+        assert_eq!(
+            broker
+                .poll_presence(now + Duration::from_secs(2))
+                .unwrap_err()
+                .code,
+            12
+        );
     }
     census.lock().unwrap().clear();
     let frame = broker

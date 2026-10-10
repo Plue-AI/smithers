@@ -40,7 +40,11 @@ impl Tree {
         fs::write(root.join("outside/sentinel"), SENTINEL).unwrap();
         fs::write(root.join("outside/cgroup.freeze"), b"0").unwrap();
         // A followed link would read a settled barrier and report success.
-        fs::write(root.join("outside/cgroup.events"), b"populated 1\nfrozen 1\n").unwrap();
+        fs::write(
+            root.join("outside/cgroup.events"),
+            b"populated 1\nfrozen 1\n",
+        )
+        .unwrap();
         fs::create_dir(root.join("sessions")).unwrap();
         Self { _dir: dir, root }
     }
@@ -84,7 +88,10 @@ impl Tree {
             let relative = path.strip_prefix(base).unwrap().to_path_buf();
             if kind.is_symlink() {
                 let target = fs::read_link(path).unwrap();
-                out.insert(relative, [b"link:", target.as_os_str().as_encoded_bytes()].concat());
+                out.insert(
+                    relative,
+                    [b"link:", target.as_os_str().as_encoded_bytes()].concat(),
+                );
             } else if kind.is_dir() {
                 out.insert(relative, b"dir".to_vec());
                 for entry in fs::read_dir(path).unwrap() {
@@ -127,7 +134,10 @@ fn serve(tree: &Tree, groups: &[u32]) -> Served {
     for end in [&server, &client] {
         let name = getsockname(end).unwrap();
         assert_eq!(name.address_family(), AddressFamily::UNIX);
-        assert_eq!(name.addr_len() as usize, std::mem::size_of::<libc::sa_family_t>());
+        assert_eq!(
+            name.addr_len() as usize,
+            std::mem::size_of::<libc::sa_family_t>()
+        );
     }
     let worker = std::thread::spawn(move || {
         let mut root = Supervisor::new(Processes::new(cgroups, InstalledAdmission));
@@ -194,34 +204,128 @@ fn rebase_broker_validates_freeze_inputs() {
         (packet(0x5200_0002, 1, &[timeout(0)]), 1),
         (packet(0x5200_0003, 1, &[timeout(1001)]), 1),
         (packet(0x5200_0004, 1, &[timeout(u32::MAX)]), 1),
-        (packet(0x5200_0005, 1, &[conn::field(1, 1000u16.to_be_bytes())]), 1),
+        (
+            packet(0x5200_0005, 1, &[conn::field(1, 1000u16.to_be_bytes())]),
+            1,
+        ),
         (packet(0x5200_0006, 1, &[timeout(1000), timeout(1)]), 1),
         (malformed_trailing, 1),
         (malformed_short, 1),
         // No request names a cgroup path, uid, environment, argv, working-copy
         // path or onto revision.
-        (packet(0x5300_0001, 1, &[timeout(1000), conn::field(2, b"/sys/fs/cgroup/smithers/sessions/../../..")]), 1),
-        (packet(0x5300_0002, 1, &[timeout(1000), conn::field(2, outside.as_os_str().as_encoded_bytes())]), 1),
-        (packet(0x5300_0003, 1, &[timeout(1000), conn::field(2, b"../outside/cgroup.freeze")]), 1),
-        (packet(0x5300_0004, 1, &[timeout(1000), conn::field(2, 0u32.to_be_bytes())]), 1),
-        (packet(0x5300_0005, 1, &[timeout(1000), conn::field(3, 20000u32.to_be_bytes())]), 1),
-        (packet(0x5300_0006, 1, &[timeout(1000), conn::field(2, b"LD_PRELOAD=/workspace/evil.so")]), 1),
-        (packet(0x5300_0007, 1, &[timeout(1000), conn::field(2, b"/bin/sh")]), 1),
-        (packet(0x5300_0008, 1, &[timeout(1000), conn::field(2, b"/workspace/.jj/repo/config.toml")]), 1),
-        (packet(0x5300_0009, 1, &[timeout(1000), conn::field(2, [0x11; 20])]), 1),
-        (packet(0x5300_000a, 1, &[timeout(1000), conn::field(2, b"1111111111111111111111111111111111111111")]), 1),
+        (
+            packet(
+                0x5300_0001,
+                1,
+                &[
+                    timeout(1000),
+                    conn::field(2, b"/sys/fs/cgroup/smithers/sessions/../../.."),
+                ],
+            ),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0002,
+                1,
+                &[
+                    timeout(1000),
+                    conn::field(2, outside.as_os_str().as_encoded_bytes()),
+                ],
+            ),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0003,
+                1,
+                &[timeout(1000), conn::field(2, b"../outside/cgroup.freeze")],
+            ),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0004,
+                1,
+                &[timeout(1000), conn::field(2, 0u32.to_be_bytes())],
+            ),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0005,
+                1,
+                &[timeout(1000), conn::field(3, 20000u32.to_be_bytes())],
+            ),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0006,
+                1,
+                &[
+                    timeout(1000),
+                    conn::field(2, b"LD_PRELOAD=/workspace/evil.so"),
+                ],
+            ),
+            1,
+        ),
+        (
+            packet(0x5300_0007, 1, &[timeout(1000), conn::field(2, b"/bin/sh")]),
+            1,
+        ),
+        (
+            packet(
+                0x5300_0008,
+                1,
+                &[
+                    timeout(1000),
+                    conn::field(2, b"/workspace/.jj/repo/config.toml"),
+                ],
+            ),
+            1,
+        ),
+        (
+            packet(0x5300_0009, 1, &[timeout(1000), conn::field(2, [0x11; 20])]),
+            1,
+        ),
+        (
+            packet(
+                0x5300_000a,
+                1,
+                &[
+                    timeout(1000),
+                    conn::field(2, b"1111111111111111111111111111111111111111"),
+                ],
+            ),
+            1,
+        ),
         // Thaw, kill and the barrier query take no arguments.
-        (packet(0x5400_0001, 2, &[conn::field(1, outside.as_os_str().as_encoded_bytes())]), 1),
+        (
+            packet(
+                0x5400_0001,
+                2,
+                &[conn::field(1, outside.as_os_str().as_encoded_bytes())],
+            ),
+            1,
+        ),
         (packet(0x5400_0002, 3, &[conn::field(1, b"s3")]), 1),
         (packet(0x5400_0003, 31, &[conn::field(1, b"../outside")]), 1),
     ];
     // Unknown operations, including a forged reply variant.
-    for (n, op) in [0u8, 4, 5, 11, 12, 13, 14, 33, 64, 128, 254, 255].into_iter().enumerate() {
+    for (n, op) in [0u8, 4, 5, 11, 12, 13, 14, 33, 64, 128, 254, 255]
+        .into_iter()
+        .enumerate()
+    {
         hostile.push((packet(0x5500_0000 + n as u32, op, &[timeout(1000)]), 2));
     }
     for (bytes, code) in &hostile {
         let id = u32::from_be_bytes(bytes[..4].try_into().unwrap());
-        assert_eq!(exchange(&served.raw, bytes), refusal(id, *code), "{bytes:?}");
+        assert_eq!(
+            exchange(&served.raw, bytes),
+            refusal(id, *code),
+            "{bytes:?}"
+        );
         assert_eq!(tree.snapshot(), baseline, "{bytes:?}");
     }
     // The daemon-side client refuses an unbounded timeout before sending.
@@ -242,35 +346,73 @@ fn rebase_broker_validates_freeze_inputs() {
     // 3. A writer that misses the barrier is named and every writer resumes:
     // only populated, unfrozen session 3 is blamed, and the parent thaws.
     tree.barrier("populated 1\nfrozen 0\n");
-    assert_eq!(served.broker.freeze(Duration::from_millis(5)).unwrap(), Some(3));
+    assert_eq!(
+        served.broker.freeze(Duration::from_millis(5)).unwrap(),
+        Some(3)
+    );
     assert_eq!(tree.freeze_file(), b"0");
     // A member replaces the retained group's name with a link outside. The
     // broker reads only the directory it holds, never the new name.
     fs::rename(tree.sessions().join("s3"), tree.sessions().join("retained")).unwrap();
     std::os::unix::fs::symlink("../outside", tree.sessions().join("s3")).unwrap();
-    assert_eq!(served.broker.freeze(Duration::from_millis(5)).unwrap(), Some(3));
+    assert_eq!(
+        served.broker.freeze(Duration::from_millis(5)).unwrap(),
+        Some(3)
+    );
     assert_eq!(tree.freeze_file(), b"0");
     // With no identifiable writer the timeout is a typed refusal, still thawed.
-    fs::write(tree.sessions().join("retained/cgroup.events"), "populated 1\nfrozen 1\n").unwrap();
-    assert_eq!(served.broker.freeze(Duration::from_millis(5)).unwrap_err().code, 9);
+    fs::write(
+        tree.sessions().join("retained/cgroup.events"),
+        "populated 1\nfrozen 1\n",
+    )
+    .unwrap();
+    assert_eq!(
+        served
+            .broker
+            .freeze(Duration::from_millis(5))
+            .unwrap_err()
+            .code,
+        9
+    );
     assert_eq!(tree.freeze_file(), b"0");
 
     // 4. Replaced control files are never followed, for freeze or thaw.
     let before = tree.snapshot();
     for leaf in ["cgroup.freeze", "cgroup.events"] {
         fs::remove_file(tree.sessions().join(leaf)).unwrap();
-        std::os::unix::fs::symlink(format!("../outside/{leaf}"), tree.sessions().join(leaf)).unwrap();
+        std::os::unix::fs::symlink(format!("../outside/{leaf}"), tree.sessions().join(leaf))
+            .unwrap();
     }
-    assert_eq!(served.broker.freeze(Duration::from_secs(1)).unwrap_err().code, 12);
+    assert_eq!(
+        served
+            .broker
+            .freeze(Duration::from_secs(1))
+            .unwrap_err()
+            .code,
+        12
+    );
     assert_eq!(served.broker.thaw().unwrap_err().code, 12);
     fs::remove_file(tree.sessions().join("cgroup.freeze")).unwrap();
     fs::write(tree.sessions().join("cgroup.freeze"), b"0").unwrap();
     // Freeze wrote the barrier, could not read events through the link, and
     // thawed: the writers resume after the error.
-    assert_eq!(served.broker.freeze(Duration::from_secs(1)).unwrap_err().code, 12);
+    assert_eq!(
+        served
+            .broker
+            .freeze(Duration::from_secs(1))
+            .unwrap_err()
+            .code,
+        12
+    );
     assert_eq!(tree.freeze_file(), b"0");
-    assert_eq!(fs::read(tree.root.join("outside/cgroup.freeze")).unwrap(), b"0");
-    assert_eq!(fs::read(tree.root.join("outside/sentinel")).unwrap(), SENTINEL);
+    assert_eq!(
+        fs::read(tree.root.join("outside/cgroup.freeze")).unwrap(),
+        b"0"
+    );
+    assert_eq!(
+        fs::read(tree.root.join("outside/sentinel")).unwrap(),
+        SENTINEL
+    );
     // Restored control files: the same channel freezes and thaws again.
     tree.barrier("populated 1\nfrozen 1\n");
     assert_eq!(served.broker.freeze(Duration::from_secs(1)).unwrap(), None);
@@ -296,13 +438,20 @@ type Plant = fn(&Path);
 #[test]
 fn rebase_broker_recovery_refuses_hostile_retained_entries() {
     let hostile: [(&str, Plant); 4] = [
-        ("link", |parent| std::os::unix::fs::symlink("../outside", parent.join("s7")).unwrap()),
+        ("link", |parent| {
+            std::os::unix::fs::symlink("../outside", parent.join("s7")).unwrap()
+        }),
         ("fifo", |parent| {
-            let path = std::ffi::CString::new(parent.join("s8").as_os_str().as_encoded_bytes()).unwrap();
+            let path =
+                std::ffi::CString::new(parent.join("s8").as_os_str().as_encoded_bytes()).unwrap();
             assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
         }),
-        ("socket", |parent| drop(std::os::unix::net::UnixListener::bind(parent.join("s9")).unwrap())),
-        ("name", |parent| fs::create_dir(parent.join("..s10")).unwrap()),
+        ("socket", |parent| {
+            drop(std::os::unix::net::UnixListener::bind(parent.join("s9")).unwrap())
+        }),
+        ("name", |parent| {
+            fs::create_dir(parent.join("..s10")).unwrap()
+        }),
     ];
     for (case, plant) in hostile {
         let tree = Tree::new();
@@ -312,12 +461,20 @@ fn rebase_broker_recovery_refuses_hostile_retained_entries() {
         assert_eq!(served.broker.kill_sessions(None).unwrap(), 0, "{case}");
         plant(&tree.sessions());
         let baseline = tree.snapshot();
-        assert_eq!(served.broker.kill_sessions(None).unwrap_err().code, 1, "{case}");
+        assert_eq!(
+            served.broker.kill_sessions(None).unwrap_err().code,
+            1,
+            "{case}"
+        );
         assert_eq!(tree.snapshot(), baseline, "{case}");
         // The refusal kept the barrier released and the channel usable.
         assert_eq!(tree.freeze_file(), b"0", "{case}");
         tree.barrier("populated 0\nfrozen 1\n");
-        assert_eq!(served.broker.freeze(Duration::from_secs(1)).unwrap(), None, "{case}");
+        assert_eq!(
+            served.broker.freeze(Duration::from_secs(1)).unwrap(),
+            None,
+            "{case}"
+        );
         served.broker.thaw().unwrap();
         assert_eq!(tree.freeze_file(), b"0", "{case}");
         drop(served.broker);
@@ -338,11 +495,22 @@ fn rebase_broker_closes_on_unbounded_frames_before_freezing() {
         let served = serve(&tree, &[]);
         let mut bytes = packet(0x5600_0001, 1, &[timeout(1000)]);
         bytes.resize(length, 0);
-        assert_eq!(send(&served.raw, &bytes, SendFlags::NOSIGNAL).unwrap(), length);
+        assert_eq!(
+            send(&served.raw, &bytes, SendFlags::NOSIGNAL).unwrap(),
+            length
+        );
         let error = served.worker.join().unwrap().unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData, "{length}");
         assert_eq!(tree.snapshot(), baseline, "{length}");
-        assert_eq!(served.broker.freeze(Duration::from_secs(1)).unwrap_err().code, 12, "{length}");
+        assert_eq!(
+            served
+                .broker
+                .freeze(Duration::from_secs(1))
+                .unwrap_err()
+                .code,
+            12,
+            "{length}"
+        );
         assert_eq!(tree.freeze_file(), b"0", "{length}");
     }
 }

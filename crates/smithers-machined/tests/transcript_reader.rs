@@ -572,7 +572,7 @@ fn trickling_peer_cannot_extend_poll_deadline_or_persist_partial_ipc() {
         // acknowledged. Each byte arrives well within the syscall timeout.
         peer.write_all(&[2, 0, 0, 0, 100]).unwrap();
         for _ in 0..20 {
-            if peer.write_all(&[b'x']).is_err() {
+            if peer.write_all(b"x").is_err() {
                 return;
             }
             std::thread::sleep(Duration::from_millis(200));

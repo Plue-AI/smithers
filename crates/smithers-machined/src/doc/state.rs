@@ -93,8 +93,8 @@ impl Record {
                 .get(body_end + 4..body_end + 4 + count * 8)
                 .ok_or(Error::Invalid)?;
             let mut last = 0;
-            for entry in raw.chunks_exact(8) {
-                let id = u64::from_be_bytes(entry.try_into().unwrap());
+            for entry in raw.as_chunks::<8>().0 {
+                let id = u64::from_be_bytes(*entry);
                 if id == 0 || id <= last {
                     return Err(Error::Invalid);
                 }

@@ -201,7 +201,7 @@ fn saved_actor(actor: Option<&str>) -> Actor {
         return Actor::Outside;
     };
     let mut reference = Vec::with_capacity(16);
-    for pair in actor.as_bytes().chunks_exact(2) {
+    for pair in actor.as_bytes().as_chunks::<2>().0 {
         let nibble = |b| match b {
             b'0'..=b'9' => Some(b - b'0'),
             b'a'..=b'f' => Some(b - b'a' + 10),
@@ -359,7 +359,10 @@ fn serve() -> io::Result<()> {
     );
     // Fixed daemon-owned state; no branch path or root step is introduced.
     use std::os::unix::fs::OpenOptionsExt;
-    let log = std::fs::OpenOptions::new().create(true).append(true).mode(0o600)
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(state.join("rebase.jsonl"))?;
     let metadata = log.metadata()?;

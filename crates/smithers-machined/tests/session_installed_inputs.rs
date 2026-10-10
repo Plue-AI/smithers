@@ -34,7 +34,7 @@ fn approved() {
     approved_path(&std::env::current_exe().unwrap());
 }
 fn approved_path(installed: &Path) {
-    let executable = fs::canonicalize(&installed).unwrap();
+    let executable = fs::canonicalize(installed).unwrap();
     assert_eq!(
         installed,
         executable.as_path(),

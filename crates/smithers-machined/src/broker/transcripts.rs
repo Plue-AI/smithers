@@ -406,7 +406,9 @@ impl Transcripts {
             return;
         };
         for (key, process) in &mut self.agents {
-            if key.0 == session.id { process.reconciled = true; }
+            if key.0 == session.id {
+                process.reconciled = true;
+            }
         }
         let mut seen = BTreeSet::new();
         for agent in found {
@@ -480,7 +482,9 @@ impl Transcripts {
         }
         let mut listing = Vec::new();
         for (key, process) in &mut self.agents {
-            if !process.reconciled { continue; }
+            if !process.reconciled {
+                continue;
+            }
             process.progress(&self.executable, now);
             for source in &process.sources {
                 if !source.stopped {
@@ -503,7 +507,10 @@ impl Transcripts {
     pub fn presence(&self, sessions: &[Session]) -> Vec<u8> {
         let mut bytes = Vec::new();
         for (key, process) in &self.agents {
-            if process.reconciled && !process.gone && sessions.iter().any(|session| session.id == key.0) {
+            if process.reconciled
+                && !process.gone
+                && sessions.iter().any(|session| session.id == key.0)
+            {
                 // Reuse the bounded broker list codec; the participant is the
                 // process identity, rather than any one file's source lifetime.
                 Listed {
@@ -538,7 +545,9 @@ impl Transcripts {
             .iter_mut()
             .find(|(_, process)| process.sources.iter().any(|s| s.lifetime == lifetime))
             .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
-        if !process.reconciled { return Err(io::ErrorKind::PermissionDenied.into()); }
+        if !process.reconciled {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
         if !sessions
             .iter()
             .any(|session| session.id == key.0 && session.owner == process.owner)
@@ -705,7 +714,7 @@ mod tests {
             home: "/home/ben".into(),
             procs: "/unused".into(),
         };
-        let rows = Listed::decode(&transcripts.presence(&[session.clone()])).unwrap();
+        let rows = Listed::decode(&transcripts.presence(std::slice::from_ref(&session))).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].participant, [7; 16]);
         assert_eq!(rows[1].participant, [8; 16]);
@@ -756,8 +765,11 @@ mod tests {
             transcripts.reader(&[], source).unwrap_err().kind(),
             io::ErrorKind::PermissionDenied
         );
-        transcripts.scanned=Some(Instant::now());
-        assert_eq!(transcripts.reader(&[],source).unwrap_err().kind(),io::ErrorKind::PermissionDenied);
+        transcripts.scanned = Some(Instant::now());
+        assert_eq!(
+            transcripts.reader(&[], source).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
         transcripts.pause(&mut |_| false);
         assert!(transcripts.agents.is_empty());
     }

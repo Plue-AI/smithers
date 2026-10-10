@@ -105,12 +105,21 @@ fn freeze_for<T>(
 
 /// Inspect one retained conflict while every broker writer is frozen. This is
 /// not a rewrite checkpoint; every outcome thaws the writers.
-pub fn inspect_then<T>(cx: &mut LockCx, inspect: impl FnOnce(&mut LockCx) -> Result<T>) -> Result<T> {
-    if cx.rewrite_pending { return Err(pending_error()); }
+pub fn inspect_then<T>(
+    cx: &mut LockCx,
+    inspect: impl FnOnce(&mut LockCx) -> Result<T>,
+) -> Result<T> {
+    if cx.rewrite_pending {
+        return Err(pending_error());
+    }
     let broker = cx.hooks.broker.clone();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         if let Some(session) = broker.freeze(Duration::from_secs(1))? {
-            return Err(Error { code:9, session:Some(session), ..Error::unsupported() });
+            return Err(Error {
+                code: 9,
+                session: Some(session),
+                ..Error::unsupported()
+            });
         }
         let documents = cx.hooks.documents.clone();
         documents.flush_all(cx)?;
@@ -118,36 +127,56 @@ pub fn inspect_then<T>(cx: &mut LockCx, inspect: impl FnOnce(&mut LockCx) -> Res
     }));
     let thawed = broker.thaw();
     match result {
-        Ok(result) => { thawed?; result }
-        Err(panic) => { let _ = thawed; std::panic::resume_unwind(panic) }
+        Ok(result) => {
+            thawed?;
+            result
+        }
+        Err(panic) => {
+            let _ = thawed;
+            std::panic::resume_unwind(panic)
+        }
     }
 }
 
 // Consume the executor's existing job interval, never time the freeze twice.
 // A bounded, nonblocking handoff keeps telemetry IO outside the mutation queue.
 // Missing samples fail the qualification count instead of delaying a rewrite.
-pub(crate) fn record_hold(operation: &'static str, start: std::time::Instant, end: std::time::Instant) {
+pub(crate) fn record_hold(
+    operation: &'static str,
+    start: std::time::Instant,
+    end: std::time::Instant,
+) {
     type Sample = (&'static str, std::time::Instant, std::time::Instant);
-    static SENDER: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<Sample>>> = std::sync::OnceLock::new();
+    static SENDER: std::sync::OnceLock<Option<std::sync::mpsc::SyncSender<Sample>>> =
+        std::sync::OnceLock::new();
     let sender = SENDER.get_or_init(|| {
         let (sender, samples) = std::sync::mpsc::sync_channel::<Sample>(1024);
-        std::thread::Builder::new().name("machined-holds".into()).spawn(move || {
-            let mut origin = None;
-            for (operation, start, end) in samples {
-                let origin = *origin.get_or_insert(start);
-                let record = serde_json::json!({
-                    "event": "mutation_hold", "operation": operation,
-                    "start_ns": start.saturating_duration_since(origin).as_nanos(),
-                    "end_ns": end.saturating_duration_since(origin).as_nanos(),
-                    "hold_ns": end.saturating_duration_since(start).as_nanos()
-                });
-                eprintln!("{record}");
-                // The installed broker has no inherited stderr sink.
-                let _ = append_hold(std::path::Path::new("/var/lib/smithers-machined/mutation-holds.jsonl"), &record.to_string());
-            }
-        }).ok().map(|_| sender)
+        std::thread::Builder::new()
+            .name("machined-holds".into())
+            .spawn(move || {
+                let mut origin = None;
+                for (operation, start, end) in samples {
+                    let origin = *origin.get_or_insert(start);
+                    let record = serde_json::json!({
+                        "event": "mutation_hold", "operation": operation,
+                        "start_ns": start.saturating_duration_since(origin).as_nanos(),
+                        "end_ns": end.saturating_duration_since(origin).as_nanos(),
+                        "hold_ns": end.saturating_duration_since(start).as_nanos()
+                    });
+                    eprintln!("{record}");
+                    // The installed broker has no inherited stderr sink.
+                    let _ = append_hold(
+                        std::path::Path::new("/var/lib/smithers-machined/mutation-holds.jsonl"),
+                        &record.to_string(),
+                    );
+                }
+            })
+            .ok()
+            .map(|_| sender)
     });
-    if let Some(sender) = sender { let _ = sender.try_send((operation, start, end)); }
+    if let Some(sender) = sender {
+        let _ = sender.try_send((operation, start, end));
+    }
 }
 
 // This runs only as the daemon, in its private state directory. Opening a leaf
@@ -155,16 +184,25 @@ pub(crate) fn record_hold(operation: &'static str, start: std::time::Instant, en
 pub(crate) fn append_hold(path: &std::path::Path, record: &str) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new().append(true).create(true)
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
         .mode(0o600)
         // rustix has these on every platform; libc is a Linux-only dependency.
         .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32)
         .open(path)?;
     let info = file.metadata()?;
     let limit = 1 << 20;
-    if !info.is_file() || info.uid() != rustix::process::geteuid().as_raw() || info.nlink() != 1
-        || info.mode() & 0o077 != 0 || info.len() + record.len() as u64 + 1 > limit {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsafe or full hold log"));
+    if !info.is_file()
+        || info.uid() != rustix::process::geteuid().as_raw()
+        || info.nlink() != 1
+        || info.mode() & 0o077 != 0
+        || info.len() + record.len() as u64 + 1 > limit
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "unsafe or full hold log",
+        ));
     }
     writeln!(file, "{record}")
 }
@@ -180,7 +218,10 @@ mod hold_tests {
         append_hold(&path, "first").unwrap();
         append_hold(&path, "second").unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"first\nsecond\n");
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let link = dir.path().join("alias");
         symlink(&path, &link).unwrap();
         assert!(append_hold(&link, "symlink must not write").is_err());
@@ -192,7 +233,7 @@ mod hold_tests {
         assert!(append_hold(&path, "shared must not write").is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"first\nsecond\n");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-        std::fs::write(&path, vec![b'x'; (1 << 20)-2]).unwrap();
+        std::fs::write(&path, vec![b'x'; (1 << 20) - 2]).unwrap();
         append_hold(&path, "x").unwrap();
         assert!(append_hold(&path, "overflow").is_err());
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 1 << 20);

@@ -763,3 +763,14 @@ test('campaign bootstrap uses the real runner Node and retains launch failures b
     }
   } finally { await rm(root, { recursive: true, force: true }) }
 })
+
+
+test('documentation drift checks every current site generator', async () => {
+  const source = await readFile(scriptsPackagePath, 'utf8')
+  const docs = source.match(/const docsDrift\s*=\s*Smithers\.Shell\.Diff\(\{([\s\S]*?)\n\}\)/)?.[1]
+  const manifest = JSON.parse(await readFile(join(repositoryRoot, 'apps/site/package.json'), 'utf8'))
+  const generators = manifest.scripts['sync:docs'].split(' && ')
+  const checks = [...docs.matchAll(/node scripts\/[^ "&]+ --check/g)].map(([command]) => command)
+  assert.deepEqual(checks, generators.map((command) => command + ' --check'))
+  for (const command of generators) await readFile(join(repositoryRoot, 'apps/site', command.slice('node '.length)), 'utf8')
+})

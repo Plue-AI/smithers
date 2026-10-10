@@ -294,8 +294,11 @@ impl Core for NativeCore {
         if base.is_some() && self.item.is_none() {
             return Err(hooks::Error::unsupported());
         }
-        if let Some(base) = base.filter(|_| self.item.as_ref().is_some_and(|item| item.number == 0)) {
-            self.native.validate_scratch_rebase(onto, base).map_err(hook)?;
+        if let Some(base) = base.filter(|_| self.item.as_ref().is_some_and(|item| item.number == 0))
+        {
+            self.native
+                .validate_scratch_rebase(onto, base)
+                .map_err(hook)?;
         }
         self.native.validate_rebase(onto, base).map_err(hook)
     }
@@ -398,7 +401,6 @@ impl Core for NativeCore {
         #[cfg(all(feature = "killpoints", debug_assertions))]
         crate::events::killpoint("rebase-post-apply");
         Ok(head)
-
     }
 
     fn rebase_paths(&self, head: Oid) -> hooks::Result<Option<Vec<String>>> {
@@ -443,7 +445,10 @@ impl Core for NativeCore {
                     .1
                     .try_into()
                     .map_err(|_| hooks::Error::unsupported())?;
-                let onto = request[1].1.try_into().map_err(|_| hooks::Error::unsupported())?;
+                let onto = request[1]
+                    .1
+                    .try_into()
+                    .map_err(|_| hooks::Error::unsupported())?;
                 self.require_settled_wake()?;
                 let paths = crate::freeze::inspect_then(cx, |cx| {
                     // Drain observed movement before validating the retained identity.
@@ -876,7 +881,11 @@ pub(crate) mod tests {
     fn scratch_metadata_observation_does_not_snapshot_pending_writes() {
         let (dir, core) = fixture();
         let before = core.native.current().unwrap();
-        fs::write(dir.path().join("workspace/pending"), b"pending scratch bytes").unwrap();
+        fs::write(
+            dir.path().join("workspace/pending"),
+            b"pending scratch bytes",
+        )
+        .unwrap();
         core.observe_moved_off(&Actor::Outside).unwrap();
         assert_eq!(core.native.current().unwrap(), before);
         assert_eq!(
@@ -1125,9 +1134,9 @@ pub(crate) mod tests {
                         path: "notes.txt".into(),
                         // Literal SHA-256 of "keep after move\n", computed independently.
                         base: crate::hooks::Base::Digest([
-                            224, 145, 228, 145, 113, 137, 199, 136, 59, 135, 112, 223,
-                            146, 163, 25, 118, 123, 117, 204, 213, 81, 56, 218, 245,
-                            119, 224, 208, 221, 102, 251, 2, 249,
+                            224, 145, 228, 145, 113, 137, 199, 136, 59, 135, 112, 223, 146, 163,
+                            25, 118, 123, 117, 204, 213, 81, 56, 218, 245, 119, 224, 208, 221, 102,
+                            251, 2, 249,
                         ]),
                         content: Some(b"must never land".to_vec()),
                     }],
@@ -1195,14 +1204,30 @@ pub(crate) mod tests {
                     )
                     .unwrap();
                     let mut packet = [0; 64];
-                    // Composition checks the shared session and broker providers.
-                    for id in 1u32..=if stage == "freeze" { 4 } else { 2 } {
-                        let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
-                        assert_eq!(&packet[..n], &[id.to_be_bytes().as_slice(), &[23]].concat());
-                        send(&server, &packet[..n], SendFlags::NOSIGNAL).unwrap();
+                    // Both composition and Return readiness check sessions,
+                    // broker availability, then the observed kernel freeze state.
+                    let rounds = if stage == "freeze" { 2 } else { 1 };
+                    for round in 0..rounds {
+                        for step in 1u32..=3 {
+                            let id = round * 3 + step;
+                            let operation = if step == 3 { 31 } else { 23 };
+                            let mut expected = id.to_be_bytes().to_vec();
+                            expected.push(operation);
+                            if operation == 31 {
+                                expected.extend([0, 0, 0, 0]); // empty args
+                            }
+                            let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
+                            assert_eq!(&packet[..n], expected);
+                            let mut reply = id.to_be_bytes().to_vec();
+                            reply.push(operation);
+                            if operation == 31 {
+                                reply.extend([0, 0, 0, 2, 1, 0]); // frozen=false
+                            }
+                            send(&server, &reply, SendFlags::NOSIGNAL).unwrap();
+                        }
                     }
                     let (n, _) = recv(&server, &mut packet, RecvFlags::empty()).unwrap();
-                    let id = if stage == "freeze" { 5u32 } else { 3 };
+                    let id = if stage == "freeze" { 7u32 } else { 4 };
                     let operation = if stage == "freeze" { 1 } else { 23 };
                     let mut expected = id.to_be_bytes().to_vec();
                     expected.push(operation);
@@ -1226,7 +1251,8 @@ pub(crate) mod tests {
                     };
                     send(&server, &reply, SendFlags::NOSIGNAL).unwrap();
                 });
-                let broker = Arc::new(crate::broker::control::SocketpairBroker::new(client).unwrap());
+                let broker =
+                    Arc::new(crate::broker::control::SocketpairBroker::new(client).unwrap());
                 let hooks = crate::wiring::compose(Hooks {
                     core: core.clone(),
                     events: core.events.clone(),
@@ -1240,7 +1266,8 @@ pub(crate) mod tests {
                 let mut cx = LockCx::new(hooks);
                 // Repeat after transport failure: a poisoned connection must not
                 // regain authority or silently fall back to repository execution.
-                let files = crate::files::Files::fixture(std::fs::File::open(&root).unwrap(), core.clone());
+                let files =
+                    crate::files::Files::fixture(std::fs::File::open(&root).unwrap(), core.clone());
                 for _ in 0..2 {
                     let response = call_in(
                         &mut cx,
@@ -1360,8 +1387,12 @@ pub(crate) mod tests {
         }
         assert_eq!(exchange(254, &[])[4], 255);
         assert_eq!(exchange(7, &[field(1, 999u32.to_be_bytes())])[4], 255);
-        assert!(fs::read_to_string("/sys/fs/cgroup/smithers/sessions/cgroup.events")
-            .unwrap().lines().any(|line| line == "frozen 0"));
+        assert!(
+            fs::read_to_string("/sys/fs/cgroup/smithers/sessions/cgroup.events")
+                .unwrap()
+                .lines()
+                .any(|line| line == "frozen 0")
+        );
         assert_eq!(exchange(2, &[field(1, b"/workspace/evil")])[4], 255);
         // Pass only the already boot-controlled socket descriptor to machined.
         rustix::io::fcntl_setfd(&client, rustix::io::FdFlags::empty()).unwrap();
@@ -1447,36 +1478,67 @@ pub(crate) mod tests {
         std::os::unix::fs::symlink(&fifo, &alias).unwrap();
         for path in [&fifo, &alias] {
             let mut packet = 9u32.to_be_bytes().to_vec();
-            packet.extend(tagged(1, &[field(1, 1000u32.to_be_bytes()),
-                field(2, path.to_str().unwrap().as_bytes())]));
+            packet.extend(tagged(
+                1,
+                &[
+                    field(1, 1000u32.to_be_bytes()),
+                    field(2, path.to_str().unwrap().as_bytes()),
+                ],
+            ));
             rustix::net::send(&socket, &packet, rustix::net::SendFlags::NOSIGNAL).unwrap();
             let mut response = [0; 65536];
-            let (length, _) = rustix::net::recv(&socket, &mut response, rustix::net::RecvFlags::empty()).unwrap();
+            let (length, _) =
+                rustix::net::recv(&socket, &mut response, rustix::net::RecvFlags::empty()).unwrap();
             assert!(length > 4);
             assert_eq!(response[4], 255);
         }
         fs::remove_file(alias).unwrap();
         fs::remove_file(fifo).unwrap();
         let broker = Arc::new(crate::broker::control::SocketpairBroker::new(socket).unwrap());
-        let files = Arc::new(crate::files::Files::new(std::fs::File::open(&root).unwrap(), core.clone()).unwrap());
+        let files = Arc::new(
+            crate::files::Files::new(std::fs::File::open(&root).unwrap(), core.clone()).unwrap(),
+        );
         let executor = crate::lock::Executor::start(Hooks {
-            core: core.clone(), events: core.events.clone(),
-            documents: Arc::new(Flushed), watcher: Arc::new(Flushed),
-            sessions: broker.clone(), broker, ..Default::default()
-        }).unwrap();
+            core: core.clone(),
+            events: core.events.clone(),
+            documents: Arc::new(Flushed),
+            watcher: Arc::new(Flushed),
+            sessions: broker.clone(),
+            broker,
+            ..Default::default()
+        })
+        .unwrap();
         let admitted = executor.lock.epoch();
         let (release, held) = std::sync::mpsc::channel();
-        let returning = executor.lock.enqueue("return_to_item", move |cx| {
-            held.recv().unwrap();
-            call_in(cx, 12, &[field(1, conn::actor_bytes(&Actor::Principal(vec![7;16])))])
-        }).unwrap();
+        let returning = executor
+            .lock
+            .enqueue("return_to_item", move |cx| {
+                held.recv().unwrap();
+                call_in(
+                    cx,
+                    12,
+                    &[field(1, conn::actor_bytes(&Actor::Principal(vec![7; 16])))],
+                )
+            })
+            .unwrap();
         // Admitted before Return, but queued behind it on the production FIFO.
-        let queued = executor.lock.enqueue("coding_batch", move |cx| {
-            crate::local::batch_response(cx, &files, 74, vec![crate::hooks::FileWrite {
-                path: "notes.txt".into(), base: crate::hooks::Base::Absent,
-                content: Some(b"must never land".to_vec()),
-            }], Actor::Principal(vec![7;16]), admitted)
-        }).unwrap();
+        let queued = executor
+            .lock
+            .enqueue("coding_batch", move |cx| {
+                crate::local::batch_response(
+                    cx,
+                    &files,
+                    74,
+                    vec![crate::hooks::FileWrite {
+                        path: "notes.txt".into(),
+                        base: crate::hooks::Base::Absent,
+                        content: Some(b"must never land".to_vec()),
+                    }],
+                    Actor::Principal(vec![7; 16]),
+                    admitted,
+                )
+            })
+            .unwrap();
         release.send(()).unwrap();
         let response = returning.wait().unwrap();
         let value = conn::fields("response", &response.payload[1..]).unwrap()[1].1;
@@ -2384,7 +2446,9 @@ pub(crate) mod tests {
     fn rebase_rpc_preserves_acknowledged_item_and_uncaptured_work() {
         let (dir, core) = fixture();
         let log_path = dir.path().join("rebase.jsonl");
-        core.events.observe_rebases([7; 16], fs::File::create(&log_path).unwrap()).unwrap();
+        core.events
+            .observe_rebases([7; 16], fs::File::create(&log_path).unwrap())
+            .unwrap();
         let root = dir.path().join("workspace");
         fs::write(root.join("base"), b"base bytes\n").unwrap();
         let base = core.native.snapshot().unwrap().0;
@@ -2426,22 +2490,35 @@ pub(crate) mod tests {
             Some(item),
             "a local rewrite cannot invent a host acknowledgement"
         );
-        let rows: Vec<serde_json::Value> = fs::read_to_string(log_path).unwrap().lines()
-            .map(|line| serde_json::from_str(line).unwrap()).collect();
+        let rows: Vec<serde_json::Value> = fs::read_to_string(log_path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["phase"], "held");
         assert_eq!(rows[1]["phase"], "thawed");
         assert_eq!(rows[0]["id"], rows[1]["id"]);
         assert_eq!(rows[0]["start"], rows[1]["start"]);
-        assert_eq!(rows[0]["clock"], format!("guest monotonic:{}", "07".repeat(16)));
-        assert_eq!(rows[0]["onto"], onto.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+        assert_eq!(
+            rows[0]["clock"],
+            format!("guest monotonic:{}", "07".repeat(16))
+        );
+        assert_eq!(
+            rows[0]["onto"],
+            onto.iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
         assert_eq!(rows[1]["capture"]["boot"], "07".repeat(16));
         assert_eq!(rows[1]["localSnapshotQueued"], true);
         assert_eq!(rows[1]["acknowledgedBeforeThaw"], false);
         assert_eq!(rows[1]["failed"], false);
         assert!(rows[1]["end"].as_f64().unwrap() >= rows[0]["start"].as_f64().unwrap());
-        assert_eq!(rows[1]["capture"]["sequence"].as_u64(), Some(core.events.next_sequence().unwrap() - 1));
-
+        assert_eq!(
+            rows[1]["capture"]["sequence"].as_u64(),
+            Some(core.events.next_sequence().unwrap() - 1)
+        );
     }
     fn rebase(core: &Arc<NativeCore>, onto: Oid) -> Frame {
         call(
@@ -2546,13 +2623,11 @@ pub(crate) mod tests {
         let fields = conn::fields("result18", &fields[1].1[1..]).unwrap();
         assert_eq!(fields[0].1, &[0, 0]);
 
-        assert!(
-            restarted
-                .native
-                .resolution_paths(retained, onto)
-                .unwrap()
-                .is_empty()
-        );
+        assert!(restarted
+            .native
+            .resolution_paths(retained, onto)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -2574,7 +2649,10 @@ pub(crate) mod tests {
         let head = rebased_head(&rebase_response);
         let response = conn::fields("response", &rebase_response.payload[1..]).unwrap();
         let rewritten = conn::fields("result11", &response[1].1[1..]).unwrap();
-        assert_eq!(rewritten[1].1, crate::reconcile::paths_payload(&["conflict".into()]).unwrap());
+        assert_eq!(
+            rewritten[1].1,
+            crate::reconcile::paths_payload(&["conflict".into()]).unwrap()
+        );
         crate::native::tests::assert_rebase(&core.native, head, onto, item, true);
         let markers = fs::read_to_string(root.join("conflict")).unwrap();
         assert!(markers.contains("<<<<<<<"), "{markers}");
@@ -2621,25 +2699,33 @@ pub(crate) mod tests {
         core.native.move_to(item).unwrap();
         core.git.clone().acknowledge_and_sync(item).unwrap();
         let head = rebased_head(&rebase(&core, onto));
-        let inspected = call(core.clone(),18,&[field(1,head),field(2,onto)]);
+        let inspected = call(core.clone(), 18, &[field(1, head), field(2, onto)]);
         let response = conn::fields("response", &inspected.payload[1..]).unwrap();
-        assert_eq!(response[1].1[0],18);
+        assert_eq!(response[1].1[0], 18);
         let inspection = conn::fields("result18", &response[1].1[1..]).unwrap();
-        assert_eq!(inspection.iter().find(|(tag,_)| *tag==1).unwrap().1,
-            crate::reconcile::paths_payload(&["conflict".into()]).unwrap());
+        assert_eq!(
+            inspection.iter().find(|(tag, _)| *tag == 1).unwrap().1,
+            crate::reconcile::paths_payload(&["conflict".into()]).unwrap()
+        );
         let markers = fs::read(root.join("conflict")).unwrap();
-        let stale = call(core.clone(),18,&[field(1,head),field(2,base)]);
+        let stale = call(core.clone(), 18, &[field(1, head), field(2, base)]);
         let response = conn::fields("response", &stale.payload[1..]).unwrap();
-        assert_eq!(response[1].1[0],255);
-        assert_eq!(core.native.current().unwrap().0,head);
-        assert_eq!(fs::read(root.join("conflict")).unwrap(),markers);
-        fs::write(root.join("conflict"),b"resolved item and main\n").unwrap();
-        let inspected = call(core.clone(),18,&[field(1,head),field(2,onto)]);
+        assert_eq!(response[1].1[0], 255);
+        assert_eq!(core.native.current().unwrap().0, head);
+        assert_eq!(fs::read(root.join("conflict")).unwrap(), markers);
+        fs::write(root.join("conflict"), b"resolved item and main\n").unwrap();
+        let inspected = call(core.clone(), 18, &[field(1, head), field(2, onto)]);
         let response = conn::fields("response", &inspected.payload[1..]).unwrap();
-        assert_eq!(response[1].1[0],18);
+        assert_eq!(response[1].1[0], 18);
         let inspection = conn::fields("result18", &response[1].1[1..]).unwrap();
-        assert_eq!(inspection.iter().find(|(tag,_)| *tag==1).unwrap().1,[0,0]);
-        assert_eq!(fs::read(root.join("conflict")).unwrap(),b"resolved item and main\n");
+        assert_eq!(
+            inspection.iter().find(|(tag, _)| *tag == 1).unwrap().1,
+            [0, 0]
+        );
+        assert_eq!(
+            fs::read(root.join("conflict")).unwrap(),
+            b"resolved item and main\n"
+        );
     }
     #[test]
     fn rebase_rpc_refuses_missing_verified_base_before_capture() {
@@ -2650,29 +2736,41 @@ pub(crate) mod tests {
         fs::write(root.join("item"), b"retained item\n").unwrap();
         let item = core.native.snapshot().unwrap().0;
         let change = crate::native::tests::change(&core.native, item);
-        Arc::get_mut(&mut core).unwrap().item = Some(crate::boot::ItemBinding { number: 1, change });
+        Arc::get_mut(&mut core).unwrap().item =
+            Some(crate::boot::ItemBinding { number: 1, change });
         crate::native::tests::child(&core.native, base, "main");
         fs::write(root.join("main"), b"main bytes\n").unwrap();
         let onto = core.native.snapshot().unwrap().0;
         core.native.move_to(item).unwrap();
-        let response = call(core.clone(), 11, &[
-            field(1, onto),
-            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
-            field(3, [255; 20]),
-        ]);
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+                field(3, [255; 20]),
+            ],
+        );
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1[0], 255);
         assert_eq!(core.native.current().unwrap().0, item);
         assert_eq!(fs::read(root.join("item")).unwrap(), b"retained item\n");
         assert!(!dir.path().join("state/rewrite.operation").exists());
         assert_eq!(core.events.depth().unwrap(), 0);
-        let response = call(core.clone(), 11, &[
-            field(1, onto),
-            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
-            field(3, base),
-        ]);
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+                field(3, base),
+            ],
+        );
         let head = rebased_head(&response);
-        assert!(core.native.descends_from_item(core.item.as_ref().unwrap().change.as_str()).unwrap());
+        assert!(core
+            .native
+            .descends_from_item(core.item.as_ref().unwrap().change.as_str())
+            .unwrap());
         assert_eq!(fs::read(root.join("item")).unwrap(), b"retained item\n");
         assert_eq!(fs::read(root.join("main")).unwrap(), b"main bytes\n");
         assert_eq!(core.native.current().unwrap().0, head);
@@ -2692,27 +2790,47 @@ pub(crate) mod tests {
         fs::write(root.join("source"), b"new source bytes\n").unwrap();
         let onto = core.native.snapshot().unwrap().0;
         core.native.move_to(before).unwrap();
-        let response = call(core.clone(), 11, &[
-            field(1, onto),
-            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
-            field(3, onto),
-        ]);
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+                field(3, onto),
+            ],
+        );
         let fields = conn::fields("response", &response.payload[1..]).unwrap();
         assert_eq!(fields[1].1[0], 255);
         assert_eq!(core.native.current().unwrap().0, before);
-        assert_eq!(fs::read(root.join("first")).unwrap(), b"first scratch bytes\n");
+        assert_eq!(
+            fs::read(root.join("first")).unwrap(),
+            b"first scratch bytes\n"
+        );
         assert!(!dir.path().join("state/rewrite.operation").exists());
         assert_eq!(core.events.depth().unwrap(), 0);
-        let response = call(core.clone(), 11, &[
-            field(1, onto),
-            field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
-            field(3, base),
-        ]);
+        let response = call(
+            core.clone(),
+            11,
+            &[
+                field(1, onto),
+                field(2, conn::actor_bytes(&Actor::Principal(b"person".to_vec()))),
+                field(3, base),
+            ],
+        );
         let head = rebased_head(&response);
         assert_eq!(core.native.current().unwrap().0, head);
-        assert_eq!(fs::read(root.join("first")).unwrap(), b"first scratch bytes\n");
-        assert_eq!(fs::read(root.join("later")).unwrap(), b"later scratch bytes\n");
-        assert_eq!(fs::read(root.join("source")).unwrap(), b"new source bytes\n");
+        assert_eq!(
+            fs::read(root.join("first")).unwrap(),
+            b"first scratch bytes\n"
+        );
+        assert_eq!(
+            fs::read(root.join("later")).unwrap(),
+            b"later scratch bytes\n"
+        );
+        assert_eq!(
+            fs::read(root.join("source")).unwrap(),
+            b"new source bytes\n"
+        );
         assert_eq!(core.item.as_ref().unwrap().number, 0);
     }
     #[test]

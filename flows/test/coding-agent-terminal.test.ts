@@ -151,23 +151,26 @@ test("an unconfirmed cancellation reports that cleanup is unconfirmed", async (t
 })
 
 test("the status parser accepts only the client's documented lines", () => {
-  assert.deepEqual(CodingTerminal.parseStatus('noise\n{"exit":7}\n'), { exit: 7 })
-  assert.deepEqual(CodingTerminal.parseStatus('{"signal":9}'), { signal: 9 })
-  assert.deepEqual(CodingTerminal.parseStatus('{"cancelled":true,"clean":false}'), { cancelled: true, clean: false })
-  assert.deepEqual(CodingTerminal.parseStatus('{"error":{"code":"busy"}}'), { error: { code: "busy" } })
+  assert.deepEqual(CodingTerminal.parseStatus("noise\n{\"exit\":7}\n"), { exit: 7 })
+  assert.deepEqual(CodingTerminal.parseStatus("{\"signal\":9}"), { signal: 9 })
+  assert.deepEqual(CodingTerminal.parseStatus("{\"cancelled\":true,\"clean\":false}"), {
+    cancelled: true,
+    clean: false
+  })
+  assert.deepEqual(CodingTerminal.parseStatus("{\"error\":{\"code\":\"busy\"}}"), { error: { code: "busy" } })
   for (
     const bad of [
       "",
       "{",
       "[1]",
-      '{"exit":256}',
-      '{"exit":-1}',
-      '{"exit":1.5}',
-      '{"exit":1,"signal":2}',
-      '{"signal":0}',
-      '{"cancelled":false,"clean":true}',
-      '{"error":{"code":"Bad Code"}}',
-      '{"error":null}',
+      "{\"exit\":256}",
+      "{\"exit\":-1}",
+      "{\"exit\":1.5}",
+      "{\"exit\":1,\"signal\":2}",
+      "{\"signal\":0}",
+      "{\"cancelled\":false,\"clean\":true}",
+      "{\"error\":{\"code\":\"Bad Code\"}}",
+      "{\"error\":null}",
       "null"
     ]
   ) {
@@ -177,7 +180,9 @@ test("the status parser accepts only the client's documented lines", () => {
 
 test("off a machine there is no agent terminal, so bash refuses instead of spawning here", async () => {
   const port = await Effect.runPromise(
-    Effect.map(ChildProcessSpawner.ChildProcessSpawner, CodingTerminal.installed).pipe(Effect.provide(NodeServices.layer))
+    Effect.map(ChildProcessSpawner.ChildProcessSpawner, CodingTerminal.installed).pipe(
+      Effect.provide(NodeServices.layer)
+    )
   )
   assert.equal(port, undefined)
   assert.deepEqual(CodingTerminal.request({ command: "a", script: "b", mode: "unhermetic" }) instanceof Error, true)

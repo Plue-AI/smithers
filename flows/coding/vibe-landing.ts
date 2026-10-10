@@ -363,44 +363,47 @@ const requireLocal = Effect.flatMap(
     )
 )
 const atomsOf = (cleanup: VibeCleanup) => cleanup.result.changes.flatMap((change) => change.implementation.atoms)
-const stackOperations = (install: boolean) => Layer.mergeAll(
-  ReadStack.toLayer(({ cleanup }) =>
-    Effect.flatMap(
-      requireBackend,
-      (landing) =>
-        Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
-          !stacked
-            ? install || cleanup.admission.fromStack === true
-              ? Effect.fail(new CodingError({ code: "unavailable", message: "TODO stack is unavailable" }))
-              : Effect.succeed(false)
-            // The stack launched this request from its base; its lane waits for the result.
-            : install || cleanup.admission.fromStack === true
-            ? Effect.succeed(true)
-            : Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request"))
-    )
-  ),
-  SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
-    Effect.gen(function*() {
-      const landing = yield* requireBackend, instance = yield* FlowRuntime.FlowInstance
-      if (landing.submitLane === undefined) return yield* invalid("This host cannot hand results to the mythical stack")
-      const original = cleanup.admission.originalSource
-      if (cleanedSource.source.commitId !== cleanup.head.commitId || original.parentCommitIds.length !== 1) {
-        return yield* invalid(
-          "A stack submission requires the exact retained cleaned source and a linear original source"
-        )
-      }
-      const lane = yield* landing.submitLane({
-        workspaceId: landing.binding.workspaceId,
-        base: cleanup.admission.stackBase ?? original.parentCommitIds[0]!,
-        source: cleanup.head.commitId,
-        requestRunId: cleanup.admission.requestExecutionId || instance.executionId,
-        summary: cleanup.summary,
-        ...(cleanup.admission.fromStack === true ? { plan: cleanup.admission.request.plan } : {})
+const stackOperations = (install: boolean) =>
+  Layer.mergeAll(
+    ReadStack.toLayer(({ cleanup }) =>
+      Effect.flatMap(
+        requireBackend,
+        (landing) =>
+          Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
+            !stacked
+              ? install || cleanup.admission.fromStack === true
+                ? Effect.fail(new CodingError({ code: "unavailable", message: "TODO stack is unavailable" }))
+                : Effect.succeed(false)
+              // The stack launched this request from its base; its lane waits for the result.
+              : install || cleanup.admission.fromStack === true
+              ? Effect.succeed(true)
+              : Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request"))
+      )
+    ),
+    SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
+      Effect.gen(function*() {
+        const landing = yield* requireBackend, instance = yield* FlowRuntime.FlowInstance
+        if (landing.submitLane === undefined) {
+          return yield* invalid("This host cannot hand results to the mythical stack")
+        }
+        const original = cleanup.admission.originalSource
+        if (cleanedSource.source.commitId !== cleanup.head.commitId || original.parentCommitIds.length !== 1) {
+          return yield* invalid(
+            "A stack submission requires the exact retained cleaned source and a linear original source"
+          )
+        }
+        const lane = yield* landing.submitLane({
+          workspaceId: landing.binding.workspaceId,
+          base: cleanup.admission.stackBase ?? original.parentCommitIds[0]!,
+          source: cleanup.head.commitId,
+          requestRunId: cleanup.admission.requestExecutionId || instance.executionId,
+          summary: cleanup.summary,
+          ...(cleanup.admission.fromStack === true ? { plan: cleanup.admission.request.plan } : {})
+        })
+        return { cleanup, cleanedSource, lane }
       })
-      return { cleanup, cleanedSource, lane }
-    })
+    )
   )
-)
 const backendOperations = Layer.mergeAll(
   stackOperations(false),
   Interpreter.layer(AwaitAppend),

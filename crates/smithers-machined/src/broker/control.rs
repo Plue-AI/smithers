@@ -239,7 +239,7 @@ impl SocketpairBroker {
                         passed = descriptors.last();
                     }
                 }
-                if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
+                if !(5..=65560).contains(&n) || bytes[..4] != id.to_be_bytes() {
                     return Err(io::ErrorKind::InvalidData.into());
                 }
                 bytes.truncate(n);

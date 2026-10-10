@@ -10,7 +10,7 @@ use smithers_machined::{
     watch::{Inotify, InotifyWatcher},
     watcher_store::Store,
 };
-use std::{collections::BTreeMap, io, path::Path, sync::atomic::AtomicBool};
+use std::{collections::BTreeMap, io, sync::atomic::AtomicBool};
 
 #[derive(Default)]
 struct Observed {

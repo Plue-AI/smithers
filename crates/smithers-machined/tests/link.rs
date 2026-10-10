@@ -1155,39 +1155,73 @@ fn authenticated_wake_starts_cadence_and_disconnect_keeps_capturing() {
         fail: AtomicBool,
     }
     impl hooks::Clock for Timers {
-        fn mono(&self) -> Instant { self.start + Duration::from_secs(self.seconds.load(SeqCst)) }
+        fn mono(&self) -> Instant {
+            self.start + Duration::from_secs(self.seconds.load(SeqCst))
+        }
         fn now(&self) -> std::time::SystemTime {
             std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(self.seconds.load(SeqCst))
         }
     }
     impl hooks::Watcher for Timers {
-        fn ready(&self) -> hooks::Result<()> { Ok(()) }
-        fn drain(&self, _: &mut smithers_machined::lock::LockCx) -> hooks::Result<()> { Ok(()) }
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn drain(&self, _: &mut smithers_machined::lock::LockCx) -> hooks::Result<()> {
+            Ok(())
+        }
     }
     impl hooks::EventSink for Timers {
-        fn ready(&self) -> hooks::Result<()> { Ok(()) }
-        fn burst_generation(&self) -> u64 { self.bursts.load(SeqCst) }
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn burst_generation(&self) -> u64 {
+            self.bursts.load(SeqCst)
+        }
     }
     impl Core for Timers {
         fn maintain(&self, _: &mut smithers_machined::lock::LockCx) -> hooks::Result<()> {
             self.cleanups.fetch_add(1, SeqCst);
             Ok(())
         }
-        fn ready(&self) -> hooks::Result<()> { Ok(()) }
-        fn call(&self, cx: &mut smithers_machined::lock::LockCx, method: u8, args: &[u8]) -> hooks::Result<Vec<u8>> {
-            if method != 4 { return Reconciler.call(cx, method, args); }
-            if self.fail.load(SeqCst) { return Err(hooks::Error::unsupported()); }
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn call(
+            &self,
+            cx: &mut smithers_machined::lock::LockCx,
+            method: u8,
+            args: &[u8],
+        ) -> hooks::Result<Vec<u8>> {
+            if method != 4 {
+                return Reconciler.call(cx, method, args);
+            }
+            if self.fail.load(SeqCst) {
+                return Err(hooks::Error::unsupported());
+            }
             self.captures.fetch_add(1, SeqCst);
             Ok(vec![])
         }
     }
-    let timers = Arc::new(Timers { start: Instant::now(), seconds: AtomicU64::new(0),
-        bursts: AtomicU64::new(0), captures: AtomicU64::new(0), cleanups: AtomicU64::new(0), fail: AtomicBool::new(false) });
-    let daemon = Arc::new(smithers_machined::daemon::Daemon::new(Hooks {
-        core: timers.clone(), clock: timers.clone(), watcher: timers.clone(), events: timers.clone(),
-        documents: Arc::new(Ready), sessions: Arc::new(Ready),
-        broker: Arc::new(Roster(AtomicBool::new(false))), ..Default::default()
-    }).unwrap());
+    let timers = Arc::new(Timers {
+        start: Instant::now(),
+        seconds: AtomicU64::new(0),
+        bursts: AtomicU64::new(0),
+        captures: AtomicU64::new(0),
+        cleanups: AtomicU64::new(0),
+        fail: AtomicBool::new(false),
+    });
+    let daemon = Arc::new(
+        smithers_machined::daemon::Daemon::new(Hooks {
+            core: timers.clone(),
+            clock: timers.clone(),
+            watcher: timers.clone(),
+            events: timers.clone(),
+            documents: Arc::new(Ready),
+            sessions: Arc::new(Ready),
+            broker: Arc::new(Roster(AtomicBool::new(false))),
+        })
+        .unwrap(),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let d = daemon.clone();

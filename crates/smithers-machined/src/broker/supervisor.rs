@@ -95,6 +95,16 @@ fn invalid() -> io::Error {
     io::ErrorKind::InvalidInput.into()
 }
 struct Shared<K>(Arc<Mutex<K>>);
+struct OpenSession {
+    user: User,
+    kind: Kind,
+    argv: Vec<String>,
+    size: Option<(u16, u16)>,
+    port: Option<u16>,
+    caller: Option<u32>,
+    admission: Admission,
+}
+
 impl<K> Clone for Shared<K> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -217,16 +227,16 @@ impl<K: Kernel> Supervisor<K> {
         self.next += 1;
         Ok(id)
     }
-    fn open(
-        &mut self,
-        user: User,
-        kind: Kind,
-        argv: Vec<String>,
-        size: Option<(u16, u16)>,
-        port: Option<u16>,
-        caller: Option<u32>,
-        admission: Admission,
-    ) -> io::Result<u32> {
+    fn open(&mut self, request: OpenSession) -> io::Result<u32> {
+        let OpenSession {
+            user,
+            kind,
+            argv,
+            size,
+            port,
+            caller,
+            admission,
+        } = request;
         self.registry.authorize(&user)?;
         admission.validate(&user, kind)?;
         if self.registry.entries().count() >= sessions::MAX_SESSIONS || self.next > 0x7fff_ffff {
@@ -324,7 +334,15 @@ impl<K: Kernel> Supervisor<K> {
                 admission: None,
             } if user.uid == 19999 => {
                 let admission = self.registry.local_admission(19999, caller)?;
-                let id = self.open(user, Kind::Pty, argv, size, None, Some(caller), admission)?;
+                let id = self.open(OpenSession {
+                    user,
+                    kind: Kind::Pty,
+                    argv,
+                    size,
+                    port: None,
+                    caller: Some(caller),
+                    admission,
+                })?;
                 Ok(conn::structure_bytes(&[conn::field(1, id.to_be_bytes())]))
             }
             _ => Err(invalid()),
@@ -688,31 +706,31 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 admission,
             } => vec![conn::field(
                 1,
-                self.open(
+                self.open(OpenSession {
                     user,
                     kind,
                     argv,
                     size,
-                    None,
-                    None,
-                    admission.ok_or_else(invalid)?,
-                )?
+                    port: None,
+                    caller: None,
+                    admission: admission.ok_or_else(invalid)?,
+                })?
                 .to_be_bytes(),
             )],
             Request::Tcp(port, admission) => vec![conn::field(
                 1,
-                self.open(
-                    User {
+                self.open(OpenSession {
+                    user: User {
                         login: "agent".into(),
                         uid: 19999,
                     },
-                    Kind::Tcp,
-                    vec![],
-                    None,
-                    Some(port),
-                    None,
-                    admission.ok_or_else(invalid)?,
-                )?
+                    kind: Kind::Tcp,
+                    argv: vec![],
+                    size: None,
+                    port: Some(port),
+                    caller: None,
+                    admission: admission.ok_or_else(invalid)?,
+                })?
                 .to_be_bytes(),
             )],
             Request::Close(id) => {

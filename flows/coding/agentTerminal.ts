@@ -63,7 +63,9 @@ export const request = (input: Bash.Input): string | StdError => {
   const invocation = Bash.invocation(input)
   if (invocation instanceof StdError) return invocation
   // A command line runs in the platform shell, exactly as Bash.run's spawn.
-  const argv = invocation.args === undefined ? ["/bin/sh", "-c", invocation.file] : [invocation.file, ...invocation.args]
+  const argv = invocation.args === undefined
+    ? ["/bin/sh", "-c", invocation.file]
+    : [invocation.file, ...invocation.args]
   return JSON.stringify({
     argv,
     ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
@@ -116,7 +118,10 @@ const failure = (status: Status | undefined): StdError => {
   if (status !== undefined && "error" in status) {
     const code = status.error.code
     return code === "runner" || code === "closed"
-      ? new StdError({ code: "command_failed", message: `Agent terminal command ${code === "runner" ? "did not start" : "closed without status"}` })
+      ? new StdError({
+        code: "command_failed",
+        message: `Agent terminal command ${code === "runner" ? "did not start" : "closed without status"}`
+      })
       : new StdError({ code: "provider_unavailable", message: `Agent terminal unavailable: ${code}` })
   }
   return new StdError({ code: "command_failed", message: "Agent terminal transport failed" })
@@ -154,8 +159,11 @@ export const port = (
           if (signal.aborted) cancel()
           else signal.addEventListener("abort", cancel, { once: true })
           const errors = yield* Effect.forkChild(
-            Stream.runFold(child.stderr, () => "", (text, bytes) =>
-              text.length > MAX_STDERR ? text : text + new TextDecoder().decode(bytes))
+            Stream.runFold(
+              child.stderr,
+              () => "",
+              (text, bytes) => text.length > MAX_STDERR ? text : text + new TextDecoder().decode(bytes)
+            )
           )
           yield* Stream.runForEach(child.stdout, (bytes) =>
             Effect.sync(() => {

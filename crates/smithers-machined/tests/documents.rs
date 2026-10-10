@@ -1653,7 +1653,11 @@ mod dispatcher {
             fn ready(&self) -> hooks::Result<()> {
                 Ok(())
             }
-            fn validate_rebase(&self, onto: [u8; 20], _base: Option<[u8; 20]>) -> hooks::Result<()> {
+            fn validate_rebase(
+                &self,
+                onto: [u8; 20],
+                _base: Option<[u8; 20]>,
+            ) -> hooks::Result<()> {
                 assert_eq!(onto, [17; 20]);
                 Ok(())
             }
@@ -1668,7 +1672,12 @@ mod dispatcher {
                 self.calls.lock().unwrap().push("capture");
                 Ok(())
             }
-            fn rebase(&self, _: &mut LockCx, _: [u8; 20], _base: Option<[u8; 20]>) -> hooks::Result<[u8; 20]> {
+            fn rebase(
+                &self,
+                _: &mut LockCx,
+                _: [u8; 20],
+                _base: Option<[u8; 20]>,
+            ) -> hooks::Result<[u8; 20]> {
                 self.calls.lock().unwrap().push("rewrite");
                 self.disk
                     .0
@@ -1730,7 +1739,10 @@ mod dispatcher {
             if method == 12 {
                 let refused = rpc::dispatch(&control(method, &fields), &mut cx).unwrap();
                 let result = conn::fields("response", &refused.payload[1..]).unwrap()[1].1;
-                assert_eq!(result[0], 255, "missing session/event providers refuse Return");
+                assert_eq!(
+                    result[0], 255,
+                    "missing session/event providers refuse Return"
+                );
                 assert!(rewrite.calls.lock().unwrap().is_empty());
                 assert_eq!(disk.0.lock().unwrap().files["a.rs"], b"abc");
             }
@@ -2453,8 +2465,10 @@ mod dispatcher {
     #[test]
     fn absent_creation_retains_even_an_empty_outside_file() {
         for bytes in [b"ours".as_slice(), b"".as_slice()] {
-            let mut model = Model::default();
-            model.swap_race = Some(vec![]);
+            let model = Model {
+                swap_race: Some(vec![]),
+                ..Default::default()
+            };
             let disk = Shared(Arc::new(Mutex::new(model)));
             let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
             let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);
@@ -2519,8 +2533,10 @@ mod dispatcher {
     }
     #[test]
     fn interrupted_create_does_not_recover_over_a_later_empty_outside_file() {
-        let mut model = Model::default();
-        model.fail = Some("swap");
+        let model = Model {
+            fail: Some("swap"),
+            ..Default::default()
+        };
         let disk = Shared(Arc::new(Mutex::new(model)));
         let clock = Arc::new(Clock(AtomicU64::new(0), std::time::Instant::now()));
         let service = Service::new(Host::new(disk.clone(), gates(), ids()), clock);

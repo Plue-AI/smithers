@@ -262,7 +262,15 @@ for (const mode of modes) {
     )
     t.after(() => host.dispose())
     const installHost = ManagedRuntime.make(
-      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+      Layer.mergeAll(
+        stackBaseLayer,
+        backendLandingLayers,
+        landerLayer,
+        publicationLayers,
+        noChecks,
+        Poll.layer,
+        Sleep.layer
+      )
         .pipe(
           Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
           Layer.provideMerge(Action.layerImplementations),
@@ -272,9 +280,10 @@ for (const mode of modes) {
     )
     t.after(() => installHost.dispose())
     const execute = LandVibe.execute(mode === "from-stack-without-stack" ? fromStack : cleanup, { executionId: "land" })
-    const run = () => mode === "install-without-stack"
-      ? installHost.runPromise(InstallLandVibe.execute(cleanup, { executionId: "land" }))
-      : host.runPromise(execute)
+    const run = () =>
+      mode === "install-without-stack"
+        ? installHost.runPromise(InstallLandVibe.execute(cleanup, { executionId: "land" }))
+        : host.runPromise(execute)
     if (mode === "from-stack-without-stack" || mode === "install-without-stack") {
       await assert.rejects(
         run(),
@@ -340,191 +349,218 @@ for (const mode of modes) {
   })
 }
 
-for (const installed of [false, true]) test(
-  `vibe landing: ${installed ? "installed" : "hosted"} repository submits to its active stack`,
-  { timeout: 60_000 },
-  async (t) => {
-    const calls: string[] = []
-    const unused = () => Effect.die("a stack repository neither appends nor opens its own pull request")
-    const fake: BackendLanding = {
-      kind: "backend",
-      binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
-      readMain: unused(),
-      pinMain: unused(),
-      readDelivery: installed ? unused() : Effect.sync(() => {
-        calls.push("delivery")
-        return "pull-request" as const
-      }),
-      openPull: unused,
-      prepare: unused,
-      create: unused,
-      queue: unused,
-      observe: unused,
-      readStack: Effect.sync(() => {
-        calls.push("stack")
-        return true
-      }),
-      submitLane: (submission) =>
-        Effect.sync(() => {
-          calls.push(`submit:${submission.base}:${submission.source}`)
-          assert.equal(submission.workspaceId, fake.binding.workspaceId)
-          assert.equal(submission.requestRunId, "request")
-          assert.equal(submission.summary, cleanup.summary)
-          assert.deepEqual(
-            submission.plan,
-            cleanup.admission.fromStack === true ? cleanup.admission.request.plan : undefined
+for (const installed of [false, true]) {
+  test(
+    `vibe landing: ${installed ? "installed" : "hosted"} repository submits to its active stack`,
+    { timeout: 60_000 },
+    async (t) => {
+      const calls: string[] = []
+      const unused = () => Effect.die("a stack repository neither appends nor opens its own pull request")
+      const fake: BackendLanding = {
+        kind: "backend",
+        binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
+        readMain: unused(),
+        pinMain: unused(),
+        readDelivery: installed ? unused() : Effect.sync(() => {
+          calls.push("delivery")
+          return "pull-request" as const
+        }),
+        openPull: unused,
+        prepare: unused,
+        create: unused,
+        queue: unused,
+        observe: unused,
+        readStack: Effect.sync(() => {
+          calls.push("stack")
+          return true
+        }),
+        submitLane: (submission) =>
+          Effect.sync(() => {
+            calls.push(`submit:${submission.base}:${submission.source}`)
+            assert.equal(submission.workspaceId, fake.binding.workspaceId)
+            assert.equal(submission.requestRunId, "request")
+            assert.equal(submission.summary, cleanup.summary)
+            assert.deepEqual(
+              submission.plan,
+              cleanup.admission.fromStack === true ? cleanup.admission.request.plan : undefined
+            )
+            return { itemId: "item-1", state: "integrating", source: submission.source }
+          })
+      }
+      const native = Layer.succeed(NativeCoding, {
+        sourcePublication: "cloud",
+        read: () => Effect.die("no reads"),
+        apply: () => Effect.die("no writes"),
+        publishOriginalSource: (request) =>
+          Effect.sync(() => {
+            calls.push(`retain:${request.source.commitId}`)
+            return {
+              status: "retained" as const,
+              requestId: request.requestId,
+              workspaceId: fake.binding.workspaceId,
+              repositoryId: 42,
+              ref: `refs/smithers/workspaces/${fake.binding.workspaceId}/sources/${request.source.commitId}`,
+              source: request.source
+            }
+          })
+      })
+      const host = ManagedRuntime.make(
+        Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+          .pipe(
+            Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
           )
-          return { itemId: "item-1", state: "integrating", source: submission.source }
-        })
-    }
-    const native = Layer.succeed(NativeCoding, {
-      sourcePublication: "cloud",
-      read: () => Effect.die("no reads"),
-      apply: () => Effect.die("no writes"),
-      publishOriginalSource: (request) =>
-        Effect.sync(() => {
-          calls.push(`retain:${request.source.commitId}`)
-          return {
-            status: "retained" as const,
-            requestId: request.requestId,
-            workspaceId: fake.binding.workspaceId,
-            repositoryId: 42,
-            ref: `refs/smithers/workspaces/${fake.binding.workspaceId}/sources/${request.source.commitId}`,
-            source: request.source
-          }
-        })
-    })
-    const host = ManagedRuntime.make(
-      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
-        .pipe(
-          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
-          Layer.provideMerge(Action.layerImplementations),
-          Layer.provideMerge(FlowEngine.layerMemory),
-          Layer.provideMerge(NodeCrypto.layer)
+      )
+      t.after(() => host.dispose())
+      const installHost = ManagedRuntime.make(
+        Layer.mergeAll(
+          stackBaseLayer,
+          backendLandingLayers,
+          landerLayer,
+          publicationLayers,
+          noChecks,
+          Poll.layer,
+          Sleep.layer
         )
-    )
-    t.after(() => host.dispose())
-    const installHost = ManagedRuntime.make(
-      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
-        .pipe(
-          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
-          Layer.provideMerge(Action.layerImplementations),
-          Layer.provideMerge(FlowEngine.layerMemory),
-          Layer.provideMerge(NodeCrypto.layer)
-        )
-    )
-    t.after(() => installHost.dispose())
-    // A stack request's original source is the fresh working change on the tip.
-    const tip = "7".repeat(40)
-    const stackCleanup: VibeCleanup = {
-      ...cleanup,
-      admission: { ...cleanup.admission, originalSource: { ...original, parentCommitIds: [tip] } }
+          .pipe(
+            Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
+          )
+      )
+      t.after(() => installHost.dispose())
+      // A stack request's original source is the fresh working change on the tip.
+      const tip = "7".repeat(40)
+      const stackCleanup: VibeCleanup = {
+        ...cleanup,
+        admission: { ...cleanup.admission, originalSource: { ...original, parentCommitIds: [tip] } }
+      }
+      const run = () =>
+        installed
+          ? installHost.runPromise(InstallLandVibe.execute(stackCleanup, { executionId: "stack" }))
+          : host.runPromise(LandVibe.execute(stackCleanup, { executionId: "stack" }))
+      const value = await run()
+      assert.ok("lane" in value)
+      assert.equal(value.lane.itemId, "item-1")
+      // The base is the stack tip the request started from: the original source's parent.
+      assert.deepEqual(calls, [
+        `retain:${last.commitId}`,
+        "stack",
+        ...(installed ? [] : ["delivery"]),
+        `submit:${tip}:${last.commitId}`
+      ])
+      const count = calls.length
+      assert.deepEqual(await run(), value)
+      assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
     }
-    const run = () => installed
-      ? installHost.runPromise(InstallLandVibe.execute(stackCleanup, { executionId: "stack" }))
-      : host.runPromise(LandVibe.execute(stackCleanup, { executionId: "stack" }))
-    const value = await run()
-    assert.ok("lane" in value)
-    assert.equal(value.lane.itemId, "item-1")
-    // The base is the stack tip the request started from: the original source's parent.
-    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", ...(installed ? [] : ["delivery"]), `submit:${tip}:${last.commitId}`])
-    const count = calls.length
-    assert.deepEqual(await run(), value)
-    assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
-  }
-)
+  )
+}
 
-for (const installed of [false, true]) test(
-  `vibe landing: ${installed ? "installed" : "hosted"} stack returns a proposal though main has no factory.json`,
-  { timeout: 60_000 },
-  async (t) => {
-    const calls: string[] = []
-    const unused = () => Effect.die("a stack request neither appends nor opens its own pull request")
-    const fake: BackendLanding = {
-      kind: "backend",
-      binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
-      readMain: unused(),
-      pinMain: unused(),
-      // Main has no .smithers/factory.json, so the declared delivery is the landing append.
-      readDelivery: Effect.sync(() => {
-        calls.push("delivery")
-        return "append" as const
-      }),
-      openPull: unused,
-      prepare: unused,
-      create: unused,
-      queue: unused,
-      observe: unused,
-      readStack: Effect.sync(() => {
-        calls.push("stack")
-        return true
-      }),
-      submitLane: unused
+for (const installed of [false, true]) {
+  test(
+    `vibe landing: ${installed ? "installed" : "hosted"} stack returns a proposal though main has no factory.json`,
+    { timeout: 60_000 },
+    async (t) => {
+      const calls: string[] = []
+      const unused = () => Effect.die("a stack request neither appends nor opens its own pull request")
+      const fake: BackendLanding = {
+        kind: "backend",
+        binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
+        readMain: unused(),
+        pinMain: unused(),
+        // Main has no .smithers/factory.json, so the declared delivery is the landing append.
+        readDelivery: Effect.sync(() => {
+          calls.push("delivery")
+          return "append" as const
+        }),
+        openPull: unused,
+        prepare: unused,
+        create: unused,
+        queue: unused,
+        observe: unused,
+        readStack: Effect.sync(() => {
+          calls.push("stack")
+          return true
+        }),
+        submitLane: unused
+      }
+      const native = Layer.succeed(NativeCoding, {
+        sourcePublication: "cloud",
+        stackCandidate: (_, plan) =>
+          Effect.sync(() => {
+            assert.deepEqual(plan, fromStack.admission.request.plan)
+            calls.push("candidate")
+            return { generation: 3, base: stackTip, head: last.commitId }
+          }),
+        stackPropose: (_requestId, generation) =>
+          Effect.sync(() => {
+            assert.equal(generation, 3)
+            calls.push("propose")
+            return { generation, head: last.commitId }
+          }),
+        read: () => Effect.die("no reads"),
+        apply: () => Effect.die("no writes"),
+        publishOriginalSource: (request) =>
+          Effect.sync(() => {
+            calls.push(`retain:${request.source.commitId}`)
+            return {
+              status: "retained" as const,
+              requestId: request.requestId,
+              workspaceId: fake.binding.workspaceId,
+              repositoryId: 42,
+              ref: `refs/smithers/workspaces/${fake.binding.workspaceId}/sources/${request.source.commitId}`,
+              source: request.source
+            }
+          })
+      })
+      const host = ManagedRuntime.make(
+        Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+          .pipe(
+            Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
+          )
+      )
+      t.after(() => host.dispose())
+      const installHost = ManagedRuntime.make(
+        Layer.mergeAll(
+          stackBaseLayer,
+          backendLandingLayers,
+          landerLayer,
+          publicationLayers,
+          noChecks,
+          Poll.layer,
+          Sleep.layer
+        )
+          .pipe(
+            Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+            Layer.provideMerge(Action.layerImplementations),
+            Layer.provideMerge(FlowEngine.layerMemory),
+            Layer.provideMerge(NodeCrypto.layer)
+          )
+      )
+      t.after(() => installHost.dispose())
+      const run = () =>
+        installed
+          ? installHost.runPromise(InstallLandVibe.execute(fromStack, { executionId: "from-stack" }))
+          : host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+      const value = await run()
+      assert.ok("proposal" in value)
+      assert.deepEqual(value.proposal, { generation: 3, head: last.commitId })
+      assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "candidate", "propose"])
+      await run()
+      assert.deepEqual(
+        calls,
+        [`retain:${last.commitId}`, "stack", "candidate", "propose"],
+        "replay neither captures nor proposes twice"
+      )
     }
-    const native = Layer.succeed(NativeCoding, {
-      sourcePublication: "cloud",
-      stackCandidate: (_, plan) =>
-        Effect.sync(() => {
-          assert.deepEqual(plan, fromStack.admission.request.plan)
-          calls.push("candidate")
-          return { generation: 3, base: stackTip, head: last.commitId }
-        }),
-      stackPropose: (_requestId, generation) =>
-        Effect.sync(() => {
-          assert.equal(generation, 3)
-          calls.push("propose")
-          return { generation, head: last.commitId }
-        }),
-      read: () => Effect.die("no reads"),
-      apply: () => Effect.die("no writes"),
-      publishOriginalSource: (request) =>
-        Effect.sync(() => {
-          calls.push(`retain:${request.source.commitId}`)
-          return {
-            status: "retained" as const,
-            requestId: request.requestId,
-            workspaceId: fake.binding.workspaceId,
-            repositoryId: 42,
-            ref: `refs/smithers/workspaces/${fake.binding.workspaceId}/sources/${request.source.commitId}`,
-            source: request.source
-          }
-        })
-    })
-    const host = ManagedRuntime.make(
-      Layer.mergeAll(stackBaseLayer, landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
-        .pipe(
-          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
-          Layer.provideMerge(Action.layerImplementations),
-          Layer.provideMerge(FlowEngine.layerMemory),
-          Layer.provideMerge(NodeCrypto.layer)
-        )
-    )
-    t.after(() => host.dispose())
-    const installHost = ManagedRuntime.make(
-      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
-        .pipe(
-          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
-          Layer.provideMerge(Action.layerImplementations),
-          Layer.provideMerge(FlowEngine.layerMemory),
-          Layer.provideMerge(NodeCrypto.layer)
-        )
-    )
-    t.after(() => installHost.dispose())
-    const run = () => installed
-      ? installHost.runPromise(InstallLandVibe.execute(fromStack, { executionId: "from-stack" }))
-      : host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
-    const value = await run()
-    assert.ok("proposal" in value)
-    assert.deepEqual(value.proposal, { generation: 3, head: last.commitId })
-    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "candidate", "propose"])
-    await run()
-    assert.deepEqual(
-      calls,
-      [`retain:${last.commitId}`, "stack", "candidate", "propose"],
-      "replay neither captures nor proposes twice"
-    )
-  }
-)
+  )
+}
 
 /** A host without the backend: the fake lander answers the members `LandVibe` runs, in order. */
 const localModes = [

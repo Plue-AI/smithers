@@ -125,7 +125,15 @@ pub fn serve(
     std::fs::File::open(format!("/proc/{}/cgroup", peer.pid.as_raw_nonzero()))?
         .take(4097)
         .read_to_string(&mut groups)?;
-    serve_peer(socket, peer.uid.as_raw(), groups, ready, sessions, lock, files)
+    serve_peer(
+        socket,
+        peer.uid.as_raw(),
+        groups,
+        ready,
+        sessions,
+        lock,
+        files,
+    )
 }
 /// Everything after the kernel credential read: `uid` and `groups` are the
 /// peer's `SO_PEERCRED` uid and `/proc/<pid>/cgroup` text.
@@ -138,8 +146,8 @@ pub(crate) fn serve_peer(
     lock: &Lock,
     files: Arc<Files>,
 ) -> io::Result<()> {
-    let run = admission_for_peer(uid, &groups, sessions)
-        .map_err(|_| io::ErrorKind::PermissionDenied)?;
+    let run =
+        admission_for_peer(uid, &groups, sessions).map_err(|_| io::ErrorKind::PermissionDenied)?;
     let admitted_epoch = lock.epoch();
     let frame = Frame::read_envelope(&mut socket).map_err(io::Error::other)?;
     if let Err(e) = frame.validate(true) {
@@ -313,7 +321,9 @@ mod tests {
         let workspace = std::fs::File::open(env!("CARGO_MANIFEST_DIR")).unwrap();
         let files = Arc::new(Files::fixture(workspace, Arc::new(crate::hooks::Disabled)));
         let (mut caller, server) = UnixStream::pair().unwrap();
-        caller.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        caller
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let lock = executor.lock.clone();
         let sessions = runs.clone();
         let worker = std::thread::spawn(move || {
@@ -331,7 +341,10 @@ mod tests {
         let mut reply = vec![];
         caller.read_to_end(&mut reply).unwrap();
         let _ = worker.join().unwrap();
-        let jobs = executor.lock.run_blocking("probe", |cx| cx.completed).unwrap();
+        let jobs = executor
+            .lock
+            .run_blocking("probe", |cx| cx.completed)
+            .unwrap();
         executor.shutdown().unwrap();
         (reply, runs.0.load(Ordering::SeqCst), jobs)
     }

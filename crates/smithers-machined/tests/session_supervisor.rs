@@ -357,13 +357,13 @@ fn failed_cleanup_blocks_every_spawn_until_confirmed_retry() {
         login: "alice".into(),
         uid: 20002,
     };
-    assert!(s.set_roster(&[alice.clone()], now).is_err());
+    assert!(s.set_roster(std::slice::from_ref(&alice), now).is_err());
     assert!(s.authorize(&alice).is_err());
     assert!(s.authorize(&agent).is_err());
     assert!(s.local_run(19999, 3).is_err());
     assert_eq!(s.entries().count(), 3);
     fail.store(false, Ordering::SeqCst);
-    s.set_roster(&[alice.clone()], now).unwrap();
+    s.set_roster(std::slice::from_ref(&alice), now).unwrap();
     assert_eq!(s.entries().count(), 1);
     assert_eq!(s.local_run(19999, 3).unwrap(), "trusted-run");
     s.authorize(&alice).unwrap();

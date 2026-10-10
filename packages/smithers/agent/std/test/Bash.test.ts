@@ -1172,7 +1172,11 @@ describe("Bash in a registered terminal (T-TRM-05)", () => {
     }))
     const transport = Layer.succeed(Container.Container)(Container.make({
       exec: (request) =>
-        Effect.succeed({ file: "docker", args: ["exec", request.container, request.file, ...request.args], env: { DOCKER_HOST: "unix:///run/docker.sock" } })
+        Effect.succeed({
+          file: "docker",
+          args: ["exec", request.container, request.file, ...request.args],
+          env: { DOCKER_HOST: "unix:///run/docker.sock" }
+        })
     }))
     await execute(Effect.provide(
       Bash.run({ mode: "unhermetic", container: "task-1", command: "true" }),
@@ -1191,8 +1195,7 @@ describe("Bash in a registered terminal (T-TRM-05)", () => {
     stdoutDroppedBytes: 0,
     stderrDroppedBytes: 0
   }
-  const terminal = (seen: Array<Bash.Input>) =>
-    Bash.inTerminal((input) => Effect.sync(() => (seen.push(input), ok)))
+  const terminal = (seen: Array<Bash.Input>) => Bash.inTerminal((input) => Effect.sync(() => (seen.push(input), ok)))
 
   it("plans a command line and a script exactly as the spawn path does", () => {
     expect(Bash.invocation({ mode: "unhermetic", command: "pnpm test", stdin: "y\n", env: { CI: "1" } })).toEqual({
@@ -1228,12 +1231,14 @@ describe("Bash in a registered terminal (T-TRM-05)", () => {
     expect(refreshed).toBe(1)
   })
 
-  it.each([
-    [{ mode: "unhermetic", command: "a", script: "b" }, "invalid_input"],
-    [{ mode: "unhermetic", script: "x", interpreter: "cobol" }, "invalid_input"],
-    [{ mode: "unhermetic", command: "true", container: "branch" }, "provider_unavailable"],
-    [{ mode: "hermetic", command: "cat /etc/passwd", reads: ["src/**"], writes: [] }, "outside_declared_reads"]
-  ] as const)("refuses %j before the terminal runs anything", async (input, code) => {
+  it.each(
+    [
+      [{ mode: "unhermetic", command: "a", script: "b" }, "invalid_input"],
+      [{ mode: "unhermetic", script: "x", interpreter: "cobol" }, "invalid_input"],
+      [{ mode: "unhermetic", command: "true", container: "branch" }, "provider_unavailable"],
+      [{ mode: "hermetic", command: "cat /etc/passwd", reads: ["src/**"], writes: [] }, "outside_declared_reads"]
+    ] as const
+  )("refuses %j before the terminal runs anything", async (input, code) => {
     const seen: Array<Bash.Input> = []
     const exit = await execute(Effect.provide(Effect.exit(terminal(seen)(input as Bash.Input)), Path.layer))
     expect(Exit.isFailure(exit)).toBe(true)
@@ -1246,7 +1251,9 @@ describe("Bash in a registered terminal (T-TRM-05)", () => {
     const declared: Bash.Input = { mode: "hermetic", command: "cat src/a.ts", reads: ["src/**"], writes: [] }
     expect(await execute(Effect.provide(terminal(seen)(declared), Path.layer))).toEqual(ok)
     const failing = Bash.inTerminal(() =>
-      Effect.fail(new StdError.StdError({ code: "timeout", limitMillis: 5, message: "Agent terminal command timed out" }))
+      Effect.fail(
+        new StdError.StdError({ code: "timeout", limitMillis: 5, message: "Agent terminal command timed out" })
+      )
     )
     const exit = await execute(Effect.provide(Effect.exit(failing(declared)), Path.layer))
     expect(Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause))?.code).toBe("timeout")

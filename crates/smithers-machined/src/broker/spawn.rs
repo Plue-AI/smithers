@@ -359,11 +359,13 @@ impl Process {
         Ok(self.pending_exit.take())
     }
 }
+type PreparedSpawn = (User, Vec<(String, String)>, Option<File>);
+
 pub struct Processes<A> {
     groups: Cgroups,
     admission: A,
     processes: BTreeMap<u32, Process>,
-    prepared: Option<(User, Vec<(String, String)>, Option<File>)>,
+    prepared: Option<PreparedSpawn>,
     /// The prepared spawn is the agent's own local terminal (T-TRM-05).
     prepared_local: bool,
     transcripts: super::transcripts::Transcripts,

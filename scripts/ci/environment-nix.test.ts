@@ -196,14 +196,14 @@ const provided: Record<string, RegExp> = {
 /** The tools each target-index rule needs; a new rule fails until it is listed. */
 const ruleTools: Record<string, string[]> = {
   "Agent.Diff": [], Filegroup: [], LlmLint: [], NewPackage: [], FactoryProjection: [],
-  "Environment.Toolchain": [], TargetIndex: [], Lockfile: [], Tsconfig: [], GithubCiGen: [],
+  "Docs.Check": [], "Environment.Toolchain": [], TargetIndex: [], Lockfile: [], Tsconfig: [], GithubCiGen: [],
   "Markdown.CodeBlocks": ["node"], DepsLint: ["node"], DocsParity: ["node", "pnpm"],
   Dprint: ["node", "pnpm"], EsLint: ["node", "pnpm"], Vitest: ["node", "pnpm"],
   Typecheck: ["node", "pnpm"], TsBuild: ["node", "pnpm"], NodeTest: ["node", "pnpm"],
   NodeBinary: ["node", "pnpm"], Generate: ["node", "pnpm"], ToolRun: ["node", "pnpm"],
   ToolBuild: ["node", "pnpm"], Install: ["node", "pnpm"],
   "Shell.Test": ["node", "pnpm"], "Shell.Diff": ["node", "pnpm"], "Shell.Build": ["node", "pnpm"], "Shell.Run": ["node", "pnpm"],
-  "Go.ModDownload": ["go"], "Cargo.Clippy": ["cargo"], "Cargo.Fmt": ["cargo"], "Cargo.Test": ["cargo"],
+  "Go.ModDownload": ["go"], "Cargo.Build": ["cargo"], "Cargo.Clippy": ["cargo"], "Cargo.Fmt": ["cargo"], "Cargo.Test": ["cargo"],
   "Docker.Service": ["docker"],
 }
 
@@ -221,7 +221,7 @@ describe("the Cloud machine carries every tool the checks execute", () => {
     expect(missing).toEqual([])
     expect(needed.has("docker")).toBe(true)
     // The image store PACKAGE.ts declares is the one the daemon is set to.
-    expect(only(rootPackage, /CiToolchain\.Docker\(\{ imageStore: "([^"]+)" \}\)/, "Docker in PACKAGE.ts")).toBe(
+    expect(only(rootPackage, /CiToolchain\.Docker\(\{\s*imageStore: "([^"]+)"/, "Docker in PACKAGE.ts")).toBe(
       "containerd"
     )
   })

@@ -380,13 +380,12 @@ fn replay_offsets_are_atomic_and_stalled_output_is_bounded() {
     assert_eq!(state.lock().unwrap().outputs[&(id, 1)].len(), 37_856);
     let now = Instant::now();
     s.disconnected(now);
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 262_145
         })
-        .is_err()
-    );
+        .is_err());
     let reply = s
         .session(Request::Attach {
             session: id,
@@ -422,13 +421,12 @@ fn local_stream_is_scoped_to_kernel_registered_agent_run() {
         s.entries().find(|e| e.id == child).unwrap().run.as_deref(),
         Some("run-one")
     );
-    assert!(
-        s.session(Request::Register {
+    assert!(s
+        .session(Request::Register {
             session: child,
             run: "forged".into()
         })
-        .is_err()
-    );
+        .is_err());
     assert_eq!(
         s.admission_of_cgroup(&format!("/smithers/sessions/s{child}")),
         Some(Admission {
@@ -469,11 +467,10 @@ fn grace_expiry_closes_once_without_killing_lingering_processes() {
     let now = Instant::now();
     s.disconnected(now);
     s.disconnected(now + Duration::from_secs(10));
-    assert!(
-        s.poll_one(None, now + Duration::from_secs(30))
-            .unwrap()
-            .is_none()
-    );
+    assert!(s
+        .poll_one(None, now + Duration::from_secs(30))
+        .unwrap()
+        .is_none());
     assert_eq!(state.lock().unwrap().closes, [id]);
     assert!(state.lock().unwrap().kills.is_empty());
     assert_eq!(s.entries().count(), 1);
@@ -522,7 +519,7 @@ fn roster_wire_uses_the_same_registry_as_session_dispatch() {
 #[cfg(target_os = "linux")]
 #[test]
 fn actual_socketpair_carries_credit_and_full_sized_frames() {
-    use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+    use rustix::net::{socketpair, AddressFamily, SocketFlags, SocketType};
     use smithers_machined::{
         broker::control::SocketpairBroker,
         hooks::{Broker, Sessions},
@@ -741,13 +738,12 @@ fn failed_spawn_cleanup_retains_owner_without_breaking_other_streams() {
     assert_eq!(retained.kind, Kind::Exec);
     assert!(retained.closed);
     assert!(state.lock().unwrap().running.contains(&2));
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: 2,
             received: 0
         })
-        .is_err()
-    );
+        .is_err());
     assert!(s.frame(&frame(2, vec![1, 0, b'x'])).is_err());
     assert!(!state.lock().unwrap().inputs.contains_key(&2));
     s.tick().unwrap();
@@ -797,13 +793,12 @@ fn failed_local_spawn_retains_run_for_cleanup_without_granting_child_authority()
     assert!(entry.closed);
     assert!(s.admission_of_cgroup("/smithers/sessions/s2").is_none());
     assert!(s.open_local(2, &args).is_err());
-    assert!(
-        s.session(Request::Register {
+    assert!(s
+        .session(Request::Register {
             session: 2,
             run: "replacement".into()
         })
-        .is_err()
-    );
+        .is_err());
     assert_eq!(state.lock().unwrap().spawns.len(), 2);
     assert!(s.session(Request::KillRun("original-run".into())).is_err());
     assert_eq!(s.entries().count(), 1);
@@ -872,10 +867,9 @@ fn failed_spawn_reservations_count_toward_limit_before_consuming_admission() {
 fn live_host_attribution_is_required_before_any_kernel_effect() {
     let (mut s, state) = setup();
     roster(&mut s);
-    assert!(
-        s.session(Request::decode(6, &open_bytes("ben", 20001)).unwrap())
-            .is_err()
-    );
+    assert!(s
+        .session(Request::decode(6, &open_bytes("ben", 20001)).unwrap())
+        .is_err());
     for (user, admission) in [
         (
             user(),
@@ -912,16 +906,15 @@ fn live_host_attribution_is_required_before_any_kernel_effect() {
             },
         ),
     ] {
-        assert!(
-            s.session(Request::Open {
+        assert!(s
+            .session(Request::Open {
                 user,
                 kind: Kind::Pty,
                 argv: vec![],
                 size: None,
                 admission: Some(admission)
             })
-            .is_err()
-        );
+            .is_err());
     }
     assert_eq!(state.lock().unwrap().ready_calls, 0);
     assert!(state.lock().unwrap().spawns.is_empty());
@@ -948,10 +941,9 @@ fn durable_reference_survives_close_and_local_children_cannot_replace_it() {
     );
     // Closing the leader does not erase a surviving child's cgroup identity.
     s.session(Request::Close(parent)).unwrap();
-    assert!(
-        s.open_local(parent, &host_open_bytes("agent", 19999))
-            .is_err()
-    );
+    assert!(s
+        .open_local(parent, &host_open_bytes("agent", 19999))
+        .is_err());
     assert_eq!(state.lock().unwrap().spawns.len(), 1);
     let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
     let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
@@ -961,18 +953,15 @@ fn durable_reference_survives_close_and_local_children_cannot_replace_it() {
     let snapshot = control::handle(&packet(25, &[]), &mut s).unwrap();
     let retained: Vec<smithers_machined::broker::sessions::Entry> =
         serde_json::from_slice(&snapshot[5..]).unwrap();
-    assert!(
-        retained
-            .iter()
-            .all(|e| e.principal == [7; 16] && e.run.as_deref() == Some("first-run"))
-    );
-    assert!(
-        s.session(Request::Register {
+    assert!(retained
+        .iter()
+        .all(|e| e.principal == [7; 16] && e.run.as_deref() == Some("first-run")));
+    assert!(s
+        .session(Request::Register {
             session: id,
             run: "replacement".into()
         })
-        .is_err()
-    );
+        .is_err());
     // A reconstructed broker may reuse transport 1. The durable reference does
     // not change in the old snapshot and is not derived from that numeric ID.
     let (mut replacement, _) = setup();
@@ -1012,21 +1001,18 @@ fn cancelling_one_command_confirms_cleanup_without_killing_run_siblings() {
     assert_eq!(retained.principal, [7; 16]);
     assert_eq!(retained.run.as_deref(), Some("run"));
     assert!(retained.closed);
-    assert!(
-        s.admission_of_cgroup(&format!("/smithers/sessions/s{first}"))
-            .is_none()
-    );
-    assert!(
-        s.admission_of_cgroup(&format!("/smithers/sessions/s{sibling}"))
-            .is_some()
-    );
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .admission_of_cgroup(&format!("/smithers/sessions/s{first}"))
+        .is_none());
+    assert!(s
+        .admission_of_cgroup(&format!("/smithers/sessions/s{sibling}"))
+        .is_some());
+    assert!(s
+        .session(Request::Attach {
             session: first,
             received: 0
         })
-        .is_err()
-    );
+        .is_err());
     assert!(s.frame(&frame(first, vec![1, 0, b'x'])).is_err());
     assert_eq!(state.lock().unwrap().running.len(), 3);
     // Cleanup retry uses the same owned group. Successful cleanup affects one
@@ -1414,14 +1400,13 @@ fn agent_output_fans_out_without_granting_host_input_or_consuming_local_credit()
     assert!(state.lock().unwrap().closes.is_empty());
     // The dedicated socketpair operation, after the daemon's local admission,
     // owns input; the ordinary host frame operation cannot impersonate it.
-    assert!(
-        s.frame_local(&Frame {
+    assert!(s
+        .frame_local(&Frame {
             kind: 4,
             stream: id,
             payload: vec![7]
         })
-        .is_err()
-    );
+        .is_err());
     assert!(state.lock().unwrap().closes.is_empty());
     s.stream(29, &frame(id, vec![1, 0, b'c']).encode().unwrap())
         .unwrap();
@@ -1470,13 +1455,12 @@ fn agent_host_reattachment_replays_only_unreceived_output_without_resetting_keyb
         poll(&mut s, 0).unwrap().payload,
         [&[1, 1], b"last".as_slice()].concat()
     );
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 11
         })
-        .is_err()
-    );
+        .is_err());
     s.frame_local(&frame(id, vec![1, 0, b'x'])).unwrap();
     assert_eq!(poll(&mut s, id).unwrap().payload, [6, 0, 0, 0, 1]);
     assert_eq!(state.lock().unwrap().inputs[&id], b"\nx");
@@ -1523,7 +1507,7 @@ fn slow_agent_watcher_bounds_transport_and_receives_drained_exit_in_order() {
 #[cfg(target_os = "linux")]
 #[test]
 fn agent_fanout_uses_production_socketpair_operations_and_read_only_host_channel() {
-    use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+    use rustix::net::{socketpair, AddressFamily, SocketFlags, SocketType};
     use smithers_machined::{broker::control::SocketpairBroker, hooks::Sessions};
     let (mut supervisor, state) = setup();
     roster(&mut supervisor);
@@ -1588,13 +1572,12 @@ fn closing_agent_local_owner_ends_host_observer_once_without_another_hup() {
     assert_eq!(state.lock().unwrap().kills, [id]);
     assert!(s.entries().all(|e| e.id != id));
     // A closed stream cannot be revived into an observer or input channel.
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 0
         })
-        .is_err()
-    );
+        .is_err());
     assert!(s.frame(&frame(id, vec![6, 0, 0, 0, 7])).is_err());
 }
 
@@ -1618,13 +1601,12 @@ fn agent_local_output_without_host_admission_remains_local_and_does_not_block() 
     .unwrap();
     let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
     let id = u32::from_be_bytes(reply[5..9].try_into().unwrap());
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 1
         })
-        .is_err()
-    );
+        .is_err());
     state
         .lock()
         .unwrap()
@@ -1637,13 +1619,12 @@ fn agent_local_output_without_host_admission_remains_local_and_does_not_block() 
     }
     state.lock().unwrap().exits.insert(id, Exit::Code(0));
     assert_eq!(poll(&mut s, id).unwrap().payload, [2, 1]);
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 0
         })
-        .is_err()
-    );
+        .is_err());
     assert_eq!(poll(&mut s, id).unwrap().payload, [5, 0, 0, 0, 0, 0]);
 }
 
@@ -1689,7 +1670,7 @@ fn import_unavailable_refuses_before_entering_any_kernel_reader_or_discovery() {
 
 #[test]
 fn foreground_commands_bind_live_ptys_and_refuse_supplied_root_inputs() {
-    use rustix::net::{AddressFamily, SocketFlags, SocketType, socketpair};
+    use rustix::net::{socketpair, AddressFamily, SocketFlags, SocketType};
     use smithers_machined::broker::control::SocketpairBroker;
     let (mut supervisor, state) = setup();
     roster(&mut supervisor);
@@ -1823,13 +1804,12 @@ fn unwatched_agent_command_starts_after_the_deadline_and_stays_unwatched() {
     }
     assert_eq!(local, 300_000);
     assert!(poll(&mut s, 0).is_none());
-    assert!(
-        s.session(Request::Attach {
+    assert!(s
+        .session(Request::Attach {
             session: id,
             received: 0
         })
-        .is_err()
-    );
+        .is_err());
 }
 
 #[test]
@@ -1855,10 +1835,9 @@ fn closed_unwatched_agent_command_is_reaped_without_touching_its_run() {
     assert_eq!(state.lock().unwrap().kills, [id]);
     // The coding host itself (the run's parent session) keeps running.
     assert_eq!(s.entries().count(), 1);
-    assert!(
-        s.entries()
-            .all(|e| e.id != id && e.run.as_deref() == Some("command-run"))
-    );
+    assert!(s
+        .entries()
+        .all(|e| e.id != id && e.run.as_deref() == Some("command-run")));
 }
 
 #[test]

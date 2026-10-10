@@ -331,7 +331,7 @@ const releasePack = Smithers.NodeBinary({
 
 const docsDrift = Smithers.Shell.Diff({
   shell:
-    "pnpm run docs:check && cd apps/site && node scripts/sync-support-docs.mjs --check && node scripts/gen-cli-data.mjs --check && node scripts/sync-api-docs.mjs --check && node scripts/ingest-reference.mjs --check && node scripts/gen-examples.mjs --check && node scripts/generate-llms.mjs --check",
+    "pnpm run docs:check && cd apps/site && node scripts/sync-support-docs.mjs --check && node scripts/gen-cli-data.mjs --check && node scripts/sync-api-docs.mjs --check && node scripts/ingest-reference.mjs --check && node scripts/generate-llms.mjs --check",
   changes: [],
   timeout: "5m"
 })

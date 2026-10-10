@@ -591,9 +591,11 @@ pub fn open_doc_args(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), Protocol
     Ok((path, actor))
 }
 
+pub type RebaseArgs = ([u8; 20], crate::hooks::Actor, Option<[u8; 20]>);
+
 /// Rebase uses the existing ADR 0004 schema. Targets, an optional verified
 /// source base and the authenticated actor reach unprivileged rewrite code.
-pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor, Option<[u8; 20]>), ProtocolError> {
+pub fn rebase_args(bytes: &[u8]) -> Result<RebaseArgs, ProtocolError> {
     let mut check = Cursor(bytes);
     check.value("args11")?;
     if !check.0.is_empty() {
@@ -605,7 +607,12 @@ pub fn rebase_args(bytes: &[u8]) -> Result<([u8; 20], crate::hooks::Actor, Optio
     c.take(7)?;
     let n = c.number(4)? as usize;
     let actor = crate::hooks::Actor::Principal(c.take(n)?.to_vec());
-    let base = if c.0.is_empty() { None } else { c.take(1)?; Some(c.take(20)?.try_into().unwrap()) };
+    let base = if c.0.is_empty() {
+        None
+    } else {
+        c.take(1)?;
+        Some(c.take(20)?.try_into().unwrap())
+    };
     Ok((onto, actor, base))
 }
 

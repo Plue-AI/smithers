@@ -18,12 +18,14 @@ pub struct Closed<A, B, C> {
     pub renamed_to: BTreeMap<String, String>,
     pub last_path: String,
 }
+type BurstIdentity<A> = (Key<A>, [u8; 16], Option<Window<A>>);
+
 #[derive(Clone, Debug)]
 pub struct Checkpoint<A, B> {
     pub recorded: BTreeMap<String, Version<B>>,
     pub bursts: Bursts<A, Version<B>>,
     renames: BTreeMap<String, String>,
-    identities: Vec<(Key<A>, [u8; 16], Option<Window<A>>)>,
+    identities: Vec<BurstIdentity<A>>,
 }
 impl<A: Clone + Eq, B: Clone> Checkpoint<A, B> {
     /// Finish an immutable close recovered from the private close journal.
@@ -919,5 +921,8 @@ mod qualification_capture_tests {
 // The protected state arm is only compiled into unprivileged fault builds.
 #[cfg(all(feature = "killpoints", debug_assertions))]
 pub(crate) fn pause_rebase_observation() {
-    pause_fault("rebase-held", std::path::Path::new("/var/lib/smithers-machined"));
+    pause_fault(
+        "rebase-held",
+        std::path::Path::new("/var/lib/smithers-machined"),
+    );
 }
