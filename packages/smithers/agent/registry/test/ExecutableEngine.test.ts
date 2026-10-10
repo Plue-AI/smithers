@@ -461,6 +461,12 @@ describe("a discovered flow runs on the durable engine", () => {
         expect(executable.descriptor.name).toBe("standalone")
         expect(executable.declaredTag).toBe("standalone")
         expect(executable.flow._tag).not.toBe(declaration._tag)
+        // Guest inspection reads the module's own declaration, not the adapter,
+        // and reports its input-dependent body instead of inventing a payload.
+        expect(executable.inspect?.()).toMatchObject({
+          steps: [{ id: "root", label: "standalone" }],
+          diagnostics: [{ code: "declaration_requires_input" }]
+        })
         const run = (id: string) =>
           executable.flow.execute({ input: { name: "ada" } }, { executionId: id }).pipe(
             Effect.provide(
