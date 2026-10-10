@@ -695,7 +695,7 @@ func (s *GitHubAppManifestService) ReconcileConversion(ctx context.Context) erro
 	}
 	raw, err := s.store.codec.DecryptString(checkpoint.Sealed)
 	if err != nil {
-		return pkgerrors.Internal("unreadable App conversion receipt")
+		return pkgerrors.Internal("unreadable App conversion receipt").WithCause(err)
 	}
 	var converted gitHubAppConversion
 	if json.Unmarshal([]byte(raw), &converted) != nil {

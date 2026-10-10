@@ -95,7 +95,7 @@ func (h *InstallAckDelayHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		}
 		tx, err := h.Pool.Begin(r.Context())
 		if err != nil {
-			pkgerrors.WriteError(w, pkgerrors.Internal("actor lookup failed"))
+			pkgerrors.WriteError(w, pkgerrors.Internal("actor lookup failed").WithCause(err))
 			return
 		}
 		defer tx.Rollback(r.Context())
