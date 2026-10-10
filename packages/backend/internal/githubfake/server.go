@@ -40,6 +40,7 @@ type Repository struct {
 }
 
 type Installation struct {
+	Suspended    bool              `json:"-"`
 	ID           int64             `json:"id"`
 	Account      Account           `json:"account"`
 	Permissions  map[string]string `json:"permissions"`
@@ -195,6 +196,17 @@ func (s *Server) OnNextRequest(method, path string, fn func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hooks[method+" "+path] = fn
+}
+
+// SetInstallationSuspended models GitHub refusing a suspended App installation.
+func (s *Server) SetInstallationSuspended(id int64, suspended bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.config.Installations {
+		if s.config.Installations[i].ID == id {
+			s.config.Installations[i].Suspended = suspended
+		}
+	}
 }
 
 // SetInstallationPermission grants every installation the App permission
@@ -857,6 +869,11 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		return failure(http.StatusUnauthorized, "Bearer authorization required")
 	}
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if id, ok := s.tokens[token]; ok {
+		if installation, _ := s.installation(id); installation.Suspended {
+			return failure(http.StatusForbidden, "This installation has been suspended")
+		}
+	}
 	if r.Method == http.MethodGet && r.URL.Path == "/installation/repositories" {
 		installationID, ok := s.tokens[token]
 		if !ok {
@@ -933,6 +950,9 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			return failure(http.StatusNotFound, "installation not found")
 		}
 		installation, _ := s.installation(id)
+		if installation.Suspended {
+			return failure(http.StatusForbidden, "This installation has been suspended")
+		}
 		var scope struct {
 			Permissions map[string]string `json:"permissions"`
 		}
@@ -1003,7 +1023,7 @@ func permits(granted map[string]string, name, level string) bool {
 func (s *Server) accessible(r *http.Request, name, level string) (int, any, bool) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	installation, _ := s.installation(s.tokens[token])
-	if permits(s.grants[token], name, level) && permits(installation.Permissions, name, level) {
+	if !installation.Suspended && permits(s.grants[token], name, level) && permits(installation.Permissions, name, level) {
 		return 0, nil, true
 	}
 	status, response := failure(http.StatusForbidden, "Resource not accessible by integration")

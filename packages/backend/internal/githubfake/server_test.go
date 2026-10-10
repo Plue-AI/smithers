@@ -1338,3 +1338,27 @@ func TestUpdatePullCreatesFetchableExternalPull(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &another))
 	require.NotEqual(t, original.ID, another.ID)
 }
+
+func TestSuspendedInstallationRefusesMintAndExistingToken(t *testing.T) {
+	server, config, key := fixture(t)
+	app := jwt(t, key, config.AppID, time.Now().Add(5*time.Minute))
+	status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", app, []byte(`{"permissions":{"contents":"read"}}`))
+	require.Equal(t, http.StatusCreated, status)
+	var token struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &token))
+	server.SetInstallationSuspended(91, true)
+	status, raw = request(t, server, "POST", "/app/installations/91/access_tokens", app, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	require.Contains(t, string(raw), "suspended")
+	status, _ = request(t, server, "GET", "/installation/repositories", token.Token, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	status, _ = request(t, server, "GET", "/repos/acme/app/contents/README.md", token.Token, nil)
+	require.Equal(t, http.StatusForbidden, status)
+	server.SetInstallationSuspended(91, false)
+	status, _ = request(t, server, "GET", "/installation/repositories", token.Token, nil)
+	require.Equal(t, http.StatusOK, status)
+	status, _ = request(t, server, "POST", "/app/installations/91/access_tokens", app, nil)
+	require.Equal(t, http.StatusCreated, status)
+}

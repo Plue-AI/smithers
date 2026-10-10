@@ -432,6 +432,152 @@ func (r *rehearsal) j10ContinuesTodo(n int64, before, after j3Lane) error {
 	return nil
 }
 
+func (r *rehearsal) j10AgentRetry(alice http.CookieJar) {
+	r.step("6 App agent retries the sync", "POST /api/conversations/main/prompt as Alice", "github runs without confirmation; fresh within 10 s", "T-GH-07", func() error {
+		var before int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals`).Scan(&before); err != nil {
+			return err
+		}
+		retries := func() int {
+			count := 0
+			for _, line := range strings.Split(r.logs.String(), "\n") {
+				var entry struct {
+					Request struct {
+						Method string `json:"requestMethod"`
+						URL    string `json:"requestUrl"`
+						Status int    `json:"status"`
+					} `json:"httpRequest"`
+				}
+				if json.Unmarshal([]byte(line), &entry) == nil && entry.Request.Method == "POST" && entry.Request.URL == "/api/github/sync" && entry.Request.Status == 202 {
+					count++
+				}
+			}
+			return count
+		}
+		requests := retries()
+		began := time.Now()
+		reply, _, err := r.askAs(alice, `retry the GitHub sync
+Run /github {"operation":"retry"}`)
+		if err != nil {
+			return err
+		}
+		if retries() != requests+1 {
+			return fmt.Errorf("agent Retry made %d accepted sync requests; reply %q", retries()-requests, reply)
+		}
+		if j9Confirmation.MatchString(reply) {
+			return fmt.Errorf("Retry asked for confirmation: %s", reply)
+		}
+		var after int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM approvals`).Scan(&after); err != nil {
+			return err
+		}
+		if after != before {
+			return fmt.Errorf("Retry created a confirmation")
+		}
+		for deadline := began.Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			health, at, err := r.syncHealth()
+			if err != nil {
+				return err
+			}
+			if health["state"] == "fresh" && at.After(began) {
+				r.actual = "agent Retry refreshed sync without Confirm"
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("agent Retry did not refresh: %s; health %v", reply, health)
+			}
+		}
+	})
+}
+
+func (r *rehearsal) j10InstallationRefusal() {
+	r.step("6 Refusal names the App installation", "GitHub App installation suspended; Retry; GET /api/github/sync; Home", "refused with permission cause; Home names GitHub App and Settings", "T-GH-07", func() error {
+		r.fake.SetInstallationSuspended(r.installationID, true)
+		defer r.fake.SetInstallationSuspended(r.installationID, false)
+		if _, err := r.expect("POST", "/api/github/sync", "{}", 202); err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+			health, _, err := r.syncHealth()
+			if err != nil {
+				return err
+			}
+			if health["state"] == "refused" {
+				if health["cause"] != "permission" {
+					return fmt.Errorf("unexpected installation cause %v", health)
+				}
+				live, err := r.openLive(r.jar)
+				if err != nil {
+					return err
+				}
+				defer live.stop()
+				if _, err = live.subscribe("home"); err != nil {
+					return err
+				}
+				_, err = live.latest("home", 5*time.Second, func(frame liveFrame) bool {
+					return strings.Contains(string(frame.Data), "GitHub App permission missing")
+				})
+				if err != nil {
+					return err
+				}
+				wire := []map[string]string{}
+				for _, cookie := range r.jar.Cookies(mustRehearsalURL(r.origin)) {
+					wire = append(wire, map[string]string{"name": cookie.Name, "value": cookie.Value})
+				}
+				cookies, _ := json.Marshal(wire)
+				cmd := exec.CommandContext(r.ctx, "bun", "e2e/real/github-refusal.browser.ts")
+				cmd.Dir = filepath.Join(r.root, "apps/app")
+				cmd.Env = append(os.Environ(), "SMITHERS_GITHUB_BROWSER_ORIGIN="+r.origin, "SMITHERS_GITHUB_BROWSER_COOKIES="+string(cookies), "SMITHERS_GITHUB_BROWSER_EVIDENCE="+r.evidence)
+				output, err := cmd.CombinedOutput()
+				if writeErr := os.WriteFile(filepath.Join(r.evidence, "github-refusal-browser.log"), output, 0600); writeErr != nil {
+					return writeErr
+				}
+				if err != nil {
+					return fmt.Errorf("refused Home browser: %w: %s", err, output)
+				}
+				r.fake.SetInstallationSuspended(r.installationID, false)
+				resumed := time.Now()
+				if _, err := r.expect("POST", "/api/github/sync", "{}", 202); err != nil {
+					return err
+				}
+				for deadline := resumed.Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+					recovered, at, err := r.syncHealth()
+					if err != nil {
+						return err
+					}
+					if recovered["state"] == "fresh" && at.After(resumed) {
+						break
+					}
+					if time.Now().After(deadline) {
+						return fmt.Errorf("sync did not recover after unsuspend: %v", recovered)
+					}
+				}
+				r.actual = "refused: GitHub App permission missing; Fix opens Settings; unsuspend and Retry recover"
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("installation permission refusal not projected: %v", health)
+			}
+		}
+	})
+
+}
+
+// The focused sync rows reach the same composed command doors without waiting for
+// the preceding TODO review and rebase runs.
+func TestJ10SyncRehearsal(t *testing.T) {
+	r := newRehearsal(t, "SMITHERS_J10_REHEARSAL", "C-J10-sync", "j10-sync-")
+	if !r.setupSource() {
+		return
+	}
+	alice, err := r.member("alice", 202, "write")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.j10AgentRetry(alice)
+	r.j10InstallationRefusal()
+}
+
 // TestJ10Rehearsal walks journey J10 (mvp.md §5, Work with GitHub; checks
 // C-J10-01 to C-J10-09) on the install J1 sets up, through the composed
 // install's routes, the GitHub fake (people act through its own controls,
@@ -1027,7 +1173,29 @@ func TestJ10Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.pending("4 The main row shows M2 and its title", "GET /api/live (home) main", "main.sha = M2 with its commit title within 60 s", "T-GH-07, T-APP-01", "home-main-row")
+	r.step("4 The main row shows M2 and its title", "GET /api/live home", "main sha M2 and title Unrelated docs change", "T-GH-07, T-APP-01", func() error {
+		live, err := r.openLive(r.jar)
+		if err != nil {
+			return err
+		}
+		defer live.stop()
+		if _, err = live.subscribe("home"); err != nil {
+			return err
+		}
+		_, err = live.latest("home", time.Minute, func(frame liveFrame) bool {
+			var home struct {
+				Main struct {
+					SHA   string `json:"sha"`
+					Title string `json:"title"`
+				} `json:"main"`
+			}
+			return json.Unmarshal(frame.Data, &home) == nil && home.Main.SHA == m2 && home.Main.Title == "Unrelated docs change"
+		})
+		if err == nil {
+			r.actual = fmt.Sprintf("Home main %s: Unrelated docs change", short7(m2))
+		}
+		return err
+	})
 	r.step("4 Branches without people rebase", "GET /api/todos/{T1,T2}; GitHub fake PRs", "T1 and T2 rebase onto M2 with no one acting; same PR numbers; each head's parent is M2", "T-STK-08", func() error {
 		if m2 == "" {
 			return fmt.Errorf("blocked by row 4")
@@ -1454,8 +1622,8 @@ func TestJ10Rehearsal(t *testing.T) {
 				}
 			}
 		})
-	r.pending("6 App agent retries the sync", "POST /api/conversations/main/prompt 'retry the GitHub sync'", "github.retry runs at once with no confirmation (agent: run); fresh within 10 s", "T-GH-07", "agent-retry")
-	r.pending("6 Refusal names the App installation", "GitHub: the App's installation suspended → GET /api/github/sync; Home", "state refused with the installation as the cause and a link to Settings", "T-GH-07", "installation-refused")
+	r.j10AgentRetry(alice)
+	r.j10InstallationRefusal()
 
 	// C-J10-07: main rewritten on GitHub (last: it ends main following).
 	r.step("7 A force-push to main changes nothing", "GitHub fake: main rewritten to a non-descendant → POST /api/github/sync; GET /api/repos/{o}/{r}/mythical; GitHub write log",
@@ -1506,5 +1674,118 @@ func TestJ10Rehearsal(t *testing.T) {
 			r.actual = fmt.Sprintf("install main %s kept; GitHub main %s untouched", short7(after), short7(rewritten))
 			return nil
 		})
-	r.pending("7 The owner confirms Reset to GitHub main", "Home attention force_push; POST /api/stack/attention/{id}", "one owner-only force_push attention row; merges held; Reset moves main to the rewrite once", "T-GH-07, T-ACC-03", "main-reset")
+	r.step("7 The owner confirms Reset to GitHub main", "Home attention; POST /api/stack/attention/{id}", "owner attention; non-owner and delegated 403; stale 409; owner Reset settles once", "T-GH-07, T-ACC-03", func() error {
+		var attention struct {
+			ID  string `json:"id"`
+			Old string `json:"old"`
+			New string `json:"new"`
+		}
+		var raw []byte
+		if err := r.pool.QueryRow(r.ctx, `SELECT a FROM mythical_stacks,jsonb_array_elements(attention) a WHERE a->>'kind'='force_push' AND a->>'settled_at' IS NULL`).Scan(&raw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &attention); err != nil {
+			return err
+		}
+		route := "/api/stack/attention/" + attention.ID
+		card, err := r.j10Card(t3)
+		if err != nil {
+			return err
+		}
+		held, err := r.expectAs(ben, "POST", fmt.Sprintf("/api/todos/%d/merge", t3), fmt.Sprintf(`{"reviewed_head_sha":%q}`, card.PR.Head), 409)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(held), `"class":"conflict"`) {
+			return fmt.Errorf("merge not held: %s", held)
+		}
+		body := fmt.Sprintf(`{"old":%q,"new":%q}`, attention.Old, attention.New)
+		for _, jar := range []http.CookieJar{ben, alice} {
+			refused, err := r.expectAs(jar, "POST", route, body, 403)
+			if err != nil {
+				return err
+			}
+			if !strings.Contains(string(refused), `"code":"permission"`) {
+				return fmt.Errorf("non-owner refusal: %s", refused)
+			}
+		}
+		token, err := r.token("write:repository")
+		if err != nil {
+			return err
+		}
+		request, err := http.NewRequestWithContext(r.ctx, "POST", r.origin+route, strings.NewReader(body))
+		if err != nil {
+			return err
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return err
+		}
+		refused, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return err
+		}
+		if response.StatusCode != 403 || !strings.Contains(string(refused), `"code":"never"`) {
+			return fmt.Errorf("delegated Reset: HTTP %d %s", response.StatusCode, refused)
+		}
+		owner, err := r.openLive(r.jar)
+		if err != nil {
+			return err
+		}
+		defer owner.stop()
+		if _, err = owner.subscribe("home"); err != nil {
+			return err
+		}
+		if _, err = owner.latest("home", 5*time.Second, func(frame liveFrame) bool {
+			return strings.Contains(string(frame.Data), attention.ID) && strings.Contains(string(frame.Data), "main.reset-to-github")
+		}); err != nil {
+			return err
+		}
+		if main, err := r.mirroredMain(); err != nil || main != attention.Old {
+			return fmt.Errorf("refused Reset moved main: %s %v", main, err)
+		}
+		tree, err := r.githubGit("rev-parse", attention.New+"^{tree}")
+		if err != nil {
+			return err
+		}
+		latest, err := r.githubGit("-c", "user.name=GitHub", "-c", "user.email=noreply@github.test", "commit-tree", tree, "-m", "Second rewrite")
+		if err != nil {
+			return err
+		}
+		if _, err = r.githubGit("update-ref", "refs/heads/main", latest, attention.New); err != nil {
+			return err
+		}
+		stale, err := r.expect("POST", route, body, 409)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(stale), "stale_attention") {
+			return fmt.Errorf("stale Reset: %s", stale)
+		}
+		body = fmt.Sprintf(`{"old":%q,"new":%q}`, attention.Old, latest)
+		if _, err = r.expect("POST", route, body, 200); err != nil {
+			return err
+		}
+		if main, err := r.mirroredMain(); err != nil || main != latest {
+			return fmt.Errorf("Reset main %s, want %s: %v", main, latest, err)
+		}
+		var settled int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_stacks,jsonb_array_elements(attention) a WHERE a->>'id'=$1 AND a->>'settled_at' IS NOT NULL AND a->>'settled_by'=(SELECT user_id::text FROM self_host_owners)`, attention.ID).Scan(&settled); err != nil {
+			return err
+		}
+		if settled != 1 {
+			return fmt.Errorf("Reset settled %d owner rows", settled)
+		}
+		if _, err = r.expect("POST", route, body, 200); err != nil {
+			return err
+		}
+		if main, err := r.githubMain(); err != nil || main != latest {
+			return fmt.Errorf("Reset wrote GitHub main: %s %v", main, err)
+		}
+		r.actual = "owner Reset settled once; people and delegated refused; stale tip refused; GitHub main untouched"
+		return nil
+	})
 }

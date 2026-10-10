@@ -627,7 +627,13 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
       let request: CatalogHttpRequest
       try {
         payload = commandPayload(row, args)
-        const binding = row.http!
+        let binding = row.http!
+        // Retry uses github's existing sync door; changing the App remains
+        // person-only. No other payload field may select transport authority.
+        if (row.name === "github" && payload.operation === "retry") {
+          if (Object.keys(payload).some((key) => key !== "operation")) throw new Error("Unavailable payload binding")
+          binding = { ...binding, method: "POST", body: {} }
+        }
         const projection = binding.method === "GET" ? binding.query : binding.body
         if (binding.method === "GET" && projection !== undefined) {
           const fields = new Set([
@@ -636,7 +642,7 @@ const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
           ])
           if (Object.keys(payload).some((key) => !fields.has(key))) throw new Error("Unavailable payload binding")
         }
-        request = catalogRequest(row, payload)
+        request = catalogRequest({ http: binding }, payload)
       } catch {
         return { refusal: `Invalid arguments for ${row.name}; use its declared payload.` }
       }

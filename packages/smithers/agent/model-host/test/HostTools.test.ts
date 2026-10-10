@@ -1197,12 +1197,32 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("GitHub Retry uses one accepted catalog request without confirmation", async () => {
+    const journal = producer(
+      (path) => file(path, JOURNEY),
+      routes({ "/api/github/sync": [202, { state: "accepted" }] })
+    )
+    const provider = model([execute("github", "{\"operation\":\"retry\"}")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([{
+      authorization: "Bearer smithers_" + "a".repeat(40),
+      body: { method: "POST", path: "/api/github/sync", payload: {}, key: `chat:${install.turnId}:0` }
+    }])
+    expect(toolOutputs(provider)).toEqual(["{\"status\":202,\"body\":{\"state\":\"accepted\"}}"])
+  })
+
   test("read-only catalog bindings reject browser-only variants without dispatch", async () => {
     for (
-      const [name, args] of [["github", "{\"operation\":\"retry\"}"], [
-        "runs",
-        "{\"operation\":\"attention\"}"
-      ]] as const
+      const [name, args] of [
+        ["github", "{\"operation\":\"app-open\"}"],
+        ["github", "{\"operation\":\"app-choose\",\"installationId\":\"1\"}"],
+        ["github", "{\"operation\":\"reconcile\"}"],
+        ["github", "{\"operation\":\"retry\",\"repo\":\"other/repo\"}"],
+        [
+          "runs",
+          "{\"operation\":\"attention\"}"
+        ]
+      ] as const
     ) {
       const journal = producer((path) => file(path, JOURNEY))
       const provider = model([execute(name, args)])
