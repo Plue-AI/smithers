@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -133,6 +134,8 @@ func (c *loginRecordingSandboxClient) Execute(ctx context.Context, id string, re
 
 // A Microsandbox fork runs the sign-out on the child guest before any setup,
 // and a child that cannot be signed out is discarded for a fresh guest.
+// f6e8615156 (#3525) removed ForkWorkspace's hosted route and kept the
+// forkWorkspaceVM primitive, so the primitive is driven directly.
 func TestSandboxForkSignsOutChildBeforeUse(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -192,7 +195,7 @@ func TestSandboxForkSignsOutChildBeforeUse(t *testing.T) {
 					execs = append(execs, id+" "+command)
 				},
 			}))
-			_, err := service.ForkWorkspace(context.Background(), ForkWorkspaceInput{RepositoryID: 101, UserID: 1, WorkspaceID: source.ID, Name: "branch"})
+			_, err := service.forkWorkspaceVM(context.Background(), created, source)
 			require.NoError(t, err)
 			require.NotEmpty(t, execs)
 			require.Equal(t, "vm-child "+workspaceSandboxLoginScrubCommand(), execs[0], "sign-out is the first command on the child")
@@ -262,6 +265,8 @@ type loginRuntime struct {
 
 	mu    sync.Mutex
 	state map[string]workspaceapi.WorkspaceState
+	// bookmark is the branch a workspace checked out; main when unset.
+	bookmark func(id string) string
 }
 
 func newLoginRuntime(t *testing.T, repositoryID int64, cloneURL string) *loginRuntime {
@@ -300,6 +305,15 @@ func (r *loginRuntime) InspectWorkspace(_ context.Context, id string) (workspace
 		return workspaceapi.Workspace{}, workspaceapi.ErrWorkspaceNotFound
 	}
 	return workspaceapi.Workspace{ID: id, Home: r.home(id), State: state}, nil
+}
+
+// WaitAdmission grants the start once the service's admission Ready check
+// passes, as the native runtime does after taking a slot.
+func (*loginRuntime) WaitAdmission(ctx context.Context, p microsandbox.AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	if err := p.Ready(ctx, microsandbox.AdmissionRequest{Class: class, Holder: holder, Actor: actor, Reason: reason}); err != nil {
+		return nil, err
+	}
+	return ctx, nil
 }
 
 func (r *loginRuntime) StartWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
@@ -344,8 +358,12 @@ func (*loginRuntime) ListFiles(_ context.Context, _, path string) ([]workspaceap
 }
 
 func (r *loginRuntime) ReadFile(_ context.Context, workspaceID, _ string) ([]byte, error) {
+	bookmark := "main"
+	if r.bookmark != nil {
+		bookmark = r.bookmark(workspaceID)
+	}
 	return json.Marshal(workspaceRepositoryReceipt{Version: workspaceRepositoryReceiptVersion, WorkspaceID: workspaceID,
-		RepositoryID: r.repositoryID, CloneURL: r.cloneURL, SourceBookmark: "main",
+		RepositoryID: r.repositoryID, CloneURL: r.cloneURL, SourceBookmark: bookmark,
 		SourceRevision: strings.Repeat("a", 40), InitializedAt: time.Now().UTC()})
 }
 
@@ -386,7 +404,18 @@ func TestDerivedWorkspacesStartSignedOut(t *testing.T) {
 	slug, err := queries.GetRepoOwnerSlugAndNameByID(ctx, repo)
 	require.NoError(t, err)
 	runtime := newLoginRuntime(t, repo, testWorkspaceGitBaseURL+"/"+slug.OwnerSlug+"/"+slug.RepoName+".git")
-	svc := NewWorkspaceService(queries, WithWorkspaceGitBaseURL(testWorkspaceGitBaseURL), WithWorkspaceRuntime(runtime))
+	runtime.bookmark = func(id string) string {
+		var bookmark string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT target_bookmark FROM workspaces WHERE id=$1`, id).Scan(&bookmark))
+		return bookmark
+	}
+	// Since de86a86992 (#3565) creation reserves branch machines behind the
+	// activation providers in one PostgreSQL transaction, and since
+	// c240bd3cf7 (#3568) a wake passes machine admission.
+	svc := NewWorkspaceService(queries, WithWorkspaceGitBaseURL(testWorkspaceGitBaseURL), WithWorkspaceRuntime(runtime),
+		WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()),
+		WithWorkspaceBillingPolicy(NewMachineAdmissionPolicy(&UnlimitedBillingPolicy{})))
+	svc.EnableMachineAdmission(nil)
 
 	parent, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: owner, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "main"})
 	require.NoError(t, err)
@@ -402,7 +431,9 @@ func TestDerivedWorkspacesStartSignedOut(t *testing.T) {
 	requireSignedIn(t, runtime.home(parent.ID))
 	requireSignedIn(t, filepath.Join(runtime.snapshotDir(snapshot.SnapshotID), "home"))
 
-	restored, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: owner, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "restored", SnapshotID: snapshot.ID})
+	// Each restore is its own branch's machine (de86a86992): the parent's
+	// branch already has a machine from another source.
+	restored, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: owner, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "restored", SourceBookmark: "restored", SnapshotID: snapshot.ID})
 	require.NoError(t, err)
 	requireSignedOut(t, runtime.home(restored.ID))
 
@@ -410,7 +441,7 @@ func TestDerivedWorkspacesStartSignedOut(t *testing.T) {
 	// logins never reach them.
 	_, err = queries.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: parent.ID, OwnerUserID: owner, GranteeUserID: grantee, Level: string(WorkspaceAccessWrite)})
 	require.NoError(t, err)
-	shared, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: grantee, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "shared", SnapshotID: snapshot.ID})
+	shared, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: grantee, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "shared", SourceBookmark: "shared", SnapshotID: snapshot.ID})
 	require.NoError(t, err)
 	require.Equal(t, "running", shared.Status)
 	requireSignedOut(t, runtime.home(shared.ID))

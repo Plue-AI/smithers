@@ -94,9 +94,18 @@ func TestWorkspaceProviderPoolProvisioning(t *testing.T) {
 							return sandbox.ExecResult{StatusCode: &status}, nil
 						},
 					}
-					service := newWorkspaceServiceForTests(poolTokenQuerier(&minted), WithWorkspaceSandboxClient(client),
+					options := []WorkspaceServiceOption{WithWorkspaceSandboxClient(client),
 						WithWorkspaceEnvironmentImages(&stubEnvironmentImageResolver{image: nixTestImage(kind)}),
-						WithWorkspaceGitBaseURL(poolTestBaseURL), WithWorkspaceProviderConnections(pool))
+						WithWorkspaceGitBaseURL(poolTestBaseURL), WithWorkspaceProviderConnections(pool)}
+					if path == "resume" {
+						// Since c240bd3cf7 (#3568) a wake passes machine
+						// admission and the activation providers first.
+						options = append(options, WithWorkspaceTransactions(unopenedBranchTransactions{t}), WithBranchMachineProviders(branchMachineTestProviders()))
+					}
+					service := newWorkspaceServiceForTests(poolTokenQuerier(&minted), options...)
+					if path == "resume" {
+						service.EnableMachineAdmission(nil)
+					}
 					var err error
 					switch path {
 					case "create":
@@ -165,7 +174,7 @@ func TestWorkspaceProviderPoolRepositorySecretPrecedence(t *testing.T) {
 			binding, err := service.resolveWorkspaceProviderBindings(context.Background(), sampleDBWorkspace("ws-explicit"))
 			require.NoError(t, err)
 			assert.Empty(t, pool.calls)
-			assert.Equal(t, env.bound, binding.egress.Secrets)
+			assert.ElementsMatch(t, env.bound, binding.egress.Secrets, "exactly the repository's proxy-bound secrets")
 			assert.Equal(t, *config, binding.environment)
 		})
 	}
