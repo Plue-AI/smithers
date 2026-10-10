@@ -26,6 +26,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
@@ -289,6 +290,9 @@ func startCodeDocumentInstallWithRepository(t *testing.T, activate bool, reposit
 		LiveCodeDocuments: activate,
 		// The install requires a product origin for Flow hosts; none run here.
 		FlowHostProductAPIURL: origin,
+		// Machine admission refuses a trusted process runtime unless a test
+		// composition allows it (1b4f32941e).
+		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 	}
 	if repository != nil {
 		options.Repository = repository
