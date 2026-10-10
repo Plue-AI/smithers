@@ -76,13 +76,14 @@ func (r *candidateHeadRuntime) ExecuteCommand(ctx context.Context, _ string, com
 		}
 		return workspaceapi.CommandResult{Stdout: r.head + " " + r.change}, nil
 	}
-	if command.Args[0] != "git" || len(command.Args) != 4 {
+	// f4381cd226: git trusts the machine's root-owned workspace for this one read.
+	if len(command.Args) != 6 || command.Args[0] != "git" || command.Args[1] != "-c" || command.Args[2] != "safe.directory=/workspace" || command.Args[3] != "rev-parse" || command.Args[4] != "--verify" {
 		return workspaceapi.CommandResult{}, fmt.Errorf("unexpected observation command")
 	}
 	if command.Environment["GIT_NO_REPLACE_OBJECTS"] != "1" {
 		return workspaceapi.CommandResult{}, fmt.Errorf("candidate observation allowed replace refs")
 	}
-	switch command.Args[3] {
+	switch command.Args[5] {
 	case r.head + "^{tree}":
 		return workspaceapi.CommandResult{Stdout: r.tree}, nil
 	case r.candidate + "^{tree}":
