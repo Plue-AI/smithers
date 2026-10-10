@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
+	"github.com/smithersai/smithers/packages/backend/testkit/testdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -215,10 +216,15 @@ type faultPostgres struct {
 
 func newFaultPostgres(t *testing.T) *faultPostgres {
 	t.Helper()
+	// The fault suites name their programs with SMITHERS_FAULT_POSTGRES_BIN;
+	// //:backendGo names the same directory with testdb.ToolsEnv.
 	bin := os.Getenv("SMITHERS_FAULT_POSTGRES_BIN")
 	if bin == "" {
+		bin = os.Getenv(testdb.ToolsEnv)
+	}
+	if bin == "" {
 		path, err := exec.LookPath("postgres")
-		require.NoError(t, err, "PostgreSQL 18 binaries required; set SMITHERS_FAULT_POSTGRES_BIN")
+		require.NoError(t, err, "PostgreSQL 18 binaries required; set SMITHERS_FAULT_POSTGRES_BIN or "+testdb.ToolsEnv)
 		bin = filepath.Dir(path)
 	}
 	out, err := exec.Command(filepath.Join(bin, "postgres"), "--version").CombinedOutput()
