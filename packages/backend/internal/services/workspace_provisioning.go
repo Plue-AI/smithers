@@ -1132,6 +1132,17 @@ func mapWorkspaceCreateError(err error, action string) error {
 			MaxActiveWorkspacesPerUser,
 		))
 	}
+	// A refusal from the branch machine reservation (the branch has another
+	// source, the person may not join, the providers are dark) keeps its
+	// status; anything else is the store's.
+	var refused *pkgerrors.APIError
+	if errors.As(err, &refused) {
+		return refused
+	}
+	var denied *AccessError
+	if errors.As(err, &denied) {
+		return denied
+	}
 	return pkgerrors.Internal(action + ": " + err.Error())
 }
 

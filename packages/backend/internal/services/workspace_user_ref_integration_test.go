@@ -89,6 +89,7 @@ func TestCreateWorkspaceFromPushedRef(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 	host := &gitUserRefHost{t: t, bare: bare}
 	service := NewWorkspaceService(db.New(pool), WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(pool),
+		WithBranchMachineProviders(branchMachineTestProviders()),
 		WithWorkspaceGitBaseURL(server.URL+"/api"), WithWorkspaceUserRefs(host))
 	input := CreateWorkspaceInput{RepositoryID: repositoryID, UserID: aliceID, RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName,
 		Name: "spike", SourceRef: "spike"}
@@ -120,18 +121,24 @@ func TestCreateWorkspaceFromPushedRef(t *testing.T) {
 	require.NoError(t, service.ensureRuntimeWorkspaceRepository(ctx, row, aliceID))
 	require.Equal(t, pushed, jjParent(created.ID))
 
-	// Like a fork, a pushed-ref workspace reserves no named identity: the
-	// same request creates another workspace, and a bookmark workspace of
-	// the same name still gets its own.
+	// Since de86a86992 (#3565) a branch has one canonical machine. The same
+	// request and a bookmark request on that branch join it; a pushed ref
+	// with another commit is refused, never given a second machine.
 	again, err := service.CreateWorkspace(ctx, input)
 	require.NoError(t, err)
-	require.NotEqual(t, created.ID, again.ID)
+	require.Equal(t, created.ID, again.ID)
 	require.Equal(t, pushed, again.SourceCommit)
 	plain, err := service.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repositoryID, UserID: aliceID,
 		RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "spike"})
 	require.NoError(t, err)
-	require.Empty(t, plain.SourceCommit)
-	require.Equal(t, main, jjParent(plain.ID))
+	require.Equal(t, created.ID, plain.ID)
+	require.Equal(t, pushed, jjParent(plain.ID))
+	otherTree := strings.TrimSpace(runGitFixture(t, bare, strings.NewReader("100644 blob "+blob+"\tOTHER.md\n"), "mktree"))
+	other := strings.TrimSpace(runGitFixture(t, bare, strings.NewReader("other\n"), "commit-tree", otherTree, "-p", main))
+	runGitFixture(t, bare, nil, "update-ref", repohost.UserRef(aliceID, "other"), other)
+	_, err = service.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repositoryID, UserID: aliceID,
+		RepoOwner: slug.OwnerSlug, RepoName: slug.RepoName, Name: "other", SourceRef: "other"})
+	requireAPICode(t, err, pkgerrors.CodeConflict)
 
 	countWorkspaces := func() int {
 		var count int

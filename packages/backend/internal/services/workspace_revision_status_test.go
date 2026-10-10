@@ -111,16 +111,18 @@ func TestWorkspaceCreateMetadataValidation(t *testing.T) {
 	}
 }
 
+// Since de86a86992 (#3565) the primary machine is reserved in one PostgreSQL
+// transaction behind the activation providers, so its kind and environment
+// are read back from the reserved row.
 func TestCreatePrimaryWorkspacePersistsKindAndEnvironment(t *testing.T) {
-	var got db.CreateWorkspaceParams
-	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			got = arg
-			return sampleDBWorkspace("ws-1"), nil
-		},
-	})
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	service := newWorkspaceServiceForTests(q, WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
 	environment := WorkspaceEnvironment{Source: defaultWorkspaceEnvironmentSource, Revision: "b775d9", ClosureHash: "sha256-closure"}
-	_, err := service.createPrimaryWorkspace(context.Background(), 101, 7, "dev", "main", workspaceCreateMetadata{kind: "vm", environment: environment})
+	created, err := service.createPrimaryWorkspace(context.Background(), repo, user, "dev", "main", workspaceCreateMetadata{kind: "vm", environment: environment})
+	require.NoError(t, err)
+	got, err := q.GetWorkspace(context.Background(), created.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "vm", got.Kind)
 	assert.Equal(t, environment.Source, got.EnvironmentSource)

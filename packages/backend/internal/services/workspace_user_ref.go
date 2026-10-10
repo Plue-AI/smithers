@@ -168,12 +168,6 @@ func (s *WorkspaceService) forkScratchWorkspace(ctx context.Context, fork Scratc
 	workspace, err := s.createPinnedWorkspace(ctx, CreateWorkspaceInput{RepositoryID: fork.RepositoryID, UserID: fork.ActorID, Name: name},
 		fork.Branch, workspaceCreateMetadata{}, pinnedWorkspaceSource{id: id, commit: fork.Commit, parent: fork.Parent, item: fork.Item, base: fork.Base})
 	if err != nil {
-		// A refusal (the branch has another source, the person may not
-		// join) keeps its status; anything else is the store's.
-		var refused *pkgerrors.APIError
-		if errors.As(err, &refused) {
-			return db.Workspace{}, refused
-		}
 		return db.Workspace{}, mapWorkspaceCreateError(err, "create scratch workspace")
 	}
 	if err := fork.Publish(ctx); err != nil {
