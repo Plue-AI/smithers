@@ -64722,6 +64722,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/check-bindings.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/lane-gates.test.mjs"
       },
       {
