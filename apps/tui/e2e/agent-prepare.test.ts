@@ -62,8 +62,9 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
   expect(Session.load(failed.file).filter((record) => record.type === "outcome")).toMatchObject([
     { prompt: "Check one file", outcome: { _tag: "failed", message: "Unknown effort impossible" } }
   ])
-  await tui.press(key.ctrlBracket)
-  await tui.press(key.ctrlBracket)
+  // A worker is a chat card, not a strip tab (2b7e8ff95d): focus the failed card and open it.
+  await tui.press(key.tab)
+  await tui.press(key.enter)
   await tui.until((screen) => screen.includes("Back (ctrl+y)") && screen.includes("Resume"), 5_000, "failed worker")
   await tui.press("\x0f")
   await tui.until((screen) => screen.includes("Unknown effort impossible"), 5_000, "expanded refusal")
@@ -75,7 +76,7 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
   await tui.press(key.ctrlK)
   await tui.until((screen) => screen.includes("esc Back"), 5_000, "search open")
   await tui.type("resume check one")
-  await tui.until((screen) => /Resume\s+r\s+review: Check one file/.test(screen), 5_000, "resume row")
+  await tui.until((screen) => /Resume\s+alt\+r\s+review: Check one file/.test(screen), 5_000, "resume row")
   await tui.press(key.enter)
   await tui.until(() => tab()?.status === "done", 20_000, "repaired agent completed")
   const repaired = tab()!
