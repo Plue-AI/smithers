@@ -588,22 +588,50 @@ describe("GatewayProjection.approvals", () => {
 
   it("keeps a committed agent grant when its observed wait carries the grant token", () => {
     const requestId = "ask/run-1/digest"
-    const target = { _tag: "Node" as const, runId: "run-1", requestId, digest: "digest", envelope: { capabilities: [], flows: ["ask"], budget: {} } }
+    const target = {
+      _tag: "Node" as const,
+      runId: "run-1",
+      requestId,
+      digest: "digest",
+      envelope: { capabilities: [], flows: ["ask"], budget: {} }
+    }
     const requested = event("control.approval.requested", {
-      factVersion: 1, runId: "run-1", requestId, question: "Approve the effect?",
+      factVersion: 1,
+      runId: "run-1",
+      requestId,
+      question: "Approve the effect?",
       payload: { target, scope: "run", idempotencyKey: "approve:" + requestId }
     })
-    const summary = { ...run, status: "waiting-approval" as const, pendingWaits: [{ runId: "native", reason: "approval" as const, token: requestId, createdAt: 1 }] }
+    const summary = {
+      ...run,
+      status: "waiting-approval" as const,
+      pendingWaits: [{ runId: "native", reason: "approval" as const, token: requestId, createdAt: 1 }]
+    }
     const row = GatewayProjection.approvals([requested], summary)[0]!
     expect(row).toMatchObject({ title: "Approve the effect?", requestId, status: "pending", payload: { target } })
     expect(row.waitRunId).toBeUndefined()
-    const unversioned = event("control.approval.requested", { runId: "run-1", requestId, question: "Approve?", payload: { target, scope: "run", idempotencyKey: "approve:" + requestId } })
+    const unversioned = event("control.approval.requested", {
+      runId: "run-1",
+      requestId,
+      question: "Approve?",
+      payload: { target, scope: "run", idempotencyKey: "approve:" + requestId }
+    })
     expect(GatewayProjection.approvals([unversioned], summary)[0]?.waitRunId).toBe("native")
-    expect(GatewayProjection.approvals([requested, event("control.approval.denied", {
-      factVersion: 1, tokenId: requestId, approvalTarget: target
-    })], summary)[0]?.status).toBe("denied")
-    const unrelated = GatewayProjection.approvals([requested], { ...summary, pendingWaits: [{ ...summary.pendingWaits[0]!, token: "another-wait" }] })
-    expect(unrelated.find(row => row.requestId === "another-wait")?.waitRunId).toBe("native")
+    expect(
+      GatewayProjection.approvals([
+        requested,
+        event("control.approval.denied", {
+          factVersion: 1,
+          tokenId: requestId,
+          approvalTarget: target
+        })
+      ], summary)[0]?.status
+    ).toBe("denied")
+    const unrelated = GatewayProjection.approvals([requested], {
+      ...summary,
+      pendingWaits: [{ ...summary.pendingWaits[0]!, token: "another-wait" }]
+    })
+    expect(unrelated.find((row) => row.requestId === "another-wait")?.waitRunId).toBe("native")
   })
 
   it("still renders a wait that declared no question", () => {
