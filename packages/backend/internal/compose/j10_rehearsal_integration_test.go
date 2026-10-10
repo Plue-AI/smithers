@@ -1540,8 +1540,29 @@ func TestJ10Rehearsal(t *testing.T) {
 		if _, err := r.fakeControl("/_fake/merge", map[string]any{"repo": repo, "number": pr2}); err != nil {
 			return err
 		}
-		if _, err := r.waitTodoWithin(t2, time.Minute, "merged"); err != nil {
-			return err
+		// The person has already merged upstream. A launch-bound stop can
+		// race the next refs/PR observation; it stops coding, not GitHub sync.
+		// Wait for the fetched merge receipt without retrying the TODO.
+		for deadline := time.Now().Add(time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			card, err := r.todo(t2)
+			if err != nil {
+				return err
+			}
+			if card.State == "merged" {
+				break
+			}
+			if card.State == "failed" {
+				var tag string
+				if err := r.pool.QueryRow(r.ctx, `SELECT coalesce(checks->'fault'->>'tag','') FROM mythical_items WHERE number=$1`, t2).Scan(&tag); err != nil {
+					return err
+				}
+				if tag != "launch_bound" {
+					return fmt.Errorf("T2 failed with %q after the GitHub merge", tag)
+				}
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T2 remains %s one minute after the GitHub merge", card.State)
+			}
 		}
 		if merges := r.appMergeWrites(pr2); merges != 0 {
 			return fmt.Errorf("the App called merge %d times", merges)
