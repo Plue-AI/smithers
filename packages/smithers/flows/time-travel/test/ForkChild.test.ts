@@ -196,6 +196,22 @@ describe("fork carrying a spawned child", () => {
       expect(dispatched).toEqual(["draft", "publish", "draft", "publish"])
     })))
 
+  it.effect("forks a parent with an empty journal at frame zero and carries no child", () =>
+    provided(Effect.gen(function*() {
+      yield* execute("parent", [])
+      const { child, spawnSeq } = yield* recorded("parent")
+      const sql = yield* SqlClient.SqlClient
+      // Frame zero is addressable without a record, so a parent with no
+      // journal still forks. Its spawn edge survives in the edges table, where
+      // a fork records the children it carries, and lies past the frame.
+      yield* sql`DELETE FROM flows_journal_events WHERE run_id = ${"parent"}`
+      yield* sql`INSERT INTO flows_time_travel_edges(parent_run_id, parent_seq, child_run_id, kind, attached)
+        VALUES(${"parent"}, ${spawnSeq}, ${child}, 'child', 0)`
+      const frame = { lineageId: FlowEngine.Lineage.root("parent"), seq: 0 }
+      const fork = yield* (yield* TimeTravel.TimeTravel).fork({ runId: "parent", frame }, { rebind: carry(child) })
+      expect(yield* sql`SELECT 1 FROM flows_runs WHERE run_id = ${yield* childOf(fork.runId)}`).toEqual([])
+    })))
+
   it.effect("refuses a run the parent never spawned and an edit no carried step finished", () =>
     provided(Effect.gen(function*() {
       yield* execute("parent", [])
@@ -279,6 +295,56 @@ describe("fork carrying a spawned child, across forks and rewinds", () => {
       expect(yield* sql`SELECT 1 FROM flows_attempts WHERE run_id = ${yield* childOf(fork.runId)}`).toEqual([])
     })))
 
+  it.effect("replaces a carried child's recorded payload when its rebinding names one", () =>
+    provided(Effect.gen(function*() {
+      yield* execute("parent", [])
+      const { child, frame } = yield* recorded("parent")
+      const fork = yield* (yield* TimeTravel.TimeTravel).fork({ runId: "parent", frame }, {
+        rebind: (childRunId) =>
+          Effect.map(childOf(childRunId), (to) => ({ children: [{ from: child, to, payload: { rebound: true } }] }))
+      })
+      const sql = yield* SqlClient.SqlClient
+      const row = yield* sql<{ readonly state_json: string }>`
+        SELECT state_json FROM flows_runs WHERE run_id = ${yield* childOf(fork.runId)}`
+      expect(JSON.parse(row[0]!.state_json)).toMatchObject({
+        parentExecutionId: fork.runId,
+        payload: { rebound: true }
+      })
+    })))
+
+  it.effect("refuses a carried child whose run was collected, and writes no fork", () =>
+    provided(Effect.gen(function*() {
+      yield* execute("parent", [])
+      const { child, frame } = yield* recorded("parent")
+      const sql = yield* SqlClient.SqlClient
+      // The parent's edge outlives the child's own rows.
+      yield* sql`DELETE FROM flows_attempts WHERE run_id = ${child}`
+      yield* sql`DELETE FROM flows_run_parents WHERE child_id = ${child} OR parent_id = ${child}`
+      yield* sql`DELETE FROM flows_runs WHERE run_id = ${child}`
+      const failure = yield* Effect.flip(
+        (yield* TimeTravel.TimeTravel).fork({ runId: "parent", frame }, { rebind: carry(child) })
+      )
+      expect(failure.code).toBe("not_found")
+      expect(failure.message).toBe(`run ${child} was not found`)
+      expect(yield* sql`SELECT 1 FROM flows_runs WHERE parent_run_id = 'parent'`).toEqual([])
+    })))
+
+  it.effect("marks a carried child that journaled nothing under the child's own lineage", () =>
+    provided(Effect.gen(function*() {
+      yield* execute("parent", [])
+      const { child, frame } = yield* recorded("parent")
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`DELETE FROM flows_journal_events WHERE run_id = ${child}`
+      const fork = yield* (yield* TimeTravel.TimeTravel).fork({ runId: "parent", frame }, { rebind: carry(child) })
+      const carried = yield* childOf(fork.runId)
+      const marker = yield* sql<{ readonly seq: number; readonly meta_json: string }>`
+        SELECT seq, meta_json FROM flows_journal_events WHERE run_id = ${carried}`
+      expect(marker.map((row) => ({ seq: Number(row.seq), meta: JSON.parse(row.meta_json) }))).toEqual([
+        { seq: 1, meta: { lineageId: child } }
+      ])
+      expect(yield* sql`SELECT 1 FROM flows_attempts WHERE run_id = ${carried}`).toEqual([])
+    })))
+
   it.effect("refuses a carried child whose irreversible step crossed its boundary without finishing", () =>
     provided(Effect.gen(function*() {
       yield* execute("parent", [])
@@ -325,6 +391,26 @@ describe("the memory store carrying a spawned child", () => {
         kind: "child",
         attached: false
       })
+    }))
+
+  it.effect("cuts at the frame record however the parent's records were seeded, keeping a child wholly before it", () =>
+    Effect.gen(function*() {
+      const store = Memory.make({
+        records: [
+          // Seeded newest first: the cut is the frame record, not the last one listed.
+          { runId: "p", seq: 1, eventId: "p1", lineageId: "p", payload: null, emittedAtMs: 5 },
+          { runId: "p", seq: 0, eventId: "p0", lineageId: "p", payload: null, emittedAtMs: 1 },
+          // A record with no emission time counts as written at zero.
+          { runId: "c", seq: 0, eventId: "c0", lineageId: "c", payload: null },
+          { runId: "c", seq: 1, eventId: "c1", lineageId: "c", payload: null, emittedAtMs: 4 }
+        ],
+        edges: [{ parentRunId: "p", parentSeq: 0, childRunId: "c", kind: "child", attached: false }]
+      })
+      yield* store.createFork("p", { lineageId: "p", seq: 1 }, "f", undefined, { children: [{ from: "c", to: "c2" }] })
+      expect(store.state().records.filter((record) => record.runId === "c2").map((record) => record.eventId)).toEqual([
+        "fork:c2:c0",
+        "fork:c2:c1"
+      ])
     }))
 
   it.effect("skips a child spawned after the frame and refuses a stranger", () =>
