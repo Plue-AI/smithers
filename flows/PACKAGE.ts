@@ -277,6 +277,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-project-memory.test.ts"),
     Smithers.file("//flows/test/coding-stack-base.test.ts"),
     Smithers.file("//flows/test/coding-stack-reserved.test.ts"),
+    Smithers.file("//flows/test/source-refusal-sites.test.ts"),
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
     Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
