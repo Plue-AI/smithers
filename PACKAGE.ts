@@ -317,7 +317,15 @@ const packageSystemTools = Smithers.CiToolchain.Apt({ packages: ["bubblewrap", "
 // Foundry v1.8.1 installed cleanly on every runner when it was last declared.
 const go = Smithers.CiToolchain.Go({ release: "1.26.8" })
 const foundry = Smithers.CiToolchain.Foundry({ release: "v1.8.1" })
-const dockerImageStore = Smithers.CiToolchain.Docker({ imageStore: "containerd" })
+// Hosted runners pull anonymously from shared addresses, and Docker Hub
+// answered `429 Too Many Requests` for the pinned postgres and alpine images
+// on the Release gates lane (job 114021383970: four postgres services and the
+// container sandbox suites). Google's Docker Hub mirror serves the same
+// digests; the daemon falls back to Docker Hub for anything it cannot serve.
+const dockerImageStore = Smithers.CiToolchain.Docker({
+  imageStore: "containerd",
+  registryMirrors: ["https://mirror.gcr.io"]
+})
 // The storage matrix (`packages/smithers/flows/database/scripts/test-matrix.mjs`)
 // runs every SQL-backed package suite on SQLite and on a throwaway PostgreSQL
 // cluster it starts with `initdb`/`pg_ctl`, and refuses when they are missing.

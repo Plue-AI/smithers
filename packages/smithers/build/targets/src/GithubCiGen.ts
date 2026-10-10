@@ -936,22 +936,43 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
     // daemon.json is merged rather than replaced, because the hosted image
     // configures the daemon there and dropping that would change every other
     // docker invocation in the job.
+    const mirrors = needs.docker.registryMirrors ?? []
     steps.push({
       name: "Enable the containerd image store",
       shell: "bash",
-      run: [
-        "if command -v docker >/dev/null 2>&1 && [ \"$(uname -s)\" = Linux ] \\",
-        "  && [ \"$(docker info --format '{{.Driver}}' 2>/dev/null)\" != overlayfs ]; then",
-        "  if [ -f /etc/docker/daemon.json ]; then",
-        "    merged=\"$(jq '.features[\"containerd-snapshotter\"] = true' /etc/docker/daemon.json)\"",
-        "  else",
-        "    merged='{ \"features\": { \"containerd-snapshotter\": true } }'",
-        "  fi",
-        "  printf '%s\\n' \"$merged\" | sudo tee /etc/docker/daemon.json >/dev/null",
-        "  sudo systemctl restart docker",
-        "  docker info --format 'docker storage driver: {{.Driver}}'",
-        "fi"
-      ].join("\n")
+      run: mirrors.length === 0
+        ? [
+          "if command -v docker >/dev/null 2>&1 && [ \"$(uname -s)\" = Linux ] \\",
+          "  && [ \"$(docker info --format '{{.Driver}}' 2>/dev/null)\" != overlayfs ]; then",
+          "  if [ -f /etc/docker/daemon.json ]; then",
+          "    merged=\"$(jq '.features[\"containerd-snapshotter\"] = true' /etc/docker/daemon.json)\"",
+          "  else",
+          "    merged='{ \"features\": { \"containerd-snapshotter\": true } }'",
+          "  fi",
+          "  printf '%s\\n' \"$merged\" | sudo tee /etc/docker/daemon.json >/dev/null",
+          "  sudo systemctl restart docker",
+          "  docker info --format 'docker storage driver: {{.Driver}}'",
+          "fi"
+        ].join("\n")
+        // With mirrors the daemon is restarted whenever the merged
+        // configuration differs from the current one, whatever its storage
+        // driver: a daemon already on containerd still needs the mirrors.
+        // `CiToolchain.Docker` admits only plain https URLs, so the JSON list
+        // is safe inside single quotes.
+        : [
+          "if command -v docker >/dev/null 2>&1 && [ \"$(uname -s)\" = Linux ]; then",
+          "  current='{}'",
+          "  if [ -f /etc/docker/daemon.json ]; then current=\"$(cat /etc/docker/daemon.json)\"; fi",
+          `  merged="$(printf '%s\\n' "$current" | jq --argjson mirrors '${
+            JSON.stringify(mirrors)
+          }' '.features["containerd-snapshotter"] = true | (.["registry-mirrors"] // []) as $have | .["registry-mirrors"] = $have + ($mirrors - $have)')"`,
+          "  if [ \"$(printf '%s\\n' \"$current\" | jq -cS .)\" != \"$(printf '%s\\n' \"$merged\" | jq -cS .)\" ]; then",
+          "    printf '%s\\n' \"$merged\" | sudo tee /etc/docker/daemon.json >/dev/null",
+          "    sudo systemctl restart docker",
+          "  fi",
+          "  docker info --format 'docker storage driver: {{.Driver}}; registry mirrors: {{.RegistryConfig.Mirrors}}'",
+          "fi"
+        ].join("\n")
     })
   }
   if (needs.nix !== undefined) {

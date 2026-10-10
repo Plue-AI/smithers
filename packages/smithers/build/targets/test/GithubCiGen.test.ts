@@ -1856,6 +1856,41 @@ describe("system packages", () => {
       gates: []
     })
     expect(without).not.toContain("containerd image store")
+    // Without mirrors the step keeps its driver guard and adds none.
+    expect(rendered).toContain("!= overlayfs")
+    expect(rendered).not.toContain("registry-mirrors")
+  })
+
+  it("adds declared Docker Hub mirrors to the daemon in the same step, restarting only on a change", () => {
+    const mirror = "https://mirror.gcr.io"
+    const docker = CiToolchain.Docker({ imageStore: "containerd", registryMirrors: [mirror] })
+    expect(docker).toEqual({ imageStore: "containerd", registryMirrors: [mirror] })
+    expect(CiToolchain.Docker({ imageStore: "containerd", registryMirrors: [] })).toEqual({ imageStore: "containerd" })
+    for (const refused of ["http://mirror.gcr.io", "https://mirror.gcr.io'; rm -rf /", "mirror.gcr.io", ""]) {
+      expect(() => CiToolchain.Docker({ imageStore: "containerd", registryMirrors: [refused] })).toThrow(
+        "is not an https URL"
+      )
+    }
+    const rendered = render({
+      ...goldenAttrs,
+      jobs: [{
+        id: "test",
+        name: "test",
+        runsOn: "ubuntu-latest",
+        toolchain: CiToolchain.Needs({ runtimes: [node], docker }),
+        steps: [{ name: "Targets", verb: Verb.Test, pattern: "//packages/..." }]
+      }],
+      gates: []
+    })
+    const start = rendered.indexOf("- name: \"Enable the containerd image store\"")
+    const step = rendered.slice(start, rendered.indexOf("shell: \"bash\"", start))
+    expect(start).toBeGreaterThan(-1)
+    expect(step).toContain(`--argjson mirrors '["https://mirror.gcr.io"]'`)
+    expect(step).toContain(`.features["containerd-snapshotter"] = true`)
+    expect(step).toContain("$have + ($mirrors - $have)")
+    expect(step).toContain("sudo systemctl restart docker")
+    expect(step).not.toContain("!= overlayfs")
+    expect(step).not.toMatch(otherCondition)
   })
 
   it("puts a PostgreSQL server on PATH on every runner, under bash, as the job's last setup step", () => {

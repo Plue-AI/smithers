@@ -249,16 +249,15 @@ jobs:
           version: v1.8.1
       - name: Enable the containerd image store
         run: |
-          if command -v docker >/dev/null 2>&1 && [ "$(uname -s)" = Linux ] \
-            && [ "$(docker info --format '{{.Driver}}' 2>/dev/null)" != overlayfs ]; then
-            if [ -f /etc/docker/daemon.json ]; then
-              merged="$(jq '.features["containerd-snapshotter"] = true' /etc/docker/daemon.json)"
-            else
-              merged='{ "features": { "containerd-snapshotter": true } }'
+          if command -v docker >/dev/null 2>&1 && [ "$(uname -s)" = Linux ]; then
+            current='{}'
+            if [ -f /etc/docker/daemon.json ]; then current="$(cat /etc/docker/daemon.json)"; fi
+            merged="$(printf '%s\n' "$current" | jq --argjson mirrors '["https://mirror.gcr.io"]' '.features["containerd-snapshotter"] = true | (.["registry-mirrors"] // []) as $have | .["registry-mirrors"] = $have + ($mirrors - $have)')"
+            if [ "$(printf '%s\n' "$current" | jq -cS .)" != "$(printf '%s\n' "$merged" | jq -cS .)" ]; then
+              printf '%s\n' "$merged" | sudo tee /etc/docker/daemon.json >/dev/null
+              sudo systemctl restart docker
             fi
-            printf '%s\n' "$merged" | sudo tee /etc/docker/daemon.json >/dev/null
-            sudo systemctl restart docker
-            docker info --format 'docker storage driver: {{.Driver}}'
+            docker info --format 'docker storage driver: {{.Driver}}; registry mirrors: {{.RegistryConfig.Mirrors}}'
           fi
         shell: bash
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86

@@ -469,10 +469,19 @@ export type PostgresSetup = typeof PostgresSetup.Type
  * the only one that leaves every other docker invocation unchanged, so a job
  * that runs those rules declares it here and the generated step turns it on.
  *
+ * `registryMirrors` lists Docker Hub pull-through mirrors the same step adds
+ * to the daemon. Hosted runners pull anonymously from shared addresses, so
+ * Docker Hub answers `429 Too Many Requests` once the address's quota is
+ * spent; a mirror serves the image instead, and the daemon still falls back
+ * to Docker Hub for one the mirror cannot serve.
+ *
  * @category schemas
  * @since 0.1.0
  */
-export const DockerSetup = Schema.Struct({ imageStore: Schema.Literal("containerd") })
+export const DockerSetup = Schema.Struct({
+  imageStore: Schema.Literal("containerd"),
+  registryMirrors: Schema.optional(Schema.Array(Schema.String))
+})
 
 /**
  * One declared docker daemon configuration.
@@ -551,13 +560,33 @@ export const Postgres = (options: { readonly release: PostgresRelease }): Postgr
 
 /**
  * Declares that a job's docker daemon uses the containerd image store, so
- * buildx can export OCI archives.
+ * buildx can export OCI archives, and optionally the Docker Hub mirrors it
+ * pulls through.
  *
  * @category constructors
  * @since 0.1.0
  */
-export const Docker = (options: { readonly imageStore: "containerd" }): DockerSetup =>
-  DockerSetup.make({ imageStore: options.imageStore })
+export const Docker = (options: {
+  readonly imageStore: "containerd"
+  /**
+   * Docker Hub pull-through mirrors, as `https://` URLs, tried before Docker
+   * Hub itself. An empty list is the same as none.
+   *
+   * @since 1.0.0
+   */
+  readonly registryMirrors?: ReadonlyArray<string> | undefined
+}): DockerSetup => {
+  const mirrors = options.registryMirrors ?? []
+  for (const mirror of mirrors) {
+    if (!/^https:\/\/[A-Za-z0-9.-]+(?::[0-9]+)?(?:\/[A-Za-z0-9._~/-]*)?$/.test(mirror)) {
+      throw new Error(`CiToolchain.Docker: registry mirror ${JSON.stringify(mirror)} is not an https URL`)
+    }
+  }
+  return DockerSetup.make({
+    imageStore: options.imageStore,
+    ...(mirrors.length === 0 ? {} : { registryMirrors: [...mirrors] })
+  })
+}
 
 /**
  * Declares that a job installs the jj CLI.
