@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -61,6 +62,7 @@ type reviewMachine struct {
 	source    reviewSource
 	resolver  flowruntime.Resolver
 	existing  flowruntime.ExistingResolver
+	archive   *runArchive
 }
 
 func reviewRefusal(code string) error {
@@ -195,7 +197,11 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 	}()
 	current, err := m.workspace.InspectWorkspace(ctx, target.WorkspaceID)
 	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
-		current, err = m.workspace.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: target.WorkspaceID})
+		spec, specErr := services.CodingMachineSpec(ctx, db.New(m.pool), target.WorkspaceID, a.RepositoryID, a.Pin.SourceCommit)
+		if specErr != nil {
+			return "", specErr
+		}
+		current, err = m.workspace.CreateWorkspace(ctx, spec)
 	}
 	if err != nil {
 		return "", err
@@ -296,12 +302,38 @@ func (m *reviewMachine) Observe(ctx context.Context, run string, a services.Revi
 	if err != nil {
 		return services.ReviewObservation{}, err
 	}
-	result, err := host.Observe(ctx, ref.Run, "", 1)
+	result, err := host.Observe(ctx, ref.Run, "", archivedEventsPage)
 	if err != nil {
 		return services.ReviewObservation{}, err
 	}
 	if result.Run.RunID != ref.Run || result.Run.FlowID != "review" {
 		return services.ReviewObservation{}, reviewRefusal("review_observation_mismatch")
+	}
+	cp := flowdispatch.RuntimeCheckpoint{Target: reviewTarget(ref.Operation, a), RunID: ref.Run, FlowID: "review", Run: &result.Run}
+	if m.archive != nil {
+		if err := m.archive.keep(ctx, flowdispatch.ProjectionUpdate{Checkpoint: cp, Events: result.Events}); err != nil {
+			return services.ReviewObservation{}, err
+		}
+		cursor := result.NextCursor
+		more := result.HasMore
+		for more {
+			page, err := host.Observe(ctx, ref.Run, cursor, archivedEventsPage)
+			if err != nil {
+				return services.ReviewObservation{}, err
+			}
+			if page.HasMore && page.NextCursor == cursor {
+				return services.ReviewObservation{}, errors.New("review archive cursor did not advance")
+			}
+			if err := m.archive.keep(ctx, flowdispatch.ProjectionUpdate{Checkpoint: cp, Events: page.Events}); err != nil {
+				return services.ReviewObservation{}, err
+			}
+			cursor, more = page.NextCursor, page.HasMore
+		}
+		if result.Terminal {
+			if err := m.archive.capture(ctx, cp); err != nil {
+				return services.ReviewObservation{}, err
+			}
+		}
 	}
 	if !result.Terminal {
 		return services.ReviewObservation{State: jobs.StateRunning}, nil
@@ -310,7 +342,14 @@ func (m *reviewMachine) Observe(ctx context.Context, run string, a services.Revi
 		return services.ReviewObservation{State: jobs.StateCancelled}, nil
 	}
 	if result.Run.Status != "completed" || result.Run.FinalOutput == nil {
-		return services.ReviewObservation{State: jobs.StateFailed, Error: "review_failed"}, nil
+		cause := result.Run.FailureMessage
+		if cause == "" {
+			cause = result.Run.FailureTag
+		}
+		if cause == "" {
+			cause = "review_failed"
+		}
+		return services.ReviewObservation{State: jobs.StateFailed, Error: cause}, nil
 	}
 	change, err := reviewChange(a, *result.Run.FinalOutput)
 	if err != nil {

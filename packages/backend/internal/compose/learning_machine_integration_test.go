@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -295,6 +296,9 @@ func (r *learningRuntimeContract) InspectWorkspace(context.Context, string) (wor
 	return workspace.Workspace{ID: r.id, State: workspace.WorkspaceRunning}, nil
 }
 func (r *learningRuntimeContract) CreateWorkspace(_ context.Context, s workspace.WorkspaceSpec) (workspace.Workspace, error) {
+	if s.Source == nil || s.Source.Repository == "" || s.Source.Revision == "" {
+		return workspace.Workspace{}, errors.New("learning missing bubblewrap toolchain layer")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, learningMachineName); err != nil {

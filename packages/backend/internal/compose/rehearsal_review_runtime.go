@@ -225,3 +225,10 @@ func (r *rehearsalReviewRuntime) DeleteWorkspace(ctx context.Context, id string)
 	r.exporters.Delete(id)
 	return r.Runtime.DeleteWorkspace(ctx, id)
 }
+
+func (r *rehearsalReviewRuntime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
+	if spec.Source == nil || spec.Source.Repository == "" || spec.Source.Revision == "" {
+		return workspaceapi.Workspace{}, fmt.Errorf("review machine lacks toolchain layer providing bubblewrap")
+	}
+	return r.rehearsalAdmissionRuntime.CreateWorkspace(ctx, spec)
+}

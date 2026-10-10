@@ -118,7 +118,6 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if !ok {
 		return nil, errors.New("Flow hosts require workspace initialization authority")
 	}
-	bindings.BindWorkspaceInitialized(initialized.FlowHostWorkspaceInitialized)
 
 	agentTargets, err := services.NewAgentFlowHostTargetResolver(agents)
 	if err != nil {
@@ -321,10 +320,41 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			return nil, err
 		}
 		review.resolver, review.existing = resolved, resolved
+		reviewReads, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolved})
+		if err != nil {
+			return nil, err
+		}
+		review.archive = &runArchive{pool: pool, host: reviewReads}
 		// The composition binds the read-only pinned source once the
 		// repository source retention it needs exists (services.ReviewSource).
 		// An absent source refuses in Prepare before machine allocation.
 	}
+	// Background setup belongs to the run, never a person workspace door.
+	// Revalidate that exact authority before reading its execution adapter.
+	bindings.BindWorkspaceInitialized(func(ctx context.Context, authority flowhost.Authority) error {
+		var owner flowhost.TargetResolver
+		runtime := options.Workspace
+		switch authority.Target.BindingKind {
+		case "review":
+			if review == nil {
+				return errors.New("review initialization unavailable")
+			}
+			owner, runtime = review, reviewWorkspace
+		case "learning", "mythical-wiki", "workflow-invoke":
+			owner = targets
+		default:
+			return initialized.FlowHostWorkspaceInitialized(ctx, authority)
+		}
+		current, err := owner.ResolveFlowHostTarget(ctx, authority.Target)
+		if err != nil {
+			return err
+		}
+		if current.WorkspaceID != authority.WorkspaceID || current.RepositoryID != authority.RepositoryID || current.UserID != authority.UserID || current.SourceRevision != authority.SourceRevision {
+			return errors.New("background initialization authority changed")
+		}
+		return services.FlowHostMachineInitialized(ctx, db.New(pool), runtime, current)
+	})
+
 	return &flowComposition{pool: pool, review: review, jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper, archive: archive}, nil
 }
 

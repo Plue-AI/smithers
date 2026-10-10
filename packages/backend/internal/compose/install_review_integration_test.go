@@ -251,6 +251,9 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		require.Equal(t, status, answer.Code, answer.Body.String())
 		require.Contains(t, answer.Body.String(), `"class":"`+map[int]string{403: "permission", 503: "infra"}[status]+`"`)
 		require.Contains(t, answer.Body.String(), `"code":"`+code+`"`)
+		if code == "active_flow_unavailable" {
+			require.Contains(t, answer.Body.String(), "Review loading. Retry /review.")
+		}
 	}
 	requestReview(403, "permission") // Login alone is not membership.
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,github_id,github_login,permission) VALUES($1,$2,4242,'alice','write')`, repo.ID, member.ID)
@@ -502,6 +505,37 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		require.Contains(t, status.Body.String(), `"state":"completed"`)
 		require.Contains(t, status.Body.String(), `"path":"cache.ts"`)
 		require.NotContains(t, status.Body.String(), "SessionHash")
+		// A failure survives VM retirement and is readable through the install door and Home.
+		machine.mu.Lock()
+		machine.failure = "smithers-review/ChangeSetUnreadable: bwrap is not on PATH"
+		machine.mu.Unlock()
+		failedAdmission := call(body, "failed-review-cause")
+		require.Equal(t, 202, failedAdmission.Code, failedAdmission.Body.String())
+		var failed services.ReviewAdmission
+		require.NoError(t, json.Unmarshal(failedAdmission.Body.Bytes(), &failed))
+		failedCtx, failedCancel := context.WithCancel(ctx)
+		failedDone := make(chan error, 1)
+		go func() {
+			failedDone <- background.RunWorker(failedCtx, jobs.WorkerConfig{WorkerID: "review-failure", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+		}()
+		require.Eventually(t, func() bool {
+			op, err := store.Get(ctx, scope, failed.OperationID)
+			return err == nil && op.State == jobs.StateFailed
+		}, 5*time.Second, 10*time.Millisecond)
+		failedCancel()
+		require.NoError(t, <-failedDone)
+		failureStatus := readReview(failed.OperationID, "review-cookie")
+		require.Equal(t, 200, failureStatus.Code)
+		require.Contains(t, failureStatus.Body.String(), "bwrap is not on PATH")
+		runs, err := service.BackgroundRuns(ctx, repo.ID)
+		require.NoError(t, err)
+		retained, err := json.Marshal(runs)
+		require.NoError(t, err)
+		require.Contains(t, string(retained), "bwrap is not on PATH")
+		machine.mu.Lock()
+		machine.failure = ""
+		machine.mu.Unlock()
+
 		require.Equal(t, 404, readReview("00000000-0000-4000-8000-000000000001", "review-cookie").Code)
 		_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id) VALUES(361201,$1,'workos','4242')`, member.ID)
 		require.NoError(t, err)
@@ -544,7 +578,7 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		pending := requestConfirm("delegated-review")
 		require.Equal(t, pending, requestConfirm("delegated-review"))
 		var jobCount int
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id NOT IN ('adapter-review','failed-review-cause')`).Scan(&jobCount))
 		require.Equal(t, 1, jobCount)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "agent-review-press", "", true).Code)
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "other-review-press", "alice-review-cookie", false).Code)
@@ -552,7 +586,7 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 			approved := confirmCall("/api/confirmations/"+pending.ID+"/approve", "person-review-press", "review-cookie", false)
 			require.Equal(t, 200, approved.Code, approved.Body.String())
 		}
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id NOT IN ('adapter-review','failed-review-cause')`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		var confirmedID string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'effect'->>'review' FROM approvals WHERE id=$1`, pending.ID).Scan(&confirmedID))
@@ -567,7 +601,7 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		require.NoError(t, err)
 		appPending := requestConfirm("app-agent-review")
 		require.Equal(t, 403, confirmCall("/api/confirmations/"+appPending.ID+"/approve", "app-agent-review-press", "", true).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id NOT IN ('adapter-review','failed-review-cause')`).Scan(&jobCount))
 		require.Equal(t, 2, jobCount)
 		appApproved := confirmCall("/api/confirmations/"+appPending.ID+"/approve", "person-app-review-press", "review-cookie", false)
 		require.Equal(t, 200, appApproved.Code, appApproved.Body.String())
@@ -576,15 +610,15 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		stale := requestConfirm("stale-review-confirm")
 		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("8", 40) })
 		require.Equal(t, 409, confirmCall("/api/confirmations/"+stale.ID+"/approve", "stale-review-press", "review-cookie", false).Code)
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id NOT IN ('adapter-review','failed-review-cause')`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		cancelled := requestConfirm("cancel-review-confirm")
 		denied := confirmCall("/api/confirmations/"+cancelled.ID+"/deny", "person-cancel-review", "review-cookie", false)
 		require.Equal(t, 200, denied.Code, denied.Body.String())
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id <> 'adapter-review'`).Scan(&jobCount))
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review' AND request_id NOT IN ('adapter-review','failed-review-cause')`).Scan(&jobCount))
 		require.Equal(t, 3, jobCount)
 		machine.mu.Lock()
-		require.Len(t, machine.runs, 1)
+		require.Len(t, machine.runs, 2, "one successful review and one retained failure; Confirm allocated none")
 		machine.mu.Unlock()
 		// Membership revocation also prevents reconnection to a private result.
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
@@ -603,7 +637,7 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 		cancel()
 		require.NoError(t, <-done)
 		machine.mu.Lock()
-		require.Len(t, machine.runs, 1)
+		require.Len(t, machine.runs, 2, "revoked confirmations launch no additional review")
 		machine.mu.Unlock()
 		// A lost launch reply must not leak the allocated machine if membership
 		// is revoked before the next recovery pass can learn its run ID.
@@ -751,6 +785,7 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 // Test-only machine and delivery contracts. This is boundary/recovery evidence,
 // not C-J10-09 reference-host microVM qualification.
 type reviewMachineFixture struct {
+	failure                    string
 	observed                   int
 	observeHook                func() error
 	mu                         sync.Mutex
@@ -822,6 +857,9 @@ func (m *reviewMachineFixture) Observe(context.Context, string, services.ReviewA
 		return services.ReviewObservation{State: jobs.StateRunning}, nil
 	}
 
+	if m.failure != "" {
+		return services.ReviewObservation{State: jobs.StateFailed, Error: m.failure}, nil
+	}
 	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`)}, nil
 }
 func (m *reviewMachineFixture) Retire(_ context.Context, id string, _ services.ReviewAdmission) error {

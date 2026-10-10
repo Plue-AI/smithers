@@ -60,6 +60,8 @@ describe("GatewayProjection.runSummary", () => {
     const row = GatewayProjection.runSummary({ ...run, status: "failed" }, [failure])
     expect(row.finalOutput).toBe(JSON.stringify({ message: "source_refused: workspace_owner_mismatch" }))
     expect(row.failureTag).toBe("coding/Error/source_refused")
+    expect(row.failureMessage).toBe("coding/Error: source_refused: workspace_owner_mismatch private-fixture-token")
+    expect(GatewayProjection.runSummary(run, [failure]).failureMessage).toBeUndefined()
     expect(GatewayProjection.runSummary(run, [failure]).finalOutput).toBeUndefined()
   })
 

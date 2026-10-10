@@ -64,7 +64,11 @@ func (s *WorkspaceService) PrepareMainMachine(ctx context.Context, id string, re
 	}()
 	current, err := s.runtime.InspectWorkspace(ctx, id)
 	if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) {
-		current, err = s.runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+		spec, specErr := CodingMachineSpec(ctx, q, id, repository, revision)
+		if specErr != nil {
+			return specErr
+		}
+		current, err = s.runtime.CreateWorkspace(ctx, spec)
 	}
 	if err != nil {
 		return err

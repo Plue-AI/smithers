@@ -413,6 +413,8 @@ esac
 		}
 	}
 	require.Equal(t, 1, runtime.creates)
+	require.Equal(t, admission.Pin.SourceCommit, runtime.spec.Source.Revision)
+	require.Equal(t, "review-owner/app", runtime.spec.Source.Repository)
 	require.Equal(t, 4, runtime.launches, "lost launch and approval replies replay the same pinned plan before one run")
 	require.Equal(t, 2, runtime.approvals)
 	require.True(t, runtime.approved)
@@ -596,6 +598,7 @@ func (h *reviewHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 const reviewMachineName = "smthrs-ws-2eb1e3a1-0123456789abcdef0123"
 
 type reviewRuntimeContract struct {
+	spec               workspace.WorkspaceSpec
 	heldOnFailedDelete int
 	queue              *microsandbox.Runtime
 	workspace.WorkspaceLifecycle
@@ -626,6 +629,10 @@ func (r *reviewRuntimeContract) CreateWorkspace(_ context.Context, s workspace.W
 	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, reviewMachineName); err != nil {
 		return workspace.Workspace{}, err
 	}
+	if s.Source == nil || s.Source.Repository == "" || s.Source.Revision == "" {
+		return workspace.Workspace{}, errors.New("review missing bubblewrap toolchain layer")
+	}
+	r.spec = s
 	r.creates++
 	r.id = s.ID
 	r.exists = true

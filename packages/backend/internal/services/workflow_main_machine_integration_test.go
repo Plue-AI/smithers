@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,13 @@ func (mainMachineRuntime) WorkspaceMachineIdentity(_ context.Context, id string)
 }
 func (mainMachineRuntime) GuestIdentity() (string, int)                            { return "agent", 19999 }
 func (mainMachineRuntime) ProtectedManagedHostReady(context.Context, string) error { return nil }
+
+func (r mainMachineRuntime) CreateWorkspace(ctx context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
+	if spec.Source == nil || spec.Source.Repository == "" || spec.Source.Revision == "" {
+		return workspaceapi.Workspace{}, fmt.Errorf("main machine lacks bubblewrap toolchain layer")
+	}
+	return r.Runtime.CreateWorkspace(ctx, spec)
+}
 
 // The manual main machine sets itself up in PrepareMainMachine, so it ends
 // with the receipt a Flow host start waits for, as branch setup does. The bare
@@ -86,11 +94,19 @@ func TestPrepareMainMachineWritesInitializationReceipt(t *testing.T) {
 	require.True(t, completedWorkspaceReceipt(receipt, workspaceID, repo.ID), string(receipt))
 	require.Contains(t, string(receipt), `"source_revision":"`+revision+`"`)
 	require.NoError(t, gate(), "the Flow host gate accepts what PrepareMainMachine wrote")
+	require.NoError(t, FlowHostMachineInitialized(ctx, q, runtime, authority))
+	wrong := authority
+	wrong.UserID++
+	require.ErrorContains(t, FlowHostMachineInitialized(ctx, q, runtime, wrong), "authority mismatch")
+	wrong = authority
+	wrong.RepositoryID++
+	require.ErrorContains(t, FlowHostMachineInitialized(ctx, q, runtime, wrong), "authority mismatch")
 
 	// A machine already at the revision skips the fetch; it still ends with
 	// the receipt, so a machine prepared before this receipt existed recovers.
 	require.NoError(t, runtime.RemoveFile(ctx, workspaceID, workspaceRepositoryReceiptPath))
 	require.Error(t, gate())
+	require.Error(t, FlowHostMachineInitialized(ctx, q, runtime, authority))
 	require.NoError(t, service.PrepareMainMachine(ctx, workspaceID, repo.ID, owner.ID, revision))
 	require.NoError(t, gate())
 }

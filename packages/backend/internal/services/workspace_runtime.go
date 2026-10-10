@@ -279,9 +279,9 @@ func (s *WorkspaceService) runtimeWorkspaceSpec(ctx context.Context, row db.Work
 	}
 	slug, err := s.workspaceRepoSlug(ctx, row.RepositoryID)
 	if err != nil {
-		return spec, nil
+		return spec, err
 	}
-	spec.Source = &workspaceapi.WorkspaceSource{Repository: slug, Revision: targetWorkspaceBookmark(row.TargetBookmark)}
+	spec.Source = workspaceapi.CodingMachineSpec(row.ID, slug, targetWorkspaceBookmark(row.TargetBookmark)).Source
 	return spec, nil
 }
 

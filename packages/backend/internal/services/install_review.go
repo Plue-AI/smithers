@@ -236,7 +236,11 @@ func activeReviewPin(ctx context.Context, q *db.Queries, repositoryID int64) (fl
 }
 
 func reviewUnavailable(code string) error {
-	return &TodoControlError{Status: http.StatusServiceUnavailable, Class: "infra", Code: code, Message: "Review unavailable"}
+	message := "Review unavailable"
+	if code == "active_flow_unavailable" {
+		message = "Review loading. Retry /review."
+	}
+	return &TodoControlError{Status: http.StatusServiceUnavailable, Class: "infra", Code: code, Message: message}
 }
 func reviewNonMember() error {
 	return &TodoControlError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "PR author is not a member"}

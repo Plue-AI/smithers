@@ -199,6 +199,10 @@ func TestTodoAndReviewHostsDifferOnlyInLandingAuthorityPostgres(t *testing.T) {
 		return spec
 	}
 	todo := start(flowdispatch.StackBindingKind, "todo")
+	// A review compares a PR checkout with a different pinned flow commit.
+	// A run-owned workspace must not inherit the manual-main head check.
+	launcher.Launcher.(*boxHostLauncher).targets = pinnedBackgroundHostEnvironment{}
+	transport.sourceErr = errors.New("PR comparison head differs from the flow pin")
 	review := start("review", "review")
 
 	only := func(a, b map[string]string) (names []string) {
@@ -223,4 +227,13 @@ func TestTodoAndReviewHostsDifferOnlyInLandingAuthorityPostgres(t *testing.T) {
 	require.Equal(t, "vercel:openai/gpt-5.1", review.Environment["SMITHERS_CODING_IMPLEMENT_MODEL"])
 	require.JSONEq(t, `{"version":1}`, review.Environment["SMITHERS_CODING_PROJECT_JSON"])
 	require.Equal(t, []string{host + "@" + box}, boxes.prepared, "only the TODO start prepares the box")
+}
+
+type pinnedBackgroundHostEnvironment struct{}
+
+func (pinnedBackgroundHostEnvironment) FlowHostEnvironment(context.Context, flowhost.Authority) (map[string]string, error) {
+	return nil, nil
+}
+func (pinnedBackgroundHostEnvironment) IsBackgroundFlowHost(context.Context, string) (bool, error) {
+	return true, nil
 }

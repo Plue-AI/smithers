@@ -1495,3 +1495,19 @@ esac
 		})
 	}
 }
+
+// Coding machine specs must select the repository layers whose system
+// toolchain supplies ProcessConfinement. Process-mode journey hosts otherwise
+// hide a missing guest dependency by borrowing the lane host's bubblewrap.
+func TestCodingMachineToolchainProvidesConfinement(t *testing.T) {
+	for _, kind := range []string{"todo", "learning", "review", "wiki"} {
+		t.Run(kind, func(t *testing.T) {
+			spec := workspaceapi.CodingMachineSpec(kind, "owner/app", "0123456789012345678901234567890123456789")
+			require.NotNil(t, spec.Source, "bare base image has no confined-process toolchain")
+			require.Equal(t, "owner/app", spec.Source.Repository)
+			require.Equal(t, "0123456789012345678901234567890123456789", spec.Source.Revision)
+			require.Nil(t, spec.Environment, "all coding hosts select the repository recipe")
+			require.Contains(t, toolchainSystemPackages, "--no-install-recommends bubblewrap ")
+		})
+	}
+}

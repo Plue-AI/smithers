@@ -144,7 +144,11 @@ func (m *learningMachine) EnsureLearningMachine(ctx context.Context, repository,
 	}()
 	current, err := m.workspace.InspectWorkspace(ctx, target.WorkspaceID)
 	if errors.Is(err, workspace.ErrWorkspaceNotFound) {
-		current, err = m.workspace.CreateWorkspace(ctx, workspace.WorkspaceSpec{ID: target.WorkspaceID})
+		spec, specErr := services.CodingMachineSpec(ctx, db.New(m.pool), target.WorkspaceID, repository, pin.SourceCommit)
+		if specErr != nil {
+			return flowruntime.Target{}, specErr
+		}
+		current, err = m.workspace.CreateWorkspace(ctx, spec)
 	}
 	if err != nil {
 		return flowruntime.Target{}, err

@@ -351,7 +351,7 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 		if err != nil {
 			return flowhost.Connection{}, err
 		}
-		if ephemeral {
+		if ephemeral && !flowhost.PinnedSourceKind(launch.Authority.Target.BindingKind) {
 			revision, err := l.SourceResolver.ResolveFlowHostSource(ctx, launch.Authority)
 			if err != nil || revision != launch.Authority.SourceRevision {
 				return flowhost.Connection{}, errors.New("manual main source changed before launch")

@@ -510,7 +510,7 @@ export const observe = (control: Control["Service"], input: ObserveRequest, rece
     // A terminal status alone never supplies a result, and a bounded event
     // page cannot reconstruct a root result that precedes its cursor.
     let finalOutput: string | undefined
-    let failure: { readonly failureFault?: Fault.Class; readonly failureTag?: string } = {}
+    let failure: { readonly failureFault?: Fault.Class; readonly failureTag?: string; readonly failureMessage?: string } = {}
     if (terminal.has(summary.status)) {
       const projections = yield* Projections.make(control)
       const snapshot = yield* projections.snapshot({ _tag: "run-summary", runId: input.runId })
@@ -526,7 +526,8 @@ export const observe = (control: Control["Service"], input: ObserveRequest, rece
       finalOutput = row.finalOutput
       failure = {
         ...(row.failureFault === undefined ? {} : { failureFault: row.failureFault }),
-        ...(row.failureTag === undefined ? {} : { failureTag: row.failureTag })
+        ...(row.failureTag === undefined ? {} : { failureTag: row.failureTag }),
+        ...(row.failureMessage === undefined ? {} : { failureMessage: row.failureMessage })
       }
     }
     // Keep the private receipt out of every repository-controlled projection.
@@ -688,6 +689,7 @@ export const ObserveResponse = Schema.Struct({
       finalOutput: Schema.optional(Schema.String),
       failureFault: Schema.optional(Fault.Class),
       failureTag: Schema.optional(Schema.String),
+      failureMessage: Schema.optional(Schema.String),
       commandReceipt: Schema.optionalKey(CommandReceipt)
     }),
     events: Schema.Array(ControlEvent),

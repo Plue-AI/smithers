@@ -32,7 +32,9 @@ export const createReviewSeam = (ctx: SeamContext, pollMs = 1000) => {
             body: JSON.stringify({ number: row.number, repo: row.repo, conversation: row.conversation }) })
           if (!stillCurrent(row)) return TOAST_SUPERSEDED
           if (!response.ok) {
-            const message = await readErrorMessage(response, "Review unavailable")
+            const refusal: unknown = await response.clone().json().catch(() => undefined)
+            const loading = typeof refusal === "object" && refusal !== null && "error" in refusal && typeof refusal.error === "object" && refusal.error !== null && "code" in refusal.error && refusal.error.code === "active_flow_unavailable"
+            const message = loading ? "Review loading. Retry /review." : await readErrorMessage(response, "Review unavailable")
             await save({ ...row, state: "failed", terminal: response.status < 500 }); return message
           }
           const receipt: unknown = await response.json()
@@ -58,7 +60,7 @@ export const createReviewSeam = (ctx: SeamContext, pollMs = 1000) => {
             await save({ ...row, state: "completed", terminal: true }); return
           }
           if (["failed", "cancelled", "uncertain"].includes(String(result.state))) {
-            await save({ ...row, state: "failed", terminal: true }); return "Review failed"
+            await save({ ...row, state: "failed", terminal: true }); return "error" in result && typeof result.error === "string" && result.error ? result.error : "Review failed"
           }
           if (!["accepted", "dispatching", "running", "waiting"].includes(String(result.state))) throw Error("Review state is invalid")
           await new Promise<void>(resolve => setTimeout(resolve, pollMs))

@@ -74,6 +74,7 @@ export const RunSummaryRow = Schema.Struct({
   finalOutput: Schema.optional(Schema.String),
   /** The failed run's fault class and `<_tag>/<code>`, stamped when it failed. */
   failureFault: Schema.optional(Fault.Class),
+  failureMessage: Schema.optional(Schema.String),
   failureTag: Schema.optional(Schema.String)
 })
 
@@ -334,7 +335,8 @@ export const runSummary = (
       )
     ),
     ...(run.status === "failed" ? optional("failureFault", facts.fault?.class) : {}),
-    ...(run.status === "failed" ? optional("failureTag", facts.fault?.tag) : {})
+    ...(run.status === "failed" ? optional("failureTag", facts.fault?.tag) : {}),
+    ...(run.status === "failed" ? optional("failureMessage", facts.cause) : {})
   }
 }
 

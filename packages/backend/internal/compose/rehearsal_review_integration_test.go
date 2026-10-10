@@ -32,7 +32,9 @@ func TestJ10MemberReviewRehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J10_REHEARSAL", "C-J10", "j10-review-")
 
 	runtime := r.options.ReviewWorkspace.(*rehearsalReviewRuntime)
-	machine, err := runtime.CreateWorkspace(r.ctx, workspaceapi.WorkspaceSpec{ID: "review-confinement"})
+	_, err := runtime.CreateWorkspace(r.ctx, workspaceapi.WorkspaceSpec{ID: "missing-toolchain"})
+	require.ErrorContains(t, err, "bubblewrap")
+	machine, err := runtime.CreateWorkspace(r.ctx, workspaceapi.CodingMachineSpec("review-confinement", "rehearsal-owner/app", "main"))
 	require.NoError(t, err)
 	_, err = runtime.StartWorkspace(r.ctx, machine.ID)
 	require.NoError(t, err)

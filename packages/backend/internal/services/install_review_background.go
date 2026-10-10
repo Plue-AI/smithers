@@ -298,7 +298,7 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 
 // homeRuns projects the durable review requests onto the existing Home card.
 func (b *ReviewBackground) homeRuns(ctx context.Context, repository int64) ([]map[string]any, error) {
-	rows, err := b.service.store.Query(ctx, `SELECT id::text,state,payload FROM product_job_requests WHERE tenant_id=$1 AND operation=$2 AND state NOT IN ('completed','cancelled') ORDER BY created_at,id`, fmt.Sprintf("repository:%d", repository), reviewOperation)
+	rows, err := b.service.store.Query(ctx, `SELECT id::text,state,payload,terminal_receipt FROM product_job_requests WHERE tenant_id=$1 AND operation=$2 AND state NOT IN ('completed','cancelled') ORDER BY created_at,id`, fmt.Sprintf("repository:%d", repository), reviewOperation)
 	if err != nil {
 		return nil, err
 	}
@@ -306,8 +306,8 @@ func (b *ReviewBackground) homeRuns(ctx context.Context, repository int64) ([]ma
 	result := []map[string]any{}
 	for rows.Next() {
 		var id, state string
-		var payload []byte
-		if err := rows.Scan(&id, &state, &payload); err != nil {
+		var payload, terminal []byte
+		if err := rows.Scan(&id, &state, &payload, &terminal); err != nil {
 			return nil, err
 		}
 		var job reviewJob
@@ -327,6 +327,12 @@ func (b *ReviewBackground) homeRuns(ctx context.Context, repository int64) ([]ma
 			return nil, fmt.Errorf("invalid review state %q", state)
 		}
 		run := map[string]any{"id": id, "title": fmt.Sprintf("Review · #%d", job.Admission.Number), "state": state, "actions": []any{}}
+		if state == "failed" {
+			var failure ReviewObservation
+			if json.Unmarshal(terminal, &failure) == nil && failure.Error != "" {
+				run["detail"] = failure.Error
+			}
+		}
 		if queue, ok := b.machine.(interface{ QueuePosition(string) int }); ok {
 			if position := queue.QueuePosition(id); position > 0 {
 				run["state"] = "waiting"

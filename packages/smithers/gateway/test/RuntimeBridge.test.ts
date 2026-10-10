@@ -604,7 +604,7 @@ describe("RuntimeBridge", () => {
           })
       })
       const result = yield* RuntimeBridge.observe(control, { protocol: RuntimeBridge.protocol, runId: "run-1" })
-      expect(result.run).toMatchObject({ failureFault: "wait", failureTag: "flows/model/ModelError/quota_exceeded" })
+      expect(result.run).toMatchObject({ failureFault: "wait", failureTag: "flows/model/ModelError/quota_exceeded", failureMessage: "quota_exceeded: limit" })
       expect(
         Schema.decodeUnknownSync(RuntimeBridge.ObserveResponse)({
           protocol: RuntimeBridge.protocol,
@@ -616,6 +616,7 @@ describe("RuntimeBridge", () => {
       const completed = yield* RuntimeBridge.observe(service(), { protocol: RuntimeBridge.protocol, runId: "run-1" })
       expect(completed.run).not.toHaveProperty("failureFault")
       expect(completed.run).not.toHaveProperty("failureTag")
+      expect(completed.run).not.toHaveProperty("failureMessage")
     }))
 
   it.effect("reads only installed host command receipts and refuses a foreign run", () =>

@@ -522,3 +522,23 @@ func (s *WorkspaceService) ReleaseFailedFlowHostMachine(ctx context.Context, bin
 	}
 	return err
 }
+
+// FlowHostMachineInitialized checks setup under an already revalidated run
+// authority. It does not open a person's workspace door or issue credentials.
+func FlowHostMachineInitialized(ctx context.Context, q *db.Queries, runtime workspaceapi.WorkspaceRuntime, authority flowhost.Authority) error {
+	row, err := q.GetWorkspace(ctx, authority.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	// Wiki's service-owned workspace is shared by repository runs; the
+	// composition revalidates the wiki run's actor rather than treating it as
+	// a person's box. Review, learning and manual main retain their owner.
+	if row.RepositoryID != authority.RepositoryID || (row.UserID != authority.UserID && authority.Target.BindingKind != "mythical-wiki") || row.DeletedAt.Valid {
+		return fmt.Errorf("background initialization authority mismatch")
+	}
+	data, err := runtime.ReadFile(ctx, row.ID, workspaceRepositoryReceiptPath)
+	if err != nil || !completedWorkspaceReceipt(data, row.ID, row.RepositoryID) {
+		return workspaceInitializing{}
+	}
+	return nil
+}

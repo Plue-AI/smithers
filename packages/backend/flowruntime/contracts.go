@@ -212,8 +212,9 @@ type Run struct {
 	// registry's classes (user, wait, infra, dependency, bug, factory,
 	// policy), and FailureTag its typed error as <_tag>/<code>. Both are
 	// empty unless the run failed with a registered error.
-	FailureFault string `json:"failureFault,omitempty"`
-	FailureTag   string `json:"failureTag,omitempty"`
+	FailureFault   string `json:"failureFault,omitempty"`
+	FailureTag     string `json:"failureTag,omitempty"`
+	FailureMessage string `json:"failureMessage,omitempty"`
 	// PendingWaits are the open human waits anywhere in the run's tree,
 	// nearest execution first; absent when nobody owes the run an answer.
 	PendingWaits []PendingWait `json:"pendingWaits,omitempty"`
