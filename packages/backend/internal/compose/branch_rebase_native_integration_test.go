@@ -169,6 +169,30 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	git("-C", source, "add", ".")
 	git("-C", source, "commit", "-m", "Main moved")
 	onto := git("-C", source, "rev-parse", "HEAD")
+	// Bring in rebases the machine's work onto a collaborator's push. That
+	// work already stands on the stack prefix, the fenced candidate base
+	// 4cb1ba368d passes to the daemon, so build it on the moved main. The
+	// stack published the first change as its own candidate commit, the
+	// machine holds a later change, and the collaborator pushed on top of the
+	// published candidate, outside the machine's own chain.
+	foreign := onto
+	if bring {
+		boundHead = commit("first\n")
+		require.NoError(t, os.WriteFile(filepath.Join(source, "second.txt"), []byte("later item bytes\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "Another authoring change on the same TODO")
+		edited = git("-C", source, "rev-parse", "HEAD")
+		git("-C", source, "reset", "--hard", onto)
+		require.NoError(t, os.WriteFile(filepath.Join(source, "a.txt"), []byte("first\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "Published candidate")
+		require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("collaborator bytes\n"), 0600))
+		git("-C", source, "add", ".")
+		git("-C", source, "commit", "-m", "A collaborator pushes to the TODO branch")
+		foreign = git("-C", source, "rev-parse", "HEAD")
+		git("-C", source, "reset", "--hard", onto)
+		git("-C", store, "fetch", source, foreign)
+	}
 	git("-C", store, "fetch", source, "main:refs/heads/main")
 	git("-C", store, "fetch", source, edited)
 	require.NoError(t, native.ImportGitRefs(repoPath))
@@ -354,7 +378,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		require.Equal(t, "first\n", string(file.Content))
 	})
 	if bring {
-		checks, _ = json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "machineItemChanges": map[string]string{f.row.ID: strings.TrimSpace(string(changeID))}, "foreignHead": onto, "waits": []map[string]any{{"id": "00000000-0000-4000-8000-000000000001", "kind": "foreign_push", "sha": onto, "since": time.Now().UTC()}}})
+		checks, _ = json.Marshal(map[string]any{"todo": true, "branch": "smithers/test", "run_launched": true, "run_attached": true, "flowSource": base, "machineItemChanges": map[string]string{f.row.ID: strings.TrimSpace(string(changeID))}, "foreignHead": foreign, "waits": []map[string]any{{"id": "00000000-0000-4000-8000-000000000001", "kind": "foreign_push", "sha": foreign, "since": time.Now().UTC()}}})
 		_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',reason='',candidate_base=$2,checks=$3 WHERE id=$1`, item.ID, onto, checks)
 		require.NoError(t, err)
 	}
@@ -462,7 +486,7 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	body := `{"rebase":true}`
 	if bring {
 		branchPath = "smithers%2Ftest"
-		body = fmt.Sprintf(`{"op":"bring-in","id":"00000000-0000-4000-8000-000000000001","revision":"%s"}`, onto)
+		body = fmt.Sprintf(`{"op":"bring-in","id":"00000000-0000-4000-8000-000000000001","revision":"%s"}`, foreign)
 	}
 	if people {
 		for range 2 {
@@ -830,7 +854,12 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	}
 	require.Len(t, launcher.requests, launches)
 	require.Equal(t, "coding/verify", launcher.requests[launches-1].FlowID)
-	require.Equal(t, onto, git("--git-dir", store, "rev-parse", current.CandidateHead+"^"))
+	if bring {
+		require.Equal(t, foreign, git("--git-dir", store, "rev-parse", current.CandidateHead+"^"))
+		require.Equal(t, "collaborator bytes", git("--git-dir", store, "show", current.CandidateHead+":outside.txt"))
+	} else {
+		require.Equal(t, onto, git("--git-dir", store, "rev-parse", current.CandidateHead+"^"))
+	}
 	if conflict {
 		require.Equal(t, "first and main changed", git("--git-dir", store, "show", current.CandidateHead+":a.txt"))
 	} else {
