@@ -560,13 +560,8 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	}
 
 	// Errors are fixed text: an upstream message or expiry never reaches a
-	// caller or a log.
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return GitHubInstallationToken{}, pkgerrors.Forbidden("github refused the installation token request")
-	}
-	if resp.StatusCode == http.StatusNotFound {
-		return GitHubInstallationToken{}, pkgerrors.NotFound("github installation is not installed")
-	}
+	// caller or a log. GitHubResponseFailure above answered every failure
+	// status; only a 304 reaches this check.
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token request was rejected")
 	}
